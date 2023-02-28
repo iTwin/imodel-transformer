@@ -3,8 +3,7 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 import { BentleyStatus } from "@itwin/core-bentley";
-import { IModelHost } from "../IModelHost";
-import { IModelJsFs } from "../IModelJsFs";
+import { IModelHost, IModelJsFs } from "@itwin/core-backend";
 
 export interface LzmaParams {
   dictSize?: number;

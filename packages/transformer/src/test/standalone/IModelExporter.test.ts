@@ -6,7 +6,7 @@
 import { assert, expect } from "chai";
 import * as path from "path";
 import { Element, GeometryPart, IModelJsFs, SnapshotDb } from "@itwin/core-backend";
-import { createBRepDataProps } from "@itwin/core-backend/lib/cjs/test/GeometryTestUtil";
+import { createBRepDataProps } from "../TestUtils";
 import { Id64 } from "@itwin/core-bentley";
 import { Code, GeometryStreamBuilder, IModel } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";

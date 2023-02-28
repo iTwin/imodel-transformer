@@ -17,24 +17,21 @@ import {
   RpcPendingResponse, SkyBoxImageType, SubCategoryAppearance, SubCategoryOverride, SyncMode,
 } from "@itwin/core-common";
 import { Box, Cone, LineString3d, Point2d, Point3d, Range2d, Range3d, StandardViewIndex, Vector3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { RequestNewBriefcaseArg } from "../BriefcaseManager";
-import { CheckpointProps, V1CheckpointManager } from "../CheckpointManager";
-import { ClassRegistry } from "../ClassRegistry";
 import {
+  CheckpointProps, ClassRegistry, RequestNewBriefcaseArg, V1CheckpointManager,
   AuxCoordSystem2d, BriefcaseDb, BriefcaseManager, CategorySelector, DisplayStyle2d, DisplayStyle3d, DrawingCategory, DrawingViewDefinition,
   ECSqlStatement, Element, ElementAspect, ElementOwnsChildElements, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementUniqueAspect,
   ExternalSource, ExternalSourceIsInRepository, FunctionalModel, FunctionalSchema, GroupModel, IModelDb, IModelHost, IModelJsFs,
   InformationPartitionElement, Model, ModelSelector, OrthographicViewDefinition, PhysicalModel, PhysicalObject, PhysicalPartition,
   RenderMaterialElement, SnapshotDb, SpatialCategory, SubCategory, SubjectOwnsPartitionElements, Texture, ViewDefinition,
-} from "../core-backend";
-import { DefinitionPartition, Drawing, DrawingGraphic, GeometryPart, LinkElement, PhysicalElement, RepositoryLink, Subject } from "../Element";
-import { DefinitionModel, DocumentListModel, DrawingModel, InformationRecordModel, SpatialLocationModel } from "../Model";
-import { DrawingGraphicRepresentsElement, ElementDrivesElement, Relationship, RelationshipProps } from "../Relationship";
-import { DownloadAndOpenArgs, RpcBriefcaseUtility } from "../rpc-impl/RpcBriefcaseUtility";
-import { Schema, Schemas } from "../Schema";
-import { HubMock } from "../HubMock";
-import { KnownTestLocations } from "./KnownTestLocations";
-import { BackendHubAccess } from "../BackendHubAccess";
+  DefinitionPartition, Drawing, DrawingGraphic, GeometryPart, LinkElement, PhysicalElement, RepositoryLink, Subject,
+  DefinitionModel, DocumentListModel, DrawingModel, InformationRecordModel, SpatialLocationModel,
+  DrawingGraphicRepresentsElement, ElementDrivesElement, Relationship, RelationshipProps,
+  Schema, Schemas,
+  HubMock, BackendHubAccess,
+} from "@itwin/core-backend";
+import { DownloadAndOpenArgs, RpcBriefcaseUtility } from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility";
+import { KnownTestLocations } from "../TestUtils";
 
 chai.use(chaiAsPromised);
 

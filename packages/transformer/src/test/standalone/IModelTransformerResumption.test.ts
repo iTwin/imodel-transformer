@@ -4,7 +4,7 @@
 *--------------------------------------------------------------------------------------------*/
 
 import { BriefcaseDb, Element, HubMock, IModelDb, IModelHost, IModelJsNative, Relationship, SnapshotDb, SQLiteDb } from "@itwin/core-backend";
-import * as BackendTestUtils from "@itwin/core-backend/lib/cjs/test";
+import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, GuidString, Id64, Id64String, StopWatch } from "@itwin/core-bentley";
 import { ChangesetId, ElementProps } from "@itwin/core-common";
 import { assert, expect } from "chai";
@@ -246,13 +246,13 @@ describe("test resuming transformations", () => {
   before(async () => {
     HubMock.startup("IModelTransformerResumption", KnownTestLocations.outputDir);
     iTwinId = HubMock.iTwinId;
-    accessToken = await HubWrappers.getAccessToken(BackendTestUtils.TestUserType.Regular);
+    accessToken = await HubWrappers.getAccessToken(TestUtils.TestUserType.Regular);
     const seedPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "seed.bim");
     SnapshotDb.createEmpty(seedPath, { rootSubject: { name: "resumption-tests-seed" } }).close();
     seedDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "ResumeTestsSeed", description: "seed for resumption tests", version0: seedPath, noLocks: true });
     seedDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: seedDbId });
-    await BackendTestUtils.ExtensiveTestScenario.prepareDb(seedDb);
-    BackendTestUtils.ExtensiveTestScenario.populateDb(seedDb);
+    await TestUtils.ExtensiveTestScenario.prepareDb(seedDb);
+    TestUtils.ExtensiveTestScenario.populateDb(seedDb);
     seedDb.performCheckpoint();
     await seedDb.pushChanges({ accessToken, description: "populated seed db" });
   });
@@ -654,8 +654,8 @@ describe("test resuming transformations", () => {
       noLocks: true,
     });
     const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceDbId });
-    await BackendTestUtils.ExtensiveTestScenario.prepareDb(sourceDb);
-    BackendTestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+    await TestUtils.ExtensiveTestScenario.prepareDb(sourceDb);
+    TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
     sourceDb.performCheckpoint();
     await sourceDb.pushChanges({ accessToken, description: "populated source db" });
 
@@ -666,7 +666,7 @@ describe("test resuming transformations", () => {
     provenanceTransformer.dispose();
     targetDbRev0.performCheckpoint();
 
-    BackendTestUtils.ExtensiveTestScenario.updateDb(sourceDb);
+    TestUtils.ExtensiveTestScenario.updateDb(sourceDb);
     sourceDb.saveChanges();
     await sourceDb.pushChanges({ accessToken, description: "updated source db" });
 

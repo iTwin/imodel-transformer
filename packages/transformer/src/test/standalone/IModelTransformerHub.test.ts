@@ -12,7 +12,7 @@ import {
   PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, Subject,
 } from "@itwin/core-backend";
 
-import * as BackendTestUtils from "@itwin/core-backend/lib/cjs/test";
+import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
 import { ChangesetIdWithIndex, Code, ColorDef, ElementProps, IModel, IModelVersion, PhysicalElementProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
@@ -36,7 +36,7 @@ describe("IModelTransformerHub", () => {
     iTwinId = HubMock.iTwinId;
     IModelJsFs.recursiveMkDirSync(outputDir);
 
-    accessToken = await HubWrappers.getAccessToken(BackendTestUtils.TestUserType.Regular);
+    accessToken = await HubWrappers.getAccessToken(TestUtils.TestUserType.Regular);
 
     // initialize logging
     if (process.env.TRANSFORMER_TESTS_USE_LOG) {
@@ -59,7 +59,7 @@ describe("IModelTransformerHub", () => {
 
     const sourceSeedDb = SnapshotDb.createEmpty(sourceSeedFileName, { rootSubject: { name: "TransformerSource" } });
     assert.isTrue(IModelJsFs.existsSync(sourceSeedFileName));
-    await BackendTestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
+    await TestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
     sourceSeedDb.saveChanges();
     sourceSeedDb.close();
 
@@ -89,7 +89,7 @@ describe("IModelTransformerHub", () => {
       assert.isTrue(targetDb.codeSpecs.hasName("TargetCodeSpec")); // make sure prepareTargetDb changes were saved and pushed to iModelHub
 
       if (true) { // initial import
-        BackendTestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+        TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
         sourceDb.saveChanges();
         await sourceDb.pushChanges({ accessToken, description: "Populate source" });
 
@@ -181,7 +181,7 @@ describe("IModelTransformerHub", () => {
       }
 
       if (true) { // update source db, then import again
-        BackendTestUtils.ExtensiveTestScenario.updateDb(sourceDb);
+        TestUtils.ExtensiveTestScenario.updateDb(sourceDb);
         sourceDb.saveChanges();
         await sourceDb.pushChanges({ accessToken, description: "Update source" });
 
@@ -218,7 +218,7 @@ describe("IModelTransformerHub", () => {
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #2" });
-        BackendTestUtils.ExtensiveTestScenario.assertUpdatesInDb(targetDb);
+        TestUtils.ExtensiveTestScenario.assertUpdatesInDb(targetDb);
 
         // Use IModelExporter.exportChanges to verify the changes to the targetDb
         const targetExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerTarget-ExportChanges-2.txt");
