@@ -1,6 +1,6 @@
 {
-  "name": "@itwin/core-transformer",
-  "version": "4.0.0-dev.30",
+  "name": "@itwin/transformer",
+  "version": "0.1.0",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/core-transformer.js",
   "typings": "lib/cjs/core-transformer",
@@ -35,25 +35,35 @@
     "name": "Bentley Systems, Inc.",
     "url": "http://www.bentley.com"
   },
+  "//deps": [
+    "SEE file://./README.md#versioning",
+    "This package relies on @internal APIs in iTwin.js, and therefore has very strict peerDep versions",
+    "We perform a version check at runtime to ensure this.",
+    "Every new iTwin.js version must be validated, and fixes are rarely ported to old versions.",
+    "Removing Dependencies on internal APIs is ongoing.",
+    "You can find the latest @itwin/transformer version for your iTwin.js version like so: FIXME"
+  ],
   "peerDependencies": {
-    "@itwin/core-backend": "workspace:^4.0.0-dev.30",
-    "@itwin/core-bentley": "workspace:^4.0.0-dev.30",
-    "@itwin/core-common": "workspace:^4.0.0-dev.30",
-    "@itwin/core-geometry": "workspace:^4.0.0-dev.30",
-    "@itwin/ecschema-metadata": "workspace:^4.0.0-dev.30"
+    "@itwin/core-backend": "3.6.0 - 3.6.1",
+    "@itwin/core-bentley": "3.6.0 - 3.6.1",
+    "@itwin/core-common": "3.6.0 - 3.6.1",
+    "@itwin/core-geometry": "3.6.0 - 3.6.1",
+    "@itwin/core-quantity": "3.6.0 - 3.6.1",
+    "@itwin/ecschema-metadata": "3.6.0 - 3.6.1"
   },
   "//devDependencies": [
     "NOTE: All peerDependencies should also be listed as devDependencies since peerDependencies are not considered by npm install",
     "NOTE: All tools used by scripts in this package must be listed as devDependencies"
   ],
   "devDependencies": {
-    "@itwin/build-tools": "workspace:*",
-    "@itwin/core-backend": "workspace:*",
-    "@itwin/core-bentley": "workspace:*",
-    "@itwin/core-common": "workspace:*",
-    "@itwin/core-geometry": "workspace:*",
-    "@itwin/ecschema-metadata": "workspace:*",
-    "@itwin/eslint-plugin": "workspace:*",
+    "@itwin/build-tools": "3.6.0 - 3.6.1",
+    "@itwin/core-backend": "3.6.0 - 3.6.1",
+    "@itwin/core-bentley": "3.6.0 - 3.6.1",
+    "@itwin/core-common": "3.6.0 - 3.6.1",
+    "@itwin/core-geometry": "3.6.0 - 3.6.1",
+    "@itwin/core-quantity": "3.6.0 - 3.6.1",
+    "@itwin/ecschema-metadata": "3.6.0 - 3.6.1",
+    "@itwin/eslint-plugin": "3.6.0 - 3.6.1",
     "@types/chai": "4.3.1",
     "@types/chai-as-promised": "^7",
     "@types/mocha": "^8.2.2",
