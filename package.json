@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "root of the @itwin/transformer monorepo",
   "scripts": {
+    "build": "pnpm -r test",
+    "change": "pnpm -r change",
+    "check": "beachball check",
     "test": "pnpm -r test"
   },
   "license": "MIT",
