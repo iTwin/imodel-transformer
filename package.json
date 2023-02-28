@@ -1,0 +1,10 @@
+{
+  "name": "root",
+  "private": true,
+  "version": "0.1.0",
+  "description": "root of the @itwin/transformer monorepo",
+  "scripts": {
+    "test": "pnpm -r test"
+  },
+  "license": "MIT"
+}
