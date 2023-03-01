@@ -14,11 +14,11 @@
     "build:cjs": "tsc 1>&2 --outDir lib/cjs",
     "clean": "rimraf lib",
     "docs": "betools docs --includes=../../generated-docs/extract --json=../../generated-docs/core/core-transformer/file.json --tsIndexFile=./core-transformer.ts --onlyJson",
-    "copy:test-assets": "cpx \"./src/test/assets/**/*\" ./lib/cjs/test/assets",
+    "copy:test-assets": "cpx \"./src/test/assets/**/*\" ./lib/cjs/src/test/assets",
     "cover": "nyc npm -s test",
     "extract-api": "betools extract-api --entry=core-transformer",
     "lint": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
-    "test": "mocha \"lib/cjs/test/**/*.test.js\"",
+    "test": "mocha \"lib/cjs/src/test/**/*.test.js\"",
     "no-internal-report": "no-internal-report src/**/*.ts"
   },
   "repository": {
