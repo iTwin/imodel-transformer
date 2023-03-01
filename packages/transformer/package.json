@@ -18,7 +18,7 @@
     "cover": "nyc npm -s test",
     "extract-api": "betools extract-api --entry=core-transformer",
     "lint": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
-    "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000",
+    "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000 --require source-map-support/register",
     "no-internal-report": "no-internal-report src/**/*.ts"
   },
   "repository": {
@@ -81,6 +81,7 @@
     "nyc": "^15.1.0",
     "rimraf": "^3.0.2",
     "sinon": "^9.0.2",
+    "source-map-support": "^0.5.21",
     "typescript": "~4.4.0"
   },
   "dependencies": {

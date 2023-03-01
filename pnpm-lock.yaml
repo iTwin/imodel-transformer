@@ -98,6 +98,7 @@ importers:
       rimraf: ^3.0.2
       semver: ^7.3.5
       sinon: ^9.0.2
+      source-map-support: ^0.5.21
       typescript: ~4.4.0
     dependencies:
       semver: 7.3.8
@@ -126,6 +127,7 @@ importers:
       nyc: 15.1.0
       rimraf: 3.0.2
       sinon: 9.2.4
+      source-map-support: 0.5.21
       typescript: 4.4.4
 
 packages:
