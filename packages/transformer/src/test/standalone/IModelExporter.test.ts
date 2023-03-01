@@ -13,7 +13,7 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter } from "../../core-transformer";
 import { IModelExportHandler } from "../../IModelExporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../KnownTestLocations";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 

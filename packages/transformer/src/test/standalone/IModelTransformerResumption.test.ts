@@ -13,7 +13,7 @@ import { IModelImporter } from "../../IModelImporter";
 import { IModelExporter } from "../../IModelExporter";
 import { IModelTransformer, IModelTransformOptions } from "../../IModelTransformer";
 import { assertIdentityTransformation, HubWrappers, IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../KnownTestLocations";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 

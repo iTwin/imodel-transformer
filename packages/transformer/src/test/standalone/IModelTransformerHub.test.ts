@@ -21,7 +21,7 @@ import {
   CountingIModelImporter, HubWrappers, IModelToTextFileExporter, IModelTransformerTestUtils, TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
 } from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../KnownTestLocations";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";

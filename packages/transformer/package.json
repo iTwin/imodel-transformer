@@ -18,7 +18,7 @@
     "cover": "nyc npm -s test",
     "extract-api": "betools extract-api --entry=core-transformer",
     "lint": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
-    "test": "mocha",
+    "test": "mocha \"lib/cjs/test/**/*.test.js\"",
     "no-internal-report": "no-internal-report src/**/*.ts"
   },
   "repository": {

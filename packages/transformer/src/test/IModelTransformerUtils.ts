@@ -24,7 +24,7 @@ import {
   SpatialViewDefinitionProps, SubCategoryAppearance, SubjectProps, ViewDetails3dProps,
 } from "@itwin/core-common";
 import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../core-transformer";
-import { KnownTestLocations } from "./KnownTestLocations";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 export class HubWrappers extends TestUtils.HubWrappers {
   protected static override get hubMock() { return HubMock; }
