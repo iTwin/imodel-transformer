@@ -5,10 +5,12 @@ importers:
   .:
     specifiers:
       beachball: ^2.31.11
+      fast-glob: ^3.2.12
       husky: ^8.0.0
       lint-staged: ^13.1.1
     devDependencies:
       beachball: 2.31.11
+      fast-glob: 3.2.12
       husky: 8.0.3
       lint-staged: 13.1.2
 
