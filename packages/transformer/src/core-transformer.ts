@@ -10,7 +10,9 @@ export * from "./IModelTransformer";
 import * as assert from "assert";
 import * as semver from "semver";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
-import { version as ourVersion, name as ourName, peerDependencies } from "../package.json";
+
+// must be a require to not hoist src into lib/cjs
+const { version: ourVersion, name: ourName, peerDependencies } = require("../package.json");
 
 const ourITwinCoreBackendDepRange = peerDependencies['@itwin/core-backend'];
 
