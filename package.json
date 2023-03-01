@@ -7,7 +7,7 @@
     "url": "https://github.com/iTwin/transformer"
   },
   "scripts": {
-    "build": "pnpm -r test",
+    "build": "pnpm -r build",
     "test": "pnpm -r test",
     "docs": "pnpm -r docs",
     "lint": "pnpm -r lint",
