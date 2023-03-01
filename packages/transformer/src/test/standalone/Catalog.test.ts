@@ -11,7 +11,7 @@ import {
   PhysicalElement, PhysicalElementIsOfType, PhysicalModel, PhysicalObject, PhysicalType, RecipeDefinitionElement, RepositoryLink, SnapshotDb,
   SpatialCategory, TemplateRecipe2d, TemplateRecipe3d, TypeDefinitionElement,
 } from "@itwin/core-backend";
-import { KnownTestLocations as BackendKnownTestLocations, IModelTestUtils } from "@itwin/core-backend/lib/cjs/test";
+import { KnownTestLocations as BackendKnownTestLocations, IModelTestUtils } from "../TestUtils";
 import { DbResult, Id64, Id64Set, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
 import {
   Code, CodeScopeSpec, DefinitionElementProps, GeometricElement2dProps, GeometryStreamProps, IModel, PhysicalElementProps, Placement2d, Placement3d,

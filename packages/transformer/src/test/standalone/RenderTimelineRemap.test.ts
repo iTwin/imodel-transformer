@@ -7,7 +7,7 @@ import {
   GenericSchema, PhysicalModel, PhysicalObject, PhysicalPartition, RenderTimeline, SpatialCategory, StandaloneDb,
   SubjectOwnsPartitionElements,
 } from "@itwin/core-backend";
-import { IModelTestUtils } from "@itwin/core-backend/lib/cjs/test";
+import { IModelTestUtils } from "../TestUtils";
 import { CompressedId64Set, Guid, Id64, Id64String } from "@itwin/core-bentley";
 import { Code, GeometryStreamBuilder, IModel, PhysicalElementProps, RenderSchedule, RenderTimelineProps } from "@itwin/core-common";
 import { Box, Point3d, Vector3d, YawPitchRollAngles } from "@itwin/core-geometry";

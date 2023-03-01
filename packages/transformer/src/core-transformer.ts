@@ -7,6 +7,20 @@ export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
 
+import * as assert from "assert";
+import * as semver from "semver";
+import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
+import { version as ourVersion, name as ourName, peerDependencies } from "../package.json";
+
+const ourITwinCoreBackendDepRange = peerDependencies['@itwin/core-backend'];
+
+assert(
+  semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange),
+  `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
+  + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.`
+);
+
+
 /** @docs-package-description
  * The core-transformer package contains classes that [backend code]($docs/learning/backend/index.md) can use to
  * traverse iModels, as well as *transform* an iModel into another existing or empty one, by exporting elements from one during

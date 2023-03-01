@@ -17,20 +17,20 @@ import {
   OrthographicViewDefinition, PhysicalElement, PhysicalModel, PhysicalObject, PhysicalPartition, Relationship, RelationshipProps,
   RenderMaterialElement, SnapshotDb, SpatialCategory, SpatialLocationModel, SpatialViewDefinition, SubCategory, Subject, Texture,
 } from "@itwin/core-backend";
-import * as BackendTestUtils from "@itwin/core-backend/lib/cjs/test";
+import * as TestUtils from "./TestUtils";
 import {
   Base64EncodedString, BisCodeSpec, CategorySelectorProps, Code, CodeScopeSpec, CodeSpec, ColorDef, DisplayStyle3dSettingsProps, ElementAspectProps, ElementProps, EntityMetaData, FontProps,
   GeometricElement3dProps, GeometryStreamIterator, IModel, ModelProps, ModelSelectorProps, PhysicalElementProps, Placement3d, QueryRowFormat, SkyBoxImageProps, SkyBoxImageType,
   SpatialViewDefinitionProps, SubCategoryAppearance, SubjectProps, ViewDetails3dProps,
 } from "@itwin/core-common";
 import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../core-transformer";
-import { KnownTestLocations } from "./KnownTestLocations";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
-export class HubWrappers extends BackendTestUtils.HubWrappers {
+export class HubWrappers extends TestUtils.HubWrappers {
   protected static override get hubMock() { return HubMock; }
 }
 
-export class IModelTransformerTestUtils extends BackendTestUtils.IModelTestUtils {
+export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
   protected static override get knownTestLocations(): { outputDir: string, assetsDir: string } { return KnownTestLocations; }
 
   public static createTeamIModel(outputDir: string, teamName: string, teamOrigin: Point3d, teamColor: ColorDef): SnapshotDb {
@@ -296,7 +296,7 @@ export async function assertIdentityTransformation(
           );
         } else if (!propChangesAllowed) {
           // kept for conditional breakpoints
-          const _propEq = BackendTestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
+          const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
           expect(targetElem.asAny[propName]).to.deep.advancedEqual(
             sourceElem.asAny[propName]
           );
@@ -359,7 +359,7 @@ export async function assertIdentityTransformation(
       }
       // END jsonProperties TRANSFORMATION EXCEPTIONS
       // kept for conditional breakpoints
-      const _eq = BackendTestUtils.advancedDeepEqual(
+      const _eq = TestUtils.advancedDeepEqual(
         expectedSourceElemJsonProps,
         targetElem.jsonProperties,
         { considerNonExistingAndUndefinedEqual: true }
@@ -438,7 +438,7 @@ export async function assertIdentityTransformation(
       targetModelIds.add(targetModelId);
       targetToSourceModelsMap.set(targetModel, sourceModel);
       const expectedSourceModelJsonProps = { ...sourceModel.jsonProperties };
-      const _eq = BackendTestUtils.advancedDeepEqual(
+      const _eq = TestUtils.advancedDeepEqual(
         expectedSourceModelJsonProps,
         targetModel.jsonProperties,
       );
@@ -537,7 +537,7 @@ export async function assertIdentityTransformation(
   expect(targetRelationshipsToFind.size).to.equal(0);
 }
 
-export class TransformerExtensiveTestScenario extends BackendTestUtils.ExtensiveTestScenario {
+export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestScenario {
   public static async prepareTargetDb(targetDb: IModelDb): Promise<void> {
     // Import desired target schemas
     const targetSchemaFileName: string = path.join(KnownTestLocations.assetsDir, "ExtensiveTestScenarioTarget.ecschema.xml");
@@ -678,7 +678,7 @@ export class TransformerExtensiveTestScenario extends BackendTestUtils.Extensive
       index1++;
     }
     assert.equal(physicalObject2.category, targetPhysicalCategoryId, "SourcePhysicalCategory should have been remapped to TargetPhysicalCategory");
-    assert.equal(physicalObject3.federationGuid, BackendTestUtils.ExtensiveTestScenario.federationGuid3, "Source FederationGuid should have been transferred to target element");
+    assert.equal(physicalObject3.federationGuid, TestUtils.ExtensiveTestScenario.federationGuid3, "Source FederationGuid should have been transferred to target element");
     assert.equal(physicalObject4.category, spatialCategoryId);
     let index4 = 0;
     for (const entry of new GeometryStreamIterator(physicalObject4.geom!)) {
@@ -715,7 +715,7 @@ export class TransformerExtensiveTestScenario extends BackendTestUtils.Extensive
     assert.equal(targetUniqueAspects[0].asAny.targetString, "UniqueAspect");
     assert.equal(targetUniqueAspects[0].asAny.targetLong, physicalObjectId1, "Id should have been remapped");
     assert.isTrue(Guid.isV4Guid(targetUniqueAspects[0].asAny.targetGuid));
-    assert.equal(BackendTestUtils.ExtensiveTestScenario.uniqueAspectGuid, targetUniqueAspects[0].asAny.targetGuid);
+    assert.equal(TestUtils.ExtensiveTestScenario.uniqueAspectGuid, targetUniqueAspects[0].asAny.targetGuid);
     // ElementMultiAspects
     const targetMultiAspects: ElementAspect[] = targetDb.elements.getAspects(physicalObjectId1, "ExtensiveTestScenarioTarget:TargetMultiAspect");
     assert.equal(targetMultiAspects.length, 2);
