@@ -15,7 +15,7 @@ import { TransformerLoggerCategory } from "@itwin/transformer";
 import { loggerCategory, Transformer } from "../Transformer";
 
 describe("imodel-transformer", () => {
-  const sourceDbFileName = "../../core/backend/src/test/assets/CompatibilityTestSeed.bim";
+  const sourceDbFileName = require.resolve("../../../transformer/src/test/assets/CompatibilityTestSeed.bim");
   let sourceDb: IModelDb;
 
   before(async () => {

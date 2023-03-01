@@ -11,8 +11,8 @@ import * as assert from "assert";
 import * as semver from "semver";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
-// must be a require to not hoist src into lib/cjs
-const { version: ourVersion, name: ourName, peerDependencies } = require("../package.json");
+// must be a require to not hoist src into lib/cjs, also the compiled output will be in 'lib/cjs', not 'src' so use `../..` to reach package.json
+const { version: ourVersion, name: ourName, peerDependencies } = require("../../package.json");
 
 const ourITwinCoreBackendDepRange = peerDependencies['@itwin/core-backend'];
 
