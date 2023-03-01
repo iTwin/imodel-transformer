@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  check-change-files:
+    runs-on: ubuntu-latest
+
+    name: Check change files
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2.2.4
+      with:
+        version: 7.27.0
+
+    - name: Use Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+        cache: 'pnpm'
+
+    - name: Install dependencies
+      run: pnpm install -w
+
+    - name: Run check
+      run: pnpm check
+
+  build:
+    runs-on: ubuntu-latest
+
+    name: Lint Build and run Tests
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2.2.4
+      with:
+        version: 7.27.0
+
+    - name: Use Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+        cache: 'pnpm'
+
+    - name: Install dependencies
+      run: pnpm install
+
+    - name: Build
+      run: pnpm run build
+
+    - name: Lint
+      run: pnpm run lint
+
+    - name: Test
+      run: pnpm run test

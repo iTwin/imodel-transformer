@@ -5,12 +5,33 @@
   "description": "root of the @itwin/transformer monorepo",
   "scripts": {
     "build": "pnpm -r test",
-    "change": "pnpm -r change",
+    "test": "pnpm -r test",
+    "docs": "pnpm -r docs",
+    "lint": "pnpm -r lint",
+    "cover": "pnpm -r cover",
+    "lint:copyright": "node scripts/copyrightLinter.js",
+    "change": "beachball change",
     "check": "beachball check",
-    "test": "pnpm -r test"
+    "version-bump": "beachball bump",
+    "version-bump-dev": "beachball bump --config beachball.config.dev.js --keep-change-files",
+    "publish-packages": "beachball publish",
+    "publish-packages-dev": "beachball publish --config beachball.config.dev.js --keep-change-files"
   },
   "license": "MIT",
   "devDependencies": {
-    "beachball": "^2.31.11"
+    "beachball": "^2.31.11",
+    "fast-glob": "^3.2.12",
+    "husky": "^8.0.0",
+    "lint-staged": "^13.1.1"
+  },
+  "lint-staged": {
+    "*.{ts,html}": [
+      "pnpm lint:copyright --fix"
+    ]
+  },
+  "engines": {
+    "pnpm": ">=6",
+    "npm": "<0",
+    "node": ">=16"
   }
 }
