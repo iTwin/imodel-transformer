@@ -7,7 +7,6 @@ export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
 
-import * as assert from "assert";
 import * as semver from "semver";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
@@ -17,11 +16,38 @@ const { version: ourVersion, name: ourName, peerDependencies } = require("../../
 
 const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
 
-assert(
-  semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange),
-  `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
+if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
+  const suggestEnvVarName = "SUGGEST_TRANSFORMER_VERSIONS";
+
+  const errHeader = `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
   + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.`
-);
+
+  if (process.env[suggestEnvVarName]) {
+    const https = require("https") as typeof import("https");
+    https.get(`https://registry.npmjs.org/${ourName}`, async (resp) => {
+      const chunks: string[] = [];
+      const packumentSrc = await new Promise<string>(r => resp.setEncoding('utf8').on("data", d => chunks.push(d)).on("end", () => r(chunks.join(''))));
+      type PackumentSubset = { versions: Record<string, { peerDependencies?: { "@itwin/core-backend": string } }> };
+      const packumentJson = JSON.parse(packumentSrc) as PackumentSubset;
+      const isTaglessVersion = (version: string) => version.includes('-');
+      const latestFirstApplicableVersions
+        = Object.entries(packumentJson.versions)
+                .filter(([,v]) => semver.satisfies(iTwinCoreBackendVersion, v.peerDependencies?.["@itwin/core-backend"] ?? ""))
+                .map(([k]) => k)
+                .filter(isTaglessVersion)
+                .reverse();
+
+      throw Error(
+        errHeader + `\nYou have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions:\n`
+        + latestFirstApplicableVersions.join('\n')
+      );
+    });
+  } else {
+    throw Error(
+      errHeader + `\nYou can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
+    );
+  }
+}
 
 /** @docs-package-description
  * The core-transformer package contains classes that [backend code]($docs/learning/backend/index.md) can use to
