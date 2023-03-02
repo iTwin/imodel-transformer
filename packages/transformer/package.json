@@ -96,6 +96,17 @@
       "@itwin"
     ],
     "extends": "plugin:@itwin/itwinjs-recommended",
+    "rules": {
+      "@itwin/no-internal": [
+        "error",
+        {
+          "tag": [
+            "internal",
+            "alpha"
+          ]
+        }
+      ]
+    },
     "parserOptions": {
       "project": "./tsconfig.json"
     }
