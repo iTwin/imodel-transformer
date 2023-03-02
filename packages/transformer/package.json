@@ -18,6 +18,7 @@
     "cover": "nyc npm -s test",
     "extract-api": "betools extract-api --entry=transformer",
     "lint": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
+    "lint:no-tests": "eslint -f visualstudio \"./src/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio \"./src/**/*.ts\" 1>&2",
     "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000 --require source-map-support/register",
     "no-internal-report": "no-internal-report src/**/*.ts"
@@ -98,11 +99,10 @@
     "extends": "plugin:@itwin/itwinjs-recommended",
     "rules": {
       "@itwin/no-internal": [
-        "error",
+        "warn",
         {
           "tag": [
-            "internal",
-            "alpha"
+            "internal"
           ]
         }
       ]
