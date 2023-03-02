@@ -12,16 +12,16 @@ import * as semver from "semver";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
 // must be a require to not hoist src into lib/cjs, also the compiled output will be in 'lib/cjs', not 'src' so use `../..` to reach package.json
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version: ourVersion, name: ourName, peerDependencies } = require("../../package.json");
 
-const ourITwinCoreBackendDepRange = peerDependencies['@itwin/core-backend'];
+const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
 
 assert(
   semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange),
   `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
   + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.`
 );
-
 
 /** @docs-package-description
  * The core-transformer package contains classes that [backend code]($docs/learning/backend/index.md) can use to
