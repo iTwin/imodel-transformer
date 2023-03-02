@@ -2,8 +2,8 @@
   "name": "@itwin/transformer",
   "version": "0.1.0",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
-  "main": "lib/cjs/core-transformer.js",
-  "typings": "lib/cjs/core-transformer",
+  "main": "lib/cjs/transformer.js",
+  "typings": "lib/cjs/transformer",
   "license": "MIT",
   "engines": {
     "node": "^18.0.0"
@@ -16,7 +16,7 @@
     "docs": "betools docs --includes=../../generated-docs/extract --json=../../generated-docs/core/core-transformer/file.json --tsIndexFile=./core-transformer.ts --onlyJson",
     "copy:test-assets": "cpx \"./src/test/assets/**/*\" ./lib/cjs/test/assets",
     "cover": "nyc npm -s test",
-    "extract-api": "betools extract-api --entry=core-transformer",
+    "extract-api": "betools extract-api --entry=transformer",
     "lint": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio \"./src/**/*.ts\" 1>&2",
     "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000 --require source-map-support/register",
