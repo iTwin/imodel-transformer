@@ -10,7 +10,7 @@ export * from "./IModelTransformer";
 import * as semver from "semver";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
-// must be a require to not hoist src into lib/cjs, also the compiled output will be in 'lib/cjs', not 'src' so use `../..` to reach package.json
+// must use an untyped require to not hoist src into lib/cjs, also the compiled output will be in 'lib/cjs', not 'src' so use `../..` to reach package.json
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version: ourVersion, name: ourName, peerDependencies } = require("../../package.json");
 
@@ -19,8 +19,9 @@ const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
 if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
   const suggestEnvVarName = "SUGGEST_TRANSFORMER_VERSIONS";
 
-  const errHeader = `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
-  + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.`
+  const errHeader =
+    `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
+    + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.\n`
 
   if (process.env[suggestEnvVarName]) {
     const https = require("https") as typeof import("https");
@@ -38,13 +39,15 @@ if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
                 .reverse();
 
       throw Error(
-        errHeader + `\nYou have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions:\n`
+        errHeader
+        + `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.\n`
+        + `Be aware that older versions may be missing bug fixes.`
         + latestFirstApplicableVersions.join('\n')
       );
     });
   } else {
     throw Error(
-      errHeader + `\nYou can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
+      errHeader + `You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
     );
   }
 }
