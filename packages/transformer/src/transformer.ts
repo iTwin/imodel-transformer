@@ -33,10 +33,10 @@ if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
       const isTaglessVersion = (version: string) => version.includes('-');
       const latestFirstApplicableVersions
         = Object.entries(packumentJson.versions)
-                .filter(([,v]) => semver.satisfies(iTwinCoreBackendVersion, v.peerDependencies?.["@itwin/core-backend"] ?? ""))
-                .map(([k]) => k)
-                .filter(isTaglessVersion)
-                .reverse();
+          .filter(([,v]) => semver.satisfies(iTwinCoreBackendVersion, v.peerDependencies?.["@itwin/core-backend"] ?? ""))
+          .map(([k]) => k)
+          .filter(isTaglessVersion)
+          .reverse();
 
       throw Error(
         errHeader
