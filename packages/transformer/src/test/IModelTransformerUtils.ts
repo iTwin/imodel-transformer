@@ -23,7 +23,7 @@ import {
   GeometricElement3dProps, GeometryStreamIterator, IModel, ModelProps, ModelSelectorProps, PhysicalElementProps, Placement3d, QueryRowFormat, SkyBoxImageProps, SkyBoxImageType,
   SpatialViewDefinitionProps, SubCategoryAppearance, SubjectProps, ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../core-transformer";
+import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../transformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 export class HubWrappers extends TestUtils.HubWrappers {

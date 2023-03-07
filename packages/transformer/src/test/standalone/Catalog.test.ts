@@ -18,7 +18,7 @@ import {
   RepositoryLinkProps, SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Angle, Point2d, Point3d, Range2d, Range3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelImporter, IModelTransformer, IModelTransformOptions, TemplateModelCloner, TransformerLoggerCategory } from "../../core-transformer";
+import { IModelImporter, IModelTransformer, IModelTransformOptions, TemplateModelCloner, TransformerLoggerCategory } from "../../transformer";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 

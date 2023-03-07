@@ -53,7 +53,7 @@ if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
 }
 
 /** @docs-package-description
- * The core-transformer package contains classes that [backend code]($docs/learning/backend/index.md) can use to
+ * The @itwin/transformer package contains classes that [backend code]($docs/learning/backend/index.md) can use to
  * traverse iModels, as well as *transform* an iModel into another existing or empty one, by exporting elements from one during
  * traversal and importing them into another.
  *
