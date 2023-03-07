@@ -11,11 +11,11 @@ import {
 } from "@itwin/core-backend";
 import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, PhysicalElementProps, QueryBinder } from "@itwin/core-common";
-import { TransformerLoggerCategory } from "@itwin/core-transformer";
+import { TransformerLoggerCategory } from "@itwin/transformer";
 import { loggerCategory, Transformer } from "../Transformer";
 
 describe("imodel-transformer", () => {
-  const sourceDbFileName = "../../core/backend/src/test/assets/CompatibilityTestSeed.bim";
+  const sourceDbFileName = require.resolve("../../../transformer/src/test/assets/CompatibilityTestSeed.bim");
   let sourceDb: IModelDb;
 
   before(async () => {

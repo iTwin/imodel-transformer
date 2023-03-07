@@ -11,7 +11,7 @@ import { IModelTestUtils } from "../TestUtils";
 import { CompressedId64Set, Guid, Id64, Id64String } from "@itwin/core-bentley";
 import { Code, GeometryStreamBuilder, IModel, PhysicalElementProps, RenderSchedule, RenderTimelineProps } from "@itwin/core-common";
 import { Box, Point3d, Vector3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelTransformer } from "../../core-transformer";
+import { IModelTransformer } from "../../transformer";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 

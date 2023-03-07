@@ -10,7 +10,7 @@ import { createBRepDataProps } from "../TestUtils";
 import { Id64 } from "@itwin/core-bentley";
 import { Code, GeometryStreamBuilder, IModel } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelExporter } from "../../core-transformer";
+import { IModelExporter } from "../../transformer";
 import { IModelExportHandler } from "../../IModelExporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
