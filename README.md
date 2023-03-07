@@ -23,7 +23,7 @@ You can find the latest @itwin/transformer version for your iTwin.js version by 
 MY_ITWINJS_VERSION="3.6.0" # edit me
 pnpm -s --package=semver -c dlx node <<EOF
 json=""
-require("https").get("https://registry.npmjs.org/@itwin/core-transformer", r=>r.setEncoding("utf8").on("data", d=>json+=d).on("end", ()=>{
+require("https").get("https://registry.npmjs.org/@itwin/transformer", r=>r.setEncoding("utf8").on("data", d=>json+=d).on("end", ()=>{
   semver=require(process.env.PATH.split(":").find(x=>x.includes(".bin"))+"/../semver")
   console.log(Object.entries(JSON.parse(json).versions)
               .filter(([,v])=>semver.satisfies("$MY_ITWINJS_VERSION", v.peerDependencies["@itwin/core-backend"]))
