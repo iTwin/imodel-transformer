@@ -21,16 +21,20 @@ if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
 
   const errHeader =
     `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
-    + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.\n`
+    + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.\n`;
 
   if (process.env[suggestEnvVarName]) {
+    // let's not import https except in this case
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const https = require("https") as typeof import("https");
     https.get(`https://registry.npmjs.org/${ourName}`, async (resp) => {
       const chunks: string[] = [];
-      const packumentSrc = await new Promise<string>(r => resp.setEncoding('utf8').on("data", d => chunks.push(d)).on("end", () => r(chunks.join(''))));
-      type PackumentSubset = { versions: Record<string, { peerDependencies?: { "@itwin/core-backend": string } }> };
+      const packumentSrc = await new Promise<string>((r) => resp.setEncoding("utf8").on("data", (d) => chunks.push(d)).on("end", () => r(chunks.join(""))));
+      interface PackumentSubset {
+        versions: Record<string, { peerDependencies?: { "@itwin/core-backend": string } }>;
+      }
       const packumentJson = JSON.parse(packumentSrc) as PackumentSubset;
-      const isTaglessVersion = (version: string) => version.includes('-');
+      const isTaglessVersion = (version: string) => version.includes("-");
       const latestFirstApplicableVersions
         = Object.entries(packumentJson.versions)
           .filter(([,v]) => semver.satisfies(iTwinCoreBackendVersion, v.peerDependencies?.["@itwin/core-backend"] ?? ""))
@@ -38,16 +42,16 @@ if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
           .filter(isTaglessVersion)
           .reverse();
 
-      throw Error(
-        errHeader
-        + `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.\n`
-        + `Be aware that older versions may be missing bug fixes.`
-        + latestFirstApplicableVersions.join('\n')
-      );
+      throw Error([
+        errHeader,
+        `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.\n`,
+        `Be aware that older versions may be missing bug fixes.\n`,
+        latestFirstApplicableVersions.join("\n"),
+      ].join(""));
     });
   } else {
     throw Error(
-      errHeader + `You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
+      `${errHeader} You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
     );
   }
 }
