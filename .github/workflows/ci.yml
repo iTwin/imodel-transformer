@@ -105,7 +105,7 @@ jobs:
             "@itwin/ecschema-metadata",
           ].map(pkg => [pkg, "$CORE_VERSION"]))
         };
-        fs.writeFileSync(pkgJsonPath, pkgJson);
+        fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson));
         EOF
       env:
         CORE_VERSION: ${{ matrix.version }}
