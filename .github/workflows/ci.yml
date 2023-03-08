@@ -7,8 +7,8 @@ on:
 jobs:
   check-change-files:
     runs-on: ubuntu-latest
-
     name: Check change files
+
     steps:
     - name: Checkout
       uses: actions/checkout@v3
@@ -32,10 +32,46 @@ jobs:
     - name: Run check
       run: pnpm check
 
+  build-supported-version-matrix:
+    name: Build supported version matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2.2.4
+      with:
+        version: 7.27.0
+
+    - name: Use Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+        cache: 'pnpm'
+
+    - id: set-matrix
+      run: |
+        pnpm -s --package=semver@7.3.8 -c dlx node <<EOF
+        // HACK: probably better to set up a temp package in /tmp/\$RANDOM but sounds annoying, pnpm should have this feature?
+        const semver = require(process.env.PATH.split(":").find(x => x.includes(".bin")) + "/../semver");
+        const ourPkgJson = require("./packages/transformer/package.json");
+        let json = "";
+        require("https").get("https://registry.npmjs.org/@itwin/core-backend", r => r.setEncoding("utf8").on("data", d => json += d).on("end", () => {
+          const supportedVersions = Object.keys(JSON.parse(json)).versions.filter(v => semver.satisfies(v, ourPkgJson.peerDependencies["@itwin/core-backend"]));
+          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ supportedVersions }));
+        }));
+        EOF
+
   build:
     runs-on: ubuntu-latest
-
     name: Lint Build and run Tests
+    strategy:
+      matrix: ${{ fromJSON(needs.build-supported-version-matrix.outputs.matrix) }}
+
     steps:
     - name: Checkout
       uses: actions/checkout@v3
@@ -62,3 +98,4 @@ jobs:
 
     - name: Test
       run: pnpm run test
+
