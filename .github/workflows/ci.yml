@@ -61,7 +61,7 @@ jobs:
         const ourPkgJson = require("./packages/transformer/package.json");
         let json = "";
         require("https").get("https://registry.npmjs.org/@itwin/core-backend", r => r.setEncoding("utf8").on("data", d => json += d).on("end", () => {
-          const supportedVersions = Object.keys(JSON.parse(json)).versions.filter(v => semver.satisfies(v, ourPkgJson.peerDependencies["@itwin/core-backend"]));
+          const supportedVersions = Object.keys(JSON.parse(json).versions).filter(v => semver.satisfies(v, ourPkgJson.peerDependencies["@itwin/core-backend"]));
           require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ version: supportedVersions }));
         }));
         EOF
