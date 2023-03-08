@@ -69,6 +69,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     name: Lint Build and run Tests
+    needs: build-supported-version-matrix
     strategy:
       matrix: ${{ fromJSON(needs.build-supported-version-matrix.outputs.matrix) }}
 
