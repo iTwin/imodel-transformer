@@ -119,7 +119,7 @@ jobs:
         node <<EOF
         const coreVersion = require("@itwin/core-backend/package.json").version;
         if (coreVersion !== "$CORE_VERSION")
-          throw Error(`expected core version $CORE_VERSION but got ${coreVersion}`)
+          throw Error('expected core version $CORE_VERSION but got ' + coreVersion)
         EOF
       env:
         CORE_VERSION: ${{ matrix.version }}
