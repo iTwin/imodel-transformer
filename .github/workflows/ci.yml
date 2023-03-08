@@ -7,8 +7,8 @@ on:
 jobs:
   check-change-files:
     runs-on: ubuntu-latest
-
     name: Check change files
+
     steps:
     - name: Checkout
       uses: actions/checkout@v3
@@ -32,10 +32,12 @@ jobs:
     - name: Run check
       run: pnpm check
 
-  build:
+  build-supported-version-matrix:
+    name: Build supported version matrix
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
 
-    name: Lint Build and run Tests
     steps:
     - name: Checkout
       uses: actions/checkout@v3
@@ -51,8 +53,81 @@ jobs:
         node-version: 18
         cache: 'pnpm'
 
+    - id: set-matrix
+      run: |
+        pnpm -s --package=semver@7.3.8 -c dlx node <<EOF
+        // HACK: probably better to set up a temp package in /tmp/\$RANDOM but sounds annoying, pnpm should have this feature
+        const semver = require(process.env.PATH.split(":").find(x => x.includes(".bin")) + "/../semver");
+        const ourPkgJson = require("./packages/transformer/package.json");
+        let json = "";
+        require("https").get("https://registry.npmjs.org/@itwin/core-backend", r => r.setEncoding("utf8").on("data", d => json += d).on("end", () => {
+          const supportedVersions = Object.keys(JSON.parse(json).versions).filter(v => semver.satisfies(v, ourPkgJson.peerDependencies["@itwin/core-backend"]));
+          supportedVersions.push("USE_FROZEN_DEV_DEPS");
+          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ version: supportedVersions }));
+        }));
+        EOF
+
+  build:
+    runs-on: ubuntu-latest
+    name: Lint Build and run Tests
+    needs: build-supported-version-matrix
+    strategy:
+      matrix: ${{ fromJSON(needs.build-supported-version-matrix.outputs.matrix) }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2.2.4
+      with:
+        version: 7.27.0
+
+    - name: Use Node.js 18
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+        cache: 'pnpm'
+
+    - name: Force dependency resolution
+      if: matrix.version != 'USE_FROZEN_DEV_DEPS'
+      run: |
+        node <<EOF
+        const fs = require("fs");
+        const workspacePkgJsonPath = "./package.json";
+        const workspacePkgJson = require(workspacePkgJsonPath);
+        workspacePkgJson.pnpm = {
+          overrides: Object.fromEntries([
+            // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
+            "@itwin/core-backend",
+            "@itwin/core-bentley",
+            "@itwin/core-common",
+            "@itwin/core-geometry",
+            "@itwin/core-quantity",
+            "@itwin/ecschema-metadata",
+          ].map(pkg => [pkg, "$CORE_VERSION"]))
+        };
+        fs.writeFileSync(workspacePkgJsonPath, JSON.stringify(workspacePkgJson));
+        EOF
+      env:
+        CORE_VERSION: ${{ matrix.version }}
+
     - name: Install dependencies
-      run: pnpm install
+      run: pnpm install $ARGS
+      env:
+        ARGS: ${{ matrix.version == 'USE_FROZEN_DEV_DEPS' && '' || '--no-frozen-lockfile' }}
+
+    - name: Sanity test dependency resolution
+      if: matrix.version != 'USE_FROZEN_DEV_DEPS'
+      run: |
+        cd packages/transformer
+        node <<EOF
+        const coreVersion = require("@itwin/core-backend/package.json").version;
+        if (coreVersion !== "$CORE_VERSION")
+          throw Error('expected core version $CORE_VERSION but got ' + coreVersion)
+        EOF
+      env:
+        CORE_VERSION: ${{ matrix.version }}
 
     - name: Build
       run: pnpm run build
@@ -62,3 +137,4 @@ jobs:
 
     - name: Test
       run: pnpm run test
+
