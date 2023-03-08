@@ -56,13 +56,13 @@ jobs:
     - id: set-matrix
       run: |
         pnpm -s --package=semver@7.3.8 -c dlx node <<EOF
-        // HACK: probably better to set up a temp package in /tmp/\$RANDOM but sounds annoying, pnpm should have this feature?
+        // HACK: probably better to set up a temp package in /tmp/\$RANDOM but sounds annoying, pnpm should have this feature
         const semver = require(process.env.PATH.split(":").find(x => x.includes(".bin")) + "/../semver");
         const ourPkgJson = require("./packages/transformer/package.json");
         let json = "";
         require("https").get("https://registry.npmjs.org/@itwin/core-backend", r => r.setEncoding("utf8").on("data", d => json += d).on("end", () => {
           const supportedVersions = Object.keys(JSON.parse(json)).versions.filter(v => semver.satisfies(v, ourPkgJson.peerDependencies["@itwin/core-backend"]));
-          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ supportedVersions }));
+          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ version: supportedVersions }));
         }));
         EOF
 
@@ -87,8 +87,40 @@ jobs:
         node-version: 18
         cache: 'pnpm'
 
+    - name: Force dependency resolution
+      run: |
+        node <<EOF
+        const fs = require("fs");
+        const pkgJsonPath = "./packages/transformer/package.json";
+        const pkgJson = require(pkgJsonPath);
+        pkgJson.pnpm = {
+          resolutions: Object.fromEntries([
+            // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
+            "@itwin/core-backend",
+            "@itwin/core-bentley",
+            "@itwin/core-common",
+            "@itwin/core-geometry",
+            "@itwin/core-quantity",
+            "@itwin/ecschema-metadata",
+          ].map(pkg => [pkg, $CORE_VERSION]))
+        };
+        fs.writeFileSync(pkgJsonPath, pkgJson);
+        EOF
+      env:
+        CORE_VERSION: ${{ matrix.version }}
+
     - name: Install dependencies
       run: pnpm install
+
+    - name: Sanity test dependency resolution
+      run: |
+        cd packages/transformer
+        node <<EOF
+        if (require("@itwin/core-backend/package.json").version !== "$CORE_VERSION")
+          throw Error()
+        EOF
+      env:
+        CORE_VERSION: ${{ matrix.version }}
 
     - name: Build
       run: pnpm run build
