@@ -95,7 +95,7 @@ jobs:
         const pkgJsonPath = "./packages/transformer/package.json";
         const pkgJson = require(pkgJsonPath);
         pkgJson.pnpm = {
-          resolutions: Object.fromEntries([
+          overrides: Object.fromEntries([
             // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
             "@itwin/core-backend",
             "@itwin/core-bentley",
