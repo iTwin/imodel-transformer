@@ -117,8 +117,9 @@ jobs:
       run: |
         cd packages/transformer
         node <<EOF
-        if (require("@itwin/core-backend/package.json").version !== "$CORE_VERSION")
-          throw Error()
+        const coreVersion = require("@itwin/core-backend/package.json").version;
+        if (coreVersion !== "$CORE_VERSION")
+          throw Error(`expected core version $CORE_VERSION but got ${coreVersion}`)
         EOF
       env:
         CORE_VERSION: ${{ matrix.version }}
