@@ -109,9 +109,6 @@
     },
     "parserOptions": {
       "project": "./tsconfig.json"
-    },
-    "resolutions": {
-      "@itwin/core-backend": "3.6.0"
     }
   }
 }
