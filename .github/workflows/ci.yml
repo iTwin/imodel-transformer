@@ -92,9 +92,9 @@ jobs:
       run: |
         node <<EOF
         const fs = require("fs");
-        const pkgJsonPath = "./packages/transformer/package.json";
-        const pkgJson = require(pkgJsonPath);
-        pkgJson.pnpm = {
+        const workspacePkgJsonPath = "./package.json";
+        const workspacePkgJson = require(workspacePkgJsonPath);
+        workspacePkgJson.pnpm = {
           overrides: Object.fromEntries([
             // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
             "@itwin/core-backend",
@@ -105,7 +105,7 @@ jobs:
             "@itwin/ecschema-metadata",
           ].map(pkg => [pkg, "$CORE_VERSION"]))
         };
-        fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson));
+        fs.writeFileSync(workspacePkgJsonPath, JSON.stringify(workspacePkgJson));
         EOF
       env:
         CORE_VERSION: ${{ matrix.version }}
