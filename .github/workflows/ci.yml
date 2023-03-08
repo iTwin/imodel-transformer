@@ -115,7 +115,7 @@ jobs:
     - name: Install dependencies
       run: pnpm install $ARGS
       env:
-        ARGS: ${{ matrix.version == 'USE_FROZEN_DEV_DEPS' && "" || "--no-frozen-lockfile" }}
+        ARGS: ${{ matrix.version == 'USE_FROZEN_DEV_DEPS' && '' || '--no-frozen-lockfile' }}
 
     - name: Sanity test dependency resolution
       if: matrix.version != 'USE_FROZEN_DEV_DEPS'
