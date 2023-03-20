@@ -17,8 +17,13 @@ importers:
   packages/performance-scripts:
     specifiers:
       '@itwin/build-tools': 3.6.0 - 3.6.1
+      '@itwin/transformer': workspace:^0.1.0
       '@types/node': ^18.11.5
+      dtrace-provider: ^0.8.8
       typescript: ~4.4.0
+    dependencies:
+      '@itwin/transformer': link:../transformer
+      dtrace-provider: 0.8.8
     devDependencies:
       '@itwin/build-tools': 3.6.1
       '@types/node': 18.14.2
@@ -950,7 +955,7 @@ packages:
       resolve: 1.17.0
       semver: 7.3.8
       source-map: 0.6.1
-      typescript: 4.4.4
+      typescript: 4.6.4
     dev: true
 
   /@microsoft/tsdoc-config/0.16.2:
@@ -2089,6 +2094,14 @@ packages:
   /dotenv/10.0.0:
     resolution: {integrity: sha512-rlBi9d8jpv9Sf1klPjNfFAuWDjKLwTIJJ/VxtoTwIR6hnZxcEOQCZg2oIL3MWBYw5GpUDKOEnND7LXTbIpQ03Q==}
     engines: {node: '>=10'}
+    dev: false
+
+  /dtrace-provider/0.8.8:
+    resolution: {integrity: sha512-b7Z7cNtHPhH9EJhNNbbeqTcXB8LGFFZhq1PGgEvpeHlzd36bhbdTWoE/Ba/YguqpBSlAPKnARWhVlhunCMwfxg==}
+    engines: {node: '>=0.10'}
+    requiresBuild: true
+    dependencies:
+      nan: 2.17.0
     dev: false
 
   /duplexer/0.1.2:
@@ -3829,6 +3842,10 @@ packages:
       safe-buffer: 5.2.1
       uid-safe: 2.1.5
 
+  /nan/2.17.0:
+    resolution: {integrity: sha512-2ZTgtl0nJsO0KQCjEpxcIr5D+Yv90plTitZt9JBfQvVJDS5seMl3FOvsh3+9CoYWXf/1l5OaZzzF6nDm4cagaQ==}
+    dev: false
+
   /nanoid/3.3.3:
     resolution: {integrity: sha512-p1sjXuopFs0xg+fPASzQ28agW1oHD7xDsd9Xkf3T15H3c/cifrFHVwrh74PdoklAPi+i7MdRsE47vm2r6JoB+w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -5105,6 +5122,12 @@ packages:
 
   /typescript/4.4.4:
     resolution: {integrity: sha512-DqGhF5IKoBl8WNf8C1gu8q0xZSInh9j1kJJMqT3a94w1JzVaBU4EXOSMrz9yDqMT0xt3selp83fuFMQ0uzv6qA==}
+    engines: {node: '>=4.2.0'}
+    hasBin: true
+    dev: true
+
+  /typescript/4.6.4:
+    resolution: {integrity: sha512-9ia/jWHIEbo49HfjrLGfKbZSuWo9iTMwXO+Ca3pRsSpbsMbc7/IU8NKdCZVRRBafVPGnoJeFL76ZOAA84I9fEg==}
     engines: {node: '>=4.2.0'}
     hasBin: true
     dev: true
