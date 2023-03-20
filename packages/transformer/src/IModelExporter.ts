@@ -6,9 +6,9 @@
  * @module iModels
  */
 
-import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
+import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, LRUCache, YieldManager } from "@itwin/core-bentley";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
-import { CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
+import { CodeSpec, FontProps, IModel, IModelError, RelatedElementProps } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import {
   BriefcaseDb, BriefcaseManager, DefinitionModel, ECSqlStatement, Element, ElementAspect,
@@ -209,6 +209,108 @@ export class IModelExporter {
   private _excludedElementAspectClassFullNames = new Set<string>();
   /** The set of classes of Relationships that will be excluded (polymorphically) from transformation to the target iModel. */
   private _excludedRelationshipClasses = new Set<typeof Relationship>();
+
+  // TODO: move this cache to own class + integrate with the native element cache?
+  // NOTE: the cache size should probably be affected by whether geometry is included...
+  private _elemCacheSize = 2000;
+  private _cacheBlockSize = this._elemCacheSize / 5;
+  private _elemDataCache = new LRUCache<Id64String, any>(this._elemCacheSize, new Map());
+
+  private _getProxyElem(id: Id64String) {
+    let props = this._elemDataCache.get(id);
+
+    if (props === undefined) {
+      // NOTE: confirm the id access pattern
+      this.sourceDb.withStatement(`
+        SELECT e.$, e.ECInstanceId, e.ECClassId,
+        -- NOTE: 0x%x handles unsigned 64-bit integers thankfully
+        ( SELECT JSON_GROUP_ARRAY(format('0x%x', TargetECInstanceId))
+          FROM bis.CategorySelectorRefersToCategories
+          WHERE SourceECInstanceId=e.ECInstanceId
+        ) as Categories,
+        ( SELECT JSON_GROUP_ARRAY(format('0x%x', TargetECInstanceId))
+          FROM bis.ModelSelectorRefersToModels
+          WHERE SourceECInstanceId=e.ECInstanceId
+        ) as Models
+        FROM bis.Element e
+        WHERE e.ECInstanceId > ${id}
+        ORDER BY e.ECInstanceId
+        LIMIT ${this._cacheBlockSize}
+      `, (stmt) => {
+        // eslint-disable-next-line @typescript-eslint/no-shadow
+        for (const { id, className, ["e.$"]: $, categories, models } of stmt) {
+          /* eslint-disable @typescript-eslint/naming-convention */
+          const { ECInstanceId, ECClassId, ...ecProps } = JSON.parse($) as {
+            [k: string]: any;
+            ECInstanceId: string;
+            ECClassId: string;
+          };
+          /* eslint-enable @typescript-eslint/naming-convention */
+          // TODO: share
+          IModelExporter.deepLowerCamelCase(ecProps);
+          // FIXME: working around issue where somehow vscode's debug terminal bootloader prevents ECInstanceId and
+          // ECClassId from being included as props in $-queries
+          ecProps.id = ECInstanceId ?? id;
+          ecProps.classFullName = (ECClassId ?? className).replace(".", ":"); // normalize (FIXME: use existing function)
+
+          const aggregateRelTargetProps: Record<string, string> = { models, categories };
+
+          // eslint-disable-next-line guard-for-in
+          for (const key in aggregateRelTargetProps) {
+            const val = aggregateRelTargetProps[key];
+            const ids = JSON.parse(val) as string[];
+            ecProps[key] = ids;
+          }
+
+          // FIXME: merge this with the lowercasing method
+          this.jsifyProps(ecProps);
+
+          this._elemDataCache.set(ecProps.id, ecProps);
+        }
+      });
+    }
+
+    props = this._elemDataCache.get(id);
+    if (props === undefined)
+      throw new IModelError(IModelStatus.NotFound, `Element=${id}`);
+    return this.sourceDb.constructEntity<Element>(props); // TODO: cache proxy elems
+  }
+
+  // NOTE: test if `JSON.parse(obj.replace(/"(\w)\w*":/g, (x) => x.toLowerCase()))` is somehow faster
+  private static deepLowerCamelCase(obj: any) {
+    // eslint-disable-next-line guard-for-in
+    for (const key in obj) {
+      if (typeof obj[key] === "object" && obj[key] !== null && obj[key] !== obj)
+        this.deepLowerCamelCase(obj[key]);
+      if (key === "RelECClassId")
+        obj[key] = obj[key].replace(".", ":");
+      const lowerCamelCaseKey = key[0].toLowerCase() + key.slice(1);
+      obj[lowerCamelCaseKey] = obj[key];
+      delete obj[key];
+    }
+  }
+
+  // fix descrepancies between props of js and ec objects
+  private jsifyProps(props: any): void {
+    // For now don't check `classFullName` since that doesn't work in the case of inheritance, and checking the
+    // hierarchy would be expensive (but we could check the hierarchy cache if it becomes an issue).
+    // In general, this could technically wreak havoc if a schema does confusingly use both properties
+
+    // Bis.ViewDefinition
+    if ("categorySelector" in props)
+      props.categorySelectorId = (props.categorySelector as RelatedElementProps).id;
+    if ("displayStyle" in props)
+      props.displayStyleId = (props.displayStyle as RelatedElementProps).id;
+    if ("modelSelector" in props)
+      props.modelSelectorId = (props.modelSelector as RelatedElementProps).id;
+
+    // Bis.ViewDefinition2D
+    if ("baseModel" in props)
+      props.baseModelId = (props.baseModel as RelatedElementProps).id;
+
+    if ("category" in props)
+      props.category = (props.category as RelatedElementProps).id;
+  }
 
   /** Construct a new IModelExporter
    * @param sourceDb The source IModelDb
@@ -489,7 +591,7 @@ export class IModelExporter {
     if (model.isTemplate && !this.wantTemplateModels) {
       return;
     }
-    const modeledElement: Element = this.sourceDb.elements.getElement({ id: modeledElementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
+    const modeledElement = this._getProxyElem(modeledElementId); // { id: modeledElementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
     Logger.logTrace(loggerCategory, `exportModel(${modeledElementId})`);
     if (this.shouldExportElement(modeledElement)) {
       await this.exportModelContainer(model);
@@ -639,7 +741,7 @@ export class IModelExporter {
         return;
       }
     }
-    const element: Element = this.sourceDb.elements.getElement({ id: elementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
+    const element: Element = this._getProxyElem(elementId); // { id: elementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
     Logger.logTrace(loggerCategory, `exportElement(${element.id}, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`);
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {

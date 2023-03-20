@@ -1673,7 +1673,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it("exhaustive identity transform", async () => {
+  it.only("exhaustive identity transform", async function () {
     const seedDb = SnapshotDb.openFile(TestUtils.IModelTestUtils.resolveAssetFile("CompatibilityTestSeed.bim"));
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ExhaustiveIdentityTransformSource.bim");
     const sourceDb = SnapshotDb.createFrom(seedDb, sourceDbPath);
@@ -1690,8 +1690,16 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, { rootSubject: sourceDb.rootSubject });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
+
     await transformer.processSchemas();
-    await transformer.processAll();
+
+    await runWithCpuProfiler(async () => {
+      await transformer.processAll();
+    }, {
+      profileName: `fast_${this.test?.title.replace(/ /g, "_")}`,
+      timestamp: true,
+      sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
+    });
 
     targetDb.saveChanges();
 
@@ -1701,6 +1709,7 @@ describe("IModelTransformer", () => {
     const physicalModelInTarget = targetDb.models.getModel(physicalModelInTargetId);
     expect(physicalModelInTarget.jsonProperties.formatter.fmtFlags.linPrec).to.equal(100);
 
+    seedDb.close();
     sourceDb.close();
     targetDb.close();
   });
