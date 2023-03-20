@@ -6,6 +6,7 @@
  * @module iModels
  */
 import * as path from "path";
+import { EventEmitter } from "events";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
@@ -218,6 +219,16 @@ export interface InitFromExternalSourceAspectsArgs {
   startChangesetId?: string;
 }
 
+/** events that the transformer emits, e.g. for signaling profilers @internal */
+enum TransformerEvent {
+  beginProcessSchemas = "beginProcessSchemas",
+  endProcessSchemas = "endProcessSchemas",
+  beginProcessAll = "beginProcessAll",
+  endProcessAll = "endProcessAll",
+  beginProcessChanges = "beginProcessChanges",
+  endProcessChanges = "endProcessChanges",
+}
+
 /** Base class used to transform a source iModel into a different target iModel.
  * @see [iModel Transformation and Data Exchange]($docs/learning/transformer/index.md), [IModelExporter]($transformer), [IModelImporter]($transformer)
  * @beta
@@ -262,6 +273,12 @@ export class IModelTransformer extends IModelExportHandler {
   public static get provenanceElementAspectClasses(): (typeof Entity)[] {
     return [ExternalSourceAspect];
   }
+
+  /**
+   * Internal event emitter that is used by the transformer to signal events to profilers
+   * @internal
+   */
+  public events = new EventEmitter();
 
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
@@ -317,6 +334,17 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
+
+    this._registerEvents();
+  }
+
+  private _registerEvents() {
+    this._events.on(TransformerEvent.beginProcessAll, () => {
+      Logger.logTrace(loggerCategory, "processAll()");
+    });
+    this._events.on(TransformerEvent.beginProcessChanges, () => {
+      Logger.logTrace(loggerCategory, "processChanges()");
+    });
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
@@ -575,6 +603,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This can be called more than once for an element in arbitrary order, so it should not have side-effects.
    */
   public onTransformElement(sourceElement: Element): ElementProps {
+    this._events.emit()
     Logger.logTrace(loggerCategory, `onTransformElement(${sourceElement.id}) "${sourceElement.getDisplayLabel()}"`);
     const targetElementProps: ElementProps = this.context.cloneElement(sourceElement, { binaryGeometry: this._options.cloneUsingBinaryGeometry });
     if (sourceElement instanceof Subject) {
@@ -1181,6 +1210,7 @@ export class IModelTransformer extends IModelExportHandler {
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
   public async processSchemas(): Promise<void> {
+    this.events.emit(TransformerEvent.beginProcessSchemas);
     // we do not need to initialize for this since no entities are exported
     try {
       IModelJsFs.mkdirSync(this._schemaExportDir);
@@ -1198,6 +1228,7 @@ export class IModelTransformer extends IModelExportHandler {
       IModelJsFs.removeSync(this._schemaExportDir);
       this._longNamedSchemasMap.clear();
     }
+    this.events.emit(TransformerEvent.endProcessSchemas);
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.
@@ -1273,7 +1304,7 @@ export class IModelTransformer extends IModelExportHandler {
  * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
  */
   public async processAll(): Promise<void> {
-    Logger.logTrace(loggerCategory, "processAll()");
+    this.events.emit(TransformerEvent.beginProcessAll);
     this.logSettings();
     this.validateScopeProvenance();
     await this.initialize();
@@ -1295,6 +1326,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.importer.computeProjectExtents();
     this.finalizeTransformation();
+    this.events.emit(TransformerEvent.endProcessAll);
   }
 
   private _lastProvenanceEntityInfo = nullLastProvenanceEntityInfo;
@@ -1509,7 +1541,7 @@ export class IModelTransformer extends IModelExportHandler {
  * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
  */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
-    Logger.logTrace(loggerCategory, "processChanges()");
+    this.events.emit(TransformerEvent.beginProcessChanges, startChangesetId);
     this.logSettings();
     this.validateScopeProvenance();
     await this.initialize({ accessToken, startChangesetId });
@@ -1521,6 +1553,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.importer.computeProjectExtents();
     this.finalizeTransformation();
+    this.events.emit(TransformerEvent.endProcessChanges);
   }
 }
 
