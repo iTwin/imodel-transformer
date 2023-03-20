@@ -220,7 +220,7 @@ export interface InitFromExternalSourceAspectsArgs {
 }
 
 /** events that the transformer emits, e.g. for signaling profilers @internal */
-enum TransformerEvent {
+export enum TransformerEvent {
   beginProcessSchemas = "beginProcessSchemas",
   endProcessSchemas = "endProcessSchemas",
   beginProcessAll = "beginProcessAll",
@@ -339,10 +339,10 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private _registerEvents() {
-    this._events.on(TransformerEvent.beginProcessAll, () => {
+    this.events.on(TransformerEvent.beginProcessAll, () => {
       Logger.logTrace(loggerCategory, "processAll()");
     });
-    this._events.on(TransformerEvent.beginProcessChanges, () => {
+    this.events.on(TransformerEvent.beginProcessChanges, () => {
       Logger.logTrace(loggerCategory, "processChanges()");
     });
   }
@@ -603,7 +603,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This can be called more than once for an element in arbitrary order, so it should not have side-effects.
    */
   public onTransformElement(sourceElement: Element): ElementProps {
-    this._events.emit()
     Logger.logTrace(loggerCategory, `onTransformElement(${sourceElement.id}) "${sourceElement.getDisplayLabel()}"`);
     const targetElementProps: ElementProps = this.context.cloneElement(sourceElement, { binaryGeometry: this._options.cloneUsingBinaryGeometry });
     if (sourceElement instanceof Subject) {
