@@ -6,6 +6,7 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as inspector from "inspector";
+import { IModelTransformer } from "@itwin/transformer";
 
 /**
  * Runs a function under the cpu profiler, by default creates cpu profiles in the working directory of
@@ -13,8 +14,8 @@ import * as inspector from "inspector";
  * You can override the default across all calls with the environment variable ITWIN_TESTS_CPUPROF_DIR,
  * or per functoin just pass a specific `profileDir`
  */
-export async function runWithCpuProfiler<F extends () => any>(
-  f: F,
+export async function hookProfilerIntoTransformer(
+  t: IModelTransformer,
   {
     profileDir = process.env.ITWIN_TESTS_CPUPROF_DIR ?? process.cwd(),
     /** append an ISO timestamp to the name you provided */
@@ -27,7 +28,7 @@ export async function runWithCpuProfiler<F extends () => any>(
      */
     sampleIntervalMicroSec = 500, // half a millisecond
   } = {}
-): Promise<ReturnType<F>> {
+): Promise<void> {
   const maybeNameTimePortion = timestamp ? `_${new Date().toISOString()}` : "";
   const profilePath = path.join(profileDir, `${profileName}${maybeNameTimePortion}${profileExtension}`);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
