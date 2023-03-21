@@ -100,7 +100,8 @@ export async function runWithLinuxPerf<F extends () => any>(
   await new Promise((res, rej) => perfDump.on("exit", res).on("error", rej));
   outStream.close(); // doesn't seem to flush when the pipe closes
 
-  perfDump.stdout.pipe(fs.createWriteStream(profilePath));
+  await new Promise((res, rej) => perfDump.on("exit", res).on("error", rej));
+  outStream.close(); // doesn't seem to flush when the pipe closes
 
   try {
     await fs.promises.unlink("perf.data");
