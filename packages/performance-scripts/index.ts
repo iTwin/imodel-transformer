@@ -11,7 +11,9 @@ NODE_OPTIONS='--require performance-scripts'
 Then run your program.
 You must also set in the environment the 'PROFILE_TYPE' variable.
 
-Valid profile types are: ${profileTypes.join(", ")}`;
+Valid profile types are: ${profileTypes.join(", ")}
+
+The program will now exit.`;
 
 switch (profileType) {
   case "linux-native":
@@ -25,5 +27,6 @@ switch (profileType) {
     break;
   default:
     console.log(usageText);
+    process.exit(1);
 }
 

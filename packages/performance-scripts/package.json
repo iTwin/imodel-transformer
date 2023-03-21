@@ -1,7 +1,7 @@
 {
   "name": "performance-scripts",
   "version": "1.0.0",
-  "main": "lib/index.ts",
+  "main": "lib/index.js",
   "description": "Scripts for profiling performance of JavaScript (iTwin.js) applications",
   "bin": {
     "linux-profile-js": "./bin/linux-profile-js.sh",
