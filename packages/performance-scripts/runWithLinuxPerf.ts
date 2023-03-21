@@ -60,11 +60,13 @@ export async function runWithLinuxPerf<F extends () => any>(
 
   const perfDump = child_process.spawn(
     "perf",
-    ["record", "-F", `${sampleHertz}`, "-g", "-p", `${process.pid}`],
-    { stdio: [null, fs.createWriteStream(profilePath)] }
+    ["script"],
+    { stdio: ["inherit", "pipe", "inherit"] }
   );
 
   await new Promise((res, rej) => perfDump.on("exit", res).on("error", rej));
+
+  perfDump.stdout.pipe(fs.createWriteStream(profilePath));
 
   try {
     await fs.promises.unlink("perf.data");

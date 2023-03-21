@@ -17,7 +17,7 @@ The program will now exit.`;
 
 switch (profileType) {
   case "linux-native":
-    require("./runWithNativeCpuProfile");
+    require("./runWithLinuxPerf");
     break;
   case "js-cpu":
     require("./runWithJsCpuProfile");
