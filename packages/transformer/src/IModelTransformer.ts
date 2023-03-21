@@ -338,7 +338,8 @@ export class IModelTransformer extends IModelExportHandler {
     this._registerEvents();
   }
 
-  private _registerEvents() {
+  /** @internal */
+  public _registerEvents() {
     this.events.on(TransformerEvent.beginProcessAll, () => {
       Logger.logTrace(loggerCategory, "processAll()");
     });
