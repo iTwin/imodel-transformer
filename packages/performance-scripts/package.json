@@ -2,10 +2,8 @@
   "name": "performance-scripts",
   "version": "1.0.0",
   "main": "lib/index.js",
-  "description": "Scripts for profiling performance of JavaScript (iTwin.js) applications",
+  "description": "Scripts for profiling performance of JavaScript (iTwin.js) Transformer applications",
   "bin": {
-    "linux-profile-js": "./bin/linux-profile-js.sh",
-    "linux-profile-native": "./bin/linux-profile-native.sh",
     "linux-syscall-perf": "./bin/linux-syscall-perf.sh",
     "linux-resource-usage": "./bin/linux-resource-usage.sh"
   },

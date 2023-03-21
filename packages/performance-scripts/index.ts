@@ -1,4 +1,6 @@
 
+import * as os from "os";
+
 const profileTypes = ["linux-native", "js-cpu", "sqlite"] as const;
 const profileType = process.env.PROFILE_TYPE;
 
@@ -20,6 +22,8 @@ switch (profileType) {
     require("./runWithLinuxPerf");
     break;
   case "js-cpu":
+    if (os.userInfo().uid !== 0)
+      console.warn("You are not running as root, perf may have issues, see stderr.");
     require("./runWithJsCpuProfile");
     break;
   case "sqlite":
