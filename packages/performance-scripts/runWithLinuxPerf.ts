@@ -31,7 +31,7 @@ export async function runWithLinuxPerf<F extends () => any>(
     /** profile sampling interval in microseconds, you may want to adjust this to increase the resolution of your test
      * default to half a millesecond
      */
-    sampleHertz = process.env.PROFILE_SAMPLE_RATe ?? 99,
+    sampleHertz = process.env.PROFILE_SAMPLE_RATE ?? 99,
   } = {}
 ): Promise<ReturnType<F>> {
   if (attachedLinuxPerf !== undefined)
@@ -44,19 +44,23 @@ export async function runWithLinuxPerf<F extends () => any>(
   attachedLinuxPerf = child_process.spawn(
     "perf",
     ["record", "-F", `${sampleHertz}`, "-g", "-p", `${process.pid}`],
+    { stdio: "inherit" }
   );
 
   await new Promise((res, rej) => attachedLinuxPerf!.on("spawn", res).on("error", rej));
 
   // give perf a moment to attach
-  await new Promise(r => setTimeout(r, 25));
+  const perfWarmupDelay = +(process.env.PERF_WARMUP_DELAY || 500);
+  await new Promise(r => setTimeout(r, perfWarmupDelay));
 
   const result = await f();
 
+  const attachedPerfExited = new Promise((res, rej) => attachedLinuxPerf!.on("exit", res).on("error", rej));
+  attachedLinuxPerf.kill("SIGTERM");
+  await attachedPerfExited;
+
   const maybeNameTimePortion = timestamp ? `_${new Date().toISOString()}` : "";
   const profilePath = path.join(profileDir, `${profileName}${maybeNameTimePortion}${profileExtension}`);
-
-  attachedLinuxPerf.kill();
 
   const perfDump = child_process.spawn(
     "perf",
@@ -64,9 +68,11 @@ export async function runWithLinuxPerf<F extends () => any>(
     { stdio: ["inherit", "pipe", "inherit"] }
   );
 
-  await new Promise((res, rej) => perfDump.on("exit", res).on("error", rej));
+  const outStream = fs.createWriteStream(profilePath);
+  perfDump.stdout.pipe(outStream);
 
-  perfDump.stdout.pipe(fs.createWriteStream(profilePath));
+  await new Promise((res, rej) => perfDump.on("exit", res).on("error", rej));
+  outStream.close(); // doesn't seem to flush when the pipe closes
 
   try {
     await fs.promises.unlink("perf.data");
