@@ -4,20 +4,18 @@
 *--------------------------------------------------------------------------------------------*/
 
 import * as path from "path";
-import * as fs from "fs";
-import * as inspector from "inspector";
 import { IModelTransformer, TransformerEvent } from "@itwin/transformer";
 
 interface ProfileArgs {
   profileFullName?: string;
 }
 
-/**
- * Runs a function under the cpu profiler, by default creates cpu profiles in the working directory of
- * the test runner process.
- * You can override the default across all calls with the environment variable ITWIN_TESTS_CPUPROF_DIR,
- * or per functoin just pass a specific `profileDir`
- */
+const originalRegisterEvents = IModelTransformer.prototype._registerEvents;
+IModelTransformer.prototype._registerEvents = function () {
+  hookProfilerIntoTransformer(this);
+  return originalRegisterEvents.call(this);
+};
+
 export async function hookProfilerIntoTransformer(
   t: IModelTransformer,
   {

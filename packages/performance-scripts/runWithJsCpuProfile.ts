@@ -7,6 +7,8 @@ import * as path from "path";
 import * as fs from "fs";
 import * as inspector from "inspector";
 
+import { IModelTransformer, TransformerEvent } from "@itwin/transformer";
+
 /**
  * Runs a function under the cpu profiler, by default creates cpu profiles in the working directory of
  * the test runner process.
