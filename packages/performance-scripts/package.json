@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "main": "lib/index.js",
-  "description": "Scripts for profiling performance of JavaScript (iTwin.js) applications",
+  "description": "Scripts for profiling performance of JavaScript (iTwin.js) Transformer applications",
   "bin": {
     "linux-syscall-perf": "./bin/linux-syscall-perf.sh",
     "linux-resource-usage": "./bin/linux-resource-usage.sh"
