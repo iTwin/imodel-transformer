@@ -1,0 +1,138 @@
+# Azure pipeline yaml to run the tests against test iModels
+name: itwinjs-transformer-performance-$(Date:yyyyMMdd)
+
+trigger: none
+
+pr: none
+
+schedules:
+- cron: "0 0 * * 0"
+  displayName: Midnight Every Sunday
+  branches:
+    include:
+    - master
+  always: true
+
+stages:
+
+  - stage: build
+    displayName: Build
+
+    pool:
+      demands:
+      - Agent.OS -equals Linux
+      - Cmd
+      name: iModelTechCI
+
+    jobs:
+      - job:
+        displayName: Build
+
+        steps:
+          - task: NodeTool@0
+            displayName: 'Use Node 18.x'
+            inputs:
+              versionSpec: 18.*.*
+
+          - bash: |
+              $npmrcContent = @"
+                @bentley:registry=https://bentleycs.pkgs.visualstudio.com/_packaging/Packages/npm/registry/
+                always-auth=true
+              "@
+              $npmrcContent | Out-File $(Build.SourcesDirectory)/.npmrc -Encoding ascii
+            displayName: 'Create .npmrc'
+
+          - task: npmAuthenticate@0
+            displayName: 'Authenticate'
+            inputs:
+              workingFile: $(Build.SourcesDirectory)/.npmrc
+
+          - script: npm ci
+            displayName: 'npm install'
+            workingDirectory: $(Build.SourcesDirectory)
+
+          - script: npm run build
+            displayName: 'npm build'
+            workingDirectory: $(Build.SourcesDirectory)
+
+          - publish: $(Build.SourcesDirectory)
+            artifact: TestRunner
+
+  - stage: run
+    displayName: Run
+
+    pool:
+      name: iModelTech Performance Tests
+      demands:
+      - Agent.OS -equals Windows_NT
+      - Cmd
+
+    variables:
+      - group: iTwin.js Performance Test Users                  # auth info of users that have access to test iModels and kill GPB
+      - group: iTwin.js Transformer Performance Tests Client    # oidc client info
+
+    jobs:
+      - job:
+        displayName: "Run: Typical Cases"
+        timeoutInMinutes: 360
+        steps:
+          - task: NodeTool@0
+            displayName: 'Use Node 18.x'
+            inputs:
+              versionSpec: 18.*.*
+
+          - download: current
+            displayName: Download test runner
+            artifact: TestRunner
+
+          - script: npm run test
+            displayName: 'npm test'
+            workingDirectory: $(Pipeline.Workspace)/TestRunner
+            timeoutInMinutes: 360
+            env:
+              ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)
+              ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)
+              IMODEL_USER_NAME: $(imjs_user_email)
+              IMODEL_USER_PASSWORD: $(imjs_user_password)
+            continueOnError: true
+
+          - publish: $(Pipeline.Workspace)/TestRunner/results/report.csv
+            artifact: PerformanceTestReport-Typical
+            condition: always()
+
+          - publish: $(Pipeline.Workspace)/TestRunner/results/diagnostics
+            artifact: Diagnostics-Typical
+            condition: always()
+
+  - stage: publish
+    displayName: Publish Results
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
+
+    pool:
+      name: iModelTechCI
+      demands:
+      - Agent.OS -equals Windows_NT
+      - Cmd
+
+    variables:
+      - group: Performance Testing Database User # auth info of a user for uploading test results
+
+    jobs:
+      - job:
+        displayName: "Publish Results: Typical Cases"
+
+        steps:
+          - download: current
+            displayName: "Download Tests Report: Typical Cases"
+            artifact: PerformanceTestReport-Typical
+
+          - task: bentleysystemsinternal.iModel-Utilities-tasks.PerfData.PerfData@1
+            displayName: "Upload Typical Cases Results"
+            inputs:
+              AppId: iTwin.js Transformer
+              CsvPath: $(Pipeline.Workspace)/PerformanceTestReport-Typical/report.csv
+              BuildId: $(Build.BuildId)
+              DbName: imodeljsperfdata.database.windows.net
+              DbUser: $(DB_USER)
+              DbPassword: $(DB_PW)
+
