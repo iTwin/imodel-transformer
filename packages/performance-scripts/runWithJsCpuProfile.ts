@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as inspector from "inspector";
 
 import { IModelTransformer, TransformerEvent } from "@itwin/transformer";
+import { hookIntoTransformer } from "./hookIntoTransformer";
 
 /**
  * Runs a function under the cpu profiler, by default creates cpu profiles in the working directory of

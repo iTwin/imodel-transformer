@@ -5,36 +5,10 @@
 
 import * as path from "path";
 import { IModelTransformer, TransformerEvent } from "@itwin/transformer";
+import { hookIntoTransformer } from "./hookIntoTransformer";
 
 interface ProfileArgs {
   profileFullName?: string;
-}
-
-const originalRegisterEvents = IModelTransformer.prototype._registerEvents;
-IModelTransformer.prototype._registerEvents = function () {
-  hookProfilerIntoTransformer(this);
-  return originalRegisterEvents.call(this);
-};
-
-export async function hookProfilerIntoTransformer(
-  t: IModelTransformer,
-  {
-    profileDir = process.env.ITWIN_TESTS_CPUPROF_DIR ?? process.cwd(),
-    /** append an ISO timestamp to the name you provided */
-    timestamp = true,
-    profileName = "profile",
-    /** an extension to append to the profileName, including the ".". Defaults to ".sqlite.cpuprofile" */
-    profileExtension = ".sqlite.profile",
-  } = {}
-): Promise<void> {
-  const maybeNameTimePortion = timestamp ? `_${new Date().toISOString()}` : "";
-  const profileFullName = `${profileName}${maybeNameTimePortion}${profileExtension}`;
-  const profilePath = path.join(profileDir, profileFullName);
-
-  const profArgs = { profileFullName };
-  hooks.processAll(t, profArgs);
-  hooks.processSchemas(t, profArgs);
-  hooks.processChanges(t, profArgs);
 }
 
 const hooks = {
@@ -84,4 +58,25 @@ const hooks = {
     });
   },
 };
+
+hookIntoTransformer((
+  t: IModelTransformer,
+  {
+    profileDir = process.env.ITWIN_TESTS_CPUPROF_DIR ?? process.cwd(),
+    /** append an ISO timestamp to the name you provided */
+    timestamp = true,
+    profileName = "profile",
+    /** an extension to append to the profileName, including the ".". Defaults to ".sqlite.cpuprofile" */
+    profileExtension = ".sqlite.profile",
+  } = {}
+) => {
+  const maybeNameTimePortion = timestamp ? `_${new Date().toISOString()}` : "";
+  const profileFullName = `${profileName}${maybeNameTimePortion}${profileExtension}`;
+  const profilePath = path.join(profileDir, profileFullName);
+
+  const profArgs = { profileFullName };
+  hooks.processAll(t, profArgs);
+  hooks.processSchemas(t, profArgs);
+  hooks.processChanges(t, profArgs);
+});
 
