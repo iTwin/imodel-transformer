@@ -1227,8 +1227,8 @@ export class IModelTransformer extends IModelExportHandler {
     } finally {
       IModelJsFs.removeSync(this._schemaExportDir);
       this._longNamedSchemasMap.clear();
+      this.events.emit(TransformerEvent.endProcessSchemas);
     }
-    this.events.emit(TransformerEvent.endProcessSchemas);
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.
