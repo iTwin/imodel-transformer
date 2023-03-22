@@ -256,9 +256,9 @@ export class IModelExporter {
 
   public async exportElements({ includeRoot = true } = {}) {
     if (this.visitElements) {
+      const elemIds: {id: string, hasModel: boolean}[] = [];
       await this.sourceDb.withPreparedStatement(`
-        -- FIXME: figure out how to do null check in the query
-        SELECT e.ECInstanceId, m.ECInstanceId /*IS NOT NULL*/
+        SELECT e.ECInstanceId, iif(m.ECInstanceId IS NULL, 0, 1) AS HasModel
         FROM bis.Element e
         LEFT JOIN bis.Model m
           ON e.ECInstanceId=m.ECInstanceId
@@ -268,12 +268,15 @@ export class IModelExporter {
       `, async (stmt) => {
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           const elementId = stmt.getValue(0).getId();
-          const modelId = stmt.getValue(1).getId() ?? Id64.invalid;
-          await this.exportElement(elementId);
-          if (Id64.isValid(modelId))
-            await this.exportModel(modelId);
+          const hasModel = stmt.getValue(1).getBoolean();
+          elemIds.push({ id: elementId, hasModel });
         }
       });
+
+      for (const {id, hasModel} of elemIds) {
+        await this.exportElement(id);
+        if (hasModel) await this.exportModel(id);
+      }
     }
   }
 
