@@ -106,10 +106,46 @@ export class IModelImporter implements Required<IModelImportOptions> {
     IModel.dictionaryId,
     IModelImporter._realityDataSourceLinkPartitionStaticId,
   ]);
-  /** The number of entity changes before incremental progress should be reported via the [[onProgress]] callback. */
-  public progressInterval: number = 1000;
-  /** Tracks the current total number of entity changes. */
-  private _progressCounter: number = 0;
+
+  /** Tracks the current total number of entities exported. */
+  private _progressEntityCounter: number = 0;
+
+  private _progressInterval:
+    | number
+    | {
+        /**
+         * The amount of changeset memory at which to report progress (by calling [[onProgress]])
+         * @note This is particularly useful if you're calling [IModelDb.saveChanges]($backend) in an
+         *       [[onProgress]] override.
+         * @note This will not call [[onProgress]] again until the memory usage is underneath
+         *       the limit again.
+         */
+        changesetMemoryUsageMb?: number
+        /** the amount of entities at which to report progress (by calling [[onProgress]]) */
+        entityCount?: number
+      }
+    = { changesetMemoryUsageMb: 500 };
+
+  /** The threshold of incremental progress before reporting via the [[onProgress]] callback.
+   * Using just a number is equivalent to setting the `entityCount` options
+   */
+  public get progressInterval() {
+    return this._progressInterval;
+  }
+
+  // see the getter above
+  public set progressInterval(value: IModelImporter["_progressInterval"]) {
+    this._progressInterval = value;
+    if (typeof value !== "number" && value.changesetMemoryUsageMb !== undefined)
+      this.targetDb.nativeDb.enableChangesetSizeStats(true);
+  }
+
+  private get _progressIntervalObj() {
+    return typeof this.progressInterval === "number"
+      ? { entityCount: this.progressInterval }
+      : this.progressInterval;
+  }
+
   /** */
   private _modelPropertiesToIgnore = new Set<string>([
     "geometryGuid", // cannot compare GeometricModel.GeometryGuid values across iModels
@@ -498,18 +534,41 @@ export class IModelImporter implements Required<IModelImportOptions> {
     return `${relProps.classFullName} sourceId=[${relProps.sourceId}] targetId=[${relProps.targetId}]`;
   }
 
+  private hasExceededProgressChangesetMemoryUsage = false;
+
+  // NOTE: make part of a handler like exporter (or unify otherwise) and make async
   /** Tracks incremental progress */
   private trackProgress(): void {
-    this._progressCounter++;
-    if (0 === (this._progressCounter % this.progressInterval)) {
-      this.onProgress();
+    this._progressEntityCounter++;
+    const progressInterval = this._progressIntervalObj;
+    if (progressInterval.entityCount !== undefined
+      && (this._progressEntityCounter % progressInterval.entityCount) === 0
+    ) {
+      this.onProgress({ hitEntityCount: true });
+    }
+    if (progressInterval.changesetMemoryUsageMb !== undefined) {
+      const isNowExceeded = this.targetDb.nativeDb.getChangesetSize() > progressInterval.changesetMemoryUsageMb;
+      if (!this.hasExceededProgressChangesetMemoryUsage && isNowExceeded)
+        this.onProgress({ hitChangesetMemoryUsageMb: true });
+      this.hasExceededProgressChangesetMemoryUsage = isNowExceeded;
     }
   }
 
-  /** This method is called when IModelImporter has made incremental progress based on the [[progressInterval]] setting.
-   * @note A subclass may override this method to report custom progress but should call `super.onProgress`.
+  /** This method is called when IModelImporter has made incremental progress based on the [[IModelExporter.progressInterval]] setting.
+   * @note A subclass may override this method to report custom progress. The base implementation does nothing.
    */
-  protected onProgress(): void { }
+  protected onProgress(_reason: {
+    /**
+     * Whether the progress callback was made because the [[IModelExporter.progressInterval]]'s entityCount was reached and reset
+     * @note only defined if [[IModelExporter.progressInterval]] is set to an object containing `entityCount`
+     */
+    hitEntityCount?: boolean,
+    /**
+     * Whether the progress callback was made because the [[IModelExporter.progressInterval]]'s `changesetMemoryUsageMb` was reached
+     * @note only defined if [[IModelExporter.progressInterval]] is set to an object containing `changesetMemoryUsageMb`
+     */
+    hitChangesetMemoryUsageMb?: boolean
+  }) {}
 
   /** Optionally compute the projectExtents for the target iModel depending on the options for this IModelImporter.
    * @note This method is automatically called from [IModelTransformer.processChanges]($transformer) and [IModelTransformer.processAll]($transformer).

@@ -192,8 +192,9 @@ export class IModelExporter {
         /**
          * The amount of changeset memory at which to report progress (by calling [[onProgress]])
          * @note This is particularly useful if you're calling [IModelDb.saveChanges]($backend) in an
-         *       [[onProgress]] override. Otherwise, it will continously call [[onProgress]] after each
-         *       entity transformation until [IModelDb.saveChanges]($backend)  is called.
+         *       [[onProgress]] override.
+         * @note This will not call [[onProgress]] again until the memory usage is underneath
+         *       the limit again.
          */
         changesetMemoryUsageMb?: number
         /** the amount of entities at which to report progress (by calling [[onProgress]]) */
@@ -795,7 +796,7 @@ export class IModelExporter {
     this._progressEntityCounter++;
     const progressInterval = this._progressIntervalObj;
     if (progressInterval.entityCount && (this._progressEntityCounter % progressInterval.entityCount) === 0) {
-      return this.handler.onProgress({ hitEntityCount: true });
+      this.handler.onProgress({ hitEntityCount: true });
     }
   }
 
