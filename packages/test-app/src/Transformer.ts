@@ -32,15 +32,28 @@ export class Transformer extends IModelTransformer {
   private _targetPhysicalModelId = Id64.invalid; // will be valid when PhysicalModels are being combined
 
   public static async transformAll(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions): Promise<void> {
+    // TODO: do this in all transformers somehow
     // might need to inject RequestContext for schemaExport.
-    const transformer = new Transformer(sourceDb, targetDb, options);
+    const importer = new (class extends IModelImporter {
+      public constructor(...[db, opts]: ConstructorParameters<typeof IModelImporter>) {
+        super(db, { ...opts, simplifyElementGeometry: options?.simplifyElementGeometry });
+      }
+      public override onProgress(...[reason]: Parameters<IModelImporter["onProgress"]>) {
+        super.onProgress(reason);
+        if (reason.hitChangesetMemoryUsageMb) {
+          this.targetDb.saveChanges();
+        }
+      }
+    })(targetDb);
+    importer.progressInterval = { changesetMemoryUsageMb: 500 };
+    const transformer = new Transformer(sourceDb, importer, options);
     await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
+    targetDb.saveChanges("processSchemas");
     await transformer.processAll();
-    await transformer.saveChanges("processAll");
+    targetDb.saveChanges("processAll");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+      targetDb.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.dispose();
     transformer.logElapsedTime();
@@ -53,12 +66,12 @@ export class Transformer extends IModelTransformer {
     }
     const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
+    targetDb.saveChanges("processSchemas");
     await transformer.processChanges(requestContext, sourceStartChangesetId);
-    await transformer.saveChanges("processChanges");
+    targetDb.saveChanges("processChanges");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+      targetDb.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.dispose();
     transformer.logElapsedTime();
@@ -87,20 +100,24 @@ export class Transformer extends IModelTransformer {
     }
     const transformer = new IsolateElementsTransformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
+    targetDb.saveChanges("processSchemas");
     for (const id of isolatedElementIds)
       await transformer.processElement(id);
-    await transformer.saveChanges("process isolated elements");
+    targetDb.saveChanges("process isolated elements");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+      targetDb.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.logElapsedTime();
     return transformer;
   }
 
-  private constructor(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
-    super(sourceDb, new IModelImporter(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry }), options);
+  private constructor(sourceDb: IModelDb, targetDb: IModelDb | IModelImporter, options?: TransformerOptions) {
+    super(
+      sourceDb,
+      targetDb instanceof IModelImporter ? targetDb : new IModelImporter(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry }),
+      options
+    );
 
     Logger.logInfo(loggerCategory, `sourceDb=${this.sourceDb.pathName}`);
     Logger.logInfo(loggerCategory, `targetDb=${this.targetDb.pathName}`);
@@ -260,6 +277,7 @@ export class Transformer extends IModelTransformer {
     return super.shouldExportRelationship(relationship);
   }
 
+  // @note saveChanges is handled by the IModelImporter's onProgress override
   public override async onProgress(): Promise<void> {
     if (this._numSourceElementsProcessed > 0) {
       if (this._numSourceElementsProcessed >= this._numSourceElements) {
@@ -277,12 +295,7 @@ export class Transformer extends IModelTransformer {
     }
     this.logElapsedTime();
     this.logChangeTrackingMemoryUsed();
-    await this.saveChanges("onProgress");
     return super.onProgress();
-  }
-
-  private async saveChanges(description: string): Promise<void> {
-    this.targetDb.saveChanges(description);
   }
 
   private logElapsedTime(): void {
