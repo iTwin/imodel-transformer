@@ -256,22 +256,23 @@ export class IModelExporter {
 
   public async exportElements({ includeRoot = true } = {}) {
     if (this.visitElements) {
-      this.sourceDb.withPreparedStatement(`
+      await this.sourceDb.withPreparedStatement(`
         -- FIXME: figure out how to do null check in the query
         SELECT e.ECInstanceId, m.ECInstanceId /*IS NOT NULL*/
         FROM bis.Element e
-        JOIN bis.Model m
+        LEFT JOIN bis.Model m
           ON e.ECInstanceId=m.ECInstanceId
-        ${includeRoot ? `WHERE e.ECInstanceId<>${IModelDb.rootSubjectId}` : ""
+        ${!includeRoot ? `WHERE e.ECInstanceId<>${IModelDb.rootSubjectId}` : ""
         }
         ORDER BY e.ECInstanceId
       `, async (stmt) => {
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           const elementId = stmt.getValue(0).getId();
-          const modelId = stmt.getValue(1).getId();
+          const modelId = stmt.getValue(1).getId() ?? Id64.invalid;
+          console.log(elementId, modelId);
+          await this.exportElement(elementId);
           if (Id64.isValid(modelId))
             await this.exportModel(modelId);
-          await this.exportElement(elementId);
         }
       });
     }
