@@ -716,14 +716,19 @@ export class IModelExporter {
     }
     Logger.logTrace(loggerCategory, `exportRelationships(${baseRelClassFullName})`);
     const sql = `SELECT ECInstanceId FROM ${baseRelClassFullName}`;
+    const relIds: string[] = [];
     await this.sourceDb.withPreparedStatement(sql, async (statement: ECSqlStatement): Promise<void> => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const relInstanceId: Id64String = statement.getValue(0).getId();
-        const relProps: RelationshipProps = this.sourceDb.relationships.getInstanceProps(baseRelClassFullName, relInstanceId);
-        await this.exportRelationship(relProps.classFullName, relInstanceId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
-        await this._yieldManager.allowYield();
+        relIds.push(relInstanceId);
       }
     });
+
+    for (const relId of relIds) {
+      const relProps: RelationshipProps = this.sourceDb.relationships.getInstanceProps(baseRelClassFullName, relId);
+      await this.exportRelationship(relProps.classFullName, relId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
+      await this._yieldManager.allowYield();
+    }
   }
 
   /** Export a relationship from the source iModel. */
