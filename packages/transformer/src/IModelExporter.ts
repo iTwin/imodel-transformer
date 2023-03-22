@@ -269,7 +269,6 @@ export class IModelExporter {
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           const elementId = stmt.getValue(0).getId();
           const modelId = stmt.getValue(1).getId() ?? Id64.invalid;
-          console.log(elementId, modelId);
           await this.exportElement(elementId);
           if (Id64.isValid(modelId))
             await this.exportModel(modelId);
