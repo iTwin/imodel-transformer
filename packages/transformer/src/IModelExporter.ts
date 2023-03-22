@@ -254,13 +254,37 @@ export class IModelExporter {
     this._excludedRelationshipClasses.add(this.sourceDb.getJsClass<typeof Relationship>(classFullName));
   }
 
+  public async exportElements({ includeRoot = true } = {}) {
+    if (this.visitElements) {
+      this.sourceDb.withPreparedStatement(`
+        -- FIXME: figure out how to do null check in the query
+        SELECT e.ECInstanceId, m.ECInstanceId /*IS NOT NULL*/
+        FROM bis.Element e
+        JOIN bis.Model m
+          ON e.ECInstanceId=m.ECInstanceId
+        ${includeRoot ? `WHERE e.ECInstanceId<>${IModelDb.rootSubjectId}` : ""
+        }
+        ORDER BY e.ECInstanceId
+      `, async (stmt) => {
+        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+          const elementId = stmt.getValue(0).getId();
+          const modelId = stmt.getValue(1).getId();
+          if (Id64.isValid(modelId))
+            await this.exportModel(modelId);
+          await this.exportElement(elementId);
+        }
+      });
+    }
+  }
+
   /** Export all entity instance types from the source iModel.
    * @note [[exportSchemas]] must be called separately.
    */
   public async exportAll(): Promise<void> {
     await this.exportCodeSpecs();
     await this.exportFonts();
-    await this.exportModel(IModel.repositoryModelId);
+    await this.exportElements();
+    //await this.exportModel(IModel.repositoryModelId);
     await this.exportRelationships(ElementRefersToElements.classFullName);
   }
 
@@ -466,10 +490,12 @@ export class IModelExporter {
     Logger.logTrace(loggerCategory, `exportModel(${modeledElementId})`);
     if (this.shouldExportElement(modeledElement)) {
       await this.exportModelContainer(model);
+      /*
       if (this.visitElements) {
         await this.exportModelContents(modeledElementId);
       }
-      await this.exportSubModels(modeledElementId);
+      */
+      //await this.exportSubModels(modeledElementId);
     }
   }
 
@@ -606,18 +632,19 @@ export class IModelExporter {
       } else {
         // NOTE: This optimization assumes that the Element will change (LastMod) if an owned ElementAspect changes
         // NOTE: However, child elements may have changed without the parent changing
-        return this.exportChildElements(elementId);
+        //return this.exportChildElements(elementId);
+        return;
       }
     }
     const element: Element = this.sourceDb.elements.getElement({ id: elementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
     Logger.logTrace(loggerCategory, `exportElement(${element.id}, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`);
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {
-      await this.handler.preExportElement(element);
+      // should no longer be necessary
+      //await this.handler.preExportElement(element);
       this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this.exportElementAspects(elementId);
-      return this.exportChildElements(elementId);
     }
   }
 
