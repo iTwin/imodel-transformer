@@ -135,18 +135,7 @@ export abstract class IModelExportHandler {
    * This method is `async` to make it easier to integrate with asynchronous status and health reporting services.
    * @note A subclass may override this method to report custom progress. The base implementation does nothing.
    */
-  public async onProgress(_reason: {
-    /**
-     * Whether the progress callback was made because the [[IModelExporter.progressInterval]]'s entityCount was reached and reset
-     * @note only defined if [[IModelExporter.progressInterval]] is set to an object containing `entityCount`
-     */
-    hitEntityCount?: boolean,
-    /**
-     * Whether the progress callback was made because the [[IModelExporter.progressInterval]]'s `changesetMemoryUsageMb` was reached
-     * @note only defined if [[IModelExporter.progressInterval]] is set to an object containing `changesetMemoryUsageMb`
-     */
-    hitChangesetMemoryUsageMb?: boolean
-  }): Promise<void> { }
+  public async onProgress(): Promise<void> { }
 }
 
 /** Base class for exporting data from an iModel.
@@ -182,35 +171,10 @@ export class IModelExporter {
    * @note This flag is available as an optimization when the exporter doesn't need to visit relationships, so can skip loading them.
    */
   public visitRelationships: boolean = true;
-
-  /** The threshold of incremental progress before reporting via the [[onProgress]] callback.
-   * Using just a number is equivalent to setting the `entityCount` options
-   */
-  public progressInterval:
-    | number
-    | {
-        /**
-         * The amount of changeset memory at which to report progress (by calling [[onProgress]])
-         * @note This is particularly useful if you're calling [IModelDb.saveChanges]($backend) in an
-         *       [[onProgress]] override.
-         * @note This will not call [[onProgress]] again until the memory usage is underneath
-         *       the limit again.
-         */
-        changesetMemoryUsageMb?: number
-        /** the amount of entities at which to report progress (by calling [[onProgress]]) */
-        entityCount?: number
-      }
-    = { changesetMemoryUsageMb: 500 };
-
-  private get _progressIntervalObj() {
-    return typeof this.progressInterval === "number"
-      ? { entityCount: this.progressInterval }
-      : this.progressInterval;
-  }
-
+  /** The number of entities exported before incremental progress should be reported via the [[onProgress]] callback. */
+  public progressInterval: number = 1000;
   /** Tracks the current total number of entities exported. */
-  private _progressEntityCounter: number = 0;
-
+  private _progressCounter: number = 0;
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
   /**
@@ -793,10 +757,9 @@ export class IModelExporter {
 
   /** Tracks incremental progress */
   private async trackProgress(): Promise<void> {
-    this._progressEntityCounter++;
-    const progressInterval = this._progressIntervalObj;
-    if (progressInterval.entityCount && (this._progressEntityCounter % progressInterval.entityCount) === 0) {
-      this.handler.onProgress({ hitEntityCount: true });
+    this._progressCounter++;
+    if (0 === (this._progressCounter % this.progressInterval)) {
+      return this.handler.onProgress();
     }
   }
 
