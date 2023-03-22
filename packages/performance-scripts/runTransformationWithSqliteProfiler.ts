@@ -14,52 +14,58 @@ interface ProfileArgs {
 
 const hooks = {
   processSchemas(t: IModelTransformer) {
-    t.events.on(TransformerEvent.beginProcessSchemas, () => {
-      t.sourceDb.nativeDb.startProfiler(
-        "transformer",
-        "processSchemas",
-        undefined,
-        true
-      );
-    });
+    for (const db of [t.sourceDb, t.targetDb]) {
+      t.events.on(TransformerEvent.beginProcessSchemas, () => {
+        db.nativeDb.startProfiler(
+          "transformer",
+          "processSchemas",
+          undefined,
+          true
+        );
+      });
 
-    t.events.on(TransformerEvent.endProcessSchemas, () => {
-      const result = t.sourceDb.nativeDb.stopProfiler();
-      console.log(result.fileName);
-      // TODO: rename the filename to the name we want
-    });
+      t.events.on(TransformerEvent.endProcessSchemas, () => {
+        const result = db.nativeDb.stopProfiler();
+        console.log(result.fileName);
+        // TODO: rename the filename to the name we want
+      });
+    }
   },
 
   processAll(t: IModelTransformer) {
-    t.events.on(TransformerEvent.beginProcessAll, () => {
-      t.sourceDb.nativeDb.startProfiler(
-        "transformer",
-        "processAll",
-        undefined,
-        true
-      );
-    });
+    for (const db of [t.sourceDb, t.targetDb]) {
+      t.events.on(TransformerEvent.beginProcessAll, () => {
+        db.nativeDb.startProfiler(
+          "transformer",
+          "processAll",
+          undefined,
+          true
+        );
+      });
 
-    t.events.on(TransformerEvent.endProcessAll, () => {
-      const result = t.sourceDb.nativeDb.stopProfiler();
-      console.log(result.fileName);
-    });
+      t.events.on(TransformerEvent.endProcessAll, () => {
+        const result = db.nativeDb.stopProfiler();
+        console.log(result.fileName);
+      });
+    }
   },
 
   processChanges(t: IModelTransformer) {
-    t.events.on(TransformerEvent.beginProcessChanges, () => {
-      t.sourceDb.nativeDb.startProfiler(
-        "transformer",
-        "processChanges",
-        undefined,
-        true
-      );
-    });
+    for (const db of [t.sourceDb, t.targetDb]) {
+      t.events.on(TransformerEvent.beginProcessChanges, () => {
+        db.nativeDb.startProfiler(
+          "transformer",
+          "processChanges",
+          undefined,
+          true
+        );
+      });
 
-    t.events.on(TransformerEvent.endProcessChanges, () => {
-      const result = t.sourceDb.nativeDb.stopProfiler();
-      console.log(result.fileName);
-    });
+      t.events.on(TransformerEvent.endProcessChanges, () => {
+        const result = db.nativeDb.stopProfiler();
+        console.log(result.fileName);
+      });
+    }
   },
 };
 
