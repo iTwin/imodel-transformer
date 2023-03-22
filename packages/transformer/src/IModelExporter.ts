@@ -640,8 +640,8 @@ export class IModelExporter {
     Logger.logTrace(loggerCategory, `exportElement(${element.id}, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`);
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {
-      // should no longer be necessary
-      //await this.handler.preExportElement(element);
+      // should be avoidable, but at least e.g. modelSelector in view definition can be inserted after its view definition but is still required
+      await this.handler.preExportElement(element);
       this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this.exportElementAspects(elementId);
