@@ -12,58 +12,55 @@ interface ProfileArgs {
   profileFullName?: string;
 }
 
+type IModelDb = IModelTransformer["sourceDb"];
+
+const profName = (profileName: string) => {
+  const profileDir = process.env.ITWIN_TESTS_CPUPROF_DIR ?? process.cwd();
+  const profileExtension = ".sqliteprofile.db";
+  const nameTimePortion = `_${new Date().toISOString()}`;
+  return path.join(profileDir, `${profileName}${nameTimePortion}${profileExtension}`);
+}
+
+// FIXME: make this a function!
 const hooks = {
   processSchemas(t: IModelTransformer) {
-    for (const db of [t.sourceDb, t.targetDb]) {
+    for (const [db, type] of [[t.sourceDb, "source"], [t.targetDb, "target"]] as const) {
       t.events.on(TransformerEvent.beginProcessSchemas, () => {
-        db.nativeDb.startProfiler(
-          "transformer",
-          "processSchemas",
-          undefined,
-          true
-        );
+        db.nativeDb.startProfiler("transformer", "processSchemas", true, true);
       });
 
       t.events.on(TransformerEvent.endProcessSchemas, () => {
         const result = db.nativeDb.stopProfiler();
-        console.log(result.fileName);
-        // TODO: rename the filename to the name we want
+        if (result.fileName)
+          fs.renameSync(result.fileName, profName(`processSchemas_${type}`));
       });
     }
   },
 
   processAll(t: IModelTransformer) {
-    for (const db of [t.sourceDb, t.targetDb]) {
+    for (const [db, type] of [[t.sourceDb, "source"], [t.targetDb, "target"]] as const) {
       t.events.on(TransformerEvent.beginProcessAll, () => {
-        db.nativeDb.startProfiler(
-          "transformer",
-          "processAll",
-          undefined,
-          true
-        );
+        db.nativeDb.startProfiler("transformer", "processAll", true, true);
       });
 
       t.events.on(TransformerEvent.endProcessAll, () => {
         const result = db.nativeDb.stopProfiler();
-        console.log(result.fileName);
+        if (result.fileName)
+          fs.renameSync(result.fileName, profName(`processAll_${type}`));
       });
     }
   },
 
   processChanges(t: IModelTransformer) {
-    for (const db of [t.sourceDb, t.targetDb]) {
+    for (const [db, type] of [[t.sourceDb, "source"], [t.targetDb, "target"]] as const) {
       t.events.on(TransformerEvent.beginProcessChanges, () => {
-        db.nativeDb.startProfiler(
-          "transformer",
-          "processChanges",
-          undefined,
-          true
-        );
+        db.nativeDb.startProfiler("transformer", "processChanges", true, true);
       });
 
       t.events.on(TransformerEvent.endProcessChanges, () => {
         const result = db.nativeDb.stopProfiler();
-        console.log(result.fileName);
+        if (result.fileName)
+          fs.renameSync(result.fileName, profName(`processChanges_${type}`));
       });
     }
   },
