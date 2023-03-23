@@ -7,6 +7,7 @@ BRANCHES="${@:-performance-scripts experiment-fast-transformer linear-traversal}
 for branch in $BRANCHES; do
   git checkout $branch
   pnpm i
+  pnpm -r clean
   pnpm -r build
   DIR="result_$branch"
   mkdir $DIR
@@ -14,7 +15,7 @@ for branch in $BRANCHES; do
   pushd ../test-app
   for prof_type in sqlite js-cpu linux-native; do
     PROFILE_TYPE=$prof_type NODE_OPTIONS='-r ../performance-scripts' \
-      node lib/Main.js --sourceFile ~/work/Juergen.Hofer.Bad.Normals.bim \
+      node lib/Main.js --sourceFile ~/work/bad-aspect-old.bim \
           --targetDestination /tmp/out.bim
     mv *.cpuprofile *-profile.db $DIR
   done
