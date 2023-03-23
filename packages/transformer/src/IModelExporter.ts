@@ -233,10 +233,11 @@ export class IModelExporter {
           WHERE SourceECInstanceId=e.ECInstanceId
         ) as Models
         FROM bis.Element e
-        WHERE e.ECInstanceId > ${id}
+        WHERE e.ECInstanceId >= ?
         ORDER BY e.ECInstanceId
         LIMIT ${this._cacheBlockSize}
       `, (stmt) => {
+        stmt.bindId(1, id);
         // eslint-disable-next-line @typescript-eslint/no-shadow
         for (const { id, className, ["e.$"]: $, categories, models } of stmt) {
           /* eslint-disable @typescript-eslint/naming-convention */
