@@ -17,7 +17,7 @@ for branch in $BRANCHES; do
     PROFILE_TYPE=$prof_type NODE_OPTIONS='-r ../performance-scripts' \
       node lib/Main.js --sourceFile ~/work/bad-aspect-old.bim \
           --targetDestination /tmp/out.bim
-    mv *.cpuprofile *-profile.db $DIR
+    mv *.cpuprofile *.sqliteprofile.db $DIR
   done
   popd
 done
