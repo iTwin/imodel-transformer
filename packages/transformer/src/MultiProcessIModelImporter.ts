@@ -77,7 +77,7 @@ export class MultiProcessIModelImporter extends IModelImporter {
       const id = this._nextId;
       this._nextId++;
       const onMsg = (msg: Message) => {
-        console.log("parent received settler:", JSON.stringify(msg));
+        //console.log("parent received settler:", JSON.stringify(msg));
         if (msg.type === Messages.Settled && msg.id === id) {
           resolve();
           this._worker.off("message", onMsg);
@@ -85,7 +85,6 @@ export class MultiProcessIModelImporter extends IModelImporter {
       };
       this._worker.on("message", onMsg);
       this._worker.send({ ...wrapperMsg, id } as Message);
-      console.log("parent send await", id, wrapperMsg);
     });
   }
 
@@ -99,7 +98,7 @@ export class MultiProcessIModelImporter extends IModelImporter {
 
       // TODO use a library to do this
       for (const { target, key: targetKey, forwardedMethods, promisedMethods, set } of [
-        { target: targetDb, key: "targetDb", promisedMethods: ["importSchemas"], set: (v: any) => (targetDb = v) },
+        { target: targetDb, key: "targetDb", promisedMethods: ["importSchemas", "saveChanges"], set: (v: any) => (targetDb = v) },
         { target: targetDb.elements, key: "targetDb.elements", forwardedMethods: ["insertAspect", "updateAspect", "updateElement"], set: (v: any) => ((targetDb as any).elements = v) },
         { target: targetDb.relationships, key: "targetDb.relationships", forwardedMethods: ["insertRelationship"], set: (v: any) => ((targetDb as any)._relationships = v)  },
         { target: targetDb.models, key: "targetDb.relationships", forwardedMethods: ["insertModel", "updateModel"], set: (v: any) => ((targetDb as any).models = v)  },

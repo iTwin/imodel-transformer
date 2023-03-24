@@ -804,6 +804,8 @@ export class IModelTransformer extends IModelExportHandler {
     return { needsElemImport: !isElemInTarget, needsModelImport };
   }
 
+  private _queuedImports = new Map<Id64String, Promise<Id64String>>();
+
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
@@ -868,10 +870,15 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     targetElementProps.id = targetElementId; // targetElementId will be valid (indicating update) or undefined (indicating insert)
+
+    // don't need to import if iModel was copied
     if (!this._options.wasSourceIModelCopiedToTarget) {
       if (targetElementProps.id)
         onGetImportedId(targetElementProps.id);
-      this.importer.importElement(targetElementProps).then(onGetImportedId); // don't need to import if iModel was copied
+      // TODO: make the remap table return promises or ids
+      const importPromise = this.importer.importElement(targetElementProps);
+      importPromise.then(onGetImportedId);
+      this._queuedImports.set(sourceElement.id, importPromise);
     }
   }
 
