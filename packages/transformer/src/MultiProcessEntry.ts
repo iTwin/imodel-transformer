@@ -1,4 +1,6 @@
 
+import * as assert from "assert";
+
 assert(require.main === module, "expected to be program entry point");
 assert(process.send, "expected to be spawned with an ipc channel");
 
@@ -29,15 +31,21 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
 
 let worker: MultiProcessIModelImporterWorker;
 
-// FIXME: allow user to provide a module to load this
-const targetDb = StandaloneDb.open({ fileName: targetDbPath });
+async function main() {
+  await IModelHost.startup();
 
-const onInit = async (msg: Message) => {
-  if (msg.type === Messages.Init) {
-    worker = new MultiProcessIModelImporterWorker(await targetDb, msg.importerInitOptions);
-    process.off("message", onInit);
+  // FIXME: allow user to provide a module to load this
+  const targetDb = StandaloneDb.open({ fileName: targetDbPath });
+
+  const onInit = async (msg: Message) => {
+    if (msg.type === Messages.Init) {
+      worker = new MultiProcessIModelImporterWorker(await targetDb, msg.importerInitOptions);
+      process.off("message", onInit);
+    }
   }
+
+  process.on("message", onInit);
 }
 
-process.on("message", onInit);
+main().catch(console.error);
 

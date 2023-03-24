@@ -9,7 +9,7 @@ import {
   IModelDb, ModelSelector, PhysicalModel, PhysicalPartition, Relationship, SpatialCategory,
   SpatialViewDefinition, SubCategory, ViewDefinition,
 } from "@itwin/core-backend";
-import { IModelImporter, IModelTransformer, IModelTransformOptions } from "@itwin/transformer";
+import { IModelImporter, IModelTransformer, IModelTransformOptions, MultiProcessIModelImporter } from "@itwin/transformer";
 import { ElementProps, IModel } from "@itwin/core-common";
 
 export const loggerCategory = "imodel-transformer";
@@ -33,7 +33,7 @@ export class Transformer extends IModelTransformer {
 
   public static async transformAll(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions): Promise<void> {
     // might need to inject RequestContext for schemaExport.
-    const transformer = new Transformer(sourceDb, targetDb, options);
+    const transformer = await Transformer.create(sourceDb, targetDb, options);
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
     await transformer.processAll();
@@ -51,7 +51,7 @@ export class Transformer extends IModelTransformer {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
     }
-    const transformer = new Transformer(sourceDb, targetDb, options);
+    const transformer = await Transformer.create(sourceDb, targetDb, options);
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
     await transformer.processChanges(requestContext, sourceStartChangesetId);
@@ -99,8 +99,13 @@ export class Transformer extends IModelTransformer {
     return transformer;
   }
 
-  private constructor(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
-    super(sourceDb, new IModelImporter(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry }), options);
+  public static async create(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
+    const importer = await MultiProcessIModelImporter.create(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry });
+    return new Transformer(sourceDb, importer, options);
+  }
+
+  private constructor(sourceDb: IModelDb, targetDb: IModelImporter | IModelDb, options?: TransformerOptions) {
+    super(sourceDb, targetDb, options);
 
     Logger.logInfo(loggerCategory, `sourceDb=${this.sourceDb.pathName}`);
     Logger.logInfo(loggerCategory, `targetDb=${this.targetDb.pathName}`);

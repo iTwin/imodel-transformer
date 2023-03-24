@@ -1,12 +1,12 @@
 
 import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import * as child_process from "child_process";
-import { IModelDb } from "@itwin/core-backend";
+import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
 
 export interface MultiProcessImporterOptions extends IModelImportOptions {
   // TODO: implement
   /** the path to a module with a default export of an IModelImporter class to load */
-  importerClassModulePath: string;
+  importerClassModulePath?: string;
 }
 
 /** @internal */
@@ -55,14 +55,22 @@ export type Message =
 export class MultiProcessIModelImporter extends IModelImporter {
   private _worker: child_process.ChildProcess;
 
-  public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
+  public static async create(targetDb: IModelDb, options: MultiProcessImporterOptions): Promise<MultiProcessIModelImporter> {
+    if (!targetDb.isReadonly) {
+      const targetDbPath = targetDb.pathName;
+      const targetDbType = targetDb.constructor as typeof BriefcaseDb | typeof StandaloneDb;
+      targetDb.close(); // close it, the spawned process will need the write lock
+      const readonlyTargetDb = await targetDbType.open({ fileName: targetDbPath, readonly: true });
+      targetDb = readonlyTargetDb;
+    }
+    return new MultiProcessIModelImporter(targetDb, options);
+  }
+
+  private constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
     super(targetDb, options);
 
-    const pathName = targetDb.pathName;
-    targetDb.close(); // close it, the spawned process will need the write lock
-
     this._worker = child_process.fork(require.resolve("./MultiProcessEntry"),
-      [pathName], 
+      [targetDb.pathName],
       {
         serialization: "advanced", // allow transferring of binary geometry efficiently
       }
