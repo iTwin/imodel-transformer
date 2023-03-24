@@ -23,7 +23,10 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
             = msg.target === "importer" ? this
             : msg.target === "targetDb" ? this.targetDb
             : msg.target === "targetDb.elements" ? this.targetDb.elements
+            : msg.target === "targetDb.relationships" ? this.targetDb.relationships
+            : msg.target === "targetDb.models" ? this.targetDb.models
             : assert(false, "unknown target") as never;
+          console.log(msg.method, msg.args);
           return (thisArg as any)[msg.method].call(thisArg, ...msg.args);
         }
         case Messages.SetOption: {

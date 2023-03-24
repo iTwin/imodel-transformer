@@ -30,6 +30,10 @@ export class IModelCloneContext extends IModelElementCloneContext {
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
   }
 
+  public override importFont(_id: number) {
+    // FIXME: implement!
+  }
+
   /**
    * Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel.
    * @deprecated, use [[targetIsSource]]
