@@ -41,10 +41,10 @@ export class IModelCloneContext extends IModelElementCloneContext {
   public get targetIsSource(): boolean { return this.sourceDb !== this.targetDb; }
 
   private _aspectRemapTable = new Map<Id64String, Id64String>();
-  private _elementRemaps = new Map<Id64String, Id64String>();
-  private _codeSpecRemaps = new Map<Id64String, Id64String>();
+  private _elementRemapTable = new Map<Id64String, Id64String>();
+  private _codeSpecRemapTable = new Map<Id64String, Id64String>();
 
-  private _elementClassRemaps = new Map<typeof Entity, typeof Entity>();
+  private _elementClassRemapTable = new Map<typeof Entity, typeof Entity>();
 
   /** Add a rule that remaps the specified source [CodeSpec]($common) to the specified target [CodeSpec]($common).
    * @param sourceCodeSpecName The name of the CodeSpec from the source iModel.
@@ -54,7 +54,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
   public override remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void {
     const sourceCodeSpec = this.sourceDb.codeSpecs.getByName(sourceCodeSpecName);
     const targetCodeSpec = this.targetDb.codeSpecs.getByName(targetCodeSpecName);
-    this._codeSpecRemaps.set(sourceCodeSpec.id, targetCodeSpec.id);
+    this._codeSpecRemapTable.set(sourceCodeSpec.id, targetCodeSpec.id);
   }
 
   /** Add a rule that remaps the specified source class to the specified target class. */
@@ -62,17 +62,17 @@ export class IModelCloneContext extends IModelElementCloneContext {
     // NOTE: should probably also map class ids
     const sourceClass = ClassRegistry.getClass(sourceClassFullName, this.sourceDb);
     const targetClass = ClassRegistry.getClass(targetClassFullName, this.targetDb);
-    this._elementClassRemaps.set(sourceClass, targetClass);
+    this._elementClassRemapTable.set(sourceClass, targetClass);
   }
 
   /** Add a rule that remaps the specified source Element to the specified target Element. */
   public override remapElement(sourceId: Id64String, targetId: Id64String): void {
-    this._elementRemaps.set(sourceId, targetId);
+    this._elementRemapTable.set(sourceId, targetId);
   }
 
   /** Remove a rule that remaps the specified source Element. */
   public override removeElement(sourceId: Id64String): void {
-    this._elementRemaps.delete(sourceId);
+    this._elementRemapTable.delete(sourceId);
   }
 
   /** Look up a target CodeSpecId from the source CodeSpecId.
@@ -82,7 +82,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
     if (Id64.invalid === sourceId) {
       return Id64.invalid;
     }
-    return this._codeSpecRemaps.get(sourceId) ?? Id64.invalid;
+    return this._codeSpecRemapTable.get(sourceId) ?? Id64.invalid;
   }
 
   /** Look up a target ElementId from the source ElementId.
@@ -92,7 +92,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
     if (Id64.invalid === sourceElementId) {
       return Id64.invalid;
     }
-    return this._elementRemaps.get(sourceElementId) ?? Id64.invalid;
+    return this._elementRemapTable.get(sourceElementId) ?? Id64.invalid;
   }
 
   /** Add a rule that remaps the specified source ElementAspect to the specified target ElementAspect. */
@@ -312,7 +312,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
    * @internal
    */
   public importCodeSpec(sourceCodeSpecId: Id64String): void {
-    if (this._codeSpecRemaps.has(sourceCodeSpecId))
+    if (this._codeSpecRemapTable.has(sourceCodeSpecId))
       return;
     if (this.targetIsSource)
       return;
