@@ -8,20 +8,22 @@
 import * as assert from "assert";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
-  ConcreteEntityTypes, ElementAspectProps, EntityReference, IModelError,
+  CodeSpec,
+  ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, EntityReference, IModelError,
   PrimitiveTypeCode, RelatedElementProps,
 } from "@itwin/core-common";
 import {
-  ElementAspect, EntityReferences, IModelElementCloneContext, SQLiteDb,
+  ClassRegistry,
+  Element, ElementAspect, Entity, EntityReferences, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @beta
+ * FIXME: while this inherits from IModelElementCloneContext, it ignores the remapping tables there and keeps them in JS (for now)
  */
 export class IModelCloneContext extends IModelElementCloneContext {
-
   private _refTypesCache = new ECReferenceTypesCache();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
@@ -29,7 +31,69 @@ export class IModelCloneContext extends IModelElementCloneContext {
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
   }
 
+  /**
+   * Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel.
+   * @deprecated, use [[targetIsSource]]
+   */
+  public override get isBetweenIModels(): boolean { return this.targetIsSource; }
+
+  /** Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel. */
+  public get targetIsSource(): boolean { return this.sourceDb !== this.targetDb; }
+
   private _aspectRemapTable = new Map<Id64String, Id64String>();
+  private _elementRemaps = new Map<Id64String, Id64String>();
+  private _codeSpecRemaps = new Map<Id64String, Id64String>();
+
+  private _elementClassRemaps = new Map<typeof Entity, typeof Entity>();
+
+  /** Add a rule that remaps the specified source [CodeSpec]($common) to the specified target [CodeSpec]($common).
+   * @param sourceCodeSpecName The name of the CodeSpec from the source iModel.
+   * @param targetCodeSpecName The name of the CodeSpec from the target iModel.
+   * @throws [[IModelError]] if either CodeSpec could not be found.
+   */
+  public override remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void {
+    const sourceCodeSpec = this.sourceDb.codeSpecs.getByName(sourceCodeSpecName);
+    const targetCodeSpec = this.targetDb.codeSpecs.getByName(targetCodeSpecName);
+    this._codeSpecRemaps.set(sourceCodeSpec.id, targetCodeSpec.id);
+  }
+
+  /** Add a rule that remaps the specified source class to the specified target class. */
+  public override remapElementClass(sourceClassFullName: string, targetClassFullName: string): void {
+    // NOTE: should probably also map class ids
+    const sourceClass = ClassRegistry.getClass(sourceClassFullName, this.sourceDb);
+    const targetClass = ClassRegistry.getClass(targetClassFullName, this.targetDb);
+    this._elementClassRemaps.set(sourceClass, targetClass);
+  }
+
+  /** Add a rule that remaps the specified source Element to the specified target Element. */
+  public override remapElement(sourceId: Id64String, targetId: Id64String): void {
+    this._elementRemaps.set(sourceId, targetId);
+  }
+
+  /** Remove a rule that remaps the specified source Element. */
+  public override removeElement(sourceId: Id64String): void {
+    this._elementRemaps.delete(sourceId);
+  }
+
+  /** Look up a target CodeSpecId from the source CodeSpecId.
+   * @returns the target CodeSpecId or [Id64.invalid]($bentley) if a mapping not found.
+   */
+  public override findTargetCodeSpecId(sourceId: Id64String): Id64String {
+    if (Id64.invalid === sourceId) {
+      return Id64.invalid;
+    }
+    return this._codeSpecRemaps.get(sourceId) ?? Id64.invalid;
+  }
+
+  /** Look up a target ElementId from the source ElementId.
+   * @returns the target ElementId or [Id64.invalid]($bentley) if a mapping not found.
+   */
+  public override findTargetElementId(sourceElementId: Id64String): Id64String {
+    if (Id64.invalid === sourceElementId) {
+      return Id64.invalid;
+    }
+    return this._elementRemaps.get(sourceElementId) ?? Id64.invalid;
+  }
 
   /** Add a rule that remaps the specified source ElementAspect to the specified target ElementAspect. */
   public remapElementAspect(aspectSourceId: Id64String, aspectTargetId: Id64String): void {
@@ -150,29 +214,114 @@ export class IModelCloneContext extends IModelElementCloneContext {
    * @internal
    */
   public cloneElementAspect(sourceElementAspect: ElementAspect): ElementAspectProps {
-    const targetElementAspectProps: ElementAspectProps = sourceElementAspect.toJSON();
-    targetElementAspectProps.id = undefined;
-    sourceElementAspect.forEachProperty((propertyName, propertyMetaData) => {
+    return this._cloneEntity(sourceElementAspect) as ElementAspectProps;
+  }
+
+  private _cloneEntity(sourceEntity: Entity): EntityProps {
+    const targetEntityProps: EntityProps = sourceEntity.toJSON();
+    targetEntityProps.id = undefined;
+
+    if (this.targetIsSource)
+      return targetEntityProps;
+
+    sourceEntity.forEachProperty((propertyName, propertyMetaData) => {
       if (propertyMetaData.isNavigation) {
-        const sourceNavProp: RelatedElementProps | undefined = sourceElementAspect.asAny[propertyName];
+        const sourceNavProp: RelatedElementProps | undefined = (sourceEntity as any)[propertyName];
         if (sourceNavProp?.id) {
           const navPropRefType = this._refTypesCache.getNavPropRefType(
-            sourceElementAspect.schemaName,
-            sourceElementAspect.className,
+            sourceEntity.schemaName,
+            sourceEntity.className,
             propertyName
           );
           assert(navPropRefType !== undefined,`nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`);
           const targetEntityReference = this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType));
           const targetEntityId = EntityReferences.toId64(targetEntityReference);
           // spread the property in case toJSON did not deep-clone
-          (targetElementAspectProps as any)[propertyName] = { ...(targetElementAspectProps as any)[propertyName], id: targetEntityId };
+          (targetEntityProps as any)[propertyName] = { ...(targetEntityProps as any)[propertyName], id: targetEntityId };
         }
       } else if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
-        (targetElementAspectProps as any)[propertyName] = this.findTargetElementId(sourceElementAspect.asAny[propertyName]);
+        (targetEntityProps as any)[propertyName] = this.findTargetElementId((sourceEntity as any)[propertyName]);
       }
     });
-    return targetElementAspectProps;
+
+    return targetEntityProps;
   }
+
+  /** Clone the specified source Element into ElementProps for the target iModel.
+   * @internal
+   */
+  public override cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
+    /*
+    // FIXME: remove
+    const targetModelId = sourceElement.model === IModelDb.repositoryModelId
+      ? IModelDb.repositoryModelId
+      : this.findTargetElementId(sourceElement.id);
+    */
+
+    // Clone
+    const targetElementProps = this._cloneEntity(sourceElement) as ElementProps;
+    if (!this.targetIsSource) {
+      sourceElement.forEachProperty((propertyName, propertyMetaData) => {
+        if (propertyMetaData.isNavigation) {
+          const sourceNavProp: RelatedElementProps | undefined = sourceElementAspect.asAny[propertyName];
+          if (sourceNavProp?.id) {
+            const navPropRefType = this._refTypesCache.getNavPropRefType(
+              sourceElement.schemaName,
+              sourceElement.className,
+              propertyName
+            );
+            assert(navPropRefType !== undefined,`nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`);
+            const targetEntityReference = this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType));
+            const targetEntityId = EntityReferences.toId64(targetEntityReference);
+            // spread the property in case toJSON did not deep-clone
+            (targetElementAspectProps as any)[propertyName] = { ...(targetElementAspectProps as any)[propertyName], id: targetEntityId };
+          }
+        } else if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
+          (targetElementAspectProps as any)[propertyName] = this.findTargetElementId(sourceElementAspect.asAny[propertyName]);
+        }
+      });
+    }
+    // send geometry (if binaryGeometry, try querying it via raw SQLite as an array buffer)
+    //
+
+    // Ensure that all NavigationProperties in targetElementProps have a defined value
+    // so "clearing" changes will be part of the JSON used for update
+    sourceElement.forEachProperty((propertyName: string, meta: PropertyMetaData) => {
+      if ((meta.isNavigation) && (undefined === (sourceElement as any)[propertyName])) {
+        (targetElementProps as any)[propertyName] = RelatedElement.none;
+      }
+    }, false); // exclude custom because C++ has already handled them
+    if (this.targetIsSource) {
+      // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is into itself
+      targetElementProps.federationGuid = sourceElement.federationGuid;
+      if (CodeScopeSpec.Type.Repository === this.targetDb.codeSpecs.getById(targetElementProps.code.spec).scopeType) {
+        targetElementProps.code.scope = IModel.rootSubjectId;
+      }
+    }
+    // unlike other references, code cannot be null. If it is null, use an empty code instead
+    if (targetElementProps.code.scope === Id64.invalid || targetElementProps.code.spec === Id64.invalid) {
+      targetElementProps.code = Code.createEmpty();
+    }
+    const jsClass = this.sourceDb.getJsClass<typeof Element>(sourceElement.classFullName);
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
+    return targetElementProps;
+  }
+
+  /** Import a single CodeSpec from the source iModel into the target iModel.
+   * @internal
+   */
+  public importCodeSpec(sourceCodeSpecId: Id64String): void {
+    if (this._codeSpecRemaps.has(sourceCodeSpecId))
+      return;
+    if (this.targetIsSource)
+      return;
+    const sourceCodeSpec = this.sourceDb.codeSpecs.getById(sourceCodeSpecId);
+    delete (sourceCodeSpec as any).id;
+    // TODO: test code spec name collision fails
+    this.targetDb.codeSpecs.insert(sourceCodeSpec);
+  }
+
 
   private static aspectRemapTableName = "AspectIdRemaps";
 
