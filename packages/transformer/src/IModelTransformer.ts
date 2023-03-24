@@ -807,7 +807,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
-  public override onExportElement(sourceElement: Element): void {
+  public override async onExportElement(sourceElement: Element): Promise<void> {
     let targetElementId: Id64String | undefined;
     let targetElementProps: ElementProps;
     if (this._options.preserveElementIdsForFiltering) {
@@ -849,24 +849,29 @@ export class IModelTransformer extends IModelExportHandler {
     if (targetElementId === Id64.invalid)
       targetElementId = undefined;
 
+    const onGetImportedId = (targetElementPropsId: Id64String) => {
+      this.context.remapElement(sourceElement.id, targetElementPropsId); // targetElementProps.id assigned by importElement
+      // now that we've mapped this elem we can fix unmapped references to it
+      this.resolvePendingReferences(sourceElement);
+
+      if (!this._options.noProvenance) {
+        const aspectProps: ExternalSourceAspectProps = this.initElementProvenance(sourceElement.id, targetElementPropsId);
+        let aspectId = this.queryExternalSourceAspectId(aspectProps);
+        if (aspectId === undefined) {
+          aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
+        } else {
+          this.provenanceDb.elements.updateAspect(aspectProps);
+        }
+        aspectProps.id = aspectId;
+        this.markLastProvenance(aspectProps as MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship: false });
+      }
+    }
+
     targetElementProps.id = targetElementId; // targetElementId will be valid (indicating update) or undefined (indicating insert)
     if (!this._options.wasSourceIModelCopiedToTarget) {
-      this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
-    }
-    this.context.remapElement(sourceElement.id, targetElementProps.id!); // targetElementProps.id assigned by importElement
-    // now that we've mapped this elem we can fix unmapped references to it
-    this.resolvePendingReferences(sourceElement);
-
-    if (!this._options.noProvenance) {
-      const aspectProps: ExternalSourceAspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
-      let aspectId = this.queryExternalSourceAspectId(aspectProps);
-      if (aspectId === undefined) {
-        aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
-      } else {
-        this.provenanceDb.elements.updateAspect(aspectProps);
-      }
-      aspectProps.id = aspectId;
-      this.markLastProvenance(aspectProps as MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship: false });
+      if (targetElementProps.id)
+        onGetImportedId(targetElementProps.id);
+      this.importer.importElement(targetElementProps).then(onGetImportedId); // don't need to import if iModel was copied
     }
   }
 

@@ -73,7 +73,7 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportElement(_element: Element, _isUpdate: boolean | undefined): void { }
+  public onExportElement(_element: Element, _isUpdate: boolean | undefined): void | Promise<void> { }
 
   /**
    * Do any asynchronous actions before exporting an element
@@ -614,7 +614,7 @@ export class IModelExporter {
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {
       await this.handler.preExportElement(element);
-      this.handler.onExportElement(element, isUpdate);
+      await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this.exportElementAspects(elementId);
       return this.exportChildElements(elementId);

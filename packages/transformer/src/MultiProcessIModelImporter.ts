@@ -160,14 +160,20 @@ export class MultiProcessIModelImporter extends IModelImporter {
 
     for (const key of forwardedMethods) {
       Object.defineProperty(this, key, {
-        value: (...args: Parameters<IModelImporter[typeof key]>): void => {
+        value: (...args: Parameters<IModelImporter[typeof key]>) => {
           console.log("parent forwarding:", key, args);
-          this._worker.send({
+          const msg: Message = {
             type: Messages.CallMethod,
             target: "importer",
             method: key,
             args,
-          } as Message);
+          };
+          return ["importElement"].includes(key)
+            ? this._promiseMessage({
+              type: Messages.Await,
+              message: msg
+            })
+            : this._worker.send(msg);
         },
         writable: false,
         enumerable: false,

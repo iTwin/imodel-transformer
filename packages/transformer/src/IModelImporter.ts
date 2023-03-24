@@ -186,7 +186,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
   }
 
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
-  public importElement(elementProps: ElementProps): Id64String {
+  public async importElement(elementProps: ElementProps): Promise<Id64String> {
     if (undefined !== elementProps.id && this.doNotUpdateElementIds.has(elementProps.id)) {
       Logger.logInfo(loggerCategory, `Do not update target element ${elementProps.id}`);
       return elementProps.id;
