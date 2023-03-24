@@ -13,7 +13,7 @@ import {
 } from "@itwin/core-common";
 import {
   ClassRegistry,
-  Element, ElementAspect, Entity, EntityReferences, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
+  Element, ElementAspect, Entity, EntityReferences, GeometricElement, GeometricElement3d, GeometryPart, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
@@ -260,18 +260,20 @@ export class IModelCloneContext extends IModelElementCloneContext {
     // Clone
     const targetElementProps = this._cloneEntity(sourceElement) as ElementProps;
     // send geometry (if binaryGeometry, try querying it via raw SQLite as an array buffer)
-    if (cloneOptions?.binaryGeometry) {
+    if (cloneOptions?.binaryGeometry && (sourceElement instanceof GeometricElement3d || sourceElement instanceof GeometryPart)) {
+      // TODO: handle 2d
       // NOTE: how do I remap the material Ids in here?
-      this.sourceDb.withPreparedSqliteStatement("SELECT geometry FROM bis_GeometricElement WHERE ECInstanceId=?", (stmt) => {
+      this.sourceDb.withPreparedSqliteStatement("SELECT GeometryStream FROM bis_GeometricElement3d WHERE ECInstanceId=?", (stmt) => {
         stmt.bindId(1, sourceElement.id);
         assert(stmt.step() === DbResult.BE_SQLITE_ROW);
         const geomBinary = stmt.getValue(0).getBlob();
         assert(stmt.step() === DbResult.BE_SQLITE_DONE);
         (targetElementProps as any)["geomBinary"] = geomBinary;
       });
-    } else {
-      throw Error("not yet supported, will require the native context to be modified");
     }
+
+    if (!cloneOptions?.binaryGeometry)
+      throw Error("not yet supported, will require the native context to be modified");
 
     // // FIXME: do we still need this?>
     // Ensure that all NavigationProperties in targetElementProps have a defined value

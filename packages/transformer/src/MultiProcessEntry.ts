@@ -9,23 +9,41 @@ assert(targetDbPath, "expected a single command line argument, the path to the t
 
 import { IModelImporter } from "./IModelImporter";
 import { Messages, Message, MultiProcessImporterOptions } from "./MultiProcessIModelImporter";
-import * as assert from "assert";
-import { IModelDb, StandaloneDb } from "@itwin/core-backend";
+import { IModelDb, IModelHost, StandaloneDb } from "@itwin/core-backend";
 
 export class MultiProcessIModelImporterWorker extends IModelImporter {
   public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
     super(targetDb, options);
 
-    process.on("message", (msg: Message) => {
-      if (msg.type === Messages.CallMethod) {
-        // FIXME: why does typescript complain about `this` here
-        (this as any)[msg.method].call(this, msg.args);
-      } else if (msg.type === Messages.SetOption) {
-        this.options[msg.key] = msg.value;
-      } else if (msg.type === Messages.Finalize) {
-        this.targetDb.close();
+    const onMsg = (msg: Message) => {
+      console.log("worker received:", JSON.stringify(msg));
+      switch (msg.type) {
+        case Messages.CallMethod: {
+          const thisArg
+            = msg.target === "importer" ? this
+            : msg.target === "targetDb" ? this.targetDb
+            : msg.target === "targetDb.elements" ? this.targetDb.elements
+            : assert(false, "unknown target") as never;
+          return (thisArg as any)[msg.method].call(thisArg, ...msg.args);
+        }
+        case Messages.SetOption: {
+          return this.options[msg.key] = msg.value;
+        }
+        case Messages.Finalize: {
+          return this.targetDb.close();
+        }
+        case Messages.Await: {
+          const { id } = msg;
+          const result = onMsg(msg.message)
+          Promise.resolve(result).then(() => process.send!({
+            type: Messages.Settled,
+            id,
+          } as Message));
+        }
       }
-    });
+    }
+
+    process.on("message", onMsg);
   }
 }
 
@@ -34,17 +52,11 @@ let worker: MultiProcessIModelImporterWorker;
 async function main() {
   await IModelHost.startup();
 
-  // FIXME: allow user to provide a module to load this
+  // FIXME: allow user to provide a module in options to load this themselves
   const targetDb = StandaloneDb.open({ fileName: targetDbPath });
 
-  const onInit = async (msg: Message) => {
-    if (msg.type === Messages.Init) {
-      worker = new MultiProcessIModelImporterWorker(await targetDb, msg.importerInitOptions);
-      process.off("message", onInit);
-    }
-  }
-
-  process.on("message", onInit);
+  // TODO: pass options as a base64 encoded JSON blob
+  worker = new MultiProcessIModelImporterWorker(await targetDb, {});
 }
 
 main().catch(console.error);

@@ -18,6 +18,8 @@ const forwardedMethods = [
   "importElementUniqueAspect",
   "deleteElement",
   "deleteModel",
+  "optimizeGeometry",
+  "computeProjectExtents",
 ] as const;
 
 /** @internal */
@@ -29,6 +31,9 @@ export enum Messages {
   SetOption,
   CallMethod,
   Finalize,
+
+  Await,
+  Settled,
 }
 
 /** @internal */
@@ -44,16 +49,44 @@ export type Message =
     }
   | {
       type: Messages.CallMethod;
-      method: ForwardedMethods;
+      target: "importer" | "targetDb" | "targetDb.elements",
+      method: string;
       args: any;
     }
   | {
       type: Messages.Finalize;
     }
-;
+  | {
+      type: Messages.Await;
+      id: number;
+      message: Message;
+    }
+  | {
+      type: Messages.Settled;
+      id: number;
+    }
+  ;
 
 export class MultiProcessIModelImporter extends IModelImporter {
   private _worker: child_process.ChildProcess;
+
+  private _nextId = 0;
+  private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<void> {
+    // TODO: add timeout via race
+    return new Promise((resolve) => {
+      const id = this._nextId;
+      this._nextId++;
+      const onMsg = (msg: Message) => {
+        console.log("parent received settler:", JSON.stringify(msg));
+        if (msg.type === Messages.Settled && msg.id === id)
+          resolve();
+      };
+      this._worker.on("message", onMsg);
+      this._worker.send({ ...wrapperMsg, id } as Message);
+      console.log("parent send await", id, wrapperMsg);
+    });
+  }
+
 
   public static async create(targetDb: IModelDb, options: MultiProcessImporterOptions): Promise<MultiProcessIModelImporter> {
     if (!targetDb.isReadonly) {
@@ -62,8 +95,46 @@ export class MultiProcessIModelImporter extends IModelImporter {
       targetDb.close(); // close it, the spawned process will need the write lock
       const readonlyTargetDb = await targetDbType.open({ fileName: targetDbPath, readonly: true });
       targetDb = readonlyTargetDb;
+
+      const targetDbElementsForwarded = [
+        "insertAspect",
+      ] as const;
+
+      (targetDb.elements as IModelDb.Elements) = new Proxy(targetDb.elements, {
+        get: (obj, key: (typeof targetDbElementsForwarded)[number], recv) =>
+          targetDbElementsForwarded.includes(key)
+            ? (...args: any[]) => instance._worker.send({
+              type: Messages.CallMethod,
+              target: "targetDb.elements",
+              method: key,
+              args,
+            })
+            : Reflect.get(obj, key, recv),
+      });
+
+      // TODO: use a library to do this
+      const targetDbForwarded = [
+        "importSchemas",
+      ] as const;
+
+      targetDb = new Proxy(readonlyTargetDb, {
+        get: (obj, key: (typeof targetDbForwarded)[number], recv) =>
+          targetDbForwarded.includes(key)
+            ? (...args: any[]) => instance._promiseMessage({
+              type: Messages.Await,
+              message: {
+                type: Messages.CallMethod,
+                target: "targetDb",
+                method: key,
+                args,
+              }
+            })
+            : Reflect.get(obj, key, recv),
+      });
     }
-    return new MultiProcessIModelImporter(targetDb, options);
+
+    const instance = new MultiProcessIModelImporter(targetDb, options);
+    return instance;
   }
 
   private constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
@@ -72,6 +143,9 @@ export class MultiProcessIModelImporter extends IModelImporter {
     this._worker = child_process.fork(require.resolve("./MultiProcessEntry"),
       [targetDb.pathName],
       {
+        execArgv: [
+          process.env.INSPECT_WORKER && `--inspect-brk=${process.env.INSPECT_WORKER}`,
+        ].filter(Boolean) as string[],
         serialization: "advanced", // allow transferring of binary geometry efficiently
       }
     );
@@ -83,6 +157,7 @@ export class MultiProcessIModelImporter extends IModelImporter {
           key: key,
           value: val,
         } as Message)
+        console.log("parent set option:", key, val);
         return Reflect.set(obj, key, val, recv);
       }
     });
@@ -90,8 +165,10 @@ export class MultiProcessIModelImporter extends IModelImporter {
     for (const key of forwardedMethods) {
       Object.defineProperty(this, key, {
         value: (...args: Parameters<IModelImporter[typeof key]>): void => {
+          console.log("parent forwarding:", key, args);
           this._worker.send({
             type: Messages.CallMethod,
+            target: "importer",
             method: key,
             args,
           } as Message);
