@@ -27,7 +27,7 @@ const percent = (n: number) => `${formatter.format(100 * n)}%`;
 
 class CountingImporter extends IModelImporter {
   public owningTransformer: CountingTransformer | undefined;
-  public override importElement(elementProps: ElementProps): Id64String {
+  public override async importElement(elementProps: ElementProps): Promise<Id64String> {
     if (this.owningTransformer === undefined)
       throw Error("uninitialized, '_owningTransformer' must have been set before transformations");
     ++this.owningTransformer.importedEntities;

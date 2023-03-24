@@ -92,7 +92,7 @@ describe("imodel-transformer", () => {
           this._count++;
           if (this._count % 1000 === 0) Logger.logInfo(loggerCategory, `exported ${this._count} entities`);
         }
-        public override onExportElement(sourceElement: Element): void {
+        public override async onExportElement(sourceElement: Element): Promise<void> {
           this._increment();
           return super.onExportElement(sourceElement);
         }
