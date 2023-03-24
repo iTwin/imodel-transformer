@@ -8,9 +8,8 @@
 import * as assert from "assert";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
-  CodeSpec,
-  ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, EntityReference, IModelError,
-  PrimitiveTypeCode, RelatedElementProps,
+  Code, CodeScopeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, EntityReference, IModelError,
+  PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
 } from "@itwin/core-common";
 import {
   ClassRegistry,
@@ -260,42 +259,34 @@ export class IModelCloneContext extends IModelElementCloneContext {
 
     // Clone
     const targetElementProps = this._cloneEntity(sourceElement) as ElementProps;
-    if (!this.targetIsSource) {
-      sourceElement.forEachProperty((propertyName, propertyMetaData) => {
-        if (propertyMetaData.isNavigation) {
-          const sourceNavProp: RelatedElementProps | undefined = sourceElementAspect.asAny[propertyName];
-          if (sourceNavProp?.id) {
-            const navPropRefType = this._refTypesCache.getNavPropRefType(
-              sourceElement.schemaName,
-              sourceElement.className,
-              propertyName
-            );
-            assert(navPropRefType !== undefined,`nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`);
-            const targetEntityReference = this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType));
-            const targetEntityId = EntityReferences.toId64(targetEntityReference);
-            // spread the property in case toJSON did not deep-clone
-            (targetElementAspectProps as any)[propertyName] = { ...(targetElementAspectProps as any)[propertyName], id: targetEntityId };
-          }
-        } else if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
-          (targetElementAspectProps as any)[propertyName] = this.findTargetElementId(sourceElementAspect.asAny[propertyName]);
-        }
-      });
-    }
     // send geometry (if binaryGeometry, try querying it via raw SQLite as an array buffer)
-    //
+    if (cloneOptions?.binaryGeometry) {
+      // NOTE: how do I remap the material Ids in here?
+      this.sourceDb.withPreparedSqliteStatement("SELECT geometry FROM bis_GeometricElement WHERE ECInstanceId=?", (stmt) => {
+        stmt.bindId(1, sourceElement.id);
+        assert(stmt.step() === DbResult.BE_SQLITE_ROW);
+        const geomBinary = stmt.getValue(0).getBlob();
+        assert(stmt.step() === DbResult.BE_SQLITE_DONE);
+        (targetElementProps as any)["geomBinary"] = geomBinary;
+      });
+    } else {
+      throw Error("not yet supported, will require the native context to be modified");
+    }
 
+    // // FIXME: do we still need this?>
     // Ensure that all NavigationProperties in targetElementProps have a defined value
     // so "clearing" changes will be part of the JSON used for update
     sourceElement.forEachProperty((propertyName: string, meta: PropertyMetaData) => {
       if ((meta.isNavigation) && (undefined === (sourceElement as any)[propertyName])) {
         (targetElementProps as any)[propertyName] = RelatedElement.none;
       }
-    }, false); // exclude custom because C++ has already handled them
+    }, false); // exclude custom because C++ has already handled them (THIS IS NOW FALSE)
+
     if (this.targetIsSource) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is into itself
       targetElementProps.federationGuid = sourceElement.federationGuid;
       if (CodeScopeSpec.Type.Repository === this.targetDb.codeSpecs.getById(targetElementProps.code.spec).scopeType) {
-        targetElementProps.code.scope = IModel.rootSubjectId;
+        targetElementProps.code.scope = IModelDb.rootSubjectId;
       }
     }
     // unlike other references, code cannot be null. If it is null, use an empty code instead
@@ -311,7 +302,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Import a single CodeSpec from the source iModel into the target iModel.
    * @internal
    */
-  public importCodeSpec(sourceCodeSpecId: Id64String): void {
+  public override importCodeSpec(sourceCodeSpecId: Id64String): void {
     if (this._codeSpecRemapTable.has(sourceCodeSpecId))
       return;
     if (this.targetIsSource)
