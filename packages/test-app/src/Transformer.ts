@@ -12,6 +12,8 @@ import {
 import { IModelImporter, IModelTransformer, IModelTransformOptions, MultiProcessIModelImporter } from "@itwin/transformer";
 import { ElementProps, IModel } from "@itwin/core-common";
 
+import "source-map-support/register";
+
 export const loggerCategory = "imodel-transformer";
 
 export interface TransformerOptions extends IModelTransformOptions {
