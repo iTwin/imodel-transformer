@@ -58,7 +58,7 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportModel(_model: Model, _isUpdate: boolean | undefined): void { }
+  public onExportModel(_model: Model, _isUpdate: boolean | undefined): void | Promise<void> { }
 
   /** Called when a model should be deleted. */
   public onDeleteModel(_modelId: Id64String): void { }
@@ -84,7 +84,7 @@ export abstract class IModelExportHandler {
   public async preExportElement(_element: Element): Promise<void> {}
 
   /** Called when an element should be deleted. */
-  public onDeleteElement(_elementId: Id64String): void { }
+  public onDeleteElement(_elementId: Id64String): void | Promise<void> { }
 
   /** If `true` is returned, then the ElementAspect will be exported.
    * @note This method can optionally be overridden to exclude an individual ElementAspect from the export. The base implementation always returns `true`.

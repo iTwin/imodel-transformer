@@ -44,7 +44,7 @@ const nullLastProvenanceEntityInfo = {
   aspectKind: ExternalSourceAspect.Kind.Element,
 };
 
-type EntityTransformHandler = (entity: ConcreteEntity) => ElementProps | ModelProps | RelationshipProps | ElementAspectProps;
+type EntityTransformHandler = (entity: ConcreteEntity) => Promise<ElementProps | ModelProps | RelationshipProps | ElementAspectProps>;
 
 /** Options provided to the [[IModelTransformer]] constructor.
  * @beta
@@ -603,7 +603,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom transform behavior.
    * @note This can be called more than once for an element in arbitrary order, so it should not have side-effects.
    */
-  public onTransformElement(sourceElement: Element): ElementProps {
+  public async onTransformElement(sourceElement: Element): Promise<ElementProps> {
     Logger.logTrace(loggerCategory, `onTransformElement(${sourceElement.id}) "${sourceElement.getDisplayLabel()}"`);
     const targetElementProps: ElementProps = this.context.cloneElement(sourceElement, { binaryGeometry: this._options.cloneUsingBinaryGeometry });
     if (sourceElement instanceof Subject) {
@@ -656,16 +656,16 @@ export class IModelTransformer extends IModelExportHandler {
   private makePartialEntityCompleter(
     sourceEntity: ConcreteEntity
   ) {
-    return () => {
+    return async () => {
       const targetId = this.context.findTargetEntityId(EntityReferences.from(sourceEntity));
       if (!EntityReferences.isValid(targetId))
         throw Error(`${sourceEntity.id} has not been inserted into the target yet, the completer is invalid. This is a bug.`);
       const onEntityTransform = IModelTransformer.transformCallbackFor(this, sourceEntity);
       const updateEntity = EntityUnifier.updaterFor(this.targetDb, sourceEntity);
-      const targetProps = onEntityTransform.call(this, sourceEntity);
+      const targetProps = await onEntityTransform.call(this, sourceEntity);
       if (sourceEntity instanceof Relationship) {
-        (targetProps as RelationshipProps).sourceId = this.context.findTargetElementId(sourceEntity.sourceId);
-        (targetProps as RelationshipProps).targetId = this.context.findTargetElementId(sourceEntity.targetId);
+        (targetProps as RelationshipProps).sourceId = await this.context.findTargetElementId(sourceEntity.sourceId);
+        (targetProps as RelationshipProps).targetId = await this.context.findTargetElementId(sourceEntity.targetId);
       }
       updateEntity({ ...targetProps, id: EntityReferences.toId64(targetId) });
       this._partiallyCommittedEntities.delete(sourceEntity);
@@ -749,7 +749,8 @@ export class IModelTransformer extends IModelExportHandler {
   public override async preExportElement(sourceElement: Element): Promise<void> {
     const elemClass = sourceElement.constructor as typeof Element;
 
-    const unresolvedReferences = elemClass.requiredReferenceKeys
+    // TODO: maybe do this serially?
+    await Promise.all(elemClass.requiredReferenceKeys
       .map((referenceKey) => {
         const idContainer = sourceElement[referenceKey as keyof Element];
         const referenceType = elemClass.requiredReferenceKeyTypeMap[referenceKey];
@@ -770,50 +771,38 @@ export class IModelTransformer extends IModelExportHandler {
           }
           return id;
         })
-          .map((sourceReferenceId: Id64String | undefined): undefined | string | Promise<string> => {
-            if (sourceReferenceId === undefined) return sourceReferenceId;
-            const maybeImportPromise = this._importQueue.get(sourceReferenceId);
-            if (maybeImportPromise) return maybeImportPromise;
-            return sourceReferenceId;
-          })
-          .filter((sourceReferenceId): sourceReferenceId is Id64String | Promise<Id64String> => {
-            if (sourceReferenceId === undefined)
-              return false;
-            if (isPromise(sourceReferenceId))
-              return true;
-            const referenceInTargetId = this.context.findTargetElementId(sourceReferenceId);
-            const isInTarget = Id64.isValid(referenceInTargetId);
-            return !isInTarget;
-          });
       })
-      .flat();
+      .flat()
+      .filter((sourceReferenceId): sourceReferenceId is Id64String => sourceReferenceId !== undefined)
+      .map((sourceReferenceId): Promise<void> => {
+        const referenceInTargetId = this.context.findTargetElementId(sourceReferenceId);
+        // NOTE: does this cover exporting of the underlying potentially required model? I think not...
+        const isExportQueued = isPromise(referenceInTargetId);
+        if (isExportQueued)
+          return referenceInTargetId as Promise<any>;
 
-    if (unresolvedReferences.length > 0) {
-      for (const refOrPromise of unresolvedReferences) {
-        const reference = await refOrPromise;
-        const processState = this.getElemTransformState(reference);
-        // must export element first
-        if (processState.needsElemImport)
-          await this.exporter.exportElement(reference);
-        if (processState.needsModelImport)
-          await this.exporter.exportModel(reference);
-      }
-    }
+        return (async () => {
+          const processState = await this.getElemTransformState(sourceReferenceId);
+          // must export element first
+          if (processState.needsElemImport)
+            await this.exporter.exportElement(sourceReferenceId);
+          if (processState.needsModelImport)
+            await this.exporter.exportModel(sourceReferenceId);
+        })();
+      }));
   }
 
-  private getElemTransformState(elementId: Id64String) {
+  private async getElemTransformState(elementId: Id64String) {
     const dbHasModel = (db: IModelDb, id: Id64String) => {
       const maybeModelId = EntityReferences.fromEntityType(id, ConcreteEntityTypes.Model);
       return EntityUnifier.exists(db, { entityReference: maybeModelId });
     };
     const isSubModeled = dbHasModel(this.sourceDb, elementId);
-    const idOfElemInTarget = this.context.findTargetElementId(elementId);
+    const idOfElemInTarget = await this.context.findTargetElementId(elementId);
     const isElemInTarget = Id64.invalid !== idOfElemInTarget;
     const needsModelImport = isSubModeled && (!isElemInTarget || !dbHasModel(this.targetDb, idOfElemInTarget));
     return { needsElemImport: !isElemInTarget, needsModelImport };
   }
-
-  private _importQueue = new Map<Id64String, Promise<Id64String>>();
 
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
@@ -828,7 +817,7 @@ export class IModelTransformer extends IModelExportHandler {
       targetElementId = sourceElement.id;
       targetElementProps = this.targetDb.elements.getElementProps(targetElementId);
     } else {
-      targetElementId = this.context.findTargetElementId(sourceElement.id);
+      targetElementId = await this.context.findTargetElementId(sourceElement.id);
       targetElementProps = this.onTransformElement(sourceElement);
     }
     // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
@@ -860,12 +849,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (targetElementId === Id64.invalid)
       targetElementId = undefined;
 
-    const onGetImportedId = (sourceElementPropsId: Id64String, targetElementPropsId: Id64String) => {
-      // FIXME/NEXT/TODO: delete the promise that this stores!
-      this.context.remapElement(sourceElementPropsId, targetElementPropsId); // targetElementProps.id assigned by importElement
-      // now that we've mapped this elem we can fix unmapped references to it
-      this.resolvePendingReferences(sourceElement);
-
+    const onElementImported = (sourceElementPropsId: Id64String, targetElementPropsId: Id64String) => {
       if (!this._options.noProvenance) {
         const aspectProps: ExternalSourceAspectProps = this.initElementProvenance(sourceElementPropsId, targetElementPropsId);
         let aspectId = this.queryExternalSourceAspectId(aspectProps);
@@ -881,15 +865,34 @@ export class IModelTransformer extends IModelExportHandler {
 
     targetElementProps.id = targetElementId; // targetElementId will be valid (indicating update) or undefined (indicating insert)
 
-    // don't need to import if iModel was copied
-    if (!this._options.wasSourceIModelCopiedToTarget) {
-      if (targetElementProps.id)
-        onGetImportedId(sourceElement.id, targetElementProps.id);
-      // TODO: make the remap table return promises or ids
+    let targetElemIdOrPromise: Id64String | Promise<Id64String> | undefined = targetElementProps.id;
+
+    const needToImport = !this._options.wasSourceIModelCopiedToTarget;
+
+    if (needToImport) {
       const importPromise = this.importer.importElement(targetElementProps);
-      importPromise.then((targetId) => onGetImportedId(sourceElement.id, targetId));
-      this._importQueue.set(sourceElement.id, importPromise);
+      targetElemIdOrPromise = importPromise;
     }
+
+    // TODO: try fix up the conditions so the compiler can tell this will never be undefined
+    // this should always be true
+    // either `this._options.wasSourceIModelCopiedToTarget === true` which means `targetElementProps.id` and therefore `targetElemIdOrPromise` was set,
+    // or we executed the above import and therefore `targetElemIdOrPromise was set`
+    nodeAssert(targetElemIdOrPromise !== undefined);
+    
+    // always resolve references before consumers of the remapped id see its fulfillment
+    const withResolvedRefsPromise = Promise.resolve(targetElemIdOrPromise).then((id: Id64String) => {
+      // now that we've definitely inserted this elem we can fix unmapped references to it
+      this.resolvePendingReferences(sourceElement);
+      return id;
+    });
+
+    this.context.remapElement(sourceElement.id, withResolvedRefsPromise);
+
+    // FIXME: collect this somewhere so we can wait on it!
+    void withResolvedRefsPromise.then((targetId) => { 
+      onElementImported(sourceElement.id, targetId);
+    });
   }
 
   private resolvePendingReferences(entity: ConcreteEntity) {
@@ -906,9 +909,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteElement]($transformer).
    */
-  public override onDeleteElement(sourceElementId: Id64String): void {
-    const targetElementId: Id64String = this.context.findTargetElementId(sourceElementId);
-    if (Id64.isValidId64(targetElementId)) {
+  public override async onDeleteElement(sourceElementId: Id64String): Promise<void> {
+    const targetElementId = await this.context.findTargetElementId(sourceElementId);
+    if (Id64.isValid(targetElementId)) {
       this.importer.deleteElement(targetElementId);
     }
   }
@@ -916,22 +919,22 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportModel]($transformer) that is called when a Model should be exported from the source iModel.
    * This override calls [[onTransformModel]] and then [IModelImporter.importModel]($transformer) to update the target iModel.
    */
-  public override onExportModel(sourceModel: Model): void {
+  public override async onExportModel(sourceModel: Model): Promise<void> {
     if (IModel.repositoryModelId === sourceModel.id) {
       return; // The RepositoryModel should not be directly imported
     }
-    const targetModeledElementId: Id64String = this.context.findTargetElementId(sourceModel.id);
+    const targetModeledElementId = await this.context.findTargetElementId(sourceModel.id);
     const targetModelProps: ModelProps = this.onTransformModel(sourceModel, targetModeledElementId);
     this.importer.importModel(targetModelProps);
     this.resolvePendingReferences(sourceModel);
   }
 
   /** Override of [IModelExportHandler.onDeleteModel]($transformer) that is called when [IModelExporter]($transformer) detects that a [Model]($backend) has been deleted from the source iModel. */
-  public override onDeleteModel(sourceModelId: Id64String): void {
+  public override async onDeleteModel(sourceModelId: Id64String): Promise<void> {
     // It is possible and apparently occasionally sensical to delete a model without deleting its underlying element.
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceElements]] will find and remap the deleted element making this operation valid
-    const targetModelId: Id64String = this.context.findTargetElementId(sourceModelId);
+    const targetModelId = await this.context.findTargetElementId(sourceModelId);
     if (Id64.isValidId64(targetModelId)) {
       this.importer.deleteModel(targetModelId);
     }
@@ -998,12 +1001,12 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns ModelProps for the target iModel.
    * @note A subclass can override this method to provide custom transform behavior.
    */
-  public onTransformModel(sourceModel: Model, targetModeledElementId: Id64String): ModelProps {
+  public async onTransformModel(sourceModel: Model, targetModeledElementId: Id64String): Promise<ModelProps> {
     const targetModelProps: ModelProps = sourceModel.toJSON();
     // don't directly edit deep object since toJSON performs a shallow clone
     targetModelProps.modeledElement = { ...targetModelProps.modeledElement, id: targetModeledElementId };
     targetModelProps.id = targetModeledElementId;
-    targetModelProps.parentModel = this.context.findTargetElementId(targetModelProps.parentModel!);
+    targetModelProps.parentModel = await this.context.findTargetElementId(targetModelProps.parentModel!);
     return targetModelProps;
   }
 
@@ -1119,23 +1122,25 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns RelationshipProps for the target iModel.
    * @note A subclass can override this method to provide custom transform behavior.
    */
-  protected onTransformRelationship(sourceRelationship: Relationship): RelationshipProps {
+  protected async onTransformRelationship(sourceRelationship: Relationship): Promise<RelationshipProps> {
     const targetRelationshipProps: RelationshipProps = sourceRelationship.toJSON();
-    targetRelationshipProps.sourceId = this.context.findTargetElementId(sourceRelationship.sourceId);
-    targetRelationshipProps.targetId = this.context.findTargetElementId(sourceRelationship.targetId);
-    sourceRelationship.forEachProperty((propertyName: string, propertyMetaData: PropertyMetaData) => {
+    targetRelationshipProps.sourceId = await this.context.findTargetElementId(sourceRelationship.sourceId);
+    targetRelationshipProps.targetId = await this.context.findTargetElementId(sourceRelationship.targetId);
+    const promises: Promise<void>[] = [];
+    sourceRelationship.forEachProperty((propertyName: string, propertyMetaData: PropertyMetaData) => promises.push((async() => {
       if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
-        (targetRelationshipProps as any)[propertyName] = this.context.findTargetElementId(sourceRelationship.asAny[propertyName]);
+        (targetRelationshipProps as any)[propertyName] = await this.context.findTargetElementId(sourceRelationship.asAny[propertyName]);
       }
-    });
+    })()));
+    await Promise.all(promises);
     return targetRelationshipProps;
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElementAspect]] and then [IModelImporter.importElementUniqueAspect]($transformer) to update the target iModel.
    */
-  public override onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): void {
-    const targetElementId: Id64String = this.context.findTargetElementId(sourceAspect.element.id);
+  public override async onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): Promise<void> {
+    const targetElementId = await this.context.findTargetElementId(sourceAspect.element.id);
     const targetAspectProps = this.onTransformElementAspect(sourceAspect, targetElementId);
     this.collectUnmappedReferences(sourceAspect);
     const targetId = this.importer.importElementUniqueAspect(targetAspectProps);
@@ -1147,8 +1152,9 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformElementAspect]] for each ElementMultiAspect and then [IModelImporter.importElementMultiAspects]($transformer) to update the target iModel.
    * @note ElementMultiAspects are handled as a group to make it easier to differentiate between insert, update, and delete.
    */
-  public override onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): void {
-    const targetElementId: Id64String = this.context.findTargetElementId(sourceAspects[0].element.id);
+  public override async onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): Promise<void> {
+    // FIXME: careful of deadlocks...
+    const targetElementId = await this.context.findTargetElementId(sourceAspects[0].element.id);
     // Transform source ElementMultiAspects into target ElementAspectProps
     const targetAspectPropsArray = sourceAspects.map((srcA) => this.onTransformElementAspect(srcA, targetElementId));
     sourceAspects.forEach((a) => this.collectUnmappedReferences(a));
@@ -1169,7 +1175,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns ElementAspectProps for the target iModel.
    * @note A subclass can override this method to provide custom transform behavior.
    */
-  protected onTransformElementAspect(sourceElementAspect: ElementAspect, _targetElementId: Id64String): ElementAspectProps {
+  protected async onTransformElementAspect(sourceElementAspect: ElementAspect, _targetElementId: Id64String): Promise<ElementAspectProps> {
     const targetElementAspectProps = this.context.cloneElementAspect(sourceElementAspect);
     return targetElementAspectProps;
   }
@@ -1622,7 +1628,7 @@ export class TemplateModelCloner extends IModelTransformer {
     await this.exporter.exportModelContents(sourceTemplateModelId);
     // Note: the source --> target mapping was needed during the template model cloning phase (remapping parent/child, for example), but needs to be reset afterwards
     for (const sourceElementId of this._sourceIdToTargetIdMap.keys()) {
-      const targetElementId = this.context.findTargetElementId(sourceElementId);
+      const targetElementId = await this.context.findTargetElementId(sourceElementId);
       this._sourceIdToTargetIdMap.set(sourceElementId, targetElementId);
       this.context.removeElement(sourceElementId); // clear the underlying native remapping context for the next clone operation
     }
@@ -1642,17 +1648,19 @@ export class TemplateModelCloner extends IModelTransformer {
     await this.exporter.exportModelContents(sourceTemplateModelId);
     // Note: the source --> target mapping was needed during the template model cloning phase (remapping parent/child, for example), but needs to be reset afterwards
     for (const sourceElementId of this._sourceIdToTargetIdMap.keys()) {
-      const targetElementId = this.context.findTargetElementId(sourceElementId);
+      const targetElementId = await this.context.findTargetElementId(sourceElementId);
       this._sourceIdToTargetIdMap.set(sourceElementId, targetElementId);
       this.context.removeElement(sourceElementId); // clear the underlying native remapping context for the next clone operation
     }
     return this._sourceIdToTargetIdMap; // return the sourceElementId -> targetElementId Map in case further post-processing is required.
   }
+
   /** Cloning from a template requires this override of onTransformElement. */
-  public override onTransformElement(sourceElement: Element): ElementProps {
+  public override async onTransformElement(sourceElement: Element): Promise<ElementProps> {
     const referenceIds: Id64Set = sourceElement.getReferenceIds();
-    referenceIds.forEach((referenceId: Id64String) => {
-      if (Id64.invalid === this.context.findTargetElementId(referenceId)) {
+
+    const referencePromises = [...referenceIds].map(async (referenceId: Id64String) => {
+      if (Id64.invalid === await this.context.findTargetElementId(referenceId)) {
         if (this.context.isBetweenIModels) {
           throw new IModelError(IModelStatus.BadRequest, `Remapping for source dependency ${referenceId} not found for target iModel`);
         } else {
@@ -1665,6 +1673,9 @@ export class TemplateModelCloner extends IModelTransformer {
         }
       }
     });
+
+    await Promise.all(referencePromises);
+
     const targetElementProps: ElementProps = super.onTransformElement(sourceElement);
     targetElementProps.federationGuid = Guid.createValue(); // clone from template should create a new federationGuid
     targetElementProps.code = Code.createEmpty(); // clone from template should not maintain codes
@@ -1686,5 +1697,7 @@ export class TemplateModelCloner extends IModelTransformer {
   }
 }
 
-const isPromise = (a: any): a is Promise<any> => Promise.resolve(a) === a;
+function isPromise<T>(p: T | Promise<T>): p is Promise<T> {
+  return Promise.resolve(p) === p;
+}
 
