@@ -51,7 +51,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   public get isBetweenIModels(): boolean { return this.targetIsSource; }
 
   /** Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel. */
-  public get targetIsSource(): boolean { return this.sourceDb !== this.targetDb; }
+  public get targetIsSource(): boolean { return this.sourceDb === this.targetDb; }
 
   private _aspectRemapTable = new Map<Id64String, Id64String>();
   private _elementRemapTable = new Map<Id64String, Promise<Id64String>>();
@@ -237,6 +237,12 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     if (this.targetIsSource)
       return targetEntityProps;
 
+    // FIXME: move this to cloneElement probably
+    const specialPropSetters = {
+      codeSpec: (v: Id64String) => (targetEntityProps as ElementProps).code.spec = v,
+      codeScope: (v: Id64String) => (targetEntityProps as ElementProps).code.scope = v,
+    };
+
     const propProcessingPromises: Promise<void>[] = [];
 
     sourceEntity.forEachProperty((propertyName, propertyMetaData) => propProcessingPromises.push((async () => {
@@ -327,9 +333,10 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
       return;
     if (this.targetIsSource)
       return;
-    const sourceCodeSpec = this.sourceDb.codeSpecs.getById(sourceCodeSpecId);
-    delete (sourceCodeSpec as any).id;
-    // TODO: test code spec name collision fails
+    const sourceCodeSpec = Object.assign({ id: undefined as string | undefined }, this.sourceDb.codeSpecs.getById(sourceCodeSpecId));
+    // TODO: allow importers to opt in to handling name collisions themselves
+    if (this.targetDb.codeSpecs.hasName(sourceCodeSpec.name))
+      return;
     this.targetDb.codeSpecs.insert(sourceCodeSpec);
   }
 
