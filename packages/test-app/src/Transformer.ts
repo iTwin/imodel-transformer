@@ -10,7 +10,7 @@ import {
   SpatialViewDefinition, SubCategory, ViewDefinition,
 } from "@itwin/core-backend";
 import { IModelImporter, IModelTransformer, IModelTransformOptions, MultiProcessIModelImporter } from "@itwin/transformer";
-import { ElementProps, IModel } from "@itwin/core-common";
+import { IModel } from "@itwin/core-common";
 
 import "source-map-support/register";
 
@@ -251,14 +251,6 @@ export class Transformer extends IModelTransformer {
       // NOTE: must allow export to continue so the PhysicalModel sub-modeling the PhysicalPartition is processed
     }
     return super.shouldExportElement(sourceElement);
-  }
-
-  /** This override of IModelTransformer.onTransformElement exists for debugging purposes */
-  public override onTransformElement(sourceElement: Element): ElementProps {
-    // if (sourceElement.id === "0x0" || sourceElement.getDisplayLabel() === "xxx") { // use logging to find something unique about the problem element
-    //   Logger.logInfo(progressLoggerCategory, "Found problem element"); // set breakpoint here
-    // }
-    return super.onTransformElement(sourceElement);
   }
 
   public override shouldExportRelationship(relationship: Relationship): boolean {

@@ -605,7 +605,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async onTransformElement(sourceElement: Element): Promise<ElementProps> {
     Logger.logTrace(loggerCategory, `onTransformElement(${sourceElement.id}) "${sourceElement.getDisplayLabel()}"`);
-    const targetElementProps: ElementProps = this.context.cloneElement(sourceElement, { binaryGeometry: this._options.cloneUsingBinaryGeometry });
+    const targetElementProps = await this.context.cloneElement(sourceElement, { binaryGeometry: this._options.cloneUsingBinaryGeometry });
     if (sourceElement instanceof Subject) {
       if (targetElementProps.jsonProperties?.Subject?.Job) {
         // don't propagate source channels into target (legacy bridge case)
@@ -657,15 +657,20 @@ export class IModelTransformer extends IModelExportHandler {
     sourceEntity: ConcreteEntity
   ) {
     return async () => {
-      const targetId = this.context.findTargetEntityId(EntityReferences.from(sourceEntity));
+      const targetId = await this.context.findTargetEntityId(EntityReferences.from(sourceEntity));
       if (!EntityReferences.isValid(targetId))
         throw Error(`${sourceEntity.id} has not been inserted into the target yet, the completer is invalid. This is a bug.`);
       const onEntityTransform = IModelTransformer.transformCallbackFor(this, sourceEntity);
       const updateEntity = EntityUnifier.updaterFor(this.targetDb, sourceEntity);
       const targetProps = await onEntityTransform.call(this, sourceEntity);
       if (sourceEntity instanceof Relationship) {
-        (targetProps as RelationshipProps).sourceId = await this.context.findTargetElementId(sourceEntity.sourceId);
-        (targetProps as RelationshipProps).targetId = await this.context.findTargetElementId(sourceEntity.targetId);
+        await Promise.all([
+          this.context.findTargetElementId(sourceEntity.sourceId),
+          this.context.findTargetElementId(sourceEntity.targetId),
+        ]).then(([sourceId, targetId]) => {
+          (targetProps as RelationshipProps).sourceId = sourceId;
+          (targetProps as RelationshipProps).targetId = targetId;
+        });
       }
       updateEntity({ ...targetProps, id: EntityReferences.toId64(targetId) });
       this._partiallyCommittedEntities.delete(sourceEntity);
@@ -675,13 +680,13 @@ export class IModelTransformer extends IModelExportHandler {
   /** collect references this entity has that are yet to be mapped, and if there are any
    * create a [[PartiallyCommittedEntity]] to track resolution of those references
    */
-  private collectUnmappedReferences(entity: ConcreteEntity) {
+  private async collectUnmappedReferences(entity: ConcreteEntity) {
     const missingReferences = new EntityReferenceSet();
     let thisPartialElem: PartiallyCommittedEntity | undefined;
 
     for (const referenceId of entity.getReferenceConcreteIds()) {
       // TODO: probably need to rename from 'id' to 'ref' so these names aren't so ambiguous
-      const referenceIdInTarget = this.context.findTargetEntityId(referenceId);
+      const referenceIdInTarget = await this.context.findTargetEntityId(referenceId);
       const alreadyImported = EntityReferences.isValid(referenceIdInTarget);
       if (alreadyImported)
         continue;
@@ -843,7 +848,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    this.collectUnmappedReferences(sourceElement);
+    await this.collectUnmappedReferences(sourceElement);
 
     // TODO: untangle targetElementId state...
     if (targetElementId === Id64.invalid)
@@ -1142,7 +1147,7 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): Promise<void> {
     const targetElementId = await this.context.findTargetElementId(sourceAspect.element.id);
     const targetAspectProps = await this.onTransformElementAspect(sourceAspect, targetElementId);
-    this.collectUnmappedReferences(sourceAspect);
+    await this.collectUnmappedReferences(sourceAspect);
     const targetId = this.importer.importElementUniqueAspect(targetAspectProps);
     this.context.remapElementAspect(sourceAspect.id, targetId);
     this.resolvePendingReferences(sourceAspect);
@@ -1157,7 +1162,7 @@ export class IModelTransformer extends IModelExportHandler {
     const targetElementId = await this.context.findTargetElementId(sourceAspects[0].element.id);
     // Transform source ElementMultiAspects into target ElementAspectProps
     const targetAspectPropsArray = await Promise.all(sourceAspects.map((srcA) => this.onTransformElementAspect(srcA, targetElementId)));
-    sourceAspects.forEach((a) => this.collectUnmappedReferences(a));
+    await Promise.all(sourceAspects.map((a) => this.collectUnmappedReferences(a)));
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
     const targetIds = this.importer.importElementMultiAspects(targetAspectPropsArray, (a) => {
       const isExternalSourceAspectFromTransformer = a instanceof ExternalSourceAspect && a.scope?.id === this.targetScopeElementId;

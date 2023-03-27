@@ -21,7 +21,7 @@ import { EntityUnifier } from "./EntityUnifier";
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @beta
  */
-export class IModelCloneContext implements Omit<IModelElementCloneContext, "remapElement" | "findTargetElementId"> {
+export class IModelCloneContext implements Omit<IModelElementCloneContext, "remapElement" | "findTargetElementId" | "cloneElement"> {
   private _refTypesCache = new ECReferenceTypesCache();
   private _nativeContext: IModelElementCloneContext;
 
@@ -128,12 +128,12 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Look up a target [EntityReference]($bentley) from a source [EntityReference]($bentley)
    * @returns the target CodeSpecId or a [EntityReference]($bentley) containing [Id64.invalid]($bentley) if a mapping is not found.
    */
-  public findTargetEntityId(sourceEntityId: EntityReference): EntityReference {
+  public async findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference> {
     const [type, rawId] = EntityReferences.split(sourceEntityId);
     if (Id64.isValid(rawId)) {
       switch (type) {
         case ConcreteEntityTypes.Model: {
-          const targetId = `m${this.findTargetElementId(rawId)}` as const;
+          const targetId = `m${await this.findTargetElementId(rawId)}` as const;
           // Check if the model exists, `findTargetElementId` may have worked because the element exists when the model doesn't.
           // That can occur in the transformer since a submodeled element is imported before its submodel.
           if (EntityUnifier.exists(this.targetDb, { entityReference: targetId }))
@@ -141,7 +141,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           break;
         }
         case ConcreteEntityTypes.Element:
-          return `e${this.findTargetElementId(rawId)}`;
+          return `e${await this.findTargetElementId(rawId)}`;
         case ConcreteEntityTypes.ElementAspect:
           return `a${this.findTargetAspectId(rawId)}`;
         case ConcreteEntityTypes.Relationship: {
@@ -193,10 +193,10 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           // just in case prevent recursion
           if (relInSource.sourceId === sourceEntityId || relInSource.targetId === sourceEntityId)
             throw Error("link table relationship end was resolved to itself. This should be impossible");
-          const relInTarget = {
-            sourceId: this.findTargetEntityId(relInSource.sourceId),
-            targetId: this.findTargetEntityId(relInSource.targetId),
-          };
+          const relInTarget = await Promise.all([
+            this.findTargetEntityId(relInSource.sourceId),
+            this.findTargetEntityId(relInSource.targetId),
+          ]).then(([sourceId, targetId]) => ({ sourceId, targetId }));
           // return a null
           if (Id64.isInvalid(relInTarget.sourceId) || Id64.isInvalid(relInTarget.targetId))
             break;
@@ -226,18 +226,20 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public cloneElementAspect(sourceElementAspect: ElementAspect): ElementAspectProps {
-    return this._cloneEntity(sourceElementAspect) as ElementAspectProps;
+  public cloneElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps> {
+    return this._cloneEntity(sourceElementAspect) as Promise<ElementAspectProps>;
   }
 
-  private _cloneEntity(sourceEntity: Entity): EntityProps {
+  private async _cloneEntity(sourceEntity: Entity): Promise<EntityProps> {
     const targetEntityProps: EntityProps = sourceEntity.toJSON();
     targetEntityProps.id = undefined;
 
     if (this.targetIsSource)
       return targetEntityProps;
 
-    sourceEntity.forEachProperty((propertyName, propertyMetaData) => {
+    const propProcessingPromises: Promise<void>[] = [];
+
+    sourceEntity.forEachProperty((propertyName, propertyMetaData) => propProcessingPromises.push((async () => {
       if (propertyMetaData.isNavigation) {
         const sourceNavProp: RelatedElementProps | undefined = (sourceEntity as any)[propertyName];
         if (sourceNavProp?.id) {
@@ -246,16 +248,18 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
             sourceEntity.className,
             propertyName
           );
-          assert(navPropRefType !== undefined,`nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`);
-          const targetEntityReference = this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType));
+          assert(navPropRefType !== undefined, `nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`);
+          const targetEntityReference = await this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType));
           const targetEntityId = EntityReferences.toId64(targetEntityReference);
           // spread the property in case toJSON did not deep-clone
           (targetEntityProps as any)[propertyName] = { ...(targetEntityProps as any)[propertyName], id: targetEntityId };
         }
       } else if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
-        (targetEntityProps as any)[propertyName] = this.findTargetElementId((sourceEntity as any)[propertyName]);
+        (targetEntityProps as any)[propertyName] = await this.findTargetElementId((sourceEntity as any)[propertyName]);
       }
-    });
+    })()));
+
+    await Promise.all(propProcessingPromises);
 
     return targetEntityProps;
   }
@@ -263,7 +267,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
+  public async cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): Promise<ElementProps> {
     /*
     // FIXME: remove
     const targetModelId = sourceElement.model === IModelDb.repositoryModelId
@@ -272,7 +276,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     */
 
     // Clone
-    const targetElementProps = this._cloneEntity(sourceElement) as ElementProps;
+    const targetElementProps = await this._cloneEntity(sourceElement) as ElementProps;
     // send geometry (if binaryGeometry, try querying it via raw SQLite as an array buffer)
     if (cloneOptions?.binaryGeometry && (sourceElement instanceof GeometricElement3d || sourceElement instanceof GeometryPart)) {
       // TODO: handle 2d
