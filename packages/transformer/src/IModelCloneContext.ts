@@ -13,24 +13,34 @@ import {
 } from "@itwin/core-common";
 import {
   ClassRegistry,
-  Element, ElementAspect, Entity, EntityReferences, GeometricElement, GeometricElement3d, GeometryPart, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
+  Element, ElementAspect, Entity, EntityReferences, GeometricElement3d, GeometryPart, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @beta
- * FIXME: while this inherits from IModelElementCloneContext, it ignores the remapping tables there and keeps them in JS (for now)
  */
-export class IModelCloneContext extends IModelElementCloneContext {
+export class IModelCloneContext implements Omit<IModelElementCloneContext, "remapElement" | "findTargetElementId"> {
   private _refTypesCache = new ECReferenceTypesCache();
+  private _nativeContext: IModelElementCloneContext;
+
+  public sourceDb: IModelDb;
+  public targetDb: IModelDb;
+
+  public constructor(...[sourceDb, targetDb]: ConstructorParameters<typeof IModelElementCloneContext>) {
+    this._nativeContext = new IModelElementCloneContext(sourceDb, targetDb);
+    this.sourceDb = this._nativeContext.sourceDb;
+    this.targetDb = this._nativeContext.targetDb;
+  }
+
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
-  public override async initialize() {
+  public async initialize() {
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
   }
 
-  public override importFont(_id: number) {
+  public importFont(_id: number) {
     // FIXME: implement!
   }
 
@@ -38,13 +48,13 @@ export class IModelCloneContext extends IModelElementCloneContext {
    * Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel.
    * @deprecated, use [[targetIsSource]]
    */
-  public override get isBetweenIModels(): boolean { return this.targetIsSource; }
+  public get isBetweenIModels(): boolean { return this.targetIsSource; }
 
   /** Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel. */
   public get targetIsSource(): boolean { return this.sourceDb !== this.targetDb; }
 
   private _aspectRemapTable = new Map<Id64String, Id64String>();
-  private _elementRemapTable = new Map<Id64String, Id64String>();
+  private _elementRemapTable = new Map<Id64String, Promise<Id64String>>();
   private _codeSpecRemapTable = new Map<Id64String, Id64String>();
 
   private _elementClassRemapTable = new Map<typeof Entity, typeof Entity>();
@@ -54,14 +64,14 @@ export class IModelCloneContext extends IModelElementCloneContext {
    * @param targetCodeSpecName The name of the CodeSpec from the target iModel.
    * @throws [[IModelError]] if either CodeSpec could not be found.
    */
-  public override remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void {
+  public remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void {
     const sourceCodeSpec = this.sourceDb.codeSpecs.getByName(sourceCodeSpecName);
     const targetCodeSpec = this.targetDb.codeSpecs.getByName(targetCodeSpecName);
     this._codeSpecRemapTable.set(sourceCodeSpec.id, targetCodeSpec.id);
   }
 
   /** Add a rule that remaps the specified source class to the specified target class. */
-  public override remapElementClass(sourceClassFullName: string, targetClassFullName: string): void {
+  public remapElementClass(sourceClassFullName: string, targetClassFullName: string): void {
     // NOTE: should probably also map class ids
     const sourceClass = ClassRegistry.getClass(sourceClassFullName, this.sourceDb);
     const targetClass = ClassRegistry.getClass(targetClassFullName, this.targetDb);
@@ -69,19 +79,19 @@ export class IModelCloneContext extends IModelElementCloneContext {
   }
 
   /** Add a rule that remaps the specified source Element to the specified target Element. */
-  public override remapElement(sourceId: Id64String, targetId: Id64String): void {
-    this._elementRemapTable.set(sourceId, targetId);
+  public remapElement(sourceId: Id64String, targetId: Id64String | Promise<Id64String>): void {
+    this._elementRemapTable.set(sourceId, Promise.resolve(targetId));
   }
 
   /** Remove a rule that remaps the specified source Element. */
-  public override removeElement(sourceId: Id64String): void {
+  public removeElement(sourceId: Id64String): void {
     this._elementRemapTable.delete(sourceId);
   }
 
   /** Look up a target CodeSpecId from the source CodeSpecId.
    * @returns the target CodeSpecId or [Id64.invalid]($bentley) if a mapping not found.
    */
-  public override findTargetCodeSpecId(sourceId: Id64String): Id64String {
+  public findTargetCodeSpecId(sourceId: Id64String): Id64String {
     if (Id64.invalid === sourceId) {
       return Id64.invalid;
     }
@@ -91,11 +101,11 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Look up a target ElementId from the source ElementId.
    * @returns the target ElementId or [Id64.invalid]($bentley) if a mapping not found.
    */
-  public override findTargetElementId(sourceElementId: Id64String): Id64String {
+  public findTargetElementId(sourceElementId: Id64String): Promise<Id64String> {
     if (Id64.invalid === sourceElementId) {
-      return Id64.invalid;
+      return Promise.resolve(Id64.invalid);
     }
-    return this._elementRemapTable.get(sourceElementId) ?? Id64.invalid;
+    return this._elementRemapTable.get(sourceElementId) ?? Promise.resolve(Id64.invalid);
   }
 
   /** Add a rule that remaps the specified source ElementAspect to the specified target ElementAspect. */
@@ -253,7 +263,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public override cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
+  public cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
     /*
     // FIXME: remove
     const targetModelId = sourceElement.model === IModelDb.repositoryModelId
@@ -301,14 +311,14 @@ export class IModelCloneContext extends IModelElementCloneContext {
     }
     const jsClass = this.sourceDb.getJsClass<typeof Element>(sourceElement.classFullName);
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
+    jsClass["onCloned"](this._nativeContext, sourceElement.toJSON(), targetElementProps);
     return targetElementProps;
   }
 
   /** Import a single CodeSpec from the source iModel into the target iModel.
    * @internal
    */
-  public override importCodeSpec(sourceCodeSpecId: Id64String): void {
+  public importCodeSpec(sourceCodeSpecId: Id64String): void {
     if (this._codeSpecRemapTable.has(sourceCodeSpecId))
       return;
     if (this.targetIsSource)
@@ -322,8 +332,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
 
   private static aspectRemapTableName = "AspectIdRemaps";
 
-  public override saveStateToDb(db: SQLiteDb): void {
-    super.saveStateToDb(db);
+  public saveStateToDb(db: SQLiteDb): void {
+    this._nativeContext.saveStateToDb(db);
     if (DbResult.BE_SQLITE_DONE !== db.executeSQL(
       `CREATE TABLE ${IModelCloneContext.aspectRemapTableName} (Source INTEGER, Target INTEGER)`
     ))
@@ -342,8 +352,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
       });
   }
 
-  public override loadStateFromDb(db: SQLiteDb): void {
-    super.loadStateFromDb(db);
+  public loadStateFromDb(db: SQLiteDb): void {
+    this._nativeContext.loadStateFromDb(db);
     // FIXME: test this
     db.withSqliteStatement(`SELECT Source, Target FROM ${IModelCloneContext.aspectRemapTableName}`, (stmt) => {
       let status = DbResult.BE_SQLITE_ERROR;
@@ -355,4 +365,11 @@ export class IModelCloneContext extends IModelElementCloneContext {
       assert(status === DbResult.BE_SQLITE_DONE);
     });
   }
+
+  public get dump() { return this._nativeContext.dump.bind(this._nativeContext); }
+  public get filterSubCategory() { return this._nativeContext.filterSubCategory.bind(this._nativeContext); }
+  public get hasSubCategoryFilter() { return this._nativeContext.hasSubCategoryFilter; }
+  public get isSubCategoryFiltered() { return this._nativeContext.isSubCategoryFiltered.bind(this._nativeContext); }
+  public get dispose() { return this._nativeContext.dispose.bind(this._nativeContext); }
 }
+
