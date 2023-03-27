@@ -770,9 +770,17 @@ export class IModelTransformer extends IModelExportHandler {
           }
           return id;
         })
-          .filter((sourceReferenceId: Id64String | undefined): sourceReferenceId is Id64String => {
+          .map((sourceReferenceId: Id64String | undefined): undefined | string | Promise<string> => {
+            if (sourceReferenceId === undefined) return sourceReferenceId;
+            const maybeImportPromise = this._importQueue.get(sourceReferenceId);
+            if (maybeImportPromise) return maybeImportPromise;
+            return sourceReferenceId;
+          })
+          .filter((sourceReferenceId): sourceReferenceId is Id64String | Promise<Id64String> => {
             if (sourceReferenceId === undefined)
               return false;
+            if (isPromise(sourceReferenceId))
+              return true;
             const referenceInTargetId = this.context.findTargetElementId(sourceReferenceId);
             const isInTarget = Id64.isValid(referenceInTargetId);
             return !isInTarget;
@@ -781,7 +789,8 @@ export class IModelTransformer extends IModelExportHandler {
       .flat();
 
     if (unresolvedReferences.length > 0) {
-      for (const reference of unresolvedReferences) {
+      for (const refOrPromise of unresolvedReferences) {
+        const reference = await refOrPromise;
         const processState = this.getElemTransformState(reference);
         // must export element first
         if (processState.needsElemImport)
@@ -804,7 +813,7 @@ export class IModelTransformer extends IModelExportHandler {
     return { needsElemImport: !isElemInTarget, needsModelImport };
   }
 
-  private _queuedImports = new Map<Id64String, Promise<Id64String>>();
+  private _importQueue = new Map<Id64String, Promise<Id64String>>();
 
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
@@ -851,13 +860,14 @@ export class IModelTransformer extends IModelExportHandler {
     if (targetElementId === Id64.invalid)
       targetElementId = undefined;
 
-    const onGetImportedId = (targetElementPropsId: Id64String) => {
-      this.context.remapElement(sourceElement.id, targetElementPropsId); // targetElementProps.id assigned by importElement
+    const onGetImportedId = (sourceElementPropsId: Id64String, targetElementPropsId: Id64String) => {
+      // FIXME/NEXT/TODO: delete the promise that this stores!
+      this.context.remapElement(sourceElementPropsId, targetElementPropsId); // targetElementProps.id assigned by importElement
       // now that we've mapped this elem we can fix unmapped references to it
       this.resolvePendingReferences(sourceElement);
 
       if (!this._options.noProvenance) {
-        const aspectProps: ExternalSourceAspectProps = this.initElementProvenance(sourceElement.id, targetElementPropsId);
+        const aspectProps: ExternalSourceAspectProps = this.initElementProvenance(sourceElementPropsId, targetElementPropsId);
         let aspectId = this.queryExternalSourceAspectId(aspectProps);
         if (aspectId === undefined) {
           aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
@@ -874,11 +884,11 @@ export class IModelTransformer extends IModelExportHandler {
     // don't need to import if iModel was copied
     if (!this._options.wasSourceIModelCopiedToTarget) {
       if (targetElementProps.id)
-        onGetImportedId(targetElementProps.id);
+        onGetImportedId(sourceElement.id, targetElementProps.id);
       // TODO: make the remap table return promises or ids
       const importPromise = this.importer.importElement(targetElementProps);
-      importPromise.then(onGetImportedId);
-      this._queuedImports.set(sourceElement.id, importPromise);
+      importPromise.then((targetId) => onGetImportedId(sourceElement.id, targetId));
+      this._importQueue.set(sourceElement.id, importPromise);
     }
   }
 
@@ -1675,3 +1685,6 @@ export class TemplateModelCloner extends IModelTransformer {
     return targetElementProps;
   }
 }
+
+const isPromise = (a: any): a is Promise<any> => Promise.resolve(a) === a;
+

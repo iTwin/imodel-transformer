@@ -38,8 +38,10 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
         case Messages.Await: {
           const { id } = msg;
           const result = onMsg(msg.message)
-          Promise.resolve(result).then(() => process.send!({
+          console.log("worker result:", result);
+          Promise.resolve(result).then((innerResult) => process.send!({
             type: Messages.Settled,
+            result: innerResult,
             id,
           } as Message));
         }

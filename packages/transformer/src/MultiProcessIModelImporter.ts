@@ -63,6 +63,7 @@ export type Message =
     }
   | {
       type: Messages.Settled;
+      result: any;
       id: number;
     }
   ;
@@ -77,9 +78,8 @@ export class MultiProcessIModelImporter extends IModelImporter {
       const id = this._nextId;
       this._nextId++;
       const onMsg = (msg: Message) => {
-        //console.log("parent received settler:", JSON.stringify(msg));
         if (msg.type === Messages.Settled && msg.id === id) {
-          resolve();
+          resolve(msg.result);
           this._worker.off("message", onMsg);
         }
       };
