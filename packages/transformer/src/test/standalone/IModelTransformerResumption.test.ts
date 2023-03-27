@@ -326,8 +326,8 @@ describe("test resuming transformations", () => {
       ["bis.ElementAspect", "findTargetAspectId", aspectMap],
     ] as const) {
       for await (const [sourceElemId] of sourceDb.query(`SELECT ECInstanceId from ${className}`)) {
-        const idInRegular = regularTransformer.context[findMethod](sourceElemId);
-        const idInResumed = resumedTransformer.context[findMethod](sourceElemId);
+        const idInRegular = await regularTransformer.context[findMethod](sourceElemId);
+        const idInResumed = await resumedTransformer.context[findMethod](sourceElemId);
         map.set(idInRegular, idInResumed);
       }
     }

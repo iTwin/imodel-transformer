@@ -812,13 +812,13 @@ export class IModelTransformer extends IModelExportHandler {
     let targetElementProps: ElementProps;
     if (this._options.preserveElementIdsForFiltering) {
       targetElementId = sourceElement.id;
-      targetElementProps = this.onTransformElement(sourceElement);
+      targetElementProps = await this.onTransformElement(sourceElement);
     } else if (this._options.wasSourceIModelCopiedToTarget) {
       targetElementId = sourceElement.id;
       targetElementProps = this.targetDb.elements.getElementProps(targetElementId);
     } else {
       targetElementId = await this.context.findTargetElementId(sourceElement.id);
-      targetElementProps = this.onTransformElement(sourceElement);
+      targetElementProps = await this.onTransformElement(sourceElement);
     }
     // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
     if (!Id64.isValidId64(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
@@ -924,7 +924,7 @@ export class IModelTransformer extends IModelExportHandler {
       return; // The RepositoryModel should not be directly imported
     }
     const targetModeledElementId = await this.context.findTargetElementId(sourceModel.id);
-    const targetModelProps: ModelProps = this.onTransformModel(sourceModel, targetModeledElementId);
+    const targetModelProps: ModelProps = await this.onTransformModel(sourceModel, targetModeledElementId);
     this.importer.importModel(targetModelProps);
     this.resolvePendingReferences(sourceModel);
   }
@@ -1049,8 +1049,8 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportRelationship]($transformer) that imports a relationship into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
    */
-  public override onExportRelationship(sourceRelationship: Relationship): void {
-    const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
+  public override async onExportRelationship(sourceRelationship: Relationship): Promise<void> {
+    const targetRelationshipProps = await this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValidId64(targetRelationshipInstanceId)) {
       const aspectProps: ExternalSourceAspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
@@ -1141,7 +1141,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public override async onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): Promise<void> {
     const targetElementId = await this.context.findTargetElementId(sourceAspect.element.id);
-    const targetAspectProps = this.onTransformElementAspect(sourceAspect, targetElementId);
+    const targetAspectProps = await this.onTransformElementAspect(sourceAspect, targetElementId);
     this.collectUnmappedReferences(sourceAspect);
     const targetId = this.importer.importElementUniqueAspect(targetAspectProps);
     this.context.remapElementAspect(sourceAspect.id, targetId);
@@ -1156,7 +1156,7 @@ export class IModelTransformer extends IModelExportHandler {
     // FIXME: careful of deadlocks...
     const targetElementId = await this.context.findTargetElementId(sourceAspects[0].element.id);
     // Transform source ElementMultiAspects into target ElementAspectProps
-    const targetAspectPropsArray = sourceAspects.map((srcA) => this.onTransformElementAspect(srcA, targetElementId));
+    const targetAspectPropsArray = await Promise.all(sourceAspects.map((srcA) => this.onTransformElementAspect(srcA, targetElementId)));
     sourceAspects.forEach((a) => this.collectUnmappedReferences(a));
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
     const targetIds = this.importer.importElementMultiAspects(targetAspectPropsArray, (a) => {
@@ -1659,6 +1659,7 @@ export class TemplateModelCloner extends IModelTransformer {
   public override async onTransformElement(sourceElement: Element): Promise<ElementProps> {
     const referenceIds: Id64Set = sourceElement.getReferenceIds();
 
+    // FIXME: can this be made unnecessary?
     const referencePromises = [...referenceIds].map(async (referenceId: Id64String) => {
       if (Id64.invalid === await this.context.findTargetElementId(referenceId)) {
         if (this.context.isBetweenIModels) {
@@ -1676,7 +1677,7 @@ export class TemplateModelCloner extends IModelTransformer {
 
     await Promise.all(referencePromises);
 
-    const targetElementProps: ElementProps = super.onTransformElement(sourceElement);
+    const targetElementProps = await super.onTransformElement(sourceElement);
     targetElementProps.federationGuid = Guid.createValue(); // clone from template should create a new federationGuid
     targetElementProps.code = Code.createEmpty(); // clone from template should not maintain codes
     if (sourceElement instanceof GeometricElement3d) {

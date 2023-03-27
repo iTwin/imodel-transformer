@@ -451,7 +451,7 @@ describe("IModelTransformer", () => {
     const transform3d: Transform = Transform.createTranslation(new Point3d(100, 200));
     const transformer = new IModelTransformer3d(sourceDb, targetDb, transform3d);
     await transformer.processAll();
-    const targetModelId: Id64String = transformer.context.findTargetElementId(sourceModelId);
+    const targetModelId = await transformer.context.findTargetElementId(sourceModelId);
     const targetModel: PhysicalModel = targetDb.models.getModel<PhysicalModel>(targetModelId);
     const targetModelExtents: AxisAlignedBox3d = targetModel.queryExtents();
     assert.deepEqual(targetModelExtents, new Range3d(101, 200, 0, 110, 209, 1));
@@ -501,10 +501,10 @@ describe("IModelTransformer", () => {
     await transformer.processAll();
     targetDb.saveChanges();
 
-    const targetElement11 = targetDb.elements.getElement(transformer.context.findTargetElementId(sourceElementId11));
+    const targetElement11 = targetDb.elements.getElement(await transformer.context.findTargetElementId(sourceElementId11));
     assert.equal(targetElement11.userLabel, "PhysicalObject-M1-E1");
     assert.equal(targetElement11.model, targetModelId);
-    const targetElement21 = targetDb.elements.getElement(transformer.context.findTargetElementId(sourceElementId21));
+    const targetElement21 = targetDb.elements.getElement(await transformer.context.findTargetElementId(sourceElementId21));
     assert.equal(targetElement21.userLabel, "PhysicalObject-M2-E1");
     assert.equal(targetElement21.model, targetModelId);
     const targetPartition = targetDb.elements.getElement(targetModelId);
@@ -711,7 +711,7 @@ describe("IModelTransformer", () => {
     await transformer.processElement(sourceElementId);
     targetDb.saveChanges();
 
-    const targetElementId = transformer.context.findTargetElementId(sourceElementId);
+    const targetElementId = await transformer.context.findTargetElementId(sourceElementId);
     const targetElement = targetDb.elements.getElement(targetElementId);
     assert.equal(targetElement.asAny.string1, "a");
     assert.equal(targetElement.asAny.string2, "b");
@@ -1459,13 +1459,13 @@ describe("IModelTransformer", () => {
       const displayStyleInSource = sourceDb.elements.getElement<DisplayStyle3d>(displayStyleId);
       expect([...displayStyleInSource.settings.excludedElementIds]).to.include(physicalObjects[1].id);
 
-      const displayStyleInTargetId = transformer.context.findTargetElementId(displayStyleId);
+      const displayStyleInTargetId = await transformer.context.findTargetElementId(displayStyleId);
       const displayStyleInTarget = transformer.targetDb.elements.getElement<DisplayStyle3d>(displayStyleInTargetId);
 
-      const physObjsInTarget = physicalObjects.map((physObjInSource) => {
-        const physObjInTargetId = transformer.context.findTargetElementId(physObjInSource.id);
+      const physObjsInTarget = await Promise.all(physicalObjects.map(async (physObjInSource) => {
+        const physObjInTargetId = await transformer.context.findTargetElementId(physObjInSource.id);
         return { ...physObjInSource, id: physObjInTargetId };
-      });
+      }));
 
       expect(Id64.isValidId64(physObjsInTarget[0].id)).to.be.true;
       expect(Id64.isValidId64(physObjsInTarget[1].id)).not.to.be.true;
@@ -1657,7 +1657,7 @@ describe("IModelTransformer", () => {
     }
 
     for (const navPropHolderInSource of getNavPropContent(sourceDb)) {
-      const navPropHolderInTargetId = transformer.context.findTargetElementId(navPropHolderInSource.id);
+      const navPropHolderInTargetId = await transformer.context.findTargetElementId(navPropHolderInSource.id);
       const navPropHolderInTarget = targetDb.elements.getElement(navPropHolderInTargetId);
       const navPropTargetInTarget = transformer.context.findTargetElementId(navPropHolderInSource.navProp.id);
       // cast to any to access untyped instance properties
@@ -1697,7 +1697,7 @@ describe("IModelTransformer", () => {
 
     await assertIdentityTransformation(sourceDb, targetDb, transformer, { compareElemGeom: true });
 
-    const physicalModelInTargetId = transformer.context.findTargetElementId(physicalModelId);
+    const physicalModelInTargetId = await transformer.context.findTargetElementId(physicalModelId);
     const physicalModelInTarget = targetDb.models.getModel(physicalModelInTargetId);
     expect(physicalModelInTarget.jsonProperties.formatter.fmtFlags.linPrec).to.equal(100);
 
@@ -1870,7 +1870,7 @@ describe("IModelTransformer", () => {
     await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
     await expect(transformer.processAll()).to.eventually.be.fulfilled;
 
-    const elem1InTargetId = transformer.context.findTargetElementId(elem1Id);
+    const elem1InTargetId = await transformer.context.findTargetElementId(elem1Id);
     const elem1AspectsInTarget = targetDb.elements.getAspects(elem1InTargetId);
     expect(elem1AspectsInTarget).to.have.lengthOf(2);
 
@@ -2222,10 +2222,10 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processAll();
 
-    const spatialCategoryInTargetId = transformer.context.findTargetElementId(spatialCategId);
-    const subCategoryInTargetId = transformer.context.findTargetElementId(subCategId);
-    const physModelInTargetId = transformer.context.findTargetElementId(physModelId);
-    const physObjectInTargetId = transformer.context.findTargetElementId(physObjectId);
+    const spatialCategoryInTargetId = await transformer.context.findTargetElementId(spatialCategId);
+    const subCategoryInTargetId = await transformer.context.findTargetElementId(subCategId);
+    const physModelInTargetId = await transformer.context.findTargetElementId(physModelId);
+    const physObjectInTargetId = await transformer.context.findTargetElementId(physObjectId);
 
     expect(targetDb.elements.getElement(spatialCategoryInTargetId).code.value).to.equal("SpatialCategory");
     expect(targetDb.elements.getElement(subCategoryInTargetId).code.value).to.equal("SpatialCategory");
@@ -2392,13 +2392,13 @@ describe("IModelTransformer", () => {
     const transformer = new AssertOrderAndShiftIdsTransformer([renderMaterialBothImgsId, texture1Id], sourceDb, createTargetDb);
     await transformer.processAll();
 
-    const texture1IdInTarget = transformer.context.findTargetElementId(texture1Id);
-    const texture2IdInTarget = transformer.context.findTargetElementId(texture2Id);
+    const texture1IdInTarget = await transformer.context.findTargetElementId(texture1Id);
+    const texture2IdInTarget = await transformer.context.findTargetElementId(texture2Id);
     assert(Id64.isValidId64(texture1IdInTarget));
     assert(Id64.isValidId64(texture2IdInTarget));
 
     for (const objId of physObjs) {
-      const objInTargetId = transformer.context.findTargetElementId(objId);
+      const objInTargetId = await transformer.context.findTargetElementId(objId);
       const objInTarget = transformer.targetDb.elements.getElement<PhysicalObject>({ id: objInTargetId, wantGeometry: true });
       assert(objInTarget.geom);
       const materialOfObjInTargetId = objInTarget.geom.find((g) => g.material?.materialId)?.material?.materialId;

@@ -260,7 +260,7 @@ export async function assertIdentityTransformation(
   for await (const [sourceElemId] of sourceDb.query(
     "SELECT ECInstanceId FROM bis.Element"
   )) {
-    const targetElemId = remapElem(sourceElemId);
+    const targetElemId = await remapElem(sourceElemId);
     const sourceElem = sourceDb.elements.getElement({ id: sourceElemId, wantGeometry: compareElemGeom });
     const targetElem = targetDb.elements.tryGetElement({ id: targetElemId, wantGeometry: compareElemGeom });
     // expect(targetElem.toExist)
@@ -328,7 +328,7 @@ export async function assertIdentityTransformation(
             (image.texture as string | undefined) = undefined;
 
           if (image?.texture)
-            image.texture = remapElem(image.texture);
+            image.texture = await remapElem(image.texture);
 
           if (!sky.twoColor)
             expectedSourceElemJsonProps.styles.environment.sky.twoColor = false;
@@ -343,19 +343,19 @@ export async function assertIdentityTransformation(
 
         for (let i = 0; i < (styles?.excludedElements?.length ?? 0); ++i) {
           const id = excludedElements![i];
-          excludedElements![i] = remapElem(id);
+          excludedElements![i] = await remapElem(id);
         }
 
         for (const ovr of styles?.subCategoryOvr ?? []) {
           if (ovr.subCategory)
-            ovr.subCategory = remapElem(ovr.subCategory);
+            ovr.subCategory = await remapElem(ovr.subCategory);
         }
       }
 
       if (sourceElem instanceof SpatialViewDefinition) {
         const viewProps = expectedSourceElemJsonProps.viewDetails as ViewDetails3dProps | undefined;
         if (viewProps && viewProps.acs)
-          viewProps.acs = remapElem(viewProps.acs);
+          viewProps.acs = await remapElem(viewProps.acs);
       }
       // END jsonProperties TRANSFORMATION EXCEPTIONS
       // kept for conditional breakpoints
@@ -429,7 +429,7 @@ export async function assertIdentityTransformation(
   for await (const [sourceModelId] of sourceDb.query(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
-    const targetModelId = remapElem(sourceModelId);
+    const targetModelId = await remapElem(sourceModelId);
     const sourceModel = sourceDb.models.getModel(sourceModelId);
     const targetModel = targetDb.models.tryGetModel(targetModelId);
     // expect(targetModel.toExist)
@@ -825,8 +825,8 @@ export class IModelTransformer3d extends IModelTransformer {
     this._transform3d = transform3d;
   }
   /** Override transformElement to apply a 3d transform to all GeometricElement3d instances. */
-  public override onTransformElement(sourceElement: Element): ElementProps {
-    const targetElementProps: ElementProps = super.onTransformElement(sourceElement);
+  public override async onTransformElement(sourceElement: Element): Promise<ElementProps> {
+    const targetElementProps = await super.onTransformElement(sourceElement);
     if (sourceElement instanceof GeometricElement3d) { // can check the sourceElement since this IModelTransformer does not remap classes
       const placement = Placement3d.fromJSON((targetElementProps as GeometricElement3dProps).placement);
       if (placement.isValid) {
@@ -976,8 +976,8 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override transformElement to make sure that all target Elements have a FederationGuid */
-  public override onTransformElement(sourceElement: Element): ElementProps {
-    const targetElementProps: any = super.onTransformElement(sourceElement);
+  public override async onTransformElement(sourceElement: Element): Promise<ElementProps> {
+    const targetElementProps: any = await super.onTransformElement(sourceElement);
     if (!targetElementProps.federationGuid) {
       targetElementProps.federationGuid = Guid.createValue();
     }
@@ -996,8 +996,8 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override transformElementAspect to remap Source*Aspect --> Target*Aspect */
-  public override onTransformElementAspect(sourceElementAspect: ElementAspect, targetElementId: Id64String): ElementAspectProps {
-    const targetElementAspectProps: any = super.onTransformElementAspect(sourceElementAspect, targetElementId);
+  public override async onTransformElementAspect(sourceElementAspect: ElementAspect, targetElementId: Id64String): Promise<ElementAspectProps> {
+    const targetElementAspectProps: any = await super.onTransformElementAspect(sourceElementAspect, targetElementId);
     if ("ExtensiveTestScenario:SourceUniqueAspect" === sourceElementAspect.classFullName) {
       targetElementAspectProps.classFullName = "ExtensiveTestScenarioTarget:TargetUniqueAspect";
       targetElementAspectProps.targetDouble = targetElementAspectProps.sourceDouble;
@@ -1023,8 +1023,8 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override transformRelationship to remap SourceRelWithProps --> TargetRelWithProps */
-  public override onTransformRelationship(sourceRelationship: Relationship): RelationshipProps {
-    const targetRelationshipProps: any = super.onTransformRelationship(sourceRelationship);
+  public override async onTransformRelationship(sourceRelationship: Relationship): Promise<RelationshipProps> {
+    const targetRelationshipProps: any = await super.onTransformRelationship(sourceRelationship);
     if ("ExtensiveTestScenario:SourceRelWithProps" === sourceRelationship.classFullName) {
       targetRelationshipProps.classFullName = "ExtensiveTestScenarioTarget:TargetRelWithProps";
       targetRelationshipProps.targetString = targetRelationshipProps.sourceString;
@@ -1044,7 +1044,7 @@ export class TestIModelTransformer extends IModelTransformer {
 export class AspectTrackingTransformer extends IModelTransformer {
   public exportedAspectIdsByElement = new Map<Id64String, ElementMultiAspect[]>();
 
-  public override onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): void {
+  public override async onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): Promise<void> {
     const elementId = sourceAspects[0].element.id;
     assert(!this.exportedAspectIdsByElement.has(elementId), "tried to export element multi aspects for an element more than once");
     this.exportedAspectIdsByElement.set(elementId, sourceAspects);
