@@ -788,17 +788,20 @@ export class IModelTransformer extends IModelExportHandler {
       .flat()
       .filter((sourceReferenceId): sourceReferenceId is EntityReference => sourceReferenceId !== undefined)
       .map(async (sourceReferenceId): Promise<void> => {
-        const referenceInTargetId = this.context.findTargetEntityId(sourceReferenceId);
         // NOTE: does this cover exporting of the underlying potentially required model? I think not...
-        await referenceInTargetId;
+        // wait for the id in the target to be resolved
+        await this.context.findTargetEntityId(sourceReferenceId);
 
         // FIXME: replace with independent model and element remap table
-        const processState = await this.getElemTransformState(sourceReferenceId);
-        // must export element first
-        if (processState.needsElemImport)
-          await this.exporter.exportElement(sourceReferenceId);
-        if (processState.needsModelImport)
-          await this.exporter.exportModel(sourceReferenceId);
+        const [type, rawId] = EntityReferences.split(sourceReferenceId);
+        if (type !== ConcreteEntityTypes.CodeSpec) {
+          const processState = await this.getElemTransformState(rawId);
+          // must export element first
+          if (processState.needsElemImport)
+            await this.exporter.exportElement(rawId);
+          if (processState.needsModelImport)
+            await this.exporter.exportModel(rawId);
+        }
       }));
   }
 
@@ -1306,7 +1309,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Override of [IModelExportHandler.onExportCodeSpec]($transformer) that imports a CodeSpec into the target iModel when it is exported from the source iModel. */
   public override async onExportCodeSpec(sourceCodeSpec: CodeSpec): Promise<void> {
-    await this.context.importCodeSpec(sourceCodeSpec.id);
+    this.context.importCodeSpec(sourceCodeSpec.id);
   }
 
   /** Recursively import all Elements and sub-Models that descend from the specified Subject */
