@@ -232,12 +232,13 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
   private async _cloneEntity(sourceEntity: Entity): Promise<EntityProps> {
     const targetEntityProps: EntityProps = sourceEntity.toJSON();
-    targetEntityProps.id = undefined;
 
     if (this.targetIsSource)
       return targetEntityProps;
 
     // FIXME: move this to cloneElement probably
+    if ("code" in targetEntityProps as any)
+      (targetEntityProps as any).code = { ...(targetEntityProps as any).code };
     const specialHandledProps = {
       codeSpec: {
         getSource: () => (sourceEntity as Element).code.spec,
@@ -298,12 +299,14 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     if (cloneOptions?.binaryGeometry && (sourceElement instanceof GeometricElement3d || sourceElement instanceof GeometryPart)) {
       // TODO: handle 2d
       // NOTE: how do I remap the material Ids in here?
-      this.sourceDb.withPreparedSqliteStatement("SELECT GeometryStream FROM bis_GeometricElement3d WHERE ECInstanceId=?", (stmt) => {
+      this.sourceDb.withPreparedSqliteStatement("SELECT GeometryStream FROM bis_GeometricElement3d WHERE ElementId=?", (stmt) => {
         stmt.bindId(1, sourceElement.id);
-        assert(stmt.step() === DbResult.BE_SQLITE_ROW);
-        const geomBinary = stmt.getValue(0).getBlob();
-        assert(stmt.step() === DbResult.BE_SQLITE_DONE);
-        (targetElementProps as any)["geomBinary"] = geomBinary;
+        // assert(stmt.step() === DbResult.BE_SQLITE_ROW);
+        if (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          const geomBinary = stmt.getValue(0).getBlob();
+          assert(stmt.step() === DbResult.BE_SQLITE_DONE);
+          (targetElementProps as any)["geomBinary"] = geomBinary;
+        }
       });
     }
 
