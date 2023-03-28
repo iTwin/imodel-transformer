@@ -295,25 +295,34 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     // Clone
     // FIXME: this may return code._value for element code.value, might be necessary to fix that
     const targetElementProps = await this._cloneEntity(sourceElement) as ElementProps;
-    // send geometry (if binaryGeometry, try querying it via raw SQLite as an array buffer)
-    if (cloneOptions?.binaryGeometry && (sourceElement instanceof GeometricElement3d || sourceElement instanceof GeometryPart)) {
+
+    // attach geometry
+    if (cloneOptions?.binaryGeometry) {
       // TODO: handle 2d
-      // NOTE: how do I remap the material Ids in here?
-      this.sourceDb.withPreparedSqliteStatement("SELECT GeometryStream FROM bis_GeometricElement3d WHERE ElementId=?", (stmt) => {
-        stmt.bindId(1, sourceElement.id);
-        // assert(stmt.step() === DbResult.BE_SQLITE_ROW);
-        if (stmt.step() === DbResult.BE_SQLITE_ROW) {
+      if (sourceElement instanceof GeometricElement3d) {
+        this.sourceDb.withPreparedSqliteStatement("SELECT GeometryStream FROM bis_GeometricElement3d WHERE ElementId=?", (stmt) => {
+          stmt.bindId(1, sourceElement.id);
+          assert(stmt.step() === DbResult.BE_SQLITE_ROW);
           const geomBinary = stmt.getValue(0).getBlob();
           assert(stmt.step() === DbResult.BE_SQLITE_DONE);
           (targetElementProps as any)["geomBinary"] = geomBinary;
-        }
-      });
+        });
+      }
+      if (sourceElement instanceof GeometryPart) {
+        this.sourceDb.withPreparedStatement("SELECT GeometryStream FROM bis.GeometryPart WHERE ECInstanceId=?", (stmt) => {
+          stmt.bindId(1, sourceElement.id);
+          assert(stmt.step() === DbResult.BE_SQLITE_ROW);
+          const geomBinary = stmt.getValue(0).getBlob();
+          assert(stmt.step() === DbResult.BE_SQLITE_DONE);
+          (targetElementProps as any)["geomBinary"] = geomBinary;
+        });
+      }
     }
 
     if (!cloneOptions?.binaryGeometry)
       throw Error("not yet supported, will require the native context to be modified");
 
-    // // FIXME: do we still need this?>
+    // // FIXME: do we still need this?
     // Ensure that all NavigationProperties in targetElementProps have a defined value
     // so "clearing" changes will be part of the JSON used for update
     sourceElement.forEachProperty((propertyName: string, meta: PropertyMetaData) => {
