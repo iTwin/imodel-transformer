@@ -787,21 +787,18 @@ export class IModelTransformer extends IModelExportHandler {
       })
       .flat()
       .filter((sourceReferenceId): sourceReferenceId is EntityReference => sourceReferenceId !== undefined)
-      .map((sourceReferenceId): Promise<void> => {
+      .map(async (sourceReferenceId): Promise<void> => {
         const referenceInTargetId = this.context.findTargetEntityId(sourceReferenceId);
         // NOTE: does this cover exporting of the underlying potentially required model? I think not...
-        const isExportQueued = isPromise(referenceInTargetId);
-        if (isExportQueued)
-          return referenceInTargetId as Promise<any>;
+        await referenceInTargetId;
 
-        return (async () => {
-          const processState = await this.getElemTransformState(sourceReferenceId);
-          // must export element first
-          if (processState.needsElemImport)
-            await this.exporter.exportElement(sourceReferenceId);
-          if (processState.needsModelImport)
-            await this.exporter.exportModel(sourceReferenceId);
-        })();
+        // FIXME: replace with independent model and element remap table
+        const processState = await this.getElemTransformState(sourceReferenceId);
+        // must export element first
+        if (processState.needsElemImport)
+          await this.exporter.exportElement(sourceReferenceId);
+        if (processState.needsModelImport)
+          await this.exporter.exportModel(sourceReferenceId);
       }));
   }
 
@@ -1308,8 +1305,8 @@ export class IModelTransformer extends IModelExportHandler {
   public override shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): boolean { return true; }
 
   /** Override of [IModelExportHandler.onExportCodeSpec]($transformer) that imports a CodeSpec into the target iModel when it is exported from the source iModel. */
-  public override onExportCodeSpec(sourceCodeSpec: CodeSpec): void {
-    this.context.importCodeSpec(sourceCodeSpec.id);
+  public override async onExportCodeSpec(sourceCodeSpec: CodeSpec): Promise<void> {
+    await this.context.importCodeSpec(sourceCodeSpec.id);
   }
 
   /** Recursively import all Elements and sub-Models that descend from the specified Subject */

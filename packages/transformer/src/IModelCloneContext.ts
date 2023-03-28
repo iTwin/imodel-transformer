@@ -8,7 +8,7 @@
 import * as assert from "assert";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
-  Code, CodeScopeSpec, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, IModelError,
+  Code, CodeScopeSpec, CodeSpec, ElementAspectProps, ElementProps, EntityProps, IModelError,
   PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
 } from "@itwin/core-common";
 import {
@@ -17,7 +17,7 @@ import {
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
-import { EntityReference, EntityReferences } from "./EntityReference";
+import { ConcreteEntityTypes, EntityReference, EntityReferences } from "./EntityReference";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @beta
@@ -219,6 +219,9 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
             });
           return `r${relInTargetId}`;
         }
+        case ConcreteEntityTypes.CodeSpec: {
+          return `c${this.findTargetCodeSpecId(rawId)}`;
+        }
       }
     }
     return `${type}${Id64.invalid}`;
@@ -360,16 +363,21 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Import a single CodeSpec from the source iModel into the target iModel.
    * @internal
    */
-  public importCodeSpec(sourceCodeSpecId: Id64String): void {
+  public async importCodeSpec(sourceCodeSpecId: Id64String): Promise<void> {
     if (this._codeSpecRemapTable.has(sourceCodeSpecId))
       return;
     if (this.targetIsSource)
       return;
     const sourceCodeSpec = Object.assign({}, this.sourceDb.codeSpecs.getById(sourceCodeSpecId), { id: undefined as string | undefined, iModel: undefined as IModelDb | undefined });
     // TODO: allow importers to opt in to handling name collisions themselves
-    if (this.targetDb.codeSpecs.hasName(sourceCodeSpec.name))
-      return;
-    this.targetDb.codeSpecs.insert(CodeSpec.create(undefined as any, sourceCodeSpec.name, sourceCodeSpec.scopeType, sourceCodeSpec.scopeReq));
+    const targetCodeSpec = this.targetDb.codeSpecs.hasName(sourceCodeSpec.name) && this.targetDb.codeSpecs.getByName(sourceCodeSpec.name);
+
+    const targetId = targetCodeSpec
+      ? targetCodeSpec.id
+      // FIXME: awaiting because we know this is replaced with a promise return value when using a MultiProcess importer
+      : await this.targetDb.codeSpecs.insert(CodeSpec.create(undefined as any, sourceCodeSpec.name, sourceCodeSpec.scopeType, sourceCodeSpec.scopeReq));
+
+    this._codeSpecRemapTable.set(sourceCodeSpecId, targetId);
   }
 
 

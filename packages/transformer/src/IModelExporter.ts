@@ -44,7 +44,7 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): void { }
+  public onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): void | Promise<void> { }
 
   /** Called when a font should be exported.
    * @param font The font to export
@@ -397,7 +397,7 @@ export class IModelExporter {
     // CodeSpec has passed standard exclusion rules, now give handler a chance to accept/reject export
     if (this.handler.shouldExportCodeSpec(codeSpec)) {
       Logger.logTrace(loggerCategory, `exportCodeSpec(${codeSpecName})${this.getChangeOpSuffix(isUpdate)}`);
-      this.handler.onExportCodeSpec(codeSpec, isUpdate);
+      await this.handler.onExportCodeSpec(codeSpec, isUpdate);
       return this.trackProgress();
     }
   }
