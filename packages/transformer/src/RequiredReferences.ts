@@ -6,7 +6,8 @@ import {
   ViewDefinition,
 } from "@itwin/core-backend";
 import * as BackendExports from "@itwin/core-backend";
-import { ConcreteEntityTypes } from "@itwin/core-common";
+import { ConcreteEntityTypes } from "./EntityReference";
+import { isSubclassOf } from "@itwin/core-bentley";
 
 // NOTE: lodash has this same thing but probably with prototype pollution detection,
 // but we only use it on a known set of paths for now, barring someone loading a class
@@ -31,7 +32,7 @@ const classSpecificRequiredReferenceKeys = new Map<
      "parent": { type: ConcreteEntityTypes.Element },
      "model": { type: ConcreteEntityTypes.Model },
      "code.scope": { type: ConcreteEntityTypes.Element },
-     "code.spec": { type: ConcreteEntityTypes.Element },
+     "code.spec": { type: ConcreteEntityTypes.CodeSpec },
     },
   ],
   [GeometricElement, { "category": { type: ConcreteEntityTypes.Element } }],
@@ -72,9 +73,6 @@ function cacheRequiredReferenceKeys(cls: typeof Entity) {
     Object.assign(classRequiredReferenceKeys, baseClassRequiredRefs);
     baseClass = Object.getPrototypeOf(baseClass);
   }
-  for (const [maybeBaseClass, baseClassRequiredRefs] of classSpecificRequiredReferenceKeys.entries())
-    if (cls.is(maybeBaseClass as typeof Entity))
-      Object.assign(classRequiredReferenceKeys, baseClassRequiredRefs);
 
   requiredReferenceKeys.set(cls, classRequiredReferenceKeys);
 
@@ -82,7 +80,7 @@ function cacheRequiredReferenceKeys(cls: typeof Entity) {
 }
 
 const bisCoreClasses = Object.values(BackendExports).filter(
-  (v): v is typeof Element => v instanceof Element.constructor
+  (v): v is typeof Element => v && "prototype" in v && isSubclassOf(v as any, Element)
 );
 
 for (const bisCoreClass of bisCoreClasses) {

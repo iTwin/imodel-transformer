@@ -14,16 +14,16 @@ import {
   OpenMode, YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
-import { Point3d, Transform } from "@itwin/core-geometry";
+import { ConvexClipPlaneSet, Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
-  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
-  ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
+  ChannelRootAspect, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
+  ElementRefersToElements, ElementUniqueAspect, Entity, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, Code, CodeProps, CodeSpec, ElementAspectProps, ElementProps,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
@@ -35,6 +35,7 @@ import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { readPropPath, RequiredReferenceKeys } from "./RequiredReferences";
+import { ConcreteEntity, ConcreteEntityTypes, EntityReference, EntityReferences, EntityReferenceSet } from "./EntityReference";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -763,7 +764,12 @@ export class IModelTransformer extends IModelExportHandler {
         const idContainer = readPropPath(sourceElement, referencePath);
         // For now we just consider all required references to be elements (as they are in biscore), and do not support
         // entities that refuse to be inserted without a different kind of entity (e.g. aspect or relationship) first being inserted
-        assert(referenceType === ConcreteEntityTypes.Element || referenceType === ConcreteEntityTypes.Model);
+        assert(
+          referenceType === ConcreteEntityTypes.Element
+          || referenceType === ConcreteEntityTypes.Model
+          || referenceType === ConcreteEntityTypes.CodeSpec,
+          "Entities with required references that aren't an Element, Model, or CodeSpec are unsupported"
+        );
         return mapId64(idContainer, (id) => {
           if (id === Id64.invalid || id === IModel.rootSubjectId)
             return undefined; // not allowed to directly export the root subject
@@ -776,12 +782,14 @@ export class IModelTransformer extends IModelExportHandler {
               this.context.remapElement(id, id);
             }
           }
+          //return EntityReferences.fromEntityType(id, referenceType);
           return id;
-        })
+        });
       })
       .flat()
       .filter((sourceReferenceId): sourceReferenceId is Id64String => sourceReferenceId !== undefined)
       .map((sourceReferenceId): Promise<void> => {
+        //const referenceInTargetId = this.context.findTargetEntityId(sourceReferenceId);
         const referenceInTargetId = this.context.findTargetElementId(sourceReferenceId);
         // NOTE: does this cover exporting of the underlying potentially required model? I think not...
         const isExportQueued = isPromise(referenceInTargetId);

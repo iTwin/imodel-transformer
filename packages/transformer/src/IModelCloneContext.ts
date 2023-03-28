@@ -8,15 +8,16 @@
 import * as assert from "assert";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
-  Code, CodeScopeSpec, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, EntityReference, IModelError,
+  Code, CodeScopeSpec, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, IModelError,
   PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
 } from "@itwin/core-common";
 import {
   ClassRegistry,
-  Element, ElementAspect, Entity, EntityReferences, GeometricElement3d, GeometryPart, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
+  Element, ElementAspect, Entity, GeometricElement3d, GeometryPart, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
+import { EntityReference, EntityReferences } from "./EntityReference";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @beta
@@ -125,7 +126,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     return this._aspectRemapTable.get(sourceAspectId) ?? Id64.invalid;
   }
 
-  /** Look up a target [EntityReference]($bentley) from a source [EntityReference]($bentley)
+  /** Look up a target [[EntityReference]] from a source [[EntityReference]]
    * @returns the target CodeSpecId or a [EntityReference]($bentley) containing [Id64.invalid]($bentley) if a mapping is not found.
    */
   public async findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference> {
@@ -338,15 +339,23 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
         targetElementProps.code.scope = IModelDb.rootSubjectId;
       }
     }
+
+    // FIXME/NEXT: this doesn't work for category elements which have name restrictions,
+    // the native code used to actually go import the corresponding codespec (idk about codescope atm),
+    // need to either create a special name or add code.scope and code.spec to the required elements list
+
     // unlike other references, code cannot be null. If it is null, use an empty code instead
     if (targetElementProps.code.scope === Id64.invalid || targetElementProps.code.spec === Id64.invalid) {
       targetElementProps.code = Code.createEmpty();
+      //targetElementProps.code.value = IModelCloneContext.unresolvedCode;
     }
     const jsClass = this.sourceDb.getJsClass<typeof Element>(sourceElement.classFullName);
     // eslint-disable-next-line @typescript-eslint/dot-notation
     jsClass["onCloned"](this._nativeContext, sourceElement.toJSON(), targetElementProps);
     return targetElementProps;
   }
+
+  public static readonly unresolvedCodeValue = "@@TRANSFORMER_UNRESOLVED_CODE!~~";
 
   /** Import a single CodeSpec from the source iModel into the target iModel.
    * @internal
