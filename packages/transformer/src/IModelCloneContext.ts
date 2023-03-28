@@ -8,7 +8,7 @@
 import * as assert from "assert";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
-  Code, CodeScopeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, EntityReference, IModelError,
+  Code, CodeScopeSpec, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityProps, EntityReference, IModelError,
   PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
 } from "@itwin/core-common";
 import {
@@ -54,7 +54,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   public get targetIsSource(): boolean { return this.sourceDb === this.targetDb; }
 
   private _aspectRemapTable = new Map<Id64String, Id64String>();
-  private _elementRemapTable = new Map<Id64String, Promise<Id64String>>();
+  private _elementRemapTable = new Map<Id64String, Promise<Id64String>>([["0x1", Promise.resolve("0x1")]]);
   private _codeSpecRemapTable = new Map<Id64String, Id64String>();
 
   private _elementClassRemapTable = new Map<typeof Entity, typeof Entity>();
@@ -238,15 +238,25 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
       return targetEntityProps;
 
     // FIXME: move this to cloneElement probably
-    const specialPropSetters = {
-      codeSpec: (v: Id64String) => (targetEntityProps as ElementProps).code.spec = v,
-      codeScope: (v: Id64String) => (targetEntityProps as ElementProps).code.scope = v,
+    const specialHandledProps = {
+      codeSpec: {
+        getSource: () => (sourceEntity as Element).code.spec,
+        setTarget: (v: Id64String) => (targetEntityProps as ElementProps).code.spec = v,
+      },
+      codeScope: {
+        getSource: () => (sourceEntity as Element).code.scope,
+        setTarget: (v: Id64String) => (targetEntityProps as ElementProps).code.scope = v,
+      },
     };
 
     const propProcessingPromises: Promise<void>[] = [];
 
     sourceEntity.forEachProperty((propertyName, propertyMetaData) => propProcessingPromises.push((async () => {
-      if (propertyMetaData.isNavigation) {
+      if (propertyName in specialHandledProps) {
+        const { getSource, setTarget } = specialHandledProps[propertyName as keyof typeof specialHandledProps];
+        // we know for know specialHandledProps are only on elements, that may change
+        setTarget(await this.findTargetElementId(getSource()));
+      } else if (propertyMetaData.isNavigation) {
         const sourceNavProp: RelatedElementProps | undefined = (sourceEntity as any)[propertyName];
         if (sourceNavProp?.id) {
           const navPropRefType = this._refTypesCache.getNavPropRefType(
@@ -282,6 +292,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     */
 
     // Clone
+    // FIXME: this may return code._value for element code.value, might be necessary to fix that
     const targetElementProps = await this._cloneEntity(sourceElement) as ElementProps;
     // send geometry (if binaryGeometry, try querying it via raw SQLite as an array buffer)
     if (cloneOptions?.binaryGeometry && (sourceElement instanceof GeometricElement3d || sourceElement instanceof GeometryPart)) {
@@ -333,11 +344,11 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
       return;
     if (this.targetIsSource)
       return;
-    const sourceCodeSpec = Object.assign({ id: undefined as string | undefined }, this.sourceDb.codeSpecs.getById(sourceCodeSpecId));
+    const sourceCodeSpec = Object.assign({}, this.sourceDb.codeSpecs.getById(sourceCodeSpecId), { id: undefined as string | undefined, iModel: undefined as IModelDb | undefined });
     // TODO: allow importers to opt in to handling name collisions themselves
     if (this.targetDb.codeSpecs.hasName(sourceCodeSpec.name))
       return;
-    this.targetDb.codeSpecs.insert(sourceCodeSpec);
+    this.targetDb.codeSpecs.insert(CodeSpec.create(undefined as any, sourceCodeSpec.name, sourceCodeSpec.scopeType, sourceCodeSpec.scopeReq));
   }
 
 

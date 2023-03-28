@@ -172,6 +172,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
             method: key,
             args,
           };
+          // TODO: make each message decide whether it needs to be awaited rather than this HACK
           return ["importElement"].includes(key)
             ? this._promiseMessage({
               type: Messages.Await,

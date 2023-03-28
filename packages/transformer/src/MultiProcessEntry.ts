@@ -10,13 +10,20 @@ assert(targetDbPath, "expected a single command line argument, the path to the t
 import { IModelImporter } from "./IModelImporter";
 import { Messages, Message, MultiProcessImporterOptions } from "./MultiProcessIModelImporter";
 import { IModelDb, IModelHost, StandaloneDb } from "@itwin/core-backend";
+import { CodeSpec } from "@itwin/core-common";
 
 export class MultiProcessIModelImporterWorker extends IModelImporter {
   public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
     super(targetDb, options);
 
-    const onMsg = (msg: Message) => {
-      console.log("worker received:", JSON.stringify(msg));
+    const onMsg = (msg: Message, initial = true) => {
+      if (initial) {
+        try {
+          console.log("worker received:", JSON.stringify(msg));
+        } catch {
+          console.log("worker received:", msg);
+        }
+      }
       switch (msg.type) {
         case Messages.CallMethod: {
           const thisArg
@@ -24,9 +31,14 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
             : msg.target === "targetDb" ? this.targetDb
             : msg.target === "targetDb.elements" ? this.targetDb.elements
             : msg.target === "targetDb.relationships" ? this.targetDb.relationships
+            : msg.target === "targetDb.codeSpecs" ? this.targetDb.codeSpecs
             : msg.target === "targetDb.models" ? this.targetDb.models
             : assert(false, "unknown target") as never;
-          console.log(msg.method, msg.args);
+          // FIXME
+          if (msg.target === "targetDb.codeSpecs" && msg.method === "insert") {
+            const [codeSpec] = msg.args;
+            return (thisArg as any)[msg.method].call(thisArg, CodeSpec.create(this.targetDb, codeSpec.name, codeSpec.scopeType, codeSpec.scopeReq));
+          }
           return (thisArg as any)[msg.method].call(thisArg, ...msg.args);
         }
         case Messages.SetOption: {
@@ -37,8 +49,7 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
         }
         case Messages.Await: {
           const { id } = msg;
-          const result = onMsg(msg.message)
-          console.log("worker result:", result);
+          const result = onMsg(msg.message, false)
           Promise.resolve(result).then((innerResult) => process.send!({
             type: Messages.Settled,
             result: innerResult,
