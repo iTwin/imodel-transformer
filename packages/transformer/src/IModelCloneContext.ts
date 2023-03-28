@@ -49,7 +49,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
    * Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel.
    * @deprecated, use [[targetIsSource]]
    */
-  public get isBetweenIModels(): boolean { return this.targetIsSource; }
+  public get isBetweenIModels(): boolean { return !this.targetIsSource; }
 
   /** Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel. */
   public get targetIsSource(): boolean { return this.sourceDb === this.targetDb; }
