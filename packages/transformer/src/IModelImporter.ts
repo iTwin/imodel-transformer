@@ -5,7 +5,7 @@
 /** @packageDocumentation
  * @module iModels
  */
-import { CompressedId64Set, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
+import { CompressedId64Set, Id64, Id64String, IDisposable, IModelStatus, Logger } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, Base64EncodedString, ElementAspectProps, ElementProps, EntityProps, IModel, IModelError, ModelProps, PrimitiveTypeCode,
   PropertyMetaData, RelatedElement, SubCategoryProps,
@@ -51,7 +51,7 @@ export interface IModelImportOptions {
  * @see [IModelTransformer]($transformer)
  * @beta
  */
-export class IModelImporter implements Required<IModelImportOptions> {
+export class IModelImporter implements Required<IModelImportOptions>, IDisposable {
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
 
@@ -599,6 +599,8 @@ export class IModelImporter implements Required<IModelImportOptions> {
       additionalState: this.getAdditionalStateJson(),
     };
   }
+
+  public dispose(): void {}
 }
 
 /**

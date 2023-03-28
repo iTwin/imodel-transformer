@@ -2,6 +2,7 @@
 import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import * as child_process from "child_process";
 import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
+import { IDisposable } from "@itwin/core-bentley";
 
 export interface MultiProcessImporterOptions extends IModelImportOptions {
   // TODO: implement
@@ -68,7 +69,7 @@ export type Message =
     }
   ;
 
-export class MultiProcessIModelImporter extends IModelImporter {
+export class MultiProcessIModelImporter extends IModelImporter implements IDisposable {
   private _worker: child_process.ChildProcess;
 
   private _nextId = 0;
@@ -183,6 +184,10 @@ export class MultiProcessIModelImporter extends IModelImporter {
         configurable: false,
       });
     }
+  }
+
+  public override dispose() {
+    this._worker.kill();
   }
 }
 

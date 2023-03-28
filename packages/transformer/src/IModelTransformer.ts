@@ -352,6 +352,7 @@ export class IModelTransformer extends IModelExportHandler {
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
     this.context.dispose();
+    this.importer.dispose();
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
