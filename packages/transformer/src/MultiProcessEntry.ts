@@ -16,8 +16,14 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
   public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
     super(targetDb, options);
 
-    const onMsg = (msg: Message) => {
-      let result: any;
+    const onMsg = (msg: Message, initial = true) => {
+      if (initial) {
+        try {
+          console.log("worker received:", JSON.stringify(msg));
+        } catch {
+          console.log("worker received:", msg);
+        }
+      }
       switch (msg.type) {
         case Messages.CallMethod: {
           const thisArg
@@ -31,26 +37,25 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
           // FIXME
           if (msg.target === "targetDb.codeSpecs" && msg.method === "insert") {
             const [codeSpec] = msg.args;
-            result =  (thisArg as any)[msg.method].call(thisArg, CodeSpec.create(this.targetDb, codeSpec.name, codeSpec.scopeType, codeSpec.scopeReq));
-          } else {
-            result = (thisArg as any)[msg.method].call(thisArg, ...msg.args);
+            return (thisArg as any)[msg.method].call(thisArg, CodeSpec.create(this.targetDb, codeSpec.name, codeSpec.scopeType, codeSpec.scopeReq));
           }
+          return (thisArg as any)[msg.method].call(thisArg, ...msg.args);
         }
         case Messages.SetOption: {
-          result = (this.options[msg.key] = msg.value);
+          return this.options[msg.key] = msg.value;
         }
         case Messages.Finalize: {
           return this.targetDb.close();
         }
-      }
-
-      if (msg.await) {
-        const { id } = msg;
-        Promise.resolve(result).then((innerResult) => process.send!({
-          type: Messages.Settled,
-          result: innerResult,
-          id,
-        } as Message));
+        case Messages.Await: {
+          const { id } = msg;
+          const result = onMsg(msg.message, false)
+          Promise.resolve(result).then((innerResult) => process.send!({
+            type: Messages.Settled,
+            result: innerResult,
+            id,
+          } as Message));
+        }
       }
     }
 

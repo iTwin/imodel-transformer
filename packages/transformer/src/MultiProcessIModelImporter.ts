@@ -3,7 +3,6 @@ import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import * as child_process from "child_process";
 import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
 import { IDisposable } from "@itwin/core-bentley";
-import * as assert from "assert";
 
 export interface MultiProcessImporterOptions extends IModelImportOptions {
   // TODO: implement
@@ -34,6 +33,7 @@ export enum Messages {
   CallMethod,
   Finalize,
 
+  Await,
   Settled,
 }
 
@@ -58,6 +58,11 @@ export type Message =
       type: Messages.Finalize;
     }
   | {
+      type: Messages.Await;
+      id: number;
+      message: Message;
+    }
+  | {
       type: Messages.Settled;
       result: any;
       id: number;
@@ -68,24 +73,20 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   private _worker: child_process.ChildProcess;
 
   private _nextId = 0;
-
-  private _unsettledWorkerRespResolvers = new Map<number, (v: any) => void>();
-
-  private _sendToWorker(msg: Message & { await: true }): Promise<any>;
-  private _sendToWorker(msg: Message & { await?: false }): void;
-  private _sendToWorker(msg: Message & { await?: boolean }): void | Promise<any> {
-    const msgWithId = msg as typeof msg & { id?: number };
-    const result = this._worker.send(msg);
-    assert(result, "Too much message pressure");
-    if (msgWithId.await) {
+  private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<void> {
+    // TODO: add timeout via race
+    return new Promise((resolve) => {
       const id = this._nextId;
-      ++this._nextId;
-      msgWithId.id = id;
-      let resolver: (v: any) => void;
-      const respPromise = new Promise(resolve => (resolver = resolve));
-      this._unsettledWorkerRespResolvers.set(id, resolver!);
-      return respPromise;
-    }
+      this._nextId++;
+      const onMsg = (msg: Message) => {
+        if (msg.type === Messages.Settled && msg.id === id) {
+          resolve(msg.result);
+          this._worker.off("message", onMsg);
+        }
+      };
+      this._worker.on("message", onMsg);
+      this._worker.send({ ...wrapperMsg, id } as Message);
+    });
   }
 
   public static async create(targetDb: IModelDb, options: MultiProcessImporterOptions): Promise<MultiProcessIModelImporter> {
@@ -108,19 +109,21 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
         set(new Proxy(target, {
           get: (obj, key: string, recv) => {
             if ((forwardedMethods as readonly string[])?.includes(key)) {
-              return (...args: any[]) => instance._sendToWorker({
+              return (...args: any[]) => instance._worker.send({
                 type: Messages.CallMethod,
                 target: targetKey,
                 method: key,
                 args,
               });
             } else if ((promisedMethods as readonly string[])?.includes(key)) {
-              return (...args: any[]) => instance._sendToWorker({
-                type: Messages.CallMethod,
-                target: targetKey,
-                method: key,
-                args,
-                await: true,
+              return (...args: any[]) => instance._promiseMessage({
+                type: Messages.Await,
+                message: {
+                  type: Messages.CallMethod,
+                  target: targetKey,
+                  method: key,
+                  args,
+                },
               });
             } else
               return Reflect.get(obj, key, recv);
@@ -147,12 +150,6 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     );
 
-    this._worker.on("message", (msg: Message) => {
-      if (msg.type === Messages.Settled) {
-        this._unsettledWorkerRespResolvers.get(msg.id)!(msg.result);
-      }
-    });
-
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
       set: (obj, key, val, recv) => {
         this._worker.send({
@@ -160,6 +157,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
           key: key,
           value: val,
         } as Message)
+        console.log("parent set option:", key, val);
         return Reflect.set(obj, key, val, recv);
       }
     });
@@ -167,6 +165,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     for (const key of forwardedMethods) {
       Object.defineProperty(this, key, {
         value: (...args: Parameters<IModelImporter[typeof key]>) => {
+          console.log("parent forwarding:", key, args);
           const msg: Message = {
             type: Messages.CallMethod,
             target: "importer",
@@ -175,9 +174,9 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
           };
           // TODO: make each message decide whether it needs to be awaited rather than this HACK
           return ["importElement"].includes(key)
-            ? this._sendToWorker({
-              ...msg,
-              await: true,
+            ? this._promiseMessage({
+              type: Messages.Await,
+              message: msg
             })
             : this._worker.send(msg);
         },
