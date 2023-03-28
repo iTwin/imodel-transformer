@@ -8,11 +8,9 @@ import {
 import * as BackendExports from "@itwin/core-backend";
 import { ConcreteEntityTypes } from "@itwin/core-common";
 
-const bisCoreClasses = Object.values(BackendExports).filter(
-  (v): v is typeof Element => v instanceof Element.constructor
-);
-
-// NOTE: lodash has this same thing but probably with prototype pollution detection
+// NOTE: lodash has this same thing but probably with prototype pollution detection,
+// but we only use it on a known set of paths for now, barring someone loading a class
+// with requiredReferenceKeys = ["__proto__"]
 export function readPropPath(obj: any, path: string): any {
   for (const prop of path.split(".")) obj = obj[prop];
   return obj;
@@ -53,20 +51,41 @@ const classSpecificRequiredReferenceKeys = new Map<
 ]);
 
 /** inherited reference keys for each bis core class */
-export const requiredReferenceKeys = new Map<abstract new (...args: any[]) => Entity, RequiredReferences>([]);
+const requiredReferenceKeys = new Map<abstract new (...args: any[]) => Entity, RequiredReferences>([]);
 
-
-function populateRequiredReferenceKeys() {
-  for (const bisCoreClass of bisCoreClasses) {
-    const classRequiredReferenceKeys = {};
-
-    for (const [maybeBaseClass, baseClassRequiredRefs] of classSpecificRequiredReferenceKeys.entries())
-      if (bisCoreClass.is(maybeBaseClass as typeof Entity))
-        Object.assign(classRequiredReferenceKeys, baseClassRequiredRefs);
-
-    requiredReferenceKeys.set(bisCoreClass, classRequiredReferenceKeys);
+export const RequiredReferenceKeys = {
+  get(entityClass: abstract new (...args: any[]) => Entity): RequiredReferences {
+    const cached = requiredReferenceKeys.get(entityClass);
+    if (cached) return cached;
+    return cacheRequiredReferenceKeys(entityClass as typeof Entity);
   }
+};
+
+// NOTE: this currently ignores the ability that core's requiredReferenceKeys has to allow custom js classes
+// to introduce new requiredReferenceKeys, which means if that were used, this would break. Currently un used however.
+function cacheRequiredReferenceKeys(cls: typeof Entity) {
+  const classRequiredReferenceKeys = {};
+
+  let baseClass = cls;
+  while (baseClass !== null) {
+    const baseClassRequiredRefs = classSpecificRequiredReferenceKeys.get(cls);
+    Object.assign(classRequiredReferenceKeys, baseClassRequiredRefs);
+    baseClass = Object.getPrototypeOf(baseClass);
+  }
+  for (const [maybeBaseClass, baseClassRequiredRefs] of classSpecificRequiredReferenceKeys.entries())
+    if (cls.is(maybeBaseClass as typeof Entity))
+      Object.assign(classRequiredReferenceKeys, baseClassRequiredRefs);
+
+  requiredReferenceKeys.set(cls, classRequiredReferenceKeys);
+
+  return classRequiredReferenceKeys;
 }
 
-populateRequiredReferenceKeys();
+const bisCoreClasses = Object.values(BackendExports).filter(
+  (v): v is typeof Element => v instanceof Element.constructor
+);
+
+for (const bisCoreClass of bisCoreClasses) {
+  cacheRequiredReferenceKeys(bisCoreClass)
+}
 

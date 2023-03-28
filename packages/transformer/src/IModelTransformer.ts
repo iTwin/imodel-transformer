@@ -34,6 +34,7 @@ import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
+import { readPropPath, RequiredReferenceKeys } from "./RequiredReferences";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -755,11 +756,11 @@ export class IModelTransformer extends IModelExportHandler {
   public override async preExportElement(sourceElement: Element): Promise<void> {
     const elemClass = sourceElement.constructor as typeof Element;
 
+    const classReqRefKeys = RequiredReferenceKeys.get(elemClass);
     // TODO: maybe do this serially?
-    await Promise.all(elemClass.requiredReferenceKeys
-      .map((referenceKey) => {
-        const idContainer = sourceElement[referenceKey as keyof Element];
-        const referenceType = elemClass.requiredReferenceKeyTypeMap[referenceKey];
+    await Promise.all(Object.entries(classReqRefKeys)
+      .map(([referencePath, { type: referenceType }]) => {
+        const idContainer = readPropPath(sourceElement, referencePath);
         // For now we just consider all required references to be elements (as they are in biscore), and do not support
         // entities that refuse to be inserted without a different kind of entity (e.g. aspect or relationship) first being inserted
         assert(referenceType === ConcreteEntityTypes.Element || referenceType === ConcreteEntityTypes.Model);
