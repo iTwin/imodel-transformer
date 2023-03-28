@@ -790,11 +790,16 @@ export class IModelTransformer extends IModelExportHandler {
       .map(async (sourceReferenceId): Promise<void> => {
         // NOTE: does this cover exporting of the underlying potentially required model? I think not...
         // wait for the id in the target to be resolved
-        await this.context.findTargetEntityId(sourceReferenceId);
+        const idInTarget = await this.context.findTargetEntityId(sourceReferenceId);
 
         // FIXME: replace with independent model and element remap table
+        if (EntityReferences.isValid(idInTarget)) return;
         const [type, rawId] = EntityReferences.split(sourceReferenceId);
-        if (type !== ConcreteEntityTypes.CodeSpec) {
+
+        if (type === ConcreteEntityTypes.CodeSpec) {
+          this.exporter.exportCodeSpecById(rawId);
+          await this.context.findTargetCodeSpecId(sourceReferenceId); // await the entry we just made
+        } else {
           const processState = await this.getElemTransformState(rawId);
           // must export element first
           if (processState.needsElemImport)

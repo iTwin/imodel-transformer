@@ -485,7 +485,7 @@ export class IModelExporter {
         return; // not in changeset, don't export
       }
     }
-    this.handler.onExportModel(model, isUpdate);
+    await this.handler.onExportModel(model, isUpdate);
     return this.trackProgress();
   }
 
