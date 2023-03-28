@@ -782,15 +782,13 @@ export class IModelTransformer extends IModelExportHandler {
               this.context.remapElement(id, id);
             }
           }
-          //return EntityReferences.fromEntityType(id, referenceType);
-          return id;
+          return EntityReferences.fromEntityType(id, referenceType);
         });
       })
       .flat()
-      .filter((sourceReferenceId): sourceReferenceId is Id64String => sourceReferenceId !== undefined)
+      .filter((sourceReferenceId): sourceReferenceId is EntityReference => sourceReferenceId !== undefined)
       .map((sourceReferenceId): Promise<void> => {
-        //const referenceInTargetId = this.context.findTargetEntityId(sourceReferenceId);
-        const referenceInTargetId = this.context.findTargetElementId(sourceReferenceId);
+        const referenceInTargetId = this.context.findTargetEntityId(sourceReferenceId);
         // NOTE: does this cover exporting of the underlying potentially required model? I think not...
         const isExportQueued = isPromise(referenceInTargetId);
         if (isExportQueued)
