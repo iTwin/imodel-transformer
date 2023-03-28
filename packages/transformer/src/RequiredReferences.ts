@@ -69,7 +69,7 @@ function cacheRequiredReferenceKeys(cls: typeof Entity) {
 
   let baseClass = cls;
   while (baseClass !== null) {
-    const baseClassRequiredRefs = classSpecificRequiredReferenceKeys.get(cls);
+    const baseClassRequiredRefs = classSpecificRequiredReferenceKeys.get(baseClass);
     Object.assign(classRequiredReferenceKeys, baseClassRequiredRefs);
     baseClass = Object.getPrototypeOf(baseClass);
   }
