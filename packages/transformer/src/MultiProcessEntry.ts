@@ -12,6 +12,8 @@ import { Messages, Message, MultiProcessImporterOptions } from "./MultiProcessIM
 import { IModelDb, IModelHost, StandaloneDb } from "@itwin/core-backend";
 import { CodeSpec } from "@itwin/core-common";
 
+import "source-map-support/register";
+
 export class MultiProcessIModelImporterWorker extends IModelImporter {
   public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
     super(targetDb, options);

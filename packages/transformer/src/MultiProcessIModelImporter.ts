@@ -1,6 +1,8 @@
 
-import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import * as child_process from "child_process";
+import * as assert from "assert";
+
+import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
 import { IDisposable } from "@itwin/core-bentley";
 
@@ -71,11 +73,19 @@ export type Message =
 
 export class MultiProcessIModelImporter extends IModelImporter implements IDisposable {
   private _worker: child_process.ChildProcess;
+  private _pendingErr?: Error;
 
   private _nextId = 0;
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<void> {
     // TODO: add timeout via race
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      if (this._pendingErr) {
+        const err = new Error("Pending Error: " + this._pendingErr.message);
+        (err as any).fullError = this._pendingErr;
+        reject(err);
+        return;
+      }
+
       const id = this._nextId;
       this._nextId++;
       const onMsg = (msg: Message) => {
@@ -85,7 +95,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
         }
       };
       this._worker.on("message", onMsg);
-      this._worker.send({ ...wrapperMsg, id } as Message);
+      assert(this._worker.send({ ...wrapperMsg, id } as Message), "work pressure too high 1");
     });
   }
 
@@ -109,12 +119,12 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
         set(new Proxy(target, {
           get: (obj, key: string, recv) => {
             if ((forwardedMethods as readonly string[])?.includes(key)) {
-              return (...args: any[]) => instance._worker.send({
+              return (...args: any[]) => assert(instance._worker.send({
                 type: Messages.CallMethod,
                 target: targetKey,
                 method: key,
                 args,
-              });
+              }), "worker pressure too high 2");
             } else if ((promisedMethods as readonly string[])?.includes(key)) {
               return (...args: any[]) => instance._promiseMessage({
                 type: Messages.Await,
@@ -150,13 +160,15 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     );
 
+    this._worker.on("error", (err) => this._pendingErr = err);
+
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
       set: (obj, key, val, recv) => {
-        this._worker.send({
+        assert(this._worker.send({
           type: Messages.SetOption,
           key: key,
           value: val,
-        } as Message)
+        } as Message), "worker pressure too high 3");
         console.log("parent set option:", key, val);
         return Reflect.set(obj, key, val, recv);
       }
@@ -178,7 +190,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
               type: Messages.Await,
               message: msg
             })
-            : this._worker.send(msg);
+            : assert(this._worker.send(msg), "worker pressure too high 4");
         },
         writable: false,
         enumerable: false,
