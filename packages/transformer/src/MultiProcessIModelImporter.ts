@@ -83,7 +83,9 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     const whenReady = () => {
       const success = this._worker.send(msg, cb);
       if (success) return;
-      this._backoffSignal = new Promise(r => setTimeout(r, 200)).then(whenReady);
+      // FIXME: apparently the last one to send is still sent so don't resend, just start backoff...
+      // need a way to know exactly if it needs to be retried
+      this._backoffSignal = new Promise(r => setTimeout(r, 200));
     };
 
     this._backoffSignal.then(whenReady);
@@ -162,7 +164,6 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     );
 
     const onMsg = (msg: Message) => {
-      console.log("parent received", msg);
       let resolver: ((v: any) => void) | undefined;
       if (msg.type === Messages.Settled && (resolver = this._pendingResolvers.get(msg.id))) {
         resolver(msg.result);
@@ -194,7 +195,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
             args,
           };
           // TODO: make each message decide whether it needs to be awaited rather than this HACK
-          return ["importElement"].includes(key)
+          return ["importElement", "importElementMultiAspects", "importElementUniqueAspect"].includes(key)
             ? this._promiseMessage({
               type: Messages.Await,
               message: msg
