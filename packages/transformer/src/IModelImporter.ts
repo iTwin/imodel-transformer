@@ -664,6 +664,7 @@ function hasValueChanged(property1: any, property2: any): boolean {
   return JSON.stringify(property1) !== JSON.stringify(property2);
 }
 
+// FIXME: is SubCategory sealed? Is this kosher?
 /** check if element props are a subcategory */
 function isSubCategory(props: ElementProps): props is SubCategoryProps {
   return props.classFullName === SubCategory.classFullName;
@@ -674,7 +675,7 @@ function isDefaultSubCategory(props: SubCategoryProps): boolean {
   if (props.id === undefined)
     return false;
 
-  if (!Id64.isId64(props.id))
+  if (!Id64.isValid(props.id))
     throw new IModelError(IModelStatus.BadElement, `subcategory had invalid id`);
   if (props.parent?.id === undefined)
     throw new IModelError(IModelStatus.BadElement, `subcategory with id ${props.id} had no parent`);

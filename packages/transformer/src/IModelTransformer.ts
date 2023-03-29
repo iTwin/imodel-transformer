@@ -16,6 +16,7 @@ import {
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { ConvexClipPlaneSet, Point3d, Transform } from "@itwin/core-geometry";
 import {
+    Category,
   ChangeSummaryManager,
   ChannelRootAspect, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
@@ -842,8 +843,9 @@ export class IModelTransformer extends IModelExportHandler {
         targetElementId = await this.context.findTargetElementId(sourceElement.id);
         targetElementProps = await this.onTransformElement(sourceElement);
       }
+
       // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-      if (!Id64.isValidId64(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
+      if (!Id64.isValid(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
         // respond the same way to undefined code value as the @see Code class, but don't use that class because is trims
         // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
         targetElementProps.code.value = targetElementProps.code.value ?? "";
@@ -858,7 +860,8 @@ export class IModelTransformer extends IModelExportHandler {
           }
         }
       }
-      if (undefined !== targetElementId && Id64.isValidId64(targetElementId)) {
+
+      if (undefined !== targetElementId && Id64.isValid(targetElementId)) {
         // compare LastMod of sourceElement to ExternalSourceAspect of targetElement to see there are changes to import
         if (!this.hasElementChanged(sourceElement, targetElementId)) {
           return;
@@ -911,6 +914,14 @@ export class IModelTransformer extends IModelExportHandler {
 
       this.context.remapElement(sourceElement.id, withResolvedRefsPromise);
 
+      // if we're a category, also remap the default subcategory since it will have been inserted
+      if ((sourceElement.constructor as typeof Entity).is(Category)) {
+        this.context.remapElement(
+          IModelDb.getDefaultSubCategoryId(sourceElement.id),
+          withResolvedRefsPromise.then(id => IModelDb.getDefaultSubCategoryId(id))
+        );
+      }
+
       // FIXME: collect this somewhere so we can wait on it!
       void withResolvedRefsPromise.then((targetId) => { 
         onElementImported(sourceElement.id, targetId);
@@ -921,6 +932,9 @@ export class IModelTransformer extends IModelExportHandler {
     if (!alreadyImported) {
       alreadyImported = impl();
       this._hackImportedElements.set(sourceElement.id, alreadyImported);
+      if ((sourceElement.constructor as typeof Entity).is(Category)) {
+        this._hackImportedElements.set(IModelDb.getDefaultSubCategoryId(sourceElement.id), alreadyImported);
+      }
     }
     return alreadyImported;
   }

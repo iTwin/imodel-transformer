@@ -261,7 +261,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
     // FIXME: move this to cloneElement probably
     if ("code" in targetEntityProps as any)
-      (targetEntityProps as any).code = { ...(targetEntityProps as any).code, value: (targetEntityProps as any).code.value };
+      (targetEntityProps as any).code = { ...(targetEntityProps as any).code, value: (targetEntityProps as any).code.value, _value: undefined };
 
     const specialHandledProps = {
       codeSpec: {
