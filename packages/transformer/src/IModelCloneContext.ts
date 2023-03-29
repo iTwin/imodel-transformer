@@ -261,15 +261,16 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
     // FIXME: move this to cloneElement probably
     if ("code" in targetEntityProps as any)
-      (targetEntityProps as any).code = { ...(targetEntityProps as any).code };
+      (targetEntityProps as any).code = { ...(targetEntityProps as any).code, value: (targetEntityProps as any).code.value };
+
     const specialHandledProps = {
       codeSpec: {
-        getSource: () => (sourceEntity as Element).code.spec,
-        setTarget: (v: Id64String) => (targetEntityProps as ElementProps).code.spec = v,
+        getSource: (): EntityReference => `c${(sourceEntity as Element).code.spec}`,
+        setTarget: (v: EntityReference) => (targetEntityProps as ElementProps).code.spec = EntityReferences.toId64(v),
       },
       codeScope: {
-        getSource: () => (sourceEntity as Element).code.scope,
-        setTarget: (v: Id64String) => (targetEntityProps as ElementProps).code.scope = v,
+        getSource: (): EntityReference => `e${(sourceEntity as Element).code.scope}`,
+        setTarget: (v: EntityReference) => (targetEntityProps as ElementProps).code.scope = EntityReferences.toId64(v),
       },
     };
 
@@ -279,7 +280,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
       if (propertyName in specialHandledProps) {
         const { getSource, setTarget } = specialHandledProps[propertyName as keyof typeof specialHandledProps];
         // we know for know specialHandledProps are only on elements, that may change
-        setTarget(await this.findTargetElementId(getSource()));
+        setTarget(await this.findTargetEntityId(getSource()));
       } else if (propertyMetaData.isNavigation) {
         const sourceNavProp: RelatedElementProps | undefined = (sourceEntity as any)[propertyName];
         if (sourceNavProp?.id) {
