@@ -35,7 +35,6 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     this.targetDb = this._nativeContext.targetDb;
   }
 
-
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public async initialize() {
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
@@ -56,6 +55,9 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
   private _aspectRemapTable = new Map<Id64String, Id64String>();
   private _elementRemapTable = new Map<Id64String, Promise<Id64String>>([["0x1", Promise.resolve("0x1")]]);
+  /** not a mapping of IDs, for that use the _elementRemapTable, but rather a list of booleans indicating whether the model for the submodeled element
+   * has been imported yet (it is imported afters its submodeling element) */
+  private _modelRemapTable = new Map<Id64String, Promise<true>>([["0x1", Promise.resolve(true)]]);
   private _codeSpecRemapTable = new Map<Id64String, Promise<Id64String>>();
 
   private _elementClassRemapTable = new Map<typeof Entity, typeof Entity>();
@@ -82,6 +84,23 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Add a rule that remaps the specified source Element to the specified target Element. */
   public remapElement(sourceId: Id64String, targetId: Id64String | Promise<Id64String>): void {
     this._elementRemapTable.set(sourceId, Promise.resolve(targetId));
+  }
+
+  /**
+   * FIXME: this is more transformer state than a context feature
+   * Mark for an element, that submodels a model, that its model has been imported (which occurs after the element has been)
+   * @internal
+   */
+  public markModelImported(sourceId: Id64String, when: Promise<true> = Promise.resolve(true)): void {
+    this._modelRemapTable.set(sourceId, when);
+  }
+
+  /**
+   * Get for an element, that submodels a model, whether its model has been imported (which occurs after the element has been)
+   * @internal
+   */
+  public isModelImported(sourceId: Id64String): false | Promise<true> {
+    return this._modelRemapTable.get(sourceId) ?? false;
   }
 
   /** Remove a rule that remaps the specified source Element. */

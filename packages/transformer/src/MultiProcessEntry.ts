@@ -19,7 +19,7 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
     super(targetDb, options);
 
     const onMsg = (msg: Message, initial = true) => {
-      if (initial) console.log("worker received:", JSON.stringify(msg));
+      if (initial && process.env.DEBUG?.includes("multiproc")) console.log("worker received:", JSON.stringify(msg));
       switch (msg.type) {
         case Messages.CallMethod: {
           const thisArg

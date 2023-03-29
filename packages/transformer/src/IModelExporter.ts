@@ -15,6 +15,7 @@ import {
   ElementMultiAspect, ElementRefersToElements, ElementUniqueAspect, GeometricElement, IModelDb,
   IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship, RelationshipProps,
 } from "@itwin/core-backend";
+import { ConcreteEntity, EntityReference } from "./EntityReference";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -136,6 +137,12 @@ export abstract class IModelExportHandler {
    * @note A subclass may override this method to report custom progress. The base implementation does nothing.
    */
   public async onProgress(): Promise<void> { }
+}
+
+interface ExportPromises {
+  resolve: (v: EntityReference) => void;
+  reject: (err: Error) => void;
+  promise: Promise<EntityReference>;
 }
 
 /** Base class for exporting data from an iModel.
@@ -262,6 +269,19 @@ export class IModelExporter {
     await this.exportFonts();
     await this.exportModel(IModel.repositoryModelId);
     await this.exportRelationships(ElementRefersToElements.classFullName);
+  }
+
+  // TODO: make a special map type that compresses sequential sourceId->targetId mappings since those are common
+  private _exportPromises = new Map<EntityReference, ExportPromises>();
+
+  public getExportPromiseFor(ref: EntityReference): Promise<EntityReference> {
+    let promise = this._exportPromises.get(ref);
+    if (promise === undefined) {
+      promise = {} as ExportPromises;
+      promise.promise = new Promise<EntityReference>((_res, _rej) => { promise!.resolve = _res; promise!.reject = _rej; });
+      this._exportPromises.set(ref, promise);
+    }
+    return promise.promise;
   }
 
   /** Export changes from the source iModel.

@@ -169,7 +169,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
           key: key,
           value: val,
         } as Message), "worker pressure too high 3");
-        console.log("parent set option:", JSON.stringify({ key, val }));
+        if (process.env.DEBUG?.includes("multiproc")) console.log("parent set option:", JSON.stringify({ key, val }));
         return Reflect.set(obj, key, val, recv);
       }
     });
@@ -177,7 +177,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     for (const key of forwardedMethods) {
       Object.defineProperty(this, key, {
         value: (...args: Parameters<IModelImporter[typeof key]>) => {
-          console.log("parent forwarding:", JSON.stringify({ key, args }));
+          if (process.env.DEBUG?.includes("multiproc")) console.log("parent forwarding:", JSON.stringify({ key, args }));
           const msg: Message = {
             type: Messages.CallMethod,
             target: "importer",
