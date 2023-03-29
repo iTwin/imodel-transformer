@@ -9,14 +9,13 @@ import * as assert from "assert";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code, CodeScopeSpec, CodeSpec, ElementAspectProps, ElementProps, EntityProps, IModelError,
-  PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
+  PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps, SpatialViewDefinitionProps, ViewDefinition2dProps, ViewDefinitionProps,
 } from "@itwin/core-common";
 import {
   ClassRegistry,
-  Element, ElementAspect, Entity, GeometricElement3d, GeometryPart, IModelDb, IModelElementCloneContext, IModelJsNative, SQLiteDb,
+  Element, ElementAspect, Entity, GeometricElement3d, GeometryPart, IModelDb, IModelElementCloneContext, IModelJsNative, SpatialViewDefinition, SQLiteDb, ViewDefinition, ViewDefinition2d,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
-import { EntityUnifier } from "./EntityUnifier";
 import { ConcreteEntityTypes, EntityReference, EntityReferences } from "./EntityReference";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
@@ -55,9 +54,6 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
   private _aspectRemapTable = new Map<Id64String, Id64String>();
   private _elementRemapTable = new Map<Id64String, Promise<Id64String>>([["0x1", Promise.resolve("0x1")]]);
-  /** not a mapping of IDs, for that use the _elementRemapTable, but rather a list of booleans indicating whether the model for the submodeled element
-   * has been imported yet (it is imported afters its submodeling element) */
-  private _modelRemapTable = new Map<Id64String, Promise<true>>([["0x1", Promise.resolve(true)]]);
   private _codeSpecRemapTable = new Map<Id64String, Promise<Id64String>>();
 
   private _elementClassRemapTable = new Map<typeof Entity, typeof Entity>();
@@ -84,23 +80,6 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Add a rule that remaps the specified source Element to the specified target Element. */
   public remapElement(sourceId: Id64String, targetId: Id64String | Promise<Id64String>): void {
     this._elementRemapTable.set(sourceId, Promise.resolve(targetId));
-  }
-
-  /**
-   * FIXME: this is more transformer state than a context feature
-   * Mark for an element, that submodels a model, that its model has been imported (which occurs after the element has been)
-   * @internal
-   */
-  public markModelImported(sourceId: Id64String, when: Promise<true> = Promise.resolve(true)): void {
-    this._modelRemapTable.set(sourceId, when);
-  }
-
-  /**
-   * Get for an element, that submodels a model, whether its model has been imported (which occurs after the element has been)
-   * @internal
-   */
-  public isModelImported(sourceId: Id64String): false | Promise<true> {
-    return this._modelRemapTable.get(sourceId) ?? false;
   }
 
   /** Remove a rule that remaps the specified source Element. */
@@ -154,11 +133,14 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
       switch (type) {
         case ConcreteEntityTypes.Model: {
           const targetId = `m${await this.findTargetElementId(rawId)}` as const;
+          return targetId;
           // Check if the model exists, `findTargetElementId` may have worked because the element exists when the model doesn't.
           // That can occur in the transformer since a submodeled element is imported before its submodel.
+          /*
+          // FIXME: target checks don't work, just rely on the target element being inserted?
           if (EntityUnifier.exists(this.targetDb, { entityReference: targetId }))
             return targetId;
-          break;
+          */
         }
         case ConcreteEntityTypes.Element:
           return `e${await this.findTargetElementId(rawId)}`;
@@ -272,6 +254,24 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
         getSource: (): EntityReference => `e${(sourceEntity as Element).code.scope}`,
         setTarget: (v: EntityReference) => (targetEntityProps as ElementProps).code.scope = EntityReferences.toId64(v),
       },
+
+      modelSelector: {
+        getSource: (): EntityReference => `e${(sourceEntity as SpatialViewDefinition).modelSelectorId}`,
+        setTarget: (v: EntityReference) => (targetEntityProps as SpatialViewDefinitionProps).modelSelectorId = EntityReferences.toId64(v),
+      },
+      displayStyle: {
+        getSource: (): EntityReference => `e${(sourceEntity as ViewDefinition).displayStyleId}`,
+        setTarget: (v: EntityReference) => (targetEntityProps as ViewDefinitionProps).displayStyleId = EntityReferences.toId64(v),
+      },
+      categorySelector: {
+        getSource: (): EntityReference => `e${(sourceEntity as ViewDefinition).categorySelectorId}`,
+        setTarget: (v: EntityReference) => (targetEntityProps as ViewDefinitionProps).categorySelectorId = EntityReferences.toId64(v),
+      },
+
+      baseModel: {
+        getSource: (): EntityReference => `e${(sourceEntity as ViewDefinition2d).baseModelId}`,
+        setTarget: (v: EntityReference) => (targetEntityProps as ViewDefinition2dProps).baseModelId = EntityReferences.toId64(v),
+      },
     };
 
     const propProcessingPromises: Promise<void>[] = [];
@@ -283,17 +283,18 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
         setTarget(await this.findTargetEntityId(getSource()));
       } else if (propertyMetaData.isNavigation) {
         const sourceNavProp: RelatedElementProps | undefined = (sourceEntity as any)[propertyName];
-        if (sourceNavProp?.id) {
+        const sourceNavId = typeof sourceNavProp === "string" ? sourceNavProp : sourceNavProp?.id;
+        if (sourceNavId) {
           const navPropRefType = this._refTypesCache.getNavPropRefType(
             sourceEntity.schemaName,
             sourceEntity.className,
             propertyName
           );
           assert(navPropRefType !== undefined, `nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`);
-          const targetEntityReference = await this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType));
+          const targetEntityReference = await this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavId, navPropRefType));
           const targetEntityId = EntityReferences.toId64(targetEntityReference);
           // spread the property in case toJSON did not deep-clone
-          (targetEntityProps as any)[propertyName] = { ...(targetEntityProps as any)[propertyName], id: targetEntityId };
+          (targetEntityProps as any)[propertyName] = typeof sourceNavProp === "string" ? targetEntityId : { ...(targetEntityProps as any)[propertyName], id: targetEntityId };
         }
       } else if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
         (targetEntityProps as any)[propertyName] = await this.findTargetElementId((sourceEntity as any)[propertyName]);
