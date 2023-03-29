@@ -76,6 +76,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   private _pendingErr?: Error;
 
   private _nextId = 0;
+  private _pendingResolvers = new Map<number, (v: any) => void>();
+
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<void> {
     // TODO: add timeout via race
     return new Promise((resolve, reject) => {
@@ -88,13 +90,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
       const id = this._nextId;
       this._nextId++;
-      const onMsg = (msg: Message) => {
-        if (msg.type === Messages.Settled && msg.id === id) {
-          resolve(msg.result);
-          this._worker.off("message", onMsg);
-        }
-      };
-      this._worker.on("message", onMsg);
+      this._pendingResolvers.set(id, resolve);
       assert(this._worker.send({ ...wrapperMsg, id } as Message), "work pressure too high 1");
     });
   }
@@ -160,6 +156,14 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     );
 
+    const onMsg = (msg: Message) => {
+      let resolver: ((v: any) => void) | undefined;
+      if (msg.type === Messages.Settled && (resolver = this._pendingResolvers.get(msg.id))) {
+        resolver(msg.result);
+      }
+    };
+
+    this._worker.on("message", onMsg);
     this._worker.on("error", (err) => this._pendingErr = err);
 
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
