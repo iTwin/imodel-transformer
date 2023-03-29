@@ -73,26 +73,31 @@ export type Message =
 
 export class MultiProcessIModelImporter extends IModelImporter implements IDisposable {
   private _worker: child_process.ChildProcess;
-  private _pendingErr?: Error;
 
   private _nextId = 0;
-  private _pendingResolvers = new Map<number, (v: any) => void>();
+  private _pendingResolvers = new Map<number, (v: any) => any>();
 
-  private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<void> {
-    // TODO: add timeout via race
-    return new Promise((resolve, reject) => {
-      if (this._pendingErr) {
-        const err = new Error("Pending Error: " + this._pendingErr.message);
-        (err as any).fullError = this._pendingErr;
-        reject(err);
-        return;
-      }
+  private _backoffSignal = Promise.resolve();
 
-      const id = this._nextId;
-      this._nextId++;
-      this._pendingResolvers.set(id, resolve);
-      assert(this._worker.send({ ...wrapperMsg, id } as Message), "work pressure too high 1");
-    });
+  private _send(msg: Message, cb?: (err: null | Error) => void) {
+    const whenReady = () => {
+      const success = this._worker.send(msg, cb);
+      if (success) return;
+      this._backoffSignal = new Promise(r => setTimeout(r, 200)).then(whenReady);
+    };
+
+    this._backoffSignal.then(whenReady);
+  }
+
+  private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
+    const id = this._nextId;
+    this._nextId++;
+
+    let resolve!: (v: any) => void, reject: (v: any) => void;
+    const promise = new Promise<any>((_res, _rej) => { resolve = _res; reject = _rej; });
+    this._pendingResolvers.set(id, resolve);
+    this._send({ ...wrapperMsg, id } as Message, (err: any) => err && reject(err));
+    return promise;
   }
 
   public static async create(targetDb: IModelDb, options: MultiProcessImporterOptions): Promise<MultiProcessIModelImporter> {
@@ -115,12 +120,12 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
         set(new Proxy(target, {
           get: (obj, key: string, recv) => {
             if ((forwardedMethods as readonly string[])?.includes(key)) {
-              return (...args: any[]) => assert(instance._worker.send({
+              return (...args: any[]) => instance._send({
                 type: Messages.CallMethod,
                 target: targetKey,
                 method: key,
                 args,
-              }), "worker pressure too high 2");
+              });
             } else if ((promisedMethods as readonly string[])?.includes(key)) {
               return (...args: any[]) => instance._promiseMessage({
                 type: Messages.Await,
@@ -157,6 +162,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     );
 
     const onMsg = (msg: Message) => {
+      console.log("parent received", msg);
       let resolver: ((v: any) => void) | undefined;
       if (msg.type === Messages.Settled && (resolver = this._pendingResolvers.get(msg.id))) {
         resolver(msg.result);
@@ -164,15 +170,14 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     };
 
     this._worker.on("message", onMsg);
-    this._worker.on("error", (err) => this._pendingErr = err);
 
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
       set: (obj, key, val, recv) => {
-        assert(this._worker.send({
+        this._send({
           type: Messages.SetOption,
           key: key,
           value: val,
-        } as Message), "worker pressure too high 3");
+        } as Message);
         if (process.env.DEBUG?.includes("multiproc")) console.log("parent set option:", JSON.stringify({ key, val }));
         return Reflect.set(obj, key, val, recv);
       }
@@ -194,7 +199,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
               type: Messages.Await,
               message: msg
             })
-            : assert(this._worker.send(msg), "worker pressure too high 4");
+            : this._send(msg);
         },
         writable: false,
         enumerable: false,
