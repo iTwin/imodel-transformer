@@ -75,6 +75,45 @@ export type Message =
     }
   ;
 
+// TODO: promise the results for each individual call, atm not necessary
+/** wrap a function with backoff upon a condition */
+function backoff<F extends (...a: any[]) => any>(
+  action: F,
+  {
+    checkResultForBackoff = (r: ReturnType<F>) => !!r,
+    dontRetryLastBackoff = false,
+    waitMs = 200,
+  } = {}
+) {
+  const callQueue: Parameters<F>[] = [];
+  let drainQueueTimeout: NodeJS.Timer | undefined;
+
+  const tryDrainQueue = () => {
+    drainQueueTimeout = undefined;
+
+    let callArgs: Parameters<F>;
+    while (callArgs = callQueue[callQueue.length - 1]) {
+      const result = action(...callArgs);
+      const shouldBackoff = checkResultForBackoff(result);
+      if (!shouldBackoff || dontRetryLastBackoff)
+        callQueue.pop();
+      if (shouldBackoff)
+        break;
+    }
+
+    if (callQueue.length > 0) 
+      drainQueueTimeout = setTimeout(tryDrainQueue, waitMs);
+  };
+
+  const backoffHandler = (...args: Parameters<F>) => {
+    callQueue.unshift(args);
+    if (!drainQueueTimeout)
+      tryDrainQueue();
+  };
+
+  return tryDrainQueue;
+}
+
 export class MultiProcessIModelImporter extends IModelImporter implements IDisposable {
   private _worker: child_process.ChildProcess;
 
