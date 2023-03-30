@@ -1214,7 +1214,7 @@ export class IModelTransformer extends IModelExportHandler {
     const targetAspectPropsArray = await Promise.all(sourceAspects.map((srcA) => this.onTransformElementAspect(srcA, targetElementId)));
     await Promise.all(sourceAspects.map((a) => this.collectUnmappedReferences(a)));
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
-    // FIXME:
+    // FIXME: make this API multi-process friendly
     const targetIds = await this.importer.importElementMultiAspects(targetAspectPropsArray, (a) => {
       const isExternalSourceAspectFromTransformer = a instanceof ExternalSourceAspect && a.scope?.id === this.targetScopeElementId;
       return !this._options.includeSourceProvenance || !isExternalSourceAspectFromTransformer;

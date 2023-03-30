@@ -4,12 +4,16 @@ import * as assert from "assert";
 
 import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
-import { IDisposable } from "@itwin/core-bentley";
+import { Id64String, IDisposable } from "@itwin/core-bentley";
 
 export interface MultiProcessImporterOptions extends IModelImportOptions {
   // TODO: implement
   /** the path to a module with a default export of an IModelImporter class to load */
   importerClassModulePath?: string;
+  hackImportMultiAspectCbScope: {
+    targetScopeElementId: Id64String;
+    optionsIncludeSourceProvenance: boolean;
+  };
 }
 
 /** @internal */
@@ -153,7 +157,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     super(targetDb, options);
 
     this._worker = child_process.fork(require.resolve("./MultiProcessEntry"),
-      [targetDb.pathName],
+      // TODO: encode options? should be ok if we don't use shell
+      [targetDb.pathName, JSON.stringify(options)],
       {
         stdio: "inherit",
         execArgv: [
@@ -194,12 +199,11 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
             method: key,
             args,
           };
-          // TODO: make each message decide whether it needs to be awaited rather than this HACK
-          return ["importElement", "importElementMultiAspects", "importElementUniqueAspect"].includes(key)
-            ? this._promiseMessage({
-              type: Messages.Await,
-              message: msg
-            })
+          // TODO: make each message decide whether it needs to be awaited rather than this HACK (also inline them manually?)
+          return key === "importElement" || key === "importElementUniqueAspect"
+            ? this._promiseMessage({ type: Messages.Await, message: msg })
+            : key === "importElementMultiAspects" // HACK: don't try to serialize the callback (second arg)
+            ? this._promiseMessage({ type: Messages.Await, message: { ...msg, args: msg.args.slice(0, 1)} })
             : this._send(msg);
         },
         writable: false,

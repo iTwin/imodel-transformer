@@ -5,11 +5,15 @@ assert(require.main === module, "expected to be program entry point");
 assert(process.send, "expected to be spawned with an ipc channel");
 
 const targetDbPath = process.argv[2];
-assert(targetDbPath, "expected a single command line argument, the path to the target")
+assert(targetDbPath, "expected first command line argument to be the path to the target")
+
+const optionsJson = process.argv[3];
+assert(optionsJson, "expected second command line argument to be the options encoded in json")
+const options: MultiProcessImporterOptions = JSON.parse(optionsJson);
 
 import { IModelImporter } from "./IModelImporter";
 import { Messages, Message, MultiProcessImporterOptions } from "./MultiProcessIModelImporter";
-import { IModelDb, IModelHost, StandaloneDb } from "@itwin/core-backend";
+import { ExternalSourceAspect, IModelDb, IModelHost, StandaloneDb } from "@itwin/core-backend";
 import { CodeSpec } from "@itwin/core-common";
 
 import "source-map-support/register";
@@ -34,6 +38,13 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
           if (msg.target === "targetDb.codeSpecs" && msg.method === "insert") {
             const [codeSpec] = msg.args;
             return (thisArg as any)[msg.method].call(thisArg, CodeSpec.create(this.targetDb, codeSpec.name, codeSpec.scopeType, codeSpec.scopeReq));
+          }
+          if (msg.target === "importer" && msg.method === "importElementMultiAspects") {
+            const cb: Parameters<this["importElementMultiAspects"]>[1] = (a) => {
+              const isExternalSourceAspectFromTransformer = a instanceof ExternalSourceAspect && a.scope?.id === options.hackImportMultiAspectCbScope.targetScopeElementId;
+              return !options.hackImportMultiAspectCbScope.optionsIncludeSourceProvenance || !isExternalSourceAspectFromTransformer;
+            };
+            return (thisArg as any)[msg.method].call(thisArg, msg.args[0], cb);
           }
           return (thisArg as any)[msg.method].call(thisArg, ...msg.args);
         }
@@ -68,7 +79,7 @@ async function main() {
   const targetDb = StandaloneDb.open({ fileName: targetDbPath });
 
   // TODO: pass options as a base64 encoded JSON blob
-  worker = new MultiProcessIModelImporterWorker(await targetDb, {});
+  worker = new MultiProcessIModelImporterWorker(await targetDb, options);
 }
 
 main().catch(console.error);

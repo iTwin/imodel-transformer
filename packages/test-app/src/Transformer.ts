@@ -3,13 +3,15 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
+import * as nodeAssert from "assert";
+
 import { AccessToken, assert, DbResult, Id64, Id64Array, Id64Set, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Category, CategorySelector, DisplayStyle, DisplayStyle3d, ECSqlStatement, Element, ElementRefersToElements, GeometricModel3d, GeometryPart,
   IModelDb, ModelSelector, PhysicalModel, PhysicalPartition, Relationship, SpatialCategory,
   SpatialViewDefinition, SubCategory, ViewDefinition,
 } from "@itwin/core-backend";
-import { IModelImporter, IModelTransformer, IModelTransformOptions, MultiProcessIModelImporter } from "@itwin/transformer";
+import { IModelImporter, IModelTransformer, IModelTransformOptions, MultiProcessIModelImporter, MultiProcessImporterOptions } from "@itwin/transformer";
 import { IModel } from "@itwin/core-common";
 
 import "source-map-support/register";
@@ -103,8 +105,18 @@ export class Transformer extends IModelTransformer {
   }
 
   public static async create(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
-    const importer = await MultiProcessIModelImporter.create(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry });
-    return new Transformer(sourceDb, importer, options);
+    const importerOptions: MultiProcessImporterOptions = {
+      simplifyElementGeometry: options?.simplifyElementGeometry,
+      hackImportMultiAspectCbScope: {
+        optionsIncludeSourceProvenance: options?.includeSourceProvenance ?? false,
+        targetScopeElementId: options?.targetScopeElementId ?? IModelDb.rootSubjectId,
+      },
+    };
+    const importer = await MultiProcessIModelImporter.create(targetDb, importerOptions);
+    const result = new Transformer(sourceDb, importer, options);
+    nodeAssert(importerOptions.hackImportMultiAspectCbScope.targetScopeElementId === result.targetScopeElementId);
+    nodeAssert(importerOptions.hackImportMultiAspectCbScope.optionsIncludeSourceProvenance === result["_options"].includeSourceProvenance);
+    return result;
   }
 
   private constructor(sourceDb: IModelDb, targetDb: IModelImporter | IModelDb, options?: TransformerOptions) {
