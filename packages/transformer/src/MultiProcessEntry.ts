@@ -22,8 +22,7 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
   public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
     super(targetDb, options);
 
-    const onMsg = (msg: Message, initial = true) => {
-      if (initial && process.env.DEBUG?.includes("multiproc")) console.log("worker received:", JSON.stringify(msg));
+    const onMsg = (msg: Message) => {
       switch (msg.type) {
         case Messages.CallMethod: {
           const thisArg
@@ -56,7 +55,7 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
         }
         case Messages.Await: {
           const { id } = msg;
-          const result = onMsg(msg.message, false)
+          const result = onMsg(msg.message)
           Promise.resolve(result).then((innerResult) => process.send!({
             type: Messages.Settled,
             result: innerResult,
@@ -66,7 +65,13 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
       }
     }
 
-    process.on("message", onMsg);
+    process.on("message", (msg: Message) => {
+      if (process.env.DEBUG?.includes("multiproc"))
+        console.log("worker received:", JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
+      onMsg(msg);
+      if (process.env.DEBUG?.includes("multiproc"))
+        console.log(`worker finished: ${(msg as any).id}`);
+    });
   }
 }
 

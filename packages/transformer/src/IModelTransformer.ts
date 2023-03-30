@@ -895,6 +895,7 @@ export class IModelTransformer extends IModelExportHandler {
       const needToImport = !this._options.wasSourceIModelCopiedToTarget;
 
       if (needToImport) {
+        if (process.env.DEBUG) (targetElementProps as any)._sourceElementId = sourceElement.id;
         const importPromise = this.importer.importElement(targetElementProps);
         targetElemIdOrPromise = importPromise;
       }

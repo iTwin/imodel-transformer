@@ -17,22 +17,6 @@ export interface MultiProcessImporterOptions extends IModelImportOptions {
 }
 
 /** @internal */
-const forwardedMethods = [
-  "importModel",
-  "importElement",
-  "importRelationship",
-  "importElementMultiAspects",
-  "importElementUniqueAspect",
-  "deleteElement",
-  "deleteModel",
-  "optimizeGeometry",
-  "computeProjectExtents",
-] as const;
-
-/** @internal */
-export type ForwardedMethods = (typeof forwardedMethods)[number];
-
-/** @internal */
 export enum Messages {
   Init,
   SetOption,
@@ -57,7 +41,7 @@ export type Message =
   | {
       type: Messages.CallMethod;
       target: string;
-      method: string;
+      method: string; // TODO: make this typed based on what is handled?
       args: any;
     }
   | {
@@ -210,6 +194,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     const onMsg = (msg: Message) => {
       let resolver: ((v: any) => void) | undefined;
       if (msg.type === Messages.Settled && (resolver = this._pendingResolvers.get(msg.id))) {
+        console.log(`parent received settler for ${msg.id}`);
         resolver(msg.result);
       }
     };
@@ -228,10 +213,22 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     });
 
+    /** @internal */
+    const forwardedMethods = [
+      "importModel",
+      "importElement",
+      "importRelationship",
+      "importElementMultiAspects",
+      "importElementUniqueAspect",
+      "deleteElement",
+      "deleteModel",
+      "optimizeGeometry",
+      "computeProjectExtents",
+    ] as const;
+
     for (const key of forwardedMethods) {
       Object.defineProperty(this, key, {
         value: (...args: Parameters<IModelImporter[typeof key]>) => {
-          if (process.env.DEBUG?.includes("multiproc")) console.log("parent forwarding:", JSON.stringify({ key, args }));
           const msg: Message = {
             type: Messages.CallMethod,
             target: "importer",
@@ -239,7 +236,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
             args,
           };
           // TODO: make each message decide whether it needs to be awaited rather than this HACK (also inline them manually?)
-          return key === "importElement" || key === "importElementUniqueAspect"
+          return key === "importElement" || key === "importElementUniqueAspect" || key === "importRelationship"
             ? this._promiseMessage({ type: Messages.Await, message: msg })
             : key === "importElementMultiAspects" // HACK: don't try to serialize the callback (second arg)
             ? this._promiseMessage({ type: Messages.Await, message: { ...msg, args: msg.args.slice(0, 1)} })
