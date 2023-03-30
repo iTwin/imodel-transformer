@@ -19,11 +19,11 @@ The program will now exit.`;
 
 switch (profileType) {
   case "linux-native":
+    if (os.userInfo().uid !== 0)
+      console.warn("You are not running as root, perf may have issues, see stderr.");
     require("./runWithLinuxPerf");
     break;
   case "js-cpu":
-    if (os.userInfo().uid !== 0)
-      console.warn("You are not running as root, perf may have issues, see stderr.");
     require("./runWithJsCpuProfile");
     break;
   case "sqlite":
