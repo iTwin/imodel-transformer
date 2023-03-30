@@ -28,7 +28,7 @@ export async function runWithCpuProfiler<F extends () => any>(
     /** profile sampling interval in microseconds, you may want to adjust this to increase the resolution of your test
      * default to half a millesecond
      */
-    sampleIntervalMicroSec = process.env.PROFILE_SAMPLE_INTERVAL ?? 500, // half a millisecond
+    sampleIntervalMicroSec = +(process.env.PROFILE_SAMPLE_INTERVAL ?? 500), // half a millisecond
   } = {}
 ): Promise<ReturnType<F>> {
   const maybeNameTimePortion = timestamp ? `_${new Date().toISOString()}` : "";
