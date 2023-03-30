@@ -25,7 +25,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/iTwin/transformer/tree/main/packages/transformer"
+    "url": "https://github.com/iTwin/transformer.git",
+    "directory": "packages/transformer"
   },
   "keywords": [
     "Bentley",
