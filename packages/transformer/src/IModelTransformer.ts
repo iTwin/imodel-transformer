@@ -1106,7 +1106,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public override async onExportRelationship(sourceRelationship: Relationship): Promise<void> {
     const targetRelationshipProps = await this.onTransformRelationship(sourceRelationship);
-    const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
+    const targetRelationshipInstanceId: Id64String = await this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValidId64(targetRelationshipInstanceId)) {
       const aspectProps: ExternalSourceAspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
       if (undefined === aspectProps.id) {
@@ -1214,7 +1214,6 @@ export class IModelTransformer extends IModelExportHandler {
     const targetAspectPropsArray = await Promise.all(sourceAspects.map((srcA) => this.onTransformElementAspect(srcA, targetElementId)));
     await Promise.all(sourceAspects.map((a) => this.collectUnmappedReferences(a)));
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
-    // FIXME: make this API multi-process friendly
     const targetIds = await this.importer.importElementMultiAspects(targetAspectPropsArray, (a) => {
       const isExternalSourceAspectFromTransformer = a instanceof ExternalSourceAspect && a.scope?.id === this.targetScopeElementId;
       return !this._options.includeSourceProvenance || !isExternalSourceAspectFromTransformer;

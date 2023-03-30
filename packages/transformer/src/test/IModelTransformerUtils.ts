@@ -1213,8 +1213,8 @@ export class RecordingIModelImporter extends CountingIModelImporter {
  */
 export class AspectTrackingImporter extends IModelImporter {
   public importedAspectIdsByElement = new Map<Id64String, Id64String[]>();
-  public override importElementMultiAspects(...args: Parameters<IModelImporter["importElementMultiAspects"]>) {
-    const resultTargetIds = super.importElementMultiAspects(...args);
+  public override async importElementMultiAspects(...args: Parameters<IModelImporter["importElementMultiAspects"]>) {
+    const resultTargetIds = await super.importElementMultiAspects(...args);
     const [aspectsProps] = args;
     const elementId = aspectsProps[0].element.id;
     assert(!this.importedAspectIdsByElement.has(elementId), "should only export multiaspects for an element once");

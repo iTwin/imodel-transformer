@@ -320,7 +320,7 @@ export class IModelImporter implements Required<IModelImportOptions>, IDisposabl
     aspectPropsArray: ElementAspectProps[],
     /** caller must use this to enforce any aspects added by IModelTransformer are not considered for update */
     filterFunc: (a: ElementMultiAspect) => boolean = () => true
-  ): Id64String[] {
+  ): Id64String[] | Promise<Id64String[]> {
     const result = new Array<Id64String | undefined>(aspectPropsArray.length).fill(undefined);
 
     if (aspectPropsArray.length === 0) {
@@ -426,7 +426,7 @@ export class IModelImporter implements Required<IModelImportOptions>, IDisposabl
   /** Import the specified RelationshipProps (either as an insert or an update) into the target iModel.
    * @returns The instance Id of the inserted or updated Relationship.
    */
-  public importRelationship(relationshipProps: RelationshipProps): Id64String {
+  public importRelationship(relationshipProps: RelationshipProps): Id64String | Promise<Id64String> {
     if ((undefined === relationshipProps.sourceId) || !Id64.isValidId64(relationshipProps.sourceId)) {
       Logger.logInfo(loggerCategory, `Ignoring ${relationshipProps.classFullName} instance because of invalid RelationshipProps.sourceId`);
       return Id64.invalid;
