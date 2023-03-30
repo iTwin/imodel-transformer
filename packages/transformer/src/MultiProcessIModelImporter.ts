@@ -85,7 +85,7 @@ function backoff<F extends (...a: any[]) => any>(
         break;
     }
 
-    if (callQueue.length > 0) 
+    if (callQueue.length > 0)
       drainQueueTimeout = setTimeout(tryDrainQueue, waitMs);
   };
 
@@ -95,7 +95,7 @@ function backoff<F extends (...a: any[]) => any>(
       tryDrainQueue();
   };
 
-  return tryDrainQueue;
+  return backoffHandler;
 }
 
 export class MultiProcessIModelImporter extends IModelImporter implements IDisposable {
@@ -104,19 +104,21 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   private _nextId = 0;
   private _pendingResolvers = new Map<number, (v: any) => any>();
 
-  private _backoffSignal = Promise.resolve();
-
-  private _send(msg: Message, cb?: (err: null | Error) => void) {
-    const whenReady = () => {
+  private _send = backoff(
+    (msg: Message, cb?: (err: null | Error) => void) => {
+      const timeBefore = Date.now();
+      if (process.env.DEBUG?.includes("multiproc"))
+        console.log(`${new Date().toISOString()} | parent sending:`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
       const success = this._worker.send(msg, cb);
+      const timeElapsedMs = Date.now() - timeBefore;
+      if (timeElapsedMs > 500)
+        console.log("Message took more than a second to send!", msg);
       if (success) return;
-      // FIXME: apparently the last one to send is still sent so don't resend, just start backoff...
-      // need a way to know exactly if it needs to be retried
-      this._backoffSignal = new Promise(r => setTimeout(r, 200));
-    };
-
-    this._backoffSignal.then(whenReady);
-  }
+      console.log(`backing off ${new Date().toISOString()}`)
+    }, {
+      dontRetryLastBackoff: true,
+    }
+  );
 
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
     const id = this._nextId;
