@@ -1,6 +1,7 @@
 
 import * as child_process from "child_process";
 import * as assert from "assert";
+import * as fs from "fs";
 
 import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
@@ -64,7 +65,7 @@ export type Message =
 function backoff<F extends (...a: any[]) => any>(
   action: F,
   {
-    checkResultForBackoff = (r: ReturnType<F>) => !!r,
+    checkResultForBackoff = (r: ReturnType<F>) => !r,
     dontRetryLastBackoff = false,
     waitMs = 200,
   } = {}
@@ -73,6 +74,9 @@ function backoff<F extends (...a: any[]) => any>(
   let drainQueueTimeout: NodeJS.Timer | undefined;
 
   const tryDrainQueue = () => {
+    if (process.env.DEBUG?.includes("backoff"))
+      console.log(new Date().toISOString(), "draining queue");
+
     drainQueueTimeout = undefined;
 
     let callArgs: Parameters<F>;
@@ -81,18 +85,29 @@ function backoff<F extends (...a: any[]) => any>(
       const shouldBackoff = checkResultForBackoff(result);
       if (!shouldBackoff || dontRetryLastBackoff)
         callQueue.pop();
-      if (shouldBackoff)
+
+      if (shouldBackoff) {
+        if (process.env.DEBUG?.includes("backoff"))
+          console.log(new Date().toISOString(), 'backing off for:', JSON.stringify(callArgs,(_k,v)=>v instanceof Uint8Array?`<U8Arr[${v.byteLength}]>`:v));
+        drainQueueTimeout = setTimeout(() => {
+          if (callQueue.length > 0) {
+            tryDrainQueue();
+          }
+        }, waitMs);
         break;
+      }
     }
 
-    if (callQueue.length > 0)
-      drainQueueTimeout = setTimeout(tryDrainQueue, waitMs);
+    if (process.env.DEBUG?.includes("backoff"))
+      console.log(`drained queue, ${callQueue.length} remaining`);
   };
 
   const backoffHandler = (...args: Parameters<F>) => {
     callQueue.unshift(args);
     if (!drainQueueTimeout)
       tryDrainQueue();
+    else if (process.env.DEBUG?.includes("backoff"))
+      console.log(`timeout exists, not draining`);
   };
 
   return backoffHandler;
@@ -113,8 +128,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       const timeElapsedMs = Date.now() - timeBefore;
       if (timeElapsedMs > 500)
         console.log("Message took more than a second to send!", msg);
-      if (success) return;
-      console.log(`backing off ${new Date().toISOString()}`)
+      return success;
     }, {
       dontRetryLastBackoff: true,
     }
@@ -185,7 +199,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       // TODO: encode options? should be ok if we don't use shell
       [targetDb.pathName, JSON.stringify(options)],
       {
-        stdio: "inherit",
+        stdio: ['ignore', 'pipe', 'ignore', 'ipc'],
         execArgv: [
           process.env.INSPECT_WORKER && `--inspect-brk=${process.env.INSPECT_WORKER}`,
         ].filter(Boolean) as string[],
@@ -193,10 +207,16 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     );
 
+    const workerLogStream = fs.createWriteStream("worker.log");
+
+    this._worker.stdout!.pipe(workerLogStream);
+    this._worker.stdout!.on("close", () => workerLogStream.close());
+
     const onMsg = (msg: Message) => {
       let resolver: ((v: any) => void) | undefined;
       if (msg.type === Messages.Settled && (resolver = this._pendingResolvers.get(msg.id))) {
-        console.log(`parent received settler for ${msg.id}`);
+        if (process.env.DEBUG?.includes("multiproc"))
+          console.log(`parent received settler for ${msg.id}`);
         resolver(msg.result);
       }
     };
