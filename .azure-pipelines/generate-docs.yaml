@@ -41,8 +41,8 @@ stages:
         - script: pnpm install
           displayName: Run 'pnpm install'
 
-        - script: pnpm generate-docs
-          displayName: Run 'pnpm generate-docs'
+        - script: pnpm run docs
+          displayName: Run 'pnpm run docs'
           env:
             RUSHSTACK_FILE_ERROR_BASE_FOLDER: $(Build.SourcesDirectory)
 
