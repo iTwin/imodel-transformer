@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "version reset",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "mike.belousov@bentley.com",
+  "dependentChangeType": "patch"
+}
