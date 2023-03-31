@@ -2,7 +2,7 @@
   "name": "root",
   "private": true,
   "version": "0.1.0",
-  "description": "root of the @itwin/transformer monorepo",
+  "description": "root of the @itwin/imodel-transformer monorepo",
   "repository": {
     "url": "https://github.com/iTwin/transformer"
   },
