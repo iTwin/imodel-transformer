@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "initial package",
-  "packageName": "@itwin/transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "none"
-}

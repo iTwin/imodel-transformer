@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "switch READMEs because publishing",
-  "packageName": "@itwin/transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "patch"
-}

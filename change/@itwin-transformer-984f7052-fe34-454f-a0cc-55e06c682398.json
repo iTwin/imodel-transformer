@@ -1,7 +1,0 @@
-{
-  "type": "none",
-  "comment": "add generate docs step with commented out validation",
-  "packageName": "@itwin/transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "none"
-}

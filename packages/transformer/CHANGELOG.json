@@ -2,6 +2,37 @@
   "name": "@itwin/transformer",
   "entries": [
     {
+      "date": "Fri, 31 Mar 2023 13:57:37 GMT",
+      "tag": "@itwin/transformer_v0.1.1",
+      "version": "0.1.1",
+      "comments": {
+        "patch": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/transformer",
+            "commit": "06551a924a3c4b5078d64f27ac52669a2d7a0920",
+            "comment": "initial package"
+          }
+        ],
+        "prerelease": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/transformer",
+            "commit": "06551a924a3c4b5078d64f27ac52669a2d7a0920",
+            "comment": "switch READMEs because publishing"
+          }
+        ],
+        "none": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/transformer",
+            "commit": "06551a924a3c4b5078d64f27ac52669a2d7a0920",
+            "comment": "add generate docs step with commented out validation"
+          }
+        ]
+      }
+    },
+    {
       "date": "Tue, 28 Mar 2023 01:57:57 GMT",
       "tag": "@itwin/transformer_v0.1.0",
       "version": "0.1.0",
