@@ -1,7 +1,0 @@
-{
-  "type": "none",
-  "comment": "fix changelog.json",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "none"
-}
