@@ -801,27 +801,24 @@ export class IModelTransformer extends IModelExportHandler {
           this.exporter.exportCodeSpecById(rawId);
           await this.context.findTargetCodeSpecId(sourceReferenceId); // await the entry we just made
         } else {
-          const processState = await this.getElemTransformState(rawId);
+          const isSubModeled = this.getElemTransformState(rawId);
           // must export element first
           await (this._hackImportedElements.get(rawId) ?? this.exporter.exportElement(rawId));
           //if (processState.needsElemImport)
-          if (processState.needsModelImport)
+          if (isSubModeled)
             await (this._hackImportedModels.get(rawId) ?? this.exporter.exportModel(rawId));
             //await this.exporter.exportModel(rawId);
         }
       }));
   }
 
-  private async getElemTransformState(elementId: Id64String) {
+  private getElemTransformState(elementId: Id64String) {
     const dbHasModel = (db: IModelDb, id: Id64String) => {
       const maybeModelId = EntityReferences.fromEntityType(id, ConcreteEntityTypes.Model);
       return EntityUnifier.exists(db, { entityReference: maybeModelId });
     };
     const isSubModeled = dbHasModel(this.sourceDb, elementId);
-    const idOfElemInTarget = await this.context.findTargetElementId(elementId);
-    const isElemInTarget = Id64.invalid !== idOfElemInTarget;
-    const needsModelImport = isSubModeled && (!isElemInTarget || !dbHasModel(this.targetDb, idOfElemInTarget));
-    return { needsElemImport: !isElemInTarget, needsModelImport };
+    return isSubModeled;
   }
 
   private _hackImportedElements = new Map<Id64String, Promise<void>>();
