@@ -2,52 +2,6 @@
   "name": "@itwin/transformer",
   "entries": [
     {
-      "date": "Fri, 31 Mar 2023 13:57:37 GMT",
-      "tag": "@itwin/transformer_v0.1.1",
-      "version": "0.1.1",
-      "comments": {
-        "patch": [
-          {
-            "author": "mike.belousov@bentley.com",
-            "package": "@itwin/transformer",
-            "commit": "06551a924a3c4b5078d64f27ac52669a2d7a0920",
-            "comment": "initial package"
-          }
-        ],
-        "prerelease": [
-          {
-            "author": "mike.belousov@bentley.com",
-            "package": "@itwin/transformer",
-            "commit": "06551a924a3c4b5078d64f27ac52669a2d7a0920",
-            "comment": "switch READMEs because publishing"
-          }
-        ],
-        "none": [
-          {
-            "author": "mike.belousov@bentley.com",
-            "package": "@itwin/transformer",
-            "commit": "06551a924a3c4b5078d64f27ac52669a2d7a0920",
-            "comment": "add generate docs step with commented out validation"
-          }
-        ]
-      }
-    },
-    {
-      "date": "Tue, 28 Mar 2023 01:57:57 GMT",
-      "tag": "@itwin/transformer_v0.1.0",
-      "version": "0.1.0",
-      "comments": {
-        "none": [
-          {
-            "author": "mike.belousov@bentley.com",
-            "package": "@itwin/transformer",
-            "commit": "c0a05ec9c6050f85ef2936564f79c9ef3bc039d9",
-            "comment": "misc fixes for initial package"
-          }
-        ]
-      }
-    },
-    {
       "version": "3.6.0",
       "tag": "@itwin/core-transformer_v3.6.0",
       "date": "Wed, 08 Feb 2023 14:58:40 GMT",

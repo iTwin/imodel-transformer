@@ -1,5 +1,5 @@
 {
-  "name": "@itwin/transformer",
+  "name": "@itwin/imodel-transformer",
   "version": "0.1.1",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/transformer.js",
@@ -49,7 +49,7 @@
     "We perform a version check at runtime to ensure this.",
     "Every new iTwin.js version must be validated, and fixes are rarely ported to old versions.",
     "Removing Dependencies on internal APIs is ongoing.",
-    "You can find the latest @itwin/transformer version for your iTwin.js version like so: FIXME"
+    "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
   ],
   "peerDependencies": {
     "@itwin/core-backend": "3.6.0 - 3.6.1",

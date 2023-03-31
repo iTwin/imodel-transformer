@@ -22,11 +22,11 @@ importers:
       '@itwin/core-common': 3.6.0 - 3.6.1
       '@itwin/core-geometry': 3.6.0 - 3.6.1
       '@itwin/eslint-plugin': 3.6.0 - 3.6.1
+      '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.2.1
       '@itwin/imodels-client-authoring': ^2.2.1
       '@itwin/node-cli-authorization': ~0.9.0
       '@itwin/projects-client': ^0.6.0
-      '@itwin/transformer': workspace:*
       '@types/chai': 4.3.1
       '@types/fs-extra': ^4.0.7
       '@types/mocha': ^8.2.2
@@ -47,10 +47,10 @@ importers:
       '@itwin/core-bentley': 3.6.1
       '@itwin/core-common': 3.6.1_s3nn57aycf2tjwn4iivphtyfai
       '@itwin/core-geometry': 3.6.1
+      '@itwin/imodel-transformer': link:../transformer
       '@itwin/imodels-access-backend': 2.3.0_dukgzboniadzb4bug27ojyr6sy
       '@itwin/imodels-client-authoring': 2.3.0
       '@itwin/node-cli-authorization': 0.9.2_@itwin+core-bentley@3.6.1
-      '@itwin/transformer': link:../transformer
       dotenv: 10.0.0
       dotenv-expand: 5.1.0
       fs-extra: 8.1.0
