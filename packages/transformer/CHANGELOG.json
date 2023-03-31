@@ -1,6 +1,21 @@
 {
-  "name": "@itwin/transformer",
+  "name": "@itwin/imodel-transformer",
   "entries": [
+    {
+      "date": "Fri, 31 Mar 2023 19:52:13 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.1",
+      "version": "0.1.1",
+      "comments": {
+        "none": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "c346e85c40f8942ce12986e4979cc3a47172a9b4",
+            "comment": "rename everything from @itwin/transformer to @itwin/imodel-transformer"
+          }
+        ]
+      }
+    },
     {
       "version": "3.6.0",
       "tag": "@itwin/core-transformer_v3.6.0",

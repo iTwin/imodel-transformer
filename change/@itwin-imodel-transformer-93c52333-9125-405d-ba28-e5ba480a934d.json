@@ -1,7 +1,0 @@
-{
-  "type": "none",
-  "comment": "rename everything from @itwin/transformer to @itwin/imodel-transformer",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "none"
-}
