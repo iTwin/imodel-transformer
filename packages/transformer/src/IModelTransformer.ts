@@ -402,9 +402,10 @@ export class IModelTransformer extends IModelExportHandler {
    * The `identifier` property of the ExternalSourceAspect will be the ECInstanceId of the relationship in the source iModel.
    * The ECInstanceId of the relationship in the target iModel will be stored in the JsonProperties of the ExternalSourceAspect.
    */
-  private initRelationshipProvenance(sourceRelationship: Relationship, targetRelInstanceId: Id64String): ExternalSourceAspectProps {
-    const targetRelationship: Relationship = this.targetDb.relationships.getInstance(ElementRefersToElements.classFullName, targetRelInstanceId);
-    const elementId = this._options.isReverseSynchronization ? sourceRelationship.sourceId : targetRelationship.sourceId;
+  private async initRelationshipProvenance(sourceRelationship: Relationship, targetRelInstanceId: Id64String): Promise<ExternalSourceAspectProps> {
+    const elementId = this._options.isReverseSynchronization
+      ? sourceRelationship.sourceId
+      : await this.context.findTargetElementId(sourceRelationship.sourceId);
     const aspectIdentifier = this._options.isReverseSynchronization ? targetRelInstanceId : sourceRelationship.id;
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
@@ -1105,8 +1106,8 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportRelationship(sourceRelationship: Relationship): Promise<void> {
     const targetRelationshipProps = await this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId: Id64String = await this.importer.importRelationship(targetRelationshipProps);
-    if (!this._options.noProvenance && Id64.isValidId64(targetRelationshipInstanceId)) {
-      const aspectProps: ExternalSourceAspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
+    if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
+      const aspectProps = await this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
       if (undefined === aspectProps.id) {
         aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
       }
