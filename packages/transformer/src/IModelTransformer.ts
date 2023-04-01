@@ -415,7 +415,6 @@ export class IModelTransformer extends IModelExportHandler {
       kind: ExternalSourceAspect.Kind.Relationship,
       jsonProperties: JSON.stringify({ targetRelInstanceId }),
     };
-    aspectProps.id = this.queryExternalSourceAspectId(aspectProps);
     return aspectProps;
   }
 
@@ -1108,8 +1107,15 @@ export class IModelTransformer extends IModelExportHandler {
     const targetRelationshipInstanceId: Id64String = await this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
       const aspectProps = await this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
-      if (undefined === aspectProps.id) {
+      try {
         aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
+      } catch (err) {
+        // FIXME: double check that it was a duplicate insertion, also check
+        // executing a known failing statement isn't expensive e.g. breaks transactions or somethin
+        aspectProps.id = this.queryExternalSourceAspectId(aspectProps);
+        // also maybe make the error return a/the (first?) culprit collision?
+        // FIXME: this behavior change needs to be checked against existing constraints, if always inserting
+        // will fail as often
       }
       assert(aspectProps.id !== undefined);
       this.markLastProvenance(aspectProps as MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship: true });
