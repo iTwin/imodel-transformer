@@ -199,7 +199,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       // TODO: encode options? should be ok if we don't use shell
       [targetDb.pathName, JSON.stringify(options)],
       {
-        stdio: ['ignore', 'pipe', 'ignore', 'ipc'],
+        stdio: ['ignore', 'pipe', 'inherit', 'ipc'],
         execArgv: [
           process.env.INSPECT_WORKER && `--inspect-brk=${process.env.INSPECT_WORKER}`,
         ].filter(Boolean) as string[],
