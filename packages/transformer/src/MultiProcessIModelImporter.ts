@@ -22,7 +22,6 @@ export enum Messages {
   Init,
   SetOption,
   CallMethod,
-  Finalize,
 
   Await,
   Settled,
@@ -44,9 +43,6 @@ export type Message =
       target: string;
       method: string; // TODO: make this typed based on what is handled?
       args: any;
-    }
-  | {
-      type: Messages.Finalize;
     }
   | {
       type: Messages.Await;
@@ -230,8 +226,6 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
     this._worker.on("message", onMsg);
     this._worker.on("error", (err) => console.error(err));
-    this._worker.on("disconnect", () => console.error("MultiProcessIModelImporter worker disconnected!"));
-    this._worker.on("exit", (code, signal) => console.error(`MultiProcessIModelImporter worker exited with code=${code}, signal=${signal}`));
 
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
       set: (obj, key, val, recv) => {
@@ -282,7 +276,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   }
 
   public override dispose() {
-    this._send({ type: Messages.Finalize });
+    this._worker.disconnect();
   }
 }
 
