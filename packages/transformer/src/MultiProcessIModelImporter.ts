@@ -117,7 +117,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
   private _msgId = 0;
 
-  private _send = /*backoff(*/
+  private _send = backoff(
     (msg: Message, cb?: (err: null | Error) => void) => {
       const msgId = this._msgId;
       ++this._msgId;
@@ -132,10 +132,10 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       if (timeElapsedMs > 500)
         console.log("Message took more than a second to send!", msg);
       return success;
-    }/*, {
+    }, {
       dontRetryLastBackoff: true,
     }
-  )*/;
+  );
 
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
     const id = this._nextId;
