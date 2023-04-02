@@ -119,20 +119,27 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   private _nextId = 0;
   private _pendingResolvers = new Map<number, (v: any) => any>();
 
-  private _send = backoff(
+  private _msgId = 0;
+
+  private _send = /*backoff(*/
     (msg: Message, cb?: (err: null | Error) => void) => {
+      const msgId = this._msgId;
+      ++this._msgId;
+      msg = { ...msg, msgId } as any;
       const timeBefore = Date.now();
       if (process.env.DEBUG?.includes("multiproc"))
-        console.log(`${new Date().toISOString()} | parent sending:`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
+        console.log(`parent sending (${msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
       const success = this._worker.send(msg, cb);
+      if (process.env.DEBUG?.includes("multiproc"))
+        console.log(`parent ${success ? "success" : "error"} (${msgId})`);
       const timeElapsedMs = Date.now() - timeBefore;
       if (timeElapsedMs > 500)
         console.log("Message took more than a second to send!", msg);
       return success;
-    }, {
+    }/*, {
       dontRetryLastBackoff: true,
     }
-  );
+  )*/;
 
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
     const id = this._nextId;
@@ -222,6 +229,9 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     };
 
     this._worker.on("message", onMsg);
+    this._worker.on("error", (err) => console.error(err));
+    this._worker.on("disconnect", () => console.error("worker disconnected!"));
+    this._worker.on("exit", (code, signal) => console.error(`exited with code=${code}, signal=${signal}`));
 
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
       set: (obj, key, val, recv) => {
@@ -272,7 +282,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   }
 
   public override dispose() {
-    this._worker.kill();
+    this._send({ type: Messages.Finalize });
   }
 }
 

@@ -67,10 +67,10 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
 
     process.on("message", (msg: Message) => {
       if (process.env.DEBUG?.includes("multiproc"))
-        console.log("worker received:", JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
+        console.log(`worker received (${(msg as any).msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
       onMsg(msg);
       if (process.env.DEBUG?.includes("multiproc"))
-        console.log(`worker finished: ${(msg as any).id}`);
+        console.log(`worker finished (${(msg as any).msgId}):`);
     });
   }
 }
