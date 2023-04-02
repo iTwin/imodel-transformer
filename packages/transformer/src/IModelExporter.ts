@@ -709,8 +709,8 @@ export class IModelExporter {
     const sql = `SELECT ECInstanceId FROM ${baseRelClassFullName}`;
     await this.sourceDb.withPreparedStatement(sql, async (statement: ECSqlStatement): Promise<void> => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const relInstanceId: Id64String = statement.getValue(0).getId();
-        const relProps: RelationshipProps = this.sourceDb.relationships.getInstanceProps(baseRelClassFullName, relInstanceId);
+        const relInstanceId = statement.getValue(0).getId();
+        const relProps = this.sourceDb.relationships.getInstanceProps(baseRelClassFullName, relInstanceId);
         promises.push(this.exportRelationship(relProps.classFullName, relInstanceId)); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
         await this._yieldManager.allowYield();
       }

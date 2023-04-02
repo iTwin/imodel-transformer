@@ -440,7 +440,7 @@ export class IModelTransformer extends IModelExportHandler {
         throw new IModelError(IModelStatus.InvalidId, "Provenance scope conflict");
       }
       if (!this._options.noProvenance) {
-        this.provenanceDb.elements.insertAspect(aspectProps);
+        this._independentPromises.push(this.provenanceDb.elements.insertAspect(aspectProps) as any);
         this._isFirstSynchronization = true; // couldn't tell this is the first time without provenance
       }
     }
@@ -871,14 +871,14 @@ export class IModelTransformer extends IModelExportHandler {
       if (targetElementId === Id64.invalid)
         targetElementId = undefined;
 
-      const onElementImported = (sourceElementPropsId: Id64String, targetElementPropsId: Id64String) => {
+      const onElementImported = async (sourceElementPropsId: Id64String, targetElementPropsId: Id64String) => {
         if (!this._options.noProvenance) {
           const aspectProps: ExternalSourceAspectProps = this.initElementProvenance(sourceElementPropsId, targetElementPropsId);
           let aspectId = this.queryExternalSourceAspectId(aspectProps);
           if (aspectId === undefined) {
-            aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
+            aspectId = await (this.provenanceDb.elements.insertAspect(aspectProps) as any);
           } else {
-            this.provenanceDb.elements.updateAspect(aspectProps);
+            await (this.provenanceDb.elements.updateAspect(aspectProps) as any);
           }
           aspectProps.id = aspectId;
           this.markLastProvenance(aspectProps as MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship: false });
@@ -920,10 +920,9 @@ export class IModelTransformer extends IModelExportHandler {
         );
       }
 
-      // FIXME: collect this somewhere so we can wait on it!
-      void withResolvedRefsPromise.then((targetId) => { 
+      this._independentPromises.push(withResolvedRefsPromise.then((targetId) => {
         onElementImported(sourceElement.id, targetId);
-      });
+      }));
     };
 
     let alreadyImported = this._hackImportedElements.get(sourceElement.id);
@@ -1068,7 +1067,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async processDeferredElements(_numRetries: number = 3): Promise<void> {}
 
-  private finalizeTransformation() {
+  private async finalizeTransformation() {
     if (this._partiallyCommittedEntities.size > 0) {
       Logger.logWarning(
         loggerCategory,
@@ -1083,6 +1082,7 @@ export class IModelTransformer extends IModelExportHandler {
         partiallyCommittedElem.forceComplete();
       }
     }
+    await Promise.all(this._independentPromises);
   }
 
   /** Imports all relationships that subclass from the specified base class.
@@ -1104,11 +1104,11 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public override async onExportRelationship(sourceRelationship: Relationship): Promise<void> {
     const targetRelationshipProps = await this.onTransformRelationship(sourceRelationship);
-    const targetRelationshipInstanceId: Id64String = await this.importer.importRelationship(targetRelationshipProps);
+    const targetRelationshipInstanceId = await this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
       const aspectProps = await this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
       try {
-        aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
+        this._independentPromises.push(aspectProps.id = await (this.provenanceDb.elements.insertAspect(aspectProps) as any));
       } catch (err) {
         // FIXME: double check that it was a duplicate insertion, also check
         // executing a known failing statement isn't expensive e.g. breaks transactions or somethin
@@ -1373,6 +1373,8 @@ export class IModelTransformer extends IModelExportHandler {
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
 
+  private _independentPromises: Promise<any>[] = [];
+
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
    * are intending process changes, but prefer using [[processChanges]]
@@ -1413,7 +1415,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
-    this.finalizeTransformation();
+    await this.finalizeTransformation();
     this.events.emit(TransformerEvent.endProcessAll);
   }
 
@@ -1640,7 +1642,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
-    this.finalizeTransformation();
+    await this.finalizeTransformation();
     this.events.emit(TransformerEvent.endProcessChanges);
   }
 }
