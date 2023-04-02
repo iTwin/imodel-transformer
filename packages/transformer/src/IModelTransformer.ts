@@ -1083,6 +1083,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
     await Promise.all(this._independentPromises);
+    this._independentPromises = [];
   }
 
   /** Imports all relationships that subclass from the specified base class.

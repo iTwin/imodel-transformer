@@ -22,7 +22,7 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
   public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
     super(targetDb, options);
 
-    const onMsg = (msg: Message) => {
+    const handleMsg = (msg: Message) => {
       switch (msg.type) {
         case Messages.CallMethod: {
           const thisArg
@@ -51,11 +51,12 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
           return this.options[msg.key] = msg.value;
         }
         case Messages.Finalize: {
-          return this.targetDb.close();
+          this._finalized = true;
+          break;
         }
         case Messages.Await: {
           const { id } = msg;
-          const result = onMsg(msg.message)
+          const result = handleMsg(msg.message)
           Promise.resolve(result).then((innerResult) => assert(process.send!({
             type: Messages.Settled,
             result: innerResult,
@@ -65,13 +66,34 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
       }
     }
 
+    const processMsgQueue = () => {
+      const msg = this._msgQueue.pop();
+      assert(msg);
+      handleMsg(msg);
+      if (this._finalized && this._msgQueue.length <= 0) {
+        console.log(this._finalized, this._msgQueue.length, msg);
+        this._finalize();
+      }
+    };
+
     process.on("message", (msg: Message) => {
       if (process.env.DEBUG?.includes("multiproc"))
         console.log(`worker received (${(msg as any).msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
-      onMsg(msg);
+      this._msgQueue.unshift(msg);
+      process.nextTick(processMsgQueue);
       if (process.env.DEBUG?.includes("multiproc"))
         console.log(`worker finished (${(msg as any).msgId}):`);
     });
+  }
+
+  private _msgQueue: Message[] = [];
+
+  private _finalized = false;
+
+  private _finalize() {
+    this._finalized = true;
+    this.targetDb.close();
+    process.disconnect();
   }
 }
 

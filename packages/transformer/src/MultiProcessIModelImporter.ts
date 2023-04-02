@@ -230,8 +230,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
     this._worker.on("message", onMsg);
     this._worker.on("error", (err) => console.error(err));
-    this._worker.on("disconnect", () => console.error("worker disconnected!"));
-    this._worker.on("exit", (code, signal) => console.error(`exited with code=${code}, signal=${signal}`));
+    this._worker.on("disconnect", () => console.error("MultiProcessIModelImporter worker disconnected!"));
+    this._worker.on("exit", (code, signal) => console.error(`MultiProcessIModelImporter worker exited with code=${code}, signal=${signal}`));
 
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
       set: (obj, key, val, recv) => {
