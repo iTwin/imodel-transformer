@@ -46,6 +46,10 @@ stages:
             inputs:
               workingFile: $(Build.SourcesDirectory)/.npmrc
 
+          - script: npm install -g pnpm
+            displayName: 'install pnpm'
+            workingDirectory: $(Build.SourcesDirectory)
+
           - script: pnpm install
             displayName: 'npm install'
             workingDirectory: $(Build.SourcesDirectory)
