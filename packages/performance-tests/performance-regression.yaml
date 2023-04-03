@@ -47,9 +47,9 @@ stages:
               workingFile: $(Build.SourcesDirectory)/.npmrc
 
           - script: |
-              npm install -g pnpm@^6
+              npm install -g pnpm@^7
               pnpm --version
-              pnpm i
+              pnpm i --no-frozen-lockfile
             displayName: 'install pnpm'
             workingDirectory: $(Build.SourcesDirectory)
 
