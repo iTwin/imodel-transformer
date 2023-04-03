@@ -50,7 +50,7 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Build.SourcesDirectory)
 
-          - script: pnpm i --frozen-lockfile
+          - script: pnpm i --no-frozen-lockfile
             displayName: 'pnpm install'
             workingDirectory: $(Build.SourcesDirectory)
 
