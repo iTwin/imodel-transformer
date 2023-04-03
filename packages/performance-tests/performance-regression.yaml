@@ -49,7 +49,7 @@ stages:
           - script: |
               npm install -g pnpm@^7
               pnpm --version
-              pnpm i --no-frozen-lockfile
+              pnpm i --frozen-lockfile
             displayName: 'install pnpm'
             workingDirectory: $(Build.SourcesDirectory)
 
