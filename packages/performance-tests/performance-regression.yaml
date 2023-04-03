@@ -69,7 +69,7 @@ stages:
 
     variables:
       - group: iTwin.js Performance Test Users                  # auth info of users that have access to test iModels and kill GPB
-      - group: iTwin.js Transformer Performance Tests Client    # oidc client info
+      - group: iTwin.js Presentation Performance Tests Client    # oidc client info
 
     jobs:
       - job:
