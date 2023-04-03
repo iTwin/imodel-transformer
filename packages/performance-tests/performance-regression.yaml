@@ -21,7 +21,7 @@ stages:
     pool:
       demands:
       - Agent.OS -equals Linux
-      name: iModelTechCI
+      name: iModelTechLnxDeb11
 
     jobs:
       - job:
