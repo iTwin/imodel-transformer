@@ -48,7 +48,6 @@ stages:
 
           - script: |
               npm install -g pnpm@^7
-              pnpm --version
               pnpm i --frozen-lockfile
             displayName: 'install pnpm'
             workingDirectory: $(Build.SourcesDirectory)
@@ -87,7 +86,9 @@ stages:
             displayName: Download test runner
             artifact: TestRunner
 
-          - script: npm run test
+          - script: |
+              npm install -g pnpm@^7
+              npm run test
             displayName: 'npm test'
             workingDirectory: $(Pipeline.Workspace)/TestRunner
             timeoutInMinutes: 360
