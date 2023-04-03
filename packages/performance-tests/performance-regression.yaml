@@ -21,7 +21,6 @@ stages:
     pool:
       demands:
       - Agent.OS -equals Linux
-      - Cmd
       name: iModelTechCI
 
     jobs:
@@ -34,7 +33,7 @@ stages:
             inputs:
               versionSpec: 18.*.*
 
-          - bash: |
+          - powershell: |
               $npmrcContent = @"
                 @bentley:registry=https://bentleycs.pkgs.visualstudio.com/_packaging/Packages/npm/registry/
                 always-auth=true
