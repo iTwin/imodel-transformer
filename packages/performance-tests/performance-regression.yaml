@@ -46,12 +46,11 @@ stages:
             inputs:
               workingFile: $(Build.SourcesDirectory)/.npmrc
 
-          - script: npm install -g pnpm@^7
+          - script: |
+              npm install -g pnpm@^7
+              pnpm --version
+              pnpm i
             displayName: 'install pnpm'
-            workingDirectory: $(Build.SourcesDirectory)
-
-          - script: pnpm i
-            displayName: 'pnpm install'
             workingDirectory: $(Build.SourcesDirectory)
 
           - script: npm run build
