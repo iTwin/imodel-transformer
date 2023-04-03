@@ -47,7 +47,7 @@ stages:
               workingFile: $(Build.SourcesDirectory)/.npmrc
 
           - script: |
-              npm install -g pnpm@^7
+              npm install -g pnpm@^5
               pnpm --version
               pnpm i
             displayName: 'install pnpm'
