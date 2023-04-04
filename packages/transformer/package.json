@@ -1,6 +1,6 @@
 {
-  "name": "@itwin/transformer",
-  "version": "0.1.0",
+  "name": "@itwin/imodel-transformer",
+  "version": "0.1.1",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/transformer.js",
   "typings": "lib/cjs/transformer",
@@ -13,10 +13,14 @@
     "build:ci": "npm run -s build",
     "build:cjs": "tsc 1>&2 --outDir lib/cjs",
     "clean": "rimraf lib",
-    "docs": "betools docs --includes=../../generated-docs/extract --json=../../generated-docs/core/core-transformer/file.json --tsIndexFile=./core-transformer.ts --onlyJson",
+    "docs": "npm run -s docs:extract && npm run -s docs:reference && npm run -s docs:changelog",
+    "docs:changelog": "cpx ./CHANGELOG.md ../../build/docs/reference/imodel-transformer",
+    "# env var is workaround, need to contribute a better rush-less root-package.json detector to betools": "",
+    "docs:reference": "cross-env RUSHSTACK_FILE_ERROR_BASE_FOLDER='../..' betools docs --includes=../../build/docs/extract --json=../../build/docs/reference/imodel-transformer/file.json --tsIndexFile=transformer.ts --onlyJson",
+    "docs:extract": "betools extract --fileExt=ts --extractFrom=./src/test --recursive --out=../../build/docs/extract",
     "copy:test-assets": "cpx \"./src/test/assets/**/*\" ./lib/cjs/test/assets",
     "cover": "nyc npm -s test",
-    "extract-api": "betools extract-api --entry=transformer",
+    "extract-api": "betools extract-api --entry=imodel-transformer",
     "lint": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
     "lint:no-tests": "eslint -f visualstudio \"./src/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio \"./src/**/*.ts\" 1>&2",
@@ -25,7 +29,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/iTwin/transformer/tree/main/packages/transformer"
+    "url": "https://github.com/iTwin/imodel-transformer.git",
+    "directory": "packages/transformer"
   },
   "keywords": [
     "Bentley",
@@ -44,7 +49,7 @@
     "We perform a version check at runtime to ensure this.",
     "Every new iTwin.js version must be validated, and fixes are rarely ported to old versions.",
     "Removing Dependencies on internal APIs is ongoing.",
-    "You can find the latest @itwin/transformer version for your iTwin.js version like so: FIXME"
+    "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
   ],
   "peerDependencies": {
     "@itwin/core-backend": "3.6.0 - 3.6.1",
@@ -76,6 +81,7 @@
     "chai": "^4.1.2",
     "chai-as-promised": "^7",
     "cpx2": "^3.0.0",
+    "cross-env": "^5.1.4",
     "eslint": "^7.11.0",
     "js-base64": "^3.7.5",
     "mocha": "^10.0.0",
