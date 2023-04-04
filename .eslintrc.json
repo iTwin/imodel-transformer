@@ -1,0 +1,20 @@
+{
+    "root": true,
+    "plugins": [
+        "@itwin"
+    ],
+    "extends": "plugin:@itwin/itwinjs-recommended",
+    "rules": {
+        "@itwin/no-internal": [
+            "warn",
+            {
+                "tag": [
+                    "internal"
+                ]
+            }
+        ]
+    },
+    "parserOptions": {
+        "project": "./tsconfig.json"
+    }
+}
