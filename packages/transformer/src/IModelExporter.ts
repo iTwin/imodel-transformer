@@ -6,15 +6,15 @@
  * @module iModels
  */
 
-import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
-import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
-import { CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import {
   BriefcaseDb, BriefcaseManager, DefinitionModel, ECSqlStatement, Element, ElementAspect,
   ElementMultiAspect, ElementRefersToElements, ElementUniqueAspect, GeometricElement, IModelDb,
-  IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship, RelationshipProps,
+  IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship,
 } from "@itwin/core-backend";
+import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
+import { CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
+import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -685,12 +685,12 @@ export class IModelExporter {
       return;
     }
     Logger.logTrace(loggerCategory, `exportRelationships(${baseRelClassFullName})`);
-    const sql = `SELECT ECInstanceId FROM ${baseRelClassFullName}`;
+    const sql = `SELECT ECInstanceId, ECClassId, * FROM ${baseRelClassFullName}`;
     await this.sourceDb.withPreparedStatement(sql, async (statement: ECSqlStatement): Promise<void> => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const relInstanceId: Id64String = statement.getValue(0).getId();
-        const relProps: RelationshipProps = this.sourceDb.relationships.getInstanceProps(baseRelClassFullName, relInstanceId);
-        await this.exportRelationship(relProps.classFullName, relInstanceId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
+        const relationshipId = statement.getValue(0).getId();
+        const relationshipClass = statement.getValue(1).getClassNameForClassId();
+        await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
         await this._yieldManager.allowYield();
       }
     });
