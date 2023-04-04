@@ -14,7 +14,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb } from "@itwin/core-backend";
 import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
-import { IModelTransformer, TransformerLoggerCategory } from "@itwin/transformer";
+import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
 //import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { getTestIModels } from "./TestContext";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";

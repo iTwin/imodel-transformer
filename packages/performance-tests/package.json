@@ -18,7 +18,7 @@
     "@itwin/core-common": "3.6.0 - 3.6.1",
     "@itwin/core-geometry": "3.6.0 - 3.6.1",
     "@itwin/core-quantity": "3.6.0 - 3.6.1",
-    "@itwin/transformer": "workspace:*",
+    "@itwin/imodel-transformer": "workspace:*",
     "@itwin/ecschema-metadata": "3.6.0 - 3.6.1",
     "@itwin/imodels-access-backend": "^1.0.1",
     "@itwin/imodels-client-authoring": "^1.0.1",
