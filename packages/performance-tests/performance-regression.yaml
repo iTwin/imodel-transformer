@@ -87,8 +87,8 @@ stages:
             artifact: TestRunner
 
           - script: |
-              npm install -g pnpm@^7;
-              npm i mocha;
+              npm install -g pnpm@^7
+              npm i mocha
             displayName: 'install pnpm and mocha'
             workingDirectory: $(Build.SourcesDirectory)
 
