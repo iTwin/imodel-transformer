@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "add option to disable strict version dep checking",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "mike.belousov@bentley.com",
+  "dependentChangeType": "patch"
+}
