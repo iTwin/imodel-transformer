@@ -88,11 +88,11 @@ stages:
 
           - script: npm install -g pnpm@^7
             displayName: 'install pnpm'
-            workingDirectory: $(Build.SourcesDirectory)
+            workingDirectory: $(Build.SourcesDirectory)/TestRunner
 
           - script: pnpm i --frozen-lockfile
             displayName: 'pnpm install'
-            workingDirectory: $(Build.SourcesDirectory)
+            workingDirectory: $(Build.SourcesDirectory)/TestRunner
 
           - script: npm test
             displayName: 'npm test'
