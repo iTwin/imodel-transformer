@@ -91,16 +91,12 @@ stages:
             workingDirectory: $(Build.SourcesDirectory)
 
           - script: pnpm i --frozen-lockfile
-            displayName: 'install pnpm'
-            workingDirectory: $(Build.SourcesDirectory)
-
-          - script: npm i -g mocha
-            displayName: 'install mocha'
+            displayName: 'pnpm install'
             workingDirectory: $(Build.SourcesDirectory)
 
           - script: npm test
             displayName: 'npm test'
-            workingDirectory: $(Pipeline.Workspace)/TestRunner
+            workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
             timeoutInMinutes: 360
             env:
               ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)
