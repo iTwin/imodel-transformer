@@ -90,7 +90,7 @@ stages:
             displayName: 'install pnpm and mocha'
             workingDirectory: $(Build.SourcesDirectory)
 
-          - script: npm i mocha
+          - script: npm i -g mocha
             displayName: 'install mocha'
             workingDirectory: $(Build.SourcesDirectory)
 
