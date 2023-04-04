@@ -1,0 +1,12 @@
+{
+    "rules": {
+        "@itwin/no-internal": [
+            "warn",
+            {
+                "tag": [
+                    "internal"
+                ]
+            }
+        ]
+    }
+}

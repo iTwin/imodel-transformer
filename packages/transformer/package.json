@@ -97,24 +97,5 @@
   },
   "nyc": {
     "extends": "./node_modules/@itwin/build-tools/.nycrc"
-  },
-  "eslintConfig": {
-    "plugins": [
-      "@itwin"
-    ],
-    "extends": "plugin:@itwin/itwinjs-recommended",
-    "rules": {
-      "@itwin/no-internal": [
-        "warn",
-        {
-          "tag": [
-            "internal"
-          ]
-        }
-      ]
-    },
-    "parserOptions": {
-      "project": "./tsconfig.json"
-    }
   }
 }
