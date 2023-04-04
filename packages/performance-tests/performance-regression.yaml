@@ -88,11 +88,11 @@ stages:
 
           - script: npm install -g pnpm@^7
             displayName: 'install pnpm'
-            workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
+            workingDirectory: $(Pipeline.Workspace)/TestRunner
 
           - script: pnpm i --frozen-lockfile
             displayName: 'pnpm install'
-            workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
+            workingDirectory: $(Pipeline.Workspace)/TestRunner
 
           - script: npm test
             displayName: 'npm test'
