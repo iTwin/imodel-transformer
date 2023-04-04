@@ -86,10 +86,12 @@ stages:
             displayName: Download test runner
             artifact: TestRunner
 
-          - script: |
-              npm install -g pnpm@^7
-              npm i mocha
+          - script: npm install -g pnpm@^7
             displayName: 'install pnpm and mocha'
+            workingDirectory: $(Build.SourcesDirectory)
+
+          - script: npm i mocha
+            displayName: 'install mocha'
             workingDirectory: $(Build.SourcesDirectory)
 
           - script: npm test
