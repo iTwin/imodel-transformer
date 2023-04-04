@@ -16,12 +16,15 @@ const { version: ourVersion, name: ourName, peerDependencies } = require("../../
 
 const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
 
-if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
-  const suggestEnvVarName = "SUGGEST_TRANSFORMER_VERSIONS";
+const noStrictDepCheckEnvVar = "TRANSFORMER_NO_STRICT_DEP_CHECK";
+const suggestEnvVarName = "SUGGEST_TRANSFORMER_VERSIONS";
+
+if (process.env[noStrictDepCheckEnvVar] !== "1" && !semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
 
   const errHeader =
     `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, `
-    + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.\n`;
+    + `but @itwin/core-backend${iTwinCoreBackendVersion} was resolved when looking for the peer dependency.\n`
+    + `If you know exactly what you are doing, you can disable this check by setting ${noStrictDepCheckEnvVar}=1 in the environment\n`;
 
   if (process.env[suggestEnvVarName]) {
     // let's not import https except in this case
@@ -44,10 +47,10 @@ if (!semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)) {
 
       throw Error([
         errHeader,
-        `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.\n`,
-        `Be aware that older versions may be missing bug fixes.\n`,
-        latestFirstApplicableVersions.join("\n"),
-      ].join(""));
+        `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.`,
+        `Be aware that older versions may be missing bug fixes.`,
+        ...latestFirstApplicableVersions,
+      ].join("\n"));
     });
   } else {
     throw Error(
