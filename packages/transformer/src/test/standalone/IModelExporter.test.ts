@@ -3,16 +3,16 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
+import { Element, ElementRefersToElements, GeometryPart, GraphicalElement3dRepresentsElement, IModelJsFs, SnapshotDb } from "@itwin/core-backend";
+import { Id64 } from "@itwin/core-bentley";
+import { Code, GeometryStreamBuilder, IModel, RelationshipProps } from "@itwin/core-common";
+import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
-import { Element, GeometryPart, IModelJsFs, SnapshotDb } from "@itwin/core-backend";
-import { createBRepDataProps } from "../TestUtils";
-import { Id64 } from "@itwin/core-bentley";
-import { Code, GeometryStreamBuilder, IModel } from "@itwin/core-common";
-import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelExporter } from "../../transformer";
 import { IModelExportHandler } from "../../IModelExporter";
+import { IModelExporter } from "../../transformer";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import { createBRepDataProps } from "../TestUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
@@ -72,5 +72,37 @@ describe("IModelExporter", () => {
     assert(geomPartInTarget.geom?.[1]?.brep?.data !== undefined);
 
     sourceDb.close();
+  });
+
+  describe("exportRelationships", () => {
+    it("should not export relationships that do not have source or target elements", async () => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelExporter", "InvalidRelationship.bim");
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "invalid-relationships" } });
+
+      const relationshipProps: RelationshipProps = {
+        classFullName: GraphicalElement3dRepresentsElement.classFullName,
+        targetId: "",
+        sourceId: "",
+      };
+
+      sourceDb.relationships.insertInstance(relationshipProps);
+      sourceDb.saveChanges();
+
+      const sourceRelationships = new Array<any>();
+      sourceDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => sourceRelationships.push(...stmt));
+      assert(sourceRelationships.length === 1);
+
+      const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "relationships-Target.bim");
+      const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "relationships-Target" } });
+
+      const exporter = new IModelExporter(sourceDb);
+      await expect(exporter.exportRelationships(ElementRefersToElements.classFullName)).to.eventually.be.fulfilled;
+
+      const targetRelationships = new Array<any>();
+      targetDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => targetRelationships.push(...stmt));
+      assert(targetRelationships.length === 0, "TargetDb should not contain any invalid relationships");
+
+      sourceDb.close();
+    });
   });
 });
