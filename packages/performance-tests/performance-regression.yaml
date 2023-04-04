@@ -86,9 +86,11 @@ stages:
             displayName: Download test runner
             artifact: TestRunner
 
-          - script: |
-              npm install -g pnpm@^7
-              npm run test
+          - script: npm install -g pnpm@^7
+            displayName: 'install pnpm'
+            workingDirectory: $(Build.SourcesDirectory)
+
+          - script: npm test
             displayName: 'npm test'
             workingDirectory: $(Pipeline.Workspace)/TestRunner
             timeoutInMinutes: 360
