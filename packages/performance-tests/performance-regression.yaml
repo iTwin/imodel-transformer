@@ -86,9 +86,11 @@ stages:
             displayName: Download test runner
             artifact: TestRunner
 
-          - script: |
-              npm install -g pnpm@^7
-              pnpm i --frozen-lockfile
+          - script: npm install -g pnpm@^7
+            displayName: 'install pnpm'
+            workingDirectory: $(Build.SourcesDirectory)
+
+          - script: pnpm i --frozen-lockfile
             displayName: 'install pnpm'
             workingDirectory: $(Build.SourcesDirectory)
 
