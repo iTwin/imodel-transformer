@@ -5,8 +5,8 @@ trigger: none
 
 pr: none
 
-#schedules:
-#- cron: "0 0 * * 0"
+# schedules:
+# - cron: "0 0 * * 0"
 #  displayName: Midnight Every Sunday
 #  branches:
 #    include:
