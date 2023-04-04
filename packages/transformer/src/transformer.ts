@@ -54,7 +54,7 @@ if (process.env[noStrictDepCheckEnvVar] !== "1" && !semver.satisfies(iTwinCoreBa
     });
   } else {
     throw Error(
-      `${errHeader} You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
+      `${errHeader}You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
     );
   }
 }
