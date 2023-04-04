@@ -1,13 +1,13 @@
 trigger:
   branches:
     include:
-     - master
+     - main
 
 pr:
   drafts: false
   branches:
     include:
-     - master
+     - main
 
 resources:
   repositories:
