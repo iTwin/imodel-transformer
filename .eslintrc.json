@@ -3,8 +3,5 @@
     "plugins": [
         "@itwin"
     ],
-    "extends": "plugin:@itwin/itwinjs-recommended",
-    "parserOptions": {
-        "project": "./tsconfig.json"
-    }
+    "extends": "plugin:@itwin/itwinjs-recommended"
 }
