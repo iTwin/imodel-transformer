@@ -10,11 +10,11 @@
                 "800000",
                 "--require",
                 "source-map-support/register",
-                "${workspaceFolder}\\lib\\cjs\\test\\**\\*.test.js"
+                "${workspaceFolder}/lib/cjs/test/**/*.test.js"
             ],
             "internalConsoleOptions": "openOnSessionStart",
             "name": "Mocha Tests",
-            "program": "C:\\Users\\Simas.Stasys\\repos\\transformer\\packages\\transformer\\node_modules\\mocha\\bin\\_mocha",
+            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
             "request": "launch",
             "skipFiles": [
                 "<node_internals>/**"
