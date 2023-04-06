@@ -1261,6 +1261,7 @@ export class IModelTransformer extends IModelExportHandler {
       FROM bis.ExternalSourceAspect esa
       WHERE Scope.Id=:scopeId
         AND Kind=:kind
+        AND NOT InVirtualSet(:foundGuids, FederationGuid)
     `;
 
     // Technically this will a second time call the function (as documented) on
