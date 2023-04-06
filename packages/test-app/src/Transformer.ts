@@ -3,18 +3,14 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import * as nodeAssert from "assert";
-
 import { AccessToken, assert, DbResult, Id64, Id64Array, Id64Set, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Category, CategorySelector, DisplayStyle, DisplayStyle3d, ECSqlStatement, Element, ElementRefersToElements, GeometricModel3d, GeometryPart,
   IModelDb, ModelSelector, PhysicalModel, PhysicalPartition, Relationship, SpatialCategory,
   SpatialViewDefinition, SubCategory, ViewDefinition,
 } from "@itwin/core-backend";
-import { IModelImporter, IModelTransformer, IModelTransformOptions, MultiProcessIModelImporter, MultiProcessImporterOptions } from "@itwin/transformer";
-import { IModel } from "@itwin/core-common";
-
-import "source-map-support/register";
+import { IModelImporter, IModelTransformer, IModelTransformOptions } from "@itwin/imodel-transformer";
+import { ElementProps, IModel } from "@itwin/core-common";
 
 export const loggerCategory = "imodel-transformer";
 
@@ -37,15 +33,14 @@ export class Transformer extends IModelTransformer {
 
   public static async transformAll(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions): Promise<void> {
     // might need to inject RequestContext for schemaExport.
-    const transformer = await Transformer.create(sourceDb, targetDb, options);
+    const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
-    // FIXME: temp
-    //await transformer.saveChanges("processSchemas");
+    await transformer.saveChanges("processSchemas");
     await transformer.processAll();
-    //await transformer.saveChanges("processAll");
+    await transformer.saveChanges("processAll");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
-      //await transformer.saveChanges("deleteUnusedGeometryParts");
+      await transformer.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.dispose();
     transformer.logElapsedTime();
@@ -56,7 +51,7 @@ export class Transformer extends IModelTransformer {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
     }
-    const transformer = await Transformer.create(sourceDb, targetDb, options);
+    const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
     await transformer.processChanges(requestContext, sourceStartChangesetId);
@@ -104,23 +99,8 @@ export class Transformer extends IModelTransformer {
     return transformer;
   }
 
-  public static async create(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
-    const importerOptions: MultiProcessImporterOptions = {
-      simplifyElementGeometry: options?.simplifyElementGeometry,
-      hackImportMultiAspectCbScope: {
-        optionsIncludeSourceProvenance: options?.includeSourceProvenance ?? false,
-        targetScopeElementId: options?.targetScopeElementId ?? IModelDb.rootSubjectId,
-      },
-    };
-    const importer = await MultiProcessIModelImporter.create(targetDb, importerOptions);
-    const result = new Transformer(sourceDb, importer, options);
-    nodeAssert(importerOptions.hackImportMultiAspectCbScope.targetScopeElementId === result.targetScopeElementId);
-    nodeAssert(importerOptions.hackImportMultiAspectCbScope.optionsIncludeSourceProvenance === result["_options"].includeSourceProvenance);
-    return result;
-  }
-
-  private constructor(sourceDb: IModelDb, targetDb: IModelImporter | IModelDb, options?: TransformerOptions) {
-    super(sourceDb, targetDb, options);
+  private constructor(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
+    super(sourceDb, new IModelImporter(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry }), options);
 
     Logger.logInfo(loggerCategory, `sourceDb=${this.sourceDb.pathName}`);
     Logger.logInfo(loggerCategory, `targetDb=${this.targetDb.pathName}`);
@@ -263,6 +243,14 @@ export class Transformer extends IModelTransformer {
       // NOTE: must allow export to continue so the PhysicalModel sub-modeling the PhysicalPartition is processed
     }
     return super.shouldExportElement(sourceElement);
+  }
+
+  /** This override of IModelTransformer.onTransformElement exists for debugging purposes */
+  public override onTransformElement(sourceElement: Element): ElementProps {
+    // if (sourceElement.id === "0x0" || sourceElement.getDisplayLabel() === "xxx") { // use logging to find something unique about the problem element
+    //   Logger.logInfo(progressLoggerCategory, "Found problem element"); // set breakpoint here
+    // }
+    return super.onTransformElement(sourceElement);
   }
 
   public override shouldExportRelationship(relationship: Relationship): boolean {
