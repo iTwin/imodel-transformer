@@ -10,7 +10,7 @@ import { EventEmitter } from "events";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
-  AccessToken, assert, DbResult, Guid, Id64, Id64Set, Id64String, IModelStatus, Logger, MarkRequired,
+  AccessToken, assert, DbResult, Guid, GuidString, Id64, Id64Set, Id64String, IModelStatus, Logger, MarkRequired,
   OpenMode, YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
@@ -382,7 +382,13 @@ export class IModelTransformer extends IModelExportHandler {
     return this._options.isReverseSynchronization ? this.sourceDb : this.targetDb;
   }
 
-  /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
+  /** Return the IModelDb where IModelTransformer will NOT store its provenance.
+   * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
+   */
+  public get provenanceSourceDb(): IModelDb {
+    return this._options.isReverseSynchronization ? this.targetDb : this.sourceDb;
+  }
+
   private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
     const elementId = this._options.isReverseSynchronization ? sourceElementId : targetElementId;
     const aspectIdentifier = this._options.isReverseSynchronization ? targetElementId : sourceElementId;
@@ -478,20 +484,49 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
-  /** Iterate all matching ExternalSourceAspects in the provenance iModel (target unless reverse sync) and call a function for each one. */
+  /**
+   * Iterate all matching ExternalSourceAspects in the provenance iModel (target unless reverse sync) and call a function for each one.
+   * @note provenance is done by federation guids where possible
+   */
   private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
     if (!this.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
 
-    const sql = `
+    // NOTE: if we exposed the native attach database support,
+    // we could get the intersection of fed guids in one query
+    // NOTE: that's 128-bits per element :/
+    const provenanceFedGuids = this.provenanceSourceDb.withPreparedStatement(`
+      SELECT FederationGuid FROM bis.Element
+    `, (stmt) => {
+      const result: GuidString[] = [];
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        result.push(stmt.getValue(0).getGuid());
+      }
+      return result;
+    });
+
+    const targetFedGuids = this.provenanceDb.withPreparedStatement(`
+      SELECT FederationGuid FROM bis.Element WHERE InVirtualSet(?, FederationGuid)
+    `, (stmt) => {
+      const result: GuidString[] = [];
+      stmt.bindIdSet(1, provenanceFedGuids);
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        result.push(stmt.getValue(0).getGuid());
+      }
+      return result;
+    });
+
+    const externalSourceAspectsQuery = `
       SELECT Identifier, Element.Id
       FROM ${ExternalSourceAspect.classFullName}
+      JOIN bis.Element e ON e.ECInstanceId=Element.Id
       WHERE Scope.Id=:scopeId
         AND Kind=:kind
+        AND NOT InVirtualSet(:foundGuids, FederationGuid)
     `;
 
-    this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
+    this.provenanceDb.withPreparedStatement(externalSourceAspectsQuery, (statement: ECSqlStatement): void => {
       statement.bindId("scopeId", this.targetScopeElementId);
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
