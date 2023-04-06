@@ -6,7 +6,6 @@ export * from "./TransformerLoggerCategory";
 export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
-export * from "./MultiProcessIModelImporter";
 
 import * as semver from "semver";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
