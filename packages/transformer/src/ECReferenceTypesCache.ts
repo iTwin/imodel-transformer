@@ -172,6 +172,16 @@ export class ECReferenceTypesCache {
     ]);
   }
 
+  public getAllNavPropsForClass(schemaName: string, className: string): undefined | Map<string, ConcreteEntityTypes | undefined> {
+    if (!this._initedSchemas.has(schemaName))
+      throw new SchemaNotInCacheErr();
+    // HACK: need to support this...
+    return this._propQualifierToRefType.get([
+      schemaName.toLowerCase(),
+      className.toLowerCase(),
+    ] as any) as any;
+  }
+
   public getRelationshipEndType(schemaName: string, className: string): undefined | RelTypeInfo {
     if (!this._initedSchemas.has(schemaName))
       throw new SchemaNotInCacheErr();

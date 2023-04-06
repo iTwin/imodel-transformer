@@ -8,7 +8,7 @@
 import * as assert from "assert";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
-  Code, CodeScopeSpec, CodeSpec, ElementAspectProps, ElementProps, EntityProps, IModelError,
+  Code, CodeScopeSpec, CodeSpec, ElementAspectProps, ElementProps, EntityProps, GeometricElementProps, IModelError,
   PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps, SpatialViewDefinitionProps, ViewDefinition2dProps, ViewDefinitionProps,
 } from "@itwin/core-common";
 import {
@@ -235,55 +235,37 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     return this._cloneEntity(sourceElementAspect) as Promise<ElementAspectProps>;
   }
 
-  private async _cloneEntity(sourceEntity: Entity): Promise<EntityProps> {
-    const targetEntityProps: EntityProps = sourceEntity.toJSON();
+  private async _cloneEntity<
+    EntitySubType extends Entity = Entity,
+    EntityPropsSubType extends EntityProps = EntityProps,
+  >(
+    sourceEntity: EntitySubType,
+    /**
+     * custom handlers for setting cloned values in the props using the source entity
+     * e.g. to handle differently named props between Entities and their Prop type.
+     * The keys of the record are the key of the property in the source entity (as
+     * defined by that entity's metadata)
+     */
+    customNavPropHandlers: Record<string, {
+      /** from an entity get an entity reference */
+      getSource(source: EntitySubType): EntityReference,
+      setTarget(target: EntityPropsSubType, e: EntityReference): void
+    }> = {},
+  ): Promise<EntityPropsSubType> {
+    const targetEntityProps = sourceEntity.toJSON() as EntityPropsSubType;
 
     if (this.targetIsSource)
       return targetEntityProps;
 
-    // FIXME: move this (and following) to cloneElement probably, maybe using a paramter
-    if ("code" in targetEntityProps as any) {
-      const targetElemProps = targetEntityProps as ElementProps;
-      targetElemProps.code = { ...targetElemProps.code, value: targetElemProps.code.value };
-      delete (targetElemProps.code as any)._value;
-    }
-
-    const specialHandledProps = {
-      codeSpec: {
-        getSource: (): EntityReference => `c${(sourceEntity as Element).code.spec}`,
-        setTarget: (v: EntityReference) => (targetEntityProps as ElementProps).code.spec = EntityReferences.toId64(v),
-      },
-      codeScope: {
-        getSource: (): EntityReference => `e${(sourceEntity as Element).code.scope}`,
-        setTarget: (v: EntityReference) => (targetEntityProps as ElementProps).code.scope = EntityReferences.toId64(v),
-      },
-
-      modelSelector: {
-        getSource: (): EntityReference => `e${(sourceEntity as SpatialViewDefinition).modelSelectorId}`,
-        setTarget: (v: EntityReference) => (targetEntityProps as SpatialViewDefinitionProps).modelSelectorId = EntityReferences.toId64(v),
-      },
-      displayStyle: {
-        getSource: (): EntityReference => `e${(sourceEntity as ViewDefinition).displayStyleId}`,
-        setTarget: (v: EntityReference) => (targetEntityProps as ViewDefinitionProps).displayStyleId = EntityReferences.toId64(v),
-      },
-      categorySelector: {
-        getSource: (): EntityReference => `e${(sourceEntity as ViewDefinition).categorySelectorId}`,
-        setTarget: (v: EntityReference) => (targetEntityProps as ViewDefinitionProps).categorySelectorId = EntityReferences.toId64(v),
-      },
-
-      baseModel: {
-        getSource: (): EntityReference => `e${(sourceEntity as ViewDefinition2d).baseModelId}`,
-        setTarget: (v: EntityReference) => (targetEntityProps as ViewDefinition2dProps).baseModelId = EntityReferences.toId64(v),
-      },
-    };
-
     const propProcessingPromises: Promise<void>[] = [];
 
+    // TODO: it's possible since we do this so much that it will be faster to use `new Function` to inline the remappin
+    // code for each element class (profile first to see how long this takes)
     sourceEntity.forEachProperty((propertyName, propertyMetaData) => propProcessingPromises.push((async () => {
-      if (propertyName in specialHandledProps) {
-        const { getSource, setTarget } = specialHandledProps[propertyName as keyof typeof specialHandledProps];
+      if (propertyName in customNavPropHandlers) {
+        const { getSource, setTarget } = customNavPropHandlers[propertyName as keyof typeof customNavPropHandlers];
         // we know for know specialHandledProps are only on elements, that may change
-        setTarget(await this.findTargetEntityId(getSource()));
+        setTarget(targetEntityProps, await this.findTargetEntityId(getSource(sourceEntity)));
       } else if (propertyMetaData.isNavigation) {
         const sourceNavProp: RelatedElementProps | undefined = (sourceEntity as any)[propertyName];
         const sourceNavId = typeof sourceNavProp === "string" ? sourceNavProp : sourceNavProp?.id;
@@ -313,16 +295,39 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
    * @internal
    */
   public async cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): Promise<ElementProps> {
-    /*
-    // FIXME: remove
-    const targetModelId = sourceElement.model === IModelDb.repositoryModelId
-      ? IModelDb.repositoryModelId
-      : this.findTargetElementId(sourceElement.id);
-    */
+    const specialHandledProps = {
+      codeSpec: {
+        getSource: (source: Element): EntityReference => `c${source.code.spec}`,
+        setTarget: (target: ElementProps, e: EntityReference) => target.code.spec = EntityReferences.toId64(e),
+      },
+      codeScope: {
+        getSource: (source: Element): EntityReference => `e${source.code.scope}`,
+        setTarget: (target: ElementProps, e: EntityReference) => target.code.scope = EntityReferences.toId64(e),
+      },
+
+      modelSelector: {
+        getSource: (source: SpatialViewDefinition): EntityReference => `e${source.modelSelectorId}`,
+        setTarget: (target: SpatialViewDefinitionProps, e: EntityReference) => target.modelSelectorId = EntityReferences.toId64(e),
+      },
+      displayStyle: {
+        getSource: (source: ViewDefinition): EntityReference => `e${source.displayStyleId}`,
+        setTarget: (target: ViewDefinitionProps, e: EntityReference) => target.displayStyleId = EntityReferences.toId64(e),
+      },
+      categorySelector: {
+        getSource: (source: ViewDefinition): EntityReference => `e${source.categorySelectorId}`,
+        setTarget: (target: ViewDefinitionProps, e: EntityReference) => target.categorySelectorId = EntityReferences.toId64(e),
+      },
+      baseModel: {
+        getSource: (source: ViewDefinition2d): EntityReference => `e${source.baseModelId}`,
+        setTarget: (target: ViewDefinition2dProps, e: EntityReference) => target.baseModelId = EntityReferences.toId64(e),
+      },
+    };
 
     // Clone
-    // FIXME: this may return code._value for element code.value, might be necessary to fix that
-    const targetElementProps = await this._cloneEntity(sourceElement) as ElementProps;
+    const targetElemProps = await this._cloneEntity<Element, ElementProps>(sourceElement, specialHandledProps);
+
+    targetElemProps.code = { ...targetElemProps.code, value: targetElemProps.code.value };
+    delete (targetElemProps.code as any)._value;
 
     // attach geometry
     if (cloneOptions?.binaryGeometry) {
@@ -333,7 +338,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           assert(stmt.step() === DbResult.BE_SQLITE_ROW);
           const geomBinary = stmt.getValue(0).getBlob();
           assert(stmt.step() === DbResult.BE_SQLITE_DONE);
-          (targetElementProps as any)["geomBinary"] = geomBinary;
+          (targetElemProps as any)["geomBinary"] = geomBinary;
         });
       }
       if (sourceElement instanceof GeometryPart) {
@@ -342,7 +347,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           assert(stmt.step() === DbResult.BE_SQLITE_ROW);
           const geomBinary = stmt.getValue(0).getBlob();
           assert(stmt.step() === DbResult.BE_SQLITE_DONE);
-          (targetElementProps as any)["geomBinary"] = geomBinary;
+          (targetElemProps as any)["geomBinary"] = geomBinary;
         });
       }
     }
@@ -355,15 +360,15 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     // so "clearing" changes will be part of the JSON used for update
     sourceElement.forEachProperty((propertyName: string, meta: PropertyMetaData) => {
       if ((meta.isNavigation) && (undefined === (sourceElement as any)[propertyName])) {
-        (targetElementProps as any)[propertyName] = RelatedElement.none;
+        (targetElemProps as any)[propertyName] = RelatedElement.none;
       }
     }, false); // exclude custom because C++ has already handled them (THIS IS NOW FALSE)
 
     if (this.targetIsSource) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is into itself
-      targetElementProps.federationGuid = sourceElement.federationGuid;
-      if (CodeScopeSpec.Type.Repository === this.targetDb.codeSpecs.getById(targetElementProps.code.spec).scopeType) {
-        targetElementProps.code.scope = IModelDb.rootSubjectId;
+      targetElemProps.federationGuid = sourceElement.federationGuid;
+      if (CodeScopeSpec.Type.Repository === this.targetDb.codeSpecs.getById(targetElemProps.code.spec).scopeType) {
+        targetElemProps.code.scope = IModelDb.rootSubjectId;
       }
     }
 
@@ -372,14 +377,14 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     // need to either create a special name or add code.scope and code.spec to the required elements list
 
     // unlike other references, code cannot be null. If it is null, use an empty code instead
-    if (targetElementProps.code.scope === Id64.invalid || targetElementProps.code.spec === Id64.invalid) {
-      targetElementProps.code = Code.createEmpty();
+    if (targetElemProps.code.scope === Id64.invalid || targetElemProps.code.spec === Id64.invalid) {
+      targetElemProps.code = Code.createEmpty();
       //targetElementProps.code.value = IModelCloneContext.unresolvedCode;
     }
     const jsClass = this.sourceDb.getJsClass<typeof Element>(sourceElement.classFullName);
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    jsClass["onCloned"](this._nativeContext, sourceElement.toJSON(), targetElementProps);
-    return targetElementProps;
+    jsClass["onCloned"](this._nativeContext, sourceElement.toJSON(), targetElemProps);
+    return targetElemProps;
   }
 
   public static readonly unresolvedCodeValue = "@@TRANSFORMER_UNRESOLVED_CODE!~~";
