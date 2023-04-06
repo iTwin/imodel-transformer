@@ -418,6 +418,10 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
+  /**
+   * Make sure no other scope-type external source aspects are on the *target scope element*,
+   * and if there are none at all, insert one, then this must be a first synchronization.
+   */
   private validateScopeProvenance(): void {
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
@@ -429,7 +433,14 @@ export class IModelTransformer extends IModelExportHandler {
     aspectProps.id = this.queryExternalSourceAspectId(aspectProps); // this query includes "identifier"
     if (undefined === aspectProps.id) {
       // this query does not include "identifier" to find possible conflicts
-      const sql = `SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName} WHERE Element.Id=:elementId AND Scope.Id=:scopeId AND Kind=:kind LIMIT 1`;
+      const sql = `
+        SELECT ECInstanceId
+        FROM ${ExternalSourceAspect.classFullName}
+        WHERE Element.Id=:elementId
+          AND Scope.Id=:scopeId
+          AND Kind=:kind
+        LIMIT 1
+      `;
       const hasConflictingScope = this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): boolean => {
         statement.bindId("elementId", aspectProps.element.id);
         statement.bindId("scopeId", aspectProps.scope.id); // this scope.id can never be invalid, we create it above
@@ -447,7 +458,15 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private queryExternalSourceAspectId(aspectProps: ExternalSourceAspectProps): Id64String | undefined {
-    const sql = `SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName} WHERE Element.Id=:elementId AND Scope.Id=:scopeId AND Kind=:kind AND Identifier=:identifier LIMIT 1`;
+    const sql = `
+      SELECT ECInstanceId
+      FROM ${ExternalSourceAspect.classFullName}
+      WHERE Element.Id=:elementId
+        AND Scope.Id=:scopeId
+        AND Kind=:kind
+        AND Identifier=:identifier
+      LIMIT 1
+    `;
     return this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): Id64String | undefined => {
       statement.bindId("elementId", aspectProps.element.id);
       if (aspectProps.scope === undefined)
@@ -464,7 +483,14 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
-    const sql = `SELECT Identifier,Element.Id FROM ${ExternalSourceAspect.classFullName} WHERE Scope.Id=:scopeId AND Kind=:kind`;
+
+    const sql = `
+      SELECT Identifier, Element.Id
+      FROM ${ExternalSourceAspect.classFullName}
+      WHERE Scope.Id=:scopeId
+        AND Kind=:kind
+    `;
+
     this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindId("scopeId", this.targetScopeElementId);
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
