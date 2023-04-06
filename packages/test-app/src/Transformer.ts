@@ -246,7 +246,7 @@ export class Transformer extends IModelTransformer {
   }
 
   /** This override of IModelTransformer.onTransformElement exists for debugging purposes */
-  public override onTransformElement(sourceElement: Element): ElementProps {
+  public override onTransformElement(sourceElement: Element): Promise<ElementProps> {
     // if (sourceElement.id === "0x0" || sourceElement.getDisplayLabel() === "xxx") { // use logging to find something unique about the problem element
     //   Logger.logInfo(progressLoggerCategory, "Found problem element"); // set breakpoint here
     // }
