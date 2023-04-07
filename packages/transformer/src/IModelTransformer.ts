@@ -494,10 +494,10 @@ export class IModelTransformer extends IModelExportHandler {
     // query for provenanceDb
     const provenanceContainerQuery = `
       SELECT e.ECInstanceId, FederationGuid, esa.Identifier as AspectIdentifier
-      FROM bis.ExternalSourceAspect esa
-      LEFT JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
-      WHERE Scope.Id=:scopeId
-        AND Kind=:kind
+      FROM bis.Element e
+      LEFT JOIN bis.ExternalSourceAspect esa ON e.ECInstanceId=esa.Element.Id
+      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special non-federated iModel-local elements
+        AND ((Scope.Id IS NULL AND KIND IS NULL) OR (Scope.Id=:scopeId AND Kind=:kind))
       ORDER BY FederationGuid
     `;
 
@@ -517,9 +517,9 @@ export class IModelTransformer extends IModelExportHandler {
       containerStmt.bindString("kind", ExternalSourceAspect.Kind.Element);
 
       if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-      let sourceRow = sourceStmt.getRow() as { federationGuid: GuidString; id: Id64String };
+      let sourceRow = sourceStmt.getRow() as { federationGuid?: GuidString; id: Id64String };
       if (containerStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-      let containerRow = containerStmt.getRow() as { federationGuid: GuidString; id: Id64String; aspectIdentifier: Id64String };
+      let containerRow = containerStmt.getRow() as { federationGuid?: GuidString; id: Id64String; aspectIdentifier?: Id64String };
 
       const runFnInProvDirection = (sourceId: Id64String, targetId: Id64String) =>
         this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
@@ -532,15 +532,25 @@ export class IModelTransformer extends IModelExportHandler {
         ) {
           fn(sourceRow.id, containerRow.id);
         }
-        if (currSourceRow.federationGuid >= currContainerRow.federationGuid || currContainerRow.federationGuid === undefined) {
-          runFnInProvDirection(currContainerRow.id, currContainerRow.aspectIdentifier);
+        if (currContainerRow.federationGuid === undefined
+          || (currSourceRow.federationGuid !== undefined
+            && currSourceRow.federationGuid >= currContainerRow.federationGuid)
+        ) {
           if (containerStmt.step() !== DbResult.BE_SQLITE_ROW) return;
           containerRow = containerStmt.getRow();
         }
-        if (currSourceRow.federationGuid <= currContainerRow.federationGuid) {
+        if (currSourceRow.federationGuid === undefined
+          || (currContainerRow.federationGuid !== undefined
+            && currSourceRow.federationGuid <= currContainerRow.federationGuid)
+        ) {
           if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
           sourceRow = sourceStmt.getRow();
         }
+        // NOTE: needed test cases:
+        // - provenance container or provenance source has no fedguids
+        // - transforming split and join scenarios
+        if (!currContainerRow.federationGuid  && currContainerRow.aspectIdentifier)
+          runFnInProvDirection(currContainerRow.id, currContainerRow.aspectIdentifier);
       }
     }));
   }
@@ -927,12 +937,13 @@ export class IModelTransformer extends IModelExportHandler {
     this.resolvePendingReferences(sourceElement);
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
-    // insert aspects because federation guid is sufficient for this.
+    // insert external source aspects because federation guids are sufficient for this.
     // Other transformer subclasses must insert the appropriate aspect (as provided by a TBD API)
     // when splitting/joining elements
     // physical consolidation is an example of a 'joining' transform
     // FIXME: document this externally!
     // verify at finalization time that we don't lose provenance on new elements
+    // make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceElement.federationGuid;
       if (!provenance) {
