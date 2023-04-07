@@ -985,7 +985,10 @@ describe("IModelTransformerHub", () => {
           await provenanceInserter.processAll();
           provenanceInserter.dispose();
           assert.equal(count(master.db, ExternalSourceAspect.classFullName), 0);
-          assert.isAbove(count(branchDb, ExternalSourceAspect.classFullName), Object.keys(master.state).length);
+          // even though external source aspects are not the default provenance storage mechanism,
+          // they are still added to a few elements, especially those without fedguids
+          // FIXME: clarify which ones
+          assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 3);
           await saveAndPushChanges(branchDb, "initialized branch provenance");
         } else if ("seed" in newIModelEvent) {
           await saveAndPushChanges(newIModelDb, `seeded from '${newIModelEvent.seed.id}' at point ${i}`);
