@@ -1,10 +1,10 @@
 
 import * as child_process from "child_process";
-import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as net from "net";
+import * as v8 from "v8";
 
 import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
@@ -35,27 +35,30 @@ export type Message =
   | {
       type: Messages.Init;
       importerInitOptions: MultiProcessImporterOptions;
+      msgId?: number;
     }
   | {
       type: Messages.SetOption;
       key: keyof IModelImporter["options"];
       value: any;
+      msgId?: number;
     }
   | {
       type: Messages.CallMethod;
       target: string;
       method: string; // TODO: make this typed based on what is handled?
       args: any;
+      msgId?: number;
     }
   | {
       type: Messages.Await;
-      id: number;
       message: Message;
+      msgId?: number;
     }
   | {
       type: Messages.Settled;
       result: any;
-      id: number;
+      msgId: number;
     }
   ;
 
@@ -113,41 +116,54 @@ function backoff<F extends (...a: any[]) => any>(
 }
 
 export class MultiProcessIModelImporter extends IModelImporter implements IDisposable {
-  private _worker: child_process.ChildProcess;
-
   private _nextId = 0;
   private _pendingResolvers = new Map<number, (v: any) => any>();
 
   private _msgId = 0;
 
-  private _send = backoff(
-    (msg: Message, cb?: (err: null | Error) => void) => {
+  private _send = (inMsg: Message): void => void (async () =>{
       const msgId = this._msgId;
       ++this._msgId;
-      msg = { ...msg, msgId } as any;
+      const msg = { ...inMsg, msgId };
       const timeBefore = Date.now();
       if (process.env.DEBUG?.includes("multiproc"))
         console.log(`parent sending (${msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
-      const success = this._worker.send(msg, cb);
-      if (process.env.DEBUG?.includes("multiproc"))
-        console.log(`parent ${success ? "success" : "error"} (${msgId})`);
+
+      // this makes it safe to void this promise since it will wait
+      if (this._ipcSocket.isPaused()) {
+        await new Promise<void>(resolve => this._ipcSocket.on("drain", () => {
+          resolve();
+        }));
+      }
+
+      await new Promise<void>(resolve => {
+        const flushed = this._ipcSocket.write(v8.serialize(msg));
+        if (process.env.DEBUG?.includes("multiproc"))
+          console.log(`parent ${flushed ? "success" : "error"} (${msgId})`);
+        if (flushed) {
+          resolve();
+        } else {
+          this._ipcSocket.pause();
+          this._ipcSocket.on("drain", () => {
+            this._ipcSocket.resume()
+            resolve();
+          });
+        }
+      });
+
       const timeElapsedMs = Date.now() - timeBefore;
       if (timeElapsedMs > 500)
         console.log("Message took more than a second to send!", msg);
-      return success;
-    }, {
-      dontRetryLastBackoff: true,
-    }
-  );
+    })();
 
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
-    const id = this._nextId;
+    const msgId = this._nextId;
     this._nextId++;
 
     let resolve!: (v: any) => void, reject: (v: any) => void;
     const promise = new Promise<any>((_res, _rej) => { resolve = _res; reject = _rej; });
-    this._pendingResolvers.set(id, resolve);
-    this._send({ ...wrapperMsg, id } as Message, (err: any) => err && reject(err));
+    this._pendingResolvers.set(msgId, resolve);
+    void this._send({ ...wrapperMsg, msgId } as Message);
     return promise;
   }
 
@@ -194,26 +210,14 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     }
 
-    const _ipcPath = path.join(process.platform === "win32" ? "\\\\?\\pipe" : os.tmpdir(), "transformer-ipc");
+    const _ipcPath = path.join(process.platform === "win32" ? "\\\\?\\pipe" : os.tmpdir(), `transformer-ipc-${process.pid}`);
+    try {
+      fs.unlinkSync(_ipcPath);
+    } catch {}
     const _ipcServer = net.createServer()
-    await new Promise<void>((resolve, _reject) => {
-      _ipcServer.listen(_ipcPath, () => {
-        resolve();
-      });
-    });
+    _ipcServer.listen(_ipcPath);
 
-    const instance = new MultiProcessIModelImporter(targetDb, options, _ipcPath, _ipcServer);
-    return instance;
-  }
-
-  private constructor(
-    targetDb: IModelDb,
-    options: MultiProcessImporterOptions,
-    private _ipcPath: string,
-    private _ipcServer: net.Server,
-  ) {
-    super(targetDb, options);
-    this._worker = child_process.fork(require.resolve("./MultiProcessEntry"),
+    const _worker = child_process.fork(require.resolve("./MultiProcessEntry"),
       // TODO: encode options? should be ok if we don't use shell
       [targetDb.pathName, JSON.stringify(options)],
       {
@@ -227,20 +231,45 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
     const workerLogStream = fs.createWriteStream("worker.log");
 
-    this._worker.stdout!.pipe(workerLogStream);
-    this._worker.stdout!.on("close", () => workerLogStream.close());
+    _worker.stdout!.pipe(workerLogStream);
+    _worker.stdout!.on("close", () => workerLogStream.close());
 
     const onMsg = (msg: Message) => {
+      console.log(`parent received`, msg);
       let resolver: ((v: any) => void) | undefined;
-      if (msg.type === Messages.Settled && (resolver = this._pendingResolvers.get(msg.id))) {
+      if (msg.type === Messages.Settled && (resolver = instance._pendingResolvers.get(msg.msgId))) {
         if (process.env.DEBUG?.includes("multiproc"))
-          console.log(`parent received settler for ${msg.id}`);
+          console.log(`parent received settler for ${msg.msgId}`);
         resolver(msg.result);
       }
     };
 
-    this._worker.on("message", onMsg);
-    this._worker.on("error", (err) => console.error(err));
+    _worker.on("error", (err) => console.error(err));
+
+    // FIXME: technically might not have to wait, depends if messages are queued before connect
+    const _ipcSocket = await new Promise<net.Socket>((resolve, _reject) => {
+      console.log(`parent waiting for connection on ${_ipcPath}`);
+      _ipcServer.on("connection", resolve);
+    });
+
+    _ipcSocket.on("data", (d) => {
+      const msg = v8.deserialize(d);
+      onMsg(msg);
+    });
+
+    const instance = new MultiProcessIModelImporter(targetDb, options, _worker, _ipcPath, _ipcServer, _ipcSocket);
+    return instance;
+  }
+
+  private constructor(
+    targetDb: IModelDb,
+    options: MultiProcessImporterOptions,
+    private _worker: child_process.ChildProcess,
+    private _ipcPath: string,
+    private _ipcServer: net.Server,
+    private _ipcSocket: net.Socket,
+  ) {
+    super(targetDb, options);
 
     (this as { options: IModelImportOptions }).options = new Proxy(this.options, {
       set: (obj, key, val, recv) => {
@@ -270,7 +299,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     for (const key of forwardedMethods) {
       Object.defineProperty(this, key, {
         value: (...args: Parameters<IModelImporter[typeof key]>) => {
-          const msg: Message = {
+          const msg = {
             type: Messages.CallMethod,
             target: "importer",
             method: key,
@@ -278,10 +307,10 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
           };
           // TODO: make each message decide whether it needs to be awaited rather than this HACK (also inline them manually?)
           return key === "importElement" || key === "importElementUniqueAspect" || key === "importRelationship"
-            ? this._promiseMessage({ type: Messages.Await, message: msg })
+            ? this._promiseMessage({ type: Messages.Await, message: msg as Message })
             : key === "importElementMultiAspects" // HACK: don't try to serialize the callback (second arg)
-            ? this._promiseMessage({ type: Messages.Await, message: { ...msg, args: msg.args.slice(0, 1)} })
-            : this._send(msg);
+            ? this._promiseMessage({ type: Messages.Await, message: { ...msg, args: msg.args.slice(0, 1) } as Message })
+            : this._send(msg as Message);
         },
         writable: false,
         enumerable: false,
@@ -293,6 +322,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   public override dispose() {
     if (process.platform !== "win32")
       fs.unlinkSync(this._ipcPath);
+    this._ipcSocket.end();
+    this._ipcServer.close();
     this._worker.disconnect();
   }
 }
