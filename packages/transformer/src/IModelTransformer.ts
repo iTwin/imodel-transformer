@@ -495,27 +495,38 @@ export class IModelTransformer extends IModelExportHandler {
 
     // NOTE: if we exposed the native attach database support,
     // we could get the intersection of fed guids in one query
-    // NOTE: that's 128-bits per element :/
-    const provenanceFedGuids = this.provenanceSourceDb.withPreparedStatement(`
-      SELECT FederationGuid FROM bis.Element
-    `, (stmt) => {
-      const result: GuidString[] = [];
-      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-        result.push(stmt.getValue(0).getGuid());
-      }
-      return result;
-    });
+    const fedGuidSortedList = `
+      SELECT FederationGuid, ECInstanceId
+      FROM bis.Element
+      ORDER BY FederationGuid
+    `;
 
-    const targetFedGuids = this.provenanceDb.withPreparedStatement(`
-      SELECT FederationGuid FROM bis.Element WHERE InVirtualSet(?, FederationGuid)
-    `, (stmt) => {
-      const result: GuidString[] = [];
-      stmt.bindIdSet(1, provenanceFedGuids);
-      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-        result.push(stmt.getValue(0).getGuid());
+    const alreadyTrackedFedGuids = new Set();
+
+    // iterate through sorted list of fed guids from both dbs to get the intersection
+    this.sourceDb.withStatement(fedGuidSortedList, (sourceStmt) => this.targetDb.withStatement(fedGuidSortedList, (targetStmt) => {
+      type Row = { federationGuid: GuidString; id: Id64String };
+
+      if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
+      let sourceRow: Row = sourceStmt.getRow();
+      if (targetStmt.step() !== DbResult.BE_SQLITE_ROW) return;
+      let targetRow: Row = targetStmt.getRow();
+
+      while (true) {
+        const currSourceRow = sourceRow, currTargetRow = targetRow;
+        if (currSourceRow.federationGuid === currTargetRow.federationGuid) {
+          fn(sourceRow.id, targetRow.id);
+        }
+        if (currSourceRow.federationGuid >= currTargetRow.federationGuid) {
+          if (targetStmt.step() !== DbResult.BE_SQLITE_ROW) return;
+          targetRow = targetStmt.getRow();
+        }
+        if (currSourceRow.federationGuid <= currTargetRow.federationGuid) {
+          if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
+          sourceRow = sourceStmt.getRow();
+        }
       }
-      return result;
-    });
+    }))
 
     const externalSourceAspectsQuery = `
       SELECT Identifier, Element.Id
