@@ -11,7 +11,7 @@ import {
 } from "@itwin/core-backend";
 import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, PhysicalElementProps, QueryBinder } from "@itwin/core-common";
-import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { TransformerLoggerCategory } from "@itwin/transformer";
 import { loggerCategory, Transformer } from "../Transformer";
 
 describe("imodel-transformer", () => {
