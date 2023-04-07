@@ -2,6 +2,9 @@
 import * as child_process from "child_process";
 import * as assert from "assert";
 import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import * as net from "net";
 
 import { IModelImporter, IModelImportOptions } from "./IModelImporter";
 import { BriefcaseDb, IModelDb, StandaloneDb } from "@itwin/core-backend";
@@ -191,13 +194,25 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     }
 
-    const instance = new MultiProcessIModelImporter(targetDb, options);
+    const _ipcPath = path.join(process.platform === "win32" ? "\\\\?\\pipe" : os.tmpdir(), "transformer-ipc");
+    const _ipcServer = net.createServer()
+    await new Promise<void>((resolve, _reject) => {
+      _ipcServer.listen(_ipcPath, () => {
+        resolve();
+      });
+    });
+
+    const instance = new MultiProcessIModelImporter(targetDb, options, _ipcPath, _ipcServer);
     return instance;
   }
 
-  private constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
+  private constructor(
+    targetDb: IModelDb,
+    options: MultiProcessImporterOptions,
+    private _ipcPath: string,
+    private _ipcServer: net.Server,
+  ) {
     super(targetDb, options);
-
     this._worker = child_process.fork(require.resolve("./MultiProcessEntry"),
       // TODO: encode options? should be ok if we don't use shell
       [targetDb.pathName, JSON.stringify(options)],
@@ -276,6 +291,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   }
 
   public override dispose() {
+    if (process.platform !== "win32")
+      fs.unlinkSync(this._ipcPath);
     this._worker.disconnect();
   }
 }

@@ -11,12 +11,17 @@ const optionsJson = process.argv[3];
 assert(optionsJson, "expected second command line argument to be the options encoded in json")
 const options: MultiProcessImporterOptions = JSON.parse(optionsJson);
 
+import * as os from "os";
+import * as path from "path";
+import * as net from "net";
 import { IModelImporter } from "./IModelImporter";
 import { Messages, Message, MultiProcessImporterOptions } from "./MultiProcessIModelImporter";
 import { ExternalSourceAspect, IModelDb, IModelHost, StandaloneDb } from "@itwin/core-backend";
 import { CodeSpec } from "@itwin/core-common";
 
 import "source-map-support/register";
+
+const ipcPath = path.join(process.platform === "win32" ? "\\\\?\\pipe" : os.tmpdir(), "transformer-ipc");
 
 export class MultiProcessIModelImporterWorker extends IModelImporter {
   public constructor(targetDb: IModelDb, options: MultiProcessImporterOptions) {
@@ -75,13 +80,14 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
 let worker: MultiProcessIModelImporterWorker;
 
 async function main() {
-  await IModelHost.startup();
+  const client = net.createConnection(ipcPath);
+  const [targetDb] = await Promise.all([
+    // FIXME: allow user to provide a module in options to load this themselves
+    IModelHost.startup().then(() => StandaloneDb.open({ fileName: targetDbPath })),
+    new Promise<void>((resolve, reject) => client.on("connect", resolve).on("error", reject)),
+  ]);
 
-  // FIXME: allow user to provide a module in options to load this themselves
-  const targetDb = StandaloneDb.open({ fileName: targetDbPath });
-
-  // TODO: pass options as a base64 encoded JSON blob
-  worker = new MultiProcessIModelImporterWorker(await targetDb, options);
+  worker = new MultiProcessIModelImporterWorker(targetDb, options);
 }
 
 main().catch(console.error);
