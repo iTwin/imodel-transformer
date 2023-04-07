@@ -44,6 +44,8 @@ const nullLastProvenanceEntityInfo = {
   aspectKind: ExternalSourceAspect.Kind.Element,
 };
 
+type LastProvenanceEntityInfo = typeof nullLastProvenanceEntityInfo;
+
 type EntityTransformHandler = (entity: ConcreteEntity) => ElementProps | ModelProps | RelationshipProps | ElementAspectProps;
 
 /** Options provided to the [[IModelTransformer]] constructor.
@@ -924,16 +926,27 @@ export class IModelTransformer extends IModelExportHandler {
     // now that we've mapped this elem we can fix unmapped references to it
     this.resolvePendingReferences(sourceElement);
 
+    // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
+    // insert aspects because federation guid is sufficient for this.
+    // Other transformer subclasses must insert the appropriate aspect (as provided by a TBD API)
+    // when splitting/joining elements
+    // physical consolidation is an example of a 'joining' transform
+    // FIXME: document this externally!
+    // verify at finalization time that we don't lose provenance on new elements
     if (!this._options.noProvenance) {
-      const aspectProps: ExternalSourceAspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
-      let aspectId = this.queryExternalSourceAspectId(aspectProps);
-      if (aspectId === undefined) {
-        aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
-      } else {
-        this.provenanceDb.elements.updateAspect(aspectProps);
+      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceElement.federationGuid;
+      if (!provenance) {
+        const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
+        let aspectId = this.queryExternalSourceAspectId(aspectProps);
+        if (aspectId === undefined) {
+          aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
+        } else {
+          this.provenanceDb.elements.updateAspect(aspectProps);
+        }
+        aspectProps.id = aspectId;
+        provenance = aspectProps as MarkRequired<ExternalSourceAspectProps, "id">;
       }
-      aspectProps.id = aspectId;
-      this.markLastProvenance(aspectProps as MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship: false });
+      this.markLastProvenance(provenance, { isRelationship: false });
     }
   }
 
@@ -1396,15 +1409,19 @@ export class IModelTransformer extends IModelExportHandler {
     this.events.emit(TransformerEvent.endProcessAll);
   }
 
-  private _lastProvenanceEntityInfo = nullLastProvenanceEntityInfo;
+  /** previous provenance, either a federation guid or required aspect props */
+  private _lastProvenanceEntityInfo: GuidString | LastProvenanceEntityInfo = nullLastProvenanceEntityInfo;
 
-  private markLastProvenance(sourceAspect: MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship = false }) {
-    this._lastProvenanceEntityInfo = {
-      entityId: sourceAspect.element.id,
-      aspectId: sourceAspect.id,
-      aspectVersion: sourceAspect.version ?? "",
-      aspectKind: isRelationship ? ExternalSourceAspect.Kind.Relationship : ExternalSourceAspect.Kind.Element,
-    };
+  private markLastProvenance(sourceAspect: GuidString | MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship = false }) {
+    this._lastProvenanceEntityInfo
+      = typeof sourceAspect === "string"
+      ? sourceAspect
+      : {
+        entityId: sourceAspect.element.id,
+        aspectId: sourceAspect.id,
+        aspectVersion: sourceAspect.version ?? "",
+        aspectKind: isRelationship ? ExternalSourceAspect.Kind.Relationship : ExternalSourceAspect.Kind.Element,
+      };
   }
 
   /** @internal the name of the table where javascript state of the transformer is serialized in transformer state dumps */
@@ -1427,18 +1444,22 @@ export class IModelTransformer extends IModelExportHandler {
           throw Error(
             "expected row when getting lastProvenanceEntityId from target state table"
           );
-        return {
-          entityId: stmt.getValueString(0),
-          aspectId: stmt.getValueString(1),
-          aspectVersion: stmt.getValueString(2),
-          aspectKind: stmt.getValueString(3) as ExternalSourceAspect.Kind,
-        };
+        const entityId = stmt.getValueString(0);
+        return entityId.includes('-')
+          ? entityId
+          : {
+            entityId,
+            aspectId: stmt.getValueString(1),
+            aspectVersion: stmt.getValueString(2),
+            aspectKind: stmt.getValueString(3) as ExternalSourceAspect.Kind,
+          };
       }
     );
     const targetHasCorrectLastProvenance =
+      typeof lastProvenanceEntityInfo === "string" ||
       // ignore provenance check if it's null since we can't bind those ids
-      !Id64.isValidId64(lastProvenanceEntityInfo.aspectId) ||
       !Id64.isValidId64(lastProvenanceEntityInfo.entityId) ||
+      !Id64.isValidId64(lastProvenanceEntityInfo.aspectId) ||
       this.provenanceDb.withPreparedStatement(`
         SELECT Version FROM ${ExternalSourceAspect.classFullName}
         WHERE Scope.Id=:scopeId
@@ -1546,8 +1567,9 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (DbResult.BE_SQLITE_DONE !== db.executeSQL(`
       CREATE TABLE ${IModelTransformer.lastProvenanceEntityInfoTable} (
-        -- because we cannot bind the invalid id which we use for our null state, we actually store the id as a hex string
+        -- either the invalid id for null provenance state, federation guid of the entity, or a hex element id
         entityId TEXT,
+        -- the following are only valid if the above entityId is a hex id representation
         aspectId TEXT,
         aspectVersion TEXT,
         aspectKind TEXT
@@ -1567,10 +1589,11 @@ export class IModelTransformer extends IModelExportHandler {
     db.withSqliteStatement(
       `INSERT INTO ${IModelTransformer.lastProvenanceEntityInfoTable} (entityId, aspectId, aspectVersion, aspectKind) VALUES (?,?,?,?)`,
       (stmt) => {
-        stmt.bindString(1, this._lastProvenanceEntityInfo.entityId);
-        stmt.bindString(2, this._lastProvenanceEntityInfo.aspectId);
-        stmt.bindString(3, this._lastProvenanceEntityInfo.aspectVersion);
-        stmt.bindString(4, this._lastProvenanceEntityInfo.aspectKind);
+        const lastProvenanceEntityInfo = this._lastProvenanceEntityInfo as LastProvenanceEntityInfo;
+        stmt.bindString(1, lastProvenanceEntityInfo?.entityId ?? this._lastProvenanceEntityInfo as string);
+        stmt.bindString(2, lastProvenanceEntityInfo?.aspectId ?? "");
+        stmt.bindString(3, lastProvenanceEntityInfo?.aspectVersion ?? "");
+        stmt.bindString(4, lastProvenanceEntityInfo?.aspectKind ?? "");
         if (DbResult.BE_SQLITE_DONE !== stmt.step())
           throw Error("Failed to insert options into the state database");
       });
