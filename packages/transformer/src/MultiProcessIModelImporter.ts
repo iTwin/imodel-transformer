@@ -119,15 +119,12 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   private _nextId = 0;
   private _pendingResolvers = new Map<number, (v: any) => any>();
 
-  private _msgId = 0;
+  private _send = (msg: Message): void => void (async () => {
+      msg.msgId = msg.msgId ?? this._nextId++;
 
-  private _send = (inMsg: Message): void => void (async () =>{
-      const msgId = this._msgId;
-      ++this._msgId;
-      const msg = { ...inMsg, msgId };
       const timeBefore = Date.now();
       if (process.env.DEBUG?.includes("multiproc"))
-        console.log(`parent sending (${msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
+        console.log(`parent sending (${msg.msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
 
       // this makes it safe to void this promise since it will wait
       if (this._ipcSocket.isPaused()) {
@@ -138,11 +135,11 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
       await new Promise<void>(resolve => {
         const flushed = this._ipcSocket.write(v8.serialize(msg));
-        if (process.env.DEBUG?.includes("multiproc"))
-          console.log(`parent ${flushed ? "success" : "error"} (${msgId})`);
         if (flushed) {
           resolve();
         } else {
+          if (process.env.DEBUG?.includes("multiproc") && !flushed)
+            console.log(`parent error (${msg.msgId})`);
           this._ipcSocket.pause();
           this._ipcSocket.on("drain", () => {
             this._ipcSocket.resume()
@@ -157,9 +154,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     })();
 
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
-    const msgId = this._nextId;
-    this._nextId++;
-
+    const msgId = this._nextId++;
     let resolve!: (v: any) => void, reject: (v: any) => void;
     const promise = new Promise<any>((_res, _rej) => { resolve = _res; reject = _rej; });
     this._pendingResolvers.set(msgId, resolve);

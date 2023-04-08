@@ -93,6 +93,7 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
 let worker: MultiProcessIModelImporterWorker;
 
 async function main() {
+  // TODO: just pipe on stdout instead of an unnecessary fuller solution
   const client = net.createConnection(ipcPath);
   const [targetDb] = await Promise.all([
     // FIXME: allow user to provide a module in options to load this themselves
