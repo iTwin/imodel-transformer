@@ -34,16 +34,8 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
     super(targetDb, options);
   }
 
+
   public onMsg = (msg: Message) => {
-    if (process.env.DEBUG?.includes("multiproc"))
-      console.log(`worker received (${msg.msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
-    this._onMsg(msg);
-    if (process.env.DEBUG?.includes("multiproc"))
-      console.log(`worker finished (${msg.msgId}):`);
-  }
-
-
-  private _onMsg = (msg: Message) => {
     switch (msg.type) {
       case Messages.CallMethod: {
         const thisArg
@@ -73,16 +65,17 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
         return this.options[msg.key] = msg.value;
       }
       case Messages.Await: {
-        const { msgId } = msg as Message & { msgId: string }; // TODO: fix message types
-        const result = this._onMsg(msg.message)
+        const result = this.onMsg(msg.message)
         Promise.resolve(result).then((innerResult) => {
           if (process.env.DEBUG?.includes("multiproc"))
-            console.log(`worker sending settler for (${msg.msgId})`, msg);
-          this._client.write(v8.serialize({
+            console.log(`worker sending settler for (${msg.msgId})`);
+          const success = this._client.write(v8.serialize({
             type: Messages.Settled,
             result: innerResult,
-            msgId,
+            msgId: msg.msgId,
           }));
+          if (process.env.DEBUG?.includes("multiproc") && !success)
+            console.log(`worker send error`);
         });
       }
     }
@@ -104,7 +97,14 @@ async function main() {
   worker = new MultiProcessIModelImporterWorker(targetDb, options, client);
 
   //client.allowHalfOpen = true;
-  client.on("data", d => worker.onMsg(v8.deserialize(d)));
+  client.on("data", (data) => {
+    const msg = v8.deserialize(data);
+    if (process.env.DEBUG?.includes("multiproc"))
+      console.log(`worker received (${msg.msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
+    worker.onMsg(msg);
+    if (process.env.DEBUG?.includes("multiproc"))
+      console.log(`worker finished (${msg.msgId}):`);
+  });
 }
 
 main().catch(console.error);
