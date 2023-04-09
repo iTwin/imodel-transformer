@@ -121,47 +121,47 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   private _signalDoWait = false;
 
   private _send = async (msg: Message) => {
-      msg.msgId = msg.msgId ?? this._nextId++;
+    msg.msgId = msg.msgId ?? this._nextId++;
 
-      const timeBefore = Date.now();
-      if (process.env.DEBUG?.includes("multiproc"))
-        console.log(`parent sending (${msg.msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
+    const timeBefore = Date.now();
+    if (process.env.DEBUG?.includes("multiproc"))
+      console.log(`parent sending (${msg.msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
 
-      // FIXME: signal need to wait otherwise this will bloat memory fantastically
-      /*
-      const waitSignal = this._waitSignal;
+    // FIXME: signal need to wait otherwise this will bloat memory fantastically,
+    // this has a bug so disabled it for now
+    /*
+    const waitSignal = this._waitSignal;
+    await this._waitSignal;
+    const firstWoken = this._waitSignal === waitSignal;
+    if (!firstWoken)
       await this._waitSignal;
-      const firstWoken = this._waitSignal === waitSignal;
-      if (!firstWoken)
-        await this._waitSignal;
 
-      if (this._signalDoWait)
-        await new Promise(resolve => this._worker.stdin!.once("drain", resolve));
-      */
+    if (this._signalDoWait)
+      await new Promise(resolve => this._worker.stdin!.once("drain", resolve));
+    */
 
-      // NOTE: this doesn't prevent the transformer from bloating memory by filling up the
-      // buffer with writes
-      const serialized = v8.serialize(msg);
-      const serializedLenBuf = Buffer.from([0, 0, 0, 0]);
-      serializedLenBuf.writeUint32LE(serialized.byteLength);
-      //assert(serializedLen.byteLength === 4);
-      // FIXME: check result for this small write
-      this._worker.stdin!.write(serializedLenBuf);
-      const flushed = this._worker.stdin!.write(serialized);
+    const serialized = v8.serialize(msg);
+    const serializedLenBuf = Buffer.from([0, 0, 0, 0]);
+    serializedLenBuf.writeUint32LE(serialized.byteLength);
+    //assert(serializedLen.byteLength === 4);
+    // FIXME: check result for this small write
+    this._worker.stdin!.write(serializedLenBuf);
+    const flushed = this._worker.stdin!.write(serialized);
 
+    if (process.env.DEBUG?.includes("multiproc"))
       console.log(`parent sent (${msg.msgId})`);
 
-      this._signalDoWait = !flushed;
+    this._signalDoWait = !flushed;
 
-      if (!flushed) {
-        if (process.env.DEBUG?.includes("multiproc") && !flushed)
-          console.log(`parent error (${msg.msgId})`);
-      }
+    if (!flushed) {
+      if (process.env.DEBUG?.includes("multiproc") && !flushed)
+        console.log(`parent error (${msg.msgId})`);
+    }
 
-      const timeElapsedMs = Date.now() - timeBefore;
-      if (timeElapsedMs > 500)
-        console.log("Message took more than a second to send!", msg);
-    };
+    const timeElapsedMs = Date.now() - timeBefore;
+    if (timeElapsedMs > 500)
+      console.log("Message took more than a second to send!", msg);
+  };
 
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
     const msgId = this._nextId++;
@@ -331,7 +331,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   }
 
   public override dispose() {
-    this._worker.disconnect();
+    this._worker.kill();
   }
 }
 
