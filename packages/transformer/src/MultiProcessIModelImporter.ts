@@ -127,6 +127,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       if (process.env.DEBUG?.includes("multiproc"))
         console.log(`parent sending (${msg.msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
 
+      // FIXME: signal need to wait otherwise this will bloat memory fantastically
+      /*
       const waitSignal = this._waitSignal;
       await this._waitSignal;
       const firstWoken = this._waitSignal === waitSignal;
@@ -135,6 +137,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
       if (this._signalDoWait)
         await new Promise(resolve => this._worker.stdin!.once("drain", resolve));
+      */
 
       // NOTE: this doesn't prevent the transformer from bloating memory by filling up the
       // buffer with writes
@@ -145,6 +148,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       // FIXME: check result for this small write
       this._worker.stdin!.write(serializedLenBuf);
       const flushed = this._worker.stdin!.write(serialized);
+
+      console.log(`parent sent (${msg.msgId})`);
 
       this._signalDoWait = !flushed;
 
@@ -220,11 +225,6 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
         serialization: "advanced", // allow transferring of binary geometry efficiently
       }
     );
-
-    const workerLogStream = fs.createWriteStream("worker.log");
-
-    _worker.stdout!.pipe(workerLogStream);
-    _worker.stdout!.on("close", () => workerLogStream.close());
 
     const onMsg = (msg: Message) => {
       let resolver: ((v: any) => void) | undefined;

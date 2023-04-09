@@ -71,7 +71,6 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
           const serializedLenBuf = Buffer.from([0, 0, 0, 0]);
           serializedLenBuf.writeUint32LE(serialized.byteLength);
           // FIXME: check result for this small write
-          console.log("worker send length:", serialized.byteLength, serializedLenBuf);
           process.stdout.write(serializedLenBuf);
           const success = process.stdout.write(serialized);
 
