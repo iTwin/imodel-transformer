@@ -1,4 +1,5 @@
 
+import * as assert from "assert";
 import * as child_process from "child_process";
 import * as fs from "fs";
 import * as path from "path";
@@ -140,7 +141,14 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
       // NOTE: this doesn't prevent the transformer from bloating memory by filling up the
       // buffer with writes
-      const flushed = this._ipcSocket.write(v8.serialize(msg));
+      const serialized = v8.serialize(msg);
+      const serializedLenBuf = Buffer.from([0, 0, 0, 0]);
+      serializedLenBuf.writeUint32LE(serialized.byteLength);
+      //assert(serializedLen.byteLength === 4);
+      // FIXME: check result for this small write
+      console.log("parent send length:", serialized.byteLength, serializedLenBuf);
+      this._ipcSocket.write(serializedLenBuf);
+      const flushed = this._ipcSocket.write(serialized);
 
       this._signalDoWait = !flushed;
 
@@ -247,30 +255,40 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       _ipcServer.on("connection", resolve);
     });
 
+    // TODO: would a generator help?
+    let lastLen: number | undefined;
     _ipcSocket.on("readable", () => {
-      let chunk;
-      // FIXME: for now assumes (because stupid v8 deserialization interface) that
-      // it ends on a complete value, and doesn't work on partial messages
-      while (null !== (chunk = _ipcSocket.read())) {
-        const deserializer = new v8.DefaultDeserializer(chunk);
-        while (true) {
-          try {
-            deserializer.readHeader();
-            const msg = deserializer.readValue();
-            onMsg(msg);
-          } catch {
-            break;
-          }
+      while (true) {
+        let len: number;
+        if (lastLen) {
+          len = lastLen;
+          lastLen = undefined;
+          console.log("had last len!:", len);
+        } else {
+          const lenBuf = _ipcSocket.read(4) as Buffer | null;
+          if (lenBuf === null) return;
+          len = lenBuf.readUint32LE();
+          console.log("worker read length:", len, lenBuf);
         }
+
+        const chunk = _ipcSocket.read(len) as Buffer | null;
+        if (chunk === null) {
+          lastLen = len;
+          return;
+        }
+        assert(chunk.byteLength === len, `bad read size! (ended=${_ipcSocket.readableEnded})`);
+        const msg = v8.deserialize(chunk);
+        onMsg(msg);
       }
     });
     _ipcSocket.resume();
 
     _ipcSocket.on("end", () => console.error("worker connection ended"));
     _ipcSocket.on("close", () => console.error("worker connection closed"));
-    _ipcSocket.on("drain", () => console.error("worker connection drained"));
+    _ipcSocket.on("drain", () => console.log("worker connection drained"));
     _ipcSocket.on("error", () => console.error("worker connection error"));
     _ipcSocket.on("timeout", () => console.error("worker connection timeout"));
+    _ipcSocket.setMaxListeners(0); // FIXME: drain listeners are not perfect rn
 
     process.on("SIGUSR2", () => {
       const _ = { instance };

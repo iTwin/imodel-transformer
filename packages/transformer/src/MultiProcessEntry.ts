@@ -69,11 +69,19 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
         Promise.resolve(result).then((innerResult) => {
           if (process.env.DEBUG?.includes("multiproc"))
             console.log(`worker sending settler for (${msg.msgId})`);
-          const success = this._client.write(v8.serialize({
+
+          const serialized = v8.serialize({
             type: Messages.Settled,
             result: innerResult,
             msgId: msg.msgId,
-          }));
+          });
+          const serializedLenBuf = Buffer.from([0, 0, 0, 0]);
+          serializedLenBuf.writeUint32LE(serialized.byteLength);
+          // FIXME: check result for this small write
+          console.log("worker send length:", serialized.byteLength, serializedLenBuf);
+          this._client.write(serializedLenBuf);
+          const success = this._client.write(serialized);
+
           if (process.env.DEBUG?.includes("multiproc") && !success)
             console.log(`worker send error`);
         });
@@ -97,20 +105,34 @@ async function main() {
   worker = new MultiProcessIModelImporterWorker(targetDb, options, client);
 
   //client.allowHalfOpen = true;
-  client.on("data", (chunk) => {
-    const deserializer = new v8.DefaultDeserializer(chunk);
+  let lastLen: number | undefined;
+
+  client.on("readable", () => {
     while (true) {
-      try {
-        deserializer.readHeader();
-        const msg = deserializer.readValue();
-        if (process.env.DEBUG?.includes("multiproc"))
-          console.log(`worker received (${msg.msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
-        worker.onMsg(msg);
-        if (process.env.DEBUG?.includes("multiproc"))
-          console.log(`worker finished (${msg.msgId}):`);
-      } catch {
-        break;
+      let len: number;
+      if (lastLen) {
+        console.error("had last len!", lastLen);
+        len = lastLen;
+        lastLen = undefined;
+      } else {
+        const lenBuf = client.read(4) as Buffer | null;
+        if (lenBuf === null) return;
+        len = lenBuf.readUint32LE();
+        console.log("worker read length:", len, lenBuf);
       }
+
+      const chunk = client.read(len) as Buffer | null;
+      if (chunk === null) {
+        lastLen = len;
+        return;
+      }
+      assert(chunk.byteLength === len, `bad read size! (ended=${client.readableEnded}), ${chunk.byteLength}, ${len}`);
+      const msg = v8.deserialize(chunk);
+      if (process.env.DEBUG?.includes("multiproc"))
+        console.log(`worker received (${msg.msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
+      worker.onMsg(msg);
+      if (process.env.DEBUG?.includes("multiproc"))
+        console.log(`worker finished (${msg.msgId}):`);
     }
   });
 }
