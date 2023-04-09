@@ -12,7 +12,6 @@ const options: MultiProcessImporterOptions = JSON.parse(optionsJson);
 
 import * as os from "os";
 import * as path from "path";
-import * as net from "net";
 import * as v8 from "v8";
 import { IModelImporter } from "./IModelImporter";
 import { Messages, Message, MultiProcessImporterOptions } from "./MultiProcessIModelImporter";
@@ -23,17 +22,11 @@ import "source-map-support/register";
 
 const ipcPath = path.join(process.platform === "win32" ? "\\\\?\\pipe" : os.tmpdir(), `transformer-ipc-${process.ppid}`);
 
+// HACK: can't log to stdout since master expects only ipc messages there
+console.log = console.error;
+
 export class MultiProcessIModelImporterWorker extends IModelImporter {
   private _serializer = new v8.Serializer();
-
-  public constructor(
-    targetDb: IModelDb,
-    options: MultiProcessImporterOptions,
-    private _client: net.Socket,
-  ) {
-    super(targetDb, options);
-  }
-
 
   public onMsg = (msg: Message) => {
     switch (msg.type) {
@@ -79,8 +72,8 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
           serializedLenBuf.writeUint32LE(serialized.byteLength);
           // FIXME: check result for this small write
           console.log("worker send length:", serialized.byteLength, serializedLenBuf);
-          this._client.write(serializedLenBuf);
-          const success = this._client.write(serialized);
+          process.stdout.write(serializedLenBuf);
+          const success = process.stdout.write(serialized);
 
           if (process.env.DEBUG?.includes("multiproc") && !success)
             console.log(`worker send error`);
@@ -94,39 +87,30 @@ export class MultiProcessIModelImporterWorker extends IModelImporter {
 let worker: MultiProcessIModelImporterWorker;
 
 async function main() {
-  // TODO: just pipe on stdout instead of an unnecessary fuller solution
-  const client = net.createConnection(ipcPath);
-  const [targetDb] = await Promise.all([
-    // FIXME: allow user to provide a module in options to load this themselves
-    IModelHost.startup().then(() => StandaloneDb.open({ fileName: targetDbPath })),
-    new Promise<void>((resolve, reject) => client.on("connect", resolve).on("error", reject)),
-  ]);
+  const targetDb = await IModelHost.startup().then(() => StandaloneDb.open({ fileName: targetDbPath })),
 
-  worker = new MultiProcessIModelImporterWorker(targetDb, options, client);
+  worker = new MultiProcessIModelImporterWorker(targetDb, options);
 
-  //client.allowHalfOpen = true;
   let lastLen: number | undefined;
 
-  client.on("readable", () => {
+  process.stdin.on("readable", () => {
     while (true) {
       let len: number;
       if (lastLen) {
-        console.error("had last len!", lastLen);
         len = lastLen;
         lastLen = undefined;
       } else {
-        const lenBuf = client.read(4) as Buffer | null;
+        const lenBuf = process.stdin.read(4) as Buffer | null;
         if (lenBuf === null) return;
         len = lenBuf.readUint32LE();
-        console.log("worker read length:", len, lenBuf);
       }
 
-      const chunk = client.read(len) as Buffer | null;
+      const chunk = process.stdin.read(len) as Buffer | null;
       if (chunk === null) {
         lastLen = len;
         return;
       }
-      assert(chunk.byteLength === len, `bad read size! (ended=${client.readableEnded}), ${chunk.byteLength}, ${len}`);
+      assert(chunk.byteLength === len, `bad read size! (ended=${process.stdin.readableEnded}), ${chunk.byteLength}, ${len}`);
       const msg = v8.deserialize(chunk);
       if (process.env.DEBUG?.includes("multiproc"))
         console.log(`worker received (${msg.msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));

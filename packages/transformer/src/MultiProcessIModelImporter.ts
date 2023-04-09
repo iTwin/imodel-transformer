@@ -2,9 +2,6 @@
 import * as assert from "assert";
 import * as child_process from "child_process";
 import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import * as net from "net";
 import * as v8 from "v8";
 
 import { IModelImporter, IModelImportOptions } from "./IModelImporter";
@@ -137,7 +134,7 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
         await this._waitSignal;
 
       if (this._signalDoWait)
-        await new Promise(resolve => this._ipcSocket.once("drain", resolve));
+        await new Promise(resolve => this._worker.stdin!.once("drain", resolve));
 
       // NOTE: this doesn't prevent the transformer from bloating memory by filling up the
       // buffer with writes
@@ -146,9 +143,8 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       serializedLenBuf.writeUint32LE(serialized.byteLength);
       //assert(serializedLen.byteLength === 4);
       // FIXME: check result for this small write
-      console.log("parent send length:", serialized.byteLength, serializedLenBuf);
-      this._ipcSocket.write(serializedLenBuf);
-      const flushed = this._ipcSocket.write(serialized);
+      this._worker.stdin!.write(serializedLenBuf);
+      const flushed = this._worker.stdin!.write(serialized);
 
       this._signalDoWait = !flushed;
 
@@ -213,18 +209,11 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       }
     }
 
-    const _ipcPath = path.join(process.platform === "win32" ? "\\\\?\\pipe" : os.tmpdir(), `transformer-ipc-${process.pid}`);
-    try {
-      fs.unlinkSync(_ipcPath);
-    } catch {}
-    const _ipcServer = net.createServer()
-    _ipcServer.listen(_ipcPath);
-
     const _worker = child_process.fork(require.resolve("./MultiProcessEntry"),
       // TODO: encode options? should be ok if we don't use shell
       [targetDb.pathName, JSON.stringify(options)],
       {
-        stdio: ['ignore', 'pipe', 'inherit', 'ipc'],
+        stdio: ['pipe', 'pipe', 'inherit', 'ipc'],
         execArgv: [
           process.env.INSPECT_WORKER && `--inspect-brk=${process.env.INSPECT_WORKER}`,
         ].filter(Boolean) as string[],
@@ -249,52 +238,40 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
 
     _worker.on("error", (err) => console.error(err));
 
-    // FIXME: technically might not have to wait, depends if messages are queued before connect
-    const _ipcSocket = await new Promise<net.Socket>((resolve, _reject) => {
-      console.log(`parent waiting for connection on ${_ipcPath}`);
-      _ipcServer.on("connection", resolve);
-    });
-
     // TODO: would a generator help?
     let lastLen: number | undefined;
-    _ipcSocket.on("readable", () => {
+    _worker.stdout!.on("readable", () => {
       while (true) {
         let len: number;
         if (lastLen) {
           len = lastLen;
           lastLen = undefined;
-          console.log("had last len!:", len);
         } else {
-          const lenBuf = _ipcSocket.read(4) as Buffer | null;
+          const lenBuf = _worker.stdout!.read(4) as Buffer | null;
           if (lenBuf === null) return;
           len = lenBuf.readUint32LE();
-          console.log("worker read length:", len, lenBuf);
         }
 
-        const chunk = _ipcSocket.read(len) as Buffer | null;
+        const chunk = _worker.stdout!.read(len) as Buffer | null;
         if (chunk === null) {
           lastLen = len;
           return;
         }
-        assert(chunk.byteLength === len, `bad read size! (ended=${_ipcSocket.readableEnded})`);
+        assert(chunk.byteLength === len, `bad read size! (ended=${_worker.stdout!.readableEnded})`);
         const msg = v8.deserialize(chunk);
         onMsg(msg);
       }
     });
-    _ipcSocket.resume();
+    //_worker.stdout.resume();
 
-    _ipcSocket.on("end", () => console.error("worker connection ended"));
-    _ipcSocket.on("close", () => console.error("worker connection closed"));
-    _ipcSocket.on("drain", () => console.log("worker connection drained"));
-    _ipcSocket.on("error", () => console.error("worker connection error"));
-    _ipcSocket.on("timeout", () => console.error("worker connection timeout"));
-    _ipcSocket.setMaxListeners(0); // FIXME: drain listeners are not perfect rn
+    _worker.stdout!.on("end", () => console.error("worker connection ended"));
+    _worker.stdout!.on("close", () => console.error("worker connection closed"));
+    _worker.stdout!.on("drain", () => console.log("worker connection drained"));
+    _worker.stdout!.on("error", () => console.error("worker connection error"));
+    _worker.stdout!.on("timeout", () => console.error("worker connection timeout"));
+    _worker.stdout!.setMaxListeners(0); // FIXME: drain listeners are not perfect rn
 
-    process.on("SIGUSR2", () => {
-      const _ = { instance };
-    });
-
-    const instance = new MultiProcessIModelImporter(targetDb, options, _worker, _ipcPath, _ipcServer, _ipcSocket);
+    const instance = new MultiProcessIModelImporter(targetDb, options, _worker);
     return instance;
   }
 
@@ -302,9 +279,6 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     targetDb: IModelDb,
     options: MultiProcessImporterOptions,
     private _worker: child_process.ChildProcess,
-    private _ipcPath: string,
-    private _ipcServer: net.Server,
-    private _ipcSocket: net.Socket,
   ) {
     super(targetDb, options);
 
@@ -357,10 +331,6 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   }
 
   public override dispose() {
-    if (process.platform !== "win32")
-      fs.unlinkSync(this._ipcPath);
-    this._ipcSocket.end();
-    this._ipcServer.close();
     this._worker.disconnect();
   }
 }
