@@ -97,13 +97,21 @@ async function main() {
   worker = new MultiProcessIModelImporterWorker(targetDb, options, client);
 
   //client.allowHalfOpen = true;
-  client.on("data", (data) => {
-    const msg = v8.deserialize(data);
-    if (process.env.DEBUG?.includes("multiproc"))
-      console.log(`worker received (${msg.msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
-    worker.onMsg(msg);
-    if (process.env.DEBUG?.includes("multiproc"))
-      console.log(`worker finished (${msg.msgId}):`);
+  client.on("data", (chunk) => {
+    const deserializer = new v8.DefaultDeserializer(chunk);
+    while (true) {
+      try {
+        deserializer.readHeader();
+        const msg = deserializer.readValue();
+        if (process.env.DEBUG?.includes("multiproc"))
+          console.log(`worker received (${msg.msgId}):`, JSON.stringify(msg, (_k, v) => v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v));
+        worker.onMsg(msg);
+        if (process.env.DEBUG?.includes("multiproc"))
+          console.log(`worker finished (${msg.msgId}):`);
+      } catch {
+        break;
+      }
+    }
   });
 }
 

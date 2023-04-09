@@ -119,47 +119,47 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
   private _nextId = 0;
   private _pendingResolvers = new Map<number, (v: any) => any>();
 
-  private _send = (msg: Message): void => void (async () => {
+  private _waitSignal = Promise.resolve();
+  private _signalDoWait = false;
+
+  private _send = async (msg: Message) => {
       msg.msgId = msg.msgId ?? this._nextId++;
 
       const timeBefore = Date.now();
       if (process.env.DEBUG?.includes("multiproc"))
         console.log(`parent sending (${msg.msgId}):`, JSON.stringify(msg, ((_k,v)=> v instanceof Uint8Array ? `<Uint8Array[${v.byteLength}]>` : v)));
 
-      // this makes it safe to void this promise since it will wait
-      if (this._ipcSocket.isPaused()) {
-        await new Promise<void>(resolve => this._ipcSocket.on("drain", () => {
-          resolve();
-        }));
-      }
+      const waitSignal = this._waitSignal;
+      await this._waitSignal;
+      const firstWoken = this._waitSignal === waitSignal;
+      if (!firstWoken)
+        await this._waitSignal;
 
-      await new Promise<void>(resolve => {
-        const flushed = this._ipcSocket.write(v8.serialize(msg));
-        if (flushed) {
-          resolve();
-        } else {
-          if (process.env.DEBUG?.includes("multiproc") && !flushed)
-            console.log(`parent error (${msg.msgId})`);
-          this._ipcSocket.pause();
-          this._ipcSocket.on("drain", () => {
-            this._ipcSocket.resume()
-            resolve();
-          });
-        }
-      });
+      if (this._signalDoWait)
+        await new Promise(resolve => this._ipcSocket.once("drain", resolve));
+
+      // NOTE: this doesn't prevent the transformer from bloating memory by filling up the
+      // buffer with writes
+      const flushed = this._ipcSocket.write(v8.serialize(msg));
+
+      this._signalDoWait = !flushed;
+
+      if (!flushed) {
+        if (process.env.DEBUG?.includes("multiproc") && !flushed)
+          console.log(`parent error (${msg.msgId})`);
+      }
 
       const timeElapsedMs = Date.now() - timeBefore;
       if (timeElapsedMs > 500)
         console.log("Message took more than a second to send!", msg);
-    })();
+    };
 
   private _promiseMessage(wrapperMsg: { type: Messages.Await, message: Message }): Promise<any> {
     const msgId = this._nextId++;
-    let resolve!: (v: any) => void, reject: (v: any) => void;
-    const promise = new Promise<any>((_res, _rej) => { resolve = _res; reject = _rej; });
+    let resolve!: (v: any) => void;
+    const promise = new Promise<any>((_res) => { resolve = _res; });
     this._pendingResolvers.set(msgId, resolve);
-    void this._send({ ...wrapperMsg, msgId } as Message);
-    return promise;
+    return this._send({ ...wrapperMsg, msgId } as Message).then(() => promise);
   }
 
   public static async create(targetDb: IModelDb, options: MultiProcessImporterOptions): Promise<MultiProcessIModelImporter> {
@@ -230,11 +230,11 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
     _worker.stdout!.on("close", () => workerLogStream.close());
 
     const onMsg = (msg: Message) => {
-      console.log(`parent received`, msg);
       let resolver: ((v: any) => void) | undefined;
       if (msg.type === Messages.Settled && (resolver = instance._pendingResolvers.get(msg.msgId))) {
         if (process.env.DEBUG?.includes("multiproc"))
           console.log(`parent received settler for ${msg.msgId}`);
+        instance._pendingResolvers.delete(msg.msgId);
         resolver(msg.result);
       }
     };
@@ -247,9 +247,33 @@ export class MultiProcessIModelImporter extends IModelImporter implements IDispo
       _ipcServer.on("connection", resolve);
     });
 
-    _ipcSocket.on("data", (d) => {
-      const msg = v8.deserialize(d);
-      onMsg(msg);
+    _ipcSocket.on("readable", () => {
+      let chunk;
+      // FIXME: for now assumes (because stupid v8 deserialization interface) that
+      // it ends on a complete value, and doesn't work on partial messages
+      while (null !== (chunk = _ipcSocket.read())) {
+        const deserializer = new v8.DefaultDeserializer(chunk);
+        while (true) {
+          try {
+            deserializer.readHeader();
+            const msg = deserializer.readValue();
+            onMsg(msg);
+          } catch {
+            break;
+          }
+        }
+      }
+    });
+    _ipcSocket.resume();
+
+    _ipcSocket.on("end", () => console.error("worker connection ended"));
+    _ipcSocket.on("close", () => console.error("worker connection closed"));
+    _ipcSocket.on("drain", () => console.error("worker connection drained"));
+    _ipcSocket.on("error", () => console.error("worker connection error"));
+    _ipcSocket.on("timeout", () => console.error("worker connection timeout"));
+
+    process.on("SIGUSR2", () => {
+      const _ = { instance };
     });
 
     const instance = new MultiProcessIModelImporter(targetDb, options, _worker, _ipcPath, _ipcServer, _ipcSocket);
