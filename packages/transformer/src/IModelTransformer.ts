@@ -9,17 +9,17 @@ import * as path from "path";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
-  AccessToken, assert, DbResult, Guid, Id64, Id64Set, Id64String, IModelStatus, Logger, MarkRequired,
+  AccessToken, assert, DbResult, Guid, Id64, Id64Arg, Id64Set, Id64String, IModelStatus, Logger, MarkRequired,
   OpenMode, YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
-  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
+  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, DisplayStyle3d, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
-  RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
+  RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SpatialViewDefinition, SQLiteDb, Subject, SynchronizationConfigLink, ViewDefinition,
 } from "@itwin/core-backend";
 import {
   ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
@@ -567,6 +567,24 @@ export class IModelTransformer extends IModelExportHandler {
   protected skipElement(_sourceElement: Element): void {
     Logger.logWarning(loggerCategory, `Tried to defer/skip an element, which is no longer necessary`);
   }
+
+  /** @internal */
+  public static readonly perClassTrackedJsonProperties = new Map<typeof Element, Record<string, { get(e: Element): Id64Arg }>>([
+    [Element, {
+      "targetRelInstanceId": { get: (e: Element) => e.jsonProperties.targetRelInstanceId },
+    }],
+    [Subject, {
+      "Subject.Job": { get: (e: Subject) => e.jsonProperties.Subject.Job }
+    }],
+    [DisplayStyle3d, {
+      "styles.environment.sky.image.texture": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.environment.sky.image.texture },
+      "styles.excludedElements": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.excludedElements },
+      "styles.subCategoryOvr.[].subCategory": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.subCategoryOvr.map((ovr: any) => ovr.subCategory) },
+    }],
+    [ViewDefinition as any, {
+      "viewDetails.acs": { get: (e: SpatialViewDefinition) => e.jsonProperties.viewDetails.acs },
+    }],
+  ]);
 
   /** Transform the specified sourceElement into ElementProps for the target iModel.
    * @param sourceElement The Element from the source iModel to transform.

@@ -3,7 +3,7 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { AccessToken, assert, DbResult, Id64, Id64Array, Id64Set, Id64String, Logger } from "@itwin/core-bentley";
+import { AccessToken, assert, DbResult, Id64, Id64Array, Id64Set, Id64String, isSubclassOf, Logger } from "@itwin/core-bentley";
 import {
   Category, CategorySelector, DisplayStyle, DisplayStyle3d, ECSqlStatement, Element, ElementRefersToElements, GeometricModel3d, GeometryPart,
   IModelDb, ModelSelector, PhysicalModel, PhysicalPartition, Relationship, SpatialCategory,
@@ -13,6 +13,7 @@ import { IModelImporter, IModelTransformer, IModelTransformOptions } from "@itwi
 import { ElementProps, IModel } from "@itwin/core-common";
 
 export const loggerCategory = "imodel-transformer";
+export const unknownIdsLoggerCategory = "Transformer-Unknown-JsonProp-Id";
 
 export interface TransformerOptions extends IModelTransformOptions {
   simplifyElementGeometry?: boolean;
@@ -21,6 +22,7 @@ export interface TransformerOptions extends IModelTransformOptions {
   deleteUnusedGeometryParts?: boolean;
   excludeSubCategories?: string[];
   excludeCategories?: string[];
+  logUnknownIdsInJsonProps?: boolean;
 }
 
 export class Transformer extends IModelTransformer {
@@ -30,6 +32,7 @@ export class Transformer extends IModelTransformer {
   private _numSourceRelationshipsProcessed = 0;
   private _startTime = new Date();
   private _targetPhysicalModelId = Id64.invalid; // will be valid when PhysicalModels are being combined
+  private _logUnknownIdsInJsonProps = false;
 
   public static async transformAll(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions): Promise<void> {
     // might need to inject RequestContext for schemaExport.
@@ -101,6 +104,7 @@ export class Transformer extends IModelTransformer {
 
   private constructor(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
     super(sourceDb, new IModelImporter(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry }), options);
+    this._logUnknownIdsInJsonProps = options?.logUnknownIdsInJsonProps ?? false;
 
     Logger.logInfo(loggerCategory, `sourceDb=${this.sourceDb.pathName}`);
     Logger.logInfo(loggerCategory, `targetDb=${this.targetDb.pathName}`);
@@ -245,11 +249,27 @@ export class Transformer extends IModelTransformer {
     return super.shouldExportElement(sourceElement);
   }
 
-  /** This override of IModelTransformer.onTransformElement exists for debugging purposes */
   public override onTransformElement(sourceElement: Element): ElementProps {
-    // if (sourceElement.id === "0x0" || sourceElement.getDisplayLabel() === "xxx") { // use logging to find something unique about the problem element
-    //   Logger.logInfo(progressLoggerCategory, "Found problem element"); // set breakpoint here
-    // }
+    if (this._logUnknownIdsInJsonProps) {
+      function checkForUnknownIds(obj: any, path = `jsonProperties`) {
+        outer: for (const [key, val] of Object.entries(obj)) {
+          if (typeof val === "string" && val.startsWith("0x")) {
+            const subPath = `${path}.${key}`;
+            for (const [cls, trackedProps] of IModelTransformer.perClassTrackedJsonProperties.entries()) {
+              if (isSubclassOf(sourceElement.constructor as typeof Element, cls)) {
+                const trackedKey = subPath.slice("jsonProperties.".length);
+                if (trackedKey in trackedProps) continue outer;
+              }
+            }
+            console.error(`<${sourceElement.id}|${sourceElement.code.value}>.${subPath} contained id ${val} but that json property isn't known to the transformer`);
+            Logger.logWarning(unknownIdsLoggerCategory, `${subPath} contained id ${val} but that property isn't known to the transformer`);
+          } else if (typeof val === "object") {
+            checkForUnknownIds(val, `${path}.${key}`);
+          }
+        }
+      }
+      checkForUnknownIds(sourceElement.jsonProperties);
+    }
     return super.onTransformElement(sourceElement);
   }
 

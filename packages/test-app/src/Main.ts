@@ -188,6 +188,11 @@ void (async () => {
           default: "reject" as const,
           choices: ["reject", "ignore"] as const,
         },
+        logUnknownIdsInJsonProps: {
+          desc: "reports upon seeing an element with hexadecimal ids in its json properties, if the transformer isn't aware of that property",
+          type: "boolean",
+          default: false,
+        },
       })
       .parseSync();
 
