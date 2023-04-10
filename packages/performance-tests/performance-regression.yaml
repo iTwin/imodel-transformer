@@ -86,11 +86,11 @@ stages:
 
           - script: npm install -g pnpm@^7
             displayName: 'install pnpm'
-            workingDirectory: $(Pipeline.Workspace)/TestRunner
+            workingDirectory: $(Pipeline.Workspace)/
 
           - script: pnpm i
             displayName: 'pnpm install'
-            workingDirectory: $(Pipeline.Workspace)/TestRunner
+            workingDirectory: $(Pipeline.Workspace)/
 
           - script: npm test
             displayName: 'npm test'
