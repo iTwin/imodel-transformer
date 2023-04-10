@@ -3,8 +3,6 @@ name: itwinjs-transformer-performance-$(Date:yyyyMMdd)
 
 trigger: none
 
-pr: none
-
 # schedules:
 # - cron: "0 0 * * 0"
 #  displayName: Midnight Every Sunday
