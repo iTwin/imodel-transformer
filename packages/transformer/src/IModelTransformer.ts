@@ -568,24 +568,6 @@ export class IModelTransformer extends IModelExportHandler {
     Logger.logWarning(loggerCategory, `Tried to defer/skip an element, which is no longer necessary`);
   }
 
-  /** @internal */
-  public static readonly perClassTrackedJsonProperties = new Map<typeof Element, Record<string, { get(e: Element): Id64Arg }>>([
-    [Element, {
-      "targetRelInstanceId": { get: (e: Element) => e.jsonProperties.targetRelInstanceId },
-    }],
-    [Subject, {
-      "Subject.Job": { get: (e: Subject) => e.jsonProperties.Subject.Job }
-    }],
-    [DisplayStyle3d, {
-      "styles.environment.sky.image.texture": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.environment.sky.image.texture },
-      "styles.excludedElements": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.excludedElements },
-      "styles.subCategoryOvr.[].subCategory": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.subCategoryOvr.map((ovr: any) => ovr.subCategory) },
-    }],
-    [ViewDefinition as any, {
-      "viewDetails.acs": { get: (e: SpatialViewDefinition) => e.jsonProperties.viewDetails.acs },
-    }],
-  ]);
-
   /** Transform the specified sourceElement into ElementProps for the target iModel.
    * @param sourceElement The Element from the source iModel to transform.
    * @returns ElementProps for the target iModel.

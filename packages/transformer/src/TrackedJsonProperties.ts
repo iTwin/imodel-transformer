@@ -1,54 +1,106 @@
+import * as assert from "assert";
+
 import {
-    DisplayStyle3d,
+    DisplayStyle,
+  DisplayStyle3d,
   Element,
   SpatialViewDefinition,
   Subject,
   ViewDefinition,
 } from "@itwin/core-backend";
 import * as BackendExports from "@itwin/core-backend";
-import { CompressedId64Set, Id64Arg, Id64String, isSubclassOf } from "@itwin/core-bentley";
+import { CompressedId64Set, Id64String, isSubclassOf } from "@itwin/core-bentley";
+import { Id64Utils, Id64UtilsArg } from "./Id64Utils";
+import { IModelCloneContext } from "./IModelCloneContext";
 
-type TrackedJsonPropData = Record<string, { get(e: Element): Id64Arg }>;
+interface TrackedJsonPropData<T extends Id64UtilsArg> {
+  [propPath: string]: {
+    get(e: Element, index?: number): T;
+    set(e: Element, value: T, index?: number): void;
+  }
+}
 
-/** @internal */
+/**
+ * non-inherited tracked json properties introduced by a class.
+ * This is used to generate the inherited list.
+ * @internal
+ */
 const classSpecificTrackedJsonProperties = new Map<
   abstract new (...a: any[]) => Element,
-  TrackedJsonPropData
+  TrackedJsonPropData<Id64UtilsArg>
 >([
   [Element, {
-    "targetRelInstanceId": { get: (e: Element) => e.jsonProperties.targetRelInstanceId },
+    "targetRelInstanceId": {
+      get: (e: Element) => e.jsonProperties.targetRelInstanceId,
+      set: (e: Element, v: Id64String) => e.jsonProperties.targetRelInstanceId = v,
+    },
   }],
   [Subject, {
-    "Subject.Job": { get: (e: Subject) => e.jsonProperties.Subject.Job }
+    "Subject.Job": {
+      get: (e: Subject) => e.jsonProperties.Subject.Job,
+      set: (e: Subject, v: Id64String) => e.jsonProperties.Subject.Job = v,
+    }
   }],
   [DisplayStyle3d, {
-    "styles.environment.sky.image.texture": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.environment.sky.image.texture },
-    "styles.excludedElements": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.excludedElements },
-    "styles.subCategoryOvr.*.subCategory": { get: (e: DisplayStyle3d) => e.jsonProperties.styles.subCategoryOvr.map((ovr: any) => ovr.subCategory) },
+    "styles.environment.sky.image.texture": {
+      get: (e: DisplayStyle3d) => e.jsonProperties.styles.environment.sky.image.texture,
+      set: (e: DisplayStyle3d, v: Id64String) => e.jsonProperties.styles.environment.sky.image.texture = v,
+    },
+    "styles.excludedElements": {
+      get: (e: DisplayStyle3d) => e.jsonProperties.styles.excludedElements,
+      set: (e: DisplayStyle3d, v: Id64String) => e.jsonProperties.styles.excludedElements = v,
+    },
+  }],
+  [DisplayStyle as any, {
+    "styles.subCategoryOvr.*.subCategory": {
+      get: (e: DisplayStyle) =>
+        e.jsonProperties.styles.subCategoryOvr.map((ovr: any) => ovr.subCategory),
+      set: (e: DisplayStyle, v: Id64String[]) =>
+        (e.jsonProperties.styles.subCategoryOvr as { subCategory: Id64String }[]).forEach((ovr, i) => ovr.subCategory = v[i]),
+    },
+    "styles.modelOvr.*.modelId": {
+      get: (e: DisplayStyle) =>
+        e.jsonProperties.styles.modelOvr.map((ovr: any) => ovr.modelId),
+      set: (e: DisplayStyle, v: Id64String[]) =>
+        (e.jsonProperties.styles.modelOvr as { modelId: Id64String }[]).forEach((ovr, i) => ovr.modelId = v[i]),
+    },
   }],
   [ViewDefinition as any, {
-    "viewDetails.acs": { get: (e: SpatialViewDefinition) => e.jsonProperties.viewDetails.acs },
+    "viewDetails.acs": {
+      get: (e: SpatialViewDefinition) => e.jsonProperties.viewDetails.acs,
+      set: (e: SpatialViewDefinition, v: Id64String) => e.jsonProperties.viewDetails.acs = v,
+    },
   }],
 ]);
 
 /** inherited tracked json properties for every class */
-const trackedJsonProperties = new Map<abstract new (...args: any[]) => Element, TrackedJsonPropData>([]);
+const trackedJsonProperties = new Map<abstract new (...args: any[]) => Element, TrackedJsonPropData<Id64UtilsArg>>([]);
 
 /** @internal */
 export interface PotentialUntrackedJsonPropValue {
   /** path from the element */
   propPath: string;
   /** path including info about the element where it was found, for debug printing */
-  debugPath: string;
+  debugPath?: string;
   value: Id64String | CompressedId64Set
   type: "Id64String" | "CompressedId64Set";
 }
 
 export const TrackedJsonProperties = {
-  get(entityClass: abstract new (...args: any[]) => Element): TrackedJsonPropData {
+  get(entityClass: abstract new (...args: any[]) => Element): TrackedJsonPropData<Id64UtilsArg> {
     const cached = trackedJsonProperties.get(entityClass);
     if (cached) return cached;
     return cacheTrackedJsonProperties(entityClass as typeof Element);
+  },
+
+  _remapJsonProps(sourceElement: Element, findTargetElementId: IModelCloneContext["findTargetElementId"]) {
+    const elemClassTrackedJsonProps = cacheTrackedJsonProperties(sourceElement.constructor as typeof Element);
+    for (const trackedJsonProp of Object.values(elemClassTrackedJsonProps)) {
+      trackedJsonProp.get(sourceElement);
+      Id64Utils.map(trackedJsonProp.get(sourceElement), (sourceElemId) => {
+        const targetId = findTargetElementId(sourceElemId)
+      });
+    }
   },
 
   /** @internal */
@@ -70,7 +122,6 @@ export const TrackedJsonProperties = {
             }
           }
           const debugPath = `<${element.id}|"${element.code.value}"(${element.classFullName})>.${subPath}`;
-          console.error(`${debugPath} contained id ${val} but that json property isn't known to the transformer`);
           results.push({
             debugPath,
             propPath: subPath,
@@ -91,8 +142,8 @@ export const TrackedJsonProperties = {
 
 // NOTE: this currently ignores the ability that core's requiredReferenceKeys has to allow custom js classes
 // to introduce new requiredReferenceKeys, which means if that were used, this would break. Currently un-used however.
-function cacheTrackedJsonProperties(cls: typeof Element) {
-  const classTrackedJsonProps = {};
+function cacheTrackedJsonProperties(cls: typeof Element): TrackedJsonPropData {
+  const classTrackedJsonProps: TrackedJsonPropData = {};
 
   let baseClass = cls;
   while (baseClass !== null) {
