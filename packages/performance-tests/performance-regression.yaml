@@ -80,15 +80,23 @@ stages:
             inputs:
               versionSpec: 18.*.*
 
+          - task: Npm@1
+            inputs:
+              command: 'custom'
+              customCommand: install -g pnpm@^7
+    
+          - task: Npm@1
+            inputs:
+              command: 'custom'
+              customCommand: install -g pnpm@^7
+
+          - script: pnpm i
+            displayName: 'pnpm install'
+            workingDirectory: $(Pipeline.Workspace)/
+
           - download: current
             displayName: Download test runner
             artifact: TestRunner
-
-          - script: |
-              npm install -g pnpm@^7
-              pnpm i --frozen-lockfile
-            displayName: 'install pnpm'
-            workingDirectory: $(Pipeline.Workspace)/
 
           - script: npm test
             displayName: 'npm test'
