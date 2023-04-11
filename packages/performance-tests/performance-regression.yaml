@@ -84,13 +84,13 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/
 
-          - script: pnpm i --frozen-lockfile
-            displayName: 'pnpm install'
-            workingDirectory: $(Pipeline.Workspace)/
-
           - download: current
             displayName: Download test runner
             artifact: TestRunner
+
+          - script: pnpm i --frozen-lockfile
+            displayName: 'pnpm install'
+            workingDirectory: $(Pipeline.Workspace)/
 
           - script: npm test
             displayName: 'npm test'
