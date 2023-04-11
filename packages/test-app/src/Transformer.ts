@@ -10,6 +10,7 @@ import {
   SpatialViewDefinition, SubCategory, ViewDefinition,
 } from "@itwin/core-backend";
 import { IModelImporter, IModelTransformer, IModelTransformOptions } from "@itwin/imodel-transformer";
+import { TrackedJsonProperties } from "@itwin/imodel-transformer/lib/cjs/TrackedJsonProperties";
 import { ElementProps, IModel } from "@itwin/core-common";
 
 export const loggerCategory = "imodel-transformer";
@@ -251,24 +252,10 @@ export class Transformer extends IModelTransformer {
 
   public override onTransformElement(sourceElement: Element): ElementProps {
     if (this._logUnknownIdsInJsonProps) {
-      function checkForUnknownIds(obj: any, path = `jsonProperties`) {
-        outer: for (const [key, val] of Object.entries(obj)) {
-          if (typeof val === "string" && val.startsWith("0x")) {
-            const subPath = `${path}.${key}`;
-            for (const [cls, trackedProps] of IModelTransformer.perClassTrackedJsonProperties.entries()) {
-              if (isSubclassOf(sourceElement.constructor as typeof Element, cls)) {
-                const trackedKey = subPath.slice("jsonProperties.".length);
-                if (trackedKey in trackedProps) continue outer;
-              }
-            }
-            console.error(`<${sourceElement.id}|${sourceElement.code.value}>.${subPath} contained id ${val} but that json property isn't known to the transformer`);
-            Logger.logWarning(unknownIdsLoggerCategory, `${subPath} contained id ${val} but that property isn't known to the transformer`);
-          } else if (typeof val === "object") {
-            checkForUnknownIds(val, `${path}.${key}`);
-          }
-        }
+      const unknownProps = TrackedJsonProperties._findPotentialUntrackedJsonProperties(sourceElement);
+      for (const { debugPath, value } of unknownProps) {
+        console.error(`${debugPath} contained id ${value} but that json property isn't known to the transformer`);
       }
-      checkForUnknownIds(sourceElement.jsonProperties);
     }
     return super.onTransformElement(sourceElement);
   }
