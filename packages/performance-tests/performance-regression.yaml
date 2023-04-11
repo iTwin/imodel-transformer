@@ -90,7 +90,7 @@ stages:
 
           - script: pnpm i
             displayName: 'pnpm install'
-            workingDirectory: $(Pipeline.Workspace)/
+            workingDirectory: $(Pipeline.Workspace)/TestRunner
 
           - script: npm test
             displayName: 'npm test'
