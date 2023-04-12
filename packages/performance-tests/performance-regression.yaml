@@ -57,7 +57,7 @@ stages:
             artifact: TestRunner
         
           - publish: $(Build.SourcesDirectory)/pnpm-lock.yaml
-            artifact: TestRunner
+            artifact: pnpm-lock
 
   - stage: run
     displayName: Run
