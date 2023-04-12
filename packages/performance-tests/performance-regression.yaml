@@ -92,14 +92,14 @@ stages:
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/TestRunner
 
-          - script: |
-              echo 'ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)'>> .env
-              echo 'ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)'>> .env
-              echo 'IMODEL_USER_NAME: $(imjs_user_email)'>> .env
-              echo 'IMODEL_USER_PASSWORD: $(imjs_user_password)'>> .env
-              cat .env
-            displayName: 'create dotenv'
-            workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
+          # - script: |
+          #     echo 'ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)'>> .env
+          #     echo 'ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)'>> .env
+          #     echo 'IMODEL_USER_NAME: $(imjs_user_email)'>> .env
+          #     echo 'IMODEL_USER_PASSWORD: $(imjs_user_password)'>> .env
+          #     cat .env
+          #   displayName: 'create dotenv'
+          #   workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
 
           - script: npm test
             displayName: 'npm test'
