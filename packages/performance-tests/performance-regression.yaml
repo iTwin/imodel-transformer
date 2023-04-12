@@ -12,7 +12,6 @@ trigger: none
 #  always: true
 
 stages:
-
   - stage: build
     displayName: Build
 
