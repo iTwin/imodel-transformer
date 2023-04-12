@@ -1,7 +1,7 @@
 import * as assert from "assert";
 
 import {
-    DisplayStyle,
+  DisplayStyle,
   DisplayStyle3d,
   Element,
   SpatialViewDefinition,
@@ -15,8 +15,8 @@ import { IModelCloneContext } from "./IModelCloneContext";
 
 interface TrackedJsonPropData<T extends Id64UtilsArg> {
   [propPath: string]: {
-    get(e: Element, index?: number): T;
-    set(e: Element, value: T, index?: number): void;
+    get(e: Element): T;
+    remap(e: Element, remap: (prev: T) => T): void;
   }
 }
 
@@ -32,43 +32,55 @@ const classSpecificTrackedJsonProperties = new Map<
   [Element, {
     "targetRelInstanceId": {
       get: (e: Element) => e.jsonProperties.targetRelInstanceId,
-      set: (e: Element, v: Id64String) => e.jsonProperties.targetRelInstanceId = v,
+      remap: (e: Element, remap) => {
+        if (e.jsonProperties.targetRelInstanceId)
+          e.jsonProperties.targetRelInstanceId = remap(e.jsonProperties.targetRelInstanceId);
+      },
     },
-  }],
-  [Subject, {
-    "Subject.Job": {
-      get: (e: Subject) => e.jsonProperties.Subject.Job,
-      set: (e: Subject, v: Id64String) => e.jsonProperties.Subject.Job = v,
-    }
   }],
   [DisplayStyle3d, {
     "styles.environment.sky.image.texture": {
-      get: (e: DisplayStyle3d) => e.jsonProperties.styles.environment.sky.image.texture,
-      set: (e: DisplayStyle3d, v: Id64String) => e.jsonProperties.styles.environment.sky.image.texture = v,
+      get: (e: DisplayStyle3d) => e.jsonProperties?.styles?.environment?.sky?.image?.texture,
+      remap: (e: DisplayStyle3d, remap) => {
+        if (e.jsonProperties.styles.environment.sky.image.texture)
+          e.jsonProperties.styles.environment.sky.image.texture = remap(e.jsonProperties.styles.environment.sky.image.texture);
+      },
     },
     "styles.excludedElements": {
       get: (e: DisplayStyle3d) => e.jsonProperties.styles.excludedElements,
-      set: (e: DisplayStyle3d, v: Id64String) => e.jsonProperties.styles.excludedElements = v,
+      remap: (e: DisplayStyle3d, remap) => {
+        if (e.jsonProperties.styles.excludedElements)
+          e.jsonProperties.styles.excludedElements = remap(e.jsonProperties.styles.excludedElements);
+      },
     },
   }],
   [DisplayStyle as any, {
     "styles.subCategoryOvr.*.subCategory": {
       get: (e: DisplayStyle) =>
         e.jsonProperties.styles.subCategoryOvr.map((ovr: any) => ovr.subCategory),
-      set: (e: DisplayStyle, v: Id64String[]) =>
-        (e.jsonProperties.styles.subCategoryOvr as { subCategory: Id64String }[]).forEach((ovr, i) => ovr.subCategory = v[i]),
+      remap: (e: DisplayStyle, remap) => {
+        if (e.jsonProperties.styles.subCategoryOvr)
+          (e.jsonProperties.styles.subCategoryOvr as { subCategory: Id64String }[])
+            .forEach((ovr) => ovr.subCategory = remap(ovr.subCategory) as Id64String);
+      },
     },
     "styles.modelOvr.*.modelId": {
       get: (e: DisplayStyle) =>
         e.jsonProperties.styles.modelOvr.map((ovr: any) => ovr.modelId),
-      set: (e: DisplayStyle, v: Id64String[]) =>
-        (e.jsonProperties.styles.modelOvr as { modelId: Id64String }[]).forEach((ovr, i) => ovr.modelId = v[i]),
+      remap: (e: DisplayStyle, remap) => {
+        if (e.jsonProperties.styles.modelOvr)
+          (e.jsonProperties.styles.modelOvr as { modelId: Id64String }[])
+            .forEach((ovr) => ovr.modelId = remap(ovr.modelId) as Id64String);
+      },
     },
   }],
   [ViewDefinition as any, {
     "viewDetails.acs": {
       get: (e: SpatialViewDefinition) => e.jsonProperties.viewDetails.acs,
-      set: (e: SpatialViewDefinition, v: Id64String) => e.jsonProperties.viewDetails.acs = v,
+      remap: (e: SpatialViewDefinition, remap) => {
+        if (e.jsonProperties.viewDetails.acs)
+          e.jsonProperties.viewDetails.acs = remap(e.jsonProperties.viewDetails.acs);
+      },
     },
   }],
 ]);
@@ -142,8 +154,8 @@ export const TrackedJsonProperties = {
 
 // NOTE: this currently ignores the ability that core's requiredReferenceKeys has to allow custom js classes
 // to introduce new requiredReferenceKeys, which means if that were used, this would break. Currently un-used however.
-function cacheTrackedJsonProperties(cls: typeof Element): TrackedJsonPropData {
-  const classTrackedJsonProps: TrackedJsonPropData = {};
+function cacheTrackedJsonProperties(cls: typeof Element): TrackedJsonPropData<Id64UtilsArg> {
+  const classTrackedJsonProps: TrackedJsonPropData<Id64UtilsArg> = {};
 
   let baseClass = cls;
   while (baseClass !== null) {
