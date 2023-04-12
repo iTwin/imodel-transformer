@@ -92,8 +92,7 @@ stages:
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/TestRunner
 
-          - script: |
-              npm test
+          - script: npm test
             displayName: 'npm test'
             workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
             timeoutInMinutes: 360
