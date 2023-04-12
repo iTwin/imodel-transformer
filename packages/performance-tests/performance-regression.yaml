@@ -53,7 +53,10 @@ stages:
             displayName: 'npm build'
             workingDirectory: $(Build.SourcesDirectory)
 
-          - publish: $(Build.SourcesDirectory)
+          - publish: $(Build.SourcesDirectory)/packages
+            artifact: TestRunner
+        
+          - publish: $(Build.SourcesDirectory)/*.yaml
             artifact: TestRunner
 
   - stage: run
