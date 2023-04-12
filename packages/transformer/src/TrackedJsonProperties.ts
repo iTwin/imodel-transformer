@@ -12,11 +12,12 @@ import * as BackendExports from "@itwin/core-backend";
 import { CompressedId64Set, Id64String, isSubclassOf } from "@itwin/core-bentley";
 import { Id64Utils, Id64UtilsArg } from "./Id64Utils";
 import { IModelCloneContext } from "./IModelCloneContext";
+import { DisplayStyle3dProps, DisplayStyleProps, ElementProps, SpatialViewDefinitionProps } from "@itwin/core-common";
 
 interface TrackedJsonPropData<T extends Id64UtilsArg> {
   [propPath: string]: {
-    get(e: Element): T;
-    remap(e: Element, remap: (prev: T) => T): void;
+    get(e: ElementProps): T | undefined;
+    remap(e: ElementProps, remap: (prev: T) => T): void;
   }
 }
 
@@ -31,8 +32,8 @@ const classSpecificTrackedJsonProperties = new Map<
 >([
   [Element, {
     "targetRelInstanceId": {
-      get: (e: Element) => e.jsonProperties.targetRelInstanceId,
-      remap: (e: Element, remap) => {
+      get: (e: ElementProps) => e.jsonProperties.targetRelInstanceId,
+      remap: (e: ElementProps, remap) => {
         if (e.jsonProperties.targetRelInstanceId)
           e.jsonProperties.targetRelInstanceId = remap(e.jsonProperties.targetRelInstanceId);
       },
@@ -40,46 +41,53 @@ const classSpecificTrackedJsonProperties = new Map<
   }],
   [DisplayStyle3d, {
     "styles.environment.sky.image.texture": {
-      get: (e: DisplayStyle3d) => e.jsonProperties?.styles?.environment?.sky?.image?.texture,
-      remap: (e: DisplayStyle3d, remap) => {
-        if (e.jsonProperties.styles.environment.sky.image.texture)
-          e.jsonProperties.styles.environment.sky.image.texture = remap(e.jsonProperties.styles.environment.sky.image.texture);
+      get: (e: DisplayStyle3dProps) => e.jsonProperties?.styles?.environment?.sky?.image?.texture,
+      remap: (e: DisplayStyle3dProps, remap) => {
+        if (e.jsonProperties?.styles?.environment?.sky?.image?.texture)
+          e.jsonProperties.styles.environment.sky.image.texture = remap(e.jsonProperties.styles.environment.sky.image.texture) as Id64String;
       },
     },
+      // FIXME: this is a compressed id set!
     "styles.excludedElements": {
-      get: (e: DisplayStyle3d) => e.jsonProperties.styles.excludedElements,
-      remap: (e: DisplayStyle3d, remap) => {
-        if (e.jsonProperties.styles.excludedElements)
-          e.jsonProperties.styles.excludedElements = remap(e.jsonProperties.styles.excludedElements);
+      get: (e: DisplayStyle3dProps) => e.jsonProperties?.styles?.excludedElements,
+      remap: (e: DisplayStyle3dProps, remap) => {
+        if (e.jsonProperties?.styles?.excludedElements) {
+          if (typeof e.jsonProperties.styles.excludedElements === "string") {
+            const decompressed = CompressedId64Set.decompressArray(e.jsonProperties.styles.excludedElements);
+            e.jsonProperties.styles.excludedElements = CompressedId64Set.compressArray(decompressed.map(remap) as Id64String[]);
+          } else /** Array.isArray */ {
+            e.jsonProperties.styles.excludedElements.forEach((id, i, a) => a[i] = remap(id) as Id64String)
+          }
+        }
       },
     },
   }],
   [DisplayStyle as any, {
     "styles.subCategoryOvr.*.subCategory": {
-      get: (e: DisplayStyle) =>
-        e.jsonProperties.styles.subCategoryOvr.map((ovr: any) => ovr.subCategory),
-      remap: (e: DisplayStyle, remap) => {
-        if (e.jsonProperties.styles.subCategoryOvr)
+      get: (e: DisplayStyleProps) =>
+        e.jsonProperties?.styles?.subCategoryOvr?.map((ovr: any) => ovr?.subCategory),
+      remap: (e: DisplayStyleProps, remap) => {
+        if (e.jsonProperties?.styles?.subCategoryOvr)
           (e.jsonProperties.styles.subCategoryOvr as { subCategory: Id64String }[])
-            .forEach((ovr) => ovr.subCategory = remap(ovr.subCategory) as Id64String);
+            .forEach((ovr) => ovr.subCategory && (ovr.subCategory = remap(ovr.subCategory) as Id64String));
       },
     },
     "styles.modelOvr.*.modelId": {
-      get: (e: DisplayStyle) =>
-        e.jsonProperties.styles.modelOvr.map((ovr: any) => ovr.modelId),
-      remap: (e: DisplayStyle, remap) => {
-        if (e.jsonProperties.styles.modelOvr)
-          (e.jsonProperties.styles.modelOvr as { modelId: Id64String }[])
-            .forEach((ovr) => ovr.modelId = remap(ovr.modelId) as Id64String);
+      get: (e: DisplayStyleProps) =>
+        e.jsonProperties?.styles?.modelOvr?.map((ovr: any) => ovr.modelId),
+      remap: (e: DisplayStyleProps, remap) => {
+        if (e.jsonProperties?.styles?.modelOvr)
+          (e.jsonProperties?.styles?.modelOvr as { modelId: Id64String }[] | undefined)
+            ?.forEach((ovr) => ovr.modelId && (ovr.modelId = remap(ovr.modelId) as Id64String));
       },
     },
   }],
   [ViewDefinition as any, {
     "viewDetails.acs": {
-      get: (e: SpatialViewDefinition) => e.jsonProperties.viewDetails.acs,
-      remap: (e: SpatialViewDefinition, remap) => {
-        if (e.jsonProperties.viewDetails.acs)
-          e.jsonProperties.viewDetails.acs = remap(e.jsonProperties.viewDetails.acs);
+      get: (e: SpatialViewDefinitionProps) => e.jsonProperties?.viewDetails?.acs,
+      remap: (e: SpatialViewDefinitionProps, remap) => {
+        if (e.jsonProperties?.viewDetails?.acs)
+          e.jsonProperties.viewDetails.acs = remap(e.jsonProperties.viewDetails.acs) as Id64String;
       },
     },
   }],
@@ -105,13 +113,11 @@ export const TrackedJsonProperties = {
     return cacheTrackedJsonProperties(entityClass as typeof Element);
   },
 
-  _remapJsonProps(sourceElement: Element, findTargetElementId: IModelCloneContext["findTargetElementId"]) {
+  _remapJsonProps(sourceElement: ElementProps, findTargetElementId: IModelCloneContext["findTargetElementId"]) {
     const elemClassTrackedJsonProps = cacheTrackedJsonProperties(sourceElement.constructor as typeof Element);
     for (const trackedJsonProp of Object.values(elemClassTrackedJsonProps)) {
-      trackedJsonProp.get(sourceElement);
-      Id64Utils.map(trackedJsonProp.get(sourceElement), (sourceElemId) => {
-        const targetId = findTargetElementId(sourceElemId)
-      });
+      // TODO: support CompressedId64Set
+      trackedJsonProp.remap(sourceElement, findTargetElementId as (id: Id64UtilsArg) => Id64UtilsArg);
     }
   },
 

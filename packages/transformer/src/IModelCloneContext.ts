@@ -12,10 +12,11 @@ import {
   PrimitiveTypeCode, RelatedElementProps,
 } from "@itwin/core-common";
 import {
-  ElementAspect, EntityReferences, IModelElementCloneContext, SQLiteDb,
+  Element, ElementAspect, EntityReferences, IModelElementCloneContext, IModelJsNative, SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
+import { TrackedJsonProperties } from "./TrackedJsonProperties";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @beta
@@ -172,6 +173,13 @@ export class IModelCloneContext extends IModelElementCloneContext {
       }
     });
     return targetElementAspectProps;
+  }
+
+  // TODO: merge with custom non-native-context clone branch
+  public override cloneElement(sourceElement: Element, opts: IModelJsNative.CloneElementOptions) {
+    const cloned = super.cloneElement(sourceElement, opts);
+    TrackedJsonProperties._remapJsonProps(cloned, this.findTargetElementId.bind(this));
+    return cloned;
   }
 
   private static aspectRemapTableName = "AspectIdRemaps";
