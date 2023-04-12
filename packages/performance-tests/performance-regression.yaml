@@ -87,13 +87,14 @@ stages:
             workingDirectory: $(Pipeline.Workspace)/
 
           - download: current
-            displayName: Download test runner
+            displayName: Packages
             artifact: TestRunner
 
           - download: current
-            displayName: Download test runner
+            displayName: Download pnpm-lock
             artifact: pnpm-lock
             patterns: '**/*.yaml'
+            downloadPath: $(Pipeline.Workspace)/TestRunner
 
           - script: pnpm i
             displayName: 'pnpm install'
@@ -104,7 +105,6 @@ stages:
               echo 'ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)'>> .env
               echo 'IMODEL_USER_NAME: $(imjs_user_email)'>> .env
               echo 'IMODEL_USER_PASSWORD: $(imjs_user_password)'>> .env
-              type .env
             displayName: 'create dotenv'
             workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
 
