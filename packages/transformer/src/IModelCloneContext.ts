@@ -25,7 +25,12 @@ export class IModelCloneContext extends IModelElementCloneContext {
 
   private _refTypesCache = new ECReferenceTypesCache();
 
-  public trackedJsonProperties = new TrackedJsonProperties();
+  public trackedJsonProperties: TrackedJsonProperties;
+
+  public constructor(...[sourceDb, targetDb]: ConstructorParameters<typeof IModelElementCloneContext>) {
+    super(sourceDb, targetDb);
+    this.trackedJsonProperties = new TrackedJsonProperties(this.sourceDb);
+  }
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {

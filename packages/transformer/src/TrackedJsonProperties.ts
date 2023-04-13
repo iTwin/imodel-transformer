@@ -1,4 +1,4 @@
-import { Element, ClassRegistry, } from "@itwin/core-backend";
+import { Element, ClassRegistry, IModelDb, } from "@itwin/core-backend";
 import * as BackendExports from "@itwin/core-backend";
 import { CompressedId64Set, Id64String, isSubclassOf } from "@itwin/core-bentley";
 import { Id64UtilsArg } from "./Id64Utils";
@@ -54,9 +54,9 @@ const classSpecificTrackedJsonProperties = new Map<
   // cannot use Element.classFullName because IModelHost is not necessarily initialized at import time
   ["BisCore:Element", {
     "targetRelInstanceId": {
-      get: (e: ElementProps) => e.jsonProperties.targetRelInstanceId,
+      get: (e: ElementProps) => e.jsonProperties?.targetRelInstanceId,
       remap: (e: ElementProps, remap) => {
-        if (e.jsonProperties.targetRelInstanceId)
+        if (e.jsonProperties?.targetRelInstanceId)
           e.jsonProperties.targetRelInstanceId = remap(e.jsonProperties.targetRelInstanceId);
       },
     },
@@ -262,42 +262,44 @@ const bisCoreClasses = Object.values(BackendExports).filter(
 
 export class TrackedJsonProperties {
   /** inherited tracked json properties for every class */
-  private _trackedJsonProperties = new Map<abstract new (...args: any[]) => Element, TrackedJsonPropData<Id64UtilsArg>>([]);
+  private _trackedJsonProperties = new Map<string, TrackedJsonPropData<Id64UtilsArg>>([]);
 
-  private _cacheTrackedJsonProperties(cls: typeof Element): TrackedJsonPropData<Id64UtilsArg> {
+  public constructor(
+    private _iModel: IModelDb,
+  ) {
+    // NOTE: this currently ignores the ability that core's requiredReferenceKeys has to allow custom js classes
+    // to introduce new requiredReferenceKeys, which means if that were used, this would break. Currently un-used however.
+    for (const bisCoreClass of bisCoreClasses) {
+      this._cacheTrackedJsonProperties(bisCoreClass.classFullName)
+    }
+  }
+
+  private _cacheTrackedJsonProperties(classFullName: string): TrackedJsonPropData<Id64UtilsArg> {
     const classTrackedJsonProps: TrackedJsonPropData<Id64UtilsArg> = {};
 
-    let baseClass = cls;
-    while (baseClass !== null) {
-      if (baseClass.schema === undefined)
+    let currClass = this._iModel.getJsClass(classFullName);
+    while (currClass !== null) {
+      if (currClass.schema === undefined)
         break;
-      const baseClassRequiredRefs = classSpecificTrackedJsonProperties.get(baseClass.classFullName);
+      const baseClassRequiredRefs = classSpecificTrackedJsonProperties.get(currClass.classFullName);
       Object.assign(classTrackedJsonProps, baseClassRequiredRefs);
-      baseClass = Object.getPrototypeOf(baseClass);
+      currClass = Object.getPrototypeOf(currClass);
     }
 
-    this._trackedJsonProperties.set(cls, classTrackedJsonProps);
+    this._trackedJsonProperties.set(classFullName, classTrackedJsonProps);
 
     return classTrackedJsonProps;
   }
 
-  public constructor() {
-    // NOTE: this currently ignores the ability that core's requiredReferenceKeys has to allow custom js classes
-    // to introduce new requiredReferenceKeys, which means if that were used, this would break. Currently un-used however.
-    for (const bisCoreClass of bisCoreClasses) {
-      this._cacheTrackedJsonProperties(bisCoreClass)
-    }
-  }
-
-  get(entityClass: abstract new (...args: any[]) => Element): TrackedJsonPropData<Id64UtilsArg> {
-    const cached = this._trackedJsonProperties.get(entityClass);
+  get(classFullName: string): TrackedJsonPropData<Id64UtilsArg> {
+    const cached = this._trackedJsonProperties.get(classFullName);
     if (cached) return cached;
-    return this._cacheTrackedJsonProperties(entityClass as typeof Element);
+    return this._cacheTrackedJsonProperties(classFullName);
   }
 
   /** @internal */
   public _remapJsonProps(sourceElement: ElementProps, findTargetElementId: IModelCloneContext["findTargetElementId"]) {
-    const elemClassTrackedJsonProps = this._cacheTrackedJsonProperties(sourceElement.constructor as typeof Element);
+    const elemClassTrackedJsonProps = this.get(sourceElement.classFullName);
     for (const trackedJsonProp of Object.values(elemClassTrackedJsonProps)) {
       // TODO: support CompressedId64Set
       trackedJsonProp.remap(sourceElement, findTargetElementId as (id: Id64UtilsArg) => Id64UtilsArg);
