@@ -38,7 +38,7 @@ describe("imodel-transformer", () => {
       Logger.setLevel(TransformerLoggerCategory.IModelTransformer, logLevel);
     }
     console.log(process.env.V1_CHECKPOINT_USER_NAME)
-    assert(process.env.V1_CHECKPOINT_USER_NAME, "user name was not configured");
+    assert(process.env.V1_CHECKPOINT_USER_NAME, "user name was not configured. test");
     assert(process.env.V1_CHECKPOINT_USER_PASSWORD, "user password was not configured");
 
     const user = {
