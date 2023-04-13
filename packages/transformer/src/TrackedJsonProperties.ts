@@ -15,7 +15,13 @@ import { IModelCloneContext } from "./IModelCloneContext";
 import { DisplayStyle3dProps, DisplayStyleProps, ElementProps, SpatialViewDefinitionProps } from "@itwin/core-common";
 
 interface TrackedJsonPropData<T extends Id64UtilsArg> {
-  [propPath: string]: {
+  /**
+   * `propPathPattern` is in 'simple property wildcard' syntax, which means a dot
+   * separated list of strings or '*' which matches any string for that property access.
+   * e.g. 'hello.*.world.*.test' matches 'hello.0.world.0-was-an-array-ICanContain$$Whatever.test'
+   * @see simplePropertyWildcardMatch
+   */
+  [propPathPattern: string]: {
     get(e: ElementProps): T | undefined;
     remap(e: ElementProps, remap: (prev: T) => T): void;
   }
@@ -93,6 +99,19 @@ const classSpecificTrackedJsonProperties = new Map<
   }],
 ]);
 
+/**
+ * Returns if a 'simple-property-syntax' pattern matches an input string
+ * `propPathPattern` is in 'simple property wildcard' syntax, which means a dot
+ * separated list of strings or '*' which matches any string for that property access.
+ * e.g. 'hello.*.world.*.test' matches 'hello.0.world.0-was-an-array-ICanContain$$Whatever.test'
+ */
+function simplePropertyWildcardMatch(pattern: string, s: string) {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const wildcarded = escaped.replace(/\.\*\./g, "\\.[^.]*\\.");
+  const regex = new RegExp("^" + wildcarded + "$", "g");
+  return regex.test(s);
+}
+
 /** inherited tracked json properties for every class */
 const trackedJsonProperties = new Map<abstract new (...args: any[]) => Element, TrackedJsonPropData<Id64UtilsArg>>([]);
 
@@ -129,14 +148,17 @@ export const TrackedJsonProperties = {
     const results: PotentialUntrackedJsonPropValue[] = [];
 
     const recurse = (obj: any, path: string) => {
-      outer: for (const [key, val] of Object.entries(obj)) {
+      outer:
+      for (const [key, val] of Object.entries(obj)) {
         let match: RegExpMatchArray | null;
         if (typeof val === "string" && (match = this._hexIdOrCompressedSetPattern.exec(val))) {
           const subPath = `${path}.${key}`;
-          for (const [cls, trackedProps] of classSpecificTrackedJsonProperties.entries()) {
+          for (const [cls, trackedPropsPatterns] of classSpecificTrackedJsonProperties.entries()) {
             if (isSubclassOf(element.constructor as typeof Element, cls as typeof Element)) {
-              const trackedKey = subPath.slice("jsonProperties.".length);
-              if (trackedKey in trackedProps) continue outer;
+              const trackedKey = subPath.slice("jsonProperties.".length); // tracked props patterns don't include the root jsonProperties key
+              const tracked = Object.keys(trackedPropsPatterns).some((pat) =>
+                simplePropertyWildcardMatch(pat, trackedKey));
+              if (tracked) continue outer;
             }
           }
           const debugPath = `<${element.id}|"${element.code.value}"(${element.classFullName})>.${subPath}`;
