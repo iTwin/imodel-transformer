@@ -10,6 +10,8 @@ export * from "./IModelTransformer";
 import * as semver from "semver";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
+import "source-map-support/register";
+
 // must use an untyped require to not hoist src into lib/cjs, also the compiled output will be in 'lib/cjs', not 'src' so use `../..` to reach package.json
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { version: ourVersion, name: ourName, peerDependencies } = require("../../package.json");

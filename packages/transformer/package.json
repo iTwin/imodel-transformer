@@ -24,7 +24,7 @@
     "lint": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
     "lint:no-tests": "eslint -f visualstudio \"./src/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio \"./src/**/*.ts\" 1>&2",
-    "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000 --require source-map-support/register",
+    "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000",
     "no-internal-report": "no-internal-report src/**/*.ts"
   },
   "repository": {
