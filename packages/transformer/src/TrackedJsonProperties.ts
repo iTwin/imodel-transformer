@@ -1,18 +1,16 @@
-import * as assert from "assert";
-
 import {
   DisplayStyle,
   DisplayStyle3d,
   Element,
-  SpatialViewDefinition,
-  Subject,
+  SectionDrawing,
   ViewDefinition,
+  RenderMaterialElement,
 } from "@itwin/core-backend";
 import * as BackendExports from "@itwin/core-backend";
 import { CompressedId64Set, Id64String, isSubclassOf } from "@itwin/core-bentley";
-import { Id64Utils, Id64UtilsArg } from "./Id64Utils";
+import { Id64UtilsArg } from "./Id64Utils";
 import { IModelCloneContext } from "./IModelCloneContext";
-import { DisplayStyle3dProps, DisplayStyleProps, ElementProps, SpatialViewDefinitionProps } from "@itwin/core-common";
+import { DisplayStyle3dProps, DisplayStyleProps, ElementProps, SectionDrawingProps, SpatialViewDefinitionProps, RenderMaterialProps, TextureMapProps } from "@itwin/core-common";
 
 interface TrackedJsonPropData<T extends Id64UtilsArg> {
   /**
@@ -24,6 +22,21 @@ interface TrackedJsonPropData<T extends Id64UtilsArg> {
   [propPathPattern: string]: {
     get(e: ElementProps): T | undefined;
     remap(e: ElementProps, remap: (prev: T) => T): void;
+  }
+}
+
+// TODO: document where some of these render material maps come from, propose adding them to core
+// FIXME: check native code for other map types
+declare module "@itwin/core-common" {
+  export interface RenderMaterialAssetMapsProps {
+    Bump?: TextureMapProps;
+    Diffuse?: TextureMapProps;
+    Finish?: TextureMapProps;
+    GlowColor?: TextureMapProps;
+    Reflect?: TextureMapProps;
+    Specular?: TextureMapProps;
+    TranslucencyColor?: TextureMapProps;
+    TransparentColor?: TextureMapProps;
   }
 }
 
@@ -97,17 +110,127 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
+  [SectionDrawing, {
+    // TODO: document where these json props come from
+    "spatialViewId": {
+      get: (e: SectionDrawingProps) => (e.jsonProperties as any)?.spatialViewId,
+      remap: (e: SpatialViewDefinitionProps, remap) => {
+        if ((e.jsonProperties as any)?.spatialViewId)
+          (e.jsonProperties as any).spatialViewId = remap((e.jsonProperties as any).spatialViewId) as Id64String;
+      },
+    },
+    "drawingViewId": {
+      get: (e: SectionDrawingProps) => (e.jsonProperties as any)?.drawingViewId,
+      remap: (e: SpatialViewDefinitionProps, remap) => {
+        if ((e.jsonProperties as any)?.drawingViewId)
+          (e.jsonProperties as any).drawingViewId = remap((e.jsonProperties as any).drawingViewId) as Id64String;
+      },
+    },
+  }],
+  [RenderMaterialElement, {
+    // TODO: test random configured tracked props
+    "materialAssets.renderMaterial.Map.Bump.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Bump?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Bump?.TextureId)
+          e.jsonProperties.materialAssets.renderMaterial.Map.Bump.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Bump.TextureId) as Id64String;
+      }
+    },
+    // FIXME: this won't work if the json was already remapped in native code! Looks like I will need to rebase
+    // on the non-native-context branch
+    "materialAssets.renderMaterial.Map.Normal.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Normal?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Normal?.TextureId)
+          e.jsonProperties.materialAssets.renderMaterial.Map.Normal.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Normal.TextureId) as Id64String;
+      }
+    },
+    "materialAssets.renderMaterial.Map.Diffuse.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Diffuse?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Diffuse?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.Diffuse.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Diffuse.TextureId) as Id64String;
+        }
+      }
+    },
+    "materialAssets.renderMaterial.Map.Finish.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Finish?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Finish?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.Finish.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Finish.TextureId) as Id64String;
+        }
+      }
+    },
+    "materialAssets.renderMaterial.Map.GlowColor.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.GlowColor?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.GlowColor?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.GlowColor.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.GlowColor.TextureId) as Id64String;
+        }
+      }
+    },
+    "materialAssets.renderMaterial.Map.Pattern.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Pattern?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Pattern?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.Pattern.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Pattern.TextureId) as Id64String;
+        }
+      }
+    },
+    "materialAssets.renderMaterial.Map.Reflect.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Reflect?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Reflect?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.Reflect.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Reflect.TextureId) as Id64String;
+        }
+      }
+    },
+    "materialAssets.renderMaterial.Map.Specular.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Specular?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Specular?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.Specular.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Specular.TextureId) as Id64String;
+        }
+      }
+    },
+    "materialAssets.renderMaterial.Map.TranslucencyColor.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.TranslucencyColor?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.TranslucencyColor?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.TranslucencyColor.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.TranslucencyColor.TextureId) as Id64String;
+        }
+      }
+    },
+    "materialAssets.renderMaterial.Map.TransparentColor.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.TransparentColor?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.TransparentColor?.TextureId) {
+          e.jsonProperties.materialAssets.renderMaterial.Map.TransparentColor.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.TransparentColor.TextureId) as Id64String;
+        }
+      }
+    },
+  }],
 ]);
 
 /**
  * Returns if a 'simple-property-syntax' pattern matches an input string
  * `propPathPattern` is in 'simple property wildcard' syntax, which means a dot
  * separated list of strings or '*' which matches any string for that property access.
- * e.g. 'hello.*.world.*.test' matches 'hello.0.world.0-was-an-array-ICanContain$$Whatever.test'
+ * e.g. 'hello.*.world.*Test' matches 'hello.0.world.0-was-an-array-ICanContain$$Whatever-butMustEndInTest'
  */
 function simplePropertyWildcardMatch(pattern: string, s: string) {
   const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const wildcarded = escaped.replace(/\.\*\./g, "\\.[^.]*\\.");
+  const wildcarded = escaped.replace(/\*/g, "[^.]*");
   const regex = new RegExp("^" + wildcarded + "$", "g");
   return regex.test(s);
 }
