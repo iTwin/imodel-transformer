@@ -86,9 +86,13 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/
 
-          - download: current
-            displayName: Packages
-            artifact: TestRunner
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              buildType: 'current'
+              downloadType: 'single'
+              artifactName: 'TestRunner'
+              downloadPath: $(Pipeline.Workspace)/TestRunner
+              displayName: download TestRunner
 
           - task: DownloadBuildArtifacts@0
             inputs:
