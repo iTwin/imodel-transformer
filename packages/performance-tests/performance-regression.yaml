@@ -53,11 +53,17 @@ stages:
             displayName: 'npm build'
             workingDirectory: $(Build.SourcesDirectory)
 
-          - publish: $(Build.SourcesDirectory)/packages
-            artifact: TestRunner
-        
-          - publish: $(Build.SourcesDirectory)/pnpm-lock.yaml
-            artifact: pnpm-lock
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish packages'
+            inputs:
+              pathToPublish: $(Build.SourcesDirectory)/packages
+              artifactName: TestRunner
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish packages'
+            inputs:
+              pathToPublish: $(Build.SourcesDirectory)/pnpm-lock.yaml
+              artifactName: pnpm-lock
 
   - stage: run
     displayName: Run
