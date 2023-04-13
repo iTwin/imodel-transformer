@@ -92,20 +92,18 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/
 
-          - task: DownloadBuildArtifacts@0
+          - task: DownloadPipelineArtifact@2
             inputs:
               buildType: 'current'
-              downloadType: 'single'
               artifactName: 'TestRunner'
-              downloadPath: $(Pipeline.Workspace)/TestRunner
+              targetPath: $(Pipeline.Workspace)/TestRunner
               displayName: download TestRunner
 
-          - task: DownloadBuildArtifacts@0
+          - task: DownloadPipelineArtifact@2
             inputs:
               buildType: 'current'
-              downloadType: 'single'
               artifactName: 'pnpm-lock'
-              downloadPath: $(Pipeline.Workspace)/TestRunner
+              targetPath: $(Pipeline.Workspace)/TestRunner
             displayName: Download pnpm-lock      
 
           - script: pnpm i
