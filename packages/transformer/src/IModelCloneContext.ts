@@ -6,7 +6,7 @@
  * @module iModels
  */
 import * as assert from "assert";
-import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
+import { DbResult, Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   ConcreteEntityTypes, ElementAspectProps, EntityReference, IModelError,
   PrimitiveTypeCode, RelatedElementProps,
@@ -185,7 +185,14 @@ export class IModelCloneContext extends IModelElementCloneContext {
   // TODO: merge with custom non-native-context clone branch
   public override cloneElement(sourceElement: Element, opts: IModelJsNative.CloneElementOptions) {
     const cloned = super.cloneElement(sourceElement, opts);
-    this.trackedJsonProperties._remapJsonProps(cloned, this.findTargetElementId.bind(this));
+    this.trackedJsonProperties._remapJsonProps(cloned, (sourceId, path) => {
+      const targetId = this.findTargetElementId(sourceId);
+      Logger.logTrace(
+        "Transformer:IModelCloneContext",
+        `Remapped <${sourceElement.id}>.jsonProperties.${path} from ${sourceId} to ${targetId}`
+      );
+      return targetId;
+    });
     return cloned;
   }
 

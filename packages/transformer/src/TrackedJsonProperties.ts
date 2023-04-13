@@ -298,11 +298,11 @@ export class TrackedJsonProperties {
   }
 
   /** @internal */
-  public _remapJsonProps(sourceElement: ElementProps, findTargetElementId: IModelCloneContext["findTargetElementId"]) {
+  public _remapJsonProps(sourceElement: ElementProps, findTargetElementId: (id: Id64String, path: string) => Id64String) {
     const elemClassTrackedJsonProps = this.get(sourceElement.classFullName);
-    for (const trackedJsonProp of Object.values(elemClassTrackedJsonProps)) {
-      // TODO: support CompressedId64Set
-      trackedJsonProp.remap(sourceElement, findTargetElementId as (id: Id64UtilsArg) => Id64UtilsArg);
+    for (const [propPath, propData] of Object.entries(elemClassTrackedJsonProps)) {
+      // FIXME: support remapping CompressedId64Set
+      propData.remap(sourceElement, (id: Id64UtilsArg) => findTargetElementId(id as Id64String, propPath));
     }
   }
 
