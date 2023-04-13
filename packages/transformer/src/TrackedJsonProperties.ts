@@ -5,6 +5,7 @@ import {
   SectionDrawing,
   ViewDefinition,
   RenderMaterialElement,
+  ClassRegistry,
 } from "@itwin/core-backend";
 import * as BackendExports from "@itwin/core-backend";
 import { CompressedId64Set, Id64String, isSubclassOf } from "@itwin/core-bentley";
@@ -37,6 +38,7 @@ declare module "@itwin/core-common" {
     Specular?: TextureMapProps;
     TranslucencyColor?: TextureMapProps;
     TransparentColor?: TextureMapProps;
+    Displacement?: TextureMapProps;
   }
 }
 
@@ -110,7 +112,8 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [SectionDrawing, {
+  /*
+  [ClassRegistry.getClass("BisCore:SectionLocation"), {
     // TODO: document where these json props come from
     "spatialViewId": {
       get: (e: SectionDrawingProps) => (e.jsonProperties as any)?.spatialViewId,
@@ -127,6 +130,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
+  */
   [RenderMaterialElement, {
     // TODO: test random configured tracked props
     "materialAssets.renderMaterial.Map.Bump.TextureId": {
@@ -217,6 +221,14 @@ const classSpecificTrackedJsonProperties = new Map<
           e.jsonProperties.materialAssets.renderMaterial.Map.TransparentColor.TextureId
             = remap(e.jsonProperties.materialAssets.renderMaterial.Map.TransparentColor.TextureId) as Id64String;
         }
+      }
+    },
+    "materialAssets.renderMaterial.Map.Displacement.TextureId": {
+      get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Displacement?.TextureId,
+      remap: (e: RenderMaterialProps, remap) => {
+        if (e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Displacement?.TextureId)
+          e.jsonProperties.materialAssets.renderMaterial.Map.Displacement.TextureId
+            = remap(e.jsonProperties.materialAssets.renderMaterial.Map.Displacement.TextureId) as Id64String;
       }
     },
   }],
