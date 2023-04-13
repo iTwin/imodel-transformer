@@ -25,6 +25,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
 
   private _refTypesCache = new ECReferenceTypesCache();
 
+  public trackedJsonProperties = new TrackedJsonProperties();
+
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
@@ -178,7 +180,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
   // TODO: merge with custom non-native-context clone branch
   public override cloneElement(sourceElement: Element, opts: IModelJsNative.CloneElementOptions) {
     const cloned = super.cloneElement(sourceElement, opts);
-    TrackedJsonProperties._remapJsonProps(cloned, this.findTargetElementId.bind(this));
+    this.trackedJsonProperties._remapJsonProps(cloned, this.findTargetElementId.bind(this));
     return cloned;
   }
 

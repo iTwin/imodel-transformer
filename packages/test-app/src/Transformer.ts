@@ -252,7 +252,7 @@ export class Transformer extends IModelTransformer {
 
   public override onTransformElement(sourceElement: Element): ElementProps {
     if (this._logUnknownIdsInJsonProps) {
-      const unknownProps = TrackedJsonProperties._findPotentialUntrackedJsonProperties(sourceElement);
+      const unknownProps = this.context.trackedJsonProperties._findPotentialUntrackedJsonProperties(sourceElement);
       for (const { debugPath, value } of unknownProps) {
         console.error(`${debugPath} contained id ${value} but that json property isn't known to the transformer`);
       }

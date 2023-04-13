@@ -1,17 +1,17 @@
-import {
-  DisplayStyle,
-  DisplayStyle3d,
-  Element,
-  SectionDrawing,
-  ViewDefinition,
-  RenderMaterialElement,
-  ClassRegistry,
-} from "@itwin/core-backend";
+import { Element, ClassRegistry, } from "@itwin/core-backend";
 import * as BackendExports from "@itwin/core-backend";
 import { CompressedId64Set, Id64String, isSubclassOf } from "@itwin/core-bentley";
 import { Id64UtilsArg } from "./Id64Utils";
 import { IModelCloneContext } from "./IModelCloneContext";
-import { DisplayStyle3dProps, DisplayStyleProps, ElementProps, SectionDrawingProps, SpatialViewDefinitionProps, RenderMaterialProps, TextureMapProps } from "@itwin/core-common";
+import {
+  DisplayStyle3dProps,
+  DisplayStyleProps,
+  ElementProps,
+  SectionDrawingProps,
+  SpatialViewDefinitionProps,
+  RenderMaterialProps,
+  TextureMapProps
+} from "@itwin/core-common";
 
 interface TrackedJsonPropData<T extends Id64UtilsArg> {
   /**
@@ -51,7 +51,8 @@ const classSpecificTrackedJsonProperties = new Map<
   string,
   TrackedJsonPropData<Id64UtilsArg>
 >([
-  [Element.classFullName, {
+  // cannot use Element.classFullName because IModelHost is not necessarily initialized at import time
+  ["BisCore:Element", {
     "targetRelInstanceId": {
       get: (e: ElementProps) => e.jsonProperties.targetRelInstanceId,
       remap: (e: ElementProps, remap) => {
@@ -60,7 +61,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [DisplayStyle3d.classFullName, {
+  ["BisCore:DisplayStyle3d", {
     "styles.environment.sky.image.texture": {
       get: (e: DisplayStyle3dProps) => e.jsonProperties?.styles?.environment?.sky?.image?.texture,
       remap: (e: DisplayStyle3dProps, remap) => {
@@ -83,7 +84,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [DisplayStyle.classFullName, {
+  ["BisCore:DisplayStyle", {
     "styles.subCategoryOvr.*.subCategory": {
       get: (e: DisplayStyleProps) =>
         e.jsonProperties?.styles?.subCategoryOvr?.map((ovr: any) => ovr?.subCategory),
@@ -103,7 +104,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [ViewDefinition.classFullName, {
+  ["BisCore:ViewDefinition", {
     "viewDetails.acs": {
       get: (e: SpatialViewDefinitionProps) => e.jsonProperties?.viewDetails?.acs,
       remap: (e: SpatialViewDefinitionProps, remap) => {
@@ -129,7 +130,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [RenderMaterialElement.classFullName, {
+  ["BisCore:RenderMaterial", {
     // TODO: test random configured tracked props
     "materialAssets.renderMaterial.Map.Bump.TextureId": {
       get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Bump?.TextureId,
@@ -245,12 +246,9 @@ function simplePropertyWildcardMatch(pattern: string, s: string) {
   return regex.test(s);
 }
 
-/** inherited tracked json properties for every class */
-const trackedJsonProperties = new Map<abstract new (...args: any[]) => Element, TrackedJsonPropData<Id64UtilsArg>>([]);
-
 /** @internal */
 export interface PotentialUntrackedJsonPropValue {
-  /** path from the element */
+  /** path from the element, e.g. jsonProperties.x.y.0.z */
   propPath: string;
   /** path including info about the element where it was found, for debug printing */
   debugPath?: string;
@@ -258,36 +256,68 @@ export interface PotentialUntrackedJsonPropValue {
   type: "Id64String" | "CompressedId64Set";
 }
 
-export const TrackedJsonProperties = {
-  get(entityClass: abstract new (...args: any[]) => Element): TrackedJsonPropData<Id64UtilsArg> {
-    const cached = trackedJsonProperties.get(entityClass);
-    if (cached) return cached;
-    return cacheTrackedJsonProperties(entityClass as typeof Element);
-  },
+const bisCoreClasses = Object.values(BackendExports).filter(
+  (v): v is typeof Element => v && "prototype" in v && isSubclassOf(v as any, Element)
+);
 
-  _remapJsonProps(sourceElement: ElementProps, findTargetElementId: IModelCloneContext["findTargetElementId"]) {
-    const elemClassTrackedJsonProps = cacheTrackedJsonProperties(sourceElement.constructor as typeof Element);
+export class TrackedJsonProperties {
+  /** inherited tracked json properties for every class */
+  private _trackedJsonProperties = new Map<abstract new (...args: any[]) => Element, TrackedJsonPropData<Id64UtilsArg>>([]);
+
+  private _cacheTrackedJsonProperties(cls: typeof Element): TrackedJsonPropData<Id64UtilsArg> {
+    const classTrackedJsonProps: TrackedJsonPropData<Id64UtilsArg> = {};
+
+    let baseClass = cls;
+    while (baseClass !== null) {
+      if (baseClass.schema === undefined)
+        break;
+      const baseClassRequiredRefs = classSpecificTrackedJsonProperties.get(baseClass.classFullName);
+      Object.assign(classTrackedJsonProps, baseClassRequiredRefs);
+      baseClass = Object.getPrototypeOf(baseClass);
+    }
+
+    this._trackedJsonProperties.set(cls, classTrackedJsonProps);
+
+    return classTrackedJsonProps;
+  }
+
+  public constructor() {
+    // NOTE: this currently ignores the ability that core's requiredReferenceKeys has to allow custom js classes
+    // to introduce new requiredReferenceKeys, which means if that were used, this would break. Currently un-used however.
+    for (const bisCoreClass of bisCoreClasses) {
+      this._cacheTrackedJsonProperties(bisCoreClass)
+    }
+  }
+
+  get(entityClass: abstract new (...args: any[]) => Element): TrackedJsonPropData<Id64UtilsArg> {
+    const cached = this._trackedJsonProperties.get(entityClass);
+    if (cached) return cached;
+    return this._cacheTrackedJsonProperties(entityClass as typeof Element);
+  }
+
+  /** @internal */
+  public _remapJsonProps(sourceElement: ElementProps, findTargetElementId: IModelCloneContext["findTargetElementId"]) {
+    const elemClassTrackedJsonProps = this._cacheTrackedJsonProperties(sourceElement.constructor as typeof Element);
     for (const trackedJsonProp of Object.values(elemClassTrackedJsonProps)) {
       // TODO: support CompressedId64Set
       trackedJsonProp.remap(sourceElement, findTargetElementId as (id: Id64UtilsArg) => Id64UtilsArg);
     }
-  },
+  }
+
+  private static _hexIdOrCompressedSetPattern = /^((?<hex>0x)|(?<compressed>\+\d))/;
 
   /** @internal */
-  _hexIdOrCompressedSetPattern: /^((?<hex>0x)|(?<compressed>\+\d))/,
-
-  /** @internal */
-  _findPotentialUntrackedJsonProperties(element: Element): PotentialUntrackedJsonPropValue[] {
+  public _findPotentialUntrackedJsonProperties(element: Element): PotentialUntrackedJsonPropValue[] {
     const results: PotentialUntrackedJsonPropValue[] = [];
 
     const recurse = (obj: any, path: string) => {
       outer:
       for (const [key, val] of Object.entries(obj)) {
         let match: RegExpMatchArray | null;
-        if (typeof val === "string" && (match = this._hexIdOrCompressedSetPattern.exec(val))) {
+        if (typeof val === "string" && (match = TrackedJsonProperties._hexIdOrCompressedSetPattern.exec(val))) {
           const subPath = `${path}.${key}`;
           for (const [classFullName, trackedPropsPatterns] of classSpecificTrackedJsonProperties.entries()) {
-            const cls = ClassRegistry.getClass(classFullName, element.iModel) as typeof Element;
+            const cls = element.iModel.getJsClass(classFullName) as typeof Element;
             if (isSubclassOf(element.constructor as typeof Element, cls)) {
               const trackedKey = subPath.slice("jsonProperties.".length); // tracked props patterns don't include the root jsonProperties key
               const tracked = Object.keys(trackedPropsPatterns).some((pat) =>
@@ -312,30 +342,5 @@ export const TrackedJsonProperties = {
 
     return results;
   }
-};
-
-// NOTE: this currently ignores the ability that core's requiredReferenceKeys has to allow custom js classes
-// to introduce new requiredReferenceKeys, which means if that were used, this would break. Currently un-used however.
-function cacheTrackedJsonProperties(cls: typeof Element): TrackedJsonPropData<Id64UtilsArg> {
-  const classTrackedJsonProps: TrackedJsonPropData<Id64UtilsArg> = {};
-
-  let baseClass = cls;
-  while (baseClass !== null) {
-    const baseClassRequiredRefs = classSpecificTrackedJsonProperties.get(baseClass.classFullName);
-    Object.assign(classTrackedJsonProps, baseClassRequiredRefs);
-    baseClass = Object.getPrototypeOf(baseClass);
-  }
-
-  trackedJsonProperties.set(cls, classTrackedJsonProps);
-
-  return classTrackedJsonProps;
-}
-
-const bisCoreClasses = Object.values(BackendExports).filter(
-  (v): v is typeof Element => v && "prototype" in v && isSubclassOf(v as any, Element)
-);
-
-for (const bisCoreClass of bisCoreClasses) {
-  cacheTrackedJsonProperties(bisCoreClass)
 }
 
