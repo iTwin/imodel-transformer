@@ -48,10 +48,10 @@ declare module "@itwin/core-common" {
  * @internal
  */
 const classSpecificTrackedJsonProperties = new Map<
-  abstract new (...a: any[]) => Element,
+  string,
   TrackedJsonPropData<Id64UtilsArg>
 >([
-  [Element, {
+  [Element.classFullName, {
     "targetRelInstanceId": {
       get: (e: ElementProps) => e.jsonProperties.targetRelInstanceId,
       remap: (e: ElementProps, remap) => {
@@ -60,7 +60,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [DisplayStyle3d, {
+  [DisplayStyle3d.classFullName, {
     "styles.environment.sky.image.texture": {
       get: (e: DisplayStyle3dProps) => e.jsonProperties?.styles?.environment?.sky?.image?.texture,
       remap: (e: DisplayStyle3dProps, remap) => {
@@ -83,7 +83,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [DisplayStyle as any, {
+  [DisplayStyle.classFullName, {
     "styles.subCategoryOvr.*.subCategory": {
       get: (e: DisplayStyleProps) =>
         e.jsonProperties?.styles?.subCategoryOvr?.map((ovr: any) => ovr?.subCategory),
@@ -103,7 +103,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  [ViewDefinition as any, {
+  [ViewDefinition.classFullName, {
     "viewDetails.acs": {
       get: (e: SpatialViewDefinitionProps) => e.jsonProperties?.viewDetails?.acs,
       remap: (e: SpatialViewDefinitionProps, remap) => {
@@ -112,8 +112,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  /*
-  [ClassRegistry.getClass("BisCore:SectionLocation"), {
+  ["BisCore:SectionLocation", {
     // TODO: document where these json props come from
     "spatialViewId": {
       get: (e: SectionDrawingProps) => (e.jsonProperties as any)?.spatialViewId,
@@ -130,8 +129,7 @@ const classSpecificTrackedJsonProperties = new Map<
       },
     },
   }],
-  */
-  [RenderMaterialElement, {
+  [RenderMaterialElement.classFullName, {
     // TODO: test random configured tracked props
     "materialAssets.renderMaterial.Map.Bump.TextureId": {
       get: (e: RenderMaterialProps) => e.jsonProperties?.materialAssets?.renderMaterial?.Map?.Bump?.TextureId,
@@ -288,8 +286,9 @@ export const TrackedJsonProperties = {
         let match: RegExpMatchArray | null;
         if (typeof val === "string" && (match = this._hexIdOrCompressedSetPattern.exec(val))) {
           const subPath = `${path}.${key}`;
-          for (const [cls, trackedPropsPatterns] of classSpecificTrackedJsonProperties.entries()) {
-            if (isSubclassOf(element.constructor as typeof Element, cls as typeof Element)) {
+          for (const [classFullName, trackedPropsPatterns] of classSpecificTrackedJsonProperties.entries()) {
+            const cls = ClassRegistry.getClass(classFullName, element.iModel) as typeof Element;
+            if (isSubclassOf(element.constructor as typeof Element, cls)) {
               const trackedKey = subPath.slice("jsonProperties.".length); // tracked props patterns don't include the root jsonProperties key
               const tracked = Object.keys(trackedPropsPatterns).some((pat) =>
                 simplePropertyWildcardMatch(pat, trackedKey));
@@ -322,7 +321,7 @@ function cacheTrackedJsonProperties(cls: typeof Element): TrackedJsonPropData<Id
 
   let baseClass = cls;
   while (baseClass !== null) {
-    const baseClassRequiredRefs = classSpecificTrackedJsonProperties.get(baseClass);
+    const baseClassRequiredRefs = classSpecificTrackedJsonProperties.get(baseClass.classFullName);
     Object.assign(classTrackedJsonProps, baseClassRequiredRefs);
     baseClass = Object.getPrototypeOf(baseClass);
   }
