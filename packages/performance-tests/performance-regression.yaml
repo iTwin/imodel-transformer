@@ -102,29 +102,31 @@ stages:
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/TestRunner
 
-          # - script: |
-          #     echo 'ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)'>> .env
-          #     echo 'ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)'>> .env
-          #     echo 'IMODEL_USER_NAME: $(imjs_user_email)'>> .env
-          #     echo 'IMODEL_USER_PASSWORD: $(imjs_user_password)'>> .env
-          #   displayName: 'create dotenv'
-          #   workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
-
           - script: |
-              type null > .env
-              npm test
+              echo 'V1_CHECKPOINT_USER_NAME= $(imjs_v1_checkpoint_user_email)'>> .env
+              echo 'V1_CHECKPOINT_USER_PASSWORD= $(imjs_v1_checkpoint_user_password)'>> .env
+              echo 'ORCHESTRATOR_ADMIN_USER_NAME= $(imjs_orchestrator_admin_email)'>> .env
+              echo 'ORCHESTRATOR_ADMIN_USER_PASSWORD= $(imjs_orchestrator_admin_password)'>> .env
+              echo 'IMODEL_USER_NAME= $(imjs_user_email)'>> .env
+              echo 'IMODEL_USER_PASSWORD= $(imjs_user_password)'>> .env
+              echo 'OIDC_CLIENT_ID= $(OIDC_CLIENT_ID)'>> .env
+              echo 'OIDC_REDIRECT= "http://localhost:3000/signin-callback"'>> .env
+            displayName: 'create dotenv'
+            workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
+
+          - script: npm test
             displayName: 'npm test'
             workingDirectory: $(Pipeline.Workspace)/TestRunner/packages/performance-tests
             timeoutInMinutes: 360
-            env:
-              V1_CHECKPOINT_USER_NAME: $(imjs_v1_checkpoint_user_email)
-              V1_CHECKPOINT_USER_PASSWORD: $(imjs_v1_checkpoint_user_password)
-              ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)
-              ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)
-              IMODEL_USER_NAME: $(imjs_user_email)
-              IMODEL_USER_PASSWORD: $(imjs_user_password)
-              OIDC_CLIENT_ID: $(OIDC_CLIENT_ID)
-              OIDC_REDIRECT: "http://localhost:3000/signin-callback"
+            # env:
+            #   V1_CHECKPOINT_USER_NAME: $(imjs_v1_checkpoint_user_email)
+            #   V1_CHECKPOINT_USER_PASSWORD: $(imjs_v1_checkpoint_user_password)
+            #   ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)
+            #   ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)
+            #   IMODEL_USER_NAME: $(imjs_user_email)
+            #   IMODEL_USER_PASSWORD: $(imjs_user_password)
+            #   OIDC_CLIENT_ID: $(OIDC_CLIENT_ID)
+            #   OIDC_REDIRECT: "http://localhost:3000/signin-callback"
             continueOnError: true
 
           - publish: $(Pipeline.Workspace)/TestRunner/results/report.csv
