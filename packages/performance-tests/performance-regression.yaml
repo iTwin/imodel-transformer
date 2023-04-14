@@ -58,7 +58,7 @@ stages:
             displayName: 'Publish packages'
             inputs:
               targetPath: $(Pipeline.Workspace)/s/packages
-              artifactName: TestRunner
+              artifactName: packages
 
 
   - stage: run
@@ -103,19 +103,19 @@ stages:
           - task: DownloadPipelineArtifact@2
             inputs:
               buildType: 'current'
-              artifactName: 'TestRunner'
+              artifactName: 'packages'
               targetPath: '$(Pipeline.Workspace)\packages'
             displayName: download TestRunner
 
           - script: |
+              copy $(Pipeline.Workspace)\s\pnpm-lock.yaml
               dir packages
-              dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
 
           - script: pnpm i
             displayName: 'pnpm install'
-            workingDirectory: $(Pipeline.Workspace)/TestRunner
+            workingDirectory: $(Pipeline.Workspace)/packages
 
           # - script: |
           #     echo 'V1_CHECKPOINT_USER_NAME= $(imjs_v1_checkpoint_user_email)'>> .env
