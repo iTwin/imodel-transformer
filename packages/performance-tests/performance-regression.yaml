@@ -91,6 +91,7 @@ stages:
           - script: |
               dir
               rmdir /s TestRunner
+              rmdir /s TestResults
               rmdir /s performance-tests
               rmdir /s pnpm-lock
               rmdir /s test-app
