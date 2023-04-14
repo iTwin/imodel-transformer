@@ -97,8 +97,8 @@ stages:
             inputs:
               buildType: 'current'
               artifactName: 'TestRunner'
-              targetPath: $(Pipeline.Workspace)/TestRunner
-              displayName: download TestRunner
+              targetPath: $(Pipeline.Workspace)/
+            displayName: download TestRunner
 
           - task: DownloadPipelineArtifact@2
             inputs:
