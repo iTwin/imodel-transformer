@@ -90,12 +90,16 @@ stages:
 
           - script: |
               dir
-              dir .\s
               rmdir /s TestRunner
+              y
               rmdir /s performance-tests
+              y
               rmdir /s pnpm-lock
+              y
               rmdir /s test-app
+              y
               rmdir /s transformer
+              y
               dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
@@ -107,14 +111,12 @@ stages:
             displayName: download TestRunner
 
           - script: |
-              dir
-              dir .\s
-              dir .\TestRunner
               mkdir packages
+              dir
               move performance-tests .\packages
               move test-app .\packages
               move transformer .\packages
-              dir packages
+              dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
 
