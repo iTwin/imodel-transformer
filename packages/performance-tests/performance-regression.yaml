@@ -66,7 +66,7 @@ stages:
 
     pool:
       # name: iModelTech Performance Tests
-      name: ubuntu latest
+      vmImage: ubuntu latest
       # demands:
       # - Agent.OS -equals Windows_NT
       # - Cmd
