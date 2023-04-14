@@ -91,11 +91,11 @@ stages:
           - script: |
               dir
               dir .\s
-              rmdir /s TestRunner
-              rmdir /s performance-tests
-              rmdir /s pnpm-lock
-              rmdir /s test-app
-              rmdir /s transformer
+              # rmdir /s TestRunner
+              # rmdir /s performance-tests
+              # rmdir /s pnpm-lock
+              # rmdir /s test-app
+              # rmdir /s transformer
               dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
