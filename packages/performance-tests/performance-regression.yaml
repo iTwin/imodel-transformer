@@ -111,7 +111,9 @@ stages:
               dir
               dir .\s
               dir .\a
+              dir .\b
               dir .\TestRunner
+              dir .\pnpm-lock
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
 
