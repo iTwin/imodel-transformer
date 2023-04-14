@@ -95,6 +95,7 @@ stages:
               rmdir /s pnpm-lock
               rmdir /s test-app
               rmdir /s transformer
+              rmdir /s packages
               dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
