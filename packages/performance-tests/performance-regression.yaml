@@ -48,22 +48,22 @@ stages:
               npm install -g pnpm@^7
               pnpm i --frozen-lockfile
             displayName: 'install pnpm'
-            workingDirectory: $(Pipeline.Workspace)
+            workingDirectory: $(Pipeline.Workspace)\s
 
           - script: npm run build
             displayName: 'npm build'
-            workingDirectory: $(Pipeline.Workspace)
+            workingDirectory: $(Pipeline.Workspace)\s
 
           - task: PublishPipelineArtifact@1
             displayName: 'Publish packages'
             inputs:
-              targetPath: $(Pipeline.Workspace)/packages
+              targetPath: $(Pipeline.Workspace)/s/packages
               artifactName: TestRunner
 
           - task: PublishPipelineArtifact@1
             displayName: 'Publish packages'
             inputs:
-              targetPath: $(Pipeline.Workspace)/pnpm-lock.yaml
+              targetPath: $(Pipeline.Workspace)/s/pnpm-lock.yaml
               artifactName: pnpm-lock
 
   - stage: run
