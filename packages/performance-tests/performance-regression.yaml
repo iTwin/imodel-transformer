@@ -90,11 +90,10 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/
 
-          # - script: |
-          #     ls
-          #     ls s -lart
-          #   displayName: 'dir'
-          #   workingDirectory: $(Pipeline.Workspace)/
+          - script: |
+              dir
+            displayName: 'dir'
+            workingDirectory: $(Pipeline.Workspace)/
 
           - task: DownloadPipelineArtifact@2
             inputs:
@@ -103,11 +102,8 @@ stages:
               targetPath: '$(Pipeline.Workspace)/packages'
             displayName: download TestRunner
 
-          - script: |
-              dir packages
-              copy $(Pipeline.Workspace)\s\pnpm-lock.yaml .\packages
-              dir packages
-            displayName: 'dir'
+          - script: copy $(Pipeline.Workspace)\s\pnpm-lock.yaml .\packages\performance-tests
+            displayName: 'copy lock file'
             workingDirectory: $(Pipeline.Workspace)/
 
           - script: pnpm i
