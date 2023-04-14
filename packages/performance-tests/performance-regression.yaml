@@ -109,7 +109,9 @@ stages:
 
           - script: |
               dir
-              dir \TestRunner
+              dir .\s
+              dir .\a
+              dir .\TestRunner
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
 
