@@ -44,6 +44,7 @@ stages:
               workingFile: $(Pipeline.Workspace)/.npmrc
 
           - script: |
+              dir
               npm install -g pnpm@^7
               pnpm i --frozen-lockfile
             displayName: 'install pnpm'
