@@ -85,15 +85,6 @@ stages:
             inputs:
               versionSpec: 18.*.*
 
-          - script: npm install -g pnpm@^7
-            displayName: 'install pnpm'
-            workingDirectory: $(Pipeline.Workspace)/
-
-          - script: |
-              dir
-            displayName: 'dir'
-            workingDirectory: $(Pipeline.Workspace)/
-
           - task: DownloadPipelineArtifact@2
             inputs:
               buildType: 'current'
@@ -105,6 +96,10 @@ stages:
               ROBOCOPY $(Pipeline.Workspace)\packages .\s\packages /MIR
               dir packages
             displayName: 'copy package artifact'
+            workingDirectory: $(Pipeline.Workspace)/
+
+          - script: npm install -g pnpm@^7
+            displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/
 
           - script: pnpm i
