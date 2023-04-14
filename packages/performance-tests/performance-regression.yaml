@@ -60,11 +60,6 @@ stages:
               targetPath: $(Pipeline.Workspace)/s/packages
               artifactName: TestRunner
 
-          - task: PublishPipelineArtifact@1
-            displayName: 'Publish packages'
-            inputs:
-              targetPath: $(Pipeline.Workspace)/s/pnpm-lock.yaml
-              artifactName: pnpm-lock
 
   - stage: run
     displayName: Run
@@ -93,26 +88,22 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/
 
+          - script: |
+              dir
+              dir .\s
+            displayName: 'dir'
+            workingDirectory: $(Pipeline.Workspace)/
+
           - task: DownloadPipelineArtifact@2
             inputs:
               buildType: 'current'
               artifactName: 'TestRunner'
             displayName: download TestRunner
 
-          - task: DownloadPipelineArtifact@2
-            inputs:
-              buildType: 'current'
-              artifactName: 'pnpm-lock'
-              targetPath: '$(Pipeline.Workspace)/TestRunner'
-            displayName: Download pnpm-lock      
-
           - script: |
               dir
               dir .\s
-              dir .\a
-              dir .\b
               dir .\TestRunner
-              dir .\pnpm-lock
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
 
