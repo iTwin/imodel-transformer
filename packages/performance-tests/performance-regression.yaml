@@ -91,15 +91,10 @@ stages:
           - script: |
               dir
               rmdir /s TestRunner
-              y
               rmdir /s performance-tests
-              y
               rmdir /s pnpm-lock
-              y
               rmdir /s test-app
-              y
               rmdir /s transformer
-              y
               dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
@@ -108,14 +103,11 @@ stages:
             inputs:
               buildType: 'current'
               artifactName: 'TestRunner'
+              targetPath: '$(Pipeline.Workspace)\packages'
             displayName: download TestRunner
 
           - script: |
-              mkdir packages
-              dir
-              move performance-tests .\packages
-              move test-app .\packages
-              move transformer .\packages
+              dir packages
               dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
