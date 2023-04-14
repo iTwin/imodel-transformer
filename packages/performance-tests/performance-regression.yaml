@@ -48,11 +48,11 @@ stages:
               npm install -g pnpm@^7
               pnpm i --frozen-lockfile
             displayName: 'install pnpm'
-            workingDirectory: $(Pipeline.Workspace)\s
+            workingDirectory: $(Pipeline.Workspace)/s
 
           - script: npm run build
             displayName: 'npm build'
-            workingDirectory: $(Pipeline.Workspace)\s
+            workingDirectory: $(Pipeline.Workspace)/s
 
           - task: PublishPipelineArtifact@1
             displayName: 'Publish packages'
