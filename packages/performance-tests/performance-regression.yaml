@@ -56,13 +56,13 @@ stages:
           - task: PublishPipelineArtifact@1
             displayName: 'Publish packages'
             inputs:
-              pathToPublish: $(Pipeline.Workspace)/packages
+              targetPath: $(Pipeline.Workspace)/packages
               artifactName: TestRunner
 
           - task: PublishPipelineArtifact@1
             displayName: 'Publish packages'
             inputs:
-              pathToPublish: $(Pipeline.Workspace)/pnpm-lock.yaml
+              targetPath: $(Pipeline.Workspace)/pnpm-lock.yaml
               artifactName: pnpm-lock
 
   - stage: run
