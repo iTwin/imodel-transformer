@@ -89,11 +89,11 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/
 
-          - script: |
-              ls
-              ls s -lart
-            displayName: 'dir'
-            workingDirectory: $(Pipeline.Workspace)/
+          # - script: |
+          #     ls
+          #     ls s -lart
+          #   displayName: 'dir'
+          #   workingDirectory: $(Pipeline.Workspace)/
 
           - task: DownloadPipelineArtifact@2
             inputs:
@@ -102,16 +102,16 @@ stages:
               targetPath: '$(Pipeline.Workspace)/packages'
             displayName: download TestRunner
 
-          - script: |
-              ls packages
-              cp $(Pipeline.Workspace)/s/pnpm-lock.yaml ./packages
-              ls packages
-            displayName: 'dir'
-            workingDirectory: $(Pipeline.Workspace)/
+          # - script: |
+          #     ls packages
+          #     cp $(Pipeline.Workspace)/s/pnpm-lock.yaml ./packages
+          #     ls packages
+          #   displayName: 'dir'
+          #   workingDirectory: $(Pipeline.Workspace)/
 
           - script: pnpm i
             displayName: 'pnpm install'
-            workingDirectory: $(Pipeline.Workspace)/packages
+            workingDirectory: $(Pipeline.Workspace)/packages/performance-tests
 
           # - script: |
           #     echo 'V1_CHECKPOINT_USER_NAME= $(imjs_v1_checkpoint_user_email)'>> .env
