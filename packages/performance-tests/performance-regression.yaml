@@ -65,11 +65,10 @@ stages:
     displayName: Run
 
     pool:
-      # name: iModelTech Performance Tests
-      vmImage: ubuntu latest
-      # demands:
-      # - Agent.OS -equals Windows_NT
-      # - Cmd
+      name: iModelTech Performance Tests
+      demands:
+      - Agent.OS -equals Windows_NT
+      - Cmd
 
     variables:
       - group: iTwin.js Performance Test Users                  # auth info of users that have access to test iModels and kill GPB
@@ -79,6 +78,8 @@ stages:
       - job:
         displayName: "Run: Typical Cases"
         timeoutInMinutes: 360
+        workspace:
+          clean: all
         steps:
           - task: NodeTool@0
             displayName: 'Use Node 18.x'
@@ -102,12 +103,12 @@ stages:
               targetPath: '$(Pipeline.Workspace)/packages'
             displayName: download TestRunner
 
-          # - script: |
-          #     ls packages
-          #     cp $(Pipeline.Workspace)/s/pnpm-lock.yaml ./packages
-          #     ls packages
-          #   displayName: 'dir'
-          #   workingDirectory: $(Pipeline.Workspace)/
+          - script: |
+              dir packages
+              copy $(Pipeline.Workspace)\s\pnpm-lock.yaml .\packages
+              dir packages
+            displayName: 'dir'
+            workingDirectory: $(Pipeline.Workspace)/
 
           - script: pnpm i
             displayName: 'pnpm install'
