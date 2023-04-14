@@ -100,7 +100,7 @@ stages:
 
           - script: npm install -g pnpm@^7
             displayName: 'install pnpm'
-            workingDirectory: $(Pipeline.Workspace)/
+            workingDirectory: $(Pipeline.Workspace)/s
 
           - script: pnpm i
             displayName: 'pnpm install'
