@@ -35,34 +35,34 @@ stages:
                 @bentley:registry=https://bentleycs.pkgs.visualstudio.com/_packaging/Packages/npm/registry/
                 always-auth=true
               "@
-              $npmrcContent | Out-File $(Build.SourcesDirectory)/.npmrc -Encoding ascii
+              $npmrcContent | Out-File $(Pipeline.Workspace)/.npmrc -Encoding ascii
             displayName: 'Create .npmrc'
 
           - task: npmAuthenticate@0
             displayName: 'Authenticate'
             inputs:
-              workingFile: $(Build.SourcesDirectory)/.npmrc
+              workingFile: $(Pipeline.Workspace)/.npmrc
 
           - script: |
               npm install -g pnpm@^7
               pnpm i --frozen-lockfile
             displayName: 'install pnpm'
-            workingDirectory: $(Build.SourcesDirectory)
+            workingDirectory: $(Pipeline.Workspace)
 
           - script: npm run build
             displayName: 'npm build'
-            workingDirectory: $(Build.SourcesDirectory)
+            workingDirectory: $(Pipeline.Workspace)
 
           - task: PublishPipelineArtifact@1
             displayName: 'Publish packages'
             inputs:
-              pathToPublish: $(Build.SourcesDirectory)/packages
+              pathToPublish: $(Pipeline.Workspace)/packages
               artifactName: TestRunner
 
           - task: PublishPipelineArtifact@1
             displayName: 'Publish packages'
             inputs:
-              pathToPublish: $(Build.SourcesDirectory)/pnpm-lock.yaml
+              pathToPublish: $(Pipeline.Workspace)/pnpm-lock.yaml
               artifactName: pnpm-lock
 
   - stage: run
