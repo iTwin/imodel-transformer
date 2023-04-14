@@ -92,6 +92,7 @@ stages:
               dir
               dir .\s
               rmdir /s TestRunner
+              rmdir /s performance-tests
               rmdir /s pnpm-lock
               rmdir /s test-app
               rmdir /s transformer
