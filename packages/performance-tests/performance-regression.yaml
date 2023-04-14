@@ -44,7 +44,6 @@ stages:
               workingFile: $(Pipeline.Workspace)/.npmrc
 
           - script: |
-              dir
               npm install -g pnpm@^7
               pnpm i --frozen-lockfile
             displayName: 'install pnpm'
@@ -102,8 +101,10 @@ stages:
               targetPath: '$(Pipeline.Workspace)/packages'
             displayName: download TestRunner
 
-          - script: copy $(Pipeline.Workspace)\s\pnpm-lock.yaml .\packages\performance-tests
-            displayName: 'copy lock file'
+          - script: |
+              ROBOCOPY $(Pipeline.Workspace)\packages .\s\packages /MIR
+              dir packages
+            displayName: 'copy package artifact'
             workingDirectory: $(Pipeline.Workspace)/
 
           - script: pnpm i
