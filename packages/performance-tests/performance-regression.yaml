@@ -104,7 +104,7 @@ stages:
 
           - script: pnpm i
             displayName: 'pnpm install'
-            workingDirectory: $(Pipeline.Workspace)/packages/
+            workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
 
           # - script: |
           #     echo 'V1_CHECKPOINT_USER_NAME= $(imjs_v1_checkpoint_user_email)'>> .env
