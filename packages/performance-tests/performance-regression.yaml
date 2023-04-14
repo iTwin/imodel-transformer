@@ -90,7 +90,8 @@ stages:
             workingDirectory: $(Pipeline.Workspace)/
 
           - script: |
-              ls s
+              ls
+              ls s -lart
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
 
@@ -103,7 +104,7 @@ stages:
 
           - script: |
               ls packages
-              cp $(Pipeline.Workspace)/s/transformer/pnpm-lock.yaml
+              cp $(Pipeline.Workspace)/s/pnpm-lock.yaml ./packages
               ls packages
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
