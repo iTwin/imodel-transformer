@@ -107,6 +107,10 @@ stages:
               targetPath: $(Pipeline.Workspace)/TestRunner
             displayName: Download pnpm-lock      
 
+          - script: dir
+            displayName: 'dir'
+            workingDirectory: $(Pipeline.Workspace)/TestRunner
+
           - script: pnpm i
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/TestRunner
