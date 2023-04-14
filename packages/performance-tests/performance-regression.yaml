@@ -90,13 +90,7 @@ stages:
 
           - script: |
               dir
-              rmdir /s TestRunner y
-              rmdir /s TestResults y
-              rmdir /s performance-tests y
-              rmdir /s pnpm-lock y
-              rmdir /s test-app y
-              rmdir /s transformer y
-              rmdir /s packages y
+              rmdir /s packages
               dir
             displayName: 'dir'
             workingDirectory: $(Pipeline.Workspace)/
@@ -109,6 +103,7 @@ stages:
             displayName: download TestRunner
 
           - script: |
+              dir packages
               copy $(Pipeline.Workspace)\s\pnpm-lock.yaml
               dir packages
             displayName: 'dir'
