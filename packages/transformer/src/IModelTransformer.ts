@@ -1116,24 +1116,36 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
    */
   public override onExportRelationship(sourceRelationship: Relationship): void {
+    const sourceFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.sourceId);
+    const targetFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.targetId);
     const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
-    if (!this._options.noProvenance && Id64.isValidId64(targetRelationshipInstanceId)) {
-      const aspectProps: ExternalSourceAspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
-      if (undefined === aspectProps.id) {
-        aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
+    if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
+      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`;
+      if (!provenance) {
+        const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
+        if (undefined === aspectProps.id) {
+          aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
+        }
+        assert(aspectProps.id !== undefined);
+        provenance = aspectProps as MarkRequired<ExternalSourceAspectProps, "id">;
       }
-      assert(aspectProps.id !== undefined);
-      this.markLastProvenance(aspectProps as MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship: true });
+      this.markLastProvenance(provenance, { isRelationship: true });
     }
   }
 
+  // FIXME: make the exporter use fedguid for this
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
    */
   public override onDeleteRelationship(sourceRelInstanceId: Id64String): void {
-    const sql = `SELECT ECInstanceId,JsonProperties FROM ${ExternalSourceAspect.classFullName} aspect` +
-      ` WHERE aspect.Scope.Id=:scopeId AND aspect.Kind=:kind AND aspect.Identifier=:identifier LIMIT 1`;
+    const sql = `
+      SELECT ECInstanceId,JsonProperties FROM ${ExternalSourceAspect.classFullName} aspect
+      WHERE aspect.Scope.Id=:scopeId
+        AND aspect.Kind=:kind
+        AND aspect.Identifier=:identifier
+      LIMIT 1
+    `;
     this.targetDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindId("scopeId", this.targetScopeElementId);
       statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
@@ -1163,7 +1175,12 @@ export class IModelTransformer extends IModelExportHandler {
       throw new IModelError(IModelStatus.BadRequest, "Cannot detect deletes when isReverseSynchronization=true");
     }
     const aspectDeleteIds: Id64String[] = [];
-    const sql = `SELECT ECInstanceId,Identifier,JsonProperties FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Scope.Id=:scopeId AND aspect.Kind=:kind`;
+    const sql = `
+      SELECT ECInstanceId, Identifier, JsonProperties
+      FROM ${ExternalSourceAspect.classFullName} aspect
+      WHERE aspect.Scope.Id=:scopeId
+        AND aspect.Kind=:kind
+    `;
     await this.targetDb.withPreparedStatement(sql, async (statement: ECSqlStatement) => {
       statement.bindId("scopeId", this.targetScopeElementId);
       statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
@@ -1192,6 +1209,7 @@ export class IModelTransformer extends IModelExportHandler {
     const targetRelationshipProps: RelationshipProps = sourceRelationship.toJSON();
     targetRelationshipProps.sourceId = this.context.findTargetElementId(sourceRelationship.sourceId);
     targetRelationshipProps.targetId = this.context.findTargetElementId(sourceRelationship.targetId);
+    // TODO: move to cloneRelationship in IModelCloneContext
     sourceRelationship.forEachProperty((propertyName: string, propertyMetaData: PropertyMetaData) => {
       if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
         (targetRelationshipProps as any)[propertyName] = this.context.findTargetElementId(sourceRelationship.asAny[propertyName]);
@@ -1420,10 +1438,10 @@ export class IModelTransformer extends IModelExportHandler {
     this.events.emit(TransformerEvent.endProcessAll);
   }
 
-  /** previous provenance, either a federation guid or required aspect props */
-  private _lastProvenanceEntityInfo: GuidString | LastProvenanceEntityInfo = nullLastProvenanceEntityInfo;
+  /** previous provenance, either a federation guid, a `${sourceFedGuid}/${targetFedGuid}` pair, or required aspect props */
+  private _lastProvenanceEntityInfo: string | LastProvenanceEntityInfo = nullLastProvenanceEntityInfo;
 
-  private markLastProvenance(sourceAspect: GuidString | MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship = false }) {
+  private markLastProvenance(sourceAspect: string | MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship = false }) {
     this._lastProvenanceEntityInfo
       = typeof sourceAspect === "string"
       ? sourceAspect
@@ -1456,7 +1474,8 @@ export class IModelTransformer extends IModelExportHandler {
             "expected row when getting lastProvenanceEntityId from target state table"
           );
         const entityId = stmt.getValueString(0);
-        return entityId.includes('-')
+        const isGuidOrGuidPair = entityId.includes('-')
+        return isGuidOrGuidPair
           ? entityId
           : {
             entityId,
@@ -1578,7 +1597,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (DbResult.BE_SQLITE_DONE !== db.executeSQL(`
       CREATE TABLE ${IModelTransformer.lastProvenanceEntityInfoTable} (
-        -- either the invalid id for null provenance state, federation guid of the entity, or a hex element id
+        -- either the invalid id for null provenance state, federation guid (or pair for rels) of the entity, or a hex element id
         entityId TEXT,
         -- the following are only valid if the above entityId is a hex id representation
         aspectId TEXT,
@@ -1764,3 +1783,19 @@ export class TemplateModelCloner extends IModelTransformer {
     return targetElementProps;
   }
 }
+
+
+function queryElemFedGuid(db: IModelDb, elemId: Id64String) {
+  return db.withPreparedStatement(`
+    SELECT FederationGuid
+    FROM bis.Element
+    WHERE ECInstanceId=?
+  `, (stmt) => {
+    stmt.bindId(1, elemId);
+    assert(stmt.step() === DbResult.BE_SQLITE_ROW);
+    const result = stmt.getValue(0).getGuid();
+    assert(stmt.step() === DbResult.BE_SQLITE_DONE);
+    return result;
+  });
+}
+
