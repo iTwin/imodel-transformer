@@ -102,7 +102,9 @@ stages:
             displayName: 'install pnpm'
             workingDirectory: $(Pipeline.Workspace)/s
 
-          - script: pnpm i
+          - script: |
+              dir
+              pnpm i
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
 
