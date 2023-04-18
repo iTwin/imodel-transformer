@@ -2,6 +2,21 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Tue, 18 Apr 2023 14:12:45 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.2",
+      "version": "0.1.2",
+      "comments": {
+        "patch": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "18c92c334e312b9c5b8f254dec66941c23ee3c0b",
+            "comment": "Modified query for getting all relationships"
+          }
+        ]
+      }
+    },
+    {
       "date": "Tue, 04 Apr 2023 15:43:37 GMT",
       "tag": "@itwin/imodel-transformer_v0.1.1",
       "version": "0.1.1",
