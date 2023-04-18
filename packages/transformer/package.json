@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/transformer.js",
   "typings": "lib/cjs/transformer",
@@ -97,24 +97,5 @@
   },
   "nyc": {
     "extends": "./node_modules/@itwin/build-tools/.nycrc"
-  },
-  "eslintConfig": {
-    "plugins": [
-      "@itwin"
-    ],
-    "extends": "plugin:@itwin/itwinjs-recommended",
-    "rules": {
-      "@itwin/no-internal": [
-        "warn",
-        {
-          "tag": [
-            "internal"
-          ]
-        }
-      ]
-    },
-    "parserOptions": {
-      "project": "./tsconfig.json"
-    }
   }
 }
