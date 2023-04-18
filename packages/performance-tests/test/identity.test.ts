@@ -20,6 +20,7 @@ import { getTestIModels } from "./TestContext";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
+import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const assetsDir = path.join(__dirname, "assets");
@@ -47,19 +48,19 @@ describe("imodel-transformer", () => {
 
     assert(process.env.OIDC_CLIENT_ID, "");
     assert(process.env.OIDC_REDIRECT, "");
-    /*
+    
     const authClient = new TestBrowserAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: "organization profile openid email itwinjs imodels:read",
+      scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
       authority: "https://qa-imsoidc.bentley.com"
     }, user);
-    */
-    const authClient = new NodeCliAuthorizationClient({
-      clientId: process.env.OIDC_CLIENT_ID,
-      redirectUri: process.env.OIDC_REDIRECT,
-      scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
-    });
+    
+    // const authClient = new NodeCliAuthorizationClient({
+    //   clientId: process.env.OIDC_CLIENT_ID,
+    //   redirectUri: process.env.OIDC_REDIRECT,
+    //   scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
+    // });
     await authClient.signIn();
 
     const hostConfig  = new IModelHostConfiguration();
