@@ -2,6 +2,27 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Tue, 04 Apr 2023 15:43:37 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.1",
+      "version": "0.1.1",
+      "comments": {
+        "patch": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "35c2188ee72beaab88c26d68bd6b2f03336e63bf",
+            "comment": "rename docs artifact"
+          },
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "35c2188ee72beaab88c26d68bd6b2f03336e63bf",
+            "comment": "add option to disable strict version dep checking"
+          }
+        ]
+      }
+    },
+    {
       "date": "Fri, 31 Mar 2023 20:21:28 GMT",
       "tag": "@itwin/imodel-transformer_v0.1.0",
       "version": "0.1.0",
