@@ -3,9 +3,9 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { Element, ElementRefersToElements, GeometryPart, GraphicalElement3dRepresentsElement, IModelJsFs, SnapshotDb } from "@itwin/core-backend";
+import { Element, ElementRefersToElements, GeometryPart, GraphicalElement3dRepresentsElement, IModelJsFs, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
-import { Code, GeometryStreamBuilder, IModel, RelationshipProps } from "@itwin/core-common";
+import { Code, GeometryStreamBuilder, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
@@ -74,22 +74,57 @@ describe("IModelExporter", () => {
     sourceDb.close();
   });
 
-  describe("exportRelationships", () => {
-    it("should not export relationships that do not have source or target elements", async () => {
+  describe.only("exportRelationships", () => {
+    it("should not export invalid relationships", async () => {
       const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelExporter", "InvalidRelationship.bim");
       const sourceDb = SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "invalid-relationships" } });
 
-      const relationshipProps: RelationshipProps = {
-        classFullName: GraphicalElement3dRepresentsElement.classFullName,
-        targetId: "",
-        sourceId: "",
+      const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
+      const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, `PhysicalModel`);
+      const physicalObjectProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: sourceModelId,
+        category: categoryId,
+        code: Code.createEmpty(),
       };
+      const physicalObject1 = sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject2 = sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject3 = sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject4 = sourceDb.elements.insertElement(physicalObjectProps);
 
-      sourceDb.relationships.insertInstance(relationshipProps);
+      const invalidRelationshipsProps: RelationshipProps[] = [
+        // target element will be deleted
+        {
+          classFullName: GraphicalElement3dRepresentsElement.classFullName,
+          targetId: physicalObject1,
+          sourceId: physicalObject2,
+        },
+        // target and source elements are invalid
+        {
+          classFullName: GraphicalElement3dRepresentsElement.classFullName,
+          targetId: "",
+          sourceId: "",
+        },
+        // only target element is invalid
+        {
+          classFullName: GraphicalElement3dRepresentsElement.classFullName,
+          targetId: "",
+          sourceId: physicalObject3,
+        },
+        // only source element is invalid
+        {
+          classFullName: GraphicalElement3dRepresentsElement.classFullName,
+          targetId: physicalObject4,
+          sourceId: "",
+        },
+      ];
+
+      invalidRelationshipsProps.forEach((props) => sourceDb.relationships.insertInstance(props));
+      sourceDb.withSqliteStatement(`DELETE FROM bis_Element WHERE Id = ${parseInt(physicalObject1, 16)}`, (stmt) => stmt.next());
       sourceDb.saveChanges();
 
       const sourceRelationships = sourceDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => [...stmt]);
-      assert(sourceRelationships.length === 1);
+      expect(sourceRelationships.length).to.be.equal(4);
 
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "relationships-Target.bim");
       const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "relationships-Target" } });
@@ -98,7 +133,7 @@ describe("IModelExporter", () => {
       await expect(exporter.exportRelationships(ElementRefersToElements.classFullName)).to.eventually.be.fulfilled;
 
       const targetRelationships = targetDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => [...stmt]);
-      assert(targetRelationships.length === 0, "TargetDb should not contain any invalid relationships");
+      expect(targetRelationships.length, "TargetDb should not contain any invalid relationships").to.be.equal(0);
 
       sourceDb.close();
     });
