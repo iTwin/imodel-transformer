@@ -654,6 +654,8 @@ export class IModelTransformer extends IModelExportHandler {
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
   public async detectElementDeletes(): Promise<void> {
+    // FIXME: this is no longer possible to do without change data loading, but I don't think
+    // anyone uses this obscure feature, maybe we can remove it?
     if (this._options.isReverseSynchronization) {
       throw new IModelError(IModelStatus.BadRequest, "Cannot detect deletes when isReverseSynchronization=true");
     }
