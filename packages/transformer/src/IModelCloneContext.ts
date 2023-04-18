@@ -14,7 +14,7 @@ import {
   PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
 } from "@itwin/core-common";
 import {
-  ElementAspect, EntityReferences, IModelElementCloneContext, IModelJsNative, SQLiteDb, Element
+  Element, ElementAspect, EntityReferences, IModelElementCloneContext, IModelJsNative, SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
@@ -34,11 +34,12 @@ export class IModelCloneContext extends IModelElementCloneContext {
   public override async initialize() {
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
   }
-  
+
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
   public override cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
+    // eslint-disable-next-line @typescript-eslint/dot-notation
     const targetElementProps: ElementProps = this["_nativeContext"].cloneElement(sourceElement.id, cloneOptions);
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
     sourceElement.forEachProperty((propertyName: string, meta: PropertyMetaData) => {

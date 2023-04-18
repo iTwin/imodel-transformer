@@ -2256,7 +2256,7 @@ describe("IModelTransformer", () => {
       category,
       classFullName: PhysicalObject.classFullName,
       code: new Code({ scope: model1, spec: codeSpecId, value: "Clashing code" }),
-      model: model1
+      model: model1,
     };
     const element11 = sourceDb.elements.insertElement(element11Props);
     const element12Props: PhysicalElementProps = {
@@ -2264,14 +2264,14 @@ describe("IModelTransformer", () => {
       classFullName: PhysicalObject.classFullName,
       code: new Code({ scope: model1, spec: codeSpecId, value: "Element 1.2" }),
       model: model1,
-      parent: new ElementOwnsChildElements(element11)
+      parent: new ElementOwnsChildElements(element11),
     };
     const element12 = sourceDb.elements.insertElement(element12Props);
     const element21Props: PhysicalElementProps = {
       category,
       classFullName: PhysicalObject.classFullName,
       code: new Code({ scope: model2, spec: codeSpecId, value: "Clashing code" }),
-      model: model2
+      model: model2,
     };
     const element21 = sourceDb.elements.insertElement(element21Props);
     const element22Props: PhysicalElementProps = {
@@ -2279,9 +2279,9 @@ describe("IModelTransformer", () => {
       classFullName: PhysicalObject.classFullName,
       code: new Code({ scope: model2, spec: codeSpecId, value: "Element 2.2" }),
       model: model2,
-      parent: new ElementOwnsChildElements(element21)
-    }; 
-    const element22 = sourceDb.elements.insertElement(element22Props); 
+      parent: new ElementOwnsChildElements(element21),
+    };
+    const element22 = sourceDb.elements.insertElement(element22Props);
 
     sourceDb.saveChanges();
 
