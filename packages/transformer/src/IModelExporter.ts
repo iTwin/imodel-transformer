@@ -685,7 +685,10 @@ export class IModelExporter {
       return;
     }
     Logger.logTrace(loggerCategory, `exportRelationships(${baseRelClassFullName})`);
-    const sql = `SELECT ECInstanceId, ECClassId, * FROM ${baseRelClassFullName}`;
+    const sql = `SELECT r.ECInstanceId, r.ECClassId FROM ${baseRelClassFullName} r
+                  JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
+                  JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
+                  WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
     await this.sourceDb.withPreparedStatement(sql, async (statement: ECSqlStatement): Promise<void> => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const relationshipId = statement.getValue(0).getId();
