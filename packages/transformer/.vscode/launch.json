@@ -5,21 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "args": [
-                "--timeout",
-                "800000",
-                "--require",
-                "source-map-support/register",
-                "${workspaceFolder}/lib/cjs/test/**/*.test.js"
-            ],
-            "internalConsoleOptions": "openOnSessionStart",
             "name": "Mocha Tests",
-            "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+            "type": "node",
             "request": "launch",
-            "skipFiles": [
-                "<node_internals>/**"
-            ],
-            "type": "node"
+            "runtimeExecutable": "npm",
+            "runtimeArgs": [
+                "run-script", "test"
+            ]
         }
     ]
 }
