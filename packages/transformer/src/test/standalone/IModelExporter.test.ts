@@ -88,8 +88,7 @@ describe("IModelExporter", () => {
       sourceDb.relationships.insertInstance(relationshipProps);
       sourceDb.saveChanges();
 
-      const sourceRelationships = new Array<any>();
-      sourceDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => sourceRelationships.push(...stmt));
+      const sourceRelationships = sourceDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => [...stmt]);
       assert(sourceRelationships.length === 1);
 
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "relationships-Target.bim");
@@ -98,8 +97,7 @@ describe("IModelExporter", () => {
       const exporter = new IModelExporter(sourceDb);
       await expect(exporter.exportRelationships(ElementRefersToElements.classFullName)).to.eventually.be.fulfilled;
 
-      const targetRelationships = new Array<any>();
-      targetDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => targetRelationships.push(...stmt));
+      const targetRelationships = targetDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => [...stmt]);
       assert(targetRelationships.length === 0, "TargetDb should not contain any invalid relationships");
 
       sourceDb.close();
