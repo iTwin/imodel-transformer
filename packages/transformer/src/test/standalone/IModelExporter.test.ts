@@ -74,7 +74,7 @@ describe("IModelExporter", () => {
     sourceDb.close();
   });
 
-  describe.only("exportRelationships", () => {
+  describe("exportRelationships", () => {
     it("should not export invalid relationships", async () => {
       const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelExporter", "InvalidRelationship.bim");
       const sourceDb = SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "invalid-relationships" } });
