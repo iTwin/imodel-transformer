@@ -6,16 +6,21 @@
  * @module iModels
  */
 import * as assert from "assert";
-import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
+import { DbResult, Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
-  ConcreteEntityTypes, ElementAspectProps, EntityReference, IModelError,
-  PrimitiveTypeCode, RelatedElementProps,
+  Code,
+  CodeScopeSpec,
+  ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, IModel, IModelError,
+  PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
 } from "@itwin/core-common";
 import {
-  ElementAspect, EntityReferences, IModelElementCloneContext, SQLiteDb,
+  ElementAspect, EntityReferences, IModelElementCloneContext, IModelJsNative, SQLiteDb, Element
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+
+const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @beta
@@ -23,13 +28,41 @@ import { EntityUnifier } from "./EntityUnifier";
 export class IModelCloneContext extends IModelElementCloneContext {
 
   private _refTypesCache = new ECReferenceTypesCache();
+  private _aspectRemapTable = new Map<Id64String, Id64String>();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
     await this._refTypesCache.initAllSchemasInIModel(this.sourceDb);
   }
-
-  private _aspectRemapTable = new Map<Id64String, Id64String>();
+  
+  /** Clone the specified source Element into ElementProps for the target iModel.
+   * @internal
+   */
+  public override cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
+    const targetElementProps: ElementProps = this["_nativeContext"].cloneElement(sourceElement.id, cloneOptions);
+    // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
+    sourceElement.forEachProperty((propertyName: string, meta: PropertyMetaData) => {
+      if ((meta.isNavigation) && (undefined === (sourceElement as any)[propertyName])) {
+        (targetElementProps as any)[propertyName] = RelatedElement.none;
+      }
+    }, false); // exclude custom because C++ has already handled them
+    if (this.isBetweenIModels) {
+      // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is between iModels
+      targetElementProps.federationGuid = sourceElement.federationGuid;
+      const targetElementCodeScopeType = this.targetDb.codeSpecs.getById(targetElementProps.code.spec).scopeType;
+      if (CodeScopeSpec.Type.Repository === targetElementCodeScopeType && targetElementProps.code.scope !== IModel.rootSubjectId) {
+        Logger.logWarning(loggerCategory, `Incorrect CodeScope '${targetElementCodeScopeType}' is set for target element ${targetElementProps.id}`);
+      }
+    }
+    // unlike other references, code cannot be null. If it is null, use an empty code instead
+    if (targetElementProps.code.scope === Id64.invalid || targetElementProps.code.spec === Id64.invalid) {
+      targetElementProps.code = Code.createEmpty();
+    }
+    const jsClass = this.sourceDb.getJsClass<typeof Element>(sourceElement.classFullName);
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
+    return targetElementProps;
+  }
 
   /** Add a rule that remaps the specified source ElementAspect to the specified target ElementAspect. */
   public remapElementAspect(aspectSourceId: Id64String, aspectTargetId: Id64String): void {
