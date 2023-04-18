@@ -1,8 +1,17 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Fri, 31 Mar 2023 20:21:28 GMT and should not be manually modified.
+This log was last generated on Tue, 04 Apr 2023 15:43:37 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.1.1
+
+Tue, 04 Apr 2023 15:43:37 GMT
+
+### Patches
+
+- rename docs artifact ([commit](https://github.com/iTwin/transformer/commit/35c2188ee72beaab88c26d68bd6b2f03336e63bf))
+- add option to disable strict version dep checking ([commit](https://github.com/iTwin/transformer/commit/35c2188ee72beaab88c26d68bd6b2f03336e63bf))
 
 ## 0.1.0
 
