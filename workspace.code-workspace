@@ -1,0 +1,26 @@
+{
+    "folders": [
+        {
+            "path": "."
+        },
+        {
+            "path": "packages/transformer"
+        },
+        {
+            "path": "packages/test-app"
+        }
+    ],
+    "settings": {
+        "search.exclude": {
+            "lib/**": true
+        },
+    },
+    "extensions": {
+        "recommendations": [
+            "streetsidesoftware.code-spell-checker",
+            "hbenl.vscode-test-explorer",
+            "hbenl.vscode-mocha-test-adapter",
+            "dbaeumer.vscode-eslint",
+        ]
+    }
+}
