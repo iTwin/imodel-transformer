@@ -121,7 +121,7 @@ describe("IModelExporter", () => {
 
       invalidRelationshipsProps.forEach((props) => sourceDb.relationships.insertInstance(props));
       // this is used to substitute low level C++ functions the connectors would used to introduce invalid relationships.
-      sourceDb.withSqliteStatement(`DELETE FROM bis_Element WHERE Id = ${parseInt(physicalObject1, 16)}`, (stmt) => stmt.next());
+      sourceDb.withSqliteStatement(`DELETE FROM bis_Element WHERE Id = ${physicalObject1}`, (stmt) => stmt.next());
       sourceDb.saveChanges();
 
       const sourceRelationships = sourceDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => [...stmt]);
