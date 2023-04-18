@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Fixed the change of code scope when the code spec is of type Repository and code scope is not root subject",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "Kyrylo.Volotovskyi@bentley.com",
+  "dependentChangeType": "patch"
+}
