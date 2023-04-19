@@ -38,12 +38,12 @@ describe("imodel-transformer", () => {
       Logger.setLevel(TransformerLoggerCategory.IModelImporter, logLevel);
       Logger.setLevel(TransformerLoggerCategory.IModelTransformer, logLevel);
     }
-    assert(process.env.V1_CHECKPOINT_USER_NAME, "user name was not configured");
-    assert(process.env.V1_CHECKPOINT_USER_PASSWORD, "user password was not configured");
+    assert(process.env.IMODEL_USER_NAME, "user name was not configured");
+    assert(process.env.IMODEL_USER_PASSWORD, "user password was not configured");
 
     const user = {
-      email: process.env.V1_CHECKPOINT_USER_NAME,
-      password: process.env.V1_CHECKPOINT_USER_PASSWORD,
+      email: process.env.IMODEL_USER_NAME,
+      password: process.env.IMODEL_USER_PASSWORD,
     };
 
     assert(process.env.OIDC_CLIENT_ID, "");
@@ -75,7 +75,6 @@ describe("imodel-transformer", () => {
     await IModelHost.shutdown();
   });
   it("identity transform all", async () => {
-    console.log("TEST inside it func")
     const report = [] as Record<string, string | number>[];
     for await (const iModel of getTestIModels()) {
       //if (iModel.tShirtSize !== "m") continue;
