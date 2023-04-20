@@ -56,6 +56,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
       }
     }
     // unlike other references, code cannot be null. If it is null, use an empty code instead
+    // this will be updated back later as the transformer resolves references
     if (targetElementProps.code.scope === Id64.invalid || targetElementProps.code.spec === Id64.invalid) {
       targetElementProps.code = Code.createEmpty();
     }
