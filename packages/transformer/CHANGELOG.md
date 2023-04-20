@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 18 Apr 2023 14:12:45 GMT and should not be manually modified.
+This log was last generated on Thu, 20 Apr 2023 12:20:33 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.1.3
+
+Thu, 20 Apr 2023 12:20:33 GMT
+
+### Patches
+
+- Fixed the change of code scope when the code spec is of type Repository and code scope is not root subject ([commit](https://github.com/iTwin/transformer/commit/db9ba2c5d706506210a6eae49229dc3d031d4567))
 
 ## 0.1.2
 
