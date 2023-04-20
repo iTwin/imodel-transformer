@@ -1,0 +1,15 @@
+{
+    "rules": {
+        "@itwin/no-internal": [
+            "warn",
+            {
+                "tag": [
+                    "internal"
+                ]
+            }
+        ]
+    },
+    "parserOptions": {
+        "project": "./tsconfig.json"
+    }
+}
