@@ -39,12 +39,21 @@ describe("imodel-transformer", () => {
       Logger.setLevel(TransformerLoggerCategory.IModelImporter, logLevel);
       Logger.setLevel(TransformerLoggerCategory.IModelTransformer, logLevel);
     }
-    assert(process.env.V1_CHECKPOINT_USER_NAME, "user name was not configured");
-    assert(process.env.V1_CHECKPOINT_USER_PASSWORD, "user password was not configured");
-
+    var usrEmail;
+    var usrPass;
+    if(process.env.V1_CHECKPOINT_USER_NAME === ""){
+      usrEmail = process.env.V2_CHECKPOINT_USER_NAME;
+      usrPass = process.env.V2_CHECKPOINT_USER_PASSWORD;
+    }
+    else{
+      usrEmail = process.env.V1_CHECKPOINT_USER_NAME;
+      usrPass = process.env.V1_CHECKPOINT_USER_PASSWORD;
+    }
+    assert(usrEmail, "user name was not configured");
+    assert(usrPass, "user password was not configured");
     const user = {
-      email: process.env.V1_CHECKPOINT_USER_NAME,
-      password: process.env.V1_CHECKPOINT_USER_PASSWORD,
+      email: usrEmail,
+      password: usrPass,
     };
 
     assert(process.env.OIDC_CLIENT_ID, "");
