@@ -4,7 +4,7 @@
 *--------------------------------------------------------------------------------------------*/
 
 import { assert, expect } from "chai";
-import { join } from "path";
+import * as path from "path";
 import * as semver from "semver";
 import {
   BisCoreSchema, BriefcaseDb, BriefcaseManager, deleteElementTree, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
@@ -27,7 +27,7 @@ import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/a
 import * as sinon from "sinon";
 
 describe("IModelTransformerHub", () => {
-  const outputDir = join(KnownTestLocations.outputDir, "IModelTransformerHub");
+  const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformerHub");
   let iTwinId: GuidString;
   let accessToken: AccessToken;
 
@@ -53,7 +53,7 @@ describe("IModelTransformerHub", () => {
   it("Transform source iModel to target iModel", async () => {
     // Create and push seed of source IModel
     const sourceIModelName = "TransformerSource";
-    const sourceSeedFileName = join(outputDir, `${sourceIModelName}.bim`);
+    const sourceSeedFileName = path.join(outputDir, `${sourceIModelName}.bim`);
     if (IModelJsFs.existsSync(sourceSeedFileName))
       IModelJsFs.removeSync(sourceSeedFileName);
 
@@ -67,7 +67,7 @@ describe("IModelTransformerHub", () => {
 
     // Create and push seed of target IModel
     const targetIModelName = "TransformerTarget";
-    const targetSeedFileName = join(outputDir, `${targetIModelName}.bim`);
+    const targetSeedFileName = path.join(outputDir, `${targetIModelName}.bim`);
     if (IModelJsFs.existsSync(targetSeedFileName)) {
       IModelJsFs.removeSync(targetSeedFileName);
     }
@@ -338,7 +338,7 @@ describe("IModelTransformerHub", () => {
 
   it("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
-    const masterSeedFileName = join(outputDir, `${masterIModelName}.bim`);
+    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
     const masterSeedState = {1:1, 2:1, 20:1, 21:1};
