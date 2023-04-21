@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, deleteElementTree, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, Subject,
+  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { ChangesetIdWithIndex, Code, ColorDef, ElementProps, IModel, IModelVersion, PhysicalElementProps, SubCategoryAppearance } from "@itwin/core-common";
+import { CategorySelectorProps, ChangesetIdWithIndex, Code, ColorDef, DisplayStyle3dProps, ElementProps, IModel, IModelVersion, ModelSelectorProps, PhysicalElementProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -789,6 +789,104 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
+  it("should delete definition elements when processing changes", async () => {
+    const modelSelector: ModelSelectorProps = {
+      classFullName: ModelSelector.classFullName,
+      models: [],
+      model: IModelDb.repositoryModelId,
+      code: new Code({ spec: "0x1", scope: "0x1", value: "modelSelector" }).toJSON(),
+    };
+
+    const categorySelector: CategorySelectorProps = {
+      classFullName: CategorySelector.classFullName,
+      categories: [],
+      model: IModelDb.repositoryModelId,
+      code: new Code({ spec: "0x1", scope: "0x1", value: "categorySelector" }).toJSON(),
+    };
+
+    const displayStyle: DisplayStyle3dProps = {
+      classFullName: DisplayStyle3d.classFullName,
+      code: new Code({ spec: "0x1", scope: "0x1", value: "displayStyle" }).toJSON(),
+      model: IModelDb.repositoryModelId,
+      userLabel: "displayStyle",
+    };
+
+    const spatialViewDef: SpatialViewDefinitionProps = {
+      classFullName: SpatialViewDefinition.classFullName,
+      userLabel: "spatialViewDef",
+      model: IModelDb.repositoryModelId,
+      code: Code.createEmpty().toJSON(),
+      camera: {
+        eye: { x: 0, y: 0, z: 0 },
+        lens: { radians: 0 },
+        focusDist: 0,
+      },
+      extents: { x: 0, y: 0, z: 0 },
+      origin: { x: 0, y: 0, z: 0 },
+      cameraOn: false,
+      displayStyleId: "resolve-root-code:displayStyle",
+      categorySelectorId: "resolve-root-code:categorySelector",
+      modelSelectorId: "resolve-root-code:modelSelector",
+    };
+
+    const masterIModelName = "Master";
+    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
+    if (IModelJsFs.existsSync(masterSeedFileName))
+      IModelJsFs.removeSync(masterSeedFileName);
+    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, { rootSubject: { name: masterIModelName } });
+    const masterSeedState = {
+      0: modelSelector,
+      1: categorySelector,
+      2: displayStyle,
+      3: spatialViewDef,
+    };
+    populateTimelineSeed(masterSeedDb, masterSeedState);
+    assert(IModelJsFs.existsSync(masterSeedFileName));
+    masterSeedDb.nativeDb.setITwinId(iTwinId); // WIP: attempting a workaround for "ContextId was not properly setup in the checkpoint" issue
+
+
+    masterSeedDb.performCheckpoint();
+
+    const masterSeed: TimelineIModelState = {
+      // HACK: we know this will only be used for seeding via its path
+      db: { pathName:  masterSeedFileName } as any as BriefcaseDb,
+      id: "master-seed",
+      state: masterSeedState,
+    };
+
+    const timeline: Timeline = {
+      0: { master: { seed: masterSeed } },
+      1: { branch1: { branch: "master" } },
+      2: { branch1: { 1:2, 2:1 } },
+      3: { branch1: { 1:2, 3:3 } },
+    };
+
+    const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline);
+
+    const master = trackedIModels.get("master")!;
+    const branch = trackedIModels.get("branch")!;
+    const branchAt2Changeset = timelineStates.get(2)?.changesets.branch;
+    assert(branchAt2Changeset?.index);
+    const branchAt2 = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: branch.id, asOf: { first: true } });
+    await branchAt2.pullChanges({ toIndex: branchAt2Changeset.index, accessToken });
+
+    const syncer = new IModelTransformer(branchAt2, master.db, {
+      isReverseSynchronization: true,
+    });
+    const queryChangeset = sinon.spy(HubMock, "queryChangeset");
+    await syncer.processChanges(accessToken, branchAt2Changeset.id);
+    expect(queryChangeset.alwaysCalledWith({
+      accessToken,
+      iModelId: branch.id,
+      changeset: {
+        id: branchAt2Changeset.id,
+      },
+    })).to.be.true;
+
+    syncer.dispose();
+    await tearDown();
+  });
+
   function count(iModelDb: IModelDb, classFullName: string): number {
     return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}`, (statement: ECSqlStatement): number => {
       return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
@@ -800,7 +898,7 @@ describe("IModelTransformerHub", () => {
     await briefcaseDb.pushChanges({ accessToken, description });
   }
 
-  function getPhysicalObjects(iModelDb: IModelDb): Record<number, number> {
+  function getPhysicalObjects(iModelDb: IModelDb): TimelineIModelContentsState {
     return iModelDb.withPreparedStatement(
       `SELECT UserLabel, JsonProperties FROM ${PhysicalObject.classFullName}`,
       (s) =>
@@ -810,57 +908,55 @@ describe("IModelTransformerHub", () => {
     );
   }
 
-  function populateTimelineSeed(db: IModelDb, state: Record<number, number>): void {
+  function populateTimelineSeed(db: IModelDb, state?: TimelineIModelContentsState): void {
     SpatialCategory.insert(db, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
     PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
-    maintainPhysicalObjects(db, state);
+    if (state)
+      maintainPhysicalObjects(db, state);
     db.performCheckpoint();
   }
 
-  function assertPhysicalObjects(iModelDb: IModelDb, numbers: Record<number, number>, { subset = false } = {}): void {
+  function assertPhysicalObjects(iModelDb: IModelDb, numbers: TimelineIModelContentsState, { subset = false } = {}): void {
     if (subset) {
       for (const n in numbers) {
         if (typeof n !== "string")
           continue;
-        assertPhysicalObject(iModelDb, Number(n));
+        assertPhysicalObjectExists(iModelDb, n);
       }
     } else {
       assert.deepEqual(getPhysicalObjects(iModelDb), numbers);
     }
   }
 
-  function assertPhysicalObject(iModelDb: IModelDb, n: number): void {
-    const physicalObjectId = getPhysicalObjectId(iModelDb, n);
-    if (n > 0) {
-      assert.isTrue(Id64.isValidId64(physicalObjectId), `Expected element ${n} to exist`);
+  function assertPhysicalObjectExists(iModelDb: IModelDb, key: string): void {
+    const physicalObjectId = getPhysicalObjectId(iModelDb, key);
+    if (key.startsWith("-")) {
+      assert.isTrue(Id64.isValidId64(physicalObjectId), `Expected element ${key} to exist`);
     } else {
-      assert.equal(physicalObjectId, Id64.invalid, `Expected element ${n} to not exist`); // negative "n" means element was deleted
+      assert.equal(physicalObjectId, Id64.invalid, `Expected element ${key} to not exist`); // negative "n" means element was deleted
     }
   }
 
-  function getPhysicalObjectId(iModelDb: IModelDb, n: number): Id64String {
+  function getPhysicalObjectId(iModelDb: IModelDb, nkey: string): Id64String {
     const sql = `SELECT ECInstanceId FROM ${PhysicalObject.classFullName} WHERE UserLabel=:userLabel`;
     return iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement): Id64String => {
-      statement.bindString("userLabel", n.toString());
+      statement.bindString("userLabel", nkey);
       return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getId() : Id64.invalid;
     });
   }
 
-  function maintainPhysicalObjects(iModelDb: IModelDb, numbers: Record<number, number>): void {
+  function maintainPhysicalObjects(iModelDb: IModelDb, state: TimelineIModelContentsState): void {
     const modelId = iModelDb.elements.queryElementIdByCode(PhysicalPartition.createCode(iModelDb, IModel.rootSubjectId, "PhysicalModel"))!;
     const categoryId = iModelDb.elements.queryElementIdByCode(SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory"))!;
     const currentObjs = getPhysicalObjects(iModelDb);
-    const objsToDelete = Object.keys(currentObjs).filter((n) => !(n in numbers));
+    const objsToDelete = Object.keys(currentObjs).filter((n) => !(n in state));
     for (const obj of objsToDelete) {
-      const id = getPhysicalObjectId(iModelDb, Number(obj));
+      const id = getPhysicalObjectId(iModelDb, obj);
       iModelDb.elements.deleteElement(id);
     }
-    for (const i in numbers) {
-      if (typeof i !== "string")
-        continue;
-      const n = Number(i);
-      const value = numbers[i];
-      const physicalObjectId = getPhysicalObjectId(iModelDb, n);
+    for (const i in state) {
+      const value = state[i];
+      const physicalObjectId = getPhysicalObjectId(iModelDb, i);
       if (Id64.isValidId64(physicalObjectId)) { // if element exists, update it
         const physicalObject = iModelDb.elements.getElement(physicalObjectId, PhysicalObject);
         physicalObject.jsonProperties.updateState = value;
@@ -870,11 +966,11 @@ describe("IModelTransformerHub", () => {
           classFullName: PhysicalObject.classFullName,
           model: modelId,
           category: categoryId,
-          code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: n.toString() }),
-          userLabel: n.toString(),
+          code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: i }),
+          userLabel: i,
           geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
           placement: {
-            origin: Point3d.create(n, n, 0),
+            origin: Point3d.create(0, 0, 0),
             angles: YawPitchRollAngles.createDegrees(0, 0, 0),
           },
           jsonProperties: {
@@ -888,15 +984,19 @@ describe("IModelTransformerHub", () => {
     iModelDb.saveChanges();
   }
 
+  interface TimelineIModelContentsState {
+    [name: number]: number | ElementProps;
+  }
+
   interface TimelineIModelState {
-    state: Record<number, number>;
+    state: TimelineIModelContentsState;
     id: string;
     db: BriefcaseDb;
   }
 
   type TimelineStateChange =
     // update the state of that model to match and push a changeset
-    | Record<number, number>
+    | TimelineIModelContentsState
     // create a new iModel from a seed
     | { seed: TimelineIModelState }
     // create a branch from an existing iModel with a given name
@@ -935,7 +1035,7 @@ describe("IModelTransformerHub", () => {
     const timelineStates = new Map<
       number,
       {
-        states: { [iModelName: string]: Record<number, number> };
+        states: { [iModelName: string]: TimelineIModelContentsState };
         changesets: { [iModelName: string]: ChangesetIdWithIndex };
       }
     >();
