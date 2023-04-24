@@ -567,71 +567,44 @@ export class IModelTransformer extends IModelExportHandler {
     });
 
     if (args)
-      return this.remapDeletedSourceElements(args);
+      return this.remapDeletedSourceElements();
   }
 
   /** When processing deleted elements in a reverse synchronization, the [[provenanceDb]] (usually a branch iModel) has already
    * deleted the [ExternalSourceAspect]($backend)s that tell us which elements in the reverse synchronization target (usually
    * a master iModel) should be deleted. We must use the changesets to get the values of those before they were deleted.
    */
-  private async remapDeletedSourceElements(args: InitFromExternalSourceAspectsArgs) {
+  private async remapDeletedSourceElements() {
     // we need a connected iModel with changes to remap elements with deletions
     if (this.sourceDb.iTwinId === undefined)
       return;
 
-    try {
-      const startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
-      const endChangesetId = this.sourceDb.changeset.id;
-      const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
-        [startChangesetId, endChangesetId]
-          .map(async (id) =>
-            IModelHost.hubAccess
-              .queryChangeset({
-                iModelId: this.sourceDb.iModelId,
-                changeset: { id },
-                accessToken: args.accessToken,
-              })
-              .then((changeset) => changeset.index)
-          )
-      );
+    nodeAssert(this._changesetIds, "changesetIds should be initialized before we get here");
 
-      const changesetIds = await ChangeSummaryManager.createChangeSummaries({
-        accessToken: args.accessToken,
-        iModelId: this.sourceDb.iModelId,
-        iTwinId: this.sourceDb.iTwinId,
-        range: { first: firstChangesetIndex, end: endChangesetIndex },
-      });
-
-      ChangeSummaryManager.attachChangeCache(this.sourceDb);
-      for (const changesetId of changesetIds) {
-        this.sourceDb.withPreparedStatement(
-          `
-          SELECT esac.Element.Id, esac.Identifier
-          FROM ecchange.change.InstanceChange ic
-          JOIN BisCore.ExternalSourceAspect.Changes(:changesetId, 'BeforeDelete') esac
-            ON ic.ChangedInstance.Id=esac.ECInstanceId
-          WHERE ic.OpCode=:opcode
-            AND ic.Summary.Id=:changesetId
-            AND esac.Scope.Id=:targetScopeElementId
-            -- not yet documented ecsql feature to check class id
-            AND ic.ChangedInstance.ClassId IS (ONLY BisCore.ExternalSourceAspect)
-          `,
-          (stmt) => {
-            stmt.bindInteger("opcode", ChangeOpCode.Delete);
-            stmt.bindInteger("changesetId", changesetId);
-            stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
-            while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-              const targetId = stmt.getValue(0).getId();
-              const sourceId: Id64String = stmt.getValue(1).getString(); // BisCore.ExternalSourceAspect.Identifier stores a hex Id64String
-              // TODO: maybe delete and don't just remap
-              this.context.remapElement(targetId, sourceId);
-            }
+    for (const changesetId of this._changesetIds) {
+      this.sourceDb.withPreparedStatement(`
+        SELECT esac.Element.Id, esac.Identifier
+        FROM ecchange.change.InstanceChange ic
+        JOIN BisCore.ExternalSourceAspect.Changes(:changesetId, 'BeforeDelete') esac
+          ON ic.ChangedInstance.Id=esac.ECInstanceId
+        WHERE ic.OpCode=:opcode
+          AND ic.Summary.Id=:changesetId
+          AND esac.Scope.Id=:targetScopeElementId
+          -- not yet documented ecsql feature to check class id
+          AND ic.ChangedInstance.ClassId IS (ONLY BisCore.ExternalSourceAspect)
+        `,
+        (stmt) => {
+          stmt.bindInteger("opcode", ChangeOpCode.Delete);
+          stmt.bindInteger("changesetId", changesetId);
+          stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
+          while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+            const targetId = stmt.getValue(0).getId();
+            const sourceId: Id64String = stmt.getValue(1).getString(); // BisCore.ExternalSourceAspect.Identifier stores a hex Id64String
+            // TODO: maybe delete and don't just remap
+            this.context.remapElement(targetId, sourceId);
           }
-        );
-      }
-    } finally {
-      if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
-        ChangeSummaryManager.detachChangeCache(this.sourceDb);
+        }
+      );
     }
   }
 
@@ -696,26 +669,44 @@ export class IModelTransformer extends IModelExportHandler {
     return targetElementProps;
   }
 
+  private _hasElementChangedCache?: Set<Id64String> = undefined;
+
+  private _cacheElementChanges() {
+    nodeAssert(this._changesetIds, "should have changeset data by now");
+    this._hasElementChangedCache = new Set<Id64String>();
+
+    for (const changesetId of this._changesetIds) {
+      this.sourceDb.withPreparedStatement(`
+        SELECT ec.ECInstanceId
+        FROM ecchange.change.InstanceChange ic
+        WHERE 
+          -- AND ic.Summary.Id=:changesetId
+          -- FIXME: DONT COMMIT WITHOUT MAKING SURE THIS IS TESTED
+          -- AND esac.Scope.Id=:targetScopeElementId -- FIXME: hmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
+          -- not yet documented ecsql feature to check class id
+          ic.ChangedInstance.ClassId IS (ONLY BisCore.Element)
+        `,
+        (stmt) => {
+          stmt.bindInteger("opcode", ChangeOpCode.Update);
+          stmt.bindInteger("changesetId", changesetId);
+          stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
+          while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+            const elemId = stmt.getValue(0).getId();
+            this._hasElementChangedCache!.add(elemId);
+          }
+        }
+      );
+    }
+  }
+
   /** Returns true if a change within sourceElement is detected.
    * @param sourceElement The Element from the source iModel
    * @param targetElementId The Element from the target iModel to compare against.
    * @note A subclass can override this method to provide custom change detection behavior.
    */
-  protected hasElementChanged(sourceElement: Element, targetElementId: Id64String): boolean {
-    const sourceAspects = this.targetDb.elements.getAspects(targetElementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
-    for (const sourceAspect of sourceAspects) {
-      if (sourceAspect.scope === undefined) // if the scope was lost, we can't correlate so assume it changed
-        return true;
-      if (
-        sourceAspect.identifier === sourceElement.id &&
-        sourceAspect.scope.id === this.targetScopeElementId &&
-        sourceAspect.kind === ExternalSourceAspect.Kind.Element
-      ) {
-        const lastModifiedTime = sourceElement.iModel.elements.queryLastModifiedTime(sourceElement.id);
-        return lastModifiedTime !== sourceAspect.version;
-      }
-    }
-    return true;
+  protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
+    if (this._hasElementChangedCache === undefined) this._cacheElementChanges();
+    return this._hasElementChangedCache!.has(sourceElement.id);
   }
 
   private static transformCallbackFor(transformer: IModelTransformer, entity: ConcreteEntity): EntityTransformHandler {
@@ -1098,6 +1089,9 @@ export class IModelTransformer extends IModelExportHandler {
         partiallyCommittedElem.forceComplete();
       }
     }
+    // FIXME: make processAll have a try {} finally {} that cleans this up
+    if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
+      ChangeSummaryManager.detachChangeCache(this.sourceDb);
   }
 
   /** Imports all relationships that subclass from the specified base class.
@@ -1396,6 +1390,8 @@ export class IModelTransformer extends IModelExportHandler {
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
 
+  private _changesetIds?: Id64String[] = undefined;
+
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
    * are intending process changes, but prefer using [[processChanges]]
@@ -1405,9 +1401,38 @@ export class IModelTransformer extends IModelExportHandler {
   public async initialize(args?: InitFromExternalSourceAspectsArgs) {
     if (this._initialized)
       return;
+
     await this.context.initialize();
+
     // eslint-disable-next-line deprecation/deprecation
     await this.initFromExternalSourceAspects(args);
+
+    if (args && this.sourceDb.iTwinId !== undefined) {
+      const startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
+      const endChangesetId = this.sourceDb.changeset.id;
+      const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
+        [startChangesetId, endChangesetId]
+          .map(async (id) =>
+            IModelHost.hubAccess
+              .queryChangeset({
+                iModelId: this.sourceDb.iModelId,
+                changeset: { id },
+                accessToken: args.accessToken,
+              })
+              .then((changeset) => changeset.index)
+          )
+      );
+
+      ChangeSummaryManager.attachChangeCache(this.sourceDb);
+
+      this._changesetIds = await ChangeSummaryManager.createChangeSummaries({
+        accessToken: args.accessToken,
+        iModelId: this.sourceDb.iModelId,
+        iTwinId: this.sourceDb.iTwinId,
+        range: { first: firstChangesetIndex, end: endChangesetIndex },
+      });
+    }
+
     this._initialized = true;
   }
 
