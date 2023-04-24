@@ -131,6 +131,7 @@ describe("imodel-transformer", () => {
         sourceDb.nativeDb.exportSchemas(schemaDumpDir);
         Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
       } finally {
+        const os = require('os');
         const record = {
           /* eslint-disable @typescript-eslint/naming-convention */
           "Name": iModel.name,
@@ -145,7 +146,7 @@ describe("imodel-transformer", () => {
         targetDb.close();
         sourceDb.close();
         transformer.dispose();
-        fs.appendFileSync("/tmp/report.jsonl", `${JSON.stringify(record)}\n`);
+        fs.appendFileSync(path.join(os.tmpdir(), "report.jsonl"), `${JSON.stringify(record)}\n`);
       }
     }
   });
