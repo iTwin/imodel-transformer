@@ -2762,6 +2762,8 @@ export class IModelTransformer extends IModelExportHandler {
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
+  private _changesetIds?: Id64String[] = undefined;
+
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
    * are intending to process changes. Callers may wish to explicitly call initialize if they need to execute code after initialize but before [[process]] is called.
