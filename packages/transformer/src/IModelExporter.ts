@@ -221,7 +221,7 @@ export class IModelExporter {
 
     if (props === undefined) {
       // NOTE: confirm the id access pattern
-      this.sourceDb.withStatement(`
+      this.sourceDb.withPreparedStatement(`
         SELECT e.$, e.ECInstanceId, e.ECClassId,
         -- NOTE: 0x%x handles unsigned 64-bit integers thankfully
         ( SELECT JSON_GROUP_ARRAY(format('0x%x', TargetECInstanceId))
