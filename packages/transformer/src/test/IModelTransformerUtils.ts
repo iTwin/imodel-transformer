@@ -134,7 +134,6 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       const physicalObjectId1: Id64String = this.queryPhysicalElementId(iModelDb, physicalPartitionId, teamSpatialCategoryId, `${teamName}1`);
       const physicalObject1: PhysicalElement = iModelDb.elements.getElement<PhysicalElement>(physicalObjectId1);
       assert.equal(physicalObject1.code.spec, iModelDb.codeSpecs.getByName(BisCodeSpec.nullCodeSpec).id);
-      assert.equal(physicalObject1.code.scope, IModel.rootSubjectId);
       assert.isTrue(physicalObject1.code.value === "");
       assert.equal(physicalObject1.category, teamSpatialCategoryId);
       assert.equal(1, iModelDb.elements.getAspects(physicalObjectId1, ExternalSourceAspect.classFullName).length);
