@@ -107,6 +107,7 @@ stages:
             workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
 
           - script: |
+                echo $(imjs_v1_checkpoint_user_password)
                 npm test
             displayName: 'npm test'
             workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
