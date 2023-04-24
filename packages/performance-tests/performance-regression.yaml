@@ -106,7 +106,9 @@ stages:
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
 
-          - script: npm test
+          - script: |
+                echo $(imjs_v1_checkpoint_user_password)
+                npm test
             displayName: 'npm test'
             workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
             timeoutInMinutes: 360
