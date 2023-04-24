@@ -629,6 +629,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async detectElementDeletes(): Promise<void> {
     // FIXME: this is no longer possible to do without change data loading, but I don't think
     // anyone uses this obscure feature, maybe we can remove it?
+    // NOTE: can implement this by checking for federation guids in the target that aren't
     if (this._options.isReverseSynchronization) {
       throw new IModelError(IModelStatus.BadRequest, "Cannot detect deletes when isReverseSynchronization=true");
     }
@@ -705,6 +706,8 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom change detection behavior.
    */
   protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
+    // TODO: maybe actually do a deep equal
+    if (this._changesetIds === undefined) return true;
     if (this._hasElementChangedCache === undefined) this._cacheElementChanges();
     return this._hasElementChangedCache!.has(sourceElement.id);
   }

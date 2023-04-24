@@ -784,34 +784,19 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     assert.isTrue(Guid.isV4Guid(relWithProps.targetGuid));
   }
 
-  public static assertTargetElement(sourceDb: IModelDb, targetDb: IModelDb, targetElementId: Id64String): void {
+  public static assertTargetElement(_sourceDb: IModelDb, targetDb: IModelDb, targetElementId: Id64String): void {
     assert.isTrue(Id64.isValidId64(targetElementId));
     const element: Element = targetDb.elements.getElement(targetElementId);
     assert.isTrue(element.federationGuid && Guid.isV4Guid(element.federationGuid));
-    const aspects: ElementAspect[] = targetDb.elements.getAspects(targetElementId, ExternalSourceAspect.classFullName);
-    const aspect: ExternalSourceAspect = aspects.filter((esa: any) => esa.kind === ExternalSourceAspect.Kind.Element)[0] as ExternalSourceAspect;
-    assert.exists(aspect);
-    assert.equal(aspect.kind, ExternalSourceAspect.Kind.Element);
-    assert.equal(aspect.scope?.id, IModel.rootSubjectId);
-    assert.isUndefined(aspect.checksum);
-    assert.isTrue(Id64.isValidId64(aspect.identifier));
-    const sourceLastMod: string = sourceDb.elements.queryLastModifiedTime(aspect.identifier);
-    assert.equal(aspect.version, sourceLastMod);
-    const sourceElement: Element = sourceDb.elements.getElement(aspect.identifier);
-    assert.exists(sourceElement);
+    const aspects = targetDb.elements.getAspects(targetElementId, ExternalSourceAspect.classFullName);
+    assert(!aspects.some((esa: any) => esa.kind === ExternalSourceAspect.Kind.Element));
   }
 
-  public static assertTargetRelationship(sourceDb: IModelDb, targetDb: IModelDb, targetRelClassFullName: string, targetRelSourceId: Id64String, targetRelTargetId: Id64String): void {
+  public static assertTargetRelationship(_sourceDb: IModelDb, targetDb: IModelDb, targetRelClassFullName: string, targetRelSourceId: Id64String, targetRelTargetId: Id64String): void {
     const targetRelationship: Relationship = targetDb.relationships.getInstance(targetRelClassFullName, { sourceId: targetRelSourceId, targetId: targetRelTargetId });
     assert.exists(targetRelationship);
     const aspects: ElementAspect[] = targetDb.elements.getAspects(targetRelSourceId, ExternalSourceAspect.classFullName);
-    const aspect: ExternalSourceAspect = aspects.filter((esa: any) => esa.kind === ExternalSourceAspect.Kind.Relationship)[0] as ExternalSourceAspect;
-    assert.exists(aspect);
-    const sourceRelationship: Relationship = sourceDb.relationships.getInstance(ElementRefersToElements.classFullName, aspect.identifier);
-    assert.exists(sourceRelationship);
-    assert.isDefined(aspect.jsonProperties);
-    const json: any = JSON.parse(aspect.jsonProperties!);
-    assert.equal(targetRelationship.id, json.targetRelInstanceId);
+    assert(!aspects.some((esa: any) => esa.kind === ExternalSourceAspect.Kind.Relationship));
   }
 }
 
