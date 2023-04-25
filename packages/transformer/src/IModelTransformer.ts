@@ -691,23 +691,21 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changesetIds, "should have changeset data by now");
     this._hasElementChangedCache = new Set<Id64String>();
 
-    for (const changesetId of this._changesetIds) {
-      this.sourceDb.withPreparedStatement(`
-        SELECT ic.ChangedInstance.Id
-        FROM ecchange.change.InstanceChange ic
-        WHERE 
-          -- FIXME: HOW DO WE TRACK from which target scope it came? fed guids in the source changes?
-          -- not yet documented ecsql feature to check class id
-          ic.ChangedInstance.ClassId IS (ONLY BisCore.Element)
-        `,
-        (stmt) => {
-          while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-            const elemId = stmt.getValue(0).getId();
-            this._hasElementChangedCache!.add(elemId);
-          }
+    this.sourceDb.withPreparedStatement(`
+      SELECT ic.ChangedInstance.Id
+      FROM ecchange.change.InstanceChange ic
+      WHERE
+        -- FIXME: HOW DO WE TRACK from which target scope it came? fed guids in the source changes?
+        -- not yet documented ecsql feature to check class id
+        ic.ChangedInstance.ClassId IS (ONLY BisCore.Element)
+      `,
+      (stmt) => {
+        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+          const elemId = stmt.getValue(0).getId();
+          this._hasElementChangedCache!.add(elemId);
         }
-      );
-    }
+      }
+    );
   }
 
   /** Returns true if a change within sourceElement is detected.
