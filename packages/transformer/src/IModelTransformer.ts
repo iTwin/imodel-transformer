@@ -422,28 +422,32 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
+  private _targetScopeProvenanceProps: ExternalSourceAspectProps | undefined = undefined;
+
   /**
    * Make sure no other scope-type external source aspects are on the *target scope element*,
    * and if there are none at all, insert one, then this must be a first synchronization.
    * @returns the last synced version (changesetId) on the target scope's external source aspect,
    *          (if this was a [BriefcaseDb]($backend))
    */
-  private validateScopeProvenance(): string | undefined {
+  private validateScopeProvenance(): void {
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: this.targetScopeElementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
       identifier: this._options.isReverseSynchronization ? this.targetDb.iModelId : this.sourceDb.iModelId, // the opposite side of where provenance is stored
       kind: ExternalSourceAspect.Kind.Scope,
-      version: this.sourceDb.changeset.id,
     };
 
     // FIXME: handle older transformed iModels
     let version!: Id64String | undefined;
     [aspectProps.id, version] = this.queryScopeExternalSource(aspectProps) ?? []; // this query includes "identifier"
+    aspectProps.version = version;
+
+    // TODO: update the provenance always
 
     if (undefined === aspectProps.id) {
-      version = aspectProps.version!;
+      aspectProps.version = this.sourceDb.changeset.id;
       // this query does not include "identifier" to find possible conflicts
       const sql = `
         SELECT ECInstanceId
@@ -468,7 +472,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    return version;
+    this._targetScopeProvenanceProps = aspectProps;
   }
 
   private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps): [Id64String, Id64String] | [undefined, undefined] {
@@ -694,12 +698,15 @@ export class IModelTransformer extends IModelExportHandler {
     this.sourceDb.withPreparedStatement(`
       SELECT ic.ChangedInstance.Id
       FROM ecchange.change.InstanceChange ic
-      WHERE
+      -- ignore changes in (before) the previous transformation, we only want ones since
+      WHERE ic.Summary.Id<>:changesetId
         -- FIXME: HOW DO WE TRACK from which target scope it came? fed guids in the source changes?
         -- not yet documented ecsql feature to check class id
-        ic.ChangedInstance.ClassId IS (ONLY BisCore.Element)
+        AND ic.ChangedInstance.ClassId IS (BisCore.Element)
       `,
       (stmt) => {
+        nodeAssert(this._targetScopeProvenanceProps?.version, "target scope elem provenance should always set version");
+        stmt.bindString("changesetId", this._targetScopeProvenanceProps.version);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           const elemId = stmt.getValue(0).getId();
           this._hasElementChangedCache!.add(elemId);
@@ -919,12 +926,11 @@ export class IModelTransformer extends IModelExportHandler {
         }
       }
     }
-    if (undefined !== targetElementId && Id64.isValidId64(targetElementId)) {
-      // compare LastMod of sourceElement to ExternalSourceAspect of targetElement to see there are changes to import
-      if (!this.hasElementChanged(sourceElement, targetElementId)) {
-        return;
-      }
-    }
+
+    if (targetElementId !== undefined
+      && Id64.isValid(targetElementId)
+      && !this.hasElementChanged(sourceElement, targetElementId)
+    ) return;
 
     this.collectUnmappedReferences(sourceElement);
 
