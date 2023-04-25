@@ -64,7 +64,7 @@
     "NOTE: All tools used by scripts in this package must be listed as devDependencies"
   ],
   "devDependencies": {
-    "@itwin/build-tools": "3.6.0 - 3.6.1",
+    "@itwin/build-tools": "4.0.0-dev.86",
     "@itwin/core-backend": "3.6.0 - 3.6.1",
     "@itwin/core-bentley": "3.6.0 - 3.6.1",
     "@itwin/core-common": "3.6.0 - 3.6.1",
