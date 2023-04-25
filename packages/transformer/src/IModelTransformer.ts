@@ -686,25 +686,21 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _hasElementChangedCache?: Set<Id64String> = undefined;
 
+  // FIXME: this is a PoC, don't load this all into memory
   private _cacheElementChanges() {
     nodeAssert(this._changesetIds, "should have changeset data by now");
     this._hasElementChangedCache = new Set<Id64String>();
 
     for (const changesetId of this._changesetIds) {
       this.sourceDb.withPreparedStatement(`
-        SELECT ec.ECInstanceId
+        SELECT ic.ChangedInstance.Id
         FROM ecchange.change.InstanceChange ic
         WHERE 
-          -- AND ic.Summary.Id=:changesetId
-          -- FIXME: DONT COMMIT WITHOUT MAKING SURE THIS IS TESTED
-          -- AND esac.Scope.Id=:targetScopeElementId -- FIXME: hmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm
+          -- FIXME: HOW DO WE TRACK from which target scope it came? fed guids in the source changes?
           -- not yet documented ecsql feature to check class id
           ic.ChangedInstance.ClassId IS (ONLY BisCore.Element)
         `,
         (stmt) => {
-          stmt.bindInteger("opcode", ChangeOpCode.Update);
-          stmt.bindInteger("changesetId", changesetId);
-          stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
           while (DbResult.BE_SQLITE_ROW === stmt.step()) {
             const elemId = stmt.getValue(0).getId();
             this._hasElementChangedCache!.add(elemId);
@@ -1420,37 +1416,39 @@ export class IModelTransformer extends IModelExportHandler {
       return;
 
     await this.context.initialize();
-
+    await this._tryInitChangesetData(args);
     // eslint-disable-next-line deprecation/deprecation
     await this.initFromExternalSourceAspects(args);
 
-    if (args && this.sourceDb.iTwinId !== undefined) {
-      const startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
-      const endChangesetId = this.sourceDb.changeset.id;
-      const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
-        [startChangesetId, endChangesetId]
-          .map(async (id) =>
-            IModelHost.hubAccess
-              .queryChangeset({
-                iModelId: this.sourceDb.iModelId,
-                changeset: { id },
-                accessToken: args.accessToken,
-              })
-              .then((changeset) => changeset.index)
-          )
-      );
-
-      ChangeSummaryManager.attachChangeCache(this.sourceDb);
-
-      this._changesetIds = await ChangeSummaryManager.createChangeSummaries({
-        accessToken: args.accessToken,
-        iModelId: this.sourceDb.iModelId,
-        iTwinId: this.sourceDb.iTwinId,
-        range: { first: firstChangesetIndex, end: endChangesetIndex },
-      });
-    }
-
     this._initialized = true;
+  }
+
+  private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
+    if (args === undefined || this.sourceDb.iTwinId === undefined) return;
+
+    const startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
+    const endChangesetId = this.sourceDb.changeset.id;
+    const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
+      [startChangesetId, endChangesetId]
+        .map(async (id) =>
+          IModelHost.hubAccess
+            .queryChangeset({
+              iModelId: this.sourceDb.iModelId,
+              changeset: { id },
+              accessToken: args.accessToken,
+            })
+            .then((changeset) => changeset.index)
+        )
+    );
+
+    this._changesetIds = await ChangeSummaryManager.createChangeSummaries({
+      accessToken: args.accessToken,
+      iModelId: this.sourceDb.iModelId,
+      iTwinId: this.sourceDb.iTwinId,
+      range: { first: firstChangesetIndex, end: endChangesetIndex },
+    });
+
+    ChangeSummaryManager.attachChangeCache(this.sourceDb);
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
