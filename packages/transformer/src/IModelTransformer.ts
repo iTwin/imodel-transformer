@@ -843,6 +843,8 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
+  private _targetScopeProvenanceProps: ExternalSourceAspectProps | undefined = undefined;
+
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
    * It should (and now by default does) instead insert provenance pointing to the provenanceSource
