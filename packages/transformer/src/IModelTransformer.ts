@@ -418,24 +418,32 @@ export class IModelTransformer extends IModelExportHandler {
       kind: ExternalSourceAspect.Kind.Relationship,
       jsonProperties: JSON.stringify({ targetRelInstanceId }),
     };
-    aspectProps.id = this.queryExternalSourceAspectId(aspectProps);
+    [aspectProps.id] = this.queryScopeExternalSource(aspectProps);
     return aspectProps;
   }
 
   /**
    * Make sure no other scope-type external source aspects are on the *target scope element*,
    * and if there are none at all, insert one, then this must be a first synchronization.
+   * @returns the last synced version (changesetId) on the target scope's external source aspect,
+   *          (if this was a [BriefcaseDb]($backend))
    */
-  private validateScopeProvenance(): void {
+  private validateScopeProvenance(): string | undefined {
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: this.targetScopeElementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
       identifier: this._options.isReverseSynchronization ? this.targetDb.iModelId : this.sourceDb.iModelId, // the opposite side of where provenance is stored
       kind: ExternalSourceAspect.Kind.Scope,
+      version: this.sourceDb.changeset.id,
     };
-    aspectProps.id = this.queryExternalSourceAspectId(aspectProps); // this query includes "identifier"
+
+    // FIXME: handle older transformed iModels
+    let version!: Id64String | undefined;
+    [aspectProps.id, version] = this.queryScopeExternalSource(aspectProps) ?? []; // this query includes "identifier"
+
     if (undefined === aspectProps.id) {
+      version = aspectProps.version!;
       // this query does not include "identifier" to find possible conflicts
       const sql = `
         SELECT ECInstanceId
@@ -459,11 +467,13 @@ export class IModelTransformer extends IModelExportHandler {
         this._isFirstSynchronization = true; // couldn't tell this is the first time without provenance
       }
     }
+
+    return version;
   }
 
-  private queryExternalSourceAspectId(aspectProps: ExternalSourceAspectProps): Id64String | undefined {
+  private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps): [Id64String, Id64String] | [undefined, undefined] {
     const sql = `
-      SELECT ECInstanceId
+      SELECT ECInstanceId, Version
       FROM ${ExternalSourceAspect.classFullName}
       WHERE Element.Id=:elementId
         AND Scope.Id=:scopeId
@@ -471,14 +481,18 @@ export class IModelTransformer extends IModelExportHandler {
         AND Identifier=:identifier
       LIMIT 1
     `;
-    return this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): Id64String | undefined => {
+    return this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
       if (aspectProps.scope === undefined)
-        return undefined; // return undefined instead of binding an invalid id
+        return [undefined, undefined]; // return undefined instead of binding an invalid id
       statement.bindId("scopeId", aspectProps.scope.id);
       statement.bindString("kind", aspectProps.kind);
       statement.bindString("identifier", aspectProps.identifier);
-      return (DbResult.BE_SQLITE_ROW === statement.step()) ? statement.getValue(0).getId() : undefined;
+      if (DbResult.BE_SQLITE_ROW !== statement.step())
+        return [undefined, undefined];
+      const aspectId = statement.getValue(0).getId();
+      const version = statement.getValue(1).getString();
+      return [aspectId, version];
     });
   }
 
@@ -944,7 +958,7 @@ export class IModelTransformer extends IModelExportHandler {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceElement.federationGuid;
       if (!provenance) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
-        let aspectId = this.queryExternalSourceAspectId(aspectProps);
+        let [aspectId] = this.queryScopeExternalSource(aspectProps);
         if (aspectId === undefined) {
           aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
         } else {
