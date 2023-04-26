@@ -4,10 +4,6 @@ overrides:
   typedoc: ^0.23.28
   typedoc-plugin-merge-modules: ^4.0.1
   typescript: ^5.0.2
-  eslint-plugin-deprecation: ^1.4.0
-  eslint-plugin-import: ^2.24.5
-  eslint-plugin-jsdoc: ^40.1.1
-  eslint-plugin-jsx-a11y: ^6.7.1
 
 importers:
 
@@ -16,12 +12,12 @@ importers:
       beachball: ^2.31.13
       fast-glob: ^3.2.12
       husky: ^8.0.3
-      lint-staged: ^13.2.1
+      lint-staged: ^13.2.2
     devDependencies:
       beachball: 2.31.13
       fast-glob: 3.2.12
       husky: 8.0.3
-      lint-staged: 13.2.1
+      lint-staged: 13.2.2
 
   packages/test-app:
     specifiers:
@@ -3613,8 +3609,8 @@ packages:
     resolution: {integrity: sha512-7ylylesZQ/PV29jhEDl3Ufjo6ZX7gCqJr5F7PKrqc93v7fzSymt1BpwEU8nAUXs8qzzvqhbjhK5QZg6Mt/HkBg==}
     dev: true
 
-  /lint-staged/13.2.1:
-    resolution: {integrity: sha512-8gfzinVXoPfga5Dz/ZOn8I2GOhf81Wvs+KwbEXQn/oWZAvCVS2PivrXfVbFJc93zD16uC0neS47RXHIjXKYZQw==}
+  /lint-staged/13.2.2:
+    resolution: {integrity: sha512-71gSwXKy649VrSU09s10uAT0rWCcY3aewhMaHyl2N84oBk4Xs9HgxvUp3AYu+bNsK4NrOYYxvSgg7FyGJ+jGcA==}
     engines: {node: ^14.13.1 || >=16.0.0}
     hasBin: true
     dependencies:

@@ -25,7 +25,7 @@
     "beachball": "^2.31.13",
     "fast-glob": "^3.2.12",
     "husky": "^8.0.3",
-    "lint-staged": "^13.2.1"
+    "lint-staged": "^13.2.2"
   },
   "lint-staged": {
     "*.{ts,html}": [
