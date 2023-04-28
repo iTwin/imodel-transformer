@@ -599,17 +599,14 @@ export class IModelTransformer extends IModelExportHandler {
 
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
 
-    // FIXME: can't I remove this loop?
+    // must also support old ESA provenance if no fedguids
     this.sourceDb.withPreparedStatement(`
-      SELECT esac.Element.Id, esac.Identifier
+      SELECT ic.ChangedInstance.Id
       FROM ecchange.change.InstanceChange ic
-      JOIN BisCore.ExternalSourceAspect.Changes(:changesetId, 'BeforeDelete') esac
-        ON ic.ChangedInstance.Id=esac.ECInstanceId
       WHERE ic.OpCode=:opcode
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
-        AND esac.Scope.Id=:targetScopeElementId
         -- not yet documented ecsql feature to check class id
-        AND ic.ChangedInstance.ClassId IS (ONLY BisCore.ExternalSourceAspect)
+        AND ic.ChangedInstance.ClassId IS (BisCore.Element)
       `,
       (stmt) => {
         stmt.bindInteger("opcode", ChangeOpCode.Delete);
@@ -697,7 +694,8 @@ export class IModelTransformer extends IModelExportHandler {
     this.sourceDb.withPreparedStatement(`
       SELECT ic.ChangedInstance.Id
       FROM ecchange.change.InstanceChange ic
-      JOIN imodelchange.changeset imc ON ic.Summary.id=imc.Summary.Id
+      JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
+      -- TODO: can remove this if we don't need changeset summary of current source changeset
       -- ignore changes in (before) the previous transformation, we only want ones since
       WHERE imc.wsgid<>:changesetId
         -- FIXME: HOW DO WE TRACK from which target scope it came? fed guids in the source changes?
@@ -1444,6 +1442,7 @@ export class IModelTransformer extends IModelExportHandler {
         )
     );
 
+    // FIXME: do we need the startChangesetId?
     this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
       accessToken: args.accessToken,
       iModelId: this.sourceDb.iModelId,
