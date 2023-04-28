@@ -113,8 +113,8 @@ stages:
             timeoutInMinutes: 360
             env:
               CI: 1
-              V1_CHECKPOINT_USER_NAME: $(imjs_v1_checkpoint_user_email)
-              V1_CHECKPOINT_USER_PASSWORD: $(imjs_v1_checkpoint_user_password)
+              # V1_CHECKPOINT_USER_NAME: $(imjs_v1_checkpoint_user_email)
+              # V1_CHECKPOINT_USER_PASSWORD: $(imjs_v1_checkpoint_user_password)
               ORCHESTRATOR_ADMIN_USER_NAME: $(imjs_orchestrator_admin_email)
               ORCHESTRATOR_ADMIN_USER_PASSWORD: $(imjs_orchestrator_admin_password)
               IMODEL_USER_NAME: $(imjs_user_email)
