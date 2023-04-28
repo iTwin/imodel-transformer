@@ -42,14 +42,17 @@ describe("imodel-transformer", () => {
     var usrEmail;
     var usrPass;
     if(process.env.V2_CHECKPOINT_USER_NAME !== ""){
+      console.log('v2 check');
       usrEmail = process.env.V2_CHECKPOINT_USER_NAME;
       usrPass = process.env.V2_CHECKPOINT_USER_PASSWORD;
     }
     else if(process.env.V1_CHECKPOINT_USER_NAME !== ""){
+      console.log('v1 check');
       usrEmail = process.env.V1_CHECKPOINT_USER_NAME;
       usrPass = process.env.V1_CHECKPOINT_USER_PASSWORD;
     }
     else {
+      console.log('imodel user');
       usrEmail = process.env.IMODEL_USER_NAME;
       usrPass = process.env.IMODEL_USER_PASSWORD;
     }
