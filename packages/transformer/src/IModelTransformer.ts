@@ -698,8 +698,9 @@ export class IModelTransformer extends IModelExportHandler {
     this.sourceDb.withPreparedStatement(`
       SELECT ic.ChangedInstance.Id
       FROM ecchange.change.InstanceChange ic
+      JOIN imodelchange.changeset imc ON ic.Summary.id=imc.Summary.Id
       -- ignore changes in (before) the previous transformation, we only want ones since
-      WHERE ic.Summary.Id<>:changesetId
+      WHERE imc.wsgid<>:changesetId
         -- FIXME: HOW DO WE TRACK from which target scope it came? fed guids in the source changes?
         -- not yet documented ecsql feature to check class id
         AND ic.ChangedInstance.ClassId IS (BisCore.Element)
