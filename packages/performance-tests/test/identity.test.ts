@@ -41,6 +41,7 @@ describe("imodel-transformer", () => {
     }
     var usrEmail;
     var usrPass;
+    console.log(process.env.V2_CHECKPOINT_USER_NAME);
     if(process.env.V2_CHECKPOINT_USER_NAME !== ""){
       console.log('v2 check');
       usrEmail = process.env.V2_CHECKPOINT_USER_NAME;
