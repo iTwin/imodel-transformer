@@ -41,13 +41,11 @@ describe("imodel-transformer", () => {
     }
     var usrEmail;
     var usrPass;
-    if(process.env.V2_CHECKPOINT_USER_NAME != "undefined"){
-      console.log('v2 check');
+    if(process.env.V2_CHECKPOINT_USER_NAME){
       usrEmail = process.env.V2_CHECKPOINT_USER_NAME;
       usrPass = process.env.V2_CHECKPOINT_USER_PASSWORD;
     }
-    else if(process.env.V1_CHECKPOINT_USER_NAME != "undefined"){
-      console.log('v1 check');
+    else if(process.env.V1_CHECKPOINT_USER_NAME){
       usrEmail = process.env.V1_CHECKPOINT_USER_NAME;
       usrPass = process.env.V1_CHECKPOINT_USER_PASSWORD;
     }
