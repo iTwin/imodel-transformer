@@ -597,23 +597,24 @@ export class IModelTransformer extends IModelExportHandler {
     if (this.sourceDb.iTwinId === undefined)
       return;
 
-    nodeAssert(this._changesetIds, "changesetIds should be initialized before we get here");
+    nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
 
-    for (const changesetId of this._changesetIds) {
+    // FIXME: can't I remove this loop?
+    for (const changeSummaryId of this._changeSummaryIds) {
       this.sourceDb.withPreparedStatement(`
         SELECT esac.Element.Id, esac.Identifier
         FROM ecchange.change.InstanceChange ic
         JOIN BisCore.ExternalSourceAspect.Changes(:changesetId, 'BeforeDelete') esac
           ON ic.ChangedInstance.Id=esac.ECInstanceId
         WHERE ic.OpCode=:opcode
-          AND ic.Summary.Id=:changesetId
+          AND ic.Summary.Id=:changeSummaryId
           AND esac.Scope.Id=:targetScopeElementId
           -- not yet documented ecsql feature to check class id
           AND ic.ChangedInstance.ClassId IS (ONLY BisCore.ExternalSourceAspect)
         `,
         (stmt) => {
           stmt.bindInteger("opcode", ChangeOpCode.Delete);
-          stmt.bindInteger("changesetId", changesetId);
+          stmt.bindInteger("changeSummaryId", changeSummaryId);
           stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
           while (DbResult.BE_SQLITE_ROW === stmt.step()) {
             const targetId = stmt.getValue(0).getId();
@@ -692,7 +693,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: this is a PoC, don't load this all into memory
   private _cacheElementChanges() {
-    nodeAssert(this._changesetIds, "should have changeset data by now");
+    nodeAssert(this._changeSummaryIds, "should have changeset data by now");
     this._hasElementChangedCache = new Set<Id64String>();
 
     this.sourceDb.withPreparedStatement(`
@@ -722,8 +723,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom change detection behavior.
    */
   protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
-    // TODO: maybe actually do a deep equal
-    if (this._changesetIds === undefined) return true;
+    if (this._changeSummaryIds === undefined) return true;
     if (this._hasElementChangedCache === undefined) this._cacheElementChanges();
     return this._hasElementChangedCache!.has(sourceElement.id);
   }
@@ -1408,7 +1408,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
 
-  private _changesetIds?: Id64String[] = undefined;
+  private _changeSummaryIds?: Id64String[] = undefined;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
@@ -1446,7 +1446,7 @@ export class IModelTransformer extends IModelExportHandler {
         )
     );
 
-    this._changesetIds = await ChangeSummaryManager.createChangeSummaries({
+    this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
       accessToken: args.accessToken,
       iModelId: this.sourceDb.iModelId,
       iTwinId: this.sourceDb.iTwinId,
