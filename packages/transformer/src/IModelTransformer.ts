@@ -601,8 +601,9 @@ export class IModelTransformer extends IModelExportHandler {
 
     // must also support old ESA provenance if no fedguids
     this.sourceDb.withPreparedStatement(`
-      SELECT ic.ChangedInstance.Id
+      SELECT ic.ChangedInstance.Id, e.FederationGuid
       FROM ecchange.change.InstanceChange ic
+      JOIN bis.Element e ON ic.ChangedInstance.Id=e.ECInstanceId
       WHERE ic.OpCode=:opcode
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- not yet documented ecsql feature to check class id
@@ -611,15 +612,32 @@ export class IModelTransformer extends IModelExportHandler {
       (stmt) => {
         stmt.bindInteger("opcode", ChangeOpCode.Delete);
         stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
-        stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
+        // instead of targetScopeElementId, we only operate on elements
+        // that had colliding fed guids with the source...
+        // currently that is enforced by us checking that the deleted element fedguid is in both
+        // before remapping
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-          const targetId = stmt.getValue(0).getId();
-          const sourceId: Id64String = stmt.getValue(1).getString(); // BisCore.ExternalSourceAspect.Identifier stores a hex Id64String
+          const sourceId = stmt.getValue(0).getId();
+          // FIXME: if I could attach the second db, will probably be much faster to get target id
+          const sourceFedGuid = stmt.getValue(1).getGuid();
+          const targetId = this.queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
+          const deletionNotInTarget = !targetId;
+          if (deletionNotInTarget) return;
           // TODO: maybe delete and don't just remap
-          this.context.remapElement(targetId, sourceId);
+          this.context.remapElement(sourceId, targetId);
         }
       }
     );
+  }
+
+  private queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
+    return db.withPreparedStatement("SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?", (stmt) => {
+      stmt.bindGuid(1, fedGuid);
+      if (stmt.step() === DbResult.BE_SQLITE_ROW)
+        return stmt.getValue(0).getId();
+      else
+        return undefined;
+    });
   }
 
   /** Returns `true` if *brute force* delete detections should be run.
