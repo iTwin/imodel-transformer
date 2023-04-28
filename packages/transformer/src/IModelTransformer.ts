@@ -600,10 +600,22 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
 
     // must also support old ESA provenance if no fedguids
-    this.sourceDb.withPreparedStatement(`
-      SELECT ic.ChangedInstance.Id, e.FederationGuid
+    this.sourceDb.withStatement(`
+      SELECT ic.ChangedInstance.Id, ${
+        this._changeSummaryIds.length > 1 ? "coalesce(" : ""
+      }${
+        this._changeSummaryIds.map((_, i) => `ec${i}.FederationGuid`)
+      }${
+        this._changeSummaryIds.length > 1 ? ")" : ""
+      }
       FROM ecchange.change.InstanceChange ic
-      JOIN bis.Element e ON ic.ChangedInstance.Id=e.ECInstanceId
+      -- ask affan about whether this is worth it...
+      ${
+        this._changeSummaryIds.map((id, i) => `
+          JOIN bis.Element.Changes(${id}, 'BeforeDelete') ec${i}
+            ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
+        `)
+      }
       WHERE ic.OpCode=:opcode
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- not yet documented ecsql feature to check class id
