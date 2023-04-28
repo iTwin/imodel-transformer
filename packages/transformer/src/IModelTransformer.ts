@@ -600,31 +600,29 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
 
     // FIXME: can't I remove this loop?
-    for (const changeSummaryId of this._changeSummaryIds) {
-      this.sourceDb.withPreparedStatement(`
-        SELECT esac.Element.Id, esac.Identifier
-        FROM ecchange.change.InstanceChange ic
-        JOIN BisCore.ExternalSourceAspect.Changes(:changesetId, 'BeforeDelete') esac
-          ON ic.ChangedInstance.Id=esac.ECInstanceId
-        WHERE ic.OpCode=:opcode
-          AND ic.Summary.Id=:changeSummaryId
-          AND esac.Scope.Id=:targetScopeElementId
-          -- not yet documented ecsql feature to check class id
-          AND ic.ChangedInstance.ClassId IS (ONLY BisCore.ExternalSourceAspect)
-        `,
-        (stmt) => {
-          stmt.bindInteger("opcode", ChangeOpCode.Delete);
-          stmt.bindInteger("changeSummaryId", changeSummaryId);
-          stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
-          while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-            const targetId = stmt.getValue(0).getId();
-            const sourceId: Id64String = stmt.getValue(1).getString(); // BisCore.ExternalSourceAspect.Identifier stores a hex Id64String
-            // TODO: maybe delete and don't just remap
-            this.context.remapElement(targetId, sourceId);
-          }
+    this.sourceDb.withPreparedStatement(`
+      SELECT esac.Element.Id, esac.Identifier
+      FROM ecchange.change.InstanceChange ic
+      JOIN BisCore.ExternalSourceAspect.Changes(:changesetId, 'BeforeDelete') esac
+        ON ic.ChangedInstance.Id=esac.ECInstanceId
+      WHERE ic.OpCode=:opcode
+        AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
+        AND esac.Scope.Id=:targetScopeElementId
+        -- not yet documented ecsql feature to check class id
+        AND ic.ChangedInstance.ClassId IS (ONLY BisCore.ExternalSourceAspect)
+      `,
+      (stmt) => {
+        stmt.bindInteger("opcode", ChangeOpCode.Delete);
+        stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
+        stmt.bindInteger("targetScopeElementId", this.targetScopeElementId);
+        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+          const targetId = stmt.getValue(0).getId();
+          const sourceId: Id64String = stmt.getValue(1).getString(); // BisCore.ExternalSourceAspect.Identifier stores a hex Id64String
+          // TODO: maybe delete and don't just remap
+          this.context.remapElement(targetId, sourceId);
         }
-      );
-    }
+      }
+    );
   }
 
   /** Returns `true` if *brute force* delete detections should be run.
