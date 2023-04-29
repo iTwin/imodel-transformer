@@ -1288,7 +1288,7 @@ export class IModelTransformer extends IModelExportHandler {
           runFnInDataFlowDirection(elementId, aspectIdentifier);
         }
       }
-    );
+    });
   }
 
   private forEachTrackedElement(
@@ -2403,6 +2403,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     );
   }
+
 
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
