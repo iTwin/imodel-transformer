@@ -2385,7 +2385,25 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  // FIXME: make the exporter use fedguid for this
+  // is this really the best way to get class id? shouldn't we cache it somewhere?
+  private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
+    // is it better to use un-cached `SELECT (ONLY ${classFullName})`?
+    return db.withPreparedStatement(`
+      SELECT c.ECInstanceId
+      FROM ECDbMeta.ECClassDef c
+      JOIN ECDbMeta.ECSchemaDef s ON c.Schema.Id=s.ECInstanceId
+      WHERE s.Name=? AND c.Name=?
+    `, (stmt) => {
+        const [schemaName, className] = classFullName.split(".");
+        stmt.bindString(1, schemaName);
+        stmt.bindString(2, className);
+        if (stmt.step() === DbResult.BE_SQLITE_ROW)
+          return stmt.getValue(0).getId();
+        assert(false, "relationship was not found");
+      }
+    );
+  }
+
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
    */
