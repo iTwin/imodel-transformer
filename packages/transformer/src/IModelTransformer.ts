@@ -1234,7 +1234,9 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  // FIXME: need to check if the element class was remapped and use that id instead
   // is this really the best way to get class id? shouldn't we cache it somewhere?
+  // NOTE: maybe if we lower remapElementClass into here, we can use that
   private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
     // is it better to use un-cached `SELECT (ONLY ${classFullName})`?
     return db.withPreparedStatement(`
@@ -1253,12 +1255,18 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
    */
   public override onDeleteRelationship(sourceRelInstanceId: Id64String): void {
-    const targetRelClassId = this._getRelClassId(this.targetDb, sourceRel)
+    nodeAssert(this._deletedSourceRelationshipData, "should be defined at initialization by now");
+    const deletedRelData = this._deletedSourceRelationshipData.get(sourceRelInstanceId);
+    if (!deletedRelData) {
+      Logger.logWarning(loggerCategory, "tried to delete a relationship that wasn't in change data");
+      return;
+    }
+    const targetRelClassId = this._getRelClassId(this.targetDb, deletedRelData.classId);
+    // NOTE: if no remapping, could store the sourceRel class name earlier and reuse it instead of add to query
     const sql = `
       SELECT ECSourceInstanceId, ECTargetInstanceId, ECClassId
       FROM BisCore.ElementRefersToElements
@@ -1266,21 +1274,22 @@ export class IModelTransformer extends IModelExportHandler {
       JOIN BisCore.Element te ON te.ECInstanceId=ECTargetInstanceId
       WHERE se.FederationGuid=:sourceFedGuid
         AND te.FederationGuid=:targetFedGuid
-        AND 
+        AND ECClassId=:relClassId
     `;
     this.targetDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      statement.bindId("scopeId", this.targetScopeElementId);
-      statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
-      statement.bindString("identifier", sourceRelInstanceId);
+      statement.bindGuid("sourceFedGuid", deletedRelData.sourceFedGuid);
+      statement.bindGuid("targetFedGuid", deletedRelData.targetFedGuid);
+      statement.bindId("relClassId", targetRelClassId);
       if (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const json: any = JSON.parse(statement.getValue(1).getString());
-        if (undefined !== json.targetRelInstanceId) {
-          const targetRelationship = this.targetDb.relationships.tryGetInstance(ElementRefersToElements.classFullName, json.targetRelInstanceId);
-          if (targetRelationship) {
-            this.importer.deleteRelationship(targetRelationship.toJSON());
-          }
-          this.targetDb.elements.deleteAspect(statement.getValue(0).getId());
+        const sourceId = statement.getValue(0).getId();
+        const targetId = statement.getValue(1).getId();
+        const targetRelClassFullName = statement.getValue(2).getClassNameForClassId();
+        // FIXME: make importer.deleteRelationship not need full props
+        const targetRelationship = this.targetDb.relationships.tryGetInstance(targetRelClassFullName, { sourceId, targetId });
+        if (targetRelationship) {
+          this.importer.deleteRelationship(targetRelationship.toJSON());
         }
+        this.targetDb.elements.deleteAspect(statement.getValue(0).getId());
       }
     });
   }
