@@ -17,7 +17,7 @@ import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
-  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
+  ChannelRootAspect, ClassRegistry, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
@@ -1174,17 +1174,38 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  // FIXME: make the exporter use fedguid for this
+  // is this really the best way to get class id? shouldn't we cache it somewhere?
+  private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
+    // is it better to use un-cached `SELECT (ONLY ${classFullName})`?
+    return db.withPreparedStatement(`
+      SELECT c.ECInstanceId
+      FROM ECDbMeta.ECClassDef c
+      JOIN ECDbMeta.ECSchemaDef s ON c.Schema.Id=s.ECInstanceId
+      WHERE s.Name=? AND c.Name=?
+    `, (stmt) => {
+        const [schemaName, className] = classFullName.split(".");
+        stmt.bindString(1, schemaName);
+        stmt.bindString(2, className);
+        if (stmt.step() === DbResult.BE_SQLITE_ROW)
+          return stmt.getValue(0).getId();
+        assert(false, "relationship was not found");
+      }
+    );
+  }
+
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
    */
   public override onDeleteRelationship(sourceRelInstanceId: Id64String): void {
+    const targetRelClassId = this._getRelClassId(this.targetDb, sourceRel)
     const sql = `
-      SELECT ECInstanceId,JsonProperties FROM ${ExternalSourceAspect.classFullName} aspect
-      WHERE aspect.Scope.Id=:scopeId
-        AND aspect.Kind=:kind
-        AND aspect.Identifier=:identifier
-      LIMIT 1
+      SELECT ECSourceInstanceId, ECTargetInstanceId, ECClassId
+      FROM BisCore.ElementRefersToElements
+      JOIN BisCore.Element se ON se.ECInstanceId=ECSourceInstanceId
+      JOIN BisCore.Element te ON te.ECInstanceId=ECTargetInstanceId
+      WHERE se.FederationGuid=:sourceFedGuid
+        AND te.FederationGuid=:targetFedGuid
+        AND 
     `;
     this.targetDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindId("scopeId", this.targetScopeElementId);
