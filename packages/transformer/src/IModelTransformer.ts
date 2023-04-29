@@ -607,9 +607,11 @@ export class IModelTransformer extends IModelExportHandler {
       return;
 
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
+    nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
 
-    // must also support old ESA provenance if no fedguids
-    this.sourceDb.withStatement(`
+    // NEXT: need to also detect deleted relationships and cache which ones we need to delete
+    //
+    const deletedElemSql = `
       SELECT ic.ChangedInstance.Id, ${
         this._changeSummaryIds.length > 1 ? "coalesce(" : ""
       }${
@@ -625,30 +627,31 @@ export class IModelTransformer extends IModelExportHandler {
             ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
         `)
       }
-      WHERE ic.OpCode=:opcode
+      WHERE ic.OpCode=:delete
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- not yet documented ecsql feature to check class id
         AND ic.ChangedInstance.ClassId IS (BisCore.Element)
-      `,
-      (stmt) => {
-        stmt.bindInteger("opcode", ChangeOpCode.Delete);
-        stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
-        // instead of targetScopeElementId, we only operate on elements
-        // that had colliding fed guids with the source...
-        // currently that is enforced by us checking that the deleted element fedguid is in both
-        // before remapping
-        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-          const sourceId = stmt.getValue(0).getId();
-          // FIXME: if I could attach the second db, will probably be much faster to get target id
-          const sourceFedGuid = stmt.getValue(1).getGuid();
-          const targetId = this.queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
-          const deletionNotInTarget = !targetId;
-          if (deletionNotInTarget) return;
-          // TODO: maybe delete and don't just remap
-          this.context.remapElement(sourceId, targetId);
-        }
+    `;
+
+    // must also support old ESA provenance if no fedguids
+    this.sourceDb.withStatement(deletedElemSql, (stmt) => {
+      stmt.bindInteger("delete", ChangeOpCode.Delete);
+      stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
+      // instead of targetScopeElementId, we only operate on elements
+      // that had colliding fed guids with the source...
+      // currently that is enforced by us checking that the deleted element fedguid is in both
+      // before remapping
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        const sourceId = stmt.getValue(0).getId();
+        // FIXME: if I could attach the second db, will probably be much faster to get target id
+        const sourceFedGuid = stmt.getValue(1).getGuid();
+        const targetId = this.queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
+        const deletionNotInTarget = !targetId;
+        if (deletionNotInTarget) return;
+        // TODO: maybe delete and don't just remap
+        this.context.remapElement(sourceId, targetId);
       }
-    );
+    });
   }
 
   private queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
@@ -723,30 +726,78 @@ export class IModelTransformer extends IModelExportHandler {
     return targetElementProps;
   }
 
+  // if undefined, it can be initialized by calling [[this._cacheSourceChanges]]
   private _hasElementChangedCache?: Set<Id64String> = undefined;
+  private _deletedSourceRelationshipData?: Map<Id64String, {
+    sourceFedGuid: Id64String;
+    targetFedGuid: Id64String;
+    classId: Id64String;
+  }> = undefined;
 
   // FIXME: this is a PoC, don't load this all into memory
-  private _cacheElementChanges() {
-    nodeAssert(this._changeSummaryIds, "should have changeset data by now");
-    this._hasElementChangedCache = new Set<Id64String>();
+  private _cacheSourceChanges() {
+    // FIXME: test for situations where we have 0 change summaries
+    nodeAssert(this._changeSummaryIds?.length && this._changeSummaryIds.length > 0, "should have changeset data by now");
+    this._hasElementChangedCache = new Set();
+    this._deletedSourceRelationshipData = new Map();
 
+    // // TODO: assert in here and make a private method for reuse
+    // handle sqlite coalesce requiring 2 arguments
+    const coalesceChangeSummaryJoinedValue = (f: (id: Id64String, index: number) => string) => {
+      const valueList = this._changeSummaryIds!.map(f);
+      this._changeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
+    };
+
+    // somewhat complicated query because doing two things at once... (not to mention the .Changes multijoin hack)
     this.sourceDb.withPreparedStatement(`
-      SELECT ic.ChangedInstance.Id
+      SELECT
+        ic.ChangedInstance.Id AS InstId,
+        (ic.ChangedInstance.ClassId IS (BisCore.Element)) AS IsElemNotDeletedRel,
+        ${
+          coalesceChangeSummaryJoinedValue((_, i) => `sec${i}.FederationGuid`)
+        } As SourceFedGuid,
+        ${
+          coalesceChangeSummaryJoinedValue((_, i) => `tec${i}.FederationGuid`)
+        } As TargetFedGuid,
+        ic.ChangedInstance.ClassId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
-      -- TODO: can remove this if we don't need changeset summary of current source changeset
-      -- ignore changes in (before) the previous transformation, we only want ones since
+      -- ask affan about whether this is worth it...
+      ${
+        this._changeSummaryIds.map((id, i) => `
+          JOIN bis.ElementRefersToElements.Changes(${id}, 'BeforeDelete') ertec${i}
+            -- NOTE: the AND might be unnecessary, need to see how it affects performance
+            ON ic.ChangedInstance.Id=ertec${i}.ECInstanceId
+              AND ic.ChangedInstance.ClassId IS (BisCore.Element)
+          JOIN bis.Element.Changes(${id}, 'BeforeDelete') sec${i}
+            ON sec${i}.ECInstanceId=ertec${i}.ECSourceInstanceId
+          JOIN bis.Element.Changes(${id}, 'BeforeDelete') tec${i}
+            ON tec${i}.ECInstanceId=ertec${i}.ECTargetInstanceId
+        `)
+      }
+      -- TODO: can remove this check if we can remove downloading this summary
+      -- ignore changes before the previous transformation, we only want change summaries since
       WHERE imc.wsgid<>:changesetId
-        -- FIXME: HOW DO WE TRACK from which target scope it came? fed guids in the source changes?
-        -- not yet documented ecsql feature to check class id
-        AND ic.ChangedInstance.ClassId IS (BisCore.Element)
+        -- ignore deleted elems, we'll take care of those later
+        AND ((ic.ChangedInstance.ClassId IS (BisCore.Element) AND ic.OpCode<>:opUpdate)
+          OR (ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) AND ic.OpCode=:opDelete))
       `,
       (stmt) => {
         nodeAssert(this._targetScopeProvenanceProps?.version, "target scope elem provenance should always set version");
         stmt.bindString("changesetId", this._targetScopeProvenanceProps.version);
+        stmt.bindInteger("opDelete", ChangeOpCode.Delete);
+        stmt.bindInteger("opUpdate", ChangeOpCode.Update);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-          const elemId = stmt.getValue(0).getId();
-          this._hasElementChangedCache!.add(elemId);
+          const instId = stmt.getValue(0).getId();
+          const isElemNotDeletedRel = stmt.getValue(1).getBoolean();
+          if (isElemNotDeletedRel)
+            this._hasElementChangedCache!.add(instId);
+          else {
+            const sourceFedGuid = stmt.getValue(2).getGuid();
+            const targetFedGuid = stmt.getValue(3).getGuid();
+            const classId = stmt.getValue(4).getId();
+            this._deletedSourceRelationshipData!.set(instId, { classId, sourceFedGuid, targetFedGuid });
+          }
         }
       }
     );
@@ -759,7 +810,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
     if (this._changeSummaryIds === undefined) return true;
-    if (this._hasElementChangedCache === undefined) this._cacheElementChanges();
+    if (this._hasElementChangedCache === undefined) this._cacheSourceChanges();
     return this._hasElementChangedCache!.has(sourceElement.id);
   }
 
@@ -1202,6 +1253,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
+
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
    */
@@ -1236,6 +1288,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _yieldManager = new YieldManager();
 
   /** Detect Relationship deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against relationships in the source iModel.
+   * @deprecated
    * @see processChanges
    * @note This method is called from [[processAll]] and is not needed by [[processChanges]], so it only needs to be called directly when processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
