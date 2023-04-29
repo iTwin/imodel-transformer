@@ -613,11 +613,7 @@ export class IModelTransformer extends IModelExportHandler {
     //
     const deletedElemSql = `
       SELECT ic.ChangedInstance.Id, ${
-        this._changeSummaryIds.length > 1 ? "coalesce(" : ""
-      }${
-        this._changeSummaryIds.map((_, i) => `ec${i}.FederationGuid`)
-      }${
-        this._changeSummaryIds.length > 1 ? ")" : ""
+        this._coalesceChangeSummaryJoinedValue((_, i) => `ec${i}.FederationGuid`)
       }
       FROM ecchange.change.InstanceChange ic
       -- ask affan about whether this is worth it...
@@ -627,7 +623,7 @@ export class IModelTransformer extends IModelExportHandler {
             ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
         `)
       }
-      WHERE ic.OpCode=:delete
+      WHERE ic.OpCode=:opDelete
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- not yet documented ecsql feature to check class id
         AND ic.ChangedInstance.ClassId IS (BisCore.Element)
@@ -635,7 +631,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     // must also support old ESA provenance if no fedguids
     this.sourceDb.withStatement(deletedElemSql, (stmt) => {
-      stmt.bindInteger("delete", ChangeOpCode.Delete);
+      stmt.bindInteger("opDelete", ChangeOpCode.Delete);
       stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
       // instead of targetScopeElementId, we only operate on elements
       // that had colliding fed guids with the source...
@@ -726,6 +722,13 @@ export class IModelTransformer extends IModelExportHandler {
     return targetElementProps;
   }
 
+  // handle sqlite coalesce requiring 2 arguments
+  private _coalesceChangeSummaryJoinedValue(f: (id: Id64String, index: number) => string) {
+    nodeAssert(this._changeSummaryIds?.length && this._changeSummaryIds.length > 0, "should have changeset data by now");
+    const valueList = this._changeSummaryIds!.map(f).join(',');
+    this._changeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
+  };
+
   // if undefined, it can be initialized by calling [[this._cacheSourceChanges]]
   private _hasElementChangedCache?: Set<Id64String> = undefined;
   private _deletedSourceRelationshipData?: Map<Id64String, {
@@ -741,12 +744,6 @@ export class IModelTransformer extends IModelExportHandler {
     this._hasElementChangedCache = new Set();
     this._deletedSourceRelationshipData = new Map();
 
-    // // TODO: assert in here and make a private method for reuse
-    // handle sqlite coalesce requiring 2 arguments
-    const coalesceChangeSummaryJoinedValue = (f: (id: Id64String, index: number) => string) => {
-      const valueList = this._changeSummaryIds!.map(f);
-      this._changeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
-    };
 
     // somewhat complicated query because doing two things at once... (not to mention the .Changes multijoin hack)
     this.sourceDb.withPreparedStatement(`
@@ -754,10 +751,10 @@ export class IModelTransformer extends IModelExportHandler {
         ic.ChangedInstance.Id AS InstId,
         (ic.ChangedInstance.ClassId IS (BisCore.Element)) AS IsElemNotDeletedRel,
         ${
-          coalesceChangeSummaryJoinedValue((_, i) => `sec${i}.FederationGuid`)
+          this._coalesceChangeSummaryJoinedValue((_, i) => `sec${i}.FederationGuid`)
         } As SourceFedGuid,
         ${
-          coalesceChangeSummaryJoinedValue((_, i) => `tec${i}.FederationGuid`)
+          this._coalesceChangeSummaryJoinedValue((_, i) => `tec${i}.FederationGuid`)
         } As TargetFedGuid,
         ic.ChangedInstance.ClassId
       FROM ecchange.change.InstanceChange ic
