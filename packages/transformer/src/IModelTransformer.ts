@@ -151,6 +151,15 @@ export interface IModelTransformOptions {
    * @beta
    */
   optimizeGeometry?: OptimizeGeometryOptions;
+
+  // FIXME: use this
+  /**
+   * force the insertion of extenral source aspects to provide provenance, even if there are federation guids
+   * in the source that we can use. This can make some operations (like transforming new elements or initializing forks)
+   * much slower due to needing to insert aspects, but prevents requiring change information for all operations.
+   * @default false
+   */
+  forceExternalSourceAspectProvenance?: boolean
 }
 
 /**
