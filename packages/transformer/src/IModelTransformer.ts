@@ -2385,7 +2385,9 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  // FIXME: need to check if the element class was remapped and use that id instead
   // is this really the best way to get class id? shouldn't we cache it somewhere?
+  // NOTE: maybe if we lower remapElementClass into here, we can use that
   private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
     // is it better to use un-cached `SELECT (ONLY ${classFullName})`?
     return db.withPreparedStatement(`
@@ -2403,7 +2405,6 @@ export class IModelTransformer extends IModelExportHandler {
       }
     );
   }
-
 
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
