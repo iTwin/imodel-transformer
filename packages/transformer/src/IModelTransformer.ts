@@ -619,7 +619,7 @@ export class IModelTransformer extends IModelExportHandler {
       -- ask affan about whether this is worth it...
       ${
         this._changeSummaryIds.map((id, i) => `
-          JOIN bis.Element.Changes(${id}, 'BeforeDelete') ec${i}
+          LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') ec${i}
             ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
         `)
       }
@@ -726,7 +726,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _coalesceChangeSummaryJoinedValue(f: (id: Id64String, index: number) => string) {
     nodeAssert(this._changeSummaryIds?.length && this._changeSummaryIds.length > 0, "should have changeset data by now");
     const valueList = this._changeSummaryIds!.map(f).join(',');
-    this._changeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
+    return this._changeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
   };
 
   // if undefined, it can be initialized by calling [[this._cacheSourceChanges]]
@@ -744,32 +744,38 @@ export class IModelTransformer extends IModelExportHandler {
     this._hasElementChangedCache = new Set();
     this._deletedSourceRelationshipData = new Map();
 
-
-    // somewhat complicated query because doing two things at once... (not to mention the .Changes multijoin hack)
-    this.sourceDb.withPreparedStatement(`
+    // somewhat complicated query because doing two things at once...
+    // (not to mention the .Changes multijoin hack)
+    const query = `
       SELECT
         ic.ChangedInstance.Id AS InstId,
-        (ic.ChangedInstance.ClassId IS (BisCore.Element)) AS IsElemNotDeletedRel,
+        -- NOTE: parse error even with () without iif
+        iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotDeletedRel,
         ${
-          this._coalesceChangeSummaryJoinedValue((_, i) => `sec${i}.FederationGuid`)
-        } As SourceFedGuid,
+          this._coalesceChangeSummaryJoinedValue((_, i) => `se${i}.FederationGuid, sec${i}.FederationGuid`)
+        } AS SourceFedGuid,
         ${
-          this._coalesceChangeSummaryJoinedValue((_, i) => `tec${i}.FederationGuid`)
-        } As TargetFedGuid,
+          this._coalesceChangeSummaryJoinedValue((_, i) => `te${i}.FederationGuid, tec${i}.FederationGuid`)
+        } AS TargetFedGuid,
         ic.ChangedInstance.ClassId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
       -- ask affan about whether this is worth it...
       ${
         this._changeSummaryIds.map((id, i) => `
-          JOIN bis.ElementRefersToElements.Changes(${id}, 'BeforeDelete') ertec${i}
-            -- NOTE: the AND might be unnecessary, need to see how it affects performance
+          LEFT JOIN bis.ElementRefersToElements.Changes(${id}, 'BeforeDelete') ertec${i}
+            -- NOTE: see how the AND affects performance, it could be dropped
             ON ic.ChangedInstance.Id=ertec${i}.ECInstanceId
-              AND ic.ChangedInstance.ClassId IS (BisCore.Element)
-          JOIN bis.Element.Changes(${id}, 'BeforeDelete') sec${i}
-            ON sec${i}.ECInstanceId=ertec${i}.ECSourceInstanceId
-          JOIN bis.Element.Changes(${id}, 'BeforeDelete') tec${i}
-            ON tec${i}.ECInstanceId=ertec${i}.ECTargetInstanceId
+              AND NOT ic.ChangedInstance.ClassId IS (BisCore.Element)
+          -- FIXME: test a deletion of both an element and a relationship at the same time
+          LEFT JOIN bis.Element se${i}
+            ON se${i}.ECInstanceId=ertec${i}.SourceECInstanceId
+          LEFT JOIN bis.Element te${i}
+            ON te${i}.ECInstanceId=ertec${i}.TargetECInstanceId
+          LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') sec${i}
+            ON sec${i}.ECInstanceId=ertec${i}.SourceECInstanceId
+          LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') tec${i}
+            ON tec${i}.ECInstanceId=ertec${i}.TargetECInstanceId
         `)
       }
       -- TODO: can remove this check if we can remove downloading this summary
@@ -778,7 +784,9 @@ export class IModelTransformer extends IModelExportHandler {
         -- ignore deleted elems, we'll take care of those later
         AND ((ic.ChangedInstance.ClassId IS (BisCore.Element) AND ic.OpCode<>:opUpdate)
           OR (ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) AND ic.OpCode=:opDelete))
-      `,
+    `;
+
+    this.sourceDb.withPreparedStatement(query,
       (stmt) => {
         nodeAssert(this._targetScopeProvenanceProps?.version, "target scope elem provenance should always set version");
         stmt.bindString("changesetId", this._targetScopeProvenanceProps.version);
@@ -1265,10 +1273,10 @@ export class IModelTransformer extends IModelExportHandler {
     const targetRelClassId = this._getRelClassId(this.targetDb, deletedRelData.classId);
     // NOTE: if no remapping, could store the sourceRel class name earlier and reuse it instead of add to query
     const sql = `
-      SELECT ECSourceInstanceId, ECTargetInstanceId, ECClassId
+      SELECT SourceECInstanceId, TargetECInstanceId, ECClassId
       FROM BisCore.ElementRefersToElements
-      JOIN BisCore.Element se ON se.ECInstanceId=ECSourceInstanceId
-      JOIN BisCore.Element te ON te.ECInstanceId=ECTargetInstanceId
+      JOIN BisCore.Element se ON se.ECInstanceId=SourceECInstanceId
+      JOIN BisCore.Element te ON te.ECInstanceId=TargetECInstanceId
       WHERE se.FederationGuid=:sourceFedGuid
         AND te.FederationGuid=:targetFedGuid
         AND ECClassId=:relClassId
