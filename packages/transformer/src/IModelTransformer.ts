@@ -2785,6 +2785,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
   private _changeSummaryIds?: Id64String[] = undefined;
+  private _startChangesetId?: string = undefined;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
