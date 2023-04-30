@@ -1276,6 +1276,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
     const targetRelClassId = this._getRelClassId(this.targetDb, deletedRelData.classFullName);
     // NOTE: if no remapping, could store the sourceRel class name earlier and reuse it instead of add to query
+    // TODO: name this query
     const sql = `
       SELECT SourceECInstanceId, TargetECInstanceId, erte.ECClassId
       FROM BisCore.ElementRefersToElements erte
@@ -1537,6 +1538,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _initialized = false;
 
   private _changeSummaryIds?: Id64String[] = undefined;
+  private _startChangesetId?: string = undefined;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
@@ -1544,7 +1546,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
-  public async initialize(args?: InitFromExternalSourceAspectsArgs) {
+  public async initialize(args?: InitFromExternalSourceAspectsArgs): Promise<void> {
     if (this._initialized)
       return;
 
@@ -1559,10 +1561,10 @@ export class IModelTransformer extends IModelExportHandler {
   private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
     if (args === undefined || this.sourceDb.iTwinId === undefined) return;
 
-    const startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
+    this._startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
     const endChangesetId = this.sourceDb.changeset.id;
     const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
-      [startChangesetId, endChangesetId]
+      [this._startChangesetId, endChangesetId]
         .map(async (id) =>
           IModelHost.hubAccess
             .queryChangeset({
@@ -1830,12 +1832,12 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
- * Inserts, updates, and deletes are determined by inspecting the changeset(s).
- * @param accessToken A valid access token string
- * @param startChangesetId Include changes from this changeset up through and including the current changeset.
- * If this parameter is not provided, then just the current changeset will be exported.
- * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
- */
+   * Inserts, updates, and deletes are determined by inspecting the changeset(s).
+   * @param accessToken A valid access token string
+   * @param startChangesetId Include changes from this changeset up through and including the current changeset.
+   * If this parameter is not provided, then just the current changeset will be exported.
+   * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
     this.events.emit(TransformerEvent.beginProcessChanges, startChangesetId);
     this.logSettings();
