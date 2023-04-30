@@ -25,7 +25,7 @@ import {
 import {
   ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, QueryBinder, RelatedElement,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -734,7 +734,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _deletedSourceRelationshipData?: Map<Id64String, {
     sourceFedGuid: Id64String;
     targetFedGuid: Id64String;
-    classId: Id64String;
+    classFullName: Id64String;
   }> = undefined;
 
   // FIXME: this is a PoC, don't load this all into memory
@@ -745,22 +745,24 @@ export class IModelTransformer extends IModelExportHandler {
     this._deletedSourceRelationshipData = new Map();
 
     // somewhat complicated query because doing two things at once...
-    // (not to mention the .Changes multijoin hack)
+    // (not to mention the multijoin coalescing hack)
+    // FIXME: perhaps the coalescing indicates that part should be done manually, not in the query?
     const query = `
       SELECT
         ic.ChangedInstance.Id AS InstId,
         -- NOTE: parse error even with () without iif
         iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotDeletedRel,
-        ${
-          this._coalesceChangeSummaryJoinedValue((_, i) => `se${i}.FederationGuid, sec${i}.FederationGuid`)
-        } AS SourceFedGuid,
-        ${
-          this._coalesceChangeSummaryJoinedValue((_, i) => `te${i}.FederationGuid, tec${i}.FederationGuid`)
-        } AS TargetFedGuid,
-        ic.ChangedInstance.ClassId
+        coalesce(${
+          // HACK: adding "NONE" for empty result seems to prevent a bug where getValue(3) stops working after the NULL columns
+          this._changeSummaryIds.map((_, i) => `se${i}.FederationGuid, sec${i}.FederationGuid`).concat("'NONE'").join(',')
+        }) AS SourceFedGuid,
+        coalesce(${
+          this._changeSummaryIds.map((_, i) => `te${i}.FederationGuid, tec${i}.FederationGuid`).concat("'NONE'").join(',')
+        }) AS TargetFedGuid,
+        ic.ChangedInstance.ClassId AS ClassId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
-      -- ask affan about whether this is worth it...
+      -- ask affan about whether this is worth it... maybe the ""
       ${
         this._changeSummaryIds.map((id, i) => `
           LEFT JOIN bis.ElementRefersToElements.Changes(${id}, 'BeforeDelete') ertec${i}
@@ -786,6 +788,7 @@ export class IModelTransformer extends IModelExportHandler {
           OR (ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) AND ic.OpCode=:opDelete))
     `;
 
+
     this.sourceDb.withPreparedStatement(query,
       (stmt) => {
         nodeAssert(this._targetScopeProvenanceProps?.version, "target scope elem provenance should always set version");
@@ -793,6 +796,7 @@ export class IModelTransformer extends IModelExportHandler {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
         stmt.bindInteger("opUpdate", ChangeOpCode.Update);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+          // REPORT: stmt.getValue(>3) seems to be bugged but the values survive .getRow so using that for now
           const instId = stmt.getValue(0).getId();
           const isElemNotDeletedRel = stmt.getValue(1).getBoolean();
           if (isElemNotDeletedRel)
@@ -800,8 +804,8 @@ export class IModelTransformer extends IModelExportHandler {
           else {
             const sourceFedGuid = stmt.getValue(2).getGuid();
             const targetFedGuid = stmt.getValue(3).getGuid();
-            const classId = stmt.getValue(4).getId();
-            this._deletedSourceRelationshipData!.set(instId, { classId, sourceFedGuid, targetFedGuid });
+            const classFullName = stmt.getValue(4).getClassNameForClassId();
+            this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceFedGuid, targetFedGuid });
           }
         }
       }
@@ -1270,16 +1274,16 @@ export class IModelTransformer extends IModelExportHandler {
       Logger.logWarning(loggerCategory, "tried to delete a relationship that wasn't in change data");
       return;
     }
-    const targetRelClassId = this._getRelClassId(this.targetDb, deletedRelData.classId);
+    const targetRelClassId = this._getRelClassId(this.targetDb, deletedRelData.classFullName);
     // NOTE: if no remapping, could store the sourceRel class name earlier and reuse it instead of add to query
     const sql = `
-      SELECT SourceECInstanceId, TargetECInstanceId, ECClassId
-      FROM BisCore.ElementRefersToElements
+      SELECT SourceECInstanceId, TargetECInstanceId, erte.ECClassId
+      FROM BisCore.ElementRefersToElements erte
       JOIN BisCore.Element se ON se.ECInstanceId=SourceECInstanceId
       JOIN BisCore.Element te ON te.ECInstanceId=TargetECInstanceId
       WHERE se.FederationGuid=:sourceFedGuid
         AND te.FederationGuid=:targetFedGuid
-        AND ECClassId=:relClassId
+        AND erte.ECClassId=:relClassId
     `;
     this.targetDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindGuid("sourceFedGuid", deletedRelData.sourceFedGuid);
@@ -1294,7 +1298,8 @@ export class IModelTransformer extends IModelExportHandler {
         if (targetRelationship) {
           this.importer.deleteRelationship(targetRelationship.toJSON());
         }
-        this.targetDb.elements.deleteAspect(statement.getValue(0).getId());
+        // FIXME: restore in ESA compatible method
+        //this.targetDb.elements.deleteAspect(statement.getValue(0).getId());
       }
     });
   }
