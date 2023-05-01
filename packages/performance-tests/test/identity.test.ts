@@ -67,18 +67,18 @@ describe("imodel-transformer", () => {
 
     const authClient = process.env.CI === '1'
       ? new TestBrowserAuthorizationClient({
-          clientId: process.env.OIDC_CLIENT_ID,
-          redirectUri: process.env.OIDC_REDIRECT,
-          scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
-          authority: "https://qa-imsoidc.bentley.com"
-        }, user)
+        clientId: process.env.OIDC_CLIENT_ID,
+        redirectUri: process.env.OIDC_REDIRECT,
+        scope: "itwins:read imodels:read imodels:modify",
+        authority: "https://qa-ims.bentley.com",
+      }, user)
       : new NodeCliAuthorizationClient({
-          clientId: process.env.OIDC_CLIENT_ID,
-          redirectUri: process.env.OIDC_REDIRECT,
-          scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
-        });
+        clientId: process.env.OIDC_CLIENT_ID,
+        redirectUri: process.env.OIDC_REDIRECT,
+        scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
+      });
 
-      await authClient.signIn();
+    await authClient.signIn();
   
     
 
@@ -128,7 +128,7 @@ describe("imodel-transformer", () => {
         });
         Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
         //[entityProcessingTimer] = await timed(async () => {
-          //await transformer.processAll();
+        //await transformer.processAll();
         //});
         //Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
       } catch (err: any) {
