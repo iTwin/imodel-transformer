@@ -639,7 +639,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._changeSummaryIds.map((id, i) => `
           LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') ec${i}
             ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
-        `)
+        `).join('')
       }
       WHERE ic.OpCode=:opDelete
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
@@ -795,7 +795,7 @@ export class IModelTransformer extends IModelExportHandler {
             ON sec${i}.ECInstanceId=ertec${i}.SourceECInstanceId
           LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') tec${i}
             ON tec${i}.ECInstanceId=ertec${i}.TargetECInstanceId
-        `)
+        `).join('')
       }
       -- ignore deleted elems, we take care of those separately
       WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element) AND ic.OpCode<>:opUpdate)
@@ -1207,8 +1207,10 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _updateTargetScopeVersion() {
     nodeAssert(this._targetScopeProvenanceProps);
-    this._targetScopeProvenanceProps.version = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
-    this.targetDb.elements.updateAspect(this._targetScopeProvenanceProps);
+    if (this._changeDataState === "has-changes") {
+      this._targetScopeProvenanceProps.version = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
+      this.targetDb.elements.updateAspect(this._targetScopeProvenanceProps);
+    }
   }
 
   // FIXME: is this necessary when manually using lowlevel transform APIs?
