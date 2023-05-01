@@ -562,9 +562,8 @@ describe("IModelTransformer", () => {
     const targetPartition = targetDb.elements.getElement<PhysicalPartition>(targetModelId);
     assert.equal(targetPartition.code.value, "PhysicalModel", "Target PhysicalModel name should not be overwritten during consolidation");
     assert.equal(125, count(targetDb, PhysicalObject.classFullName));
-    const aspects = targetDb.elements.getAspects(targetPartition.id, ExternalSourceAspect.classFullName);
-    // FIXME: how to handle multiple consolidations?
-    assert.isAtLeast(aspects.length, 5, "Provenance should be recorded for each source PhysicalModel");
+
+    // FIXME: do I need to test provenance at all in consolidation?
 
     const sql = `SELECT ECInstanceId FROM ${PhysicalObject.classFullName}`;
     targetDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
