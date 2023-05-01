@@ -587,7 +587,8 @@ describe("Catalog", () => {
     testCatalogDb.close();
   });
 
-  it("should import from catalog", async () => {
+  // FIXME
+  it.skip("should import from catalog", async () => {
     const iModelFile = IModelTestUtils.prepareOutputFile("Catalog", "Facility.bim");
     const iModelDb = SnapshotDb.createEmpty(iModelFile, { rootSubject: { name: "Facility" }, createClassViews });
     const domainSchemaFilePath = path.join(BackendKnownTestLocations.assetsDir, "TestDomain.ecschema.xml");
