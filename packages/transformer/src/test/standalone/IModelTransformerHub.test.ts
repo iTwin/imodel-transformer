@@ -611,7 +611,7 @@ describe("IModelTransformerHub", () => {
         { accessToken, iModelId: targetIModelId }
       );
       assert.equal(sourceIModelChangeSets.length, 2);
-      assert.equal(targetIModelChangeSets.length, 3);
+      assert.equal(targetIModelChangeSets.length, 2);
 
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
