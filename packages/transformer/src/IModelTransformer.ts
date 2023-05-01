@@ -474,7 +474,7 @@ export class IModelTransformer extends IModelExportHandler {
     aspectProps.version = version;
 
     if (undefined === aspectProps.id) {
-      aspectProps.version = "";
+      aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
       // this query does not include "identifier" to find possible conflicts
       const sql = `
         SELECT ECInstanceId
@@ -1208,8 +1208,8 @@ export class IModelTransformer extends IModelExportHandler {
   private _updateTargetScopeVersion() {
     nodeAssert(this._targetScopeProvenanceProps);
     if (this._changeDataState === "has-changes") {
-      this._targetScopeProvenanceProps.version = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
-      this.targetDb.elements.updateAspect(this._targetScopeProvenanceProps);
+      this._targetScopeProvenanceProps.version = `${this.provenanceSourceDb.changeset.id};${this.provenanceSourceDb.changeset.index}`;
+      this.provenanceDb.elements.updateAspect(this._targetScopeProvenanceProps);
     }
   }
 
