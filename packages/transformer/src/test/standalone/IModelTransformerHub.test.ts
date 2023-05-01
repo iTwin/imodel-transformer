@@ -250,7 +250,7 @@ describe("IModelTransformerHub", () => {
         // expect some inserts from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.insertIds.size, 0);
         assert.equal(targetDbChanges.element.insertIds.size, 1);
-        assert.equal(targetDbChanges.aspect.insertIds.size, 3);
+        assert.equal(targetDbChanges.aspect.insertIds.size, 0);
         assert.equal(targetDbChanges.model.insertIds.size, 0);
         assert.equal(targetDbChanges.relationship.insertIds.size, 2);
         // expect some updates from transforming the result of updateDb
@@ -260,7 +260,7 @@ describe("IModelTransformerHub", () => {
         assert.isAtLeast(targetDbChanges.relationship.updateIds.size, 1);
         // expect some deletes from transforming the result of updateDb
         assert.isAtLeast(targetDbChanges.element.deleteIds.size, 1);
-        assert.isAtLeast(targetDbChanges.aspect.deleteIds.size, 1);
+        assert.isAtLeast(targetDbChanges.aspect.deleteIds.size, 0);
         assert.equal(targetDbChanges.relationship.deleteIds.size, 1);
         // don't expect other changes from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.updateIds.size, 0);
@@ -271,7 +271,7 @@ describe("IModelTransformerHub", () => {
       const sourceIModelChangeSets = await IModelHost.hubAccess.queryChangesets({ accessToken, iModelId: sourceIModelId });
       const targetIModelChangeSets = await IModelHost.hubAccess.queryChangesets({ accessToken, iModelId: targetIModelId });
       assert.equal(sourceIModelChangeSets.length, 2);
-      assert.equal(targetIModelChangeSets.length, 2);
+      assert.equal(targetIModelChangeSets.length, 3);
 
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);

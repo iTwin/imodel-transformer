@@ -832,7 +832,6 @@ export class IModelTransformer extends IModelExportHandler {
   protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
     if (this._changeDataState === "no-changes") return false;
     if (this._changeDataState === "unconnected") return true;
-    console.log("hasElementChanged:", sourceElement.id, this._changeDataState);
     nodeAssert(this._changeDataState === "has-changes", "change data should be initialized by now");
     if (this._hasElementChangedCache === undefined) this._cacheSourceChanges();
     return this._hasElementChangedCache!.has(sourceElement.id);
