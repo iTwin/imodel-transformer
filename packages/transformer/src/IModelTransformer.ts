@@ -126,6 +126,7 @@ export interface IModelTransformOptions {
    * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
    * or physical consolidation.
    */
+  // FIXME: this should really be "required" in most cases
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
@@ -847,15 +848,16 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
 
-  /** the version on the scoping element found for this transformation  */
+  /** the changeset in the scoping element's source version found for this transformation
+   * @note: empty string and -1 for changeset and index if it has never been transformed
+   */
   private get _targetScopeVersion(): ChangesetIndexAndId {
     if (!this._cachedTargetScopeVersion) {
-      nodeAssert(this._targetScopeProvenanceProps?.version, "_targetScopeProvenanceProps was not set yet, or contains no version");
-      const [id, index] = this._targetScopeProvenanceProps.version.split(";");
-      this._cachedTargetScopeVersion = {
-        index: Number(index),
-        id,
-      };
+      nodeAssert(this._targetScopeProvenanceProps?.version !== undefined, "_targetScopeProvenanceProps was not set yet, or contains no version");
+      const [id, index] = this._targetScopeProvenanceProps.version === ""
+        ? ["", -1]
+        : this._targetScopeProvenanceProps.version.split(";");
+      this._cachedTargetScopeVersion = { index: Number(index), id, };
       nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
     }
     return this._cachedTargetScopeVersion;
@@ -2800,7 +2802,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
+  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _changeSummaryIds?: Id64String[] = undefined;
+  private _changeDataState: "uninited" | "has-changes" | "no-changes" | "unconnected" = "uninited";
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
