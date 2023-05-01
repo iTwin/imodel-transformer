@@ -23,7 +23,7 @@ import {
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, QueryBinder, RelatedElement,
 } from "@itwin/core-common";
@@ -54,7 +54,8 @@ type EntityTransformHandler = (entity: ConcreteEntity) => ElementProps | ModelPr
  */
 export interface IModelTransformOptions {
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances.
-   * When the goal is to consolidate multiple source iModels into a single target iModel, this option must be specified.
+   * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
+   * or physical consolidation.
    */
   targetScopeElementId?: Id64String;
 
@@ -433,13 +434,29 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _targetScopeProvenanceProps: ExternalSourceAspectProps | undefined = undefined;
 
+  private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
+
+  /** the version on the scoping element found for this transformation  */
+  private get _targetScopeVersion(): ChangesetIndexAndId {
+    if (!this._cachedTargetScopeVersion) {
+      nodeAssert(this._targetScopeProvenanceProps?.version, "_targetScopeProvenanceProps was not set yet, or contains no version");
+      const [id, index] = this._targetScopeProvenanceProps.version.split(";");
+      this._cachedTargetScopeVersion = {
+        index: Number(index),
+        id,
+      };
+      nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
+    }
+    return this._cachedTargetScopeVersion;
+  }
+
   /**
-   * Make sure no other scope-type external source aspects are on the *target scope element*,
-   * and if there are none at all, insert one, then this must be a first synchronization.
+   * Make sure there are no conflicting other scope-type external source aspects on the *target scope element*,
+   * If there are none at all, insert one, then this must be a first synchronization.
    * @returns the last synced version (changesetId) on the target scope's external source aspect,
    *          (if this was a [BriefcaseDb]($backend))
    */
-  private validateScopeProvenance(): void {
+  private initScopeProvenance(): void {
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: this.targetScopeElementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
@@ -452,8 +469,6 @@ export class IModelTransformer extends IModelExportHandler {
     let version!: Id64String | undefined;
     [aspectProps.id, version] = this.queryScopeExternalSource(aspectProps) ?? []; // this query includes "identifier"
     aspectProps.version = version;
-
-    // TODO: update the provenance always
 
     if (undefined === aspectProps.id) {
       aspectProps.version = this.sourceDb.changeset.id;
@@ -609,8 +624,6 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
     nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
 
-    // NEXT: need to also detect deleted relationships and cache which ones we need to delete
-    //
     const deletedElemSql = `
       SELECT ic.ChangedInstance.Id, ${
         this._coalesceChangeSummaryJoinedValue((_, i) => `ec${i}.FederationGuid`)
@@ -1187,7 +1200,19 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async processDeferredElements(_numRetries: number = 3): Promise<void> {}
 
+  /** called at the end ([[finalizeTransformation]]) of a transformation,
+   * updates the target scope element to say that transformation up through the
+   * source's changeset has been performed.
+   */
+  private _updateTargetScopeVersion() {
+    nodeAssert(this._targetScopeProvenanceProps);
+    this._targetScopeProvenanceProps.version = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
+    this.targetDb.elements.updateAspect(this._targetScopeProvenanceProps);
+  }
+
   private finalizeTransformation() {
+    this._updateTargetScopeVersion();
+
     if (this._partiallyCommittedEntities.size > 0) {
       Logger.logWarning(
         loggerCategory,
@@ -1202,6 +1227,7 @@ export class IModelTransformer extends IModelExportHandler {
         partiallyCommittedElem.forceComplete();
       }
     }
+
     // FIXME: make processAll have a try {} finally {} that cleans this up
     if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
       ChangeSummaryManager.detachChangeCache(this.sourceDb);
@@ -1538,7 +1564,6 @@ export class IModelTransformer extends IModelExportHandler {
   private _initialized = false;
 
   private _changeSummaryIds?: Id64String[] = undefined;
-  private _startChangesetId?: string = undefined;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
@@ -1561,15 +1586,22 @@ export class IModelTransformer extends IModelExportHandler {
   private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
     if (args === undefined || this.sourceDb.iTwinId === undefined) return;
 
-    this._startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
+    // NEXT: this._startChangesetId should be based on this._targetScopeProvenanceProps.version
+    // this._targetScopeProvenanceProps.version should include index, not only changeset to make
+    // calculations easier
+
+    // NOTE: that we do NOT download the changesummary for the last transformed version, we want
+    // to ignore those already processed changes
+    const startChangesetIndexOrId = args.startChangesetId ?? this._targetScopeVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
-    const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
-      [this._startChangesetId, endChangesetId]
-        .map(async (id) =>
-          IModelHost.hubAccess
+    const [startChangesetIndex, endChangesetIndex] = await Promise.all(
+      ([startChangesetIndexOrId, endChangesetId])
+        .map(async (indexOrId) => typeof indexOrId === "number"
+          ? indexOrId
+          : IModelHost.hubAccess
             .queryChangeset({
               iModelId: this.sourceDb.iModelId,
-              changeset: { id },
+              changeset: { id: indexOrId },
               accessToken: args.accessToken,
             })
             .then((changeset) => changeset.index)
@@ -1581,7 +1613,7 @@ export class IModelTransformer extends IModelExportHandler {
       accessToken: args.accessToken,
       iModelId: this.sourceDb.iModelId,
       iTwinId: this.sourceDb.iTwinId,
-      range: { first: firstChangesetIndex, end: endChangesetIndex },
+      range: { first: startChangesetIndex, end: endChangesetIndex },
     });
 
     ChangeSummaryManager.attachChangeCache(this.sourceDb);
@@ -1593,7 +1625,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async processAll(): Promise<void> {
     this.events.emit(TransformerEvent.beginProcessAll);
     this.logSettings();
-    this.validateScopeProvenance();
+    this.initScopeProvenance();
     await this.initialize();
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
@@ -1841,7 +1873,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
     this.events.emit(TransformerEvent.beginProcessChanges, startChangesetId);
     this.logSettings();
-    this.validateScopeProvenance();
+    this.initScopeProvenance();
     await this.initialize({ accessToken, startChangesetId });
     await this.exporter.exportChanges(accessToken, startChangesetId);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
