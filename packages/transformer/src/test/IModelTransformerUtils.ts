@@ -137,12 +137,13 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       assert.equal(physicalObject1.code.scope, IModel.rootSubjectId);
       assert.isTrue(physicalObject1.code.value === "");
       assert.equal(physicalObject1.category, teamSpatialCategoryId);
-      expect(iModelDb.elements.getAspects(physicalObjectId1, ExternalSourceAspect.classFullName)).to.have.lengthOf(0);
-      expect(iModelDb.elements.getAspects(teamSpatialCategoryId, ExternalSourceAspect.classFullName)).to.have.lengthOf(0);
+      // provenance no longer adds an external source aspect if fedguids are available
+      expect(iModelDb.elements.getAspects(physicalObjectId1, ExternalSourceAspect.classFullName)).to.have.length(0);
+      expect(iModelDb.elements.getAspects(teamSpatialCategoryId, ExternalSourceAspect.classFullName)).to.have.length(0);
       const physicalObjectId2: Id64String = this.queryPhysicalElementId(iModelDb, physicalPartitionId, sharedSpatialCategoryId, `${teamName}2`);
       const physicalObject2: PhysicalElement = iModelDb.elements.getElement<PhysicalElement>(physicalObjectId2);
       assert.equal(physicalObject2.category, sharedSpatialCategoryId);
-      assert.equal(1, iModelDb.elements.getAspects(physicalObjectId2, ExternalSourceAspect.classFullName).length);
+      expect(iModelDb.elements.getAspects(physicalObjectId2, ExternalSourceAspect.classFullName)).to.have.length(0);
     });
   }
 

@@ -7,7 +7,7 @@ import { assert, expect } from "chai";
 import { join } from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, deleteElementTree, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, ChangeSummaryManager, deleteElementTree, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
   PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, Subject,
 } from "@itwin/core-backend";
@@ -165,7 +165,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(targetImporter.numModelsInserted, 0);
         assert.equal(targetImporter.numModelsUpdated, 0);
         assert.equal(targetImporter.numElementsInserted, 0);
-        assert.equal(targetImporter.numElementsUpdated, 0);
+        expect(targetImporter.numElementsUpdated).to.equal(0);
         assert.equal(targetImporter.numElementsDeleted, 0);
         assert.equal(targetImporter.numElementAspectsInserted, 0);
         assert.equal(targetImporter.numElementAspectsUpdated, 0);
@@ -174,10 +174,29 @@ describe("IModelTransformerHub", () => {
         assert.equal(numTargetElements, count(targetDb, Element.classFullName), "Second import should not add elements");
         assert.equal(numTargetExternalSourceAspects, count(targetDb, ExternalSourceAspect.classFullName), "Second import should not add aspects");
         assert.equal(numTargetRelationships, count(targetDb, ElementRefersToElements.classFullName), "Second import should not add relationships");
-        transformer.dispose();
         targetDb.saveChanges();
-        assert.isFalse(targetDb.nativeDb.hasPendingTxns());
-        await targetDb.pushChanges({ accessToken, description: "Should not actually push because there are no changes" });
+        await targetDb.pushChanges({ accessToken, description: "Update target scope element's external source aspect's version" });
+
+        const _changeSummaryId = await ChangeSummaryManager.createChangeSummary(accessToken, targetDb);
+        ChangeSummaryManager.attachChangeCache(targetDb);
+
+        const targetScopeElementAspects = targetDb.elements.getAspects(transformer.targetScopeElementId);
+        expect(targetScopeElementAspects).to.have.length(1);
+        expect((targetScopeElementAspects[0] as ExternalSourceAspect).version)
+          .to.equal(`${sourceDb.changeset.id};${sourceDb.changeset.index}`);
+
+        const changes = targetDb.withStatement("SELECT * FROM ecchange.change.InstanceChange", s=>[...s]);
+        expect(changes).deep.advancedEqual(
+          [
+            // FIXME: where is the aspect update? why only updating the lastMod on the targetScopeElement?
+            { changedInstance: { id: "0x1" }, opCode: 2, isIndirect: false },
+            { changedInstance: { id: "0x1" }, opCode: 2, isIndirect: true },
+          ],
+          { useSubsetEquality: true }
+        );
+
+        ChangeSummaryManager.detachChangeCache(targetDb);
+        transformer.dispose();
       }
 
       if (true) { // update source db, then import again

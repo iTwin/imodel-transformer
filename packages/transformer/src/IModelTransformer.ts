@@ -57,6 +57,7 @@ export interface IModelTransformOptions {
    * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
    * or physical consolidation.
    */
+  // FIXME: this should really be "required" in most cases
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
@@ -223,6 +224,7 @@ function mapId64<R>(
   return results;
 }
 
+// FIXME: Deprecate+Rename since we don't care about ESA in this branch
 /** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
  * @beta
  */
@@ -436,15 +438,16 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
 
-  /** the version on the scoping element found for this transformation  */
+  /** the changeset in the scoping element's source version found for this transformation
+   * @note: empty string and -1 for changeset and index if it has never been transformed
+   */
   private get _targetScopeVersion(): ChangesetIndexAndId {
     if (!this._cachedTargetScopeVersion) {
-      nodeAssert(this._targetScopeProvenanceProps?.version, "_targetScopeProvenanceProps was not set yet, or contains no version");
-      const [id, index] = this._targetScopeProvenanceProps.version.split(";");
-      this._cachedTargetScopeVersion = {
-        index: Number(index),
-        id,
-      };
+      nodeAssert(this._targetScopeProvenanceProps?.version !== undefined, "_targetScopeProvenanceProps was not set yet, or contains no version");
+      const [id, index] = this._targetScopeProvenanceProps.version === ""
+        ? ["", -1]
+        : this._targetScopeProvenanceProps.version.split(";");
+      this._cachedTargetScopeVersion = { index: Number(index), id, };
       nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
     }
     return this._cachedTargetScopeVersion;
@@ -471,7 +474,7 @@ export class IModelTransformer extends IModelExportHandler {
     aspectProps.version = version;
 
     if (undefined === aspectProps.id) {
-      aspectProps.version = this.sourceDb.changeset.id;
+      aspectProps.version = "";
       // this query does not include "identifier" to find possible conflicts
       const sql = `
         SELECT ECInstanceId
@@ -618,7 +621,9 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private async remapDeletedSourceElements() {
     // we need a connected iModel with changes to remap elements with deletions
-    if (this.sourceDb.iTwinId === undefined)
+    const notConnectedModel = this.sourceDb.iTwinId === undefined;
+    const noChanges = this._targetScopeVersion.index === this.sourceDb.changeset.index;
+    if (notConnectedModel || noChanges)
       return;
 
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
@@ -752,8 +757,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: this is a PoC, don't load this all into memory
   private _cacheSourceChanges() {
-    // FIXME: test for situations where we have 0 change summaries
-    nodeAssert(this._changeSummaryIds?.length && this._changeSummaryIds.length > 0, "should have changeset data by now");
+    nodeAssert(this._changeSummaryIds && this._changeSummaryIds.length > 0, "should have changeset data by now");
     this._hasElementChangedCache = new Set();
     this._deletedSourceRelationshipData = new Map();
 
@@ -793,19 +797,14 @@ export class IModelTransformer extends IModelExportHandler {
             ON tec${i}.ECInstanceId=ertec${i}.TargetECInstanceId
         `)
       }
-      -- TODO: can remove this check if we can remove downloading this summary
-      -- ignore changes before the previous transformation, we only want change summaries since
-      WHERE imc.wsgid<>:changesetId
-        -- ignore deleted elems, we'll take care of those later
-        AND ((ic.ChangedInstance.ClassId IS (BisCore.Element) AND ic.OpCode<>:opUpdate)
+      -- ignore deleted elems, we take care of those separately
+      WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element) AND ic.OpCode<>:opUpdate)
           OR (ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) AND ic.OpCode=:opDelete))
     `;
 
 
     this.sourceDb.withPreparedStatement(query,
       (stmt) => {
-        nodeAssert(this._targetScopeProvenanceProps?.version, "target scope elem provenance should always set version");
-        stmt.bindString("changesetId", this._targetScopeProvenanceProps.version);
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
         stmt.bindInteger("opUpdate", ChangeOpCode.Update);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
@@ -831,7 +830,10 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom change detection behavior.
    */
   protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
-    if (this._changeSummaryIds === undefined) return true;
+    if (this._changeDataState === "no-changes") return false;
+    if (this._changeDataState === "unconnected") return true;
+    console.log("hasElementChanged:", sourceElement.id, this._changeDataState);
+    nodeAssert(this._changeDataState === "has-changes", "change data should be initialized by now");
     if (this._hasElementChangedCache === undefined) this._cacheSourceChanges();
     return this._hasElementChangedCache!.has(sourceElement.id);
   }
@@ -1210,6 +1212,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb.elements.updateAspect(this._targetScopeProvenanceProps);
   }
 
+  // FIXME: is this necessary when manually using lowlevel transform APIs?
   private finalizeTransformation() {
     this._updateTargetScopeVersion();
 
@@ -1563,7 +1566,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
 
+  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _changeSummaryIds?: Id64String[] = undefined;
+  private _changeDataState: "uninited" | "has-changes" | "no-changes" | "unconnected" = "uninited";
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
@@ -1584,15 +1589,21 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
-    if (args === undefined || this.sourceDb.iTwinId === undefined) return;
+    if (!args || this.sourceDb.iTwinId === undefined) {
+      this._changeDataState = "unconnected";
+      return;
+    }
 
-    // NEXT: this._startChangesetId should be based on this._targetScopeProvenanceProps.version
-    // this._targetScopeProvenanceProps.version should include index, not only changeset to make
-    // calculations easier
+    const noChanges = this._targetScopeVersion.index === this.sourceDb.changeset.index;
+    if (noChanges) {
+      this._changeDataState = "no-changes";
+      this._changeSummaryIds = [];
+      return;
+    }
 
     // NOTE: that we do NOT download the changesummary for the last transformed version, we want
     // to ignore those already processed changes
-    const startChangesetIndexOrId = args.startChangesetId ?? this._targetScopeVersion.index + 1;
+    const startChangesetIndexOrId = args?.startChangesetId ?? this._targetScopeVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
     const [startChangesetIndex, endChangesetIndex] = await Promise.all(
       ([startChangesetIndexOrId, endChangesetId])
@@ -1617,6 +1628,7 @@ export class IModelTransformer extends IModelExportHandler {
     });
 
     ChangeSummaryManager.attachChangeCache(this.sourceDb);
+    this._changeDataState = "has-changes";
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
