@@ -677,18 +677,22 @@ describe("IModelTransformerHub", () => {
       expect(branchDbChangesets).to.have.length(2);
       const latestChangeset = branchDbChangesets[1];
       const extractedChangedIds = branchDb.nativeDb.extractChangedInstanceIdsFromChangeSets([latestChangeset.pathname]);
+      const aspectDeletions = [
+        ...modelToDeleteWithElem.aspects,
+        ...childSubject.aspects,
+        ...modelInChildSubject.aspects,
+        ...childSubjectChild.aspects,
+        ...modelInChildSubjectChild.aspects,
+        ...elemInModelToDelete.aspects,
+        ...elemToDeleteWithChildren.aspects,
+        ...childElemOfDeleted.aspects,
+      ].map((a) => a.id);
+
       const expectedChangedIds: IModelJsNative.ChangedInstanceIdsProps = {
-        aspect: {
-          delete: [
-            ...modelToDeleteWithElem.aspects,
-            ...childSubject.aspects,
-            ...modelInChildSubject.aspects,
-            ...childSubjectChild.aspects,
-            ...modelInChildSubjectChild.aspects,
-            ...elemInModelToDelete.aspects,
-            ...elemToDeleteWithChildren.aspects,
-            ...childElemOfDeleted.aspects,
-          ].map((a) => a.id),
+        ...aspectDeletions.length > 0 && {
+          aspect: {
+            delete: aspectDeletions,
+          }
         },
         element: {
           delete: [
