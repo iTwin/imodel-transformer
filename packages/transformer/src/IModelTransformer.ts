@@ -845,6 +845,22 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _targetScopeProvenanceProps: ExternalSourceAspectProps | undefined = undefined;
 
+  private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
+
+  /** the version on the scoping element found for this transformation  */
+  private get _targetScopeVersion(): ChangesetIndexAndId {
+    if (!this._cachedTargetScopeVersion) {
+      nodeAssert(this._targetScopeProvenanceProps?.version, "_targetScopeProvenanceProps was not set yet, or contains no version");
+      const [id, index] = this._targetScopeProvenanceProps.version.split(";");
+      this._cachedTargetScopeVersion = {
+        index: Number(index),
+        id,
+      };
+      nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
+    }
+    return this._cachedTargetScopeVersion;
+  }
+
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
    * It should (and now by default does) instead insert provenance pointing to the provenanceSource
@@ -2785,7 +2801,6 @@ export class IModelTransformer extends IModelExportHandler {
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
   private _changeSummaryIds?: Id64String[] = undefined;
-  private _startChangesetId?: string = undefined;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
