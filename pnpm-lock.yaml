@@ -25,7 +25,7 @@ importers:
       '@itwin/ecschema-metadata': 3.6.0 - 3.6.1
       '@itwin/eslint-plugin': 3.6.0 - 3.6.1
       '@itwin/imodel-transformer': workspace:*
-      '@itwin/imodels-access-backend': ^1.0.1
+      '@itwin/imodels-access-backend': ^2.2.1
       '@itwin/imodels-client-authoring': 2.3.0
       '@itwin/node-cli-authorization': ~0.9.0
       '@itwin/oidc-signin-tool': ^3.4.1
@@ -53,7 +53,7 @@ importers:
       '@itwin/core-quantity': 3.6.1_@itwin+core-bentley@3.6.1
       '@itwin/ecschema-metadata': 3.6.1_mr5dxz6xxj4f3sbp6ibdrzmu6u
       '@itwin/imodel-transformer': link:../transformer
-      '@itwin/imodels-access-backend': 1.0.2_dukgzboniadzb4bug27ojyr6sy
+      '@itwin/imodels-access-backend': 2.3.0_dukgzboniadzb4bug27ojyr6sy
       '@itwin/imodels-client-authoring': 2.3.0
       '@itwin/node-cli-authorization': 0.9.2_@itwin+core-bentley@3.6.1
       dotenv: 10.0.0
@@ -87,7 +87,7 @@ importers:
       '@itwin/eslint-plugin': 3.6.0 - 3.6.1
       '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.2.1
-      '@itwin/imodels-client-authoring': ^2.2.1
+      '@itwin/imodels-client-authoring': 2.3.0
       '@itwin/node-cli-authorization': ~0.9.0
       '@itwin/projects-client': ^0.6.0
       '@types/chai': 4.3.1
@@ -861,22 +861,6 @@ packages:
       - supports-color
     dev: true
 
-  /@itwin/imodels-access-backend/1.0.2_dukgzboniadzb4bug27ojyr6sy:
-    resolution: {integrity: sha512-pEP+Sycbw7kFyRuMn1ia8E6Qcw/aIWjP8LWRKj4bPCeIOrL+FCqOl5dhsCHGAJltlA0QIavKxgm7jzBRUZfNWA==}
-    peerDependencies:
-      '@itwin/core-backend': ^3.0.0
-      '@itwin/core-bentley': ^3.0.0
-      '@itwin/core-common': ^3.0.0
-    dependencies:
-      '@itwin/core-backend': 3.6.1_kalcpuenwmysyo5cupua26ct6y
-      '@itwin/core-bentley': 3.6.1
-      '@itwin/core-common': 3.6.1_s3nn57aycf2tjwn4iivphtyfai
-      '@itwin/imodels-client-authoring': 1.1.0
-    transitivePeerDependencies:
-      - debug
-      - encoding
-    dev: false
-
   /@itwin/imodels-access-backend/2.3.0_dukgzboniadzb4bug27ojyr6sy:
     resolution: {integrity: sha512-g2Bygiu6Is/Xa6OWUxXN/BZwGU2M4izFl8fdgL1cFWxhoWSYL169bN3V4zvRTUJIqtsNaTyOeRu2mjkRgHY9KQ==}
     peerDependencies:
@@ -895,16 +879,6 @@ packages:
       - encoding
     dev: false
 
-  /@itwin/imodels-client-authoring/1.1.0:
-    resolution: {integrity: sha512-vyJBPyot0thTVHuhVXCk7XH1DTlurP6FQcgVt3TmlWSMQpSnwwsIICgLOJvdr6WfKExWHoEVEoa8bOLYuB0UJw==}
-    dependencies:
-      '@azure/storage-blob': 12.7.0
-      '@itwin/imodels-client-management': 1.1.0
-    transitivePeerDependencies:
-      - debug
-      - encoding
-    dev: false
-
   /@itwin/imodels-client-authoring/2.3.0:
     resolution: {integrity: sha512-wsG6TRv+Ss/L9U5T9/nYwlvQBR5mipDqoaKlFcUwxeivTtB9K3YbeUEPdY2TaDsoFwwuM5cQSqcNr6K21GZ0cQ==}
     dependencies:
@@ -915,14 +889,6 @@ packages:
     transitivePeerDependencies:
       - debug
       - encoding
-    dev: false
-
-  /@itwin/imodels-client-management/1.1.0:
-    resolution: {integrity: sha512-fj60aj4FHUGm33YrOc4ozvuPc0PzIG46wOMY6q2WjqAPqBR3Q0Vlkx6k3Mk6aHXj1cB9VfxbQUY+yni1Wgx1/A==}
-    dependencies:
-      axios: 0.21.4
-    transitivePeerDependencies:
-      - debug
     dev: false
 
   /@itwin/imodels-client-management/2.3.0:
