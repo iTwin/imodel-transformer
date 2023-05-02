@@ -1,7 +1,0 @@
-{
-  "type": "none",
-  "comment": "docs: ts 5 compatibility",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "ben-polinsky@users.noreply.github.com",
-  "dependentChangeType": "none"
-}
