@@ -154,6 +154,7 @@ describe("imodel-transformer", () => {
         fs.appendFileSync(path.join(os.tmpdir(), "report.jsonl"), `${JSON.stringify(record)}\n`);
       }
     }
+    console.log("exited for loop")
   });
 });
 
