@@ -71,7 +71,7 @@ stages:
 
     variables:
       - group: iTwin.js Performance Test Users                  # auth info of users that have access to test iModels and kill GPB
-
+      - group: iTwin.js Transformation Performance tests        # OIDC id
     jobs:
       - job:
         displayName: "Run: Typical Cases"
@@ -119,7 +119,7 @@ stages:
               IMODEL_USER_NAME: $(imjs_user_email)
               IMODEL_USER_PASSWORD: $(imjs_user_password)
               OIDC_CLIENT_ID: $(OIDC_CLIENT_ID)
-              OIDC_REDIRECT: $(OIDC_REDIRECT)
+              OIDC_REDIRECT: http://localhost:3000/signin-callback
             continueOnError: true
 
           - publish: $(Pipeline.Workspace)/TestRunner/results/report.csv
