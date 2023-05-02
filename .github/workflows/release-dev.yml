@@ -46,7 +46,10 @@ jobs:
       run: |
         git config --local user.email imodeljs-admin@users.noreply.github.com
         git config --local user.name imodeljs-admin
-        pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --message "Version bump [skip actions]"
+        echo $SPECIAL_TAG
+        node -p process.env.SPECIAL_TAG
+        node -p 'require("./beachball.config.dev.js").tag'
+        # pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --message "Version bump [skip actions]"
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_ITWIN }}
         SPECIAL_TAG: ${{ github.events.inputs.specialReleaseTag }}
