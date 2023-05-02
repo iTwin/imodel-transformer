@@ -152,7 +152,9 @@ describe("imodel-transformer", () => {
         sourceDb.close();
         transformer.dispose();
         fs.appendFileSync(path.join(os.tmpdir(), "report.jsonl"), `${JSON.stringify(record)}\n`);
+        console.log("end of finally")
       }
+      console.log("end of for loop")
     }
     console.log("exited for loop")
   });
