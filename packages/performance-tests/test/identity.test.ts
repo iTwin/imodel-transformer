@@ -50,7 +50,6 @@ describe("imodel-transformer", () => {
       usrPass = process.env.V1_CHECKPOINT_USER_PASSWORD;
     }
     else {
-      console.log('imodel user');
       usrEmail = process.env.IMODEL_USER_NAME;
       usrPass = process.env.IMODEL_USER_PASSWORD;
     }
@@ -64,7 +63,6 @@ describe("imodel-transformer", () => {
 
     assert(process.env.OIDC_CLIENT_ID, "");
     assert(process.env.OIDC_REDIRECT, "");
-    console.log(process.env.OIDC_CLIENT_ID)
     const authClient = process.env.CI === '1'
       ? new TestBrowserAuthorizationClient({
         clientId: process.env.OIDC_CLIENT_ID,
@@ -98,6 +96,7 @@ describe("imodel-transformer", () => {
     for await (const iModel of getTestIModels()) {
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
+      console.log(iModel.name)
       const sourceDb = await iModel.load();
       const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
       const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
