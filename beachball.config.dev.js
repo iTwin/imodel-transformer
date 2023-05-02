@@ -9,7 +9,7 @@ const base = require("./beachball.config.js");
 module.exports = {
   ...base,
   tag: "nightly",
-  prereleasePrefix: "dev",
+  prereleasePrefix: process.env.PRERELEASE_PREFIX ?? "dev",
   generateChangelog: false,
   gitTags: false,
 };

@@ -9,7 +9,7 @@ import {
   IModelDb, ModelSelector, PhysicalModel, PhysicalPartition, Relationship, SpatialCategory,
   SpatialViewDefinition, SubCategory, ViewDefinition,
 } from "@itwin/core-backend";
-import { IModelImporter, IModelTransformer, IModelTransformOptions } from "@itwin/transformer";
+import { IModelImporter, IModelTransformer, IModelTransformOptions } from "@itwin/imodel-transformer";
 import { ElementProps, IModel } from "@itwin/core-common";
 
 export const loggerCategory = "imodel-transformer";

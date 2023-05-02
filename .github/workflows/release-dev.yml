@@ -2,11 +2,15 @@ name: Publish dev pre-release NPM packages
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches: ["main"]
-  #   paths:
-  #     - 'packages/**'
-  #     - '!packages/test-app/**'
+    inputs:
+      prereleasePrefix:
+        description: 'Prefix to put on the prerelease version tag, e.g. dev -> 1.1.1-dev0'
+        default: 'dev'
+  push:
+    branches: ["main"]
+    paths:
+      - 'packages/**'
+      - '!packages/test-app/**'
 
 jobs:
   release-packages:
@@ -43,3 +47,4 @@ jobs:
         pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --message "Version bump [skip actions]"
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_ITWIN }}
+        PRERELEASE_PREFIX: ${{ github.events.inputs.prereleasePrefix }}

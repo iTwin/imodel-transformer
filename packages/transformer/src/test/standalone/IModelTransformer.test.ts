@@ -2248,6 +2248,70 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
+  it("should not change code scope to root subject when code spec type is Repository", async () => {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "source-with-bad-CodeScopes.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "Separate Models" } });
+    const codeSpec = CodeSpec.create(sourceDb, "Test CodeSpec", CodeScopeSpec.Type.Repository, CodeScopeSpec.ScopeRequirement.ElementId);
+    const codeSpecId = sourceDb.codeSpecs.insert(codeSpec);
+    const category = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "TestCategory", {});
+    const subject = Subject.insert(sourceDb, IModel.rootSubjectId, "Clashing Codes Container");
+    const model1 = PhysicalModel.insert(sourceDb, subject, "Model 1");
+    const model2 = PhysicalModel.insert(sourceDb, subject, "Model 2");
+    const element11Props: PhysicalElementProps = {
+      category,
+      classFullName: PhysicalObject.classFullName,
+      code: new Code({ scope: model1, spec: codeSpecId, value: "Clashing code" }),
+      model: model1,
+    };
+    const element11 = sourceDb.elements.insertElement(element11Props);
+    const element12Props: PhysicalElementProps = {
+      category,
+      classFullName: PhysicalObject.classFullName,
+      code: new Code({ scope: model1, spec: codeSpecId, value: "Element 1.2" }),
+      model: model1,
+      parent: new ElementOwnsChildElements(element11),
+    };
+    const element12 = sourceDb.elements.insertElement(element12Props);
+    const element21Props: PhysicalElementProps = {
+      category,
+      classFullName: PhysicalObject.classFullName,
+      code: new Code({ scope: model2, spec: codeSpecId, value: "Clashing code" }),
+      model: model2,
+    };
+    const element21 = sourceDb.elements.insertElement(element21Props);
+    const element22Props: PhysicalElementProps = {
+      category,
+      classFullName: PhysicalObject.classFullName,
+      code: new Code({ scope: model2, spec: codeSpecId, value: "Element 2.2" }),
+      model: model2,
+      parent: new ElementOwnsChildElements(element21),
+    };
+    const element22 = sourceDb.elements.insertElement(element22Props);
+
+    sourceDb.saveChanges();
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "target-combined-model.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "Combined Model" } });
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    await expect(transformer.processAll()).not.to.be.rejected;
+    targetDb.saveChanges();
+
+    const targetElement11 = targetDb.elements.getElement(transformer.context.findTargetElementId(element11));
+    const targetElement12 = targetDb.elements.getElement(transformer.context.findTargetElementId(element12));
+    const targetElement21 = targetDb.elements.getElement(transformer.context.findTargetElementId(element21));
+    const targetElement22 = targetDb.elements.getElement(transformer.context.findTargetElementId(element22));
+
+    assert.notEqual(targetElement11.code.scope, IModel.rootSubjectId);
+    assert.notEqual(targetElement12.code.scope, IModel.rootSubjectId);
+    assert.notEqual(targetElement21.code.scope, IModel.rootSubjectId);
+    assert.notEqual(targetElement22.code.scope, IModel.rootSubjectId);
+
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
   it("handles long schema names and references to them", async function () {
     const longSchema1Name = `ThisSchemaIs${"Long".repeat(100)}`;
     assert(Buffer.from(longSchema1Name).byteLength > 255);
