@@ -17,7 +17,7 @@ type IModelDb = IModelTransformer["sourceDb"];
 const profName = (profileName: string) => {
   const profileDir = process.env.ITWIN_TESTS_CPUPROF_DIR ?? process.cwd();
   const profileExtension = ".sqliteprofile.db";
-  const nameTimePortion = `_${new Date().toISOString()}`;
+  const nameTimePortion = `_${new Date().toISOString().replace(":", "_")}`;
   return path.join(profileDir, `${profileName}${nameTimePortion}${profileExtension}`);
 }
 
@@ -31,8 +31,13 @@ const hooks = {
 
       t.events.on(TransformerEvent.endProcessSchemas, () => {
         const result = db.nativeDb.stopProfiler();
-        if (result.fileName)
-          fs.renameSync(result.fileName, profName(`processSchemas_${type}`));
+        try {
+            // This fails on Windows OS because the file is still locked at this point so we swallow the error.
+            if (result.fileName)
+              fs.renameSync(result.fileName, profName(`processSchemas_${type}`));
+        } catch (err) {
+            err;
+        }
       });
     }
   },
@@ -45,8 +50,13 @@ const hooks = {
 
       t.events.on(TransformerEvent.endProcessAll, () => {
         const result = db.nativeDb.stopProfiler();
-        if (result.fileName)
-          fs.renameSync(result.fileName, profName(`processAll_${type}`));
+        try {
+          // This fails on Windows OS because the file is still locked at this point so we swallow the error.
+          if (result.fileName)
+            fs.renameSync(result.fileName, profName(`processAll_${type}`));
+        } catch (err) {
+            err;
+        }
       });
     }
   },
@@ -59,8 +69,13 @@ const hooks = {
 
       t.events.on(TransformerEvent.endProcessChanges, () => {
         const result = db.nativeDb.stopProfiler();
-        if (result.fileName)
-          fs.renameSync(result.fileName, profName(`processChanges_${type}`));
+        try {
+          // This fails on Windows OS because the file is still locked at this point so we swallow the error.
+          if (result.fileName)
+            fs.renameSync(result.fileName, profName(`processChanges_${type}`));
+        } catch (err) {
+            err;
+        }
       });
     }
   },
