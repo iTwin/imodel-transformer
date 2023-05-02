@@ -64,7 +64,7 @@ describe("imodel-transformer", () => {
 
     assert(process.env.OIDC_CLIENT_ID, "");
     assert(process.env.OIDC_REDIRECT, "");
-
+    console.log(process.env.OIDC_CLIENT_ID)
     const authClient = process.env.CI === '1'
       ? new TestBrowserAuthorizationClient({
         clientId: process.env.OIDC_CLIENT_ID,
