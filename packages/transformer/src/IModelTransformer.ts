@@ -1708,6 +1708,22 @@ export class IModelTransformer extends IModelExportHandler {
           };
       }
     );
+
+    /*
+    // TODO: maybe save transformer state resumption state based on target changset and require calls
+    // to saveChanges
+    if () {
+      const [sourceFedGuid, targetFedGuid, relClassFullName] = lastProvenanceEntityInfo.split("/");
+      const isRelProvenance = targetFedGuid !== undefined;
+      const instanceId = isRelProvenance
+        ? this.targetDb.elements.getElement({federationGuid: sourceFedGuid})
+        : "";
+      //const classId =
+      if (isRelProvenance) {
+      }
+    }
+    */
+
     const targetHasCorrectLastProvenance =
       typeof lastProvenanceEntityInfo === "string" ||
       // ignore provenance check if it's null since we can't bind those ids
@@ -1736,6 +1752,7 @@ export class IModelTransformer extends IModelExportHandler {
             throw new IModelError(IModelStatus.SQLiteError, `got sql error ${stepResult}`);
         }
       });
+
     if (!targetHasCorrectLastProvenance)
       throw Error([
         "Target for resuming from does not have the expected provenance ",
