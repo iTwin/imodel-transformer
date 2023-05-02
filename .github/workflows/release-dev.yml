@@ -52,4 +52,4 @@ jobs:
         # pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --message "Version bump [skip actions]"
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_ITWIN }}
-        SPECIAL_TAG: ${{ github.events.inputs.specialReleaseTag }}
+        SPECIAL_TAG: ${{ github.event.inputs.specialReleaseTag }}
