@@ -3,6 +3,31 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
+const usageText = `\
+To use this the 'linux-native' PROFILE_TYPE, you must include the
+"--perf-prof" and "--interpreted-frames-native-stack" arguments
+in the NODE_OPTIONS environment variables, like so:
+
+NODE_OPTIONS='--perf-prof --interpreted-frames-native-stack --require performance-scripts'
+PROFILE_TYPE='linux-native'
+
+You may also provide the following variables:
+
+PROFILE_SAMPLE_RATE='99' # the stack samples per second taken by perf (passed to perf's -F option)
+ITWIN_TESTS_CPUPROF_DIR="process.cwd()" # the directoty in which to write the resulting profile
+# this one may be replaced in the future with better readiness detection
+PERF_WARMUP_DELAY='500' # the amount of time to wait for perf to initialize before running the instrumented functions
+
+The program will now exit.
+`;
+
+if (![
+  "--perf-prof",
+  "--interpreted-frames-native-stack",
+].every(a => process.env.NODE_OPTIONS?.includes(a))) {
+  console.error(usageText);
+}
+
 import * as path from "path";
 import * as fs from "fs";
 import * as v8 from "v8";
@@ -37,6 +62,7 @@ export async function runWithLinuxPerf<F extends () => any>(
   if (attachedLinuxPerf !== undefined)
     throw Error("tried to attach, but perf was already attached!");
 
+  // this does not work, so we error on it at the top
   v8.setFlagsFromString("--perf-prof --interpreted-frames-native-stack");
 
   // TODO: add an environment variable that names a command to run to get the password and use sudo,

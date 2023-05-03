@@ -15,6 +15,9 @@ You must also set in the environment the 'PROFILE_TYPE' variable.
 
 Valid profile types are: ${profileTypes.join(", ")}
 
+Each profile type may have its own required settings, which it will complain about and exit
+if you do not use them.
+
 The program will now exit.`;
 
 switch (profileType) {
@@ -30,7 +33,7 @@ switch (profileType) {
     require("./runTransformationWithSqliteProfiler");
     break;
   default:
-    console.log(usageText);
+    console.error(usageText);
     process.exit(1);
 }
 
