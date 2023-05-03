@@ -362,7 +362,7 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    const timeline: Timeline = {
+    const timeline: Timeline = () => ({
       0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
       1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
       2: { branch1: { 1:1, 2:2, 3:1, 4:1, 20:1, 21:1 } },
@@ -384,7 +384,7 @@ describe("IModelTransformerHub", () => {
       },
       11: { master: { 1:2, 2:2, 4:1, 5:1, 6:2, 8:1, 9:1, 30:1 } },
       12: { branch1: { sync: ["master", 4] } },
-    };
+    });
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
@@ -763,12 +763,12 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should not download more changesets than necessary", async () => {
-    const timeline: Timeline = {
+    const timeline: Timeline = () => ({
       0: { master: { 1:1 } },
       1: { branch: { branch: "master" } },
       2: { branch: { 1:2, 2:1 } },
       3: { branch: { 1:2, 3:3 } },
-    };
+    });
 
     const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
@@ -861,12 +861,12 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    const timeline: Timeline = {
+    const timeline: Timeline = () => ({
       0: { master: { seed: masterSeed } },
       1: { branch1: { branch: "master" } },
       2: { branch1: { 1:2, 2:1 } },
       3: { branch1: { 1:2, 3:3 } },
-    };
+    });
 
     const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 

@@ -127,6 +127,11 @@ export type TimelineStateChange =
   // to the given ending point, inclusive. (end defaults to current point in time)
   | { sync: [string, number] };
 
+/** an object that helps resolve ids from names,
+ * inspired by tree-sitter's grammar syntax DSL
+ */
+export type TimelineIdReferences = Record<string, string>;
+
 /** For each step in timeline, an object of iModels mapping to the event that occurs for them:
  * - a 'seed' event with an iModel to seed from, creating the iModel
  * - a 'branch' event with the name of an iModel to seed from, creating the iModel
@@ -138,7 +143,7 @@ export type TimelineStateChange =
  * @note because the timeline manages PhysicalObjects for the state, any seed must contain the necessary
  * model and category, which can be added to your seed by calling @see populateTimelineSeed
  */
-export type Timeline = Record<number, {
+export type Timeline = ($: TimelineIdReferences) => Record<number, {
   assert?: (imodels: Record<string, TimelineIModelState>) => void;
   [modelName: string]: | undefined // only necessary for the previous optional properties
   | ((imodels: Record<string, TimelineIModelState>) => void) // only necessary for the assert property
@@ -168,8 +173,12 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   >();
   /* eslint-enable @typescript-eslint/indent */
 
+  // FIXME:
+  const $ = new Proxy({}, { get(_obj, _k, _recv) {} });
+  const resolvedTimeline = timeline($);
+
   for (let i = 0; i < Object.values(timeline).length; ++i) {
-    const pt = timeline[i];
+    const pt = resolvedTimeline[i];
     const iModelChanges = Object.entries(pt)
       .filter((entry): entry is [string, TimelineStateChange] => entry[0] !== "assert" && trackedIModels.has(entry[0]));
 
