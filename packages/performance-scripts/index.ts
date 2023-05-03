@@ -33,6 +33,7 @@ if (!process.env.FUNCTIONS) {
 const funcsToInstrument = process.env.FUNCTIONS.split(",").map(s => s.trim());
 const funcData = funcsToInstrument.map(f => {
   const dotIndex = f.lastIndexOf('.');
+  // NOTE: need to make `require use the process.cwd` path...
   const object = eval(f.substring(0, dotIndex));
   const key = f.substring(dotIndex + 1);
   return { object, key };
