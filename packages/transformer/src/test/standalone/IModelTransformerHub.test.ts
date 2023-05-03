@@ -861,8 +861,46 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    const timeline: Timeline = () => ({
-      0: { master: { seed: masterSeed } },
+    const timeline: Timeline = ($) => ({
+      0: {
+        master: {
+          modelSelector: {
+            classFullName: ModelSelector.classFullName,
+            models: [],
+            model: IModelDb.repositoryModelId,
+            code: new Code({ spec: "0x1", scope: "0x1", value: "modelSelector" }).toJSON(),
+          },
+          categorySelector: {
+            classFullName: CategorySelector.classFullName,
+            categories: [],
+            model: IModelDb.repositoryModelId,
+            code: new Code({ spec: "0x1", scope: "0x1", value: "categorySelector" }).toJSON(),
+          },
+          displayStyle: {
+            classFullName: DisplayStyle3d.classFullName,
+            code: new Code({ spec: "0x1", scope: "0x1", value: "displayStyle" }).toJSON(),
+            model: IModelDb.repositoryModelId,
+            userLabel: "displayStyle",
+          },
+          spatialViewDef: {
+            classFullName: SpatialViewDefinition.classFullName,
+            userLabel: "spatialViewDef",
+            model: IModelDb.repositoryModelId,
+            code: Code.createEmpty().toJSON(),
+            camera: {
+              eye: { x: 0, y: 0, z: 0 },
+              lens: { radians: 0 },
+              focusDist: 0,
+            },
+            extents: { x: 0, y: 0, z: 0 },
+            origin: { x: 0, y: 0, z: 0 },
+            cameraOn: false,
+            displayStyleId: $.displayStyle.id,
+            categorySelectorId: $.categorySelector.id,
+            modelSelectorId: $.modelSelector.id,
+          },
+        }
+      },
       1: { branch1: { branch: "master" } },
       2: { branch1: { 1:2, 2:1 } },
       3: { branch1: { 1:2, 3:3 } },

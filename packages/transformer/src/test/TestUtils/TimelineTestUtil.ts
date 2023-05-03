@@ -107,7 +107,7 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, state: TimelineIMode
 }
 
 export interface TimelineIModelContentsState {
-  [name: number]: number | ElementProps;
+  [name: string]: number | Omit<ElementProps, "userLabel">;
 }
 
 export interface TimelineIModelState {
@@ -130,9 +130,13 @@ export type TimelineStateChange =
 /** an object that helps resolve ids from names,
  * inspired by tree-sitter's grammar syntax DSL
  */
-export type TimelineIdReferences = Record<string, string>;
+export type TimelineReferences = Record<string, ElementProps>;
 
-/** For each step in timeline, an object of iModels mapping to the event that occurs for them:
+/**
+ * A tiny tree-sitter inspired DSL for building timelines of iModel updates and branching/forking events
+ * The `$` can be used to refer to props that aren't resolved until later (e.g. the id of inserted elements)
+ *
+ * For each step in timeline, an object of iModels mapping to the event that occurs for them:
  * - a 'seed' event with an iModel to seed from, creating the iModel
  * - a 'branch' event with the name of an iModel to seed from, creating the iModel
  * - a 'sync' event with the name of an iModel and timeline point to sync from
@@ -143,7 +147,7 @@ export type TimelineIdReferences = Record<string, string>;
  * @note because the timeline manages PhysicalObjects for the state, any seed must contain the necessary
  * model and category, which can be added to your seed by calling @see populateTimelineSeed
  */
-export type Timeline = ($: TimelineIdReferences) => Record<number, {
+export type Timeline = ($: TimelineReferences) => Record<number, {
   assert?: (imodels: Record<string, TimelineIModelState>) => void;
   [modelName: string]: | undefined // only necessary for the previous optional properties
   | ((imodels: Record<string, TimelineIModelState>) => void) // only necessary for the assert property
@@ -177,6 +181,10 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   const $ = new Proxy({}, { get(_obj, _k, _recv) {} });
   const resolvedTimeline = timeline($);
 
+  const getSeed = (model: TimelineStateChange): TimelineIModelState | undefined => (model as { seed: TimelineIModelState }).seed;
+  const getBranch = (model: TimelineStateChange): string | undefined => (model as { branch: string }).branch;
+  const getSync = (model: TimelineStateChange): [string, number] | undefined => (model as { sync: [string, number] }).sync;
+
   for (let i = 0; i < Object.values(timeline).length; ++i) {
     const pt = resolvedTimeline[i];
     const iModelChanges = Object.entries(pt)
@@ -191,12 +199,10 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       assert(typeof newIModelEvent === "object");
       assert(!("sync" in newIModelEvent), "cannot sync an iModel that hasn't been created yet!");
 
-      const seed
-        = "seed" in newIModelEvent
-          ? newIModelEvent.seed
-          : "branch" in newIModelEvent
-            ? trackedIModels.get(newIModelEvent.branch)!
-            : undefined;
+      const seed = (
+        getSeed(newIModelEvent)
+        ?? (getBranch(newIModelEvent) && trackedIModels.get(getBranch(newIModelEvent)!)))
+        || undefined;
 
       const newIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: newIModelName, version0: seed?.db.pathName, noLocks: true });
 
@@ -205,7 +211,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       assert.equal(newIModelDb.iTwinId, iTwinId);
 
       trackedIModels.set(newIModelName, {
-        state: seed?.state ?? newIModelEvent as number[],
+        state: seed?.state ?? newIModelEvent as TimelineIModelContentsState,
         db: newIModelDb,
         id: newIModelId,
       });
@@ -213,7 +219,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       const isNewBranch = "branch" in newIModelEvent;
       if (isNewBranch) {
         assert(seed);
-        masterOfBranch.set(newIModelName, newIModelEvent.branch);
+        masterOfBranch.set(newIModelName, newIModelEvent.branch as string);
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
@@ -224,7 +230,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         assert.isAbove(count(branchDb, ExternalSourceAspect.classFullName), Object.keys(master.state).length);
         await saveAndPushChanges(accessToken, branchDb, "initialized branch provenance");
       } else if ("seed" in newIModelEvent) {
-        await saveAndPushChanges(accessToken, newIModelDb, `seeded from '${newIModelEvent.seed.id}' at point ${i}`);
+        await saveAndPushChanges(accessToken, newIModelDb, `seeded from '${getSeed(newIModelEvent)!.id}' at point ${i}`);
       } else {
         populateTimelineSeed(newIModelDb, newIModelEvent);
         await saveAndPushChanges(accessToken, newIModelDb, `new with state [${newIModelEvent}] at point ${i}`);
@@ -240,7 +246,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         // "branch" and "seed" event has already been handled in the new imodels loop above
         continue;
       } else if ("sync" in event) {
-        const [syncSource, startIndex] = event.sync;
+        const [syncSource, startIndex] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
         const target = trackedIModels.get(iModelName)!;
