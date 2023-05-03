@@ -13,8 +13,6 @@ const loggerCategory = "TestContext";
 
 export const testITwinIds = [
   "892aa2c9-5be8-4865-9f37-7d4c7e75ebbf",
-  "523a1365-2c85-4383-9e4c-f9ec25d0e107",
-  // "bef34215-1046-4bf1-b3be-a30ae52fefb6",
 ];
 
 type TShirtSize = "s" | "m" | "l" | "xl" | "unknown";

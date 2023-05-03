@@ -93,11 +93,12 @@ describe("imodel-transformer", () => {
   });
   it("identity transform all", async () => {
     const report = [] as Record<string, string | number>[];
+    var count = 0;
     for await (const iModel of getTestIModels()) {
+      if(count != 12){
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
-      console.log(iModel.name)
-      if(iModel.name != 'M - Megacad Ingenieria y Sistemas - Architecture_2021.rvt'){
+      // console.log(iModel.name)
         const sourceDb = await iModel.load();
         const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
         const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
@@ -153,9 +154,12 @@ describe("imodel-transformer", () => {
           sourceDb.close();
           transformer.dispose();
           fs.appendFileSync(path.join(os.tmpdir(), "report.jsonl"), `${JSON.stringify(record)}\n`);
-          console.log("end of finally")
+          // console.log("end of finally")
         }
-        console.log("end of for loop")
+        console.log(count)
+        count++;
+        // console.log("end of for loop")
+        IModelHost.flushLog();
       }
     }
     console.log("exited for loop")
