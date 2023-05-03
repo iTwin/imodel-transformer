@@ -33,9 +33,6 @@ import * as fs from "fs";
 import * as v8 from "v8";
 import * as child_process from "child_process";
 
-import { IModelTransformer } from "@itwin/transformer";
-import { hookIntoTransformer } from "./hookIntoTransformer";
-
 let attachedLinuxPerf: child_process.ChildProcess | undefined = undefined;
 
 /**
@@ -109,20 +106,16 @@ export async function runWithLinuxPerf<F extends () => any>(
   return result;
 }
 
-type LinuxPerfProfArgs = Parameters<typeof runWithLinuxPerf>[1];
-
-hookIntoTransformer((t: IModelTransformer) => {
-  const originalProcessAll = t.processAll;
-  const originalProcessSchemas = t.processSchemas;
-  const originalProcessChanges = t.processChanges;
-
-  const profArgs: LinuxPerfProfArgs = {};
-
-  t.processAll = async (...args: Parameters<typeof t.processAll>) =>
-    runWithLinuxPerf(() => originalProcessAll.call(t, ...args), { ...profArgs, profileName: "processAll" });
-  t.processSchemas = async (...args: Parameters<typeof t.processSchemas>) =>
-    runWithLinuxPerf(() => originalProcessSchemas.call(t, ...args), { ...profArgs, profileName: "processSchemas" });
-  t.processChanges = async (...args: Parameters<typeof t.processChanges>) =>
-    runWithLinuxPerf(() => originalProcessChanges.call(t, ...args), { ...profArgs, profileName: "processChanges" });
-});
+module.exports = function RunWithLinuxPerf(funcData: { object: any, key: string }[]) {
+  for (const { object, key } of funcData) {
+    const original = object[key];
+    object[key] = (...args: any[]) => runWithLinuxPerf(() => {
+      const result = original.call(object, ...args);
+      const isPromise = Promise.resolve(result) === result;
+      if (!isPromise)
+        throw Error("runWithLinuxPerf only supports instrumenting async functions!")
+      return result;
+    }, { profileName: key });
+  }
+};
 
