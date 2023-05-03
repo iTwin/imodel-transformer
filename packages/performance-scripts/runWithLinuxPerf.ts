@@ -49,6 +49,7 @@ export async function runWithLinuxPerf<F extends () => any>(
 
   await new Promise((res, rej) => attachedLinuxPerf!.on("spawn", res).on("error", rej));
 
+  // FIXME: listen for some verbose perf output or something to determine when it's started listening. Or maybe wait for SIGPROF?
   // give perf a moment to attach
   const perfWarmupDelay = +(process.env.PERF_WARMUP_DELAY || 500);
   await new Promise(r => setTimeout(r, perfWarmupDelay));
