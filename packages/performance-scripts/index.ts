@@ -48,7 +48,7 @@ switch (profileType) {
     (require("./runWithJsCpuProfile") as typeof import("./runWithJsCpuProfile")).default(funcData);
     break;
   case "sqlite":
-    (require("./runTransformationWithSqliteProfiler") as typeof import("./runTransformationWithSqliteProfiler")).default(funcData);
+    (require("./runWithSqliteProfiler") as typeof import("./runWithSqliteProfiler")).default(funcData);
     break;
   default:
     console.error(usageText);
