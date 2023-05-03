@@ -42,13 +42,13 @@ switch (profileType) {
   case "linux-native":
     if (os.userInfo().uid !== 0)
       console.warn("You are not running as root, perf may have issues, see stderr.");
-    (require("./runWithLinuxPerf") as typeof import("./runWithLinuxPerf"))(funcData);
+    (require("./runWithLinuxPerf") as typeof import("./runWithLinuxPerf")).default(funcData);
     break;
   case "js-cpu":
-    (require("./runWithJsCpuProfile") as typeof import("./runWithJsCpuProfile"))(funcData);
+    (require("./runWithJsCpuProfile") as typeof import("./runWithJsCpuProfile")).default(funcData);
     break;
   case "sqlite":
-    (require("./runTransformationWithSqliteProfiler") as typeof import("./runTransformationWithSqliteProfiler"))(funcData);
+    (require("./runTransformationWithSqliteProfiler") as typeof import("./runTransformationWithSqliteProfiler")).default(funcData);
     break;
   default:
     console.error(usageText);

@@ -62,20 +62,16 @@ export async function runWithCpuProfiler<F extends () => any>(
   return result;
 }
 
-type CpuProfArgs = Parameters<typeof runWithCpuProfiler>[1];
-
-hookIntoTransformer((t: IModelTransformer) => {
-  const originalProcessAll = t.processAll;
-  const originalProcessSchemas = t.processSchemas;
-  const originalProcessChanges = t.processChanges;
-
-  const profArgs: CpuProfArgs = {};
-
-  t.processAll = async (...args: Parameters<typeof t.processAll>) =>
-    runWithCpuProfiler(() => originalProcessAll.call(t, ...args), { ...profArgs, profileName: "processAll" });
-  t.processSchemas = async (...args: Parameters<typeof t.processSchemas>) =>
-    runWithCpuProfiler(() => originalProcessSchemas.call(t, ...args), { ...profArgs, profileName: "processSchemas" });
-  t.processChanges = async (...args: Parameters<typeof t.processChanges>) =>
-    runWithCpuProfiler(() => originalProcessChanges.call(t, ...args), { ...profArgs, profileName: "processChanges" });
-});
+export default function RunWithJSCpuProfiler(funcData: { object: any, key: string }[]) {
+  for (const { object, key } of funcData) {
+    const original = object[key];
+    object[key] = (...args: any[]) => runWithCpuProfiler(() => {
+      const result = original.call(object, ...args);
+      const isPromise = Promise.resolve(result) === result;
+      if (!isPromise)
+        throw Error("runWithLinuxPerf only supports instrumenting async functions!")
+      return result;
+    }, { profileName: key });
+  }
+};
 

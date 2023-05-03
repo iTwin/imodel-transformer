@@ -22,5 +22,8 @@
   },
   "peerDependencies": {
     "@itwin/transformer": "workspace:*"
+  },
+  "dependencies": {
+    "@itwin/core-backend": "3.6.0 - 3.6.1"
   }
 }

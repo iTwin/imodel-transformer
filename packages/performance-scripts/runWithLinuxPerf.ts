@@ -106,7 +106,7 @@ export async function runWithLinuxPerf<F extends () => any>(
   return result;
 }
 
-module.exports = function RunWithLinuxPerf(funcData: { object: any, key: string }[]) {
+export default function RunWithLinuxPerf(funcData: { object: any, key: string }[]) {
   for (const { object, key } of funcData) {
     const original = object[key];
     object[key] = (...args: any[]) => runWithLinuxPerf(() => {
