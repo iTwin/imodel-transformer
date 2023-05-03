@@ -94,8 +94,9 @@ describe("imodel-transformer", () => {
   it("identity transform all", async () => {
     const report = [] as Record<string, string | number>[];
     var count = 0;
+    const os = require('os');
     for await (const iModel of getTestIModels()) {
-      if(count != 12){
+      if(count === 7){
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
       // console.log(iModel.name)
@@ -128,13 +129,13 @@ describe("imodel-transformer", () => {
             await transformer.processSchemas();
           });
           Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
-          //[entityProcessingTimer] = await timed(async () => {
-          //await transformer.processAll();
-          //});
-          //Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
+          [entityProcessingTimer] = await timed(async () => {
+          await transformer.processAll();
+          });
+          Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
         } catch (err: any) {
           Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
-          const schemaDumpDir = fs.mkdtempSync("/tmp/identity-test-schemas-dump");
+          const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
           sourceDb.nativeDb.exportSchemas(schemaDumpDir);
           Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
         } finally {
@@ -154,13 +155,11 @@ describe("imodel-transformer", () => {
           sourceDb.close();
           transformer.dispose();
           fs.appendFileSync(path.join(os.tmpdir(), "report.jsonl"), `${JSON.stringify(record)}\n`);
-          // console.log("end of finally")
         }
         console.log(count)
-        count++;
-        // console.log("end of for loop")
         IModelHost.flushLog();
       }
+      count++;
     }
     console.log("exited for loop")
   });
