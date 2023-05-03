@@ -97,7 +97,7 @@ describe("imodel-transformer", () => {
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
       console.log(iModel.name)
-      if(iModel.name != 'M - Hatch - PTMMR Secure'){
+      if(iModel.name != 'M - Megacad Ingenieria y Sistemas - Architecture_2021.rvt'){
         const sourceDb = await iModel.load();
         const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
         const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
