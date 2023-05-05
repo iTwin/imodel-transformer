@@ -96,10 +96,10 @@ describe("imodel-transformer", () => {
     var count = 0;
     const os = require('os');
     for await (const iModel of getTestIModels()) {
-      if(count === 7){
+      if(count === 0){
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
-      // console.log(iModel.name)
+      console.log(iModel.iModelId)
         const sourceDb = await iModel.load();
         const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
         const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
@@ -154,7 +154,7 @@ describe("imodel-transformer", () => {
           targetDb.close();
           sourceDb.close();
           transformer.dispose();
-          fs.appendFileSync(path.join(os.tmpdir(), "report.jsonl"), `${JSON.stringify(record)}\n`);
+          fs.appendFileSync("./report.jsonl", `${JSON.stringify(record)}\n`);
         }
         console.log(count)
         IModelHost.flushLog();

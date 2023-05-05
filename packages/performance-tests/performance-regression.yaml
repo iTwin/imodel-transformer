@@ -105,6 +105,10 @@ stages:
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
 
+          - script: ni report.jsonl
+            displayName: 'pnpm install'
+            workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
+
           - script: |
                 npm test
             displayName: 'npm test'
@@ -123,12 +127,8 @@ stages:
               IMJS_URL_PREFIX: qa-
             continueOnError: true
 
-          - publish: $(Pipeline.Workspace)/TestRunner/results/report.csv
+          - publish: $(Pipeline.Workspace)/s/packages/performance-tests/report.jsonl
             artifact: PerformanceTestReport-Typical
-            condition: always()
-
-          - publish: $(Pipeline.Workspace)/TestRunner/results/diagnostics
-            artifact: Diagnostics-Typical
             condition: always()
 
   - stage: publish
