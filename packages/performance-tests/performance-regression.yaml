@@ -127,7 +127,7 @@ stages:
               IMJS_URL_PREFIX: qa-
             continueOnError: true
 
-          - publish: $(Pipeline.Workspace)/s/packages/performance-tests/report.jsonl
+          - publish: $(Pipeline.Workspace)/s/packages/performance-tests/test/.output/report.csv
             artifact: PerformanceTestReport-Typical
             condition: always()
 

@@ -29,6 +29,7 @@ importers:
       '@itwin/imodels-client-authoring': 2.3.0
       '@itwin/node-cli-authorization': ~0.9.0
       '@itwin/oidc-signin-tool': ^3.4.1
+      '@itwin/perf-tools': 3.7.2
       '@itwin/projects-client': ^0.6.0
       '@types/chai': ^4.1.4
       '@types/fs-extra': ^4.0.7
@@ -56,6 +57,7 @@ importers:
       '@itwin/imodels-access-backend': 2.3.0_dukgzboniadzb4bug27ojyr6sy
       '@itwin/imodels-client-authoring': 2.3.0
       '@itwin/node-cli-authorization': 0.9.2_@itwin+core-bentley@3.6.1
+      '@itwin/perf-tools': 3.7.2
       dotenv: 10.0.0
       dotenv-expand: 5.1.0
       fs-extra: 8.1.0
@@ -984,6 +986,12 @@ packages:
       - supports-color
       - utf-8-validate
     dev: true
+
+  /@itwin/perf-tools/3.7.2:
+    resolution: {integrity: sha512-Y786ucBUjmtHKJdxNbzZZeVP+zm2VHgq+Pgegn5GpaO63bGFjgZKkKBzvFcvbmmniJjaN+Sr7to2/B+ncIl99w==}
+    dependencies:
+      fs-extra: 8.1.0
+    dev: false
 
   /@itwin/projects-client/0.6.0:
     resolution: {integrity: sha512-uA8lqjNLIpmpdldoOa/EwQfaV+F2yflxoi1aEZSb+R+dlCyvlsE/hLM7oTzYwmYmFzdezKNbFjwN2PvWLBWaBg==}

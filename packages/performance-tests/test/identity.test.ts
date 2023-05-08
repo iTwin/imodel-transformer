@@ -21,7 +21,7 @@ import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
-import dotenv from "dotenv";
+import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const assetsDir = path.join(__dirname, "assets");
@@ -92,14 +92,17 @@ describe("imodel-transformer", () => {
     await IModelHost.shutdown();
   });
   it("identity transform all", async () => {
-    const report = [] as Record<string, string | number>[];
+    // const report = [] as Record<string, string | number>[];
+    const reporter = new Reporter();
+    const reportPath = initOutputFile("report.csv");
+    if (fs.existsSync(reportPath))
+      fs.rmSync(reportPath);
     var count = 0;
     const os = require('os');
     for await (const iModel of getTestIModels()) {
-      if(count === 0){
+      if(count < 1){
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
-      console.log(iModel.iModelId)
         const sourceDb = await iModel.load();
         const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
         const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
@@ -129,38 +132,33 @@ describe("imodel-transformer", () => {
             await transformer.processSchemas();
           });
           Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
-          [entityProcessingTimer] = await timed(async () => {
-          await transformer.processAll();
-          });
-          Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
+          // [entityProcessingTimer] = await timed(async () => {
+          // await transformer.processAll();
+          // });
+          // Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
         } catch (err: any) {
           Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
           const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
           sourceDb.nativeDb.exportSchemas(schemaDumpDir);
           Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
         } finally {
-          const os = require('os');
           const record = {
             /* eslint-disable @typescript-eslint/naming-convention */
-            "Name": iModel.name,
             "Id": iModel.iModelId,
             "T-shirt size": iModel.tShirtSize,
-            "Size (Gb)": sizeInGb,
-            "Schema processing time": schemaProcessingTimer?.elapsedSeconds ?? "N/A",
-            "Entity processing time": entityProcessingTimer?.elapsedSeconds ?? "N/A",
             /* eslint-enable @typescript-eslint/naming-convention */
           };
-          report.push(record);
+          reporter.addEntry("Transformer Regression Tests", iModel.name, "time", schemaProcessingTimer?.elapsedSeconds ?? -1, record);
+          // report.push(record);
           targetDb.close();
           sourceDb.close();
           transformer.dispose();
-          fs.appendFileSync("./report.jsonl", `${JSON.stringify(record)}\n`);
         }
-        console.log(count)
         IModelHost.flushLog();
       }
       count++;
     }
+    reporter.exportCSV(reportPath);
     console.log("exited for loop")
   });
 });

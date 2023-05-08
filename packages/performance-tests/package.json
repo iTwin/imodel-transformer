@@ -24,6 +24,7 @@
     "@itwin/imodels-access-backend": "^2.2.1",
     "@itwin/imodels-client-authoring": "2.3.0",
     "@itwin/node-cli-authorization": "~0.9.0",
+    "@itwin/perf-tools": "3.7.2",
     "dotenv": "^10.0.0",
     "dotenv-expand": "^5.1.0",
     "fs-extra": "^8.1.0",
