@@ -95,12 +95,10 @@ describe("imodel-transformer", () => {
     // const report = [] as Record<string, string | number>[];
     const reporter = new Reporter();
     const reportPath = initOutputFile("report.csv");
-    if (fs.existsSync(reportPath))
-      fs.rmSync(reportPath);
     var count = 0;
     const os = require('os');
     for await (const iModel of getTestIModels()) {
-      if(count < 1){
+      if(count < 8){
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
         const sourceDb = await iModel.load();
