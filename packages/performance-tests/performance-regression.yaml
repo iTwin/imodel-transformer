@@ -105,10 +105,6 @@ stages:
             displayName: 'pnpm install'
             workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
 
-          - powershel: ni report.jsonl
-            displayName: 'create json report file'
-            workingDirectory: $(Pipeline.Workspace)/s/packages/performance-tests
-
           - script: |
                 npm test
             displayName: 'npm test'
