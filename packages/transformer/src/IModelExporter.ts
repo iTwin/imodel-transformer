@@ -81,7 +81,7 @@ export abstract class IModelExportHandler {
    *       This will become a part of onExportElement once that becomes async
    * @internal
    */
-  public async preExportElement(_element: Element): Promise<void> {}
+  public async preExportElement(_element: Element): Promise<void> { }
 
   /** Called when an element should be deleted. */
   public onDeleteElement(_elementId: Id64String): void { }
@@ -179,10 +179,17 @@ export class IModelExporter {
   private _sourceDbChanges?: ChangedInstanceIds;
   /**
    * Retrieve the cached entity change information.
-   * @note This will only be initialized after [IModelExporter.exportChanges] is invoked.
+   * @note This will be initialized after [IModelExporter.exportChanges] is invoked or it can be set.
   */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
     return this._sourceDbChanges;
+  }
+  /**
+   * Set the cached entity change information.
+   * @note This will prevent [ChangedInstanceIds.initialize] call in [IModelExporter.exportChanges].
+  */
+  public set sourceDbChanges(changedInstanceIds: ChangedInstanceIds | undefined) {
+    this._sourceDbChanges = changedInstanceIds;
   }
   /** The handler called by this IModelExporter. */
   private _handler: IModelExportHandler | undefined;
@@ -281,7 +288,9 @@ export class IModelExporter {
     if (undefined === startChangesetId) {
       startChangesetId = this.sourceDb.changeset.id;
     }
-    this._sourceDbChanges = await ChangedInstanceIds.initialize(user, this.sourceDb, startChangesetId);
+    if (undefined === this._sourceDbChanges) {
+      this._sourceDbChanges = await ChangedInstanceIds.initialize(user, this.sourceDb, startChangesetId);
+    }
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
@@ -751,7 +760,7 @@ export class IModelExporter {
    * You may override this to load arbitrary json state in a transformer state dump, useful for some resumptions
    * @see [[IModelTransformer.loadStateFromFile]]
    */
-  protected loadAdditionalStateJson(_additionalState: any): void {}
+  protected loadAdditionalStateJson(_additionalState: any): void { }
 
   /**
    * Reload our state from a JSON object
