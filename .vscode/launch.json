@@ -12,7 +12,7 @@
             "cwd": "${workspaceFolder}/packages/performance-tests/",
             "runtimeArgs": [
               "run",
-              "test-mocha"
+              "test"
             ],
             "skipFiles": [
               "<node_internals>/**"

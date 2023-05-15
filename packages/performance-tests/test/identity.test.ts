@@ -98,7 +98,7 @@ describe("imodel-transformer", () => {
     var count = 0;
     const os = require('os');
     for await (const iModel of getTestIModels()) {
-      if(count < 8){
+      if(!(count in [0,7])){
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
         const sourceDb = await iModel.load();
@@ -130,10 +130,10 @@ describe("imodel-transformer", () => {
             await transformer.processSchemas();
           });
           Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
-          // [entityProcessingTimer] = await timed(async () => {
-          // await transformer.processAll();
-          // });
-          // Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
+          [entityProcessingTimer] = await timed(async () => {
+          await transformer.processAll();
+          });
+          Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
         } catch (err: any) {
           Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
           const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
@@ -158,7 +158,7 @@ describe("imodel-transformer", () => {
     }
     reporter.exportCSV(reportPath);
     console.log("exited for loop")
-  });
+  }).timeout(0);
 });
 
 function initOutputFile(fileBaseName: string) {
