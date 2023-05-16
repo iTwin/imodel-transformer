@@ -129,7 +129,7 @@ stages:
 
   - stage: publish
     displayName: Publish Results
-    condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
+    # condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
 
     pool:
       name: iModelTechCI

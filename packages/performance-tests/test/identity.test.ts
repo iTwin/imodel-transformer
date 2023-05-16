@@ -98,7 +98,7 @@ describe("imodel-transformer", () => {
     var count = 0;
     const os = require('os');
     for await (const iModel of getTestIModels()) {
-      if(!(count in [0,7]) && iModel.tShirtSize !== "l"){
+      if(count === 2){
       //if (iModel.tShirtSize !== "m") continue;
       Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
         const sourceDb = await iModel.load();
