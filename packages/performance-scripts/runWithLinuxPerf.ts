@@ -5,8 +5,8 @@
 
 const usageText = `\
 To use this the 'linux-perf' PROFILE_TYPE, you must include the
-"--perf-prof" and "--interpreted-frames-native-stack" arguments
-in the NODE_OPTIONS environment variables, like so:
+"--perf-prof" (OR "--perf-basic-prof") and "--interpreted-frames-native-stack" arguments
+in the NODE_OPTIONS environment variable (order doesn't matter), for example:
 
 NODE_OPTIONS='--perf-prof --interpreted-frames-native-stack --require performance-scripts'
 PROFILE_TYPE='linux-perf'
@@ -14,17 +14,18 @@ PROFILE_TYPE='linux-perf'
 You may also provide the following variables:
 
 PROFILE_SAMPLE_RATE='99' # the stack samples per second taken by perf (passed to perf's -F option)
-ITWIN_TESTS_CPUPROF_DIR="process.cwd()" # the directoty in which to write the resulting profile
+ITWIN_TESTS_CPUPROF_DIR="process.cwd()" # the directory in which to write the resulting profile
 # this one may be replaced in the future with better readiness detection
 PERF_WARMUP_DELAY='500' # the amount of time to wait for perf to initialize before running the instrumented functions
 
 The program will now exit.
 `;
 
-if (![
-  "--perf-prof",
-  "--interpreted-frames-native-stack",
-].every(a => process.env.NODE_OPTIONS?.includes(a))) {
+if (!(
+  (process.env.NODE_OPTIONS?.includes("--perf-basic-prof")
+  || process.env.NODE_OPTIONS?.includes("--perf-prof"))
+  && process.env.NODE_OPTIONS?.includes("--interpreted-frames-native-stack")
+)) {
   console.error(usageText);
   process.exit(1);
 }
