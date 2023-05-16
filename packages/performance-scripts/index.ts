@@ -30,12 +30,22 @@ if (!process.env.FUNCTIONS) {
   process.exit(1);
 }
 
+import * as vm from "vm";
+
 const funcsToInstrument = process.env.FUNCTIONS.split(",").map(s => s.trim());
 const funcData = funcsToInstrument.map(f => {
   const dotIndex = f.lastIndexOf('.');
-  // NOTE: need to make `require use the process.cwd` path...
-  const object = eval(f.substring(0, dotIndex));
+  const objExpr = f.substring(0, dotIndex);
   const key = f.substring(dotIndex + 1);
+
+  // HACK: declare our own require for the below eval
+  const ctxRequire = (path: string): any => {
+    const absPath = require.resolve(path, { paths: [process.cwd()] });
+    return require(absPath);
+  };
+
+  const context = vm.createContext({ require: ctxRequire });
+  const object = vm.runInContext(objExpr, context);
   return { object, key };
 })
 
