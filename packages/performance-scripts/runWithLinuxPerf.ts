@@ -26,6 +26,7 @@ if (![
   "--interpreted-frames-native-stack",
 ].every(a => process.env.NODE_OPTIONS?.includes(a))) {
   console.error(usageText);
+  process.exit(1);
 }
 
 import * as path from "path";
@@ -88,7 +89,7 @@ export async function runWithLinuxPerf<F extends () => any>(
 
   const perfDump = child_process.spawn(
     "perf",
-    ["script"],
+    ["script", "-f"],
     { stdio: ["inherit", "pipe", "inherit"] }
   );
 
