@@ -2,7 +2,7 @@
   "name": "performance-scripts",
   "version": "1.0.0",
   "main": "lib/index.js",
-  "description": "Scripts for profiling performance of JavaScript (iTwin.js) Transformer applications",
+  "description": "Scripts for profiling performance of JavaScript (iTwin.js) applications",
   "bin": {
     "linux-syscall-perf": "./bin/linux-syscall-perf.sh",
     "linux-resource-usage": "./bin/linux-resource-usage.sh"
@@ -16,12 +16,8 @@
   "license": "MIT",
   "devDependencies": {
     "@itwin/build-tools": "3.6.0 - 3.6.1",
-    "@itwin/transformer": "workspace:*",
     "@types/node": "^18.11.5",
     "typescript": "~4.4.0"
-  },
-  "peerDependencies": {
-    "@itwin/transformer": "workspace:*"
   },
   "dependencies": {
     "@itwin/core-backend": "3.6.0 - 3.6.1"

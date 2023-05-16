@@ -1,5 +1,5 @@
 {
-  "name": "imodel-transformer",
+  "name": "test-app",
   "//private": "NOTE: this is a private package that is never published",
   "private": true,
   "license": "MIT",
@@ -25,14 +25,14 @@
     "@itwin/imodels-access-backend": "^2.2.1",
     "@itwin/imodels-client-authoring": "^2.2.1",
     "@itwin/node-cli-authorization": "~0.9.0",
-    "@itwin/transformer": "workspace:*",
+    "@itwin/imodel-transformer": "workspace:*",
     "dotenv": "^10.0.0",
     "dotenv-expand": "^5.1.0",
     "fs-extra": "^8.1.0",
     "yargs": "^17.4.0"
   },
   "devDependencies": {
-    "@itwin/build-tools": "3.6.0 - 3.6.1",
+    "@itwin/build-tools": "4.0.0-dev.86",
     "@itwin/eslint-plugin": "3.6.0 - 3.6.1",
     "@itwin/projects-client": "^0.6.0",
     "@types/chai": "4.3.1",
@@ -46,14 +46,5 @@
     "rimraf": "^3.0.2",
     "source-map-support": "^0.5.21",
     "typescript": "~4.4.0"
-  },
-  "eslintConfig": {
-    "plugins": [
-      "@itwin"
-    ],
-    "extends": "plugin:@itwin/itwinjs-recommended",
-    "parserOptions": {
-      "project": "./tsconfig.json"
-    }
   }
 }

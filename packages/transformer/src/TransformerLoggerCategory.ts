@@ -26,4 +26,9 @@ export enum TransformerLoggerCategory {
    * @beta
    */
   IModelTransformer = "core-backend.IModelTransformer",
+
+  /** The logger category used by the [IModelCloneContext]($transformer) class.
+ * @beta
+ */
+  IModelCloneContext = "core-backend.IModelCloneContext",
 }
