@@ -20,7 +20,21 @@ by not supplying the `PROFILE_TYPE` environment variable.
 
 ## Reading profiles
 
-We recommend reading profiles either with chrome devtools, or [https://speedscope.app](https://speedscope.app).
-If you don't like the idea of using a hosted thirdparty website, there is a fully local version you can
-install, e.g. through `npx speedscope my-profile.cpuprofile`.
+We recommend reading profiles with [https://speedscope.app](https://speedscope.app) since it can
+handle both Linux native perf profiles and V8 JavaScript CPU profiles. Sqlite profiles are themselves
+sqlite databases and as such must be opened in a sqlite database explorer.
+
+If you don't like the idea of using a hosted third-party website, there is a fully local version of
+speedscope that you can install, e.g. through `npx speedscope my-profile.cpuprofile`. You can also use
+profiler-specific viewers like the chrome devtools profiler viewer.
+
+## bin/
+
+The bin folder contains short scripts for generic performance statistic gathering. They are exposed
+as scripts but may be platform specific when the name contains a platform.
+
+## Potential profilers worth adding
+
+- Valgrind's callgrind
+- Windows profilers
 
