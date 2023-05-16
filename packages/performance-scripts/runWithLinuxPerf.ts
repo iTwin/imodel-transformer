@@ -109,13 +109,15 @@ export async function runWithLinuxPerf<F extends () => any>(
 export default function RunWithLinuxPerf(funcData: { object: any, key: string }[]) {
   for (const { object, key } of funcData) {
     const original = object[key];
-    object[key] = (...args: any[]) => runWithLinuxPerf(() => {
-      const result = original.call(object, ...args);
-      const isPromise = Promise.resolve(result) === result;
-      if (!isPromise)
-        throw Error("runWithLinuxPerf only supports instrumenting async functions!")
-      return result;
-    }, { profileName: key });
+    object[key] = function (...args: any[]) {
+      return runWithLinuxPerf(() => {
+        const result = original.call(this, ...args);
+        const isPromise = Promise.resolve(result) === result;
+        if (!isPromise)
+          throw Error("runWithLinuxPerf only supports instrumenting async functions!")
+        return result;
+      }, { profileName: key });
+    };
   }
 };
 
