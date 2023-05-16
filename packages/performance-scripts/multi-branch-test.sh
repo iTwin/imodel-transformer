@@ -14,7 +14,7 @@ for branch in $BRANCHES; do
   DIR="result_$branch"
   mkdir $DIR
 
-  for prof_type in sqlite js-cpu linux-native; do
+  for prof_type in sqlite js-cpu linux-perf; do
     PROFILE_TYPE=$prof_type NODE_OPTIONS='-r ../performance-scripts' \
       node lib/Main.js --sourceFile ~/work/bad-aspect-old.bim \
           --targetDestination /tmp/out.bim

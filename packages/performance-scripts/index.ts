@@ -1,6 +1,6 @@
 import * as os from "os";
 
-const profileTypes = ["linux-native", "js-cpu", "sqlite"] as const;
+const profileTypes = ["linux-perf", "js-cpu", "sqlite"] as const;
 const profileType = process.env.PROFILE_TYPE;
 
 const usageText = `\
@@ -51,7 +51,7 @@ const funcData = funcsToInstrument.map(f => {
 })
 
 switch (profileType) {
-  case "linux-native":
+  case "linux-perf":
     if (os.userInfo().uid !== 0)
       console.warn("You are not running as root, perf may have issues, see stderr.");
     (require("./runWithLinuxPerf") as typeof import("./runWithLinuxPerf")).default(funcData);

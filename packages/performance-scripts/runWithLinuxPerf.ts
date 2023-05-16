@@ -4,12 +4,12 @@
 *--------------------------------------------------------------------------------------------*/
 
 const usageText = `\
-To use this the 'linux-native' PROFILE_TYPE, you must include the
+To use this the 'linux-perf' PROFILE_TYPE, you must include the
 "--perf-prof" and "--interpreted-frames-native-stack" arguments
 in the NODE_OPTIONS environment variables, like so:
 
 NODE_OPTIONS='--perf-prof --interpreted-frames-native-stack --require performance-scripts'
-PROFILE_TYPE='linux-native'
+PROFILE_TYPE='linux-perf'
 
 You may also provide the following variables:
 
