@@ -13,7 +13,8 @@ Then run your program.
 You must also set in the environment the 'PROFILE_TYPE' and the 'FUNCTIONS' variables.
 
 FUNCTIONS must be a comma-separated list of accessors from either global scope or a require statement
-that when evaluated lead to async functions. Sync functions are not currently supported.
+that evaluate to a function. Some profilers only support async functions.
+
 For example:
 
 FUNCTIONS='require("@itwin/imodel-transformer").IModelTransformer.prototype.processAll,require("@itwin/imodel-transformer").IModelTransformer.prototype.processSchemas'
