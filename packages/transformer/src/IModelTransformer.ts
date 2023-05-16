@@ -1273,6 +1273,7 @@ export class IModelTransformer extends IModelExportHandler {
  * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
  */
   public async processAll(): Promise<void> {
+    Logger.logTrace(loggerCategory, "processAll()");
     this.logSettings();
     this.validateScopeProvenance();
     await this.initialize();
@@ -1508,6 +1509,7 @@ export class IModelTransformer extends IModelExportHandler {
  * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
  */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
+    Logger.logTrace(loggerCategory, "processChanges()");
     this.logSettings();
     this.validateScopeProvenance();
     await this.initialize({ accessToken, startChangesetId });
