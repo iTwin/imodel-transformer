@@ -146,7 +146,7 @@ describe("imodel-transformer", () => {
             "T-shirt size": iModel.tShirtSize,
             /* eslint-enable @typescript-eslint/naming-convention */
           };
-          reporter.addEntry("Transformer Regression Tests", iModel.name, "time", schemaProcessingTimer?.elapsedSeconds ?? -1, record);
+          reporter.addEntry("Transformer Regression Tests", iModel.name, "time", entityProcessingTimer?.elapsedSeconds ?? -1, record);
           // report.push(record);
           targetDb.close();
           sourceDb.close();
