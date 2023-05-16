@@ -39,7 +39,11 @@ const funcData = funcsToInstrument.map(f => {
   const objExpr = f.substring(0, dotIndex);
   const key = f.substring(dotIndex + 1);
 
-  // HACK: declare our own require for the below eval
+  // this custom require will make the require relative not to this module but to the process
+  // current working directory, which is what the user will expect since the FUNCTIONS objects
+  // should be evaluated in the context of the actual node script that is being run.
+  // One could argue that it would be better to do `path.dirname(process.argv[1])` but I think this
+  // is slightly more flexible
   const ctxRequire = (path: string): any => {
     const absPath = require.resolve(path, { paths: [process.cwd()] });
     return require(absPath);
