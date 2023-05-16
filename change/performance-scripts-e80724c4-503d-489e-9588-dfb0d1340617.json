@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "add local performance scripts package",
+  "packageName": "performance-scripts",
+  "email": "mike.belousov@bentley.com",
+  "dependentChangeType": "none"
+}
