@@ -20,17 +20,46 @@ import { IModelTestUtils } from "./IModelTestUtils";
 
 const { count, saveAndPushChanges } = IModelTestUtils;
 
-export function getPhysicalObjects(iModelDb: IModelDb): TimelineIModelContentsState {
-  return iModelDb.withPreparedStatement(
-    `SELECT UserLabel, JsonProperties FROM ${PhysicalObject.classFullName}`,
-    (s) =>
-      Object.fromEntries(
-        [...s].map((r) => [r.userLabel, r.jsonProperties && JSON.parse(r.jsonProperties).updateState])
-      )
-  );
+export const deleted = Symbol('DELETED');
+
+// NOTE: this is not done optimally
+export function getIModelState(db: IModelDb): TimelineIModelElemState {
+  const result = {} as TimelineIModelElemState;
+
+  const elemIds = db.withPreparedStatement(`
+    SELECT ECInstanceId
+    FROM Bis.Element
+    WHERE ECInstanceId>${IModelDb.dictionaryId}
+      -- ignore the known required elements set in 'populateTimelineSeed'
+      AND CodeValue NOT IN ('SpatialCategory', 'PhysicalModel')
+  `, (s) => [...s].map((row) => row.id));
+
+  for (const elemId of elemIds) {
+    const elem = db.elements.getElement(elemId);
+    if (elem.userLabel && elem.userLabel in result)
+      throw Error("timelines only support iModels with unique user labels");
+    const isSimplePhysicalObject = elem.jsonProperties.updateState !== undefined;
+
+    result[elem.userLabel ?? elem.id]
+      = isSimplePhysicalObject
+      ? elem.jsonProperties.updateState
+      : elem.toJSON();
+  }
+  return result;
 }
 
-export function populateTimelineSeed(db: IModelDb, state?: TimelineIModelContentsState): void {
+export function applyDelta(state: TimelineIModelElemState, patch: TimelineIModelElemStateDelta): TimelineIModelElemState {
+  const patched = { ...state, ...patch };
+
+  for (const key in patched) {
+    const value = patched[key];
+    if (value === deleted) delete patched[key];
+  }
+
+  return patched as TimelineIModelElemState;
+}
+
+export function populateTimelineSeed(db: IModelDb, state?: TimelineIModelElemStateDelta): void {
   SpatialCategory.insert(db, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
   PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
   if (state)
@@ -38,114 +67,96 @@ export function populateTimelineSeed(db: IModelDb, state?: TimelineIModelContent
   db.performCheckpoint();
 }
 
-export function assertPhysicalObjects(iModelDb: IModelDb, numbers: TimelineIModelContentsState, { subset = false } = {}): void {
-  if (subset) {
-    for (const n in numbers) {
-      if (typeof n !== "string")
-        continue;
-      assertPhysicalObjectExists(iModelDb, n);
-    }
-  } else {
-    assert.deepEqual(getPhysicalObjects(iModelDb), numbers);
-  }
+export function assertElemState(db: IModelDb, state: TimelineIModelElemStateDelta, { subset = false } = {}): void {
+  expect(getIModelState(db)).to.deep.subsetEqual(state, { useSubsetEquality: subset });
 }
 
-export function assertPhysicalObjectExists(iModelDb: IModelDb, key: string): void {
-  const physicalObjectId = getPhysicalObjectId(iModelDb, key);
-  if (key.startsWith("-")) {
-    assert.isTrue(Id64.isValidId64(physicalObjectId), `Expected element ${key} to exist`);
-  } else {
-    assert.equal(physicalObjectId, Id64.invalid, `Expected element ${key} to not exist`); // negative "n" means element was deleted
-  }
-}
-
-export function getPhysicalObjectId(iModelDb: IModelDb, nkey: string): Id64String {
-  const sql = `SELECT ECInstanceId FROM ${PhysicalObject.classFullName} WHERE UserLabel=:userLabel`;
-  return iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement): Id64String => {
-    statement.bindString("userLabel", nkey);
-    return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getId() : Id64.invalid;
-  });
-}
-
-export function maintainPhysicalObjects(iModelDb: IModelDb, state: TimelineIModelContentsState): void {
+export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIModelElemStateDelta): void {
   const modelId = iModelDb.elements.queryElementIdByCode(PhysicalPartition.createCode(iModelDb, IModel.rootSubjectId, "PhysicalModel"))!;
   const categoryId = iModelDb.elements.queryElementIdByCode(SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory"))!;
-  const currentObjs = getPhysicalObjects(iModelDb);
-  const objsToDelete = Object.keys(currentObjs).filter((n) => !(n in state));
-  for (const obj of objsToDelete) {
-    const id = getPhysicalObjectId(iModelDb, obj);
-    iModelDb.elements.deleteElement(id);
-  }
-  for (const i in state) {
-    const value = state[i];
-    const physicalObjectId = getPhysicalObjectId(iModelDb, i);
-    if (Id64.isValidId64(physicalObjectId)) { // if element exists, update it
-      const physicalObject = iModelDb.elements.getElement(physicalObjectId, PhysicalObject);
-      physicalObject.jsonProperties.updateState = value;
-      physicalObject.update();
-    } else { // if element does not exist, insert it
-      const physicalObjectProps: PhysicalElementProps = {
+
+  for (const elemName in delta) {
+    const upsertVal = delta[elemName];
+    const [id] = iModelDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: [elemName] })
+
+    if (upsertVal === deleted) {
+      assert(id, "tried to delete an element that wasn't in the database");
+      iModelDb.elements.deleteElement(id);
+      continue;
+    }
+
+    const props: ElementProps | PhysicalElementProps
+      = typeof upsertVal !== "number"
+      ? upsertVal
+      : {
         classFullName: PhysicalObject.classFullName,
         model: modelId,
         category: categoryId,
-        code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: i }),
-        userLabel: i,
+        code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: elemName }),
+        userLabel: elemName,
         geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
         placement: {
           origin: Point3d.create(0, 0, 0),
           angles: YawPitchRollAngles.createDegrees(0, 0, 0),
         },
         jsonProperties: {
-          updateState: value,
+          updateState: upsertVal,
         },
       };
-      iModelDb.elements.insertElement(physicalObjectProps);
-    }
+
+    props.id = id;
+
+    if (id === undefined)
+      iModelDb.elements.insertElement(props);
+    else
+      iModelDb.elements.updateElement(props);
   }
+
   // TODO: iModelDb.performCheckpoint?
   iModelDb.saveChanges();
 }
 
-export interface TimelineIModelContentsState {
+export interface TimelineIModelElemStateDelta {
+  [name: string]: number | Omit<ElementProps, "userLabel"> | typeof deleted;
+}
+
+export interface TimelineIModelElemState {
   [name: string]: number | Omit<ElementProps, "userLabel">;
 }
 
 export interface TimelineIModelState {
-  state: TimelineIModelContentsState;
+  state: TimelineIModelElemState;
   id: string;
   db: BriefcaseDb;
 }
 
 export type TimelineStateChange =
   // update the state of that model to match and push a changeset
-  | TimelineIModelContentsState
+  | TimelineIModelElemStateDelta
   // create a new iModel from a seed
   | { seed: TimelineIModelState }
   // create a branch from an existing iModel with a given name
   | { branch: string }
   // synchronize with the changes in an iModel of a given name from a starting timeline point
-  // to the given ending point, inclusive. (end defaults to current point in time)
   | { sync: [string, number] };
 
-/** an object that helps resolve ids from names,
- * inspired by tree-sitter's grammar syntax DSL
- */
+/** an object that helps resolve ids from names */
 export type TimelineReferences = Record<string, ElementProps>;
 
 /**
- * A tiny tree-sitter inspired DSL for building timelines of iModel updates and branching/forking events
+ * A small tree-sitter inspired DSL for building timelines of iModel updates and branching/forking events
  * The `$` can be used to refer to props that aren't resolved until later (e.g. the id of inserted elements)
  *
  * For each step in timeline, an object of iModels mapping to the event that occurs for them:
  * - a 'seed' event with an iModel to seed from, creating the iModel
  * - a 'branch' event with the name of an iModel to seed from, creating the iModel
  * - a 'sync' event with the name of an iModel and timeline point to sync from
- * - an object containing the content of the iModel that it updates to,
- *   creating the iModel with this initial state if it didn't exist before
+ * - an object containing a mapping of user labels to elements to be upserted or to the `deleted` symbol
+*    for elements to be deleted. If the iModel doesn't exist, it is created.
  * - an 'assert' function to run on the state of all the iModels in the timeline
  *
  * @note because the timeline manages PhysicalObjects for the state, any seed must contain the necessary
- * model and category, which can be added to your seed by calling @see populateTimelineSeed
+ *       model and category, which can be added to your seed by calling @see populateTimelineSeed
  */
 export type Timeline = ($: TimelineReferences) => Record<number, {
   assert?: (imodels: Record<string, TimelineIModelState>) => void;
@@ -171,7 +182,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   const timelineStates = new Map<
     number,
     {
-      states: { [iModelName: string]: TimelineIModelContentsState };
+      states: { [iModelName: string]: TimelineIModelElemStateDelta };
       changesets: { [iModelName: string]: ChangesetIdWithIndex };
     }
   >();
@@ -185,7 +196,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   const getBranch = (model: TimelineStateChange): string | undefined => (model as { branch: string }).branch;
   const getSync = (model: TimelineStateChange): [string, number] | undefined => (model as { sync: [string, number] }).sync;
 
-  for (let i = 0; i < Object.values(timeline).length; ++i) {
+  for (let i = 0; i < Object.values(resolvedTimeline).length; ++i) {
     const pt = resolvedTimeline[i];
     const iModelChanges = Object.entries(pt)
       .filter((entry): entry is [string, TimelineStateChange] => entry[0] !== "assert" && trackedIModels.has(entry[0]));
@@ -198,6 +209,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       const newIModelEvent = pt[newIModelName];
       assert(typeof newIModelEvent === "object");
       assert(!("sync" in newIModelEvent), "cannot sync an iModel that hasn't been created yet!");
+      assert(!Object.values(newIModelEvent).includes(deleted), "cannot delete elements in an iModel that you are creating now!");
 
       const seed = (
         getSeed(newIModelEvent)
@@ -211,7 +223,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       assert.equal(newIModelDb.iTwinId, iTwinId);
 
       trackedIModels.set(newIModelName, {
-        state: seed?.state ?? newIModelEvent as TimelineIModelContentsState,
+        state: seed?.state ?? newIModelEvent as TimelineIModelElemState,
         db: newIModelDb,
         id: newIModelId,
       });
@@ -237,7 +249,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       }
 
       if (seed) {
-        assertPhysicalObjects(newIModelDb, seed.state);
+        assertElemState(newIModelDb, seed.state);
       }
     }
 
@@ -251,7 +263,10 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
         const target = trackedIModels.get(iModelName)!;
         const source = trackedIModels.get(syncSource)!;
-        const targetStateBefore = getPhysicalObjects(target.db);
+
+        let targetStateBefore: TimelineIModelElemState | undefined;
+        if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG) targetStateBefore = getIModelState(target.db);
+
         const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
         const startChangesetId = timelineStates.get(startIndex)?.changesets[syncSource].id;
         await syncer.processChanges(accessToken, startChangesetId);
@@ -262,32 +277,31 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
           /* eslint-disable no-console */
           console.log(stateMsg);
           console.log(` source range state: ${JSON.stringify(source.state)}`);
-          const targetState = getPhysicalObjects(target.db);
-          console.log(`target before state: ${JSON.stringify(targetStateBefore)}`);
+          const targetState = getIModelState(target.db);
+          console.log(`target before state: ${JSON.stringify(targetStateBefore!)}`);
           console.log(` target after state: ${JSON.stringify(targetState)}`);
           /* eslint-enable no-console */
         }
+
         // subset because we don't care about elements that the target added itself
-        assertPhysicalObjects(target.db, source.state, { subset: true });
+        assertElemState(target.db, source.state, { subset: true });
         target.state = source.state; // update the tracking state
 
         await saveAndPushChanges(accessToken, target.db, stateMsg);
       } else {
-        const newState = event;
+        const delta = event;
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
-        const prevState = alreadySeenIModel.state;
-        alreadySeenIModel.state = event;
-        // `(maintain|assert)PhysicalObjects` use negative to mean deleted
-        const additions = Object.keys(newState).filter((s) => !(s in prevState)).map(Number);
-        const deletions = Object.keys(prevState).filter((s) => !(s in newState)).map(Number);
-        const delta = [...additions, ...deletions.map((d) => -d)];
+        const fullState = applyDelta(alreadySeenIModel.state, delta);
+        alreadySeenIModel.state = fullState;
 
-        const stateMsg = `${iModelName} becomes: ${JSON.stringify(event)}, delta: [${delta}], at ${i}`;
+        const stateMsg =
+            `${iModelName} becomes: ${JSON.stringify(fullState)}, `
+          + `delta: [${JSON.stringify(delta)}], at ${i}`;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG) {
           console.log(stateMsg); // eslint-disable-line no-console
         }
 
-        maintainPhysicalObjects(alreadySeenIModel.db, newState);
+        maintainPhysicalObjects(alreadySeenIModel.db, delta);
         await saveAndPushChanges(accessToken, alreadySeenIModel.db, stateMsg);
       }
     }

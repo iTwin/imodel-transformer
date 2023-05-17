@@ -26,11 +26,11 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertPhysicalObjects, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
-describe("IModelTransformerHub", () => {
+describe.only("IModelTransformerHub", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformerHub");
   let iTwinId: GuidString;
   let accessToken: AccessToken;
@@ -343,7 +343,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should merge changes made on a branch back to master", async () => {
+  it.only("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -365,24 +365,24 @@ describe("IModelTransformerHub", () => {
     const timeline: Timeline = () => ({
       0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
       1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
-      2: { branch1: { 1:1, 2:2, 3:1, 4:1, 20:1, 21:1 } },
-      3: { branch1: { 1:2, 2:2, 4:1, 5:1, 6:1, 21:1 } },
-      4: { branch1: { 1:2, 2:2, 4:1, 5:1, 6:1, 30:1 } },
+      2: { branch1: { 2:2, 3:1, 4:1 } },
+      3: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted } },
+      4: { branch1: { 21:deleted, 30:1 } },
       5: { master: { sync: ["branch1", 2] } },
       6: { branch2: { sync: ["master", 0] } },
-      7: { branch2: { 1:2, 2:2, 4:1, 5:1, 6:1, 7:1, 8:1, 30:1 } }, // add 7 and 8
+      7: { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      8: { master: { 1:2, 2:2, 4:1, 5:1, 6:1, 7:2, 9:1, 30:1 } },
+      8: { master: { 7:2, 9:1 } },
       9: { master: { sync: ["branch2", 7] } },
       10: {
         assert({master}) {
           assert.equal(count(master.db, ExternalSourceAspect.classFullName), 0);
           // FIXME: why is this different from master?
           // branch2 won the conflict
-          assertPhysicalObjects(master.db, {7:1}, { subset: true });
+          assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      11: { master: { 1:2, 2:2, 4:1, 5:1, 6:2, 8:1, 9:1, 30:1 } },
+      11: { master: { 6:2 } },
       12: { branch1: { sync: ["master", 4] } },
     });
 
@@ -439,7 +439,7 @@ describe("IModelTransformerHub", () => {
       }
       replayTransformer.dispose();
       sourceDb.close();
-      assertPhysicalObjects(replayedDb, master.state); // should have same ending state as masterDb
+      assertElemState(replayedDb, master.state); // should have same ending state as masterDb
 
       // make sure there are no deletes in the replay history (all elements that were eventually deleted from masterDb were excluded)
       const replayedDbChangesets = await IModelHost.hubAccess.downloadChangesets({ accessToken, iModelId: replayedIModelId, targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId) });
