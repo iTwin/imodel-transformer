@@ -81,7 +81,7 @@ export abstract class IModelExportHandler {
    *       This will become a part of onExportElement once that becomes async
    * @internal
    */
-  public async preExportElement(_element: Element): Promise<void> { }
+  public async preExportElement(_element: Element): Promise<void> {}
 
   /** Called when an element should be deleted. */
   public onDeleteElement(_elementId: Id64String): void { }
@@ -760,7 +760,7 @@ export class IModelExporter {
    * You may override this to load arbitrary json state in a transformer state dump, useful for some resumptions
    * @see [[IModelTransformer.loadStateFromFile]]
    */
-  protected loadAdditionalStateJson(_additionalState: any): void { }
+  protected loadAdditionalStateJson(_additionalState: any): void {}
 
   /**
    * Reload our state from a JSON object
