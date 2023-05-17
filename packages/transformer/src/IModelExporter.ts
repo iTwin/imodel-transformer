@@ -179,7 +179,7 @@ export class IModelExporter {
   private _sourceDbChanges?: ChangedInstanceIds;
   /**
    * Retrieve the cached entity change information.
-   * @note This will be initialized after [IModelExporter.exportChanges] is invoked or it can be set.
+   * @note This may be set, or otherwise will be initialized after [IModelExporter.exportChanges] is invoked.
   */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
     return this._sourceDbChanges;
