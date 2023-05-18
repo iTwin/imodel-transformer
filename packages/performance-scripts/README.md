@@ -38,3 +38,41 @@ as scripts but may be platform specific when the name contains a platform.
 - Valgrind's callgrind
 - Windows profilers
 
+## Caveats
+
+### direct references within a module
+
+Due to limitations of JavaScript and not using some horrible thing like Babel, the injection will
+not work if the hooked functions are being used directly within a module. That means:
+
+```js
+//script.js
+export function a() {
+
+}
+
+export function b() {
+  return a();
+}
+```
+
+The call to `a` in `b` will not be profiled even with `FUNCTIONS='require("./script.js").a'` because `b` will
+look up the name `a` local to the module. You can do the following if you really really want to profile that case:
+
+```js
+//script.js
+export function a() {
+
+}
+
+export function b() {
+  return module.exports.a();
+}
+```
+
+But you should probably at that point just import `runWithJsCpuProfiler` (or whatever profiler type you want)
+and manually wrap the profile code.
+
+In practice, we're usually trying to profile at the level of a consumed export where this is usually
+not the case. But you can always bail out to importing the `runWith*` functions if you need them.
+
