@@ -1,6 +1,7 @@
 {
   "name": "@bentley/hook-profiler",
   "version": "1.0.0",
+  "private": true,
   "main": "lib/index.js",
   "description": "Scripts for profiling performance of JavaScript (iTwin.js) applications",
   "bin": {
