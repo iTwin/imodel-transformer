@@ -767,7 +767,7 @@ describe.only("IModelTransformerHub", () => {
       0: { master: { 1:1 } },
       1: { branch: { branch: "master" } },
       2: { branch: { 1:2, 2:1 } },
-      3: { branch: { 1:2, 3:3 } },
+      3: { branch: { 3:3 } },
     });
 
     const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
