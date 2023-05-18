@@ -21,14 +21,13 @@ importers:
 
   packages/performance-scripts:
     specifiers:
-      '@itwin/build-tools': 3.6.0 - 3.6.1
-      '@itwin/core-backend': 3.6.0 - 3.6.1
+      '@itwin/build-tools': ^3.6.1
+      '@itwin/core-backend': ^3.6.1
       '@types/node': ^18.11.5
       typescript: ^5.0.2
-    dependencies:
-      '@itwin/core-backend': 3.6.1
     devDependencies:
       '@itwin/build-tools': 3.6.1
+      '@itwin/core-backend': 3.6.1
       '@types/node': 18.14.2
       typescript: 5.0.4
 
@@ -728,7 +727,7 @@ packages:
       - debug
       - encoding
       - utf-8-validate
-    dev: false
+    dev: true
 
   /@itwin/core-backend/3.6.1_kalcpuenwmysyo5cupua26ct6y:
     resolution: {integrity: sha512-hNY9uVTAoqZgLMm7cmRo+DZkaPu3axS2vTHePxJGTah0MGK6EeEtrdUUz5r3FPts+Lyy4zuKGN3NK/8XGuVzoQ==}
@@ -781,7 +780,7 @@ packages:
       semver: 7.3.8
     transitivePeerDependencies:
       - debug
-    dev: false
+    dev: true
 
   /@itwin/core-common/3.6.1_s3nn57aycf2tjwn4iivphtyfai:
     resolution: {integrity: sha512-2CiU+Vk5SFuaOGmQfZoz4WFxAN1Dr3/K3yu9rhCnJj0CTj8DVIi7LSlv5cTXhfA96J0Tza7BPEWfZugeawGRZw==}
@@ -820,7 +819,7 @@ packages:
     transitivePeerDependencies:
       - '@itwin/core-geometry'
       - debug
-    dev: false
+    dev: true
 
   /@itwin/core-telemetry/3.6.1_@itwin+core-geometry@3.6.1:
     resolution: {integrity: sha512-VFmU67vn09m5lTSrUNLNu4gTTnIoPF2hzVvGeelNS6152IlcGtXnz/oxcHbifeBK3AGxMZ2N9x4YDMH3lZUqUg==}
