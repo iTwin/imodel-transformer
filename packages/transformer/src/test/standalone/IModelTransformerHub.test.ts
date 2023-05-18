@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
+  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
-import { AccessToken, DbResult, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { CategorySelectorProps, ChangesetIdWithIndex, Code, ColorDef, DisplayStyle3dProps, ElementProps, IModel, IModelVersion, ModelSelectorProps, PhysicalElementProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
+import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
+import { CategorySelectorProps, Code, ColorDef, DisplayStyle3dProps, ElementProps, IModel, IModelVersion, ModelSelectorProps, PhysicalElementProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, defer, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -343,7 +343,7 @@ describe.only("IModelTransformerHub", () => {
     }
   });
 
-  it.only("should merge changes made on a branch back to master", async () => {
+  it("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -362,7 +362,7 @@ describe.only("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    const timeline: Timeline = () => ({
+    const timeline: Timeline = {
       0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
       1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
       2: { branch1: { 2:2, 3:1, 4:1 } },
@@ -384,7 +384,7 @@ describe.only("IModelTransformerHub", () => {
       },
       11: { master: { 6:2 } },
       12: { branch1: { sync: ["master", 4] } },
-    });
+    };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
@@ -763,12 +763,12 @@ describe.only("IModelTransformerHub", () => {
   });
 
   it("should not download more changesets than necessary", async () => {
-    const timeline: Timeline = () => ({
+    const timeline: Timeline = {
       0: { master: { 1:1 } },
       1: { branch: { branch: "master" } },
       2: { branch: { 1:2, 2:1 } },
       3: { branch: { 3:3 } },
-    });
+    };
 
     const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
@@ -796,7 +796,7 @@ describe.only("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it("should delete definition elements when processing changes", async () => {
+  it.only("should delete definition elements when processing changes", async () => {
     const modelSelector: ModelSelectorProps = {
       classFullName: ModelSelector.classFullName,
       models: [],
@@ -836,32 +836,7 @@ describe.only("IModelTransformerHub", () => {
       modelSelectorId: "resolve-root-code:modelSelector",
     };
 
-    const masterIModelName = "Master";
-    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
-    if (IModelJsFs.existsSync(masterSeedFileName))
-      IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, { rootSubject: { name: masterIModelName } });
-    const masterSeedState = {
-      0: modelSelector,
-      1: categorySelector,
-      2: displayStyle,
-      3: spatialViewDef,
-    };
-    populateTimelineSeed(masterSeedDb, masterSeedState);
-    assert(IModelJsFs.existsSync(masterSeedFileName));
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // WIP: attempting a workaround for "ContextId was not properly setup in the checkpoint" issue
-
-
-    masterSeedDb.performCheckpoint();
-
-    const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path
-      db: { pathName:  masterSeedFileName } as any as BriefcaseDb,
-      id: "master-seed",
-      state: masterSeedState,
-    };
-
-    const timeline: Timeline = ($) => ({
+    const timeline: Timeline = {
       0: {
         master: {
           modelSelector: {
@@ -869,22 +844,20 @@ describe.only("IModelTransformerHub", () => {
             models: [],
             model: IModelDb.repositoryModelId,
             code: new Code({ spec: "0x1", scope: "0x1", value: "modelSelector" }).toJSON(),
-          },
+          } as ModelSelectorProps,
           categorySelector: {
             classFullName: CategorySelector.classFullName,
             categories: [],
             model: IModelDb.repositoryModelId,
             code: new Code({ spec: "0x1", scope: "0x1", value: "categorySelector" }).toJSON(),
-          },
+          } as CategorySelectorProps,
           displayStyle: {
             classFullName: DisplayStyle3d.classFullName,
             code: new Code({ spec: "0x1", scope: "0x1", value: "displayStyle" }).toJSON(),
             model: IModelDb.repositoryModelId,
-            userLabel: "displayStyle",
           },
           spatialViewDef: {
             classFullName: SpatialViewDefinition.classFullName,
-            userLabel: "spatialViewDef",
             model: IModelDb.repositoryModelId,
             code: Code.createEmpty().toJSON(),
             camera: {
@@ -895,16 +868,16 @@ describe.only("IModelTransformerHub", () => {
             extents: { x: 0, y: 0, z: 0 },
             origin: { x: 0, y: 0, z: 0 },
             cameraOn: false,
-            displayStyleId: $.displayStyle.id,
-            categorySelectorId: $.categorySelector.id,
-            modelSelectorId: $.modelSelector.id,
-          },
+            displayStyleId: defer("displayStyle", $ => $.displayStyle.id),
+            categorySelectorId: defer("categorySelector", $ => $.categorySelector.id),
+            modelSelectorId: defer("modelSelector", $ => $.modelSelector.id),
+          } as ElementProps,
         }
       },
       1: { branch1: { branch: "master" } },
       2: { branch1: { 1:2, 2:1 } },
       3: { branch1: { 1:2, 3:3 } },
-    });
+    };
 
     const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 

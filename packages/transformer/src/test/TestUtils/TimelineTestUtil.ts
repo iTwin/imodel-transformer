@@ -71,12 +71,87 @@ export function assertElemState(db: IModelDb, state: TimelineIModelElemStateDelt
   expect(getIModelState(db)).to.deep.subsetEqual(state, { useSubsetEquality: subset });
 }
 
+const deferred = Symbol('DEFERRED');
+
+interface DeferredProp {
+  userLabel: string;
+  get: ($: any) => any;
+  [deferred]: undefined
+}
+
+/**
+ * create a deferred property, useful for getting ids of elements in the same
+ * timeline time point
+ */
+export function defer(userLabel: string, get: ($: any) => any): any {
+  return {
+    userLabel: userLabel,
+    get,
+    [deferred]: undefined,
+  } as DeferredProp;
+}
+
+function topologicalSortDeltaByDefers(delta: TimelineIModelElemStateDelta): TimelineElemDelta[] {
+  function getDeferredRefs(rootElemDef: TimelineElemDelta): DeferredProp[] {
+    if (typeof rootElemDef === "number" || rootElemDef === deleted)
+      return [];
+
+    const result: DeferredProp[] = [];
+
+    function impl(obj: any) {
+      for (const key in obj) {
+        const value = obj[key];
+        if (typeof value === "object" && value !== null) {
+          if (deferred in value)
+            result.push(value);
+          else
+            impl(value);
+        }
+      }
+    }
+
+    impl(rootElemDef);
+    return result;
+  }
+
+  const topoSortedResult: TimelineElemDelta[] = [];
+
+  function traverseDeferredRefs(elemState: TimelineElemDelta) {
+    if (topoSortedResult.includes(elemState)) return;
+
+    const deferredRefs = getDeferredRefs(elemState);
+    for (const deferredRef of deferredRefs) {
+      const predecessor = delta[deferredRef.userLabel];
+      traverseDeferredRefs(predecessor);
+    }
+
+    topoSortedResult.push(elemState);
+  }
+
+  for (const key in delta) {
+    const elemState = delta[key];
+    traverseDeferredRefs(elemState);
+  }
+
+  return topoSortedResult;
+}
+
 export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIModelElemStateDelta): void {
   const modelId = iModelDb.elements.queryElementIdByCode(PhysicalPartition.createCode(iModelDb, IModel.rootSubjectId, "PhysicalModel"))!;
   const categoryId = iModelDb.elements.queryElementIdByCode(SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory"))!;
 
+  // set userLabel to the key from the delta
   for (const elemName in delta) {
-    const upsertVal = delta[elemName];
+    const elemDelta = delta[elemName];
+    if (typeof elemDelta === "object" && elemDelta !== null) {
+      (elemDelta as ElementProps).userLabel = elemName;
+    }
+  }
+
+  const elemDeltas = topologicalSortDeltaByDefers(delta);
+
+  for (const upsertVal of elemDeltas) {
+    const elemName = typeof upsertVal === "object" ? (upsertVal as ElementProps).userLabel : upsertVal.toString();
     const [id] = iModelDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: [elemName] })
 
     if (upsertVal === deleted) {
@@ -116,12 +191,15 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
   iModelDb.saveChanges();
 }
 
+export type TimelineElemState = number | Omit<ElementProps, "userLabel">;
+export type TimelineElemDelta = number | TimelineElemState | typeof deleted;
+
 export interface TimelineIModelElemStateDelta {
-  [name: string]: number | Omit<ElementProps, "userLabel"> | typeof deleted;
+  [name: string]: TimelineElemDelta;
 }
 
 export interface TimelineIModelElemState {
-  [name: string]: number | Omit<ElementProps, "userLabel">;
+  [name: string]: TimelineElemState;
 }
 
 export interface TimelineIModelState {
@@ -158,7 +236,7 @@ export type TimelineReferences = Record<string, ElementProps>;
  * @note because the timeline manages PhysicalObjects for the state, any seed must contain the necessary
  *       model and category, which can be added to your seed by calling @see populateTimelineSeed
  */
-export type Timeline = ($: TimelineReferences) => Record<number, {
+export type Timeline = Record<number, {
   assert?: (imodels: Record<string, TimelineIModelState>) => void;
   [modelName: string]: | undefined // only necessary for the previous optional properties
   | ((imodels: Record<string, TimelineIModelState>) => void) // only necessary for the assert property
@@ -188,16 +266,12 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   >();
   /* eslint-enable @typescript-eslint/indent */
 
-  // FIXME:
-  const $ = new Proxy({}, { get(_obj, _k, _recv) {} });
-  const resolvedTimeline = timeline($);
-
   const getSeed = (model: TimelineStateChange): TimelineIModelState | undefined => (model as { seed: TimelineIModelState }).seed;
   const getBranch = (model: TimelineStateChange): string | undefined => (model as { branch: string }).branch;
   const getSync = (model: TimelineStateChange): [string, number] | undefined => (model as { sync: [string, number] }).sync;
 
-  for (let i = 0; i < Object.values(resolvedTimeline).length; ++i) {
-    const pt = resolvedTimeline[i];
+  for (let i = 0; i < Object.values(timeline).length; ++i) {
+    const pt = timeline[i];
     const iModelChanges = Object.entries(pt)
       .filter((entry): entry is [string, TimelineStateChange] => entry[0] !== "assert" && trackedIModels.has(entry[0]));
 
