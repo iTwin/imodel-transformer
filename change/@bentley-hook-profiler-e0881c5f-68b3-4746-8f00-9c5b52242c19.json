@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "cleanup package",
+  "packageName": "@bentley/hook-profiler",
+  "email": "mike.belousov@bentley.com",
+  "dependentChangeType": "none"
+}
