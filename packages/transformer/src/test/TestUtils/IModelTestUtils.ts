@@ -692,6 +692,17 @@ export class IModelTestUtils {
       }
     });
   }
+
+  public static count(iModelDb: IModelDb, classFullName: string): number {
+    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}`, (statement: ECSqlStatement): number => {
+      return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
+    });
+  }
+
+  public static async saveAndPushChanges(accessToken: string, briefcaseDb: BriefcaseDb, description: string): Promise<void> {
+    briefcaseDb.saveChanges(description);
+    await briefcaseDb.pushChanges({ accessToken, description });
+  }
 }
 
 export class ExtensiveTestScenario {
