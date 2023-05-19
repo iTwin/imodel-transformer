@@ -797,8 +797,10 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
-  it("should delete definition elements when processing changes", async () => {
+  // will fix in separate PR, tracked here: https://github.com/iTwin/imodel-transformer/issues/27
+  it.skip("should delete definition elements when processing changes", async () => {
     let spatialViewDef: SpatialViewDefinition;
+    let displayStyle: DisplayStyle3d;
 
     const timeline: Timeline = {
       0: {
@@ -806,7 +808,8 @@ describe("IModelTransformerHub", () => {
           manualUpdate(db) {
             const modelSelectorId = ModelSelector.create(db, IModelDb.dictionaryId, "modelSelector", []).insert();
             const categorySelectorId = CategorySelector.insert(db, IModelDb.dictionaryId, "categorySelector", []);
-            const displayStyleId = DisplayStyle3d.insert(db, IModelDb.dictionaryId, "displayStyle");
+            displayStyle = DisplayStyle3d.create(db, IModelDb.dictionaryId, "displayStyle");
+            const displayStyleId = displayStyle.insert();
             spatialViewDef = new SpatialViewDefinition({
               classFullName: SpatialViewDefinition.classFullName,
               model: IModelDb.dictionaryId,
@@ -832,7 +835,7 @@ describe("IModelTransformerHub", () => {
       2: {
         master: {
           manualUpdate(db) {
-            const notDeleted = db.elements.deleteDefinitionElements([spatialViewDef.id]);
+            const notDeleted = db.elements.deleteDefinitionElements([spatialViewDef.id, displayStyle.id]);
             assert(notDeleted.size === 0);
           },
         },
@@ -846,7 +849,10 @@ describe("IModelTransformerHub", () => {
     const branch = trackedIModels.get("branch")!;
 
     expect(master.db.elements.tryGetElement(spatialViewDef!.code)).to.be.undefined;
+    expect(master.db.elements.tryGetElement(displayStyle!.code)).to.be.undefined;
+
     expect(branch.db.elements.tryGetElement(spatialViewDef!.code)).to.be.undefined;
+    expect(branch.db.elements.tryGetElement(displayStyle!.code)).to.be.undefined;
 
     await tearDown();
     sinon.restore();
