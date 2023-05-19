@@ -1,6 +1,6 @@
 {
   "type": "minor",
-  "comment": "Added ChangedInstanceIds option to export changes",
+  "comment": "Added ChangedInstanceIds option to IModelExporter.exportChanges function.",
   "packageName": "@itwin/imodel-transformer",
   "email": "51540204+simsta6@users.noreply.github.com",
   "dependentChangeType": "patch"
