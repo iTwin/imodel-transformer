@@ -278,7 +278,7 @@ export class IModelExporter {
     await this.exportRelationships(ElementRefersToElements.classFullName);
   }
 
-  /** Export changes from the source iModel.
+  /** Export changes from the source iModel
    * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   public async exportChanges(args: ExportChangesArgs): Promise<void> {
