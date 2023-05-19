@@ -30,7 +30,7 @@ import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, 
 
 const { count } = IModelTestUtils;
 
-describe.only("IModelTransformerHub", () => {
+describe("IModelTransformerHub", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformerHub");
   let iTwinId: GuidString;
   let accessToken: AccessToken;
@@ -798,6 +798,8 @@ describe.only("IModelTransformerHub", () => {
   });
 
   it("should delete definition elements when processing changes", async () => {
+    let spatialViewDef: SpatialViewDefinition;
+
     const timeline: Timeline = {
       0: {
         master: {
@@ -805,7 +807,7 @@ describe.only("IModelTransformerHub", () => {
             const modelSelectorId = ModelSelector.create(db, IModelDb.dictionaryId, "modelSelector", []).insert();
             const categorySelectorId = CategorySelector.insert(db, IModelDb.dictionaryId, "categorySelector", []);
             const displayStyleId = DisplayStyle3d.insert(db, IModelDb.dictionaryId, "displayStyle");
-            const _spatialViewDefId = new SpatialViewDefinition({
+            spatialViewDef = new SpatialViewDefinition({
               classFullName: SpatialViewDefinition.classFullName,
               model: IModelDb.dictionaryId,
               code: Code.createEmpty().toJSON(),
@@ -821,38 +823,31 @@ describe.only("IModelTransformerHub", () => {
               displayStyleId: displayStyleId,
               categorySelectorId: categorySelectorId,
               modelSelectorId: modelSelectorId,
-            }, db).insert();
+            }, db);
+            spatialViewDef.insert();
           },
         },
       },
       1: { branch: { branch: "master" } },
-      2: { branch: { 1:2, 2:1 } },
-      3: { branch: { 1:2, 3:3 } },
+      2: {
+        master: {
+          manualUpdate(db) {
+            const notDeleted = db.elements.deleteDefinitionElements([spatialViewDef.id]);
+            assert(notDeleted.size === 0);
+          },
+        },
+      },
+      3: { branch: { sync: ["master", 2] } },
     };
 
     const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
     const master = trackedIModels.get("master")!;
     const branch = trackedIModels.get("branch")!;
-    const branchAt2Changeset = timelineStates.get(2)?.changesets.branch;
-    assert(branchAt2Changeset?.index);
-    const branchAt2 = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: branch.id, asOf: { first: true } });
-    await branchAt2.pullChanges({ toIndex: branchAt2Changeset.index, accessToken });
 
-    const syncer = new IModelTransformer(branchAt2, master.db, {
-      isReverseSynchronization: true,
-    });
-    const queryChangeset = sinon.spy(HubMock, "queryChangeset");
-    await syncer.processChanges(accessToken, branchAt2Changeset.id);
-    expect(queryChangeset.alwaysCalledWith({
-      accessToken,
-      iModelId: branch.id,
-      changeset: {
-        id: branchAt2Changeset.id,
-      },
-    })).to.be.true;
+    expect(master.db.elements.tryGetElement(spatialViewDef!.code)).to.be.undefined;
+    expect(branch.db.elements.tryGetElement(spatialViewDef!.code)).to.be.undefined;
 
-    syncer.dispose();
     await tearDown();
     sinon.restore();
   });
