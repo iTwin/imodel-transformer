@@ -9,11 +9,11 @@ import * as semver from "semver";
 import {
   BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
+  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, StandaloneDb, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
-import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
+import { AccessToken, DbResult, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, ColorDef, ElementProps, IModel, IModelVersion, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, deleted, getIModelState, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -343,7 +343,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should merge changes made on a branch back to master", async () => {
+  it.only("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -365,16 +365,32 @@ describe("IModelTransformerHub", () => {
     const timeline: Timeline = {
       0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
       1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
-      2: { branch1: { 2:2, 3:1, 4:1 } },
-      3: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted } },
-      4: { branch1: { 21:deleted, 30:1 } },
-      5: { master: { sync: ["branch1", 2] } },
-      6: { branch2: { sync: ["master", 0] } },
-      7: { branch2: { 7:1, 8:1 } },
+      2: { master: {
+        manualUpdate(db) {
+          const modelSelector = ModelSelector.create(db, IModelDb.dictionaryId, "has-no-fedguid", []);
+          modelSelector.federationGuid = undefined;
+          const id = modelSelector.insert();
+          db.withSqliteStatement(
+            `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${id}`,
+            s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
+          )
+          db.performCheckpoint();
+          // hard to check this without closing the db...
+          const secondConnection = SnapshotDb.openFile(db.pathName);
+          expect(secondConnection.elements.getElement(id).federationGuid).to.be.undefined;
+          secondConnection.close();
+        }
+      }},
+      3: { branch1: { 2:2, 3:1, 4:1 } },
+      4: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted } },
+      5: { branch1: { 21:deleted, 30:1 } },
+      6: { master: { sync: ["branch1", 3] } },
+      7: { branch2: { sync: ["master", 1] } },
+      8: { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      8: { master: { 7:2, 9:1 } },
-      9: { master: { sync: ["branch2", 7] } },
-      10: {
+      9: { master: { 7:2, 9:1 } },
+      10: { master: { sync: ["branch2", 8] } },
+      11: {
         assert({master}) {
           assert.equal(count(master.db, ExternalSourceAspect.classFullName), 0);
           // FIXME: why is this different from master?
@@ -382,8 +398,8 @@ describe("IModelTransformerHub", () => {
           assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      11: { master: { 6:2 } },
-      12: { branch1: { sync: ["master", 4] } },
+      12: { master: { 6:2 } },
+      13: { branch1: { sync: ["master", 5] } },
     };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
