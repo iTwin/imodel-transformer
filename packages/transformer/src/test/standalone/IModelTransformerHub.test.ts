@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, CodeSpecs, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
   PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { CategorySelectorProps, Code, CodeSpec, ColorDef, DisplayStyle3dProps, ElementProps, IModel, IModelVersion, ModelSelectorProps, PhysicalElementProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, ElementProps, IModel, IModelVersion, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -823,9 +823,9 @@ describe("IModelTransformerHub", () => {
               extents: { x: 0, y: 0, z: 0 },
               origin: { x: 0, y: 0, z: 0 },
               cameraOn: false,
-              displayStyleId: displayStyleId,
-              categorySelectorId: categorySelectorId,
-              modelSelectorId: modelSelectorId,
+              displayStyleId,
+              categorySelectorId,
+              modelSelectorId,
             }, db);
             spatialViewDef.insert();
           },
@@ -843,7 +843,7 @@ describe("IModelTransformerHub", () => {
       3: { branch: { sync: ["master", 2] } },
     };
 
-    const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
     const master = trackedIModels.get("master")!;
     const branch = trackedIModels.get("branch")!;

@@ -6,12 +6,10 @@
 import { assert, expect } from "chai";
 import {
   BriefcaseDb,
-  ECSqlStatement,
   ExternalSourceAspect, IModelDb, IModelHost, PhysicalModel,
   PhysicalObject, PhysicalPartition, SpatialCategory,
 } from "@itwin/core-backend";
 
-import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { ChangesetIdWithIndex, Code, ElementProps, IModel, PhysicalElementProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelTransformer } from "../../transformer";
@@ -20,7 +18,7 @@ import { IModelTestUtils } from "./IModelTestUtils";
 
 const { count, saveAndPushChanges } = IModelTestUtils;
 
-export const deleted = Symbol('DELETED');
+export const deleted = Symbol("DELETED");
 
 // NOTE: this is not done optimally
 export function getIModelState(db: IModelDb): TimelineIModelElemState {
@@ -42,8 +40,8 @@ export function getIModelState(db: IModelDb): TimelineIModelElemState {
 
     result[elem.userLabel ?? elem.id]
       = isSimplePhysicalObject
-      ? elem.jsonProperties.updateState
-      : elem.toJSON();
+        ? elem.jsonProperties.updateState
+        : elem.toJSON();
   }
   return result;
 }
@@ -51,9 +49,9 @@ export function getIModelState(db: IModelDb): TimelineIModelElemState {
 export function applyDelta(state: TimelineIModelElemState, patch: TimelineIModelElemStateDelta): TimelineIModelElemState {
   const patched = { ...state, ...patch };
 
-  for (const key in patched) {
-    const value = patched[key];
-    if (value === deleted) delete patched[key];
+  for (const [key, value] of Object.entries(patched)) {
+    if (value === deleted)
+      delete patched[key];
   }
 
   return patched as TimelineIModelElemState;
@@ -75,9 +73,8 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
   const modelId = iModelDb.elements.queryElementIdByCode(PhysicalPartition.createCode(iModelDb, IModel.rootSubjectId, "PhysicalModel"))!;
   const categoryId = iModelDb.elements.queryElementIdByCode(SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory"))!;
 
-  for (const elemName in delta) {
-    const upsertVal = delta[elemName];
-    const [id] = iModelDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: [elemName] })
+  for (const [elemName, upsertVal] of Object.entries(delta)) {
+    const [id] = iModelDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: [elemName] });
 
     if (upsertVal === deleted) {
       assert(id, "tried to delete an element that wasn't in the database");
@@ -87,22 +84,22 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
 
     const props: ElementProps | PhysicalElementProps
       = typeof upsertVal !== "number"
-      ? upsertVal
-      : {
-        classFullName: PhysicalObject.classFullName,
-        model: modelId,
-        category: categoryId,
-        code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: elemName }),
-        userLabel: elemName,
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-        placement: {
-          origin: Point3d.create(0, 0, 0),
-          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-        },
-        jsonProperties: {
-          updateState: upsertVal,
-        },
-      };
+        ? upsertVal
+        : {
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: elemName }),
+          userLabel: elemName,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(0, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+          jsonProperties: {
+            updateState: upsertVal,
+          },
+        };
 
     props.id = id;
 
@@ -258,8 +255,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         if (maybeManualUpdate) {
           await maybeManualUpdate(newIModelDb);
           newTrackedIModel.state = getIModelState(newIModelDb);
-        }
-        else
+        } else
           maintainPhysicalObjects(newIModelDb, newIModelEvent as TimelineIModelElemStateDelta);
         await saveAndPushChanges(accessToken, newIModelDb, `new with state [${newIModelEvent}] at point ${i}`);
       }
@@ -281,7 +277,8 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         const source = trackedIModels.get(syncSource)!;
 
         let targetStateBefore: TimelineIModelElemState | undefined;
-        if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG) targetStateBefore = getIModelState(target.db);
+        if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
+          targetStateBefore = getIModelState(target.db);
 
         const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
         const startChangesetId = timelineStates.get(startIndex)?.changesets[syncSource].id;
@@ -306,7 +303,6 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         await saveAndPushChanges(accessToken, target.db, stateMsg);
       } else {
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
-        let newState: TimelineIModelElemState;
         let stateMsg: string;
 
         if ("manualUpdate" in event) {
@@ -316,7 +312,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
           stateMsg = `${iModelName} becomes: ${JSON.stringify(alreadySeenIModel.state)}, `
             + `after manual update, at ${i}`;
         } else {
-          const delta = event as TimelineIModelElemStateDelta;
+          const delta = event;
           alreadySeenIModel.state = applyDelta(alreadySeenIModel.state, delta);
           maintainPhysicalObjects(alreadySeenIModel.db, delta);
           stateMsg = `${iModelName} becomes: ${JSON.stringify(alreadySeenIModel.state)}, `
