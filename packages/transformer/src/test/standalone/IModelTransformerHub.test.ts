@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, defer, deleted, ignored, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState, withDb } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -356,8 +356,8 @@ describe.only("IModelTransformerHub", () => {
     masterSeedDb.performCheckpoint();
 
     const masterSeed: TimelineIModelState = {
-      // HACK: we know this will only be used for seeding via its path
-      db: { pathName:  masterSeedFileName } as any as BriefcaseDb,
+      // HACK: we know this will only be used for seeding via its path and performCheckpoint
+      db: masterSeedDb as any as BriefcaseDb,
       id: "master-seed",
       state: masterSeedState,
     };
@@ -794,48 +794,40 @@ describe.only("IModelTransformerHub", () => {
 
     syncer.dispose();
     await tearDown();
+    sinon.restore();
   });
 
-  it.only("should delete definition elements when processing changes", async () => {
+  it("should delete definition elements when processing changes", async () => {
     const timeline: Timeline = {
       0: {
         master: {
-          modelSelector: withDb(db => ModelSelector.create(db, IModelDb.dictionaryId, "modelSelector", []).toJSON()),
-          categorySelector: {
-            classFullName: CategorySelector.classFullName,
-            categories: [],
-            model: IModelDb.dictionaryId,
-            code: { spec: "0x1", scope: "0x1", value: "categorySelector" },
-            isPrivate: false,
-            jsonProperties: ignored,
-          } as CategorySelectorProps,
-          displayStyle: {
-            classFullName: DisplayStyle3d.classFullName,
-            code: { spec: "0x1", scope: "0x1", value: "displayStyle" },
-            model: IModelDb.dictionaryId,
-            isPrivate: false,
-          } as DisplayStyle3dProps,
-          spatialViewDef: {
-            classFullName: SpatialViewDefinition.classFullName,
-            model: IModelDb.dictionaryId,
-            code: Code.createEmpty().toJSON(),
-            camera: {
-              eye: { x: 0, y: 0, z: 0 },
-              lens: { radians: 0 },
-              focusDist: 0,
-            },
-            extents: { x: 0, y: 0, z: 0 },
-            origin: { x: 0, y: 0, z: 0 },
-            cameraOn: false,
-            displayStyleId: defer("displayStyle", $ => $.displayStyle.id),
-            categorySelectorId: defer("categorySelector", $ => $.categorySelector.id),
-            modelSelectorId: defer("modelSelector", $ => $.modelSelector.id),
-          } as ElementProps,
-        }
+          manualUpdate(db) {
+            const modelSelectorId = ModelSelector.create(db, IModelDb.dictionaryId, "modelSelector", []).insert();
+            const categorySelectorId = CategorySelector.insert(db, IModelDb.dictionaryId, "categorySelector", []);
+            const displayStyleId = DisplayStyle3d.insert(db, IModelDb.dictionaryId, "displayStyle");
+            const _spatialViewDefId = new SpatialViewDefinition({
+              classFullName: SpatialViewDefinition.classFullName,
+              model: IModelDb.dictionaryId,
+              code: Code.createEmpty().toJSON(),
+              camera: {
+                eye: { x: 0, y: 0, z: 0 },
+                lens: { radians: 0 },
+                focusDist: 0,
+              },
+              userLabel: "spatialViewDef",
+              extents: { x: 0, y: 0, z: 0 },
+              origin: { x: 0, y: 0, z: 0 },
+              cameraOn: false,
+              displayStyleId: displayStyleId,
+              categorySelectorId: categorySelectorId,
+              modelSelectorId: modelSelectorId,
+            }, db).insert();
+          },
+        },
       },
-      1: { branch1: { branch: "master" } },
-      2: { branch1: { 1:2, 2:1 } },
-      3: { branch1: { 1:2, 3:3 } },
+      1: { branch: { branch: "master" } },
+      2: { branch: { 1:2, 2:1 } },
+      3: { branch: { 1:2, 3:3 } },
     };
 
     const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
@@ -862,6 +854,7 @@ describe.only("IModelTransformerHub", () => {
 
     syncer.dispose();
     await tearDown();
+    sinon.restore();
   });
 });
 

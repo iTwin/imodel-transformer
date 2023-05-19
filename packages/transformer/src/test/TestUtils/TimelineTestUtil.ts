@@ -133,7 +133,7 @@ export interface TimelineIModelState {
   db: BriefcaseDb;
 }
 
-export type ManualUpdateFunc = (db: IModelDb) => Promise<void>;
+export type ManualUpdateFunc = (db: IModelDb) => void | Promise<void>;
 
 export type TimelineStateChange =
   // update the state of that model to match and push a changeset
@@ -145,7 +145,8 @@ export type TimelineStateChange =
   // synchronize with the changes in an iModel of a given name from a starting timeline point
   | { sync: [string, number] }
   // manually update an iModel, state will be automatically detected after. Useful for more complicated
-  // element changes with inter-dependencies
+  // element changes with inter-dependencies.
+  // @note: the key for the element in the state will be the userLabel or if none, the id
   | { manualUpdate: ManualUpdateFunc };
 
 /** an object that helps resolve ids from names */
@@ -221,17 +222,20 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         ?? (getBranch(newIModelEvent) && trackedIModels.get(getBranch(newIModelEvent)!)))
         || undefined;
 
+      seed?.db.performCheckpoint(); // make sure WAL is flushed before we use this as a file seed
       const newIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: newIModelName, version0: seed?.db.pathName, noLocks: true });
 
       const newIModelDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: newIModelId });
       assert.isTrue(newIModelDb.isBriefcaseDb());
       assert.equal(newIModelDb.iTwinId, iTwinId);
 
-      trackedIModels.set(newIModelName, {
+      const newTrackedIModel = {
         state: seed?.state ?? newIModelEvent as TimelineIModelElemState,
         db: newIModelDb,
         id: newIModelId,
-      });
+      };
+
+      trackedIModels.set(newIModelName, newTrackedIModel);
 
       const isNewBranch = "branch" in newIModelEvent;
       if (isNewBranch) {
@@ -251,8 +255,10 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       } else {
         populateTimelineSeed(newIModelDb);
         const maybeManualUpdate = getManualUpdate(newIModelEvent);
-        if (maybeManualUpdate)
-          maybeManualUpdate(newIModelDb)
+        if (maybeManualUpdate) {
+          await maybeManualUpdate(newIModelDb);
+          newTrackedIModel.state = getIModelState(newIModelDb);
+        }
         else
           maintainPhysicalObjects(newIModelDb, newIModelEvent as TimelineIModelElemStateDelta);
         await saveAndPushChanges(accessToken, newIModelDb, `new with state [${newIModelEvent}] at point ${i}`);
@@ -305,7 +311,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
 
         if ("manualUpdate" in event) {
           const manualUpdate = event.manualUpdate as ManualUpdateFunc;
-          manualUpdate(alreadySeenIModel.db);
+          await manualUpdate(alreadySeenIModel.db);
           alreadySeenIModel.state = getIModelState(alreadySeenIModel.db);
           stateMsg = `${iModelName} becomes: ${JSON.stringify(alreadySeenIModel.state)}, `
             + `after manual update, at ${i}`;
