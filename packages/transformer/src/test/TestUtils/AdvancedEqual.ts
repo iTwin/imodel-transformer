@@ -19,7 +19,7 @@ interface DeepEqualOpts {
    * Passing `true`, is the same as passing `["classFullName", "relClassName"]`
    */
   normalizeClassNameProps?: boolean | string[];
-  /** do not error on conflicting values where the expected value is undefined */
+  /** generally prefer `.deep.subsetEqual` instead */
   useSubsetEquality?: boolean;
 }
 
