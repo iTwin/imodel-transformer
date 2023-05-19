@@ -7,7 +7,7 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as fs from "fs";
 import * as inspector from "inspector";
-import { AccessToken, CompressedId64Set, DbResult, Guid, Id64, Id64Set, Id64String, Mutable } from "@itwin/core-bentley";
+import { CompressedId64Set, DbResult, Guid, Id64, Id64Set, Id64String, Mutable } from "@itwin/core-bentley";
 import { Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
@@ -23,7 +23,7 @@ import {
   GeometricElement3dProps, GeometryStreamIterator, IModel, ModelProps, ModelSelectorProps, PhysicalElementProps, Placement3d, QueryRowFormat, SkyBoxImageProps, SkyBoxImageType,
   SpatialViewDefinitionProps, SubCategoryAppearance, SubjectProps, ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../transformer";
+import { ExportChangesArgs, IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../transformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 export class HubWrappers extends TestUtils.HubWrappers {
@@ -1242,9 +1242,9 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeSeparator();
     await this.exporter.exportAll();
   }
-  public async exportChanges(requestContext: AccessToken, startChangeSetId?: string): Promise<void> {
+  public async exportChanges(args: ExportChangesArgs): Promise<void> {
     this._shouldIndent = false;
-    return this.exporter.exportChanges(requestContext, startChangeSetId);
+    return this.exporter.exportChanges(args);
   }
   private writeLine(line: string, indentLevel: number = 0): void {
     if (this._shouldIndent) {

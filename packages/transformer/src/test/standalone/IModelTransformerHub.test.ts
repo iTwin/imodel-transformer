@@ -97,7 +97,7 @@ describe("IModelTransformerHub", () => {
         const sourceExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerSource-ExportChanges-1.txt");
         assert.isFalse(IModelJsFs.existsSync(sourceExportFileName));
         const sourceExporter = new IModelToTextFileExporter(sourceDb, sourceExportFileName);
-        await sourceExporter.exportChanges(accessToken);
+        await sourceExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges: any = (sourceExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
         assert.exists(sourceDbChanges);
@@ -121,7 +121,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        await transformer.processChanges(accessToken);
+        await transformer.processChanges({ accessToken });
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
@@ -131,7 +131,7 @@ describe("IModelTransformerHub", () => {
         const targetExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerTarget-ExportChanges-1.txt");
         assert.isFalse(IModelJsFs.existsSync(targetExportFileName));
         const targetExporter = new IModelToTextFileExporter(targetDb, targetExportFileName);
-        await targetExporter.exportChanges(accessToken);
+        await targetExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
         assert.exists(targetDbChanges);
@@ -161,7 +161,7 @@ describe("IModelTransformerHub", () => {
         const numTargetRelationships: number = count(targetDb, ElementRefersToElements.classFullName);
         const targetImporter = new CountingIModelImporter(targetDb);
         const transformer = new TestIModelTransformer(sourceDb, targetImporter);
-        await transformer.processChanges(accessToken);
+        await transformer.processChanges({ accessToken });
         assert.equal(targetImporter.numModelsInserted, 0);
         assert.equal(targetImporter.numModelsUpdated, 0);
         assert.equal(targetImporter.numElementsInserted, 0);
@@ -189,7 +189,7 @@ describe("IModelTransformerHub", () => {
         const sourceExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerSource-ExportChanges-2.txt");
         assert.isFalse(IModelJsFs.existsSync(sourceExportFileName));
         const sourceExporter = new IModelToTextFileExporter(sourceDb, sourceExportFileName);
-        await sourceExporter.exportChanges(accessToken);
+        await sourceExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges: any = (sourceExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
         assert.exists(sourceDbChanges);
@@ -214,7 +214,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.model.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        await transformer.processChanges(accessToken);
+        await transformer.processChanges({ accessToken });
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #2" });
@@ -224,7 +224,7 @@ describe("IModelTransformerHub", () => {
         const targetExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerTarget-ExportChanges-2.txt");
         assert.isFalse(IModelJsFs.existsSync(targetExportFileName));
         const targetExporter = new IModelToTextFileExporter(targetDb, targetExportFileName);
-        await targetExporter.exportChanges(accessToken);
+        await targetExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
         assert.exists(targetDbChanges);
@@ -427,7 +427,7 @@ describe("IModelTransformerHub", () => {
       await saveAndPushChanges(replayedDb, "changes from source seed");
       for (const masterDbChangeset of masterDbChangesets) {
         await sourceDb.pullChanges({ accessToken, toIndex: masterDbChangeset.index });
-        await replayTransformer.processChanges(accessToken, sourceDb.changeset.id);
+        await replayTransformer.processChanges({ accessToken, startChangesetId: sourceDb.changeset.id });
         await saveAndPushChanges(replayedDb, masterDbChangeset.description ?? "");
       }
       replayTransformer.dispose();
@@ -533,7 +533,7 @@ describe("IModelTransformerHub", () => {
         }
       }
       const synchronizer = new IModelTransformerInjected(sourceDb, new IModelImporterInjected(targetDb));
-      await synchronizer.processChanges(accessToken);
+      await synchronizer.processChanges({ accessToken });
       expect(didExportModelSelector).to.be.true;
       expect(didImportModelSelector).to.be.true;
       synchronizer.dispose();
@@ -713,7 +713,7 @@ describe("IModelTransformerHub", () => {
         // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
         isReverseSynchronization: true,
       });
-      await synchronizer.processChanges(accessToken);
+      await synchronizer.processChanges({ accessToken });
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
@@ -776,7 +776,7 @@ describe("IModelTransformerHub", () => {
       isReverseSynchronization: true,
     });
     const queryChangeset = sinon.spy(HubMock, "queryChangeset");
-    await syncer.processChanges(accessToken, branchAt2Changeset.id);
+    await syncer.processChanges({ accessToken, startChangesetId: branchAt2Changeset.id });
     expect(queryChangeset.alwaysCalledWith({
       accessToken,
       iModelId: branch.id,
@@ -1012,7 +1012,7 @@ describe("IModelTransformerHub", () => {
           const targetStateBefore = getPhysicalObjects(target.db);
           const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
           const startChangesetId = timelineStates.get(startIndex)?.changesets[syncSource].id;
-          await syncer.processChanges(accessToken, startChangesetId);
+          await syncer.processChanges({ accessToken, startChangesetId });
           syncer.dispose();
 
           const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;
