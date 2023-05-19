@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Thu, 20 Apr 2023 12:20:33 GMT and should not be manually modified.
+This log was last generated on Tue, 02 May 2023 18:28:36 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.1.8
+
+Tue, 02 May 2023 18:28:36 GMT
+
+### Patches
+
+- rerelease again ([commit](https://github.com/iTwin/transformer/commit/3b6ad3fbf7bfe36dfe63da7f8d6f9e5572793f05))
 
 ## 0.1.3
 
