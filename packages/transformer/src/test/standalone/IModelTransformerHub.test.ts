@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, CodeSpecs, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
   PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { CategorySelectorProps, Code, ColorDef, DisplayStyle3dProps, ElementProps, IModel, IModelVersion, ModelSelectorProps, PhysicalElementProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
+import { CategorySelectorProps, Code, CodeSpec, ColorDef, DisplayStyle3dProps, ElementProps, IModel, IModelVersion, ModelSelectorProps, PhysicalElementProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, defer, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, defer, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState, withDb } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -839,26 +839,21 @@ describe.only("IModelTransformerHub", () => {
     const timeline: Timeline = {
       0: {
         master: {
-          modelSelector: {
-            classFullName: ModelSelector.classFullName,
-            models: [],
-            model: IModelDb.repositoryModelId,
-            code: new Code({ spec: "0x1", scope: "0x1", value: "modelSelector" }).toJSON(),
-          } as ModelSelectorProps,
+          modelSelector: withDb(db => ModelSelector.create(db, IModelDb.dictionaryId, "modelSelector", []).toJSON()),
           categorySelector: {
             classFullName: CategorySelector.classFullName,
             categories: [],
-            model: IModelDb.repositoryModelId,
+            model: IModelDb.dictionaryId,
             code: new Code({ spec: "0x1", scope: "0x1", value: "categorySelector" }).toJSON(),
           } as CategorySelectorProps,
           displayStyle: {
             classFullName: DisplayStyle3d.classFullName,
             code: new Code({ spec: "0x1", scope: "0x1", value: "displayStyle" }).toJSON(),
-            model: IModelDb.repositoryModelId,
+            model: IModelDb.dictionaryId,
           },
           spatialViewDef: {
             classFullName: SpatialViewDefinition.classFullName,
-            model: IModelDb.repositoryModelId,
+            model: IModelDb.dictionaryId,
             code: Code.createEmpty().toJSON(),
             camera: {
               eye: { x: 0, y: 0, z: 0 },

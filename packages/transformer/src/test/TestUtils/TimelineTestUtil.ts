@@ -73,9 +73,9 @@ export function assertElemState(db: IModelDb, state: TimelineIModelElemStateDelt
 
 const deferred = Symbol('DEFERRED');
 
-interface DeferredProp {
+interface DeferredObj {
   userLabel: string;
-  get: ($: any) => any;
+  get: ($: any, db: IModelDb) => any;
   [deferred]: undefined
 }
 
@@ -88,15 +88,33 @@ export function defer(userLabel: string, get: ($: any) => any): any {
     userLabel: userLabel,
     get,
     [deferred]: undefined,
-  } as DeferredProp;
+  } as DeferredObj;
+}
+
+const withDbed = Symbol('WITH_DBED');
+
+interface WithDbObj {
+  get: (db: IModelDb) => any;
+  [withDbed]: undefined
+}
+
+/**
+ * create a deferred property, useful for getting ids of elements in the same
+ * timeline time point
+ */
+export function withDb(get: (db: IModelDb) => any): any {
+  return {
+    get,
+    [withDbed]: undefined,
+  } as WithDbObj;
 }
 
 function topologicalSortDeltaByDefers(delta: TimelineIModelElemStateDelta): TimelineElemDelta[] {
-  function getDeferredRefs(rootElemDef: TimelineElemDelta): DeferredProp[] {
+  function getDeferredRefs(rootElemDef: TimelineElemDelta): DeferredObj[] {
     if (typeof rootElemDef === "number" || rootElemDef === deleted)
       return [];
 
-    const result: DeferredProp[] = [];
+    const result: DeferredObj[] = [];
 
     function impl(obj: any) {
       for (const key in obj) {
@@ -140,6 +158,14 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
   const modelId = iModelDb.elements.queryElementIdByCode(PhysicalPartition.createCode(iModelDb, IModel.rootSubjectId, "PhysicalModel"))!;
   const categoryId = iModelDb.elements.queryElementIdByCode(SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory"))!;
 
+  // resolve withDb
+  for (const elemName in delta) {
+    const elemDelta = delta[elemName];
+    if (typeof elemDelta === "object" && elemDelta !== null && withDbed in elemDelta) {
+      delta[elemName] = (elemDelta as any as WithDbObj).get(iModelDb);
+    }
+  }
+
   // set userLabel to the key from the delta
   for (const elemName in delta) {
     const elemDelta = delta[elemName];
@@ -148,10 +174,22 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
     }
   }
 
+  // resolve deferred
+  function resolveDeferred(key: string, obj: any) {
+    const value = obj[key];
+    if (typeof value === "object" && value !== null) {
+      if (deferred in value)
+        obj[key] = (value as DeferredObj).get(delta, iModelDb);
+      else
+        for (const subkey in value) resolveDeferred(subkey, value);
+    }
+  }
+
   const elemDeltas = topologicalSortDeltaByDefers(delta);
 
   for (const upsertVal of elemDeltas) {
     const elemName = typeof upsertVal === "object" ? (upsertVal as ElementProps).userLabel : upsertVal.toString();
+    assert(elemName, "userLabel was not set! but it should be set from object key above...")
     const [id] = iModelDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: [elemName] })
 
     if (upsertVal === deleted) {
@@ -159,6 +197,8 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
       iModelDb.elements.deleteElement(id);
       continue;
     }
+
+    resolveDeferred(elemName, delta);
 
     const props: ElementProps | PhysicalElementProps
       = typeof upsertVal !== "number"
