@@ -71,136 +71,12 @@ export function assertElemState(db: IModelDb, state: TimelineIModelElemStateDelt
   expect(getIModelState(db)).to.deep.subsetEqual(state, { useSubsetEquality: subset });
 }
 
-// to be ignored in diff
-export const ignored = Symbol('IGNORED');
-
-const deferred = Symbol('DEFERRED');
-
-interface DeferredObj {
-  userLabel: string;
-  get: ($: any, db: IModelDb) => any;
-  [deferred]: undefined
-}
-
-/**
- * create a deferred property, useful for getting ids of elements in the same
- * timeline time point
- */
-export function defer(userLabel: string, get: ($: any) => any): any {
-  return {
-    userLabel: userLabel,
-    get,
-    [deferred]: undefined,
-  } as DeferredObj;
-}
-
-const withDbed = Symbol('WITH_DBED');
-
-interface WithDbObj {
-  get: (db: IModelDb) => any;
-  [withDbed]: undefined
-}
-
-/**
- * create a deferred property, useful for getting ids of elements in the same
- * timeline time point
- */
-export function withDb(get: (db: IModelDb) => any): any {
-  return {
-    get,
-    [withDbed]: undefined,
-  } as WithDbObj;
-}
-
-function topologicalSortDeltaByDefers(delta: TimelineIModelElemStateDelta): TimelineElemDelta[] {
-  function getDeferredRefs(rootElemDef: TimelineElemDelta): DeferredObj[] {
-    if (typeof rootElemDef === "number" || rootElemDef === deleted)
-      return [];
-
-    const result: DeferredObj[] = [];
-
-    function impl(obj: any) {
-      for (const key in obj) {
-        const value = obj[key];
-        if (typeof value === "object" && value !== null) {
-          if (deferred in value)
-            result.push(value);
-          else
-            impl(value);
-        }
-      }
-    }
-
-    impl(rootElemDef);
-    return result;
-  }
-
-  const topoSortedResult: TimelineElemDelta[] = [];
-
-  function traverseDeferredRefs(elemState: TimelineElemDelta) {
-    if (topoSortedResult.includes(elemState)) return;
-
-    const deferredRefs = getDeferredRefs(elemState);
-    for (const deferredRef of deferredRefs) {
-      const predecessor = delta[deferredRef.userLabel];
-      traverseDeferredRefs(predecessor);
-    }
-
-    topoSortedResult.push(elemState);
-  }
-
-  for (const key in delta) {
-    const elemState = delta[key];
-    traverseDeferredRefs(elemState);
-  }
-
-  return topoSortedResult;
-}
-
 export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIModelElemStateDelta): void {
   const modelId = iModelDb.elements.queryElementIdByCode(PhysicalPartition.createCode(iModelDb, IModel.rootSubjectId, "PhysicalModel"))!;
   const categoryId = iModelDb.elements.queryElementIdByCode(SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory"))!;
 
-  // resolve withDb
   for (const elemName in delta) {
-    const elemDelta = delta[elemName];
-    if (typeof elemDelta === "object" && elemDelta !== null && withDbed in elemDelta) {
-      delta[elemName] = (elemDelta as any as WithDbObj).get(iModelDb);
-    }
-  }
-
-  // set userLabel to the key from the delta
-  for (const elemName in delta) {
-    const elemDelta = delta[elemName];
-    if (typeof elemDelta === "object" && elemDelta !== null) {
-      (elemDelta as ElementProps).userLabel = elemName;
-    }
-  }
-
-  // resolve deferred
-  function resolveDeferred(key: string, obj: any) {
-    const value = obj[key];
-    if (typeof value === "object" && value !== null) {
-      if (deferred in value)
-        obj[key] = (value as DeferredObj).get(delta, iModelDb);
-      else
-        for (const subkey in value) resolveDeferred(subkey, value);
-    }
-  }
-
-  // delete ignored
-  function deleteIgnored(key: string, obj: any) {
-    const value = obj[key];
-    if (value === ignored) delete obj[key];
-    if (typeof value === "object" && value !== null)
-      for (const subkey in value) deleteIgnored(subkey, value);
-  }
-
-  const elemDeltas = topologicalSortDeltaByDefers(delta);
-
-  for (const upsertVal of elemDeltas) {
-    const elemName = typeof upsertVal === "object" ? (upsertVal as ElementProps).userLabel : upsertVal.toString();
-    assert(elemName, "userLabel was not set! but it should be set from object key above...")
+    const upsertVal = delta[elemName];
     const [id] = iModelDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: [elemName] })
 
     if (upsertVal === deleted) {
@@ -208,8 +84,6 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
       iModelDb.elements.deleteElement(id);
       continue;
     }
-
-    resolveDeferred(elemName, delta);
 
     const props: ElementProps | PhysicalElementProps
       = typeof upsertVal !== "number"
@@ -259,6 +133,8 @@ export interface TimelineIModelState {
   db: BriefcaseDb;
 }
 
+export type ManualUpdateFunc = (db: IModelDb) => Promise<void>;
+
 export type TimelineStateChange =
   // update the state of that model to match and push a changeset
   | TimelineIModelElemStateDelta
@@ -267,7 +143,10 @@ export type TimelineStateChange =
   // create a branch from an existing iModel with a given name
   | { branch: string }
   // synchronize with the changes in an iModel of a given name from a starting timeline point
-  | { sync: [string, number] };
+  | { sync: [string, number] }
+  // manually update an iModel, state will be automatically detected after. Useful for more complicated
+  // element changes with inter-dependencies
+  | { manualUpdate: ManualUpdateFunc };
 
 /** an object that helps resolve ids from names */
 export type TimelineReferences = Record<string, ElementProps>;
@@ -317,9 +196,10 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   >();
   /* eslint-enable @typescript-eslint/indent */
 
-  const getSeed = (model: TimelineStateChange): TimelineIModelState | undefined => (model as { seed: TimelineIModelState }).seed;
-  const getBranch = (model: TimelineStateChange): string | undefined => (model as { branch: string }).branch;
-  const getSync = (model: TimelineStateChange): [string, number] | undefined => (model as { sync: [string, number] }).sync;
+  const getSeed = (model: TimelineStateChange) => (model as { seed: TimelineIModelState | undefined }).seed;
+  const getBranch = (model: TimelineStateChange) => (model as { branch: string | undefined }).branch;
+  const getSync = (model: TimelineStateChange) => (model as { sync: [string, number] | undefined }).sync;
+  const getManualUpdate = (model: TimelineStateChange) => (model as { manualUpdate: ManualUpdateFunc | undefined }).manualUpdate;
 
   for (let i = 0; i < Object.values(timeline).length; ++i) {
     const pt = timeline[i];
@@ -369,7 +249,12 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       } else if ("seed" in newIModelEvent) {
         await saveAndPushChanges(accessToken, newIModelDb, `seeded from '${getSeed(newIModelEvent)!.id}' at point ${i}`);
       } else {
-        populateTimelineSeed(newIModelDb, newIModelEvent);
+        populateTimelineSeed(newIModelDb);
+        const maybeManualUpdate = getManualUpdate(newIModelEvent);
+        if (maybeManualUpdate)
+          maybeManualUpdate(newIModelDb)
+        else
+          maintainPhysicalObjects(newIModelDb, newIModelEvent as TimelineIModelElemStateDelta);
         await saveAndPushChanges(accessToken, newIModelDb, `new with state [${newIModelEvent}] at point ${i}`);
       }
 
@@ -414,19 +299,27 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
 
         await saveAndPushChanges(accessToken, target.db, stateMsg);
       } else {
-        const delta = event;
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
-        const fullState = applyDelta(alreadySeenIModel.state, delta);
-        alreadySeenIModel.state = fullState;
+        let newState: TimelineIModelElemState;
+        let stateMsg: string;
 
-        const stateMsg =
-            `${iModelName} becomes: ${JSON.stringify(fullState)}, `
-          + `delta: [${JSON.stringify(delta)}], at ${i}`;
-        if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG) {
-          console.log(stateMsg); // eslint-disable-line no-console
+        if ("manualUpdate" in event) {
+          const manualUpdate = event.manualUpdate as ManualUpdateFunc;
+          manualUpdate(alreadySeenIModel.db);
+          alreadySeenIModel.state = getIModelState(alreadySeenIModel.db);
+          stateMsg = `${iModelName} becomes: ${JSON.stringify(alreadySeenIModel.state)}, `
+            + `after manual update, at ${i}`;
+        } else {
+          const delta = event as TimelineIModelElemStateDelta;
+          alreadySeenIModel.state = applyDelta(alreadySeenIModel.state, delta);
+          maintainPhysicalObjects(alreadySeenIModel.db, delta);
+          stateMsg = `${iModelName} becomes: ${JSON.stringify(alreadySeenIModel.state)}, `
+            + `delta: [${JSON.stringify(delta)}], at ${i}`;
         }
 
-        maintainPhysicalObjects(alreadySeenIModel.db, delta);
+        if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
+          console.log(stateMsg); // eslint-disable-line no-console
+
         await saveAndPushChanges(accessToken, alreadySeenIModel.db, stateMsg);
       }
     }
