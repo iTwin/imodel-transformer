@@ -263,16 +263,27 @@ export class IModelExporter {
     await this.exportModel(IModel.repositoryModelId);
     await this.exportRelationships(ElementRefersToElements.classFullName);
   }
-
-  /** Export changes from the source iModel.
-   * @param user The user
+  
+  /** exportChanges props
+   * @param accessToken The access token
    * @param startChangesetId Include changes from this changeset up through and including the current changeset.
    * If this parameter is not provided, then just the current changeset will be exported.
    * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
    * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] will be called to discover changed elements.
    * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async exportChanges(user?: AccessToken, startChangesetId?: string, changedInstanceIds?: ChangedInstanceIds): Promise<void> {
+  interface ExportChangesProps {
+    accessToken?: AccessToken, 
+    startChangesetId?: string, 
+    changedInstanceIds?: ChangedInstanceIds
+  }
+
+  /** Export changes from the source iModel.
+   * @param props function props
+   * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   */
+  public async exportChanges(props: ExportChangesProps): Promise<void> {
+    const { accessToken, startChangesetId, changedInstanceIds } = props;
     if (!this.sourceDb.isBriefcaseDb()) {
       throw new IModelError(IModelStatus.BadRequest, "Must be a briefcase to export changes");
     }
@@ -283,7 +294,7 @@ export class IModelExporter {
     if (undefined === startChangesetId) {
       startChangesetId = this.sourceDb.changeset.id;
     }
-    this._sourceDbChanges = changedInstanceIds ?? await ChangedInstanceIds.initialize(user, this.sourceDb, startChangesetId);
+    this._sourceDbChanges = changedInstanceIds ?? await ChangedInstanceIds.initialize(accessToken, this.sourceDb, startChangesetId);
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
