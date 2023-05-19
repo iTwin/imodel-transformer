@@ -71,6 +71,9 @@ export function assertElemState(db: IModelDb, state: TimelineIModelElemStateDelt
   expect(getIModelState(db)).to.deep.subsetEqual(state, { useSubsetEquality: subset });
 }
 
+// to be ignored in diff
+export const ignored = Symbol('IGNORED');
+
 const deferred = Symbol('DEFERRED');
 
 interface DeferredObj {
@@ -183,6 +186,14 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
       else
         for (const subkey in value) resolveDeferred(subkey, value);
     }
+  }
+
+  // delete ignored
+  function deleteIgnored(key: string, obj: any) {
+    const value = obj[key];
+    if (value === ignored) delete obj[key];
+    if (typeof value === "object" && value !== null)
+      for (const subkey in value) deleteIgnored(subkey, value);
   }
 
   const elemDeltas = topologicalSortDeltaByDefers(delta);

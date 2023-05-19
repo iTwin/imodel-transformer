@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, defer, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState, withDb } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, defer, deleted, ignored, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState, withDb } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -797,45 +797,6 @@ describe.only("IModelTransformerHub", () => {
   });
 
   it.only("should delete definition elements when processing changes", async () => {
-    const modelSelector: ModelSelectorProps = {
-      classFullName: ModelSelector.classFullName,
-      models: [],
-      model: IModelDb.repositoryModelId,
-      code: new Code({ spec: "0x1", scope: "0x1", value: "modelSelector" }).toJSON(),
-    };
-
-    const categorySelector: CategorySelectorProps = {
-      classFullName: CategorySelector.classFullName,
-      categories: [],
-      model: IModelDb.repositoryModelId,
-      code: new Code({ spec: "0x1", scope: "0x1", value: "categorySelector" }).toJSON(),
-    };
-
-    const displayStyle: DisplayStyle3dProps = {
-      classFullName: DisplayStyle3d.classFullName,
-      code: new Code({ spec: "0x1", scope: "0x1", value: "displayStyle" }).toJSON(),
-      model: IModelDb.repositoryModelId,
-      userLabel: "displayStyle",
-    };
-
-    const spatialViewDef: SpatialViewDefinitionProps = {
-      classFullName: SpatialViewDefinition.classFullName,
-      userLabel: "spatialViewDef",
-      model: IModelDb.repositoryModelId,
-      code: Code.createEmpty().toJSON(),
-      camera: {
-        eye: { x: 0, y: 0, z: 0 },
-        lens: { radians: 0 },
-        focusDist: 0,
-      },
-      extents: { x: 0, y: 0, z: 0 },
-      origin: { x: 0, y: 0, z: 0 },
-      cameraOn: false,
-      displayStyleId: "resolve-root-code:displayStyle",
-      categorySelectorId: "resolve-root-code:categorySelector",
-      modelSelectorId: "resolve-root-code:modelSelector",
-    };
-
     const timeline: Timeline = {
       0: {
         master: {
@@ -844,13 +805,16 @@ describe.only("IModelTransformerHub", () => {
             classFullName: CategorySelector.classFullName,
             categories: [],
             model: IModelDb.dictionaryId,
-            code: new Code({ spec: "0x1", scope: "0x1", value: "categorySelector" }).toJSON(),
+            code: { spec: "0x1", scope: "0x1", value: "categorySelector" },
+            isPrivate: false,
+            jsonProperties: ignored,
           } as CategorySelectorProps,
           displayStyle: {
             classFullName: DisplayStyle3d.classFullName,
-            code: new Code({ spec: "0x1", scope: "0x1", value: "displayStyle" }).toJSON(),
+            code: { spec: "0x1", scope: "0x1", value: "displayStyle" },
             model: IModelDb.dictionaryId,
-          },
+            isPrivate: false,
+          } as DisplayStyle3dProps,
           spatialViewDef: {
             classFullName: SpatialViewDefinition.classFullName,
             model: IModelDb.dictionaryId,
