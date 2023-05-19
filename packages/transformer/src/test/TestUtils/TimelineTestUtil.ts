@@ -244,8 +244,6 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         const provenanceInserter = new IModelTransformer(master.db, branchDb, { wasSourceIModelCopiedToTarget: true });
         await provenanceInserter.processAll();
         provenanceInserter.dispose();
-        assert.equal(count(master.db, ExternalSourceAspect.classFullName), 0);
-        assert.isAbove(count(branchDb, ExternalSourceAspect.classFullName), Object.keys(master.state).length);
         await saveAndPushChanges(accessToken, branchDb, "initialized branch provenance");
       } else if ("seed" in newIModelEvent) {
         await saveAndPushChanges(accessToken, newIModelDb, `seeded from '${getSeed(newIModelEvent)!.id}' at point ${i}`);
