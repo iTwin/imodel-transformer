@@ -23,8 +23,6 @@ interface DeepEqualOpts {
   useSubsetEquality?: boolean;
 }
 
-export const ignore = Symbol("advancedEqual:ignore");
-
 export const defaultOpts = {
   tolerance: 1e-10,
   considerNonExistingAndUndefinedEqual: false,
