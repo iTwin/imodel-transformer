@@ -179,17 +179,10 @@ export class IModelExporter {
   private _sourceDbChanges?: ChangedInstanceIds;
   /**
    * Retrieve the cached entity change information.
-   * @note This may be set, or otherwise will be initialized after [IModelExporter.exportChanges] is invoked.
+   * @note This will only be initialized after [IModelExporter.exportChanges] is invoked.
   */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
     return this._sourceDbChanges;
-  }
-  /**
-   * Set the cached entity change information.
-   * @note This will prevent [ChangedInstanceIds.initialize] call in [IModelExporter.exportChanges].
-  */
-  public set sourceDbChanges(changedInstanceIds: ChangedInstanceIds | undefined) {
-    this._sourceDbChanges = changedInstanceIds;
   }
   /** The handler called by this IModelExporter. */
   private _handler: IModelExportHandler | undefined;
@@ -275,9 +268,11 @@ export class IModelExporter {
    * @param user The user
    * @param startChangesetId Include changes from this changeset up through and including the current changeset.
    * If this parameter is not provided, then just the current changeset will be exported.
+   * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
+   * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] will be called to discover changed elements.
    * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async exportChanges(user?: AccessToken, startChangesetId?: string): Promise<void> {
+  public async exportChanges(user?: AccessToken, startChangesetId?: string, changedInstanceIds?: ChangedInstanceIds): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb()) {
       throw new IModelError(IModelStatus.BadRequest, "Must be a briefcase to export changes");
     }
@@ -288,9 +283,7 @@ export class IModelExporter {
     if (undefined === startChangesetId) {
       startChangesetId = this.sourceDb.changeset.id;
     }
-    if (undefined === this._sourceDbChanges) {
-      this._sourceDbChanges = await ChangedInstanceIds.initialize(user, this.sourceDb, startChangesetId);
-    }
+    this._sourceDbChanges = changedInstanceIds ?? await ChangedInstanceIds.initialize(user, this.sourceDb, startChangesetId);
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);

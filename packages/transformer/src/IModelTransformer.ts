@@ -26,7 +26,7 @@ import {
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
-import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
+import { ChangedInstanceIds, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
@@ -1505,15 +1505,16 @@ export class IModelTransformer extends IModelExportHandler {
  * Inserts, updates, and deletes are determined by inspecting the changeset(s).
  * @param accessToken A valid access token string
  * @param startChangesetId Include changes from this changeset up through and including the current changeset.
+ * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
  * If this parameter is not provided, then just the current changeset will be exported.
  * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
  */
-  public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
+  public async processChanges(accessToken: AccessToken, startChangesetId?: string, changedInstanceIds?: ChangedInstanceIds): Promise<void> {
     Logger.logTrace(loggerCategory, "processChanges()");
     this.logSettings();
     this.validateScopeProvenance();
     await this.initialize({ accessToken, startChangesetId });
-    await this.exporter.exportChanges(accessToken, startChangesetId);
+    await this.exporter.exportChanges(accessToken, startChangesetId, changedInstanceIds);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)
