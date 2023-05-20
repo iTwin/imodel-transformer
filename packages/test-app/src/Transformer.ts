@@ -46,7 +46,7 @@ export class Transformer extends IModelTransformer {
     transformer.logElapsedTime();
   }
 
-  public static async transformChanges(accessToken: AccessToken, sourceDb: IModelDb, targetDb: IModelDb, sourceStartChangesetId: string, options?: TransformerOptions): Promise<void> {
+  public static async transformChanges(requestContext: AccessToken, sourceDb: IModelDb, targetDb: IModelDb, sourceStartChangesetId: string, options?: TransformerOptions): Promise<void> {
     if ("" === sourceDb.changeset.id) {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
@@ -54,7 +54,7 @@ export class Transformer extends IModelTransformer {
     const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
-    await transformer.processChanges({ accessToken, startChangesetId: sourceStartChangesetId });
+    await transformer.processChanges(requestContext, sourceStartChangesetId);
     await transformer.saveChanges("processChanges");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();

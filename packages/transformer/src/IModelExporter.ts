@@ -36,8 +36,6 @@ export interface ExportSchemaResult {
  * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
  */
 export interface ExportChangesArgs {
-  accessToken?: AccessToken;
-  startChangesetId?: string;
   changedInstanceIds?: ChangedInstanceIds;
 }
 
@@ -281,9 +279,7 @@ export class IModelExporter {
   /** Export changes from the source iModel.
    * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async exportChanges(args: ExportChangesArgs): Promise<void> {
-    const { accessToken, startChangesetId, changedInstanceIds } = args;
-    let firstChangesetId = startChangesetId;
+  public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, options?: ExportChangesArgs): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb()) {
       throw new IModelError(IModelStatus.BadRequest, "Must be a briefcase to export changes");
     }
@@ -291,10 +287,10 @@ export class IModelExporter {
       await this.exportAll(); // no changesets, so revert to exportAll
       return;
     }
-    if (undefined === firstChangesetId) {
-      firstChangesetId = this.sourceDb.changeset.id;
+    if (undefined === startChangesetId) {
+      startChangesetId = this.sourceDb.changeset.id;
     }
-    this._sourceDbChanges = changedInstanceIds ?? await ChangedInstanceIds.initialize(accessToken, this.sourceDb, firstChangesetId);
+    this._sourceDbChanges = options?.changedInstanceIds ?? await ChangedInstanceIds.initialize(accessToken, this.sourceDb, startChangesetId);
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
