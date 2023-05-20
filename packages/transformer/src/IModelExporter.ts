@@ -27,10 +27,7 @@ export interface ExportSchemaResult {
   schemaPath?: string;
 }
 
-/** exportChanges arguments
- * @param accessToken The access token
- * @param startChangesetId Include changes from this changeset up through and including the current changeset.
- * If this parameter is not provided, then just the current changeset will be exported.
+/** Additional options for exportChanges
  * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
  * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] will be called to discover changed elements.
  * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
@@ -277,6 +274,10 @@ export class IModelExporter {
   }
 
   /** Export changes from the source iModel.
+   * @param accessToken The access token
+   * @param startChangesetId Include changes from this changeset up through and including the current changeset.
+   * If this parameter is not provided, then just the current changeset will be exported.
+   * @param options Additional options.
    * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, options?: ExportChangesArgs): Promise<void> {
@@ -287,10 +288,7 @@ export class IModelExporter {
       await this.exportAll(); // no changesets, so revert to exportAll
       return;
     }
-    if (undefined === startChangesetId) {
-      startChangesetId = this.sourceDb.changeset.id;
-    }
-    this._sourceDbChanges = options?.changedInstanceIds ?? await ChangedInstanceIds.initialize(accessToken, this.sourceDb, startChangesetId);
+    this._sourceDbChanges = options?.changedInstanceIds ?? await ChangedInstanceIds.initialize(accessToken, this.sourceDb, startChangesetId ?? this.sourceDb.changeset.id);
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
