@@ -201,6 +201,9 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
 
   for (let i = 0; i < Object.values(timeline).length; ++i) {
     const pt = timeline[i];
+    if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
+      console.log(`pt[${i}] -> ${JSON.stringify(pt)}`);// eslint-disable-line no-console
+
     const iModelChanges = Object.entries(pt)
       .filter((entry): entry is [string, TimelineStateChange] => entry[0] !== "assert" && trackedIModels.has(entry[0]));
 

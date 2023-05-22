@@ -661,7 +661,7 @@ export class IModelTransformer extends IModelExportHandler {
         const sourceFedGuid = stmt.getValue(1).getGuid();
         const targetId = this.queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
         const deletionNotInTarget = !targetId;
-        if (deletionNotInTarget) return;
+        if (deletionNotInTarget) continue;
         // TODO: maybe delete and don't just remap
         this.context.remapElement(sourceId, targetId);
       }
