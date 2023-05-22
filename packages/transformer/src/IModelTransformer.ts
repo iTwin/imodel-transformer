@@ -457,7 +457,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Make sure there are no conflicting other scope-type external source aspects on the *target scope element*,
    * If there are none at all, insert one, then this must be a first synchronization.
    * @returns the last synced version (changesetId) on the target scope's external source aspect,
-   *          (if this was a [BriefcaseDb]($backend))
+   *          if this was a [BriefcaseDb]($backend)
    */
   private initScopeProvenance(): void {
     const aspectProps: ExternalSourceAspectProps = {
@@ -615,9 +615,10 @@ export class IModelTransformer extends IModelExportHandler {
       return this.remapDeletedSourceElements();
   }
 
-  /** When processing deleted elements in a reverse synchronization, the [[provenanceDb]] (usually a branch iModel) has already
-   * deleted the [ExternalSourceAspect]($backend)s that tell us which elements in the reverse synchronization target (usually
-   * a master iModel) should be deleted. We must use the changesets to get the values of those before they were deleted.
+  /** When processing deleted elements in a reverse synchronization, the [[provenanceDb]] has already
+   * deleted the provenance that tell us which elements in the reverse synchronization target (usually
+   * a master iModel) should be deleted.
+   * We must use the changesets to get the values of those before they were deleted.
    */
   private async remapDeletedSourceElements() {
     // we need a connected iModel with changes to remap elements with deletions
@@ -647,7 +648,7 @@ export class IModelTransformer extends IModelExportHandler {
         AND ic.ChangedInstance.ClassId IS (BisCore.Element)
     `;
 
-    // must also support old ESA provenance if no fedguids
+    // FIXME: must also support old ESA provenance if no fedguids
     this.sourceDb.withStatement(deletedElemSql, (stmt) => {
       stmt.bindInteger("opDelete", ChangeOpCode.Delete);
       stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
@@ -699,7 +700,6 @@ export class IModelTransformer extends IModelExportHandler {
   public async detectElementDeletes(): Promise<void> {
     // FIXME: this is no longer possible to do without change data loading, but I don't think
     // anyone uses this obscure feature, maybe we can remove it?
-    // NOTE: can implement this by checking for federation guids in the target that aren't
     if (this._options.isReverseSynchronization) {
       throw new IModelError(IModelStatus.BadRequest, "Cannot detect deletes when isReverseSynchronization=true");
     }
@@ -761,13 +761,15 @@ export class IModelTransformer extends IModelExportHandler {
     this._hasElementChangedCache = new Set();
     this._deletedSourceRelationshipData = new Map();
 
+    // FIXME: does this need to be aware of external source aspects?
+
     // somewhat complicated query because doing two things at once...
     // (not to mention the multijoin coalescing hack)
     // FIXME: perhaps the coalescing indicates that part should be done manually, not in the query?
     const query = `
       SELECT
         ic.ChangedInstance.Id AS InstId,
-        -- NOTE: parse error even with () without iif
+        -- NOTE: parse error even with () without iif, also elem or rel is enforced in WHERE
         iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotDeletedRel,
         coalesce(${
           // HACK: adding "NONE" for empty result seems to prevent a bug where getValue(3) stops working after the NULL columns
@@ -1274,7 +1276,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  // FIXME: need to check if the element class was remapped and use that id instead
+  // FIXME: need to check if the class was remapped and use that id instead
   // is this really the best way to get class id? shouldn't we cache it somewhere?
   // NOTE: maybe if we lower remapElementClass into here, we can use that
   private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
