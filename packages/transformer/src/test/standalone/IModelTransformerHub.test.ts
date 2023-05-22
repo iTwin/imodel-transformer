@@ -1157,6 +1157,11 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.saveChanges();
     masterSeedDb.performCheckpoint();
 
+    // hard to check this without closing the db...
+    const seedSecondConn = SnapshotDb.openFile(masterSeedDb.pathName);
+    expect(seedSecondConn.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+    seedSecondConn.close();
+
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
       db: masterSeedDb as any as BriefcaseDb,
