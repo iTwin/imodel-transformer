@@ -14,7 +14,7 @@ import {
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementProps, IModel, IModelVersion, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -386,9 +386,37 @@ describe("IModelTransformerHub", () => {
       8: { master: { 7:2, 9:1 } },
       9: { master: { sync: ["branch2", 7] } },
       10: {
-        assert({master}) {
-          expect(master.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
-          assert.equal(count(master.db, ExternalSourceAspect.classFullName), 1);
+        assert({ master, branch1, branch2 }) {
+          for (const iModel of [master, branch1, branch2]) {
+            expect(iModel.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+          }
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(0);
+          for (const branch of [branch1, branch2]) {
+            expect(branch.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+            const aspects =
+              [...branch.db .queryEntityIds({ from: "BisCore.ExternalSourceAspect" })]
+              .map((aspectId) => branch.db.elements.getAspect(aspectId).toJSON()) as ExternalSourceAspectProps[];
+            // FIXME: wtf
+            expect(aspects).to.deep.subsetEqual([
+              {
+                element: { id: IModelDb.rootSubjectId },
+                identifier: master.db.iModelId,
+              },
+              {
+                element: { id: "0xe" }, // link partition
+                identifier: "0xe",
+              },
+              {
+                element: { id: IModelDb.dictionaryId },
+                identifier: IModelDb.dictionaryId,
+              },
+              {
+                element: { id: elem1Id },
+                identifier: elem1Id,
+              },
+            ]);
+            expect(Date.parse(aspects[3].version!)).not.to.be.NaN;
+          }
           // branch2 won the conflict since it is the synchronization source
           assertElemState(master.db, {7:1}, { subset: true });
         },
