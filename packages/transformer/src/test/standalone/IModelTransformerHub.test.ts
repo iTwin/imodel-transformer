@@ -362,22 +362,21 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
+    // FIXME: add some relationships
     const timeline: Timeline = {
       0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
       1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
       2: { master: {
-        manualUpdate(db) {
-          const modelSelector = ModelSelector.create(db, IModelDb.dictionaryId, "has-no-fedguid", []);
-          modelSelector.federationGuid = undefined;
-          const id = modelSelector.insert();
-          db.withSqliteStatement(
-            `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${id}`,
+        manualUpdate(master) {
+          const [elem1Id] = master.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: ["1"] });
+          master.withSqliteStatement(
+            `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elem1Id}`,
             s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
           )
-          db.performCheckpoint();
+          master.performCheckpoint();
           // hard to check this without closing the db...
-          const secondConnection = SnapshotDb.openFile(db.pathName);
-          expect(secondConnection.elements.getElement(id).federationGuid).to.be.undefined;
+          const secondConnection = SnapshotDb.openFile(master.pathName);
+          expect(secondConnection.elements.getElement(elem1Id).federationGuid).to.be.undefined;
           secondConnection.close();
         }
       }},
