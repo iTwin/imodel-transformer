@@ -2403,7 +2403,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  // FIXME: need to check if the element class was remapped and use that id instead
+  // FIXME: need to check if the class was remapped and use that id instead
   // is this really the best way to get class id? shouldn't we cache it somewhere?
   // NOTE: maybe if we lower remapElementClass into here, we can use that
   private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
