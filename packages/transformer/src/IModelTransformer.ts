@@ -761,8 +761,6 @@ export class IModelTransformer extends IModelExportHandler {
     this._hasElementChangedCache = new Set();
     this._deletedSourceRelationshipData = new Map();
 
-    // FIXME: does this need to be aware of external source aspects?
-
     // somewhat complicated query because doing two things at once...
     // (not to mention the multijoin coalescing hack)
     // FIXME: perhaps the coalescing indicates that part should be done manually, not in the query?
