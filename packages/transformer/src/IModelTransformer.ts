@@ -502,6 +502,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._targetScopeProvenanceProps = aspectProps;
   }
 
+  /** @returns the [id, version] of an aspect with the given element, scope, kind, and identifier */
   private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps): [Id64String, Id64String] | [undefined, undefined] {
     const sql = `
       SELECT ECInstanceId, Version
@@ -557,6 +558,7 @@ export class IModelTransformer extends IModelExportHandler {
     // iterate through sorted list of fed guids from both dbs to get the intersection
     // NOTE: if we exposed the native attach database support,
     // we could get the intersection of fed guids in one query, not sure if it would be faster
+    // OR we could do a raw sqlite query...
     this.provenanceSourceDb.withStatement(provenanceSourceQuery, (sourceStmt) => this.provenanceDb.withStatement(provenanceContainerQuery, (containerStmt) => {
       containerStmt.bindId("scopeId", this.targetScopeElementId);
       containerStmt.bindString("kind", ExternalSourceAspect.Kind.Element);
@@ -591,9 +593,6 @@ export class IModelTransformer extends IModelExportHandler {
           if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
           sourceRow = sourceStmt.getRow();
         }
-        // NOTE: needed test cases:
-        // - provenance container or provenance source has no fedguids
-        // - transforming split and join scenarios
         if (!currContainerRow.federationGuid  && currContainerRow.aspectIdentifier)
           runFnInProvDirection(currContainerRow.id, currContainerRow.aspectIdentifier);
       }
@@ -633,6 +632,8 @@ export class IModelTransformer extends IModelExportHandler {
     const deletedElemSql = `
       SELECT ic.ChangedInstance.Id, ${
         this._coalesceChangeSummaryJoinedValue((_, i) => `ec${i}.FederationGuid`)
+      }, ${
+        this._coalesceChangeSummaryJoinedValue((_, i) => `esac${i}.Identifier`)
       }
       FROM ecchange.change.InstanceChange ic
       -- ask affan about whether this is worth it...
@@ -640,36 +641,55 @@ export class IModelTransformer extends IModelExportHandler {
         this._changeSummaryIds.map((id, i) => `
           LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') ec${i}
             ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
-        `).join('')
+        `).join(' ')
+      }
+      ${
+        this._changeSummaryIds.map((id, i) => `
+          LEFT JOIN bis.ExternalSourceAspect.Changes(${id}, 'BeforeDelete') esac${i}
+            ON ic.ChangedInstance.Id=esac${i}.ECInstanceId
+        `).join(' ')
       }
       WHERE ic.OpCode=:opDelete
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- not yet documented ecsql feature to check class id
-        AND ic.ChangedInstance.ClassId IS (BisCore.Element)
+        AND (
+          ic.ChangedInstance.ClassId IS (BisCore.Element)
+          OR (
+            ic.ChangedInstance.ClassId IS (BisCore.ExternalSourceAspect)
+            AND (${
+                this._changeSummaryIds
+                  .map((_, i) => `esac${i}.Scope.Id=:targetScopeElement`)
+                  .join(' OR ')
+              })
+          )
+        )
     `;
 
-    // FIXME: must also support old ESA provenance if no fedguids
+    // FIXME: test deletion in both forward and reverse sync
     this.sourceDb.withStatement(deletedElemSql, (stmt) => {
       stmt.bindInteger("opDelete", ChangeOpCode.Delete);
       stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
-      // instead of targetScopeElementId, we only operate on elements
-      // that had colliding fed guids with the source...
-      // currently that is enforced by us checking that the deleted element fedguid is in both
-      // before remapping
+      stmt.bindId("targetScopeElement", this.targetScopeElementId);
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
         const sourceId = stmt.getValue(0).getId();
-        // FIXME: if I could attach the second db, will probably be much faster to get target id
         const sourceFedGuid = stmt.getValue(1).getGuid();
-        const targetId = this.queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
+        const maybeEsaIdentifier = stmt.getValue(2).getId();
+        // TODO: if I could attach the second db, will probably be much faster to get target id
+        // as part of the whole query rather than with _queryElemIdByFedGuid
+        const targetId = maybeEsaIdentifier
+          ?? (sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid));
+        // don't assert because currently we get separate rows for the element and external source aspect change
+        // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
+        //nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
         const deletionNotInTarget = !targetId;
         if (deletionNotInTarget) continue;
-        // TODO: maybe delete and don't just remap
+        // TODO: maybe delete and don't just remap?
         this.context.remapElement(sourceId, targetId);
       }
     });
   }
 
-  private queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
+  private _queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
     return db.withPreparedStatement("SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?", (stmt) => {
       stmt.bindGuid(1, fedGuid);
       if (stmt.step() === DbResult.BE_SQLITE_ROW)

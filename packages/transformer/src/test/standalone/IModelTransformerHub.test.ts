@@ -353,11 +353,14 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
-    const [elem1Id] = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: ["1"] });
-    masterSeedDb.withSqliteStatement(
-      `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elem1Id}`,
-      s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
-    )
+    // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1, 20)" });
+    const [elem1Id, elem20Id] = noFedGuidElemIds;
+    for (const elemId of noFedGuidElemIds)
+      masterSeedDb.withSqliteStatement(
+        `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+        s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
+      );
     masterSeedDb.performCheckpoint();
 
     // hard to check this without closing the db...
