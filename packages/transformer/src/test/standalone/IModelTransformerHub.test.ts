@@ -350,10 +350,20 @@ describe("IModelTransformerHub", () => {
       IModelJsFs.removeSync(masterSeedFileName);
     const masterSeedState = {1:1, 2:1, 20:1, 21:1};
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, { rootSubject: { name: masterIModelName } });
+    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
-    assert(IModelJsFs.existsSync(masterSeedFileName));
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // WIP: attempting a workaround for "ContextId was not properly setup in the checkpoint" issue
+
+    const [elem1Id] = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: ["1"] });
+    masterSeedDb.withSqliteStatement(
+      `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elem1Id}`,
+      s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
+    )
     masterSeedDb.performCheckpoint();
+
+    // hard to check this without closing the db...
+    const seedSecondConn = SnapshotDb.openFile(masterSeedDb.pathName);
+    expect(seedSecondConn.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+    seedSecondConn.close();
 
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
@@ -366,39 +376,25 @@ describe("IModelTransformerHub", () => {
     const timeline: Timeline = {
       0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
       1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
-      2: { master: {
-        manualUpdate(master) {
-          const [elem1Id] = master.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: ["1"] });
-          master.withSqliteStatement(
-            `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elem1Id}`,
-            s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
-          )
-          master.performCheckpoint();
-          // hard to check this without closing the db...
-          const secondConnection = SnapshotDb.openFile(master.pathName);
-          expect(secondConnection.elements.getElement(elem1Id).federationGuid).to.be.undefined;
-          secondConnection.close();
-        }
-      }},
-      3: { branch1: { 2:2, 3:1, 4:1 } },
-      4: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted } },
-      5: { branch1: { 21:deleted, 30:1 } },
-      6: { master: { sync: ["branch1", 3] } },
-      7: { branch2: { sync: ["master", 1] } },
-      8: { branch2: { 7:1, 8:1 } },
+      2: { branch1: { 2:2, 3:1, 4:1 } },
+      3: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
+      4: { branch1: { 21:deleted, 30:1 } },
+      5: { master: { sync: ["branch1", 2] } },
+      6: { branch2: { sync: ["master", 0] } },
+      7: { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      9: { master: { 7:2, 9:1 } },
-      10: { master: { sync: ["branch2", 8] } },
-      11: {
+      8: { master: { 7:2, 9:1 } },
+      9: { master: { sync: ["branch2", 7] } },
+      10: {
         assert({master}) {
-          assert.equal(count(master.db, ExternalSourceAspect.classFullName), 0);
-          // FIXME: why is this different from master?
-          // branch2 won the conflict
+          expect(master.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+          assert.equal(count(master.db, ExternalSourceAspect.classFullName), 1);
+          // branch2 won the conflict since it is the synchronization source
           assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      12: { master: { 6:2 } },
-      13: { branch1: { sync: ["master", 5] } },
+      11: { master: { 6:2 } },
+      12: { branch1: { sync: ["master", 4] } },
     };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });

@@ -144,7 +144,10 @@ export type TimelineStateChange =
   // manually update an iModel, state will be automatically detected after. Useful for more complicated
   // element changes with inter-dependencies.
   // @note: the key for the element in the state will be the userLabel or if none, the id
-  | { manualUpdate: ManualUpdateFunc };
+  | { manualUpdate: ManualUpdateFunc }
+  // manually update an iModel, like `manualUpdate`, but close and reopen the db after. This is
+  // if you're doing something weird like a raw sqlite update on the file.
+  | { manualUpdateAndReopen: ManualUpdateFunc };
 
 /** an object that helps resolve ids from names */
 export type TimelineReferences = Record<string, ElementProps>;
@@ -197,7 +200,13 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   const getSeed = (model: TimelineStateChange) => (model as { seed: TimelineIModelState | undefined }).seed;
   const getBranch = (model: TimelineStateChange) => (model as { branch: string | undefined }).branch;
   const getSync = (model: TimelineStateChange) => (model as { sync: [string, number] | undefined }).sync;
-  const getManualUpdate = (model: TimelineStateChange) => (model as { manualUpdate: ManualUpdateFunc | undefined }).manualUpdate;
+  const getManualUpdate = (model: TimelineStateChange): { update: ManualUpdateFunc, doReopen: boolean } | undefined =>
+    (model as any).manualUpdate || (model as any).manualUpdateAndReopen
+      ? {
+        update: (model as any).manualUpdate ?? (model as any).manualUpdateAndReopen,
+        doReopen: !!(model as any).manualUpdateAndReopen
+      }
+      : undefined;
 
   for (let i = 0; i < Object.values(timeline).length; ++i) {
     const pt = timeline[i];
@@ -254,7 +263,12 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         populateTimelineSeed(newIModelDb);
         const maybeManualUpdate = getManualUpdate(newIModelEvent);
         if (maybeManualUpdate) {
-          await maybeManualUpdate(newIModelDb);
+          await maybeManualUpdate.update(newIModelDb);
+          if (maybeManualUpdate.doReopen) {
+            const fileName = newTrackedIModel.db.pathName;
+            newTrackedIModel.db.close();
+            newTrackedIModel.db = await BriefcaseDb.open({ fileName });
+          }
           newTrackedIModel.state = getIModelState(newIModelDb);
         } else
           maintainPhysicalObjects(newIModelDb, newIModelEvent as TimelineIModelElemStateDelta);
@@ -306,9 +320,14 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
         let stateMsg: string;
 
-        if ("manualUpdate" in event) {
-          const manualUpdate = event.manualUpdate as ManualUpdateFunc;
-          await manualUpdate(alreadySeenIModel.db);
+        if ("manualUpdate" in event || "manualUpdateAndReopen" in event) {
+          const manualUpdate = getManualUpdate(event)!;
+          await manualUpdate.update(alreadySeenIModel.db);
+          if (manualUpdate.doReopen) {
+            const fileName = alreadySeenIModel.db.pathName;
+            alreadySeenIModel.db.close();
+            alreadySeenIModel.db = await BriefcaseDb.open({ fileName });
+          }
           alreadySeenIModel.state = getIModelState(alreadySeenIModel.db);
           stateMsg = `${iModelName} becomes: ${JSON.stringify(alreadySeenIModel.state)}, `
             + `after manual update, at ${i}`;

@@ -799,15 +799,16 @@ export class IModelTransformer extends IModelExportHandler {
       }
       WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element)
               OR ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements))
-            -- ignore deleted elems, we take care of those separately
-            -- TODO: test deleting an updated element?
-            ) AND ic.OpCode=:opUpdate
+            -- ignore deleted elems, we take care of those separately.
+            -- include inserted elems since inserted code-colliding elements should be considered
+            -- a change so that the colliding element is exported to the target
+            ) AND ic.OpCode<>:opDelete
     `;
 
 
     this.sourceDb.withPreparedStatement(query,
       (stmt) => {
-        stmt.bindInteger("opUpdate", ChangeOpCode.Update);
+        stmt.bindInteger("opDelete", ChangeOpCode.Delete);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           // REPORT: stmt.getValue(>3) seems to be bugged but the values survive .getRow so using that for now
           const instId = stmt.getValue(0).getId();
