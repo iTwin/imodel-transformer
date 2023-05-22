@@ -797,15 +797,16 @@ export class IModelTransformer extends IModelExportHandler {
             ON tec${i}.ECInstanceId=ertec${i}.TargetECInstanceId
         `).join('')
       }
-      -- ignore deleted elems, we take care of those separately
-      WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element) AND ic.OpCode<>:opUpdate)
-          OR (ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) AND ic.OpCode=:opDelete))
+      WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element)
+              OR ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements))
+            -- ignore deleted elems, we take care of those separately
+            -- TODO: test deleting an updated element?
+            ) AND ic.OpCode=:opUpdate
     `;
 
 
     this.sourceDb.withPreparedStatement(query,
       (stmt) => {
-        stmt.bindInteger("opDelete", ChangeOpCode.Delete);
         stmt.bindInteger("opUpdate", ChangeOpCode.Update);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           // REPORT: stmt.getValue(>3) seems to be bugged but the values survive .getRow so using that for now
