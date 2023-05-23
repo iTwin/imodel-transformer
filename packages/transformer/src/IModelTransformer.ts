@@ -17,15 +17,15 @@ import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
-  ChannelRootAspect, ClassRegistry, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
+  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, QueryBinder, RelatedElement,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -154,11 +154,10 @@ export interface IModelTransformOptions {
    */
   optimizeGeometry?: OptimizeGeometryOptions;
 
-  // FIXME: use this
   /**
-   * force the insertion of extenral source aspects to provide provenance, even if there are federation guids
+   * force the insertion of external source aspects to provide provenance, even if there are federation guids
    * in the source that we can use. This can make some operations (like transforming new elements or initializing forks)
-   * much slower due to needing to insert aspects, but prevents requiring change information for all operations.
+   * much slower due to needing to insert aspects, but prevents requiring change information for future merges.
    * @default false
    */
   forceExternalSourceAspectProvenance?: boolean
@@ -1087,7 +1086,10 @@ export class IModelTransformer extends IModelExportHandler {
     // verify at finalization time that we don't lose provenance on new elements
     // make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
-      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceElement.federationGuid;
+      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
+        = !this._options.forceExternalSourceAspectProvenance
+        ? sourceElement.federationGuid
+        : undefined;
       if (!provenance) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
         let [aspectId] = this.queryScopeExternalSource(aspectProps);
@@ -1282,7 +1284,10 @@ export class IModelTransformer extends IModelExportHandler {
     const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
-      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`;
+      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
+        = !this._options.forceExternalSourceAspectProvenance
+        ? sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`
+        : undefined;
       if (!provenance) {
         const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
         if (undefined === aspectProps.id) {
