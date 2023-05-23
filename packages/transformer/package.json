@@ -52,12 +52,12 @@
     "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
   ],
   "peerDependencies": {
-    "@itwin/core-backend": "3.6.0 - 3.6.1",
-    "@itwin/core-bentley": "3.6.0 - 3.6.1",
-    "@itwin/core-common": "3.6.0 - 3.6.1",
-    "@itwin/core-geometry": "3.6.0 - 3.6.1",
-    "@itwin/core-quantity": "3.6.0 - 3.6.1",
-    "@itwin/ecschema-metadata": "3.6.0 - 3.6.1"
+    "@itwin/core-backend": "3.6.0 - 4.0.0",
+    "@itwin/core-bentley": "3.6.0 - 4.0.0",
+    "@itwin/core-common": "3.6.0 - 4.0.0",
+    "@itwin/core-geometry": "3.6.0 - 4.0.0",
+    "@itwin/core-quantity": "3.6.0 - 4.0.0",
+    "@itwin/ecschema-metadata": "3.6.0 - 4.0.0"
   },
   "//devDependencies": [
     "NOTE: All peerDependencies should also be listed as devDependencies since peerDependencies are not considered by npm install",
@@ -65,13 +65,13 @@
   ],
   "devDependencies": {
     "@itwin/build-tools": "4.0.0-dev.86",
-    "@itwin/core-backend": "3.6.0 - 3.6.1",
-    "@itwin/core-bentley": "3.6.0 - 3.6.1",
-    "@itwin/core-common": "3.6.0 - 3.6.1",
-    "@itwin/core-geometry": "3.6.0 - 3.6.1",
-    "@itwin/core-quantity": "3.6.0 - 3.6.1",
-    "@itwin/ecschema-metadata": "3.6.0 - 3.6.1",
-    "@itwin/eslint-plugin": "3.6.0 - 3.6.1",
+    "@itwin/core-backend": "3.6.0 - 4.0.0",
+    "@itwin/core-bentley": "3.6.0 - 4.0.0",
+    "@itwin/core-common": "3.6.0 - 4.0.0",
+    "@itwin/core-geometry": "3.6.0 - 4.0.0",
+    "@itwin/core-quantity": "3.6.0 - 4.0.0",
+    "@itwin/ecschema-metadata": "3.6.0 - 4.0.0",
+    "@itwin/eslint-plugin": "3.6.0 - 4.0.0",
     "@types/chai": "4.3.1",
     "@types/chai-as-promised": "^7",
     "@types/mocha": "^8.2.2",
