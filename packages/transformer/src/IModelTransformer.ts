@@ -126,7 +126,6 @@ export interface IModelTransformOptions {
    * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
    * or physical consolidation.
    */
-  // FIXME: this should really be "required" in most cases
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
