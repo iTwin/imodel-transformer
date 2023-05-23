@@ -256,6 +256,7 @@ export async function assertIdentityTransformation(
   const targetToSourceElemsMap = new Map<Element, Element | undefined>();
   const targetElemIds = new Set<Id64String>();
 
+  // eslint-disable-next-line deprecation/deprecation
   for await (const [sourceElemId] of sourceDb.query(
     "SELECT ECInstanceId FROM bis.Element"
   )) {
@@ -380,6 +381,7 @@ export async function assertIdentityTransformation(
     }
   }
 
+  // eslint-disable-next-line deprecation/deprecation
   for await (const [targetElemId] of targetDb.query(
     "SELECT ECInstanceId FROM bis.Element"
   )) {
@@ -425,6 +427,7 @@ export async function assertIdentityTransformation(
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
   const targetModelIds = new Set<Id64String>();
 
+  // eslint-disable-next-line deprecation/deprecation
   for await (const [sourceModelId] of sourceDb.query(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
@@ -447,6 +450,7 @@ export async function assertIdentityTransformation(
     }
   }
 
+  // eslint-disable-next-line deprecation/deprecation
   for await (const [targetModelId] of targetDb.query(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
@@ -481,11 +485,13 @@ export async function assertIdentityTransformation(
     { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
   ];
   const sourceRelationships = new Map<string, any>();
+  // eslint-disable-next-line deprecation/deprecation
   for await (const row of sourceDb.query(...query)) {
     sourceRelationships.set(makeRelationKey(row), row);
   }
 
   const targetRelationshipsToFind = new Map<string, any>();
+  // eslint-disable-next-line deprecation/deprecation
   for await (const row of targetDb.query(...query)) {
     targetRelationshipsToFind.set(makeRelationKey(row), row);
   }
