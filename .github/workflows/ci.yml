@@ -116,8 +116,9 @@ jobs:
         const fs = require("fs");
         const workspacePkgJsonPath = "./package.json";
         const workspacePkgJson = require(workspacePkgJsonPath);
-        workspacePkgJson.pnpm = {
-          overrides: Object.fromEntries([
+        workspacePkgJson.pnpm.overrides = {
+          ...workspacePkgJson.pnpm.overrides,
+          ...Object.fromEntries([
             // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
             "@itwin/core-backend",
             "@itwin/core-bentley",
