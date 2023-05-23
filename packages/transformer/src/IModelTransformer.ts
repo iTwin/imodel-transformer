@@ -57,7 +57,6 @@ export interface IModelTransformOptions {
    * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
    * or physical consolidation.
    */
-  // FIXME: this should really be "required" in most cases
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
@@ -223,14 +222,18 @@ function mapId64<R>(
   return results;
 }
 
-// FIXME: Deprecate+Rename since we don't care about ESA in this branch
-/** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
+/** Arguments you can pass to [[IModelTransformer.initialize]]
  * @beta
  */
-export interface InitFromExternalSourceAspectsArgs {
+export interface InitArgs {
   accessToken?: AccessToken;
   startChangesetId?: string;
 }
+
+/** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
+ * @deprecated in 0.1.0. Use [[InitArgs]] (and [[IModelTransformer.initialize]]) instead.
+ */
+export type InitFromExternalSourceAspectsArgs = InitArgs;
 
 /** events that the transformer emits, e.g. for signaling profilers @internal */
 export enum TransformerEvent {
@@ -604,7 +607,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Passing an [[InitFromExternalSourceAspectsArgs]] is required when processing changes, to remap any elements that may have been deleted.
    *       You must await the returned promise as well in this case. The synchronous behavior has not changed but is deprecated and won't process everything.
    */
-  public initFromExternalSourceAspects(args?: InitFromExternalSourceAspectsArgs): void | Promise<void> {
+  public initFromExternalSourceAspects(args?: InitArgs): void | Promise<void> {
     this.forEachTrackedElement((sourceElementId: Id64String, targetElementId: Id64String) => {
       this.context.remapElement(sourceElementId, targetElementId);
     });
@@ -1604,7 +1607,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
-  public async initialize(args?: InitFromExternalSourceAspectsArgs): Promise<void> {
+  public async initialize(args?: InitArgs): Promise<void> {
     if (this._initialized)
       return;
 
@@ -1616,7 +1619,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._initialized = true;
   }
 
-  private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
+  private async _tryInitChangesetData(args?: InitArgs) {
     if (!args || this.sourceDb.iTwinId === undefined) {
       this._changeDataState = "unconnected";
       return;
