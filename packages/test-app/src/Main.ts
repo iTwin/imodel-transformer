@@ -5,9 +5,10 @@
 
 import * as path from "path";
 import * as Yargs from "yargs";
+import * as nodeAssert from "assert";
 import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
-import { IModelDb, IModelHost, IModelJsFs, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
+import { BriefcaseDb, IModelDb, IModelHost, IModelJsFs, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { BriefcaseIdValue, ChangesetId, ChangesetProps, IModelVersion } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { NamedVersion } from "@itwin/imodels-client-authoring";
@@ -16,6 +17,8 @@ import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
 import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
 import * as dotenv from "dotenv";
 import * as dotenvExpand from "dotenv-expand";
+
+import "source-map-support/register";
 
 void (async () => {
   try {
@@ -39,11 +42,25 @@ void (async () => {
           default: "prod",
         },
 
-        // used if the source iModel is a snapshot
+        // used if the source iModel is already locally cached
         sourceFile: {
-          desc: "The full path to the source iModel",
+          desc: "(deprecated, use any of sourceStandalone, sourceSnapshot or sourceBriefcasePath instead)."
+            + " The full path to the source iModel, to be opened as a snapshot",
           type: "string",
         },
+        sourceSnapshot: {
+          desc: "The full path to the source iModel, to be opened as a snapshot iModel",
+          type: "string",
+        },
+        sourceStandalone: {
+          desc: "The full path to the source iModel, to be opened as a standalone iModel",
+          type: "string",
+        },
+        sourceBriefcasePath: {
+          desc: "The full path to the source iModel, to be opened as a briefcase iModel",
+          type: "string",
+        },
+
 
         // used if the source iModel is on iModelHub
         sourceITwinId: {
@@ -83,6 +100,11 @@ void (async () => {
         // used if the target iModel is a standalone db
         targetFile: {
           desc: "The full path to the target iModel",
+          type: "string",
+        },
+        // used if the target iModel is a non-standardly cached briefcase
+        targetBriefcasePath: {
+          desc: "The full path to the target iModel, to be opened as a briefcase iModel",
           type: "string",
         },
         // used if the target iModel is on iModelHub
@@ -265,11 +287,33 @@ void (async () => {
         briefcaseId: BriefcaseIdValue.Unassigned, // A "pull only" briefcase can be used since the sourceDb is opened read-only
       });
     } else {
-      // source is a local snapshot file
-      assert(undefined !== args.sourceFile);
-      const sourceFile = path.normalize(args.sourceFile);
+      // source is local
+      assert(
+        (args.sourceFile ? 1 : 0)
+        + (args.sourceSnapshot ? 1 : 0)
+        + (args.sourceStandalone ? 1 : 0)
+        + (args.sourceBriefcasePath ? 1 : 0)
+        === 1,
+        "must set exactly one of sourceFile, sourceSnapshot, sourceStandalone, sourceBriefcasePath",
+      );
+
+      const dbOpen: (s: string) => IModelDb | Promise<IModelDb>
+        = args.sourceFile ? SnapshotDb.openFile.bind(SnapshotDb)
+        : args.sourceSnapshot ? SnapshotDb.openFile.bind(SnapshotDb)
+        : args.sourceStandalone ? StandaloneDb.openFile.bind(StandaloneDb)
+        : args.sourceBriefcasePath ? (file: string) => BriefcaseDb.open({ fileName: file })
+        : assert(false, "No remote iModel id arguments, nor local iModel path arguments") as never;
+
+      const sourceFile = path.normalize(
+        args.sourceFile
+        ?? args.sourceSnapshot
+        ?? args.sourceStandalone
+        ?? args.sourceBriefcasePath
+        ?? assert(false, "unreachable; one of these was set according to the above assert") as never
+      );
+
       Logger.logInfo(loggerCategory, `sourceFile=${sourceFile}`);
-      sourceDb = SnapshotDb.openFile(sourceFile);
+      sourceDb = await dbOpen(sourceFile);
     }
 
     if (args.validation) {
@@ -317,20 +361,25 @@ void (async () => {
         iModelId: targetIModelId,
       });
     } else if (args.targetDestination) {
-      const targetDestination = args.targetDestination ? path.normalize(args.targetDestination) : "";
-      assert(!processChanges, "cannot process changes because targetDestination creates a new iModel");
+      const targetDestination = path.normalize(args.targetDestination);
+      //assert(!processChanges, "cannot process changes because targetDestination creates a new iModel");
       // clean target output destination before continuing (regardless of args.clean value)
       if (IModelJsFs.existsSync(targetDestination)) {
         IModelJsFs.removeSync(targetDestination);
       }
-      targetDb = StandaloneDb.createEmpty(targetDestination, { // use StandaloneDb instead of SnapshotDb to enable processChanges testing
+      // use StandaloneDb instead of SnapshotDb to enable processChanges testing
+      targetDb = StandaloneDb.createEmpty(targetDestination, {
         rootSubject: { name: `${sourceDb.rootSubject.name}-Transformed` },
         ecefLocation: sourceDb.ecefLocation,
       });
-    } else {
+    } else if (args.targetFile) {
       // target is a local standalone file
-      assert(undefined !== args.targetFile);
       targetDb = StandaloneDb.openFile(args.targetFile);
+    } else if (args.targetBriefcasePath) {
+      // target is a local briefcase file
+      targetDb = await BriefcaseDb.open({ fileName: args.targetBriefcasePath });
+    } else {
+      assert(false, "bad target argument");
     }
 
     if (args.logProvenanceScopes) {
