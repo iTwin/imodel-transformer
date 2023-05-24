@@ -80,6 +80,19 @@ void (async () => {
           desc: "The full path to the source iModel, to be opened as a briefcase iModel",
           type: "string",
         },
+        sourceSnapshot: {
+          desc: "The full path to the source iModel, to be opened as a snapshot iModel",
+          type: "string",
+        },
+        sourceStandalone: {
+          desc: "The full path to the source iModel, to be opened as a standalone iModel",
+          type: "string",
+        },
+        sourceBriefcasePath: {
+          desc: "The full path to the source iModel, to be opened as a briefcase iModel",
+          type: "string",
+        },
+
 
         // used if the source iModel is on iModelHub
         sourceITwinId: {
