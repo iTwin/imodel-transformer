@@ -632,25 +632,13 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
 
     const deletedElemSql = `
-      SELECT ic.ChangedInstance.Id, ${
-        this._coalesceChangeSummaryJoinedValue((_, i) => `ec${i}.FederationGuid`)
-      }, ${
-        this._coalesceChangeSummaryJoinedValue((_, i) => `esac${i}.Identifier`)
-      }
+      SELECT ic.ChangedInstance.Id, ec.FederationGuid, esac.Identifier
       FROM ecchange.change.InstanceChange ic
       -- ask affan about whether this is worth it...
-      ${
-        this._changeSummaryIds.map((id, i) => `
-          LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') ec${i}
-            ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
-        `).join(' ')
-      }
-      ${
-        this._changeSummaryIds.map((id, i) => `
-          LEFT JOIN bis.ExternalSourceAspect.Changes(${id}, 'BeforeDelete') esac${i}
-            ON ic.ChangedInstance.Id=esac${i}.ECInstanceId
-        `).join(' ')
-      }
+          LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
+            ON ic.ChangedInstance.Id=ec.ECInstanceId
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
+            ON ic.ChangedInstance.Id=esac.ECInstanceId
       WHERE ic.OpCode=:opDelete
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- not yet documented ecsql feature to check class id
@@ -658,37 +646,37 @@ export class IModelTransformer extends IModelExportHandler {
           ic.ChangedInstance.ClassId IS (BisCore.Element)
           OR (
             ic.ChangedInstance.ClassId IS (BisCore.ExternalSourceAspect)
-            AND (${
-                this._changeSummaryIds
-                  .map((_, i) => `esac${i}.Scope.Id=:targetScopeElement`)
-                  .join(' OR ')
-              })
+            AND esac.Scope.Id=:targetScopeElement
           )
         )
     `;
 
-    // FIXME: test deletion in both forward and reverse sync
-    this.sourceDb.withStatement(deletedElemSql, (stmt) => {
-      stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-      stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
-      stmt.bindId("targetScopeElement", this.targetScopeElementId);
-      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-        const sourceId = stmt.getValue(0).getId();
-        const sourceFedGuid = stmt.getValue(1).getGuid();
-        const maybeEsaIdentifier = stmt.getValue(2).getId();
-        // TODO: if I could attach the second db, will probably be much faster to get target id
-        // as part of the whole query rather than with _queryElemIdByFedGuid
-        const targetId = maybeEsaIdentifier
-          ?? (sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid));
-        // don't assert because currently we get separate rows for the element and external source aspect change
-        // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
-        //nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
-        const deletionNotInTarget = !targetId;
-        if (deletionNotInTarget) continue;
-        // TODO: maybe delete and don't just remap?
-        this.context.remapElement(sourceId, targetId);
-      }
-    });
+    for (const changeSummaryId of this._changeSummaryIds) {
+      // FIXME: test deletion in both forward and reverse sync
+      this.sourceDb.withStatement(deletedElemSql, (stmt) => {
+        stmt.bindInteger("opDelete", ChangeOpCode.Delete);
+        stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
+        stmt.bindId("targetScopeElement", this.targetScopeElementId);
+        stmt.bindId("changeSummaryId", changeSummaryId);
+        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+          const sourceId = stmt.getValue(0).getId();
+          const sourceFedGuid = stmt.getValue(1).getGuid();
+          const maybeEsaIdentifier = stmt.getValue(2).getId();
+          // TODO: if I could attach the second db, will probably be much faster to get target id
+          // as part of the whole query rather than with _queryElemIdByFedGuid
+          const targetId = maybeEsaIdentifier
+            ?? (sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid));
+          // don't assert because currently we get separate rows for the element and external source aspect change
+          // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
+          // nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
+          const deletionNotInTarget = !targetId;
+          if (deletionNotInTarget)
+            continue;
+          // TODO: maybe delete and don't just remap?
+          this.context.remapElement(sourceId, targetId);
+        }
+      });
+    }
   }
 
   private _queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
@@ -783,42 +771,34 @@ export class IModelTransformer extends IModelExportHandler {
     this._hasElementChangedCache = new Set();
     this._deletedSourceRelationshipData = new Map();
 
-    // somewhat complicated query because doing two things at once...
-    // (not to mention the multijoin coalescing hack)
-    // FIXME: perhaps the coalescing indicates that part should be done manually, not in the query?
     const query = `
       SELECT
         ic.ChangedInstance.Id AS InstId,
         -- NOTE: parse error even with () without iif, also elem or rel is enforced in WHERE
         iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotDeletedRel,
-        coalesce(${
-          // HACK: adding "NONE" for empty result seems to prevent a bug where getValue(3) stops working after the NULL columns
-          this._changeSummaryIds.map((_, i) => `se${i}.FederationGuid, sec${i}.FederationGuid`).concat("'NONE'").join(',')
-        }) AS SourceFedGuid,
-        coalesce(${
-          this._changeSummaryIds.map((_, i) => `te${i}.FederationGuid, tec${i}.FederationGuid`).concat("'NONE'").join(',')
-        }) AS TargetFedGuid,
+        coalesce(
+          se.FederationGuid, sec.FederationGuid, 'NONE'
+        ) AS SourceFedGuid,
+        coalesce(
+          te.FederationGuid, tec.FederationGuid, 'NONE'
+        ) AS TargetFedGuid,
         ic.ChangedInstance.ClassId AS ClassId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
       -- ask affan about whether this is worth it... maybe the ""
-      ${
-        this._changeSummaryIds.map((id, i) => `
-          LEFT JOIN bis.ElementRefersToElements.Changes(${id}, 'BeforeDelete') ertec${i}
+          LEFT JOIN bis.ElementRefersToElements.Changes(:changeSummaryId, 'BeforeDelete') ertec
             -- NOTE: see how the AND affects performance, it could be dropped
-            ON ic.ChangedInstance.Id=ertec${i}.ECInstanceId
+            ON ic.ChangedInstance.Id=ertec.ECInstanceId
               AND NOT ic.ChangedInstance.ClassId IS (BisCore.Element)
           -- FIXME: test a deletion of both an element and a relationship at the same time
-          LEFT JOIN bis.Element se${i}
-            ON se${i}.ECInstanceId=ertec${i}.SourceECInstanceId
-          LEFT JOIN bis.Element te${i}
-            ON te${i}.ECInstanceId=ertec${i}.TargetECInstanceId
-          LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') sec${i}
-            ON sec${i}.ECInstanceId=ertec${i}.SourceECInstanceId
-          LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') tec${i}
-            ON tec${i}.ECInstanceId=ertec${i}.TargetECInstanceId
-        `).join('')
-      }
+          LEFT JOIN bis.Element se
+            ON se.ECInstanceId=ertec.SourceECInstanceId
+          LEFT JOIN bis.Element te
+            ON te.ECInstanceId=ertec.TargetECInstanceId
+          LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') sec
+            ON sec.ECInstanceId=ertec.SourceECInstanceId
+          LEFT JOIN bis.Element.Changes(:changeSummaryId 'BeforeDelete') tec
+            ON tec.ECInstanceId=ertec.TargetECInstanceId
       WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element)
               OR ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements))
             -- ignore deleted elems, we take care of those separately.
@@ -827,25 +807,33 @@ export class IModelTransformer extends IModelExportHandler {
             ) AND ic.OpCode<>:opDelete
     `;
 
-
-    this.sourceDb.withPreparedStatement(query,
-      (stmt) => {
-        stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-          // REPORT: stmt.getValue(>3) seems to be bugged but the values survive .getRow so using that for now
-          const instId = stmt.getValue(0).getId();
-          const isElemNotDeletedRel = stmt.getValue(1).getBoolean();
-          if (isElemNotDeletedRel)
-            this._hasElementChangedCache!.add(instId);
-          else {
-            const sourceFedGuid = stmt.getValue(2).getGuid();
-            const targetFedGuid = stmt.getValue(3).getGuid();
-            const classFullName = stmt.getValue(4).getClassNameForClassId();
-            this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceFedGuid, targetFedGuid });
+    // there is a single mega-query multi-join+coalescing hack that I used originally to get around
+    // only being able to run table.Changes() on one changeset at once, but sqlite only supports up to 64
+    // tables in a join. Need to talk to core about .Changes being able to take a set of changesets
+    // You can find this version in the `federation-guid-optimization-megaquery` branch
+    // I wouldn't use it unless we prove via profiling that it speeds things up significantly
+    for (const changeSummaryId of this._changeSummaryIds) {
+      this.sourceDb.withPreparedStatement(query,
+        (stmt) => {
+          stmt.bindInteger("opDelete", ChangeOpCode.Delete);
+          stmt.bindId("changeSummaryId", changeSummaryId);
+          while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+            // REPORT: stmt.getValue(>3) seems to be bugged without the 'NONE' in the coalesce
+            // but the values survive .getRow
+            const instId = stmt.getValue(0).getId();
+            const isElemNotDeletedRel = stmt.getValue(1).getBoolean();
+            if (isElemNotDeletedRel)
+              this._hasElementChangedCache!.add(instId);
+            else {
+              const sourceFedGuid = stmt.getValue(2).getGuid();
+              const targetFedGuid = stmt.getValue(3).getGuid();
+              const classFullName = stmt.getValue(4).getClassNameForClassId();
+              this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceFedGuid, targetFedGuid });
+            }
           }
         }
-      }
-    );
+      );
+    }
   }
 
   /** Returns true if a change within sourceElement is detected.
