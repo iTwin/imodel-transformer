@@ -4,9 +4,10 @@
 *--------------------------------------------------------------------------------------------*/
 
 import * as path from "path";
+import * as fs from "fs";
 import * as Yargs from "yargs";
 import * as nodeAssert from "assert";
-import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
+import { assert, Guid, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
 import { BriefcaseDb, IModelDb, IModelHost, IModelJsFs, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { BriefcaseIdValue, ChangesetId, ChangesetProps, IModelVersion } from "@itwin/core-common";
@@ -21,6 +22,7 @@ import * as dotenvExpand from "dotenv-expand";
 import "source-map-support/register";
 
 void (async () => {
+  let targetDb: IModelDb, sourceDb: IModelDb;
   try {
     const envResult = dotenv.config({ path: path.resolve(__dirname, "../.env") });
     if (!envResult.error) {
@@ -100,6 +102,10 @@ void (async () => {
         // used if the target iModel is a standalone db
         targetFile: {
           desc: "The full path to the target iModel",
+          type: "string",
+        },
+        targetStandaloneDestination: {
+          desc: "The destination path where to create a standalone iModel from the targetITwin",
           type: "string",
         },
         // used if the target iModel is a non-standardly cached briefcase
@@ -229,8 +235,6 @@ void (async () => {
     }
 
     let iTwinAccessClient: ProjectsAccessClient | undefined;
-    let sourceDb: IModelDb;
-    let targetDb: IModelDb;
     const processChanges = args.sourceStartChangesetIndex || args.sourceStartChangesetId;
 
     if (args.sourceITwinId || args.targetITwinId) {
@@ -360,9 +364,30 @@ void (async () => {
         iTwinId: targetITwinId,
         iModelId: targetIModelId,
       });
+      const fileName = targetDb.pathName;
+
+      if (args.targetStandaloneDestination) {
+        fs.copyFileSync(fileName, args.targetStandaloneDestination);
+        function setToStandalone(iModelPath: string) {
+          const nativeDb = new IModelHost.platform.DgnDb();
+          nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
+          nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
+          nativeDb.saveChanges(); // save change to iTwinId
+          nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
+          nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
+          nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
+          nativeDb.saveChanges(); // save change to briefcaseId
+          nativeDb.closeIModel();
+        }
+        targetDb.close();
+        setToStandalone(args.targetStandaloneDestination);
+        await StandaloneDb.upgradeSchemas({ fileName });
+        targetDb = StandaloneDb.openFile(args.targetStandaloneDestination);
+      }
+
     } else if (args.targetDestination) {
       const targetDestination = path.normalize(args.targetDestination);
-      //assert(!processChanges, "cannot process changes because targetDestination creates a new iModel");
+      // assert(!processChanges, "cannot process changes because targetDestination creates a new iModel");
       // clean target output destination before continuing (regardless of args.clean value)
       if (IModelJsFs.existsSync(targetDestination)) {
         IModelJsFs.removeSync(targetDestination);
@@ -436,10 +461,14 @@ void (async () => {
       ElementUtils.validateDisplayStyles(targetDb);
     }
 
-    sourceDb.close();
-    targetDb.close();
-    await IModelHost.shutdown();
   } catch (error: any) {
     process.stdout.write(`${error.message}\n${error.stack}`);
+  } finally {
+    if (targetDb! instanceof BriefcaseDb)
+      await targetDb.locks.releaseAllLocks();
+    targetDb!.close();
+    sourceDb!.close();
+    await IModelHost.shutdown();
+    process.exit();
   }
 })();
