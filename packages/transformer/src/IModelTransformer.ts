@@ -17,15 +17,15 @@ import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
-  ChannelRootAspect, ClassRegistry, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
+  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, QueryBinder, RelatedElement,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { hasEntityChanged, IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -1097,14 +1097,12 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    const args: LastElementArgs = { 
+    this._lastEntity.markLastEntity({ 
       sourceEntityECInstanceId: sourceElement.id, 
       targetEntityECInstanceId: targetElementProps.id!, 
       entityKind: EntityKind.Element,
       operationCode: this._wasElementUpdated(targetElementId) ? ChangeOpCode.Update : ChangeOpCode.Insert
-    };
-
-    this._lastEntity.markLastEntity(args);
+    });
   }
 
   /**
@@ -1374,16 +1372,16 @@ export class IModelTransformer extends IModelExportHandler {
         // FIXME: make importer.deleteRelationship not need full props
         const targetRelationship = this.targetDb.relationships.tryGetInstance(targetRelClassFullName, { sourceId, targetId });
         if (targetRelationship) {
+          this._lastEntity.markLastEntity({ 
+            sourceEntityECInstanceId: sourceRelInstanceId, 
+            targetEntityECInstanceId: targetRelationship.id, 
+            entityClassFullName: targetRelClassFullName,
+            entityKind: EntityKind.Relationship,
+            operationCode: ChangeOpCode.Delete
+          });
+
           this.importer.deleteRelationship(targetRelationship.toJSON());
         }
-
-        this._lastEntity.markLastEntity({ 
-          sourceEntityECInstanceId: sourceRelInstanceId, 
-          targetEntityECInstanceId: targetRelationship?.id ?? "", 
-          entityClassFullName: targetRelClassFullName,
-          entityKind: EntityKind.Relationship,
-          operationCode: ChangeOpCode.Delete
-        });
 
         // FIXME: restore in ESA compatible method
         //this.targetDb.elements.deleteAspect(statement.getValue(0).getId());
@@ -1804,25 +1802,54 @@ export class IModelTransformer extends IModelExportHandler {
    * @param constructorArgs remaining arguments that you would normally pass to the Transformer subclass you are using, usually (sourceDb, targetDb)
    * @note custom transformers with custom state may need to override this method in order to handle loading their own custom state somewhere
    */
-  public static async resumeTransformation<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
+  public static resumeTransformation<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
     this: SubClass,
     statePath: string,
-    args?: InitFromExternalSourceAspectsArgs,
     ...constructorArgs: ConstructorParameters<SubClass>
-  ): Promise<InstanceType<SubClass>> {
+  ): InstanceType<SubClass> {
     const transformer = new this(...constructorArgs);
     const db = new SQLiteDb();
     db.openDb(statePath, OpenMode.Readonly);
     try {
       transformer.loadStateFromDb(db);
-      transformer.initScopeProvenance();
-      await transformer._tryInitChangesetData(args);
       transformer.verifyTargetIModel();
     } finally {
       db.closeDb();
     }
     return transformer as InstanceType<SubClass>;
   }
+
+    /**
+   * Return a new transformer instance with the same remappings state as saved from a previous [[IModelTransformer.saveStateToFile]] call.
+   * This allows you to "resume" an iModel transformation, you will have to call [[IModelTransformer.processChanges]]/[[IModelTransformer.processAll]]
+   * again but the remapping state will cause already mapped elements to be skipped.
+   * To "resume" an iModel Transformation you need:
+   * - the sourceDb at the same changeset
+   * - the same targetDb in the state in which it was before
+   * @param statePath the path to the serialized state of the transformer, use [[IModelTransformer.saveStateToFile]] to get this from an existing transformer instance
+   * @param constructorArgs remaining arguments that you would normally pass to the Transformer subclass you are using, usually (sourceDb, targetDb)
+   * @note custom transformers with custom state may need to override this method in order to handle loading their own custom state somewhere
+   */
+    public static async newResumeTransformation<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
+      this: SubClass,
+      args: { statePath: string, initializeArgs?: InitFromExternalSourceAspectsArgs },
+      ...constructorArgs: ConstructorParameters<SubClass>
+    ): Promise<InstanceType<SubClass>> {
+      const transformer = new this(...constructorArgs);
+      const db = new SQLiteDb();
+      db.openDb(args.statePath, OpenMode.Readonly);
+      try {
+        transformer.loadStateFromDb(db);
+        transformer.initScopeProvenance();
+        await transformer.initialize(args.initializeArgs);
+        // transformer.initScopeProvenance();
+        // await transformer._tryInitChangesetData(args);
+        transformer.verifyTargetIModel();
+      } finally {
+        db.closeDb();
+      }
+      return transformer as InstanceType<SubClass>;
+    }
 
   /**
    * You may override this to store arbitrary json state in a transformer state dump, useful for some resumptions
