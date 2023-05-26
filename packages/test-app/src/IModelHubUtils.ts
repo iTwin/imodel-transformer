@@ -9,7 +9,7 @@ import * as assert from "assert";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { BriefcaseDb, BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
-import { BriefcaseIdValue, ChangesetId, ChangesetIndex, ChangesetProps } from "@itwin/core-common";
+import { BriefcaseIdValue, ChangesetId, ChangesetIndex, ChangesetProps, LocalBriefcaseProps } from "@itwin/core-common";
 import { IModelsClient, NamedVersion } from "@itwin/imodels-client-authoring";
 import { loggerCategory } from "./Transformer";
 
@@ -93,25 +93,28 @@ export namespace IModelHubUtils {
     const PROGRESS_FREQ_MS = 2000;
     let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
+    const cached = BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)[0] as LocalBriefcaseProps | undefined;
     const briefcaseProps =
-      BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)[0] ??
-      (await BriefcaseManager.downloadBriefcase({
-        ...briefcaseArg,
-        accessToken: await IModelTransformerTestAppHost.acquireAccessToken(),
-        onProgress(loadedBytes, totalBytes) {
-          if (totalBytes !== 0 && Date.now() > nextProgressUpdate || loadedBytes === totalBytes) {
-            if (loadedBytes === totalBytes)
-              Logger.logInfo(loggerCategory, "Briefcase download completed");
+      // TODO: pull cached version up to desired changeset
+      cached && cached.changeset.id === briefcaseArg.asOf?.afterChangeSetId
+        ? cached
+        : (await BriefcaseManager.downloadBriefcase({
+          ...briefcaseArg,
+          accessToken: await IModelTransformerTestAppHost.acquireAccessToken(),
+          onProgress(loadedBytes, totalBytes) {
+            if (totalBytes !== 0 && Date.now() > nextProgressUpdate || loadedBytes === totalBytes) {
+              if (loadedBytes === totalBytes)
+                Logger.logInfo(loggerCategory, "Briefcase download completed");
 
-            const asMb = (n: number) => (n / (1024 * 1024)).toFixed(2);
-            if (loadedBytes < totalBytes)
-              Logger.logInfo(loggerCategory, `Downloaded ${asMb(loadedBytes)} of ${asMb(totalBytes)}`);
+              const asMb = (n: number) => (n / (1024 * 1024)).toFixed(2);
+              if (loadedBytes < totalBytes)
+                Logger.logInfo(loggerCategory, `Downloaded ${asMb(loadedBytes)} of ${asMb(totalBytes)}`);
 
-            nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
-          }
-          return 0;
-        },
-      }));
+              nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
+            }
+            return 0;
+          },
+        }));
 
     return BriefcaseDb.open({
       fileName: briefcaseProps.fileName,
