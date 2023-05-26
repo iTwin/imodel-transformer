@@ -10,6 +10,7 @@ import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
   CategorySelector, DisplayStyle3d, DocumentListModel, Drawing, DrawingCategory, DrawingGraphic, DrawingModel, ECSqlStatement, Element,
+  ElementGroupsMembers,
   ElementMultiAspect, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementRefersToElements,
   ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
   InformationRecordModel, InformationRecordPartition, LinkElement, Model, ModelSelector, OrthographicViewDefinition,
@@ -21,7 +22,7 @@ import * as TestUtils from "../TestUtils";
 import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, BriefcaseIdValue, Code, CodeScopeSpec, CodeSpec, ColorDef, CreateIModelProps, DefinitionElementProps, ElementAspectProps, ElementProps,
-  ExternalSourceAspectProps, ImageSourceFormat, IModel, IModelError, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps,
+  ExternalSourceAspectProps, ImageSourceFormat, IModel, IModelError, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
@@ -2502,4 +2503,144 @@ describe("IModelTransformer", () => {
     sourceDb.close();
     targetDb.close();
   });
+
+  it("should convert ExternalSourceAspect from master to branch and back for internal transforms", async () => {
+    // Simulate branching workflow by initializing branchDb to be a copy of the populated masterDb
+    const masterDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ExternalSourceAspectMaster.bim");
+    const masterDb = SnapshotDb.createEmpty(masterDbFile, { rootSubject: { name: "ExternalSourceAspectUpdate" } });
+    const branchDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ExternalSourceAspectBranch.bim");
+
+    // Constants
+    const categoryName = "category";
+    const physicalDigitalTwinModelName = "physicalDigitalTwinModel";
+    const physicalAcquisitionModelName = "physicalAcquisitionModel";
+
+    // Common properties for physical object
+    const makePhysicalObject = (num: number, catId: Id64String) => ({
+      classFullName: PhysicalObject.classFullName,
+      category: catId,
+      geom: IModelTransformerTestUtils.createBox(Point3d.create(num, num, num)),
+      placement: {
+        origin: Point3d.create(num, num, num),
+        angles: YawPitchRollAngles.createDegrees(num, num, num),
+      },
+    } as const);
+
+    // Seed masterDb with a PhysicalModel
+    const categoryId = SpatialCategory.insert(masterDb, IModel.dictionaryId, categoryName, new SubCategoryAppearance());
+    const physicalModelDtId = PhysicalModel.insert(masterDb, IModel.rootSubjectId, physicalDigitalTwinModelName);
+    masterDb.saveChanges();
+
+    // Sync master to branch
+    const branchDb = SnapshotDb.createFrom(masterDb, branchDbFile, { createClassViews: true });
+    const masterToBranchTransformer = new IModelTransformer(masterDb, branchDb, { wasSourceIModelCopiedToTarget: true }); // Note use of `wasSourceIModelCopiedToTarget` flag
+    await masterToBranchTransformer.processAll();
+    masterToBranchTransformer.dispose();
+    branchDb.saveChanges();
+
+    // On Branch create new Physical model (simulate Acquisition)
+    const physicalModelAcqId = PhysicalModel.insert(branchDb, IModel.rootSubjectId, physicalAcquisitionModelName);
+    masterDb.saveChanges();
+
+    // On Branch create physical elements in the physicalAcquisitionModel and physicalDigitalTwinModel
+    const element1AcquisitionCodeValue = "element1Acquisition";
+    const element1AcquisitionId = new PhysicalObject({
+      ...makePhysicalObject(1, categoryId),
+      model: physicalModelAcqId,
+      code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: element1AcquisitionCodeValue }),
+    }, branchDb).insert();
+    const element2DigitalTwinCodeValue = "element2DigitalTwin";
+    const element2DigitalTwinId = new PhysicalObject({
+      ...makePhysicalObject(1, categoryId),
+      model: physicalModelDtId,
+      code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: element2DigitalTwinCodeValue }),
+    }, branchDb).insert();
+
+    // On branch, insert relationship
+    const insertedRelId = branchDb.relationships.insertInstance({
+      classFullName: ElementGroupsMembers.classFullName,
+      sourceId: element1AcquisitionId,
+      targetId: element2DigitalTwinId,
+    });
+    assert.isTrue(Id64.isValidId64(insertedRelId));
+
+    // Update branch with simulated element provenance from an internal iModel transform or PlantSight Aggregation
+    const elementAspectProps: ExternalSourceAspectProps = {
+      classFullName: ExternalSourceAspect.classFullName,
+      element: { id: element2DigitalTwinId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
+      scope: { id: physicalModelDtId },
+      identifier: element1AcquisitionId,
+      kind: ExternalSourceAspect.Kind.Element,
+      version: branchDb.elements.queryLastModifiedTime(element1AcquisitionId),
+    };
+    branchDb.elements.insertAspect(elementAspectProps);
+
+    // Update branch with simulated relationship provenance from an internal iModel transform or PlantSight Aggregation
+    const relationshipAspectProps: ExternalSourceAspectProps = {
+      classFullName: ExternalSourceAspect.classFullName,
+      element: { id: element2DigitalTwinId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
+      scope: { id: physicalModelDtId },
+      identifier: element1AcquisitionId,
+      kind: ExternalSourceAspect.Kind.Relationship,
+      jsonProperties: JSON.stringify({ targetRelInstanceId: insertedRelId }),
+    };
+    branchDb.elements.insertAspect(relationshipAspectProps);
+    branchDb.saveChanges();
+
+    // Update masterDb with a new PhysicalElement to guarantee elementIds will not align after a merge
+    const element3CodeValue = "element3MasterOrigin";
+    new PhysicalObject({
+      ...makePhysicalObject(1, categoryId),
+      model: physicalModelDtId,
+      code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: element3CodeValue }),
+    }, masterDb).insert();
+    masterDb.saveChanges();
+
+    // Synchronize changes from branch to master
+    const branchToMasterTransformer = new IModelTransformer(branchDb, masterDb, { isReverseSynchronization: true, includeSourceProvenance: true });
+    await branchToMasterTransformer.processAll();
+    branchToMasterTransformer.dispose();
+    masterDb.saveChanges();
+
+    // Get the AcquisitionElementId and DigitalTwinElementId from master after merge
+    const masterAcquisitionEleId = IModelTransformerTestUtils.queryByCodeValue(masterDb, element1AcquisitionCodeValue);
+    const masterDigitalTwinEleId = IModelTransformerTestUtils.queryByCodeValue(masterDb, element2DigitalTwinCodeValue);
+
+    const sql = `SELECT aspect.Identifier, aspect.JsonProperties FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind AND scope.Id=:scope AND aspect.Element.Id=:ownerId`;
+
+    // Confirm element provenance captured in ExternalSourceAspect was merged correctly
+    let aspectAcquisitionEleId;
+    masterDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
+      statement.bindString("kind", ExternalSourceAspect.Kind.Element);
+      statement.bindId("scope", physicalModelDtId);
+      statement.bindId("ownerId", masterDigitalTwinEleId);
+      while (DbResult.BE_SQLITE_ROW === statement.step()) {
+        aspectAcquisitionEleId = statement.getValue(0).getString(); // ExternalSourceAspect.Identifier is of type string
+        assert.equal(masterAcquisitionEleId, aspectAcquisitionEleId, `ExternalSourceAspect identifier:${aspectAcquisitionEleId} does not match expected elementId:${masterAcquisitionEleId}`);
+      }
+    });
+    assert.isDefined(aspectAcquisitionEleId, `ExternalSourceAspect created on Branch missing in Master`);
+
+    // Confirm relationship provenance captured in ExternalSourceAspect was merged correctly
+    const masterRel = masterDb.relationships.getInstance(ElementGroupsMembers.classFullName, { sourceId: masterAcquisitionEleId, targetId: masterDigitalTwinEleId });
+    assert.isDefined(masterRel, `Relationship missing in Master`);
+    let aspectRelId: string | undefined;
+    masterDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
+      statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
+      statement.bindId("scope", physicalModelDtId);
+      statement.bindId("ownerId", masterDigitalTwinEleId);
+      while (DbResult.BE_SQLITE_ROW === statement.step()) {
+        const json: any = JSON.parse(statement.getValue(1).getString());
+        if (undefined !== json.targetRelInstanceId) {
+          aspectRelId = json.targetRelInstanceId;
+        }
+        assert.equal(masterRel.id, aspectRelId, `ExternalSourceAspect relationshipId:${aspectRelId} does not match expected relationshipId:${masterRel.id}`);
+      }
+    });
+    assert.isDefined(aspectRelId, `ExternalSourceAspect created on Branch missing in Master`);
+
+    masterDb.close();
+    branchDb.close();
+  });
+
 });
