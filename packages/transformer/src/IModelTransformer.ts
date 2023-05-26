@@ -562,7 +562,7 @@ export class IModelTransformer extends IModelExportHandler {
         this.importer.deleteElement(targetElementId);
       } catch (err: any) {
         // ignore not found elements, iterative element tree deletion might have already deleted them
-        if (err.message.Name === "Not Found")
+        if (err.name !== "Not Found")
           throw err;
       }
     });

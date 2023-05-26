@@ -2347,6 +2347,7 @@ describe("IModelTransformer", () => {
     await expect(transformer.processAll()).not.to.be.rejected;
     targetDb.saveChanges();
 
+    expect(sourceDb.models.tryGetModel(modelInTarget)).to.be.undefined;
     expect(targetDb.elements.tryGetElement(modelInTarget)).to.be.undefined;
     expect(targetDb.elements.tryGetElement(objInTarget)).to.be.undefined;
 
