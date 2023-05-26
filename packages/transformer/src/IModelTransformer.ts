@@ -28,23 +28,15 @@ import {
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, QueryBinder, RelatedElement,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
-import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
+import { hasEntityChanged, IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
+import { EntityKind, LastElementArgs, LastEntity } from "./LastEntity";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
-
-const nullLastProvenanceEntityInfo = {
-  entityId: Id64.invalid,
-  aspectId: Id64.invalid,
-  aspectVersion: "",
-  aspectKind: ExternalSourceAspect.Kind.Element,
-};
-
-type LastProvenanceEntityInfo = typeof nullLastProvenanceEntityInfo;
 
 type EntityTransformHandler = (entity: ConcreteEntity) => ElementProps | ModelProps | RelationshipProps | ElementAspectProps;
 
@@ -852,11 +844,18 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom change detection behavior.
    */
   protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
+    return this._hasElementChangedUsingChangesets(sourceElement.id)
+  }
+
+    /** Returns true if a change within sourceElement is detected.
+   * @param sourceElementId The Element Id from the source iModel
+   */
+  private _hasElementChangedUsingChangesets(sourceElementId: Id64String): boolean {
     if (this._changeDataState === "no-changes") return false;
     if (this._changeDataState === "unconnected") return true;
     nodeAssert(this._changeDataState === "has-changes", "change data should be initialized by now");
     if (this._hasElementChangedCache === undefined) this._cacheSourceChanges();
-    return this._hasElementChangedCache!.has(sourceElement.id);
+    return this._hasElementChangedCache!.has(sourceElementId);
   }
 
   private static transformCallbackFor(transformer: IModelTransformer, entity: ConcreteEntity): EntityTransformHandler {
@@ -1087,8 +1086,7 @@ export class IModelTransformer extends IModelExportHandler {
     // verify at finalization time that we don't lose provenance on new elements
     // make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
-      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceElement.federationGuid;
-      if (!provenance) {
+      if (!sourceElement.federationGuid) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
         let [aspectId] = this.queryScopeExternalSource(aspectProps);
         if (aspectId === undefined) {
@@ -1096,11 +1094,28 @@ export class IModelTransformer extends IModelExportHandler {
         } else {
           this.provenanceDb.elements.updateAspect(aspectProps);
         }
-        aspectProps.id = aspectId;
-        provenance = aspectProps as MarkRequired<ExternalSourceAspectProps, "id">;
       }
-      this.markLastProvenance(provenance, { isRelationship: false });
     }
+
+    const args: LastElementArgs = { 
+      sourceEntityECInstanceId: sourceElement.id, 
+      targetEntityECInstanceId: targetElementProps.id!, 
+      entityKind: EntityKind.Element,
+      operationCode: this._wasElementUpdated(targetElementId) ? ChangeOpCode.Update : ChangeOpCode.Insert
+    };
+
+    this._lastEntity.markLastEntity(args);
+  }
+
+  /**
+   * Use only in [[IModelTransformer.onExportElement]] for [[LastEntity.markLastEntity]]
+   * @param targetElementId 
+   */
+  private _wasElementUpdated(targetElementId: Id64String | undefined): boolean {
+    if (targetElementId && this.importer.doNotUpdateElementIds.has(targetElementId)) {
+      return false;
+    }
+    return !!targetElementId
   }
 
   private resolvePendingReferences(entity: ConcreteEntity) {
@@ -1120,6 +1135,12 @@ export class IModelTransformer extends IModelExportHandler {
   public override onDeleteElement(sourceElementId: Id64String): void {
     const targetElementId: Id64String = this.context.findTargetElementId(sourceElementId);
     if (Id64.isValidId64(targetElementId)) {
+      this._lastEntity.markLastEntity({ 
+        sourceEntityECInstanceId: sourceElementId, 
+        targetEntityECInstanceId: targetElementId, 
+        entityKind: EntityKind.Element,
+        operationCode: ChangeOpCode.Delete
+      });
       this.importer.deleteElement(targetElementId);
     }
   }
@@ -1279,20 +1300,24 @@ export class IModelTransformer extends IModelExportHandler {
   public override onExportRelationship(sourceRelationship: Relationship): void {
     const sourceFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.sourceId);
     const targetFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.targetId);
-    const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
+    const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship); // targetRelationshipProps.id will be valid (indicating update) or undefined (indicating insert)
     const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
-      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`;
-      if (!provenance) {
+      if (!sourceFedGuid || !targetFedGuid) {
         const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
         if (undefined === aspectProps.id) {
-          aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
+          this.provenanceDb.elements.insertAspect(aspectProps);
         }
-        assert(aspectProps.id !== undefined);
-        provenance = aspectProps as MarkRequired<ExternalSourceAspectProps, "id">;
       }
-      this.markLastProvenance(provenance, { isRelationship: true });
     }
+
+    this._lastEntity.markLastEntity({ 
+      sourceEntityECInstanceId: sourceRelationship.id, 
+      targetEntityECInstanceId: targetRelationshipInstanceId, 
+      entityClassFullName: targetRelationshipProps.classFullName,
+      entityKind: EntityKind.Relationship,
+      operationCode: targetRelationshipProps.id ? ChangeOpCode.Update : ChangeOpCode.Insert
+    });
   }
 
   // FIXME: need to check if the class was remapped and use that id instead
@@ -1351,6 +1376,15 @@ export class IModelTransformer extends IModelExportHandler {
         if (targetRelationship) {
           this.importer.deleteRelationship(targetRelationship.toJSON());
         }
+
+        this._lastEntity.markLastEntity({ 
+          sourceEntityECInstanceId: sourceRelInstanceId, 
+          targetEntityECInstanceId: targetRelationship?.id ?? "", 
+          entityClassFullName: targetRelClassFullName,
+          entityKind: EntityKind.Relationship,
+          operationCode: ChangeOpCode.Delete
+        });
+
         // FIXME: restore in ESA compatible method
         //this.targetDb.elements.deleteAspect(statement.getValue(0).getId());
       }
@@ -1683,20 +1717,8 @@ export class IModelTransformer extends IModelExportHandler {
     this.events.emit(TransformerEvent.endProcessAll);
   }
 
-  /** previous provenance, either a federation guid, a `${sourceFedGuid}/${targetFedGuid}` pair, or required aspect props */
-  private _lastProvenanceEntityInfo: string | LastProvenanceEntityInfo = nullLastProvenanceEntityInfo;
-
-  private markLastProvenance(sourceAspect: string | MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship = false }) {
-    this._lastProvenanceEntityInfo
-      = typeof sourceAspect === "string"
-      ? sourceAspect
-      : {
-        entityId: sourceAspect.element.id,
-        aspectId: sourceAspect.id,
-        aspectVersion: sourceAspect.version ?? "",
-        aspectKind: isRelationship ? ExternalSourceAspect.Kind.Relationship : ExternalSourceAspect.Kind.Element,
-      };
-  }
+  /** last element or relationship that was processed */
+  private _lastEntity: LastEntity = new LastEntity();
 
   /** @internal the name of the table where javascript state of the transformer is serialized in transformer state dumps */
   public static readonly jsStateTable = "TransformerJsState";
@@ -1711,77 +1733,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note the SQLiteDb must be open
    */
   protected loadStateFromDb(db: SQLiteDb): void {
-    const lastProvenanceEntityInfo: IModelTransformer["_lastProvenanceEntityInfo"] = db.withSqliteStatement(
-      `SELECT entityId, aspectId, aspectVersion, aspectKind FROM ${IModelTransformer.lastProvenanceEntityInfoTable}`,
-      (stmt) => {
-        if (DbResult.BE_SQLITE_ROW !== stmt.step())
-          throw Error(
-            "expected row when getting lastProvenanceEntityId from target state table"
-          );
-        const entityId = stmt.getValueString(0);
-        const isGuidOrGuidPair = entityId.includes('-')
-        return isGuidOrGuidPair
-          ? entityId
-          : {
-            entityId,
-            aspectId: stmt.getValueString(1),
-            aspectVersion: stmt.getValueString(2),
-            aspectKind: stmt.getValueString(3) as ExternalSourceAspect.Kind,
-          };
-      }
-    );
-
-    /*
-    // TODO: maybe save transformer state resumption state based on target changset and require calls
-    // to saveChanges
-    if () {
-      const [sourceFedGuid, targetFedGuid, relClassFullName] = lastProvenanceEntityInfo.split("/");
-      const isRelProvenance = targetFedGuid !== undefined;
-      const instanceId = isRelProvenance
-        ? this.targetDb.elements.getElement({federationGuid: sourceFedGuid})
-        : "";
-      //const classId =
-      if (isRelProvenance) {
-      }
-    }
-    */
-
-    const targetHasCorrectLastProvenance =
-      typeof lastProvenanceEntityInfo === "string" ||
-      // ignore provenance check if it's null since we can't bind those ids
-      !Id64.isValidId64(lastProvenanceEntityInfo.entityId) ||
-      !Id64.isValidId64(lastProvenanceEntityInfo.aspectId) ||
-      this.provenanceDb.withPreparedStatement(`
-        SELECT Version FROM ${ExternalSourceAspect.classFullName}
-        WHERE Scope.Id=:scopeId
-          AND ECInstanceId=:aspectId
-          AND Kind=:kind
-          AND Element.Id=:entityId
-      `,
-      (statement: ECSqlStatement): boolean => {
-        statement.bindId("scopeId", this.targetScopeElementId);
-        statement.bindId("aspectId", lastProvenanceEntityInfo.aspectId);
-        statement.bindString("kind", lastProvenanceEntityInfo.aspectKind);
-        statement.bindId("entityId", lastProvenanceEntityInfo.entityId);
-        const stepResult = statement.step();
-        switch (stepResult) {
-          case DbResult.BE_SQLITE_ROW:
-            const version = statement.getValue(0).getString();
-            return version === lastProvenanceEntityInfo.aspectVersion;
-          case DbResult.BE_SQLITE_DONE:
-            return false;
-          default:
-            throw new IModelError(IModelStatus.SQLiteError, `got sql error ${stepResult}`);
-        }
-      });
-
-    if (!targetHasCorrectLastProvenance)
-      throw Error([
-        "Target for resuming from does not have the expected provenance ",
-        "from the target that the resume state was made with",
-      ].join("\n"));
-    this._lastProvenanceEntityInfo = lastProvenanceEntityInfo;
-
     const state = db.withSqliteStatement(`SELECT data FROM ${IModelTransformer.jsStateTable}`, (stmt) => {
       if (DbResult.BE_SQLITE_ROW !== stmt.step())
         throw Error("expected row when getting data from js state table");
@@ -1795,6 +1746,51 @@ export class IModelTransformer extends IModelExportHandler {
     this.importer.loadStateFromJson(state.importerState);
     this.exporter.loadStateFromJson(state.exporterState);
     this.loadAdditionalStateJson(state.additionalState);
+
+
+    this._lastEntity.loadStateFromDb(db);
+  }
+
+  private verifyTargetIModel(): void {
+    // ignore provenance check if it's null since we can't bind those ids
+    let targetHasCorrectLastEntity = this._lastEntity.isNull();
+
+    if (this._lastEntity.entityKind === EntityKind.Element) {
+      switch (this._lastEntity.operationCode) {
+        case ChangeOpCode.Insert:
+          targetHasCorrectLastEntity = !!this.targetDb.elements.tryGetElement(this._lastEntity.targetEntityECInstanceId);
+          break;
+        case ChangeOpCode.Update:
+          targetHasCorrectLastEntity = this._hasElementChangedUsingChangesets(this._lastEntity.sourceEntityECInstanceId)
+          break;
+        default:
+          targetHasCorrectLastEntity = !this.targetDb.elements.tryGetElement(this._lastEntity.targetEntityECInstanceId);
+          break;
+      }
+    } else if (this._lastEntity.entityKind === EntityKind.Relationship) {
+      switch (this._lastEntity.operationCode) {
+        case ChangeOpCode.Insert:
+          targetHasCorrectLastEntity = !!this.targetDb.relationships.tryGetInstanceProps(this._lastEntity.entityClassFullName, this._lastEntity.targetEntityECInstanceId);
+          break;
+        case ChangeOpCode.Update:
+          const sourceRelationship = this.sourceDb.relationships.tryGetInstance(this._lastEntity.entityClassFullName, this._lastEntity.sourceEntityECInstanceId);
+          const targetRelationshipProps = this.targetDb.relationships.tryGetInstanceProps(this._lastEntity.entityClassFullName, this._lastEntity.targetEntityECInstanceId);
+          if (sourceRelationship && targetRelationshipProps) {
+            // if hasEntityChanged returns false it means that targetDb has updated this relationship
+            targetHasCorrectLastEntity = !hasEntityChanged(sourceRelationship, targetRelationshipProps)
+          }
+          break;
+        default:
+          targetHasCorrectLastEntity = !this.targetDb.relationships.tryGetInstanceProps(this._lastEntity.entityClassFullName, this._lastEntity.targetEntityECInstanceId);
+          break;
+      }
+    }
+
+    if (!targetHasCorrectLastEntity)
+      throw Error([
+        "Target for resuming from does not have the expected provenance ",
+        "from the target that the resume state was made with",
+      ].join("\n"));
   }
 
   /**
@@ -1808,16 +1804,20 @@ export class IModelTransformer extends IModelExportHandler {
    * @param constructorArgs remaining arguments that you would normally pass to the Transformer subclass you are using, usually (sourceDb, targetDb)
    * @note custom transformers with custom state may need to override this method in order to handle loading their own custom state somewhere
    */
-  public static resumeTransformation<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
+  public static async resumeTransformation<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
     this: SubClass,
     statePath: string,
+    args?: InitFromExternalSourceAspectsArgs,
     ...constructorArgs: ConstructorParameters<SubClass>
-  ): InstanceType<SubClass> {
+  ): Promise<InstanceType<SubClass>> {
     const transformer = new this(...constructorArgs);
     const db = new SQLiteDb();
     db.openDb(statePath, OpenMode.Readonly);
     try {
       transformer.loadStateFromDb(db);
+      transformer.initScopeProvenance();
+      await transformer._tryInitChangesetData(args);
+      transformer.verifyTargetIModel();
     } finally {
       db.closeDb();
     }
@@ -1853,21 +1853,14 @@ export class IModelTransformer extends IModelExportHandler {
       additionalState: this.getAdditionalStateJson(),
     };
 
+    // this._changeSummaryIds?.map((changeSummaryId) => { 
+    //   ChangeSummaryManager.queryChangeSummary(this.sourceDb, changeSummaryId)
+
+    // })
+
     this.context.saveStateToDb(db);
     if (DbResult.BE_SQLITE_DONE !== db.executeSQL(`CREATE TABLE ${IModelTransformer.jsStateTable} (data TEXT)`))
       throw Error("Failed to create the js state table in the state database");
-
-    if (DbResult.BE_SQLITE_DONE !== db.executeSQL(`
-      CREATE TABLE ${IModelTransformer.lastProvenanceEntityInfoTable} (
-        -- either the invalid id for null provenance state, federation guid (or pair for rels) of the entity, or a hex element id
-        entityId TEXT,
-        -- the following are only valid if the above entityId is a hex id representation
-        aspectId TEXT,
-        aspectVersion TEXT,
-        aspectKind TEXT
-      )
-    `))
-      throw Error("Failed to create the target state table in the state database");
 
     db.saveChanges();
     db.withSqliteStatement(
@@ -1878,17 +1871,7 @@ export class IModelTransformer extends IModelExportHandler {
           throw Error("Failed to insert options into the state database");
       });
 
-    db.withSqliteStatement(
-      `INSERT INTO ${IModelTransformer.lastProvenanceEntityInfoTable} (entityId, aspectId, aspectVersion, aspectKind) VALUES (?,?,?,?)`,
-      (stmt) => {
-        const lastProvenanceEntityInfo = this._lastProvenanceEntityInfo as LastProvenanceEntityInfo;
-        stmt.bindString(1, lastProvenanceEntityInfo?.entityId ?? this._lastProvenanceEntityInfo as string);
-        stmt.bindString(2, lastProvenanceEntityInfo?.aspectId ?? "");
-        stmt.bindString(3, lastProvenanceEntityInfo?.aspectVersion ?? "");
-        stmt.bindString(4, lastProvenanceEntityInfo?.aspectKind ?? "");
-        if (DbResult.BE_SQLITE_DONE !== stmt.step())
-          throw Error("Failed to insert options into the state database");
-      });
+    this._lastEntity.saveStateToDb(db);
 
     db.saveChanges();
   }
