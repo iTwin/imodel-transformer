@@ -107,9 +107,9 @@ describe("imodel-transformer", () => {
       if((count === 2 || count === 5)){
         describe(`Transforms of ${iModel.name}`, () => {
         for (const [testCaseName, testCaseRun] of Object.entries(testCases)) {
-            it(testCaseName, function () {
+            it(testCaseName, async function () {
             //if (!process.env.CI && iModel.tShirtsize !== 'm') this.skip();
-            testCaseRun.default(iModel, os, reporter);
+            await testCaseRun.default(iModel, os, reporter);
             }).timeout(0);
         }
         });
