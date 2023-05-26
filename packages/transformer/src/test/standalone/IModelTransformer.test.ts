@@ -2516,9 +2516,9 @@ describe("IModelTransformer", () => {
     const physicalAcquisitionModelName = "physicalAcquisitionModel";
 
     // Common properties for physical object
-    const makePhysicalObject = (num: number, categoryId: Id64String) => ({
+    const makePhysicalObject = (num: number, catId: Id64String) => ({
       classFullName: PhysicalObject.classFullName,
-      category: categoryId,
+      category: catId,
       geom: IModelTransformerTestUtils.createBox(Point3d.create(num, num, num)),
       placement: {
         origin: Point3d.create(num, num, num),
@@ -2542,12 +2542,12 @@ describe("IModelTransformer", () => {
     const physicalModelAcqId = PhysicalModel.insert(branchDb, IModel.rootSubjectId, physicalAcquisitionModelName);
     masterDb.saveChanges();
 
-    // On Branch create physical elements in the physicalAcquisitionModel and physicalDigitalTwinModel 
+    // On Branch create physical elements in the physicalAcquisitionModel and physicalDigitalTwinModel
     const element1AcquisitionCodeValue = "element1Acquisition";
     const element1AcquisitionId = new PhysicalObject({
       ...makePhysicalObject(1, categoryId),
       model: physicalModelAcqId,
-      code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: element1AcquisitionCodeValue })
+      code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: element1AcquisitionCodeValue }),
     }, branchDb).insert();
     const element2DigitalTwinCodeValue = "element2DigitalTwin";
     const element2DigitalTwinId = new PhysicalObject({
@@ -2565,30 +2565,30 @@ describe("IModelTransformer", () => {
     assert.isTrue(Id64.isValidId64(insertedRelId));
 
     // Update branch with simulated element provenance from an internal iModel transform or PlantSight Aggregation
-    const elementAspectProps: ExternalSourceAspectProps = { 
+    const elementAspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: element2DigitalTwinId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: physicalModelDtId },
       identifier: element1AcquisitionId,
       kind: ExternalSourceAspect.Kind.Element,
-      version: branchDb.elements.queryLastModifiedTime(element1AcquisitionId)
+      version: branchDb.elements.queryLastModifiedTime(element1AcquisitionId),
     };
     branchDb.elements.insertAspect(elementAspectProps);
 
     // Update branch with simulated relationship provenance from an internal iModel transform or PlantSight Aggregation
-    const relationshipAspectProps: ExternalSourceAspectProps = { 
+    const relationshipAspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: element2DigitalTwinId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: physicalModelDtId },
       identifier: element1AcquisitionId,
       kind: ExternalSourceAspect.Kind.Relationship,
-      jsonProperties: JSON.stringify({ targetRelInstanceId: insertedRelId })
+      jsonProperties: JSON.stringify({ targetRelInstanceId: insertedRelId }),
     };
     branchDb.elements.insertAspect(relationshipAspectProps);
     branchDb.saveChanges();
 
     // Update masterDb with a new PhysicalElement to guarantee elementIds will not align after a merge
-    const element3CodeValue = "element3MasterOrigin"
+    const element3CodeValue = "element3MasterOrigin";
     new PhysicalObject({
       ...makePhysicalObject(1, categoryId),
       model: physicalModelDtId,
@@ -2604,12 +2604,12 @@ describe("IModelTransformer", () => {
 
     // Get the AcquisitionElementId and DigitalTwinElementId from master after merge
     const masterAcquisitionEleId = IModelTransformerTestUtils.queryByCodeValue(masterDb, element1AcquisitionCodeValue);
-    const masterDigitalTwinEleId = IModelTransformerTestUtils.queryByCodeValue(masterDb, element2DigitalTwinCodeValue); 
+    const masterDigitalTwinEleId = IModelTransformerTestUtils.queryByCodeValue(masterDb, element2DigitalTwinCodeValue);
 
     const sql = `SELECT aspect.Identifier, aspect.JsonProperties FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind AND scope.Id=:scope AND aspect.Element.Id=:ownerId`;
 
     // Confirm element provenance captured in ExternalSourceAspect was merged correctly
-    let aspectAcquisitionEleId = undefined;
+    let aspectAcquisitionEleId;
     masterDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
       statement.bindId("scope", physicalModelDtId);
@@ -2624,7 +2624,7 @@ describe("IModelTransformer", () => {
     // Confirm relationship provenance captured in ExternalSourceAspect was merged correctly
     const masterRel = masterDb.relationships.getInstance(ElementGroupsMembers.classFullName, { sourceId: masterAcquisitionEleId, targetId: masterDigitalTwinEleId });
     assert.isDefined(masterRel, `Relationship missing in Master`);
-    let aspectRelId: string | undefined = undefined;
+    let aspectRelId: string | undefined;
     masterDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
       statement.bindId("scope", physicalModelDtId);
@@ -2641,6 +2641,6 @@ describe("IModelTransformer", () => {
 
     masterDb.close();
     branchDb.close();
-  })
+  });
 
 });
