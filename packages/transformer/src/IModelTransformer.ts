@@ -408,9 +408,6 @@ export class IModelTransformer extends IModelExportHandler {
       }
       if (!this._options.noProvenance) {
         this.provenanceDb.elements.insertAspect(aspectProps);
-        // FIXME: questionable, this will prevent detectElementDeletes, but this isn't necessarily
-        // a synchronizing transform. Probably should just always detect deletes when we have no change data
-        this._isFirstSynchronization = true; // couldn't tell this is the first time without provenance
       }
     }
   }
