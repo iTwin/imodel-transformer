@@ -17,13 +17,13 @@ import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bent
 import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
 //import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { getTestIModels } from "./TestContext";
+import { initOutputFile } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
 
-console.log("hello")
 const loggerCategory = "Transformer Performance Tests Identity";
 const assetsDir = path.join(__dirname, "assets");
 const outputDir = path.join(__dirname, ".output");
@@ -100,7 +100,7 @@ describe("imodel-transformer", () => {
   it(`Transform Regression Tests`, async () => {
     // const report = [] as Record<string, string | number>[];
     const reporter = new Reporter();
-    const reportPath = initOutputFile("report.csv");
+    const reportPath = initOutputFile("report.csv", outputDir);
     var count = 0;
     const os = require('os');
     for await (const iModel of getTestIModels()) {
@@ -109,7 +109,7 @@ describe("imodel-transformer", () => {
         for (const [testCaseName, testCaseRun] of Object.entries(testCases)) {
             it(testCaseName, function () {
             //if (!process.env.CI && iModel.tShirtsize !== 'm') this.skip();
-            testCaseRun.default(iModel);
+            testCaseRun.default(iModel, os, reporter);
             }).timeout(0);
         }
         });
@@ -119,31 +119,3 @@ describe("imodel-transformer", () => {
     reporter.exportCSV(reportPath);
   });
 });
-
-function initOutputFile(fileBaseName: string) {
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
-  }
-  const outputFileName = path.join(outputDir, fileBaseName);
-  if (fs.existsSync(outputFileName)) {
-    fs.unlinkSync(outputFileName);
-  }
-  return outputFileName;
-}
-
-function timed<F extends (() => any) | (() => Promise<any>)>(
-  f: F
-): [StopWatch, ReturnType<F>] | Promise<[StopWatch, PromiseReturnType<F>]> {
-  const stopwatch = new StopWatch();
-  stopwatch.start();
-  const result = f();
-  if (result instanceof Promise) {
-    return result.then<[StopWatch, PromiseReturnType<F>]>((innerResult) => {
-      stopwatch.stop();
-      return [stopwatch, innerResult];
-    });
-  } else {
-    stopwatch.stop();
-    return [stopwatch, result];
-  }
-}
