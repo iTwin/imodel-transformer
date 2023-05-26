@@ -60,7 +60,7 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
   const PROGRESS_FREQ_MS = 2000;
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
-  assert(IModelHost.authorizationClient !== undefined);
+  assert(IModelHost.authorizationClient !== undefined, "auth client undefined");
   const briefcaseProps =
     BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)[0] ??
     (await BriefcaseManager.downloadBriefcase({
