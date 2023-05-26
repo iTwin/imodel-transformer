@@ -9,8 +9,8 @@
     "clean": "rimraf lib",
     "lint": "eslint --max-warnings 0 \"./src/**/*.ts\" 1>&2",
     "test": "mocha --timeout 300000 --require ts-node/register test/**/*.test.ts",
-    "test-reg": "mocha --timeout 300000 --require ts-node/register test/**/TransformerRegression.test.ts",
-    "test-mocha": "mocha --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
+    "test-reg": "mocha --delay --timeout 300000 --require ts-node/register test/**/TransformerRegression.test.ts",
+    "test-mocha": "mocha --delay --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
     "process-reports": "node scripts/process-reports"
   },
   "repository": {},
