@@ -35,11 +35,11 @@ importers:
   packages/test-app:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 3.6.0 - 4.0.999
-      '@itwin/core-bentley': 3.6.0 - 4.0.999
-      '@itwin/core-common': 3.6.0 - 4.0.999
-      '@itwin/core-geometry': 3.6.0 - 4.0.999
-      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
+      '@itwin/core-backend': 3.6.0 - 3.7.999
+      '@itwin/core-bentley': 3.6.0 - 3.7.999
+      '@itwin/core-common': 3.6.0 - 3.7.999
+      '@itwin/core-geometry': 3.6.0 - 3.7.999
+      '@itwin/eslint-plugin': 3.6.0 - 3.7.999
       '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.2.1
       '@itwin/imodels-client-authoring': ^2.2.1
