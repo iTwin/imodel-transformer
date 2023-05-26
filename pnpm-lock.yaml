@@ -153,7 +153,7 @@ importers:
         specifier: 4.3.1
         version: 4.3.1
       '@types/chai-as-promised':
-        specifier: ^7.1.5
+        specifier: ^7
         version: 7.1.5
       '@types/mocha':
         specifier: ^8.2.2
@@ -171,7 +171,7 @@ importers:
         specifier: ^4.1.2
         version: 4.3.7
       chai-as-promised:
-        specifier: ^7.1.1
+        specifier: ^7
         version: 7.1.1(chai@4.3.7)
       cpx2:
         specifier: ^3.0.0
