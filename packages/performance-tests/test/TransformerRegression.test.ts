@@ -102,13 +102,14 @@ void (async function () {
   const testIModels = await setupTestData();
   const reporter = new Reporter();
 
+  // could probably add an outer describe here (surounding both foreaches) for any before after logic that isn't related to getting the test data. but idk for sure 
   testIModels.forEach(async (value, index, _array) => {
     const iModel = value;
     if (index === 2) {
       describe(`Transforms of ${iModel.name}`, async () => {
         testCasesMap.forEach(async (testCase, key, _map) => {
           it(key, async () => {
-            await testCase.default(iModel, os, reporter);
+            await testCase.default(iModel, os, reporter);  // add timeout(0)
           });
         });
       });
