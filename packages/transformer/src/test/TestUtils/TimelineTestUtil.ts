@@ -282,7 +282,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
 
         const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
         const startChangesetId = timelineStates.get(startIndex)?.changesets[syncSource].id;
-        await syncer.processChanges(accessToken, startChangesetId);
+        await syncer.processChanges({ accessToken, startChangesetId });
         syncer.dispose();
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;
