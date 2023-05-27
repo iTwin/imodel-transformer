@@ -26,7 +26,7 @@ import {
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
-import { ExportChangesArgs, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
+import { ChangedInstanceIds, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
@@ -218,7 +218,17 @@ export interface InitFromExternalSourceAspectsArgs {
   startChangesetId?: string;
 }
 
-export type ProcessChangesArgs = ExportChangesArgs;
+/** Arguments you can pass to [[IModelTransformer.processChanges]]
+ * @param accessToken A valid access token string
+ * @param startChangesetId Include changes from this changeset up through and including the current changeset.
+ * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
+ * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]] will be called to discover changed elements.
+ */
+export interface ProcessChangesArgs {
+  accessToken: AccessToken;
+  startChangesetId?: string;
+  changedInstanceIds?: ChangedInstanceIds;
+}
 
 /** Base class used to transform a source iModel into a different target iModel.
  * @see [iModel Transformation and Data Exchange]($docs/learning/transformer/index.md), [IModelExporter]($transformer), [IModelImporter]($transformer)
@@ -1504,19 +1514,23 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
- * Inserts, updates, and deletes are determined by inspecting the changeset(s).
- * @param accessToken A valid access token string
- * @param startChangesetId Include changes from this changeset up through and including the current changeset.
- * @param options Additional options.
- * If this parameter is not provided, then just the current changeset will be exported.
- * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
- */
-  public async processChanges(accessToken: AccessToken, startChangesetId?: string, options?: ProcessChangesArgs): Promise<void> {
+   * @param args Check [[ProcessChangesArgs]] interface for more information
+   * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   */
+  public async processChanges(args: ProcessChangesArgs): Promise<void>;
+  /** @deprecated Don't use this overload. */
+  public async processChanges(accessToken: AccessToken, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void>;
+  public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesArgs, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void> {
     Logger.logTrace(loggerCategory, "processChanges()");
     this.logSettings();
     this.validateScopeProvenance();
-    await this.initialize({ accessToken, startChangesetId });
-    await this.exporter.exportChanges(accessToken, startChangesetId, options);
+
+    const options: ProcessChangesArgs = typeof accessTokenOrArgs === "string"
+      ? { accessToken: accessTokenOrArgs, startChangesetId, changedInstanceIds: args?.changedInstanceIds }
+      : accessTokenOrArgs;
+
+    await this.initialize(options);
+    await this.exporter.exportChanges(options);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)

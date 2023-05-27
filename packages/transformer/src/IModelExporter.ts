@@ -27,12 +27,16 @@ export interface ExportSchemaResult {
   schemaPath?: string;
 }
 
-/** Additional options for exportChanges
+/** Arguments you can pass to [[IModelExporter.exportChanges]]
+ * @param accessToken The access token
+ * @param startChangesetId Include changes from this changeset up through and including the current changeset.
+ * If this parameter is not provided, then just the current changeset will be exported.
  * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
  * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] will be called to discover changed elements.
- * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
  */
 export interface ExportChangesArgs {
+  accessToken?: AccessToken;
+  startChangesetId?: string;
   changedInstanceIds?: ChangedInstanceIds;
 }
 
@@ -274,13 +278,17 @@ export class IModelExporter {
   }
 
   /** Export changes from the source iModel.
-   * @param accessToken The access token
-   * @param startChangesetId Include changes from this changeset up through and including the current changeset.
-   * If this parameter is not provided, then just the current changeset will be exported.
-   * @param options Additional options.
+   * @param args Check [[ExportChangesArgs]] interface for more information
    * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, options?: ExportChangesArgs): Promise<void> {
+  public async exportChanges(args?: ExportChangesArgs): Promise<void>;
+  /** @deprecated Don't use this overload. */
+  public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, args?: ExportChangesArgs): Promise<void>;
+  public async exportChanges(accessTokenOrArgs?: AccessToken | ExportChangesArgs, startChangesetId?: string, args?: ExportChangesArgs): Promise<void> {
+    const options: ExportChangesArgs | undefined = typeof accessTokenOrArgs === "string"
+      ? { accessToken: accessTokenOrArgs, startChangesetId, changedInstanceIds: args?.changedInstanceIds }
+      : accessTokenOrArgs;
+
     if (!this.sourceDb.isBriefcaseDb()) {
       throw new IModelError(IModelStatus.BadRequest, "Must be a briefcase to export changes");
     }
@@ -288,7 +296,7 @@ export class IModelExporter {
       await this.exportAll(); // no changesets, so revert to exportAll
       return;
     }
-    this._sourceDbChanges = options?.changedInstanceIds ?? await ChangedInstanceIds.initialize(accessToken, this.sourceDb, startChangesetId ?? this.sourceDb.changeset.id);
+    this._sourceDbChanges = options?.changedInstanceIds ?? await ChangedInstanceIds.initialize(options?.accessToken, this.sourceDb, options?.startChangesetId ?? this.sourceDb.changeset.id);
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
