@@ -189,6 +189,7 @@ async function transformWithCrashAndRecover<
 
     await t.processAll();
   },
+  isProcessChanges = false,
 }: {
   sourceDb: DbType;
   targetDb: DbType;
@@ -196,6 +197,7 @@ async function transformWithCrashAndRecover<
   /* what processing to do for the transform; default impl is above */
   transformerProcessing?: (transformer: Transformer, time?: number) => Promise<void>;
   disableCrashing?: (transformer: Transformer) => void;
+  isProcessChanges?: boolean,
 }) {
   let crashed = false;
   try {
@@ -210,8 +212,8 @@ async function transformWithCrashAndRecover<
     transformer.saveStateToFile(dumpPath);
     // eslint-disable-next-line @typescript-eslint/naming-convention
     const TransformerClass = transformer.constructor as typeof IModelTransformer;
-    transformer = await TransformerClass.newResumeTransformation({ 
-      statePath: dumpPath, initializeArgs: { accessToken: await HubWrappers.getAccessToken(TestUtils.TestUserType.Regular) } 
+    transformer = await TransformerClass.resumeTransformationWithInitialize({ 
+      statePath: dumpPath, initializeArgs: { accessToken: await HubWrappers.getAccessToken(TestUtils.TestUserType.Regular), isProcessChanges }
     }, sourceDb, targetDb) as Transformer;
     disableCrashing?.(transformer);
     await transformerProcessing(transformer);
@@ -282,14 +284,14 @@ describe("test resuming transformations", () => {
       const targetDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "targetDb1", description: "crashingTarget", noLocks: true });
       let targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
       let changesetId: ChangesetId;
-      const dumpPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
+      const statePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
       let transformer = new CountdownTransformer(sourceDb, targetDb);
       // after exporting 10 elements, save and push changes
       transformer.elementExportsUntilCall = 10;
       transformer.callback = async () => {
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "early state save" });
-        transformer.saveStateToFile(dumpPath);
+        transformer.saveStateToFile(statePath);
         changesetId = targetDb.changeset.id;
         // now after another 10 exported elements, interrupt for resumption
         transformer.elementExportsUntilCall = 10;
@@ -314,7 +316,7 @@ describe("test resuming transformations", () => {
         expect(targetDb.changeset.id).to.equal(changesetId!);
         // eslint-disable-next-line @typescript-eslint/naming-convention
         const TransformerClass = transformer.constructor as typeof IModelTransformer;
-        transformer = TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb) as CountdownTransformer;
+        transformer = (await TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)) as CountdownTransformer;
         await transformer.processAll();
         targetDb.saveChanges();
         return [transformer, targetDb] as const;
@@ -345,7 +347,7 @@ describe("test resuming transformations", () => {
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, regularTarget);
   });
 
-  it.only("simple single crash transform resumption", async () => {
+  it("simple single crash transform resumption", async () => {
     const sourceDbId = await IModelHost.hubAccess.createNewIModel({
       iTwinId,
       iModelName: "sourceDb1",
@@ -407,19 +409,19 @@ describe("test resuming transformations", () => {
     } catch (transformerErr) {
       expect((transformerErr as Error).message).to.equal("crash");
       crashed = true;
-      const dumpPath = IModelTransformerTestUtils.prepareOutputFile(
+      const statePath = IModelTransformerTestUtils.prepareOutputFile(
         "IModelTransformerResumption",
         "transformer-state.db"
       );
-      transformer.saveStateToFile(dumpPath);
+      transformer.saveStateToFile(statePath);
       // eslint-disable-next-line @typescript-eslint/naming-convention
       const TransformerClass = transformer.constructor as typeof IModelTransformer;
       // redownload targetDb so that it is reset to the old state
       targetDb.close();
       targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
-      expect(
-        () => TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb)
-      ).to.throw(/does not have the expected provenance/);
+      await expect(
+        TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
+      ).to.rejectedWith(/does not have the expected provenance/);
     }
 
     expect(crashed).to.be.true;
@@ -463,18 +465,18 @@ describe("test resuming transformations", () => {
       } catch (transformerErr) {
         expect((transformerErr as Error).message).to.equal("crash");
         crashed = true;
-        const dumpPath = IModelTransformerTestUtils.prepareOutputFile(
+        const statePath = IModelTransformerTestUtils.prepareOutputFile(
           "IModelTransformerResumption",
           "transformer-state.db"
         );
-        transformer.saveStateToFile(dumpPath);
-        expect(() =>
-          ResumeTransformerClass.resumeTransformation(
-            dumpPath,
+        transformer.saveStateToFile(statePath);
+        await expect(
+          ResumeTransformerClass.resumeTransformationWithInitialize(
+            { statePath },
             new ResumeExporterClass(sourceDb),
             new ResumeImporterClass(targetDb),
           )
-        ).to.throw(/it is not.*valid to resume with a different.*class/);
+        ).to.rejectedWith(/it is not.*valid to resume with a different.*class/);
       }
 
       expect(crashed).to.be.true;
@@ -548,15 +550,15 @@ describe("test resuming transformations", () => {
     (transformer.importer as AdditionalStateImporter).state1 = "importer-state-1";
     (transformer.exporter as AdditionalStateExporter).state1 = "exporter-state-1";
 
-    const dumpPath = IModelTransformerTestUtils.prepareOutputFile(
+    const statePath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformerResumption",
       "transformer-state.db"
     );
-    transformer.saveStateToFile(dumpPath);
+    transformer.saveStateToFile(statePath);
     // eslint-disable-next-line @typescript-eslint/naming-convention
     const TransformerClass = transformer.constructor as typeof AdditionalStateTransformer;
     transformer.dispose();
-    const resumedTransformer = TransformerClass.resumeTransformation(dumpPath, new AdditionalStateExporter(sourceDb), new AdditionalStateImporter(targetDb));
+    const resumedTransformer = await TransformerClass.resumeTransformationWithInitialize({ statePath }, new AdditionalStateExporter(sourceDb), new AdditionalStateImporter(targetDb));
     expect(resumedTransformer).not.to.equal(transformer);
     expect(resumedTransformer.state1).to.equal(transformer.state1);
     expect(resumedTransformer.state2).to.equal(transformer.state2);
@@ -581,20 +583,20 @@ describe("test resuming transformations", () => {
     } catch (transformerErr) {
       expect((transformerErr as Error).message).to.equal("crash");
       crashed = true;
-      const dumpPath = IModelTransformerTestUtils.prepareOutputFile(
+      const statePath = IModelTransformerTestUtils.prepareOutputFile(
         "IModelTransformerResumption",
         "transformer-state.db"
       );
-      transformer.saveStateToFile(dumpPath);
+      transformer.saveStateToFile(statePath);
       // eslint-disable-next-line @typescript-eslint/naming-convention
       const TransformerClass = transformer.constructor as typeof IModelTransformer;
       transformer.dispose();
       // redownload targetDb so that it is reset to the old state
       targetDb.close();
       targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
-      expect(
-        () => TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb)
-      ).to.throw(/does not have the expected provenance/);
+      await expect(
+        TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
+      ).to.rejectedWith(/does not have the expected provenance/);
     }
 
     expect(crashed).to.be.true;
@@ -617,14 +619,14 @@ describe("test resuming transformations", () => {
       } catch (transformerErr) {
         expect((transformerErr as Error).message).to.equal("crash");
         crashed = true;
-        const dumpPath = IModelTransformerTestUtils.prepareOutputFile(
+        const statePath = IModelTransformerTestUtils.prepareOutputFile(
           "IModelTransformerResumption",
           "transformer-state.db"
         );
-        transformer.saveStateToFile(dumpPath);
+        transformer.saveStateToFile(statePath);
         // eslint-disable-next-line @typescript-eslint/naming-convention
         const TransformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
-        TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb);
+        await TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb);
         transformer.relationshipExportsUntilCall = undefined;
         await transformer.processAll();
       }
@@ -707,7 +709,7 @@ describe("test resuming transformations", () => {
       const transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
       transformer.elementExportsUntilCall = 10;
       await transformWithCrashAndRecover({
-        sourceDb, targetDb, transformer, disableCrashing(t) {
+        sourceDb, targetDb, transformer, isProcessChanges: true, disableCrashing(t) {
           t.elementExportsUntilCall = undefined;
         }, async transformerProcessing(t) {
           await t.processChanges(accessToken);
@@ -802,10 +804,10 @@ describe("test resuming transformations", () => {
             break;
           } catch (transformerErr) {
             crashCount++;
-            const dumpPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
+            const statePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
             enableCrashes(false);
-            transformer.saveStateToFile(dumpPath);
-            transformer = CountingTransformer.resumeTransformation(dumpPath, { source: sourceDb, target: targetDb });
+            transformer.saveStateToFile(statePath);
+            transformer = await CountingTransformer.resumeTransformationWithInitialize({ statePath }, { source: sourceDb, target: targetDb });
             enableCrashes(true);
             crashableCallsMade = 0;
             console.log(`crashed after ${timer.elapsed.seconds} seconds`); // eslint-disable-line no-console

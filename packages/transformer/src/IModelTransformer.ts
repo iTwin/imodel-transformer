@@ -223,6 +223,7 @@ function mapId64<R>(
 export interface InitFromExternalSourceAspectsArgs {
   accessToken?: AccessToken;
   startChangesetId?: string;
+  isProcessChanges?: boolean;
 }
 
 /** events that the transformer emits, e.g. for signaling profilers @internal */
@@ -602,7 +603,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.context.remapElement(sourceElementId, targetElementId);
     });
 
-    if (args)
+    if (args?.isProcessChanges)
       return this.remapDeletedSourceElements();
   }
 
@@ -1644,7 +1645,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
-    if (!args || this.sourceDb.iTwinId === undefined) {
+    if (!args?.isProcessChanges || this.sourceDb.iTwinId === undefined) {
       this._changeDataState = "unconnected";
       return;
     }
@@ -1801,6 +1802,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param statePath the path to the serialized state of the transformer, use [[IModelTransformer.saveStateToFile]] to get this from an existing transformer instance
    * @param constructorArgs remaining arguments that you would normally pass to the Transformer subclass you are using, usually (sourceDb, targetDb)
    * @note custom transformers with custom state may need to override this method in order to handle loading their own custom state somewhere
+   * @deprecated Use [[IModelTransformer.resumeTransformationWithInitialize]] instead.
    */
   public static resumeTransformation<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
     this: SubClass,
@@ -1819,18 +1821,19 @@ export class IModelTransformer extends IModelExportHandler {
     return transformer as InstanceType<SubClass>;
   }
 
-    /**
+  /**
    * Return a new transformer instance with the same remappings state as saved from a previous [[IModelTransformer.saveStateToFile]] call.
    * This allows you to "resume" an iModel transformation, you will have to call [[IModelTransformer.processChanges]]/[[IModelTransformer.processAll]]
    * again but the remapping state will cause already mapped elements to be skipped.
    * To "resume" an iModel Transformation you need:
    * - the sourceDb at the same changeset
    * - the same targetDb in the state in which it was before
-   * @param statePath the path to the serialized state of the transformer, use [[IModelTransformer.saveStateToFile]] to get this from an existing transformer instance
+   * @param args includes statePath and [[InitFromExternalSourceAspectsArgs]]. The path to the serialized state of the transformer, use [[IModelTransformer.saveStateToFile]] to get this from an existing transformer instance
+   * initializedArgs is used to initialize the transformer with changes from changesets.
    * @param constructorArgs remaining arguments that you would normally pass to the Transformer subclass you are using, usually (sourceDb, targetDb)
    * @note custom transformers with custom state may need to override this method in order to handle loading their own custom state somewhere
    */
-    public static async newResumeTransformation<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
+    public static async resumeTransformationWithInitialize<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
       this: SubClass,
       args: { statePath: string, initializeArgs?: InitFromExternalSourceAspectsArgs },
       ...constructorArgs: ConstructorParameters<SubClass>
@@ -1842,8 +1845,6 @@ export class IModelTransformer extends IModelExportHandler {
         transformer.loadStateFromDb(db);
         transformer.initScopeProvenance();
         await transformer.initialize(args.initializeArgs);
-        // transformer.initScopeProvenance();
-        // await transformer._tryInitChangesetData(args);
         transformer.verifyTargetIModel();
       } finally {
         db.closeDb();
@@ -1936,7 +1937,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.events.emit(TransformerEvent.beginProcessChanges, startChangesetId);
     this.logSettings();
     this.initScopeProvenance();
-    await this.initialize({ accessToken, startChangesetId });
+    await this.initialize({ accessToken, startChangesetId, isProcessChanges: true });
     await this.exporter.exportChanges(accessToken, startChangesetId);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
