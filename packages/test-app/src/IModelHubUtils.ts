@@ -4,7 +4,8 @@
 *--------------------------------------------------------------------------------------------*/
 // cspell:words buddi urlps
 
-import { AccessToken, assert, GuidString, Logger } from "@itwin/core-bentley";
+import { AccessToken, GuidString, Logger } from "@itwin/core-bentley";
+import * as assert from "assert";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { BriefcaseDb, BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
@@ -35,13 +36,13 @@ export class IModelTransformerTestAppHost {
         "An online-only interaction was requested, but the required environment variables haven't been configured\n"
         + "Please see the .env.template file on how to set up environment variables."
       );
-      const client = new NodeCliAuthorizationClient({
+      this._authClient = new NodeCliAuthorizationClient({
         clientId: process.env.IMJS_OIDC_ELECTRON_TEST_CLIENT_ID ?? "",
         redirectUri: process.env.IMJS_OIDC_ELECTRON_TEST_REDIRECT_URI ?? "",
         scope: process.env.IMJS_OIDC_ELECTRON_TEST_SCOPES ?? "",
       });
-      await client.signIn();
-      this._authClient = client;
+      await this._authClient.signIn();
+      IModelHost.authorizationClient = this._authClient;
     }
     return this._authClient.getAccessToken();
   }

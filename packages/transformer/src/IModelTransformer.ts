@@ -34,7 +34,7 @@ import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
-import { EntityKind, LastElementArgs, LastEntity } from "./LastEntity";
+import { EntityKind, LastEntity } from "./LastEntity";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -49,7 +49,6 @@ export interface IModelTransformOptions {
    * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
    * or physical consolidation.
    */
-  // FIXME: this should really be "required" in most cases
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
@@ -146,11 +145,10 @@ export interface IModelTransformOptions {
    */
   optimizeGeometry?: OptimizeGeometryOptions;
 
-  // FIXME: use this
   /**
-   * force the insertion of extenral source aspects to provide provenance, even if there are federation guids
+   * force the insertion of external source aspects to provide provenance, even if there are federation guids
    * in the source that we can use. This can make some operations (like transforming new elements or initializing forks)
-   * much slower due to needing to insert aspects, but prevents requiring change information for all operations.
+   * much slower due to needing to insert aspects, but prevents requiring change information for future merges.
    * @default false
    */
   forceExternalSourceAspectProvenance?: boolean
@@ -216,15 +214,19 @@ function mapId64<R>(
   return results;
 }
 
-// FIXME: Deprecate+Rename since we don't care about ESA in this branch
-/** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
+/** Arguments you can pass to [[IModelTransformer.initialize]]
  * @beta
  */
-export interface InitFromExternalSourceAspectsArgs {
+export interface InitArgs {
   accessToken?: AccessToken;
   startChangesetId?: string;
   isProcessChanges?: boolean;
 }
+
+/** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
+ * @deprecated in 0.1.0. Use [[InitArgs]] (and [[IModelTransformer.initialize]]) instead.
+ */
+export type InitFromExternalSourceAspectsArgs = InitArgs;
 
 /** events that the transformer emits, e.g. for signaling profilers @internal */
 export enum TransformerEvent {
@@ -595,10 +597,10 @@ export class IModelTransformer extends IModelExportHandler {
   /** Initialize the source to target Element mapping from ExternalSourceAspects in the target iModel.
    * @note This method is called from all `process*` functions and should never need to be called directly.
    * @deprecated in 3.x. call [[initialize]] instead, it does the same thing among other initialization
-   * @note Passing an [[InitFromExternalSourceAspectsArgs]] is required when processing changes, to remap any elements that may have been deleted.
+   * @note Passing an [[InitArgs]] is required when processing changes, to remap any elements that may have been deleted.
    *       You must await the returned promise as well in this case. The synchronous behavior has not changed but is deprecated and won't process everything.
    */
-  public initFromExternalSourceAspects(args?: InitFromExternalSourceAspectsArgs): void | Promise<void> {
+  public initFromExternalSourceAspects(args?: InitArgs): void | Promise<void> {
     this.forEachTrackedElement((sourceElementId: Id64String, targetElementId: Id64String) => {
       this.context.remapElement(sourceElementId, targetElementId);
     });
@@ -1627,12 +1629,12 @@ export class IModelTransformer extends IModelExportHandler {
   private _changeDataState: "uninited" | "has-changes" | "no-changes" | "unconnected" = "uninited";
 
   /**
-   * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
+   * Initialize prerequisites of processing, you must initialize with an [[InitArgs]] if you
    * are intending process changes, but prefer using [[processChanges]]
    * Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
-  public async initialize(args?: InitFromExternalSourceAspectsArgs): Promise<void> {
+  public async initialize(args?: InitArgs): Promise<void> {
     if (this._initialized)
       return;
 
@@ -1644,7 +1646,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._initialized = true;
   }
 
-  private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
+  private async _tryInitChangesetData(args?: InitArgs) {
     if (!args?.isProcessChanges || this.sourceDb.iTwinId === undefined) {
       this._changeDataState = "unconnected";
       return;
@@ -1828,14 +1830,14 @@ export class IModelTransformer extends IModelExportHandler {
    * To "resume" an iModel Transformation you need:
    * - the sourceDb at the same changeset
    * - the same targetDb in the state in which it was before
-   * @param args includes statePath and [[InitFromExternalSourceAspectsArgs]]. The path to the serialized state of the transformer, use [[IModelTransformer.saveStateToFile]] to get this from an existing transformer instance
+   * @param args includes statePath and [[InitArgs]]. The path to the serialized state of the transformer, use [[IModelTransformer.saveStateToFile]] to get this from an existing transformer instance
    * initializedArgs is used to initialize the transformer with changes from changesets.
    * @param constructorArgs remaining arguments that you would normally pass to the Transformer subclass you are using, usually (sourceDb, targetDb)
    * @note custom transformers with custom state may need to override this method in order to handle loading their own custom state somewhere
    */
     public static async resumeTransformationWithInitialize<SubClass extends new(...a: any[]) => IModelTransformer = typeof IModelTransformer>(
       this: SubClass,
-      args: { statePath: string, initializeArgs?: InitFromExternalSourceAspectsArgs },
+      args: { statePath: string, initializeArgs?: InitArgs },
       ...constructorArgs: ConstructorParameters<SubClass>
     ): Promise<InstanceType<SubClass>> {
       const transformer = new this(...constructorArgs);
