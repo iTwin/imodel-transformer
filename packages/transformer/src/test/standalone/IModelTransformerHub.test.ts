@@ -408,12 +408,19 @@ describe("IModelTransformerHub", () => {
       5: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
       6: { branch1: { 21:deleted, 30:1 } },
       7: { master: { sync: ["branch1", 2] } },
-      8: { branch2: { sync: ["master", 0] } },
-      9: { branch2: { 7:1, 8:1 } },
+      8: {
+        assert({ master }) {
+          // check deletions propagated from sync
+          expect(IModelTestUtils.queryByUserLabel(master.db, "20")).to.equal(Id64.invalid);
+          expect(IModelTestUtils.queryByUserLabel(master.db, "21")).to.equal(Id64.invalid);
+        },
+      },
+      9: { branch2: { sync: ["master", 0] } },
+      10: { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      10: { master: { 7:2, 9:1 } },
-      11: { master: { sync: ["branch2", 9] } },
-      12: {
+      11: { master: { 7:2, 9:1 } },
+      12: { master: { sync: ["branch2", 10] } },
+      13: {
         assert({ master, branch1, branch2 }) {
           for (const iModel of [master, branch1, branch2]) {
             expect(iModel.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
@@ -449,8 +456,8 @@ describe("IModelTransformerHub", () => {
           assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      13: { master: { 6:2 } },
-      14: {
+      14: { master: { 6:2 } },
+      15: {
         master: {
           manualUpdate(db) {
             const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
@@ -461,8 +468,8 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      15: { branch1: { sync: ["master", 7] } },
-      16: {
+      16: { branch1: { sync: ["master", 7] } },
+      17: {
         assert({branch1}) {
           expect(branch1.db.relationships.tryGetInstance(
             ElementGroupsMembers.classFullName,
