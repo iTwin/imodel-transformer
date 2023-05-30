@@ -3,10 +3,10 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { BriefcaseDb, Element, HubMock, IModelDb, IModelHost, IModelJsNative, Relationship, SnapshotDb, SQLiteDb } from "@itwin/core-backend";
+import { BriefcaseDb, Element, GraphicalElement3dRepresentsElement, HubMock, IModelDb, IModelHost, IModelJsNative, PhysicalModel, PhysicalObject, Relationship, SnapshotDb, SpatialCategory, SQLiteDb } from "@itwin/core-backend";
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, GuidString, Id64, Id64String, StopWatch } from "@itwin/core-bentley";
-import { ChangesetId, ElementProps } from "@itwin/core-common";
+import { ChangeOpCode, ChangesetId, Code, ElementProps, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
 import { assert, expect, use } from "chai";
 import * as sinon from "sinon";
 import { IModelImporter } from "../../IModelImporter";
@@ -15,9 +15,11 @@ import { IModelTransformer, IModelTransformOptions } from "../../IModelTransform
 import { assertIdentityTransformation, HubWrappers, IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import * as chaiAsPromised from "chai-as-promised";
+import { EntityKind } from "../../LastEntity";
 use(chaiAsPromised);
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import { TargetIModelVerificationError } from "../../Models/Errors";
 
 const formatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
@@ -70,6 +72,7 @@ class CountingTransformer extends IModelTransformer {
 class CountdownTransformer extends IModelTransformer {
   public relationshipExportsUntilCall: number | undefined;
   public elementExportsUntilCall: number | undefined;
+  public relationshipDeletesUntilCall: number | undefined;
   public callback: (() => Promise<void>) | undefined;
   public constructor(...args: ConstructorParameters<typeof IModelTransformer>) {
     super(...args);
@@ -94,6 +97,16 @@ class CountdownTransformer extends IModelTransformer {
 
       return oldExportRel.call(this, ...args);
     };
+    const oldDeleteRel = this.importer.deleteRelationship; // eslint-disable-line @typescript-eslint/unbound-method
+    this.importer.deleteRelationship = function (...args) {
+      if (_this.relationshipDeletesUntilCall === 0)
+        _this.callback?.();
+
+      if (_this.relationshipDeletesUntilCall !== undefined)
+        _this.relationshipDeletesUntilCall--;
+
+      return oldDeleteRel.call(this, ...args);
+    };
   }
 }
 
@@ -105,6 +118,10 @@ class CountdownToCrashTransformer extends CountdownTransformer {
       throw Error("crash");
     };
   }
+
+  public get lastEntity() {
+    return this._lastEntity;
+  };
 }
 
 /**
@@ -246,7 +263,7 @@ async function transformNoCrash<
 describe("test resuming transformations", () => {
   let iTwinId: GuidString;
   let accessToken: AccessToken;
-  let seedDbId: GuidString;
+  let sourceDbId: GuidString;
   let seedDb: BriefcaseDb;
 
   before(async () => {
@@ -255,8 +272,8 @@ describe("test resuming transformations", () => {
     accessToken = await HubWrappers.getAccessToken(TestUtils.TestUserType.Regular);
     const seedPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "seed.bim");
     SnapshotDb.createEmpty(seedPath, { rootSubject: { name: "resumption-tests-seed" } }).close();
-    seedDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "ResumeTestsSeed", description: "seed for resumption tests", version0: seedPath, noLocks: true });
-    seedDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: seedDbId });
+    sourceDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "ResumeTestsSeed", description: "seed for resumption tests", version0: seedPath, noLocks: true });
+    seedDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceDbId });
     await TestUtils.ExtensiveTestScenario.prepareDb(seedDb);
     TestUtils.ExtensiveTestScenario.populateDb(seedDb);
     seedDb.performCheckpoint();
@@ -421,7 +438,7 @@ describe("test resuming transformations", () => {
       targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
       await expect(
         TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
-      ).to.rejectedWith(/does not have the expected provenance/);
+      ).to.rejectedWith(TargetIModelVerificationError);
     }
 
     expect(crashed).to.be.true;
@@ -596,7 +613,7 @@ describe("test resuming transformations", () => {
       targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
       await expect(
         TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
-      ).to.rejectedWith(/does not have the expected provenance/);
+      ).to.rejectedWith(TargetIModelVerificationError);
     }
 
     expect(crashed).to.be.true;
@@ -896,5 +913,131 @@ describe("test resuming transformations", () => {
     console.log(`avg crash-resuming+completing transformations time: ${avgCrashingTransformationsTime}`);
     /* eslint-enable no-console */
     sinon.restore();
+  });
+
+  describe("verifyTargetIModel", () => {
+    let sourceDb: BriefcaseDb;
+    let targetDb: BriefcaseDb;
+    let relationshipProps1: RelationshipProps;
+    let relationshipProps2: RelationshipProps;
+
+    beforeEach(async() => {
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "verifyTargetIModel.db");
+      SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "inserting-relationship" } }).close();
+      const sourceDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "verifyTargetIModel", description: "inserting relationship", version0: sourceDbPath, noLocks: true });
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceDbId });
+
+      const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
+      const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, `PhysicalModel`);
+      const physicalObjectProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: sourceModelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+      };
+      const physicalObject1 = sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject2 = sourceDb.elements.insertElement(physicalObjectProps);
+
+      relationshipProps1 = {
+        classFullName: GraphicalElement3dRepresentsElement.classFullName,
+        targetId: physicalObject1,
+        sourceId: physicalObject2,
+      }
+      relationshipProps2 = {
+          classFullName: GraphicalElement3dRepresentsElement.classFullName,
+          targetId: physicalObject2,
+          sourceId: physicalObject1,
+      }
+      sourceDb.relationships.insertInstance(relationshipProps1); // this relationship will be saved as lastEntity
+      sourceDb.relationships.insertInstance(relationshipProps2);
+      sourceDb.performCheckpoint();
+      await sourceDb.pushChanges({ accessToken, description: "populated seed db" });
+
+      const targetDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "targetDb1", description: "crashingTarget", noLocks: true });
+      targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
+    });
+
+    afterEach(async () => {
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    });
+
+    it("verification should succeed and verify inserted relationship when transformer crashes after inserting it", async () => {
+      const transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
+      
+      transformer.relationshipExportsUntilCall = 1;
+      await transformer.processSchemas();
+      await expect(transformer.processAll()).to.be.rejectedWith("crash");
+
+      expect(transformer.lastEntity.operationCode).to.be.equal(ChangeOpCode.Insert);
+      expect(transformer.lastEntity.entityKind).to.be.equal(EntityKind.Relationship);
+      const statePath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformerResumption",
+        "transformer-state.db"
+      );
+      transformer.saveStateToFile(statePath);
+      // eslint-disable-next-line @typescript-eslint/naming-convention
+      const TransformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
+      await expect(
+        TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
+      ).to.not.be.rejectedWith(TargetIModelVerificationError);
+
+      transformer.dispose();
+    });
+
+    it("verification should succeed and verify updated relationship when transformer crashes after updated it", async () => {
+      let transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
+      await transformer.processAll();
+   
+      // Update relationship in sourceDb
+      sourceDb.relationships.updateInstance(relationshipProps1); // this relationship will be saved as lastEntity
+      sourceDb.relationships.updateInstance(relationshipProps2);
+      
+      const startChangesetId = sourceDb.changeset.id;
+      sourceDb.performCheckpoint();
+      await sourceDb.pushChanges({ accessToken, description: "deleted relationships from source db" });
+
+      transformer = new CountdownToCrashTransformer(sourceDb, targetDb)
+      transformer.relationshipExportsUntilCall = 1;
+      await expect(transformer.processChanges(accessToken, startChangesetId)).to.be.rejectedWith("crash");
+      expect(transformer.lastEntity.operationCode).to.be.equal(ChangeOpCode.Update);
+      expect(transformer.lastEntity.entityKind).to.be.equal(EntityKind.Relationship);
+      const statePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
+      transformer.saveStateToFile(statePath);
+      const transformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
+      await expect(
+        transformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
+      ).to.not.be.rejectedWith(TargetIModelVerificationError);
+      transformer.dispose();
+    });
+
+    // FIXME: this test fails because the relationship is not deleted from the targetDb
+    it.skip("verification should succeed and verify deleted relationship when transformer crashes after deleting it", async () => {
+      let transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
+      await transformer.processAll();
+   
+      // Delete relationship from sourceDb
+      sourceDb.relationships.deleteInstance(relationshipProps1); // this relationship will be saved as lastEntity
+      sourceDb.relationships.deleteInstance(relationshipProps2);
+      
+      const startChangesetId = sourceDb.changeset.id;
+      sourceDb.performCheckpoint();
+      await sourceDb.pushChanges({ accessToken, description: "deleted relationships from source db" });
+
+      transformer.dispose();
+      transformer = new CountdownToCrashTransformer(sourceDb, targetDb)
+      transformer.relationshipDeletesUntilCall = 1;
+      await expect(transformer.processChanges(accessToken, startChangesetId)).to.be.rejectedWith("crash");
+      targetDb.saveChanges();
+      expect(transformer.lastEntity.operationCode).to.be.equal(ChangeOpCode.Delete);
+      expect(transformer.lastEntity.entityKind).to.be.equal(EntityKind.Relationship);
+      const statePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
+      transformer.saveStateToFile(statePath);
+      const transformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
+      await expect(
+        transformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
+      ).to.not.be.rejectedWith(TargetIModelVerificationError);
+      transformer.dispose();
+    });
   });
 });

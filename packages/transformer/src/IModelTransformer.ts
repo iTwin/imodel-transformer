@@ -1304,27 +1304,33 @@ export class IModelTransformer extends IModelExportHandler {
     const targetFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.targetId);
     const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
 
-    // check if relationship was updated
-    const relSourceAndTarget: SourceAndTarget = { sourceId: targetRelationshipProps.sourceId, targetId: targetRelationshipProps.targetId };
-    const isUpdate = !!this.targetDb.relationships.tryGetInstance(targetRelationshipProps.classFullName, relSourceAndTarget);
-
-    const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
-    if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
-      if (!sourceFedGuid || !targetFedGuid) {
-        const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
-        if (undefined === aspectProps.id) {
-          this.provenanceDb.elements.insertAspect(aspectProps);
-        }
-      }
+    // check if relationship was updated    
+    let isUpdate = false;
+    if ((undefined !== targetRelationshipProps.sourceId) && Id64.isValidId64(targetRelationshipProps.sourceId)
+      && (undefined !== targetRelationshipProps.targetId) && Id64.isValidId64(targetRelationshipProps.targetId)) 
+    {
+      const relSourceAndTarget: SourceAndTarget = { sourceId: targetRelationshipProps.sourceId, targetId: targetRelationshipProps.targetId };
+      isUpdate = !!this.targetDb.relationships.tryGetInstance(targetRelationshipProps.classFullName, relSourceAndTarget);
     }
 
-    this._lastEntity.markLastEntity({ 
-      sourceEntityECInstanceId: sourceRelationship.id, 
-      targetEntityECInstanceId: targetRelationshipInstanceId, 
-      entityClassFullName: targetRelationshipProps.classFullName,
-      entityKind: EntityKind.Relationship,
-      operationCode: isUpdate ? ChangeOpCode.Update : ChangeOpCode.Insert
-    });
+    const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
+    if (Id64.isValid(targetRelationshipInstanceId)) {
+      if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
+        if (!sourceFedGuid || !targetFedGuid) {
+          const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
+          if (undefined === aspectProps.id) {
+            this.provenanceDb.elements.insertAspect(aspectProps);
+          }
+        }
+      };
+      this._lastEntity.markLastEntity({ 
+        sourceEntityECInstanceId: sourceRelationship.id, 
+        targetEntityECInstanceId: targetRelationshipInstanceId, 
+        entityClassFullName: targetRelationshipProps.classFullName,
+        entityKind: EntityKind.Relationship,
+        operationCode: isUpdate ? ChangeOpCode.Update : ChangeOpCode.Insert
+      });
+    }
   }
 
   // FIXME: need to check if the class was remapped and use that id instead
@@ -1693,6 +1699,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     ChangeSummaryManager.attachChangeCache(this.sourceDb);
     this._changeDataState = "has-changes";
+    this._cacheSourceChanges();
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
