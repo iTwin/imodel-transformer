@@ -17,15 +17,15 @@ import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
-  ChannelRootAspect, ClassRegistry, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
+  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, QueryBinder, RelatedElement,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -57,7 +57,6 @@ export interface IModelTransformOptions {
    * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
    * or physical consolidation.
    */
-  // FIXME: this should really be "required" in most cases
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
@@ -154,11 +153,10 @@ export interface IModelTransformOptions {
    */
   optimizeGeometry?: OptimizeGeometryOptions;
 
-  // FIXME: use this
   /**
-   * force the insertion of extenral source aspects to provide provenance, even if there are federation guids
+   * force the insertion of external source aspects to provide provenance, even if there are federation guids
    * in the source that we can use. This can make some operations (like transforming new elements or initializing forks)
-   * much slower due to needing to insert aspects, but prevents requiring change information for all operations.
+   * much slower due to needing to insert aspects, but prevents requiring change information for future merges.
    * @default false
    */
   forceExternalSourceAspectProvenance?: boolean;
@@ -224,14 +222,18 @@ function mapId64<R>(
   return results;
 }
 
-// FIXME: Deprecate+Rename since we don't care about ESA in this branch
-/** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
+/** Arguments you can pass to [[IModelTransformer.initialize]]
  * @beta
  */
-export interface InitFromExternalSourceAspectsArgs {
+export interface InitArgs {
   accessToken?: AccessToken;
   startChangesetId?: string;
 }
+
+/** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
+ * @deprecated in 0.1.0. Use [[InitArgs]] (and [[IModelTransformer.initialize]]) instead.
+ */
+export type InitFromExternalSourceAspectsArgs = InitArgs;
 
 /** events that the transformer emits, e.g. for signaling profilers @internal */
 export enum TransformerEvent {
@@ -460,7 +462,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Make sure there are no conflicting other scope-type external source aspects on the *target scope element*,
    * If there are none at all, insert one, then this must be a first synchronization.
    * @returns the last synced version (changesetId) on the target scope's external source aspect,
-   *          (if this was a [BriefcaseDb]($backend))
+   *          if this was a [BriefcaseDb]($backend)
    */
   private initScopeProvenance(): void {
     const aspectProps: ExternalSourceAspectProps = {
@@ -505,6 +507,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._targetScopeProvenanceProps = aspectProps;
   }
 
+  /** @returns the [id, version] of an aspect with the given element, scope, kind, and identifier */
   private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps): [Id64String, Id64String] | [undefined, undefined] {
     const sql = `
       SELECT ECInstanceId, Version
@@ -560,6 +563,7 @@ export class IModelTransformer extends IModelExportHandler {
     // iterate through sorted list of fed guids from both dbs to get the intersection
     // NOTE: if we exposed the native attach database support,
     // we could get the intersection of fed guids in one query, not sure if it would be faster
+    // OR we could do a raw sqlite query...
     this.provenanceSourceDb.withStatement(provenanceSourceQuery, (sourceStmt) => this.provenanceDb.withStatement(provenanceContainerQuery, (containerStmt) => {
       containerStmt.bindId("scopeId", this.targetScopeElementId);
       containerStmt.bindString("kind", ExternalSourceAspect.Kind.Element);
@@ -594,9 +598,6 @@ export class IModelTransformer extends IModelExportHandler {
           if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
           sourceRow = sourceStmt.getRow();
         }
-        // NOTE: needed test cases:
-        // - provenance container or provenance source has no fedguids
-        // - transforming split and join scenarios
         if (!currContainerRow.federationGuid  && currContainerRow.aspectIdentifier)
           runFnInProvDirection(currContainerRow.id, currContainerRow.aspectIdentifier);
       }
@@ -609,7 +610,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Passing an [[InitFromExternalSourceAspectsArgs]] is required when processing changes, to remap any elements that may have been deleted.
    *       You must await the returned promise as well in this case. The synchronous behavior has not changed but is deprecated and won't process everything.
    */
-  public initFromExternalSourceAspects(args?: InitFromExternalSourceAspectsArgs): void | Promise<void> {
+  public initFromExternalSourceAspects(args?: InitArgs): void | Promise<void> {
     this.forEachTrackedElement((sourceElementId: Id64String, targetElementId: Id64String) => {
       this.context.remapElement(sourceElementId, targetElementId);
     });
@@ -618,9 +619,10 @@ export class IModelTransformer extends IModelExportHandler {
       return this.remapDeletedSourceElements();
   }
 
-  /** When processing deleted elements in a reverse synchronization, the [[provenanceDb]] (usually a branch iModel) has already
-   * deleted the [ExternalSourceAspect]($backend)s that tell us which elements in the reverse synchronization target (usually
-   * a master iModel) should be deleted. We must use the changesets to get the values of those before they were deleted.
+  /** When processing deleted elements in a reverse synchronization, the [[provenanceDb]] has already
+   * deleted the provenance that tell us which elements in the reverse synchronization target (usually
+   * a master iModel) should be deleted.
+   * We must use the changesets to get the values of those before they were deleted.
    */
   private async remapDeletedSourceElements() {
     // we need a connected iModel with changes to remap elements with deletions
@@ -635,6 +637,8 @@ export class IModelTransformer extends IModelExportHandler {
     const deletedElemSql = `
       SELECT ic.ChangedInstance.Id, ${
         this._coalesceChangeSummaryJoinedValue((_, i) => `ec${i}.FederationGuid`)
+      }, ${
+        this._coalesceChangeSummaryJoinedValue((_, i) => `esac${i}.Identifier`)
       }
       FROM ecchange.change.InstanceChange ic
       -- ask affan about whether this is worth it...
@@ -642,36 +646,55 @@ export class IModelTransformer extends IModelExportHandler {
         this._changeSummaryIds.map((id, i) => `
           LEFT JOIN bis.Element.Changes(${id}, 'BeforeDelete') ec${i}
             ON ic.ChangedInstance.Id=ec${i}.ECInstanceId
-        `).join('')
+        `).join(' ')
+      }
+      ${
+        this._changeSummaryIds.map((id, i) => `
+          LEFT JOIN bis.ExternalSourceAspect.Changes(${id}, 'BeforeDelete') esac${i}
+            ON ic.ChangedInstance.Id=esac${i}.ECInstanceId
+        `).join(' ')
       }
       WHERE ic.OpCode=:opDelete
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- not yet documented ecsql feature to check class id
-        AND ic.ChangedInstance.ClassId IS (BisCore.Element)
+        AND (
+          ic.ChangedInstance.ClassId IS (BisCore.Element)
+          OR (
+            ic.ChangedInstance.ClassId IS (BisCore.ExternalSourceAspect)
+            AND (${
+                this._changeSummaryIds
+                  .map((_, i) => `esac${i}.Scope.Id=:targetScopeElement`)
+                  .join(' OR ')
+              })
+          )
+        )
     `;
 
-    // must also support old ESA provenance if no fedguids
+    // FIXME: test deletion in both forward and reverse sync
     this.sourceDb.withStatement(deletedElemSql, (stmt) => {
       stmt.bindInteger("opDelete", ChangeOpCode.Delete);
       stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
-      // instead of targetScopeElementId, we only operate on elements
-      // that had colliding fed guids with the source...
-      // currently that is enforced by us checking that the deleted element fedguid is in both
-      // before remapping
+      stmt.bindId("targetScopeElement", this.targetScopeElementId);
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
         const sourceId = stmt.getValue(0).getId();
-        // FIXME: if I could attach the second db, will probably be much faster to get target id
         const sourceFedGuid = stmt.getValue(1).getGuid();
-        const targetId = this.queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
+        const maybeEsaIdentifier = stmt.getValue(2).getId();
+        // TODO: if I could attach the second db, will probably be much faster to get target id
+        // as part of the whole query rather than with _queryElemIdByFedGuid
+        const targetId = maybeEsaIdentifier
+          ?? (sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid));
+        // don't assert because currently we get separate rows for the element and external source aspect change
+        // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
+        //nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
         const deletionNotInTarget = !targetId;
-        if (deletionNotInTarget) return;
-        // TODO: maybe delete and don't just remap
+        if (deletionNotInTarget) continue;
+        // TODO: maybe delete and don't just remap?
         this.context.remapElement(sourceId, targetId);
       }
     });
   }
 
-  private queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
+  private _queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
     return db.withPreparedStatement("SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?", (stmt) => {
       stmt.bindGuid(1, fedGuid);
       if (stmt.step() === DbResult.BE_SQLITE_ROW)
@@ -702,7 +725,6 @@ export class IModelTransformer extends IModelExportHandler {
   public async detectElementDeletes(): Promise<void> {
     // FIXME: this is no longer possible to do without change data loading, but I don't think
     // anyone uses this obscure feature, maybe we can remove it?
-    // NOTE: can implement this by checking for federation guids in the target that aren't
     if (this._options.isReverseSynchronization) {
       throw new IModelError(IModelStatus.BadRequest, "Cannot detect deletes when isReverseSynchronization=true");
     }
@@ -770,7 +792,7 @@ export class IModelTransformer extends IModelExportHandler {
     const query = `
       SELECT
         ic.ChangedInstance.Id AS InstId,
-        -- NOTE: parse error even with () without iif
+        -- NOTE: parse error even with () without iif, also elem or rel is enforced in WHERE
         iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotDeletedRel,
         coalesce(${
           // HACK: adding "NONE" for empty result seems to prevent a bug where getValue(3) stops working after the NULL columns
@@ -800,16 +822,18 @@ export class IModelTransformer extends IModelExportHandler {
             ON tec${i}.ECInstanceId=ertec${i}.TargetECInstanceId
         `).join('')
       }
-      -- ignore deleted elems, we take care of those separately
-      WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element) AND ic.OpCode<>:opUpdate)
-          OR (ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) AND ic.OpCode=:opDelete))
+      WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element)
+              OR ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements))
+            -- ignore deleted elems, we take care of those separately.
+            -- include inserted elems since inserted code-colliding elements should be considered
+            -- a change so that the colliding element is exported to the target
+            ) AND ic.OpCode<>:opDelete
     `;
 
 
     this.sourceDb.withPreparedStatement(query,
       (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-        stmt.bindInteger("opUpdate", ChangeOpCode.Update);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           // REPORT: stmt.getValue(>3) seems to be bugged but the values survive .getRow so using that for now
           const instId = stmt.getValue(0).getId();
@@ -1068,7 +1092,10 @@ export class IModelTransformer extends IModelExportHandler {
     // verify at finalization time that we don't lose provenance on new elements
     // make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
-      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceElement.federationGuid;
+      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
+        = !this._options.forceExternalSourceAspectProvenance
+        ? sourceElement.federationGuid
+        : undefined;
       if (!provenance || this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
         const [aspectId] = this.queryScopeExternalSource(aspectProps);
@@ -1263,7 +1290,10 @@ export class IModelTransformer extends IModelExportHandler {
     const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
-      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`;
+      let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
+        = !this._options.forceExternalSourceAspectProvenance
+        ? sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`
+        : undefined;
       if (!provenance) {
         const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
         if (undefined === aspectProps.id) {
@@ -1276,7 +1306,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  // FIXME: need to check if the element class was remapped and use that id instead
+  // FIXME: need to check if the class was remapped and use that id instead
   // is this really the best way to get class id? shouldn't we cache it somewhere?
   // NOTE: maybe if we lower remapElementClass into here, we can use that
   private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
@@ -1580,7 +1610,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
-  public async initialize(args?: InitFromExternalSourceAspectsArgs): Promise<void> {
+  public async initialize(args?: InitArgs): Promise<void> {
     if (this._initialized)
       return;
 
@@ -1592,7 +1622,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._initialized = true;
   }
 
-  private async _tryInitChangesetData(args?: InitFromExternalSourceAspectsArgs) {
+  private async _tryInitChangesetData(args?: InitArgs) {
     if (!args || this.sourceDb.iTwinId === undefined) {
       this._changeDataState = "unconnected";
       return;
