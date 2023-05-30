@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, StandaloneDb, Subject,
+  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, StandaloneDb, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Arg, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
