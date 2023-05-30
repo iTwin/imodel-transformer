@@ -9,7 +9,7 @@ import * as semver from "semver";
 import {
   BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, StandaloneDb, Subject,
+  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, deleted, getIModelState, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -343,32 +343,33 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should merge changes made on a branch back to master", async () => {
+  it.only("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = {1:1, 2:1, 20:1, 21:1};
+    const masterSeedState = {1:1, 2:1, 20:1, 21:1, 40:1, 41:2};
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, { rootSubject: { name: masterIModelName } });
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
-    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1, 20)" });
-    const [elem1Id, elem20Id] = noFedGuidElemIds;
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1,20,40,41)" });
     for (const elemId of noFedGuidElemIds)
       masterSeedDb.withSqliteStatement(
         `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-        s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
+        (s) => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
       );
     masterSeedDb.performCheckpoint();
 
     // hard to check this without closing the db...
     const seedSecondConn = SnapshotDb.openFile(masterSeedDb.pathName);
-    expect(seedSecondConn.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+    for (const elemId of noFedGuidElemIds)
+      expect(seedSecondConn.elements.getElement(elemId).federationGuid).to.be.undefined;
     seedSecondConn.close();
 
     let rel1IdInBranch1!: Id64String;
+    let rel2IdInBranch1!: Id64String;
 
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
@@ -385,12 +386,15 @@ describe("IModelTransformerHub", () => {
       3: {
         branch1: {
           manualUpdate(db) {
-            // FIXME: add a second relationship where the source and target have no fed guid
-            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-            assert(sourceId && targetId);
-            const rel = ElementGroupsMembers.create(db, sourceId, targetId, 0);
-            rel1IdInBranch1 = rel.insert();
+            [rel1IdInBranch1, rel2IdInBranch1] = ([["1","2"], ["40", "41"]] as const).map(
+              ([srcLabel, targetLabel]) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db,srcLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db,targetLabel);
+                assert(sourceId && targetId);
+                const rel = ElementGroupsMembers.create(db, sourceId, targetId, 0);
+                return rel.insert();
+              }
+            );
           },
         },
       },
@@ -423,14 +427,16 @@ describe("IModelTransformerHub", () => {
       12: { master: { sync: ["branch2", 10] } },
       13: {
         assert({ master, branch1, branch2 }) {
-          for (const iModel of [master, branch1, branch2]) {
-            expect(iModel.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+          for (const { db } of [master, branch1, branch2]) {
+            const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
+            expect(db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
           }
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(0);
           for (const branch of [branch1, branch2]) {
+            const elem1Id = IModelTestUtils.queryByUserLabel(branch.db, "1");
             expect(branch.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
             const aspects =
-              [...branch.db .queryEntityIds({ from: "BisCore.ExternalSourceAspect" })]
+              [...branch.db.queryEntityIds({ from: "BisCore.ExternalSourceAspect" })]
                 .map((aspectId) => branch.db.elements.getAspect(aspectId).toJSON()) as ExternalSourceAspectProps[];
             // FIXME: wtf
             expect(aspects).to.deep.subsetEqual([
@@ -461,28 +467,40 @@ describe("IModelTransformerHub", () => {
       15: {
         master: {
           manualUpdate(db) {
-            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-            assert(sourceId && targetId);
-            const rel = db.relationships.getInstance(ElementGroupsMembers.classFullName, { sourceId, targetId });
-            rel.delete();
+            ([["1","2"], ["40", "41"]] as const).forEach(
+              ([srcLabel, targetLabel]) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db,srcLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db,targetLabel);
+                assert(sourceId && targetId);
+                const rel = db.relationships.getInstance(
+                  ElementGroupsMembers.classFullName,
+                  { sourceId, targetId }
+                );
+                return rel.delete();
+              }
+            );
           },
         },
       },
       16: { branch1: { sync: ["master", 7] } },
       17: {
         assert({branch1}) {
-          expect(branch1.db.relationships.tryGetInstance(
-            ElementGroupsMembers.classFullName,
-            rel1IdInBranch1
-          )).to.be.undefined;
-          const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, "1");
-          const targetId = IModelTestUtils.queryByUserLabel(branch1.db, "2");
-          assert(sourceId && targetId);
-          expect(branch1.db.relationships.tryGetInstance(
-            ElementGroupsMembers.classFullName,
-            { sourceId, targetId },
-          )).to.be.undefined;
+          for (const [srcLabel, targetLabel, relId] of [
+            ["1", "2", rel1IdInBranch1],
+            ["40", "41", rel2IdInBranch1],
+          ] as const) {
+            expect(branch1.db.relationships.tryGetInstance(
+              ElementGroupsMembers.classFullName,
+              relId
+            )).to.be.undefined;
+            const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, srcLabel);
+            const targetId = IModelTestUtils.queryByUserLabel(branch1.db, targetLabel);
+            assert(sourceId && targetId);
+            expect(branch1.db.relationships.tryGetInstance(
+              ElementGroupsMembers.classFullName,
+              { sourceId, targetId },
+            )).to.be.undefined;
+          }
         },
       },
     };
@@ -804,7 +822,7 @@ describe("IModelTransformerHub", () => {
         ...aspectDeletions.length > 0 && {
           aspect: {
             delete: aspectDeletions,
-          }
+          },
         },
         element: {
           delete: [
