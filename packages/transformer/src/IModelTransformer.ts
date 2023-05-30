@@ -497,7 +497,6 @@ export class IModelTransformer extends IModelExportHandler {
       }
       if (!this._options.noProvenance) {
         this.provenanceDb.elements.insertAspect(aspectProps);
-        this._isFirstSynchronization = true; // couldn't tell this is the first time without provenance
       }
     }
 
@@ -721,7 +720,15 @@ export class IModelTransformer extends IModelExportHandler {
       }
     });
     targetElementsToDelete.forEach((targetElementId: Id64String) => {
-      this.importer.deleteElement(targetElementId);
+      try {
+        // TODO: make it possible to delete more elements at once to prevent redundant expensive
+        // element reference scanning
+        this.importer.deleteElement(targetElementId);
+      } catch (err: any) {
+        // ignore not found elements, iterative element tree deletion might have already deleted them
+        if (err.name !== "Not Found")
+          throw err;
+      }
     });
   }
 
@@ -902,6 +909,7 @@ export class IModelTransformer extends IModelExportHandler {
     const missingReferences = new EntityReferenceSet();
     let thisPartialElem: PartiallyCommittedEntity | undefined;
 
+    // eslint-disable-next-line deprecation/deprecation
     for (const referenceId of entity.getReferenceConcreteIds()) {
       // TODO: probably need to rename from 'id' to 'ref' so these names aren't so ambiguous
       const referenceIdInTarget = this.context.findTargetEntityId(referenceId);

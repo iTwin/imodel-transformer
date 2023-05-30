@@ -61,9 +61,29 @@ jobs:
         const ourPkgJson = require("./packages/transformer/package.json");
         let json = "";
         require("https").get("https://registry.npmjs.org/@itwin/core-backend", r => r.setEncoding("utf8").on("data", d => json += d).on("end", () => {
-          const supportedVersions = Object.keys(JSON.parse(json).versions).filter(v => semver.satisfies(v, ourPkgJson.peerDependencies["@itwin/core-backend"]));
-          supportedVersions.push("USE_FROZEN_DEV_DEPS");
-          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ version: supportedVersions }));
+          const supportedMinors = Object.keys(JSON.parse(json).versions)
+            .filter(v => semver.satisfies(v, ourPkgJson.peerDependencies["@itwin/core-backend"]))
+            .sort(semver.compare)
+            // find max patch of each minor
+            .reduce((result, currVersion) => {
+                const firstDotIdx = currVersion.indexOf('.');
+                const secondDotIdx = currVersion.indexOf('.', firstDotIdx + 1);
+                const minorPrefix = currVersion.substring(0, secondDotIdx);
+                const currMax = result.maxes[minorPrefix];
+                if (!currMax)
+                  result.maxes[minorPrefix] = currVersion;
+                else {
+                  result.maxes[minorPrefix] = semver.gt(currVersion, currMax) ? currVersion : currMax;
+                }
+                return result;
+              }, {
+                maxes: {},
+                _getMaxes() { return Object.values(this.maxes); }
+              }
+            )
+            ._getMaxes()
+            .concat("USE_FROZEN_DEV_DEPS");
+          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ version: supportedMinors }));
         }));
         EOF
 
@@ -96,8 +116,9 @@ jobs:
         const fs = require("fs");
         const workspacePkgJsonPath = "./package.json";
         const workspacePkgJson = require(workspacePkgJsonPath);
-        workspacePkgJson.pnpm = {
-          overrides: Object.fromEntries([
+        workspacePkgJson.pnpm.overrides = {
+          ...workspacePkgJson.pnpm.overrides,
+          ...Object.fromEntries([
             // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
             "@itwin/core-backend",
             "@itwin/core-bentley",
