@@ -348,13 +348,13 @@ describe("IModelTransformerHub", () => {
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = {1:1, 2:1, 20:1, 21:1, 40:1, 41:2};
+    const masterSeedState = {1:1, 2:1, 20:1, 21:1, 40:1, 41:2, 42:3};
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, { rootSubject: { name: masterIModelName } });
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
-    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1,20,40,41)" });
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1,20,41,42)" });
     for (const elemId of noFedGuidElemIds)
       masterSeedDb.withSqliteStatement(
         `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
@@ -368,8 +368,12 @@ describe("IModelTransformerHub", () => {
       expect(seedSecondConn.elements.getElement(elemId).federationGuid).to.be.undefined;
     seedSecondConn.close();
 
-    let rel1IdInBranch1!: Id64String;
-    let rel2IdInBranch1!: Id64String;
+    const relationships = [
+      // FIXME: assert that relationship 40->2 has fed guids on both
+      { sourceLabel: "40", targetLabel: "2", idInBranch1: "not inserted yet" },
+      // FIXME: assert that relationship 40->2 has fed guids on neither
+      { sourceLabel: "41", targetLabel: "42", idInBranch1: "not inserted yet" },
+    ];
 
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
@@ -386,13 +390,13 @@ describe("IModelTransformerHub", () => {
       3: {
         branch1: {
           manualUpdate(db) {
-            [rel1IdInBranch1, rel2IdInBranch1] = ([["1","2"], ["40", "41"]] as const).map(
-              ([srcLabel, targetLabel]) => {
-                const sourceId = IModelTestUtils.queryByUserLabel(db,srcLabel);
-                const targetId = IModelTestUtils.queryByUserLabel(db,targetLabel);
+            relationships.map(
+              ({ sourceLabel, targetLabel }, i) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
                 assert(sourceId && targetId);
                 const rel = ElementGroupsMembers.create(db, sourceId, targetId, 0);
-                return rel.insert();
+                relationships[i].idInBranch1 = rel.insert();
               }
             );
           },
@@ -403,7 +407,7 @@ describe("IModelTransformerHub", () => {
           manualUpdate(db) {
             const rel = db.relationships.getInstance<ElementGroupsMembers>(
               ElementGroupsMembers.classFullName,
-              rel1IdInBranch1,
+              relationships[0].idInBranch1,
             );
             rel.memberPriority = 1;
             rel.update();
@@ -467,10 +471,10 @@ describe("IModelTransformerHub", () => {
       15: {
         master: {
           manualUpdate(db) {
-            ([["1","2"], ["40", "41"]] as const).forEach(
-              ([srcLabel, targetLabel]) => {
-                const sourceId = IModelTestUtils.queryByUserLabel(db,srcLabel);
-                const targetId = IModelTestUtils.queryByUserLabel(db,targetLabel);
+            relationships.forEach(
+              ({ sourceLabel, targetLabel }) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
                 assert(sourceId && targetId);
                 const rel = db.relationships.getInstance(
                   ElementGroupsMembers.classFullName,
@@ -485,16 +489,13 @@ describe("IModelTransformerHub", () => {
       16: { branch1: { sync: ["master", 7] } },
       17: {
         assert({branch1}) {
-          for (const [srcLabel, targetLabel, relId] of [
-            ["1", "2", rel1IdInBranch1],
-            ["40", "41", rel2IdInBranch1],
-          ] as const) {
+          for (const rel of relationships) {
             expect(branch1.db.relationships.tryGetInstance(
               ElementGroupsMembers.classFullName,
-              relId
+              rel.idInBranch1,
             )).to.be.undefined;
-            const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, srcLabel);
-            const targetId = IModelTestUtils.queryByUserLabel(branch1.db, targetLabel);
+            const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, rel.sourceLabel);
+            const targetId = IModelTestUtils.queryByUserLabel(branch1.db, rel.targetLabel);
             assert(sourceId && targetId);
             expect(branch1.db.relationships.tryGetInstance(
               ElementGroupsMembers.classFullName,
