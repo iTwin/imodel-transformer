@@ -159,7 +159,16 @@ export interface IModelTransformOptions {
    * much slower due to needing to insert aspects, but prevents requiring change information for future merges.
    * @default false
    */
-  forceExternalSourceAspectProvenance?: boolean
+  forceExternalSourceAspectProvenance?: boolean;
+
+  /**
+   * Do not detach the change cache that we build. Use this if you want to do multiple transformations to
+   * the same iModels, to avoid the performance cost of reinitializing the change cache which can be
+   * expensive. You should only use this if you know the cache will be reused.
+   * @note You must detach the change cache yourself.
+   * @default false
+   */
+  noDetachChangeCache?: boolean;
 }
 
 /**
@@ -1284,8 +1293,12 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     // FIXME: make processAll have a try {} finally {} that cleans this up
-    if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
-      ChangeSummaryManager.detachChangeCache(this.sourceDb);
+    if (this._options.noDetachChangeCache) {
+      if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
+        ChangeSummaryManager.detachChangeCache(this.sourceDb);
+      if (ChangeSummaryManager.isChangeCacheAttached(this.targetDb))
+        ChangeSummaryManager.detachChangeCache(this.targetDb);
+    }
   }
 
   /** Imports all relationships that subclass from the specified base class.
