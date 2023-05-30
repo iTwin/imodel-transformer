@@ -1159,7 +1159,8 @@ describe("IModelTransformerHub", () => {
 
     // hard to check this without closing the db...
     const seedSecondConn = SnapshotDb.openFile(masterSeedDb.pathName);
-    expect(seedSecondConn.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+    for (const elemId of noFedGuidElemIds)
+      expect(seedSecondConn.elements.getElement(elemId).federationGuid).to.be.undefined;
     seedSecondConn.close();
 
     const masterSeed: TimelineIModelState = {
@@ -1280,6 +1281,7 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.performCheckpoint();
 
     let rel1IdInBranch1!: Id64String;
+    let rel2IdInBranch1!: Id64String;
 
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
