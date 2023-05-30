@@ -1039,7 +1039,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
   public override onExportElement(sourceElement: Element): void {
-    let targetElementId: Id64String | undefined;
+    let targetElementId: Id64String;
     let targetElementProps: ElementProps;
     if (this._options.preserveElementIdsForFiltering) {
       targetElementId = sourceElement.id;
@@ -1053,42 +1053,40 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     // if an existing remapping was not yet found, check by FederationGuid
-    if (targetElementId !== undefined && !Id64.isValid(targetElementId) && sourceElement.federationGuid !== undefined) {
-      targetElementId = this._queryElemIdByFedGuid(this.targetDb, sourceElement.federationGuid);
-      if (targetElementId)
+    if (!Id64.isValid(targetElementId) && sourceElement.federationGuid !== undefined) {
+      targetElementId = this._queryElemIdByFedGuid(this.targetDb, sourceElement.federationGuid) ?? Id64.invalid;
+      if (Id64.isValid(targetElementId))
         this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
     }
 
     // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-    if (targetElementId !== undefined && !Id64.isValid(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
+    if (!Id64.isValid(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
       // respond the same way to undefined code value as the @see Code class, but don't use that class because is trims
       // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
       targetElementProps.code.value = targetElementProps.code.value ?? "";
-      targetElementId = this.targetDb.elements.queryElementIdByCode(targetElementProps.code as Required<CodeProps>);
-      if (undefined !== targetElementId) {
-        const targetElement: Element = this.targetDb.elements.getElement(targetElementId);
-        if (targetElement.classFullName === targetElementProps.classFullName) { // ensure code remapping doesn't change the target class
+      const maybeTargetElementId = this.targetDb.elements.queryElementIdByCode(targetElementProps.code as Required<CodeProps>);
+      if (undefined !== maybeTargetElementId) {
+        const maybeTargetElem = this.targetDb.elements.getElement(maybeTargetElementId);
+        if (maybeTargetElem.classFullName === targetElementProps.classFullName) { // ensure code remapping doesn't change the target class
+          targetElementId = maybeTargetElementId;
           this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found by Code
         } else {
-          targetElementId = undefined;
           targetElementProps.code = Code.createEmpty(); // clear out invalid code
         }
       }
     }
 
-    if (targetElementId !== undefined
-      && Id64.isValid(targetElementId)
-      && !this.hasElementChanged(sourceElement, targetElementId)
-    )
+    if (Id64.isValid(targetElementId) && !this.hasElementChanged(sourceElement, targetElementId))
       return;
 
     this.collectUnmappedReferences(sourceElement);
 
-    // TODO: untangle targetElementId state...
-    if (targetElementId === Id64.invalid)
-      targetElementId = undefined;
+    // targetElementId will be valid (indicating update) or undefined (indicating insert)
+    targetElementProps.id
+      = Id64.isValid(targetElementId)
+        ? targetElementId
+        : undefined;
 
-    targetElementProps.id = targetElementId; // targetElementId will be valid (indicating update) or undefined (indicating insert)
     if (!this._options.wasSourceIModelCopiedToTarget) {
       this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
