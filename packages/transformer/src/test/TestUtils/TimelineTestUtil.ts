@@ -215,6 +215,8 @@ export interface TestContextOpts {
 /**
  * Run the branching and synchronization events in a @see Timeline object
  * you can print additional debug info from this by setting in your env TRANSFORMER_BRANCH_TEST_DEBUG=1
+ * @note because of a subset equality test for branch synchronizations, you must
+ * assert on synchronized element deletes yourself
  */
 export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: TestContextOpts) {
   const trackedIModels = new Map<string, TimelineIModelState>();
@@ -237,7 +239,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
     (model as any).manualUpdate || (model as any).manualUpdateAndReopen
       ? {
         update: (model as any).manualUpdate ?? (model as any).manualUpdateAndReopen,
-        doReopen: !!(model as any).manualUpdateAndReopen
+        doReopen: !!(model as any).manualUpdateAndReopen,
       }
       : undefined;
 
@@ -345,6 +347,9 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         }
 
         // subset because we don't care about elements that the target added itself
+        // NOTE: this means if an element in the target was deleted in the source,
+        // but that deletion wasn't propagated during synchronization (a bug), this
+        // will not assert. So you must assert on synchronized element deletes yourself
         assertElemState(target.db, source.state, { subset: true });
         target.state = source.state; // update the tracking state
 
