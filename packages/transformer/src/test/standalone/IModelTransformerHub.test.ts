@@ -385,6 +385,7 @@ describe("IModelTransformerHub", () => {
       3: {
         branch1: {
           manualUpdate(db) {
+            // FIXME: add a second relationship where the source and target have no fed guid
             const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
             const targetId = IModelTestUtils.queryByUserLabel(db, "2");
             assert(sourceId && targetId);

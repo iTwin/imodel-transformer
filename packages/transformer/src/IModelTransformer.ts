@@ -635,16 +635,19 @@ export class IModelTransformer extends IModelExportHandler {
     // TODO: test splitting this query
     const deletedElemSql = `
       SELECT ic.ChangedInstance.Id, ec.FederationGuid, esac.Identifier,
-        ic.ChangedInstance.ClassId AS ClassId,
-        iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotRel,
+        CASE WHEN ic.ChangedInstance.ClassId IS (BisCore.Element) THEN 0
+             WHEN ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) THEN 1
+             ELSE /* IS (BisCore.ExternalSourceAspect) */ 2
+        END AS ElemOrRelOrAspect,
         coalesce(
           se.FederationGuid, sec.FederationGuid
         ) AS SourceFedGuid,
         coalesce(
           te.FederationGuid, tec.FederationGuid
         ) AS TargetFedGuid,
-        sesac.Identifier AS SourceIdentifier,
-        tesac.Identifier AS TargetIdentifier
+        ic.ChangedInstance.ClassId AS ClassId,
+        sesac.Identifier AS SourceIdentifier
+
       FROM ecchange.change.InstanceChange ic
       -- ask affan about whether this is worth it...
           LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
@@ -667,9 +670,8 @@ export class IModelTransformer extends IModelExportHandler {
             ON tec.ECInstanceId=ertec.TargetECInstanceId
 
           LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesac
-            ON se.ECInstanceId=sesac.ECInstanceId
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') tesac
-            ON te.ECInstanceId=tesac.ECInstanceId
+            -- can we use ertec.ECInstanceId=sesac.Identifier?
+            ON se.ECInstanceId=sesac.Element.Id
 
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
@@ -687,25 +689,41 @@ export class IModelTransformer extends IModelExportHandler {
       // FIXME: test deletion in both forward and reverse sync
       this.sourceDb.withPreparedStatement(deletedElemSql, (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-        stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
         stmt.bindId("targetScopeElement", this.targetScopeElementId);
         stmt.bindId("changeSummaryId", changeSummaryId);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-          const sourceId = stmt.getValue(0).getId();
-          const sourceFedGuid = stmt.getValue(1).getGuid();
-          const maybeEsaIdentifier = stmt.getValue(2).getId();
-          // TODO: if I could attach the second db, will probably be much faster to get target id
-          // as part of the whole query rather than with _queryElemIdByFedGuid
-          const targetId = maybeEsaIdentifier
-            ?? (sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid));
-          // don't assert because currently we get separate rows for the element and external source aspect change
-          // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
-          // nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
-          const deletionNotInTarget = !targetId;
-          if (deletionNotInTarget)
-            continue;
-          // TODO: maybe delete and don't just remap?
-          this.context.remapElement(sourceId, targetId);
+          const instId = stmt.getValue(0).getId();
+
+          const elemOrRelOrAspect = stmt.getValue(3).getInteger();
+          const isElement = elemOrRelOrAspect === 0;
+          const isRelationship = elemOrRelOrAspect === 1;
+          const isAspect = elemOrRelOrAspect === 2;
+
+          if (isElement || isAspect) {
+            const sourceElemFedGuid = stmt.getValue(1).getGuid();
+            const identifierValue = stmt.getValue(2);
+            // null value returns an empty string which doesn't work with ??, and I don't like ||
+            const maybeEsaIdentifier = identifierValue.isNull ? undefined : identifierValue.getString();
+            // TODO: if I could attach the second db, will probably be much faster to get target id
+            // as part of the whole query rather than with _queryElemIdByFedGuid
+            const targetId = maybeEsaIdentifier
+              ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid));
+            // don't assert because currently we get separate rows for the element and external source aspect change
+            // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
+            // nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
+            const deletionNotInTarget = !targetId;
+            if (deletionNotInTarget)
+              continue;
+
+            // TODO: maybe delete and don't just remap?
+            this.context.remapElement(instId, targetId);
+
+          } else if (isRelationship) {
+            const sourceFedGuid = stmt.getValue(4).getGuid();
+            const targetFedGuid = stmt.getValue(5).getGuid();
+            const classFullName = stmt.getValue(6).getClassNameForClassId();
+            this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceFedGuid, targetFedGuid });
+          }
         }
       });
     }
@@ -812,21 +830,16 @@ export class IModelTransformer extends IModelExportHandler {
 
     const query = `
       SELECT
-        ic.ChangedInstance.Id AS InstId,
+        ic.ChangedInstance.Id AS InstId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
-
-          -- FIXME: test -- move to other query?
-          -- NEXT: check ExternalSourceAspect 
-          --LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
-            --ON se.ECInstanceId=esac.Element.Id
-
       -- FIXME: do relationship entities also need this cache optimization?
       WHERE ic.ChangedInstance.ClassId IS (BisCore.Element)
-            -- ignore deleted, we take care of those in remapDeletedSourceEntities
-            -- include inserted since inserted code-colliding elements should be considered
-            -- a change so that the colliding element is exported to the target
-          AND ic.OpCode<>:opDelete
+        AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
+        -- ignore deleted, we take care of those in remapDeletedSourceEntities
+        -- include inserted since inserted code-colliding elements should be considered
+        -- a change so that the colliding element is exported to the target
+        AND ic.OpCode<>:opDelete
     `;
 
     // there is a single mega-query multi-join+coalescing hack that I used originally to get around
@@ -836,18 +849,16 @@ export class IModelTransformer extends IModelExportHandler {
     // I wouldn't use it unless we prove via profiling that it speeds things up significantly
     // And even then let's first try scanning the raw changesets instead of applying them as these queries
     // require
-    for (const changeSummaryId of this._changeSummaryIds) {
-      this.sourceDb.withPreparedStatement(query,
-        (stmt) => {
-          stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-          stmt.bindId("changeSummaryId", changeSummaryId);
-          while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-            const instId = stmt.getValue(0).getId();
-            this._hasElementChangedCache!.add(instId);
-          }
+    this.sourceDb.withPreparedStatement(query,
+      (stmt) => {
+        stmt.bindInteger("opDelete", ChangeOpCode.Delete);
+        stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
+        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+          const instId = stmt.getValue(0).getId();
+          this._hasElementChangedCache!.add(instId);
         }
-      );
-    }
+      }
+    );
   }
 
   /** Returns true if a change within sourceElement is detected.
