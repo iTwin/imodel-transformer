@@ -25,7 +25,7 @@ import {
 import {
   ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { hasEntityChanged, IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -35,6 +35,7 @@ import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { EntityKind, LastEntity } from "./LastEntity";
+import { TargetIModelVerificationError } from "./Models/Errors";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -1298,10 +1299,15 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportRelationship]($transformer) that imports a relationship into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
    */
-  public override onExportRelationship(sourceRelationship: Relationship): void {
+  public override onExportRelationship(sourceRelationship: Relationship): void {  
     const sourceFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.sourceId);
     const targetFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.targetId);
-    const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship); // targetRelationshipProps.id will be valid (indicating update) or undefined (indicating insert)
+    const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
+
+    // check if relationship was updated
+    const relSourceAndTarget: SourceAndTarget = { sourceId: targetRelationshipProps.sourceId, targetId: targetRelationshipProps.targetId };
+    const isUpdate = !!this.targetDb.relationships.tryGetInstance(targetRelationshipProps.classFullName, relSourceAndTarget);
+
     const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
       if (!sourceFedGuid || !targetFedGuid) {
@@ -1317,7 +1323,7 @@ export class IModelTransformer extends IModelExportHandler {
       targetEntityECInstanceId: targetRelationshipInstanceId, 
       entityClassFullName: targetRelationshipProps.classFullName,
       entityKind: EntityKind.Relationship,
-      operationCode: targetRelationshipProps.id ? ChangeOpCode.Update : ChangeOpCode.Insert
+      operationCode: isUpdate ? ChangeOpCode.Update : ChangeOpCode.Insert
     });
   }
 
@@ -1719,7 +1725,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** last element or relationship that was processed */
-  private _lastEntity: LastEntity = new LastEntity();
+  protected _lastEntity: LastEntity = new LastEntity();
 
   /** @internal the name of the table where javascript state of the transformer is serialized in transformer state dumps */
   public static readonly jsStateTable = "TransformerJsState";
@@ -1788,10 +1794,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (!targetHasCorrectLastEntity)
-      throw Error([
-        "Target for resuming from does not have the expected provenance ",
-        "from the target that the resume state was made with",
-      ].join("\n"));
+      throw new TargetIModelVerificationError();
   }
 
   /**
