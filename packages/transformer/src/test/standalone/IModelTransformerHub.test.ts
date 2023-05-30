@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
-  ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
+  ExternalSourceAspect, GenericSchema, GraphicalElement3dRepresentsElement, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
   PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementProps, IModel, IModelVersion, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, ElementProps, IModel, IModelVersion, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -343,7 +343,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should merge changes made on a branch back to master", async () => {
+  it.only("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -354,6 +354,8 @@ describe("IModelTransformerHub", () => {
     assert(IModelJsFs.existsSync(masterSeedFileName));
     masterSeedDb.nativeDb.setITwinId(iTwinId); // WIP: attempting a workaround for "ContextId was not properly setup in the checkpoint" issue
     masterSeedDb.performCheckpoint();
+
+    let rel1IdInBranch1!: Id64String;
 
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
@@ -366,15 +368,38 @@ describe("IModelTransformerHub", () => {
       0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
       1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
       2: { branch1: { 2:2, 3:1, 4:1 } },
-      3: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted } },
-      4: { branch1: { 21:deleted, 30:1 } },
-      5: { master: { sync: ["branch1", 2] } },
-      6: { branch2: { sync: ["master", 0] } },
-      7: { branch2: { 7:1, 8:1 } },
+      3: {
+        branch1: {
+          manualUpdate(db) {
+            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+            assert(sourceId && targetId);
+            const rel = ElementGroupsMembers.create(db, sourceId, targetId, 0);
+            rel1IdInBranch1 = rel.insert();
+          },
+        },
+      },
+      4: {
+        branch1: {
+          manualUpdate(db) {
+            const rel = db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              rel1IdInBranch1,
+            );
+            rel.memberPriority = 1;
+            rel.update();
+          },
+        },
+      },
+      5: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted } },
+      6: { branch1: { 21:deleted, 30:1 } },
+      7: { master: { sync: ["branch1", 2] } },
+      8: { branch2: { sync: ["master", 0] } },
+      9: { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      8: { master: { 7:2, 9:1 } },
-      9: { master: { sync: ["branch2", 7] } },
-      10: {
+      10: { master: { 7:2, 9:1 } },
+      11: { master: { sync: ["branch2", 9] } },
+      12: {
         assert({master}) {
           assert.equal(count(master.db, ExternalSourceAspect.classFullName), 0);
           // FIXME: why is this different from master?
@@ -382,8 +407,34 @@ describe("IModelTransformerHub", () => {
           assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      11: { master: { 6:2 } },
-      12: { branch1: { sync: ["master", 4] } },
+      13: { master: { 6:2 } },
+      14: {
+        master: {
+          manualUpdate(db) {
+            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+            assert(sourceId && targetId);
+            const rel = db.relationships.getInstance(ElementGroupsMembers.classFullName, { sourceId, targetId });
+            rel.delete();
+          },
+        },
+      },
+      15: { branch1: { sync: ["master", 7] } },
+      16: {
+        assert({branch1}) {
+          expect(branch1.db.relationships.tryGetInstance(
+            ElementGroupsMembers.classFullName,
+            rel1IdInBranch1
+          )).to.be.undefined;
+          const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, "1");
+          const targetId = IModelTestUtils.queryByUserLabel(branch1.db, "2");
+          assert(sourceId && targetId);
+          expect(branch1.db.relationships.tryGetInstance(
+            ElementGroupsMembers.classFullName,
+            { sourceId, targetId },
+          )).to.be.undefined;
+        },
+      },
     };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
@@ -401,8 +452,9 @@ describe("IModelTransformerHub", () => {
       assert(master);
 
       const masterDbChangesets = await IModelHost.hubAccess.downloadChangesets({ accessToken, iModelId: master.id, targetDir: BriefcaseManager.getChangeSetsPath(master.id) });
-      assert.equal(masterDbChangesets.length, 4);
+      assert.equal(masterDbChangesets.length, 5);
       const masterDeletedElementIds = new Set<Id64String>();
+      const masterDeletedRelationshipIds = new Set<Id64String>();
       for (const masterDbChangeset of masterDbChangesets) {
         assert.isDefined(masterDbChangeset.id);
         assert.isDefined(masterDbChangeset.description); // test code above always included a change description when pushChanges was called
@@ -415,12 +467,15 @@ describe("IModelTransformerHub", () => {
         if (result === undefined)
           throw Error("expected to be defined");
 
-        assert.isDefined(result.element);
         if (result.element?.delete) {
           result.element.delete.forEach((id: Id64String) => masterDeletedElementIds.add(id));
         }
+        if (result.relationship?.delete) {
+          result.relationship.delete.forEach((id: Id64String) => masterDeletedRelationshipIds.add(id));
+        }
       }
-      assert.isAtLeast(masterDeletedElementIds.size, 1);
+      expect(masterDeletedElementIds.size).to.equal(2); // elem '3' is never seen by master
+      expect(masterDeletedRelationshipIds.size).to.equal(1);
 
       // replay master history to create replayed iModel
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: master.id, asOf: IModelVersion.first().toJSON() });
