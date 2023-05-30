@@ -792,7 +792,7 @@ export class IModelTransformer extends IModelExportHandler {
           te.FederationGuid, tec.FederationGuid, 'NONE'
         ) AS TargetFedGuid,
         -- not sure if coalesce would be optimized correctly? maybe faster to do two separate queries?
-        SourceIdentifier
+        -- SourceIdentifier
         ic.ChangedInstance.ClassId AS ClassId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
@@ -812,8 +812,8 @@ export class IModelTransformer extends IModelExportHandler {
 
           -- FIXME: test -- move to other query?
           -- WIP
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
-            ON se.ECInstanceId=esac.Element.Id
+          --LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
+            --ON se.ECInstanceId=esac.Element.Id
 
             -- ignore deleted elems, we take care of those separately.
             -- include inserted elems since inserted code-colliding elements should be considered
