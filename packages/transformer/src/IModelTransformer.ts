@@ -765,10 +765,12 @@ export class IModelTransformer extends IModelExportHandler {
     classFullName: Id64String;
   }> = undefined;
 
-  // FIXME: this is a PoC, don't load this all into memory
+  // FIXME: this is a PoC, see if we minimize memory usage
   private _cacheSourceChanges() {
     nodeAssert(this._changeSummaryIds && this._changeSummaryIds.length > 0, "should have changeset data by now");
     this._hasElementChangedCache = new Set();
+    // NEXT
+    // FIXME: maybe this should be done with delete elements since it runs on a different db
     this._deletedSourceRelationshipData = new Map();
 
     const query = `
@@ -782,10 +784,11 @@ export class IModelTransformer extends IModelExportHandler {
         coalesce(
           te.FederationGuid, tec.FederationGuid, 'NONE'
         ) AS TargetFedGuid,
+        -- not sure if coalesce would be optimized correctly? maybe faster to do two separate queries?
+        SourceIdentifier
         ic.ChangedInstance.ClassId AS ClassId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
-      -- ask affan about whether this is worth it... maybe the ""
           LEFT JOIN bis.ElementRefersToElements.Changes(:changeSummaryId, 'BeforeDelete') ertec
             -- NOTE: see how the AND affects performance, it could be dropped
             ON ic.ChangedInstance.Id=ertec.ECInstanceId
@@ -797,14 +800,21 @@ export class IModelTransformer extends IModelExportHandler {
             ON te.ECInstanceId=ertec.TargetECInstanceId
           LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') sec
             ON sec.ECInstanceId=ertec.SourceECInstanceId
-          LEFT JOIN bis.Element.Changes(:changeSummaryId 'BeforeDelete') tec
+          LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') tec
             ON tec.ECInstanceId=ertec.TargetECInstanceId
-      WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element)
-              OR ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements))
+
+          -- FIXME: test -- move to other query?
+          -- WIP
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
+            ON se.ECInstanceId=esac.Element.Id
+
             -- ignore deleted elems, we take care of those separately.
             -- include inserted elems since inserted code-colliding elements should be considered
             -- a change so that the colliding element is exported to the target
-            ) AND ic.OpCode<>:opDelete
+      WHERE ((ic.ChangedInstance.ClassId IS (BisCore.Element)
+              AND ic.OpCode<>:opDelete)
+            OR (ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements)
+                AND ic.OpCode=:opDelete))
     `;
 
     // there is a single mega-query multi-join+coalescing hack that I used originally to get around
@@ -813,6 +823,7 @@ export class IModelTransformer extends IModelExportHandler {
     // You can find this version in the `federation-guid-optimization-megaquery` branch
     // I wouldn't use it unless we prove via profiling that it speeds things up significantly
     for (const changeSummaryId of this._changeSummaryIds) {
+      // TODO: shouldn't this be the provenanceSourceDb?
       this.sourceDb.withPreparedStatement(query,
         (stmt) => {
           stmt.bindInteger("opDelete", ChangeOpCode.Delete);
@@ -1032,8 +1043,16 @@ export class IModelTransformer extends IModelExportHandler {
       targetElementId = this.context.findTargetElementId(sourceElement.id);
       targetElementProps = this.onTransformElement(sourceElement);
     }
+
+    // if an existing remapping was not yet found, check by FederationGuid
+    if (targetElementId !== undefined && !Id64.isValid(targetElementId) && sourceElement.federationGuid !== undefined) {
+      targetElementId = this._queryElemIdByFedGuid(this.targetDb, sourceElement.federationGuid);
+      if (targetElementId)
+        this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
+    }
+
     // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-    if (!Id64.isValidId64(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
+    if (targetElementId !== undefined && !Id64.isValid(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
       // respond the same way to undefined code value as the @see Code class, but don't use that class because is trims
       // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
       targetElementProps.code.value = targetElementProps.code.value ?? "";
@@ -1052,7 +1071,8 @@ export class IModelTransformer extends IModelExportHandler {
     if (targetElementId !== undefined
       && Id64.isValid(targetElementId)
       && !this.hasElementChanged(sourceElement, targetElementId)
-    ) return;
+    )
+      return;
 
     this.collectUnmappedReferences(sourceElement);
 
