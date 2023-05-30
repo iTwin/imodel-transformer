@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "fix detectElementDeletes since importer.deleteElement change",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "patch"
-}

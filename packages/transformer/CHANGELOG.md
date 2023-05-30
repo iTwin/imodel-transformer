@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 02 May 2023 18:28:36 GMT and should not be manually modified.
+This log was last generated on Tue, 30 May 2023 13:03:51 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.1.10
+
+Tue, 30 May 2023 13:03:51 GMT
+
+### Patches
+
+- fix detectElementDeletes since importer.deleteElement change ([commit](https://github.com/iTwin/transformer/commit/b248d238de2da7dae5ebc5b2609d0d79890811d6))
 
 ## 0.1.8
 
