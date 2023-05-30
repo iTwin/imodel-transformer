@@ -1279,6 +1279,8 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.saveChanges();
     masterSeedDb.performCheckpoint();
 
+    let rel1IdInBranch1!: Id64String;
+
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
       db: masterSeedDb as any as BriefcaseDb,
@@ -1721,6 +1723,9 @@ describe("IModelTransformerHub", () => {
           result.relationship.deleteIds.forEach((id: Id64String) =>
             masterDeletedRelationshipIds.add(id)
           );
+        }
+        if (result.relationship?.delete) {
+          result.relationship.delete.forEach((id: Id64String) => masterDeletedRelationshipIds.add(id));
         }
       }
       expect(masterDeletedElementIds.size).to.equal(2); // elem '3' is never seen by master
