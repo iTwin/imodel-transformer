@@ -21,6 +21,8 @@ import * as dotenvExpand from "dotenv-expand";
 
 import "source-map-support/register";
 
+const acquireAccessToken = async () => IModelTransformerTestAppHost.acquireAccessToken();
+
 void (async () => {
   let targetDb: IModelDb, sourceDb: IModelDb;
   try {
@@ -222,7 +224,6 @@ void (async () => {
     IModelHubUtils.setHubEnvironment(args.hub);
 
     await IModelTransformerTestAppHost.startup();
-    const acquireAccessToken = async () => IModelTransformerTestAppHost.acquireAccessToken();
 
     Logger.initializeToConsole();
     Logger.setLevelDefault(LogLevel.Error);
@@ -362,6 +363,7 @@ void (async () => {
 
       targetDb = await IModelHubUtils.downloadAndOpenBriefcase({
         iTwinId: targetITwinId,
+        fileName: process.env.FORCE_BRIEFCASE_NAME,
         iModelId: targetIModelId,
       });
       const fileName = targetDb.pathName;
