@@ -10,7 +10,7 @@ import { EventEmitter } from "events";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
-  AccessToken, assert, DbResult, Guid, GuidString, Id64, Id64Set, Id64String, IModelStatus, Logger, MarkRequired,
+  AccessToken, assert, CompressedId64Set, DbResult, Guid, GuidString, Id64, Id64Array, Id64Set, Id64String, IModelStatus, Logger, MarkRequired,
   OpenMode, YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
@@ -161,7 +161,7 @@ export interface IModelTransformOptions {
    * much slower due to needing to insert aspects, but prevents requiring change information for all operations.
    * @default false
    */
-  forceExternalSourceAspectProvenance?: boolean
+  forceExternalSourceAspectProvenance?: boolean;
 }
 
 /**
@@ -268,6 +268,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** map of (unprocessed element, referencing processed element) pairs to the partially committed element that needs the reference resolved
    * and have some helper methods below for now */
   protected _pendingReferences = new PendingReferenceMap<PartiallyCommittedEntity>();
+
+  /** a set of elements for which source provenance will be explicitly tracked by ExternalSourceAspects */
+  protected _elementsWithExplicitlyTrackedProvenance = new Set<Id64String> ();
 
   /** map of partially committed entities to their partial commit progress */
   protected _partiallyCommittedEntities = new EntityMap<PartiallyCommittedEntity>();
@@ -1066,15 +1069,15 @@ export class IModelTransformer extends IModelExportHandler {
     // make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined = sourceElement.federationGuid;
-      if (!provenance) {
+      if (!provenance || this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
-        let [aspectId] = this.queryScopeExternalSource(aspectProps);
+        const [aspectId] = this.queryScopeExternalSource(aspectProps);
         if (aspectId === undefined) {
-          aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
+          aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
         } else {
+          aspectProps.id = aspectId;
           this.provenanceDb.elements.updateAspect(aspectProps);
         }
-        aspectProps.id = aspectId;
         provenance = aspectProps as MarkRequired<ExternalSourceAspectProps, "id">;
       }
       this.markLastProvenance(provenance, { isRelationship: false });
@@ -1772,6 +1775,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.context.loadStateFromDb(db);
     this.importer.loadStateFromJson(state.importerState);
     this.exporter.loadStateFromJson(state.exporterState);
+    this._elementsWithExplicitlyTrackedProvenance = CompressedId64Set.decompressSet(state.explicitlyTrackedElements);
     this.loadAdditionalStateJson(state.additionalState);
   }
 
@@ -1826,6 +1830,7 @@ export class IModelTransformer extends IModelExportHandler {
     const jsonState: TransformationJsonState = {
       transformerClass: this.constructor.name,
       options: this._options,
+      explicitlyTrackedElements: CompressedId64Set.compressSet(this._elementsWithExplicitlyTrackedProvenance),
       importerState: this.importer.saveStateToJson(),
       exporterState: this.exporter.saveStateToJson(),
       additionalState: this.getAdditionalStateJson(),
@@ -1915,6 +1920,18 @@ export class IModelTransformer extends IModelExportHandler {
     this.finalizeTransformation();
     this.events.emit(TransformerEvent.endProcessChanges);
   }
+
+  /** Combine an array source elements into a single target element.
+   * All source and target elements must be created before calling this method.
+   * The "combine" operation is a simple remap and no properties from the source elements will be exported into the target.
+   * Provenance will be explicitly tracked by ExternalSourceAspects for all sourceElements.
+   */
+  public combineElements(sourceElementIds: Id64Array, targetElementId: Id64String) {
+    for (const elementId of sourceElementIds) {
+      this.context.remapElement(elementId, targetElementId);
+      this._elementsWithExplicitlyTrackedProvenance.add(elementId);
+    }
+  }
 }
 
 /** @internal the json part of a transformation's state */
@@ -1923,6 +1940,7 @@ interface TransformationJsonState {
   options: IModelTransformOptions;
   importerState: IModelImporterState;
   exporterState: IModelExporterState;
+  explicitlyTrackedElements: CompressedId64Set;
   additionalState?: any;
 }
 
