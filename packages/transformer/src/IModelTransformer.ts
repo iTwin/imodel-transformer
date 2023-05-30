@@ -552,7 +552,7 @@ export class IModelTransformer extends IModelExportHandler {
       SELECT e.ECInstanceId, FederationGuid, esa.Identifier as AspectIdentifier
       FROM bis.Element e
       LEFT JOIN bis.ExternalSourceAspect esa ON e.ECInstanceId=esa.Element.Id
-      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special non-federated iModel-local elements
+      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements
         AND ((Scope.Id IS NULL AND KIND IS NULL) OR (Scope.Id=:scopeId AND Kind=:kind))
       ORDER BY FederationGuid
     `;
@@ -561,7 +561,7 @@ export class IModelTransformer extends IModelExportHandler {
     const provenanceSourceQuery = `
       SELECT e.ECInstanceId, FederationGuid
       FROM bis.Element e
-      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special non-federated iModel-local elements
+      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements
       ORDER BY FederationGuid
     `;
 
@@ -573,10 +573,12 @@ export class IModelTransformer extends IModelExportHandler {
       containerStmt.bindId("scopeId", this.targetScopeElementId);
       containerStmt.bindString("kind", ExternalSourceAspect.Kind.Element);
 
-      if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-      let sourceRow = sourceStmt.getRow() as { federationGuid?: GuidString; id: Id64String };
-      if (containerStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-      let containerRow = containerStmt.getRow() as { federationGuid?: GuidString; id: Id64String; aspectIdentifier?: Id64String };
+      if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW)
+        return;
+      let sourceRow = sourceStmt.getRow() as { federationGuid?: GuidString, id: Id64String };
+      if (containerStmt.step() !== DbResult.BE_SQLITE_ROW)
+        return;
+      let containerRow = containerStmt.getRow() as { federationGuid?: GuidString, id: Id64String, aspectIdentifier?: Id64String };
 
       const runFnInProvDirection = (sourceId: Id64String, targetId: Id64String) =>
         this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
@@ -593,14 +595,16 @@ export class IModelTransformer extends IModelExportHandler {
           || (currSourceRow.federationGuid !== undefined
             && currSourceRow.federationGuid >= currContainerRow.federationGuid)
         ) {
-          if (containerStmt.step() !== DbResult.BE_SQLITE_ROW) return;
+          if (containerStmt.step() !== DbResult.BE_SQLITE_ROW)
+            return;
           containerRow = containerStmt.getRow();
         }
         if (currSourceRow.federationGuid === undefined
           || (currContainerRow.federationGuid !== undefined
             && currSourceRow.federationGuid <= currContainerRow.federationGuid)
         ) {
-          if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
+          if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW)
+            return;
           sourceRow = sourceStmt.getRow();
         }
         if (!currContainerRow.federationGuid  && currContainerRow.aspectIdentifier)
