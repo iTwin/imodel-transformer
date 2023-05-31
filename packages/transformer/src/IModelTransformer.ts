@@ -34,7 +34,6 @@ import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
-import { BatchHandler } from "./BatchHandler";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -670,17 +669,19 @@ export class IModelTransformer extends IModelExportHandler {
           ON ic.ChangedInstance.Id=ec.ECInstanceId
         ${queryCanAccessProvenance ? `
           LEFT JOIN bis.ExternalSourceAspect esa
-            ON ic.ChangedInstance.Id=esa.ECInstanceId
+            ON ec.ECInstanceId=esa.Element.Id
           LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
-            ON ic.ChangedInstance.Id=esac.ECInstanceId
+            ON ec.ECInstanceId=esac.Element.Id
         ` : ""
         }
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
         AND ic.ChangedInstance.ClassId IS (BisCore.Element)
         ${queryCanAccessProvenance ? `
-          AND esa.Scope.Id IN (:targetScopeElement, NULL)
-          AND esac.Scope.Id IN (:targetScopeElement, NULL)
+          AND (esa.Scope.Id=:targetScopeElement OR esa.Scope.Id IS NULL)
+          AND (esa.Kind='Element' OR esa.Kind IS NULL)
+          AND (esac.Scope.Id=:targetScopeElement OR esac.Scope.Id IS NULL)
+          AND (esac.Kind='Element' OR esac.Kind IS NULL)
           ` : ""
         }
 
@@ -724,10 +725,14 @@ export class IModelTransformer extends IModelExportHandler {
         AND ic.Summary.Id=:changeSummaryId
         AND ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements)
         ${queryCanAccessProvenance ? `
-          AND sesa.Scope.Id IN (:targetScopeElement, NULL)
-          AND sesac.Scope.Id IN (:targetScopeElement, NULL)
-          AND tesa.Scope.Id IN (:targetScopeElement, NULL)
-          AND tesac.Scope.Id IN (:targetScopeElement, NULL)
+          AND (sesa.Scope.Id=:targetScopeElement OR sesa.Scope.Id IS NULL)
+          AND (sesa.Kind='Relationship' OR sesa.Kind IS NULL)
+          AND (sesac.Scope.Id=:targetScopeElement OR sesac.Scope.Id IS NULL)
+          AND (sesac.Kind='Relationship' OR sesac.Kind IS NULL)
+          AND (tesa.Scope.Id=:targetScopeElement OR tesa.Scope.Id IS NULL)
+          AND (tesa.Kind='Relationship' OR tesa.Kind IS NULL)
+          AND (tesac.Scope.Id=:targetScopeElement OR tesac.Scope.Id IS NULL)
+          AND (tesac.Kind='Relationship' OR tesac.Kind IS NULL)
           ` : ""
         }
     `;
@@ -760,18 +765,15 @@ export class IModelTransformer extends IModelExportHandler {
             const targetId = maybeEsaIdentifier
               ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid));
 
-            // FIXME: remove this comment and below commented code
-            // don't assert because currently we get separate rows for the element and external source aspect change
-            // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
-            nodeAssert(targetId, `target for elem ${instId} in source could not be determined, provenance is broken`);
-            // const deletionNotInTarget = !targetId;
-            // if (deletionNotInTarget)
-            //   continue;
+            // since we are processing one changeset at a time, we can see local source deletes
+            // of entities that were never synced and can be safely ignored
+            const deletionNotInTarget = !targetId;
+            if (deletionNotInTarget)
+              continue;
 
             this.context.remapElement(instId, targetId);
 
           } else { // is deleted relationship
-            // we could batch these but we should try to attach the second db and query both together
             const classFullName = stmt.getValue(4).getClassNameForClassId();
             const [sourceIdInTarget, targetIdInTarget] = [[2, 5], [3, 6]].map(([guidColumn, identifierColumn]) => {
               const fedGuid = stmt.getValue(guidColumn).getGuid();
@@ -782,15 +784,14 @@ export class IModelTransformer extends IModelExportHandler {
                 && !identifierValue.isNull
                   ? identifierValue.getString()
                   : undefined;
+              // we could batch _queryElemIdByFedGuid but we should try to attach the second db and query both together
               return maybeEsaIdentifier ?? (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid));
             });
-            // FIXME: might we attempt to process here a broken relationship legitimately without
-            // source or target, which should just be ignored?
-            nodeAssert(
-              sourceIdInTarget && targetIdInTarget,
-              `target for relationship ${instId} in source could not be determined, provenance is broken`
-            );
-            this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceIdInTarget, targetIdInTarget });
+
+            // since we are processing one changeset at a time, we can see local source deletes
+            // of entities that were never synced and can be safely ignored
+            if (sourceIdInTarget && targetIdInTarget)
+              this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceIdInTarget, targetIdInTarget });
           }
         }
         // NEXT: remap sourceId and targetId to target, get provenance there
