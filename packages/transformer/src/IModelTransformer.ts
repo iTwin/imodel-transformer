@@ -34,6 +34,7 @@ import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
+import { BatchHandler } from "./BatchHandler";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -628,10 +629,10 @@ export class IModelTransformer extends IModelExportHandler {
       return this.remapDeletedSourceEntities();
   }
 
-  /** When processing deleted elements in a reverse synchronization, the [[provenanceDb]] has already
-   * deleted the provenance that tell us which elements in the reverse synchronization target (usually
-   * a master iModel) should be deleted.
-   * We must use the changesets to get the values of those before they were deleted.
+  /** When processing deleted entities in a reverse synchronization, the [[provenanceDb]]
+   * (source/branch) has already deleted the provenance that tell us which entities in
+   * master/target they corresponded to.
+   * We must use the changesets of the source/branch to get the values of those before they were deleted.
    */
   private async remapDeletedSourceEntities() {
     // we need a connected iModel with changes to remap elements with deletions
@@ -642,8 +643,8 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._deletedSourceRelationshipData = new Map();
 
-    nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
-    nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
+    nodeAssert(this._sourceChangeSummaryIds, "change summaries should be initialized before we get here");
+    nodeAssert(this._sourceChangeSummaryIds.length > 0, "change summaries should have at least one");
 
     // TODO: test splitting this query
     const deletedElemSql = `
@@ -682,10 +683,6 @@ export class IModelTransformer extends IModelExportHandler {
           LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') tec
             ON tec.ECInstanceId=ertec.TargetECInstanceId
 
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesac
-            -- can we use ertec.ECInstanceId=sesac.Identifier?
-            ON se.ECInstanceId=sesac.Element.Id
-
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
         AND (
@@ -698,7 +695,16 @@ export class IModelTransformer extends IModelExportHandler {
         )
     `;
 
-    for (const changeSummaryId of this._changeSummaryIds) {
+    const targetProvenanceBatchHandler = new BatchHandler({
+      onBatchReady(fedguids: Guid[]): void {
+        // TODO: optimize this
+        for (const fedguid of fedguids) {
+          this._queryElemIdByFedGuid(this.targetDb, fedguid)
+        }
+      },
+    });
+
+    for (const changeSummaryId of this._sourceChangeSummaryIds) {
       // FIXME: test deletion in both forward and reverse sync
       this.sourceDb.withPreparedStatement(deletedElemSql, (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
@@ -720,7 +726,7 @@ export class IModelTransformer extends IModelExportHandler {
             // TODO: if I could attach the second db, will probably be much faster to get target id
             // as part of the whole query rather than with _queryElemIdByFedGuid
             const targetId = maybeEsaIdentifier
-              ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid));
+              ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetSourceDb, sourceElemFedGuid));
             // don't assert because currently we get separate rows for the element and external source aspect change
             // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
             // nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
@@ -738,6 +744,9 @@ export class IModelTransformer extends IModelExportHandler {
             this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceFedGuid, targetFedGuid });
           }
         }
+        // NEXT: remap sourceId and targetId to target, get provenance there
+        // NOTE: it is possible during a forward sync for the target to already have deleted
+        // something that the source deleted, in which case we can safely ignore the gone provenance
       });
     }
   }
@@ -823,9 +832,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   // handle sqlite coalesce requiring 2 arguments
   private _coalesceChangeSummaryJoinedValue(f: (id: Id64String, index: number) => string) {
-    nodeAssert(this._changeSummaryIds?.length && this._changeSummaryIds.length > 0, "should have changeset data by now");
-    const valueList = this._changeSummaryIds!.map(f).join(',');
-    return this._changeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
+    nodeAssert(this._sourceChangeSummaryIds?.length && this._sourceChangeSummaryIds.length > 0, "should have changeset data by now");
+    const valueList = this._sourceChangeSummaryIds!.map(f).join(',');
+    return this._sourceChangeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
   };
 
   // if undefined, it can be initialized by calling [[this._cacheSourceChanges]]
@@ -838,7 +847,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: this is a PoC, see if we minimize memory usage
   private _cacheSourceChanges() {
-    nodeAssert(this._changeSummaryIds && this._changeSummaryIds.length > 0, "should have changeset data by now");
+    nodeAssert(this._sourceChangeSummaryIds && this._sourceChangeSummaryIds.length > 0, "should have changeset data by now");
     this._hasElementChangedCache = new Set();
 
     const query = `
@@ -865,7 +874,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.sourceDb.withPreparedStatement(query,
       (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-        stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
+        stmt.bindIdSet("changeSummaryIds", this._sourceChangeSummaryIds!);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           const instId = stmt.getValue(0).getId();
           this._hasElementChangedCache!.add(instId);
@@ -880,11 +889,11 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom change detection behavior.
    */
   protected hasElementChanged(sourceElement: Element, _targetElementId: Id64String): boolean {
-    if (this._changeDataState === "no-changes")
+    if (this._sourceChangeDataState === "no-changes")
         return false;
-    if (this._changeDataState === "unconnected")
+    if (this._sourceChangeDataState === "unconnected")
         return true;
-    nodeAssert(this._changeDataState === "has-changes", "change data should be initialized by now");
+    nodeAssert(this._sourceChangeDataState === "has-changes", "change data should be initialized by now");
     if (this._hasElementChangedCache === undefined)
         this._cacheSourceChanges();
     return this._hasElementChangedCache!.has(sourceElement.id);
@@ -1271,7 +1280,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _updateTargetScopeVersion() {
     nodeAssert(this._targetScopeProvenanceProps);
-    if (this._changeDataState === "has-changes") {
+    if (this._sourceChangeDataState === "has-changes") {
       this._targetScopeProvenanceProps.version = `${this.provenanceSourceDb.changeset.id};${this.provenanceSourceDb.changeset.index}`;
       this.provenanceDb.elements.updateAspect(this._targetScopeProvenanceProps);
     }
@@ -1639,8 +1648,8 @@ export class IModelTransformer extends IModelExportHandler {
   private _initialized = false;
 
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
-  private _changeSummaryIds?: Id64String[] = undefined;
-  private _changeDataState: "uninited" | "has-changes" | "no-changes" | "unconnected" = "uninited";
+  private _sourceChangeSummaryIds?: Id64String[] = undefined;
+  private _sourceChangeDataState: ChangeDataState = "uninited";
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
@@ -1662,14 +1671,14 @@ export class IModelTransformer extends IModelExportHandler {
 
   private async _tryInitChangesetData(args?: InitArgs) {
     if (!args || this.sourceDb.iTwinId === undefined) {
-      this._changeDataState = "unconnected";
+      this._sourceChangeDataState = "unconnected";
       return;
     }
 
     const noChanges = this._targetScopeVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
-      this._changeDataState = "no-changes";
-      this._changeSummaryIds = [];
+      this._sourceChangeDataState = "no-changes";
+      this._sourceChangeSummaryIds = [];
       return;
     }
 
@@ -1691,8 +1700,7 @@ export class IModelTransformer extends IModelExportHandler {
         )
     );
 
-    // FIXME: do we need the startChangesetId?
-    this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
+    this._sourceChangeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
       accessToken: args.accessToken,
       iModelId: this.sourceDb.iModelId,
       iTwinId: this.sourceDb.iTwinId,
@@ -1700,7 +1708,7 @@ export class IModelTransformer extends IModelExportHandler {
     });
 
     ChangeSummaryManager.attachChangeCache(this.sourceDb);
-    this._changeDataState = "has-changes";
+    this._sourceChangeDataState = "has-changes";
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
