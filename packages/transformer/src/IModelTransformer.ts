@@ -650,61 +650,71 @@ export class IModelTransformer extends IModelExportHandler {
 
     /* eslint-disable @typescript-eslint/indent */
     const deletedElemSql = `
-      SELECT ic.ChangedInstance.Id, ec.FederationGuid,
-        -- parser error using AS without iff (not even just parentheses works)
-        iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotRel,
-        coalesce(
-          se.FederationGuid, sec.FederationGuid
-        ) AS SourceFedGuid,
-        coalesce(
-          te.FederationGuid, tec.FederationGuid
-        ) AS TargetFedGuid,
+      SELECT
+        1 AS IsElemNotRel
+        ic.ChangedInstance.Id AS InstanceId,
+        ec.FederationGuid AS FedGuid1,
+        NULL AS FedGuid2,
         ic.ChangedInstance.ClassId AS ClassId
-        ${this.sourceDb === this.provenanceDb ? `
-        , esac.Identifier AS AspectIdentifier
-        , sesac.Identifier AS SourceIdentifier
-        , tesac.Identifier AS TargetIdentifier
+        ${
+        // optimization: if we have provenance, use it to avoid more querying later
+        // eventually when itwin.js supports attaching a second iModelDb in JS,
+        // this won't have to be a conditional part of the query
+        this.sourceDb === this.provenanceDb ? `
+        , NULL AS SourceIdentifier
+        , NULL AS TargetIdentifier
         ` : ""
         }
-
+      SELECT ic.ChangedInstance.Id AS CID, ec.FederationGuid AS sfg, ec.FederationGuid AS tfg,
+        ic.ChangedInstance.ClassId AS ClassId
+        -- parser error using AS without iff (not even just parentheses works)
       FROM ecchange.change.InstanceChange ic
-      -- ask affan about whether this is worth it...
-          LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
-            ON ic.ChangedInstance.Id=ec.ECInstanceId
-          LEFT JOIN bis.ElementRefersToElements.Changes(:changeSummaryId, 'BeforeDelete') ertec
-            -- NOTE: see how the AND affects performance, it could be dropped
-            ON ic.ChangedInstance.Id=ertec.ECInstanceId
-              AND NOT ic.ChangedInstance.ClassId IS (BisCore.Element)
-          -- FIXME: test a deletion of both an element and a relationship at the same time
-          LEFT JOIN bis.Element se
-            ON se.ECInstanceId=ertec.SourceECInstanceId
-          LEFT JOIN bis.Element te
-            ON te.ECInstanceId=ertec.TargetECInstanceId
-          LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') sec
-            ON sec.ECInstanceId=ertec.SourceECInstanceId
-          LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') tec
-            ON tec.ECInstanceId=ertec.TargetECInstanceId
-
-          ${this.sourceDb === this.provenanceDb ? `
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
-            ON ic.ChangedInstance.Id=esac.ECInstanceId
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesac
-            -- don't use ertec.ECInstanceId=sesac.Identifier because it's a string
-            -- FIXME: what about cases where the element was deleted, use sec table?
-            -- I doubt sqlite could optimize a coalesce in the ON clause...
-            ON se.ECInstanceId=sesac.Element.Id
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') tesac
-            ON te.ECInstanceId=tesac.Element.Id
-          ` : ""
-          }
-
-
+        LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
+          ON ic.ChangedInstance.Id=ec.ECInstanceId
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
-        AND (
-          ic.ChangedInstance.ClassId IS (BisCore.Element)
-          OR ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements)
-        )
+        AND ic.ChangedInstance.ClassId IS (BisCore.Element)
+
+      UNION ALL
+
+      SELECT
+        0 AS IsElemNotRel
+        ic.ChangedInstance.Id AS InstanceId,
+        coalesce(se.FederationGuid, sec.FederationGuid) AS FedGuid1,
+        coalesce(te.FederationGuid, tec.FederationGuid) AS FedGuid2,
+        ic.ChangedInstance.ClassId AS ClassId
+        ${this.sourceDb === this.provenanceDb ? `
+        , coalesce(sesac.Identifier, sesacc.Identifier) AS SourceIdentifier
+        , coalesce(tesac.Identifier, tesacc.Identifier) AS TargetIdentifier
+        ` : ""
+        }
+      FROM ecchange.change.InstanceChange ic
+        LEFT JOIN bis.ElementRefersToElements.Changes(:changeSummaryId, 'BeforeDelete') ertec
+          ON ic.ChangedInstance.Id=ertec.ECInstanceId
+        -- FIXME: test a deletion of both an element and a relationship at the same time
+        LEFT JOIN bis.Element se
+          ON se.ECInstanceId=ertec.SourceECInstanceId
+        LEFT JOIN bis.Element te
+          ON te.ECInstanceId=ertec.TargetECInstanceId
+        LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') sec
+          ON sec.ECInstanceId=ertec.SourceECInstanceId
+        LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') tec
+          ON tec.ECInstanceId=ertec.TargetECInstanceId
+        ${this.sourceDb === this.provenanceDb ? `
+          -- NOTE: need to join on both se/te and sec/tec incase the element was deleted
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesac
+            ON se.ECInstanceId=sesac.Element.Id -- don't use *esac*.Identifier because it's a string
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesacc
+            ON sec.ECInstanceId=sesacc.Element.Id
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') tesac
+            ON te.ECInstanceId=tesac.Element.Id
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') tesacc
+            ON tec.ECInstanceId=tesacc.Element.Id
+          ` : ""
+        }
+      WHERE ic.OpCode=:opDelete
+        AND ic.Summary.Id=:changeSummaryId
+        AND ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements)
     `;
     /* eslint-enable @typescript-eslint/indent */
 
