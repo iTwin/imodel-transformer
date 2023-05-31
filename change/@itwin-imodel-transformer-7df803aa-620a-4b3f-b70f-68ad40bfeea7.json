@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "add checks in EntityUnifier.exists for id validity",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "michael.belousov98@gmail.com",
-  "dependentChangeType": "patch"
-}
