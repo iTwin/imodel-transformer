@@ -15,7 +15,7 @@
 # These are at the end to override all previous reviews
 
 ## Updates to the package.json or changelog should avoid requesting review by everyone
-/**/package.json    @MichaelBelousov
-/**/CHANGELOG.json  @MichaelBelousov
-/**/CHANGELOG.md    @MichaelBelousov
-/**/LICENSE.md      @MichaelBelousov
+/**/package.json    @MichaelBelousov @ColinKerr
+/**/CHANGELOG.json  @MichaelBelousov @ColinKerr
+/**/CHANGELOG.md    @MichaelBelousov @ColinKerr
+/**/LICENSE.md      @MichaelBelousov @ColinKerr

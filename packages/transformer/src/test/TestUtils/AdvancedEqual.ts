@@ -19,6 +19,8 @@ interface DeepEqualOpts {
    * Passing `true`, is the same as passing `["classFullName", "relClassName"]`
    */
   normalizeClassNameProps?: boolean | string[];
+  /** generally prefer `.deep.subsetEqual` instead */
+  useSubsetEquality?: boolean;
 }
 
 export const defaultOpts = {
@@ -41,11 +43,6 @@ const isAlmostEqualNumber: (a: number, b: number, tol: number) => boolean = Geom
 /** normalize a classname for comparisons */
 const normalizeClassName = (name: string) => name.toLowerCase().replace(/:/, ".");
 
-interface AdvancedEqualFuncOpts extends DeepEqualOpts {
-  /** only test */
-  useSubsetEquality?: boolean;
-}
-
 /**
  * The diff shown on failure will show undefined fields as part of the diff even if
  * consideringNonExistingAndUndefinedEqual is true. You can ignore that.
@@ -54,7 +51,7 @@ interface AdvancedEqualFuncOpts extends DeepEqualOpts {
 export function advancedDeepEqual(
   e: any,
   a: any,
-  options: AdvancedEqualFuncOpts = {},
+  options: DeepEqualOpts = {},
 ): boolean {
   const normalizedClassNameProps
     = options.normalizeClassNameProps === true
