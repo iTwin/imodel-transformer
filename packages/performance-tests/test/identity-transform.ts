@@ -17,7 +17,7 @@ import { initOutputFile, timed } from "./TestUtils";
  * through the transformation process.
  */
 
-const loggerCategory = "Transformer Performance Tests Identity";
+const loggerCategory = "Transformer Performance Tests identity transform";
 const outputDir = path.join(__dirname, ".output");
 
 export default async function identityTransformer(iModel: TestIModel, os: any, reporter: Reporter){
@@ -51,10 +51,10 @@ export default async function identityTransformer(iModel: TestIModel, os: any, r
       await transformer.processSchemas();
     });
     Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
-    // [entityProcessingTimer] = await timed(async () => {
-    // await transformer.processAll();
-    // });
-    // Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
+    [entityProcessingTimer] = await timed(async () => {
+    await transformer.processAll();
+    });
+    Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
   } catch (err: any) {
     Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
     const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
@@ -68,12 +68,11 @@ export default async function identityTransformer(iModel: TestIModel, os: any, r
       "Gb size": sizeInGb,
       /* eslint-enable @typescript-eslint/naming-convention */
     };
-    reporter.addEntry("Identity Transform Regression Test", iModel.name, "time", entityProcessingTimer?.elapsedSeconds ?? -1, record);
+    reporter.addEntry("Transformer Regression Tests", iModel.name, "time", entityProcessingTimer?.elapsedSeconds ?? -1, record);
     // report.push(record);
     targetDb.close();
     sourceDb.close();
     transformer.dispose();
-    return reporter;
   }
   IModelHost.flushLog();
 };

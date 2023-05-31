@@ -33,9 +33,9 @@ async function sleep(ms: number) {
 }
 const testCasesMap = new Map<string, any>();
 testCasesMap.set("identity transform", require("./identity-transformer"));
+// testCasesMap.set("prepare fork transform", require("./prepare-fork"));
 
 const loggerCategory = "Transformer Performance Tests Identity";
-const assetsDir = path.join(__dirname, "assets");
 const outputDir = path.join(__dirname, ".output");
 
 const setupTestData = async () => {
@@ -100,90 +100,28 @@ const setupTestData = async () => {
 
 void (async function () {
   const testIModels = await setupTestData();
-  const reporter = new Reporter();
+  var reporter = new Reporter();
+  const reportPath = initOutputFile("report.csv", outputDir);
 
   // could probably add an outer describe here (surounding both foreaches) for any before after logic that isn't related to getting the test data. but idk for sure 
-  testIModels.forEach(async (value, index, _array) => {
-    const iModel = value;
-    if (index === 2 || index === 5) {
-      describe(`Transforms of ${iModel.name}`, async () => {
-        testCasesMap.forEach(async (testCase, key, _map) => {
-          it(key, async () => {
-            await testCase.default(iModel, os, reporter);  // add timeout(0)
+  describe('Transformer Regression Tests', function () {
+    testIModels.forEach(async (value, index, _array) => {
+      const iModel = value;
+      if (index === 2 /*|| index === 5*/) {
+        describe(`Transforms of ${iModel.name}`, async () => {
+          testCasesMap.forEach(async (testCase, key, _map) => {
+            it(key, async () => {
+              reporter = await testCase.default(iModel, os, reporter);  // add timeout(0)
+            }).timeout(0);
           });
         });
-      });
-    }
+      }
+    });
+  });
+  after(async () => {
+    reporter.exportCSV(reportPath);
   });
   // See 'DELAYED ROOT SUITE' on https://mochajs.org/
   // This function is a special bcallback function provided by mocha when passing it the --delay flag. This gives us an opportunity to load in the iModels that we'll be testing so we can dynamically generate testcases.
   run();
 })();
-
-// describe("imodel-transformer", () => {
-//   const arrImodels: any[] = [];
-//   let reporter: Reporter;
-//   let reportPath: string;
-//   const testCases = {
-//     "identity transform": require("./identity-transformer"),
-//   };
-//   const testCasesMap = new Map<string, any>();
-//   testCasesMap.set("identity transform", require("./identity-transformer"));
-
-//   before(async () => {
-
-//     reporter = new Reporter();
-//     reportPath = initOutputFile("report.csv", outputDir);
-//   });
-
-//   after(async () => {
-//     // await fs.promises.rm(outputDir);
-//     console.log("entered after");
-//     await IModelHost.shutdown();
-//     console.log("exiting after");
-//   });
-//   // const otherArray = ["testfunction", () => console.log("test2function")];
-//   // ["test", "test2"].forEach(async (value, _index, _array) => {
-//   //   describe(`Transforms of ${value}`, async () => {
-//   //     it(value, async () => {
-//   //       console.log(value);
-//   //       await sleep(2500);
-//   //     });
-//   //   });
-
-//   // });
-//   arrImodels.forEach(async (value, index, _array) => {
-//     const iModel = value;
-//     if (index === 1) {
-//       describe(`Transforms of ${iModel.name}`, async () => {
-//         testCasesMap.forEach(async (testCase, key, _map) => {
-//           it(key, async () => {
-//             await testCase.default(iModel, os, reporter);
-//           });
-//         });
-//       });
-//     }
-//   });
-
-// });
-
-// // it(`Transform Regression Tests`, async () => {
-// //   // const report = [] as Record<string, string | number>[];
-// //   const reporter = new Reporter();
-// //   const reportPath = initOutputFile("report.csv", outputDir);
-// //   var count = 0;
-// //   const os = require('os');
-
-// //     if((count === 2)){
-// //       describe(`Transforms of ${iModel.name}`, () => {
-// //       for (const [testCaseName, testCaseRun] of Object.entries(testCases)) {
-// //           it(testCaseName, async function () {
-// //           //if (!process.env.CI && iModel.tShirtsize !== 'm') this.skip();
-// //           await testCaseRun.default(iModel, os, reporter);
-// //           }).timeout(0);
-// //       }
-// //       });
-// //     }
-// //     count++;
-// //   reporter.exportCSV(reportPath);
-// // });
