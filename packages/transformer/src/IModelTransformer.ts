@@ -852,7 +852,7 @@ export class IModelTransformer extends IModelExportHandler {
    * it is stored separately for both synchronization directions
    * @note: empty string and -1 for changeset and index if it has never been transformed
    */
-  private get _targetScopeVersion(): ChangesetIndexAndId {
+  private get _synchronizationVersion(): ChangesetIndexAndId {
     if (!this._cachedTargetScopeVersion) {
       nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
       const version = this._options.isReverseSynchronization
