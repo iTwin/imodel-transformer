@@ -173,7 +173,7 @@ export type TimelineStateChange =
   // create a branch from an existing iModel with a given name
   | { branch: string }
   // synchronize with the changes in an iModel of a given name from a starting timeline point
-  | { sync: [string, number] }
+  | { sync: [string, { since: number }] }
   // manually update an iModel, state will be automatically detected after. Useful for more complicated
   // element changes with inter-dependencies.
   // @note: the key for the element in the state will be the userLabel or if none, the id
@@ -234,7 +234,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
 
   const getSeed = (model: TimelineStateChange) => (model as { seed: TimelineIModelState | undefined }).seed;
   const getBranch = (model: TimelineStateChange) => (model as { branch: string | undefined }).branch;
-  const getSync = (model: TimelineStateChange) => (model as { sync: [string, number] | undefined }).sync;
+  const getSync = (model: TimelineStateChange) => (model as { sync: [string, {since: number}] | undefined }).sync;
   const getManualUpdate = (model: TimelineStateChange): { update: ManualUpdateFunc, doReopen: boolean } | undefined =>
     (model as any).manualUpdate || (model as any).manualUpdateAndReopen
       ? {
@@ -320,7 +320,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         // "branch" and "seed" event has already been handled in the new imodels loop above
         continue;
       } else if ("sync" in event) {
-        const [syncSource, startIndex] = getSync(event)!;
+        const [syncSource, { since: startIndex }] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
         const target = trackedIModels.get(iModelName)!;

@@ -414,7 +414,7 @@ describe("IModelTransformerHub", () => {
       },
       5: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
       6: { branch1: { 21:deleted, 30:1 } },
-      7: { master: { sync: ["branch1", 2] } },
+      7: { master: { sync: ["branch1", { since: 2 }] } },
       8: {
         assert({ master }) {
           // check deletions propagated from sync
@@ -422,11 +422,11 @@ describe("IModelTransformerHub", () => {
           expect(IModelTestUtils.queryByUserLabel(master.db, "21")).to.equal(Id64.invalid);
         },
       },
-      9: { branch2: { sync: ["master", 0] } },
+      9: { branch2: { sync: ["master", { since: 0 }] } },
       10: { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
       11: { master: { 7:2, 9:1 } },
-      12: { master: { sync: ["branch2", 10] } },
+      12: { master: { sync: ["branch2", { since: 10 }] } },
       13: {
         assert({ master, branch1, branch2 }) {
           for (const { db } of [master, branch1, branch2]) {
@@ -494,7 +494,8 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      16: { branch1: { sync: ["master", 7] } },
+      // FIXME: throw when attempting to transform from an incorrect changeset
+      16: { branch1: { sync: ["master", { since: 8 }] } },
       17: {
         assert({branch1}) {
           for (const rel of relationships) {
@@ -976,7 +977,7 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      3: { branch: { sync: ["master", 2] } },
+      3: { branch: { sync: ["master", { since: 2 }] } },
     };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
