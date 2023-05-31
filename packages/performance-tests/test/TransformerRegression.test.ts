@@ -107,7 +107,7 @@ void (async function () {
   describe('Transformer Regression Tests', function () {
     testIModels.forEach(async (value, index, _array) => {
       const iModel = value;
-      if (index === 2 /*|| index === 5*/) {
+      if (index === 2 || index === 5) {
         describe(`Transforms of ${iModel.name}`, async () => {
           testCasesMap.forEach(async (testCase, key, _map) => {
             it(key, async () => {
