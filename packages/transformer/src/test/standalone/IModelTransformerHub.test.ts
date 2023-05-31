@@ -369,10 +369,8 @@ describe("IModelTransformerHub", () => {
     seedSecondConn.close();
 
     const relationships = [
-      // FIXME: assert that relationship 40->2 has fed guids on both
-      { sourceLabel: "40", targetLabel: "2", idInBranch1: "not inserted yet" },
-      // FIXME: assert that relationship 40->2 has fed guids on neither
-      { sourceLabel: "41", targetLabel: "42", idInBranch1: "not inserted yet" },
+      { sourceLabel: "40", targetLabel: "2", idInBranch1: "not inserted yet", sourceFedGuid: true, targetFedGuid: true },
+      { sourceLabel: "41", targetLabel: "42", idInBranch1: "not inserted yet", sourceFedGuid: false, targetFedGuid: false },
     ];
 
     const masterSeed: TimelineIModelState = {
@@ -434,8 +432,17 @@ describe("IModelTransformerHub", () => {
           for (const { db } of [master, branch1, branch2]) {
             const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
             expect(db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+
+            for (const rel of relationships) {
+              const sourceId = IModelTestUtils.queryByUserLabel(db, rel.sourceLabel);
+              const targetId = IModelTestUtils.queryByUserLabel(db, rel.targetLabel);
+              expect(db.elements.getElement(sourceId).federationGuid !== undefined).to.be.equal(rel.sourceFedGuid);
+              expect(db.elements.getElement(targetId).federationGuid !== undefined).to.be.equal(rel.targetFedGuid);
+            }
           }
+
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(0);
+
           for (const branch of [branch1, branch2]) {
             const elem1Id = IModelTestUtils.queryByUserLabel(branch.db, "1");
             expect(branch.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
@@ -463,6 +470,7 @@ describe("IModelTransformerHub", () => {
             ]);
             expect(Date.parse(aspects[3].version!)).not.to.be.NaN;
           }
+
           // branch2 won the conflict since it is the synchronization source
           assertElemState(master.db, {7:1}, { subset: true });
         },
@@ -493,14 +501,14 @@ describe("IModelTransformerHub", () => {
             expect(branch1.db.relationships.tryGetInstance(
               ElementGroupsMembers.classFullName,
               rel.idInBranch1,
-            )).to.be.undefined;
+            ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.be.undefined;
             const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, rel.sourceLabel);
             const targetId = IModelTestUtils.queryByUserLabel(branch1.db, rel.targetLabel);
             assert(sourceId && targetId);
             expect(branch1.db.relationships.tryGetInstance(
               ElementGroupsMembers.classFullName,
               { sourceId, targetId },
-            )).to.be.undefined;
+            ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.be.undefined;
           }
         },
       },
