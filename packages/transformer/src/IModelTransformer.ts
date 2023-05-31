@@ -648,29 +648,29 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
     nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
 
-    // TODO: test splitting this query
+    /* eslint-disable @typescript-eslint/indent */
     const deletedElemSql = `
-      SELECT ic.ChangedInstance.Id, ec.FederationGuid, esac.Identifier,
-        CASE WHEN ic.ChangedInstance.ClassId IS (BisCore.Element) THEN 0
-             WHEN ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements) THEN 1
-             ELSE /* IS (BisCore.ExternalSourceAspect) */ 2
-        END AS ElemOrRelOrAspect,
+      SELECT ic.ChangedInstance.Id, ec.FederationGuid,
+        -- parser error using AS without iff (not even just parentheses works)
+        iif(ic.ChangedInstance.ClassId IS (BisCore.Element), TRUE, FALSE) AS IsElemNotRel,
         coalesce(
           se.FederationGuid, sec.FederationGuid
         ) AS SourceFedGuid,
         coalesce(
           te.FederationGuid, tec.FederationGuid
         ) AS TargetFedGuid,
-        ic.ChangedInstance.ClassId AS ClassId,
-        sesac.Identifier AS SourceIdentifier
+        ic.ChangedInstance.ClassId AS ClassId
+        ${this.sourceDb === this.provenanceDb ? `
+        , esac.Identifier AS AspectIdentifier
+        , sesac.Identifier AS SourceIdentifier
+        , tesac.Identifier AS TargetIdentifier
+        ` : ""
+        }
 
       FROM ecchange.change.InstanceChange ic
       -- ask affan about whether this is worth it...
           LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
             ON ic.ChangedInstance.Id=ec.ECInstanceId
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
-            ON ic.ChangedInstance.Id=esac.ECInstanceId
-
           LEFT JOIN bis.ElementRefersToElements.Changes(:changeSummaryId, 'BeforeDelete') ertec
             -- NOTE: see how the AND affects performance, it could be dropped
             ON ic.ChangedInstance.Id=ertec.ECInstanceId
@@ -685,17 +685,28 @@ export class IModelTransformer extends IModelExportHandler {
           LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') tec
             ON tec.ECInstanceId=ertec.TargetECInstanceId
 
+          ${this.sourceDb === this.provenanceDb ? `
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
+            ON ic.ChangedInstance.Id=esac.ECInstanceId
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesac
+            -- don't use ertec.ECInstanceId=sesac.Identifier because it's a string
+            -- FIXME: what about cases where the element was deleted, use sec table?
+            -- I doubt sqlite could optimize a coalesce in the ON clause...
+            ON se.ECInstanceId=sesac.Element.Id
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') tesac
+            ON te.ECInstanceId=tesac.Element.Id
+          ` : ""
+          }
+
+
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
         AND (
           ic.ChangedInstance.ClassId IS (BisCore.Element)
-          OR (
-            ic.ChangedInstance.ClassId IS (BisCore.ExternalSourceAspect)
-            AND esac.Scope.Id=:targetScopeElement
-          )
           OR ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements)
         )
     `;
+    /* eslint-enable @typescript-eslint/indent */
 
     for (const changeSummaryId of this._changeSummaryIds) {
       // FIXME: test deletion in both forward and reverse sync
@@ -731,12 +742,17 @@ export class IModelTransformer extends IModelExportHandler {
             this.context.remapElement(instId, targetId);
 
           } else if (isRelationship) {
+            // we could batch these but we should try to attach the second db and query both together
             const sourceFedGuid = stmt.getValue(4).getGuid();
             const sourceIdInProvenance = sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
             const targetFedGuid = stmt.getValue(5).getGuid();
             const targetIdInProvenance = targetFedGuid && this._queryElemIdByFedGuid(this.targetDb, targetFedGuid);
             const classFullName = stmt.getValue(6).getClassNameForClassId();
-            this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceFedGuid, targetFedGuid });
+            this._deletedSourceRelationshipData!.set(instId, {
+              classFullName,
+              sourceIdInTarget: sourceIdInProvenance,
+              targetIdInTarget: targetIdInProvenance,
+            });
           }
         }
         // NEXT: remap sourceId and targetId to target, get provenance there
