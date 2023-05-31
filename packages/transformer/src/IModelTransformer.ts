@@ -25,7 +25,7 @@ import {
 import {
   ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -806,8 +806,8 @@ export class IModelTransformer extends IModelExportHandler {
             if (sourceIdInTarget && targetIdInTarget) {
               this._deletedSourceRelationshipData!.set(instId, {
                 classFullName,
-                sourceIdInTarget: sourceIdInTarget,
-                targetIdInTarget: targetIdInTarget,
+                sourceIdInTarget,
+                targetIdInTarget,
               });
             } else {
               // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
@@ -815,9 +815,8 @@ export class IModelTransformer extends IModelExportHandler {
               if (relProvenance)
                 this._deletedSourceRelationshipData!.set(instId, {
                   classFullName,
-                  sourceIdInTarget: relProvenance?.relSourceId,
-                  targetIdInTarget: relProvenance.relTargetId,
-                  provenanceAspectId: relProvenance.relTargetId,
+                  relId: relProvenance.relationshipId,
+                  provenanceAspectId: relProvenance.aspectId,
                 });
             }
           }
@@ -851,20 +850,17 @@ export class IModelTransformer extends IModelExportHandler {
     entityInProvenanceSourceId: Id64String,
   ): { // FIXME: disable the stupid indent rule, they admit that it's broken in their docs
     aspectId: Id64String;
-    /** is the source */
-    relSourceId: Id64String;
-    relTargetId: Id64String;
+    relationshipId: Id64String
   } | undefined {
 
     return this.provenanceDb.withPreparedStatement(`
-        SELECT esa.ECInstanceId, esa.Element.Id, erte.TargetECInstanceId
-        FROM Bis.ExternalSourceAspect esa
-        JOIN Bis.ElementRefersToElements erte
-          -- gross and probably non-optimizable... (although there should only be one row)
-          ON printf('0x%x', erte.ECInstanceId)=esa.Identifier
-        WHERE esa.Kind=?
-          AND esa.Scope.Id=?
-          AND esa.Identifier=?
+        SELECT
+          ECInstanceId,
+          JSON_EXTRACT(JsonProperties, '$.targetRelInstanceId')
+        FROM Bis.ExternalSourceAspect
+        WHERE Kind=?
+          AND Scope.Id=?
+          AND Identifier=?
       `, (stmt) => {
       stmt.bindString(1, ExternalSourceAspect.Kind.Relationship);
       stmt.bindId(2, this.targetScopeElementId);
@@ -872,8 +868,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (stmt.step() === DbResult.BE_SQLITE_ROW)
         return {
           aspectId: stmt.getValue(0).getId(),
-          relSourceId: stmt.getValue(1).getId(),
-          relTargetId: stmt.getValue(2).getId(),
+          relationshipId: stmt.getValue(1).getString(), // from json so string
         };
       else
         return undefined;
@@ -961,9 +956,10 @@ export class IModelTransformer extends IModelExportHandler {
   // if undefined, it can be initialized by calling [[this._cacheSourceChanges]]
   private _hasElementChangedCache?: Set<Id64String> = undefined;
   private _deletedSourceRelationshipData?: Map<Id64String, {
-    sourceIdInTarget: Id64String;
-    targetIdInTarget: Id64String;
+    sourceIdInTarget?: Id64String;
+    targetIdInTarget?: Id64String;
     classFullName: Id64String;
+    relId?: Id64String;
     provenanceAspectId?: Id64String;
   }> = undefined;
 
@@ -1486,12 +1482,15 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
-    const sourceId = deletedRelData.sourceIdInTarget;
-    const targetId = deletedRelData.targetIdInTarget;
+    const relArg = deletedRelData.relId ?? {
+      sourceId: deletedRelData.sourceIdInTarget,
+      targetId: deletedRelData.targetIdInTarget,
+    } as SourceAndTarget;
+    //
     // FIXME: make importer.deleteRelationship not need full props
     const targetRelationship = this.targetDb.relationships.tryGetInstance(
       deletedRelData.classFullName,
-      { sourceId, targetId }
+      relArg,
     );
 
     if (targetRelationship) {
