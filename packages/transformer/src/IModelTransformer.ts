@@ -452,15 +452,23 @@ export class IModelTransformer extends IModelExportHandler {
   private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
 
   /** the changeset in the scoping element's source version found for this transformation
+   * @note: the version depends on whether this is a reverse synchronization or not, as
+   * it is stored separately for both synchronization directions
    * @note: empty string and -1 for changeset and index if it has never been transformed
    */
   private get _targetScopeVersion(): ChangesetIndexAndId {
     if (!this._cachedTargetScopeVersion) {
-      nodeAssert(this._targetScopeProvenanceProps?.version !== undefined, "_targetScopeProvenanceProps was not set yet, or contains no version");
-      const [id, index] = this._targetScopeProvenanceProps.version === ""
+      nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
+      const version = this._options.isReverseSynchronization
+        ? JSON.parse(this._targetScopeProvenanceProps.jsonProperties ?? "{}").reverseSyncVersion
+        : this._targetScopeProvenanceProps.version;
+
+      nodeAssert(version !== undefined, "no version contained in target scope");
+
+      const [id, index] = version === ""
         ? ["", -1]
-        : this._targetScopeProvenanceProps.version.split(";");
-      this._cachedTargetScopeVersion = { index: Number(index), id, };
+        : version.split(";");
+      this._cachedTargetScopeVersion = { index: Number(index), id };
       nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
     }
     return this._cachedTargetScopeVersion;
@@ -479,17 +487,18 @@ export class IModelTransformer extends IModelExportHandler {
       scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
       identifier: this._options.isReverseSynchronization ? this.targetDb.iModelId : this.sourceDb.iModelId, // the opposite side of where provenance is stored
       kind: ExternalSourceAspect.Kind.Scope,
-      jsonProperties: {},
     };
 
-    // FIXME: handle older transformed iModels
-    const externalSource = this.queryScopeExternalSource(aspectProps) // this query includes "identifier"
+    // FIXME: handle older transformed iModels which do NOT have the version
+    // or reverseSyncVersion set correctly
+    const externalSource = this.queryScopeExternalSource(aspectProps, { getJsonProperties: true }); // this query includes "identifier"
     aspectProps.id = externalSource.aspectId;
     aspectProps.version = externalSource.version;
+    aspectProps.jsonProperties = externalSource.jsonProperties;
 
     if (undefined === aspectProps.id) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
-      aspectProps.jsonProperties.reverseSyncVersion = ""; // empty since never before transformed. Will be updated in first reverse sync
+      aspectProps.jsonProperties = JSON.stringify({ reverseSyncVersion: "" }); // empty since never before transformed. Will be updated in first reverse sync
 
       // this query does not include "identifier" to find possible conflicts
       const sql = `
@@ -523,16 +532,15 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns the id and version of an aspect with the given element, scope, kind, and identifier
    * May also return a reverseSyncVersion from json properties if requested
    */
-  private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps, { getReverseSync = false } = {}): {
+  private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps, { getJsonProperties = false } = {}): {
     aspectId?: Id64String;
     version?: string;
-    reverseSyncVersion?: string;
+    /** stringified json */
+    jsonProperties?: string;
   } {
     const sql = `
       SELECT ECInstanceId, Version
-      ${getReverseSync
-        ? ", JSON_EXTRACT(JsonProperties, '$.reverseSyncVersion')"
-        : ""}
+      ${getJsonProperties ? ", JsonProperties" : ""}
       FROM ${ExternalSourceAspect.classFullName}
       WHERE Element.Id=:elementId
         AND Scope.Id=:scopeId
@@ -540,7 +548,7 @@ export class IModelTransformer extends IModelExportHandler {
         AND Identifier=:identifier
       LIMIT 1
     `;
-    const emptyResult = { aspectId: undefined, version: undefined, reverseSyncVersion: undefined };
+    const emptyResult = { aspectId: undefined, version: undefined, jsonProperties: undefined };
     return this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
       if (aspectProps.scope === undefined)
@@ -552,8 +560,8 @@ export class IModelTransformer extends IModelExportHandler {
         return emptyResult;
       const aspectId = statement.getValue(0).getId();
       const version = statement.getValue(1).getString();
-      const reverseSyncVersion = getReverseSync ? statement.getValue(2).getString() : undefined;
-      return { aspectId, version, reverseSyncVersion };
+      const jsonProperties = getJsonProperties ? statement.getValue(2).getString() : undefined;
+      return { aspectId, version, jsonProperties };
     });
   }
 
@@ -868,7 +876,7 @@ export class IModelTransformer extends IModelExportHandler {
     entityInProvenanceSourceId: Id64String,
   ): { // FIXME: disable the stupid indent rule, they admit that it's broken in their docs
     aspectId: Id64String;
-    relationshipId: Id64String
+    relationshipId: Id64String;
   } | undefined {
 
     return this.provenanceDb.withPreparedStatement(`
@@ -1415,11 +1423,24 @@ export class IModelTransformer extends IModelExportHandler {
    * source's changeset has been performed.
    */
   private _updateTargetScopeVersion() {
+    if (this._sourceChangeDataState !== "has-changes" && !this._isFirstSynchronization)
+      return;
+
     nodeAssert(this._targetScopeProvenanceProps);
-    if (this._sourceChangeDataState === "has-changes" || this._isFirstSynchronization) {
-      this._targetScopeProvenanceProps.version = `${this.provenanceSourceDb.changeset.id};${this.provenanceSourceDb.changeset.index}`;
-      this.provenanceDb.elements.updateAspect(this._targetScopeProvenanceProps);
+
+    const version = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
+
+    if (this._options.isReverseSynchronization || this._isFirstSynchronization) {
+      const jsonProps = JSON.parse(this._targetScopeProvenanceProps.jsonProperties);
+      jsonProps.reverseSyncVersion = version;
+      this._targetScopeProvenanceProps.jsonProperties = JSON.stringify(jsonProps);
     }
+
+    if (!this._options.isReverseSynchronization || this._isFirstSynchronization) {
+      this._targetScopeProvenanceProps.version = version;
+    }
+
+    this.provenanceDb.elements.updateAspect(this._targetScopeProvenanceProps);
   }
 
   // FIXME: is this necessary when manually using lowlevel transform APIs?
