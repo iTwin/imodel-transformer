@@ -848,15 +848,23 @@ export class IModelTransformer extends IModelExportHandler {
   private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
 
   /** the changeset in the scoping element's source version found for this transformation
+   * @note: the version depends on whether this is a reverse synchronization or not, as
+   * it is stored separately for both synchronization directions
    * @note: empty string and -1 for changeset and index if it has never been transformed
    */
   private get _targetScopeVersion(): ChangesetIndexAndId {
     if (!this._cachedTargetScopeVersion) {
-      nodeAssert(this._targetScopeProvenanceProps?.version !== undefined, "_targetScopeProvenanceProps was not set yet, or contains no version");
-      const [id, index] = this._targetScopeProvenanceProps.version === ""
+      nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
+      const version = this._options.isReverseSynchronization
+        ? JSON.parse(this._targetScopeProvenanceProps.jsonProperties ?? "{}").reverseSyncVersion
+        : this._targetScopeProvenanceProps.version;
+
+      nodeAssert(version !== undefined, "no version contained in target scope");
+
+      const [id, index] = version === ""
         ? ["", -1]
-        : this._targetScopeProvenanceProps.version.split(";");
-      this._cachedTargetScopeVersion = { index: Number(index), id, };
+        : version.split(";");
+      this._cachedTargetScopeVersion = { index: Number(index), id };
       nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
     }
     return this._cachedTargetScopeVersion;
