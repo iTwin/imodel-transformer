@@ -332,14 +332,30 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
 
         const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
         const startChangesetId = timelineStates.get(startIndex)?.changesets[syncSource].id;
-        await syncer.processChanges(accessToken, startChangesetId);
-        syncer.dispose();
+        try {
+          await syncer.processChanges(accessToken, startChangesetId);
+        } catch (err: any) {
+          if (/startChangesetId should be exactly/.test(err.message)) {
+            /* eslint-disable no-console */
+            console.log("change history:");
+            const rows = [...timelineStates.values()]
+              .map((state) => Object.fromEntries(
+                Object.entries(state.changesets)
+                  .map(([name, cs]) => [name, cs.index] as any)
+              ));
+            console.table(rows);
+            /* eslint-enable no-console */
+          }
+          throw err;
+        } finally {
+          syncer.dispose();
+        }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG) {
           /* eslint-disable no-console */
           console.log(stateMsg);
-          console.log(` source range state: ${JSON.stringify(source.state)}`);
+          console.log(`       source state: ${JSON.stringify(source.state)}`);
           const targetState = getIModelState(target.db);
           console.log(`target before state: ${JSON.stringify(targetStateBefore!)}`);
           console.log(` target after state: ${JSON.stringify(targetState)}`);

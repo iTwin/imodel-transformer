@@ -456,7 +456,7 @@ export class IModelTransformer extends IModelExportHandler {
    * it is stored separately for both synchronization directions
    * @note: empty string and -1 for changeset and index if it has never been transformed
    */
-  private get _targetScopeVersion(): ChangesetIndexAndId {
+  private get _synchronizationVersion(): ChangesetIndexAndId {
     if (!this._cachedTargetScopeVersion) {
       nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
       const version = this._options.isReverseSynchronization
@@ -485,7 +485,7 @@ export class IModelTransformer extends IModelExportHandler {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: this.targetScopeElementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
-      identifier: this._options.isReverseSynchronization ? this.targetDb.iModelId : this.sourceDb.iModelId, // the opposite side of where provenance is stored
+      identifier: this.provenanceSourceDb.iModelId,
       kind: ExternalSourceAspect.Kind.Scope,
     };
 
@@ -663,8 +663,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async remapDeletedSourceEntities() {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
-    // FIXME: how can we tell when was the last time we ran a reverse sync?
-    const noChanges = this._targetScopeVersion.index === this.provenanceSourceDb.changeset.index;
+    const noChanges = this._synchronizationVersion.index === this.sourceDb.changeset.index;
     if (notConnectedModel || noChanges)
       return;
 
@@ -1422,22 +1421,24 @@ export class IModelTransformer extends IModelExportHandler {
    * updates the target scope element to say that transformation up through the
    * source's changeset has been performed.
    */
-  private _updateTargetScopeVersion() {
+  private _updateSynchronizationVersion() {
     if (this._sourceChangeDataState !== "has-changes" && !this._isFirstSynchronization)
       return;
 
     nodeAssert(this._targetScopeProvenanceProps);
 
-    const version = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
+    const newVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
 
     if (this._options.isReverseSynchronization || this._isFirstSynchronization) {
       const jsonProps = JSON.parse(this._targetScopeProvenanceProps.jsonProperties);
-      jsonProps.reverseSyncVersion = version;
+      Logger.logInfo(loggerCategory, `updating reverse version from ${jsonProps.reverseSyncVersion} to ${newVersion}`);
+      jsonProps.reverseSyncVersion = newVersion;
       this._targetScopeProvenanceProps.jsonProperties = JSON.stringify(jsonProps);
     }
 
     if (!this._options.isReverseSynchronization || this._isFirstSynchronization) {
-      this._targetScopeProvenanceProps.version = version;
+      Logger.logInfo(loggerCategory, `updating sync version from ${this._targetScopeProvenanceProps.version} to ${newVersion}`);
+      this._targetScopeProvenanceProps.version = newVersion;
     }
 
     this.provenanceDb.elements.updateAspect(this._targetScopeProvenanceProps);
@@ -1445,7 +1446,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: is this necessary when manually using lowlevel transform APIs?
   private finalizeTransformation() {
-    this._updateTargetScopeVersion();
+    this._updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
       Logger.logWarning(
@@ -1801,7 +1802,7 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
-    const noChanges = this._targetScopeVersion.index === this.sourceDb.changeset.index;
+    const noChanges = this._synchronizationVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
       this._sourceChangeDataState = "no-changes";
       this._changeSummaryIds = [];
@@ -1810,7 +1811,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     // NOTE: that we do NOT download the changesummary for the last transformed version, we want
     // to ignore those already processed changes
-    const startChangesetIndexOrId = args?.startChangesetId ?? this._targetScopeVersion.index + 1;
+    const startChangesetIndexOrId = args?.startChangesetId ?? this._synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
     const [startChangesetIndex, endChangesetIndex] = await Promise.all(
@@ -1827,13 +1828,16 @@ export class IModelTransformer extends IModelExportHandler {
         )
     );
 
+    const missingChangesets = startChangesetIndex > this._synchronizationVersion.index + 1;
     // FIXME: add an option to ignore this check
-    if (startChangesetIndex !== this._targetScopeVersion.index + 1) {
-      throw Error("synchronization is missing changesets, you should be updating starting from"
-        + " exactly the first changeset after the previous synchronization to not miss data.\n"
-        + `You specified '${startChangesetIndexOrId}' which is changeset #${startChangesetIndex}`
-        + ` but the previous synchronization for this targetScopeElement was '${this._targetScopeVersion.id}'`
-        + ` which is changeset #${this._targetScopeVersion.index}.`
+    if (startChangesetIndex !== this._synchronizationVersion.index + 1) {
+      throw Error(`synchronization is ${missingChangesets ? "missing changesets" : ""},`
+        + " startChangesetId should be"
+        + " exactly the first changeset *after* the previous synchronization to not miss data."
+        + ` You specified '${startChangesetIndexOrId}' which is changeset #${startChangesetIndex}`
+        + ` but the previous synchronization for this targetScopeElement was '${this._synchronizationVersion.id}'`
+        + ` which is changeset #${this._synchronizationVersion.index}. The transformer expected`
+        + ` #${this._synchronizationVersion.index +1}.`
       );
     }
 
