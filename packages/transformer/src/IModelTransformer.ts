@@ -240,6 +240,8 @@ export interface InitArgs {
   startChangesetId?: string;
 }
 
+type ChangeDataState = "uninited" | "has-changes" | "no-changes" | "unconnected";
+
 /** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
  * @deprecated in 0.1.0. Use [[InitArgs]] (and [[IModelTransformer.initialize]]) instead.
  */
@@ -643,8 +645,8 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._deletedSourceRelationshipData = new Map();
 
-    nodeAssert(this._sourceChangeSummaryIds, "change summaries should be initialized before we get here");
-    nodeAssert(this._sourceChangeSummaryIds.length > 0, "change summaries should have at least one");
+    nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
+    nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
 
     // TODO: test splitting this query
     const deletedElemSql = `
@@ -695,16 +697,7 @@ export class IModelTransformer extends IModelExportHandler {
         )
     `;
 
-    const targetProvenanceBatchHandler = new BatchHandler({
-      onBatchReady(fedguids: Guid[]): void {
-        // TODO: optimize this
-        for (const fedguid of fedguids) {
-          this._queryElemIdByFedGuid(this.targetDb, fedguid)
-        }
-      },
-    });
-
-    for (const changeSummaryId of this._sourceChangeSummaryIds) {
+    for (const changeSummaryId of this._changeSummaryIds) {
       // FIXME: test deletion in both forward and reverse sync
       this.sourceDb.withPreparedStatement(deletedElemSql, (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
@@ -726,7 +719,7 @@ export class IModelTransformer extends IModelExportHandler {
             // TODO: if I could attach the second db, will probably be much faster to get target id
             // as part of the whole query rather than with _queryElemIdByFedGuid
             const targetId = maybeEsaIdentifier
-              ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetSourceDb, sourceElemFedGuid));
+              ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid));
             // don't assert because currently we get separate rows for the element and external source aspect change
             // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
             // nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
@@ -739,7 +732,9 @@ export class IModelTransformer extends IModelExportHandler {
 
           } else if (isRelationship) {
             const sourceFedGuid = stmt.getValue(4).getGuid();
+            const sourceIdInProvenance = sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
             const targetFedGuid = stmt.getValue(5).getGuid();
+            const targetIdInProvenance = targetFedGuid && this._queryElemIdByFedGuid(this.targetDb, targetFedGuid);
             const classFullName = stmt.getValue(6).getClassNameForClassId();
             this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceFedGuid, targetFedGuid });
           }
@@ -830,24 +825,18 @@ export class IModelTransformer extends IModelExportHandler {
     return targetElementProps;
   }
 
-  // handle sqlite coalesce requiring 2 arguments
-  private _coalesceChangeSummaryJoinedValue(f: (id: Id64String, index: number) => string) {
-    nodeAssert(this._sourceChangeSummaryIds?.length && this._sourceChangeSummaryIds.length > 0, "should have changeset data by now");
-    const valueList = this._sourceChangeSummaryIds!.map(f).join(',');
-    return this._sourceChangeSummaryIds!.length > 1 ? `coalesce(${valueList})` : valueList;
-  };
-
   // if undefined, it can be initialized by calling [[this._cacheSourceChanges]]
   private _hasElementChangedCache?: Set<Id64String> = undefined;
   private _deletedSourceRelationshipData?: Map<Id64String, {
-    sourceFedGuid: Id64String;
-    targetFedGuid: Id64String;
+    sourceIdInTarget: Id64String;
+    targetIdInTarget: Id64String;
     classFullName: Id64String;
+    provenanceAspectId?: Id64String;
   }> = undefined;
 
   // FIXME: this is a PoC, see if we minimize memory usage
   private _cacheSourceChanges() {
-    nodeAssert(this._sourceChangeSummaryIds && this._sourceChangeSummaryIds.length > 0, "should have changeset data by now");
+    nodeAssert(this._changeSummaryIds && this._changeSummaryIds.length > 0, "should have changeset data by now");
     this._hasElementChangedCache = new Set();
 
     const query = `
@@ -874,7 +863,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.sourceDb.withPreparedStatement(query,
       (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-        stmt.bindIdSet("changeSummaryIds", this._sourceChangeSummaryIds!);
+        stmt.bindIdSet("changeSummaryIds", this._changeSummaryIds!);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
           const instId = stmt.getValue(0).getId();
           this._hasElementChangedCache!.add(instId);
@@ -1309,8 +1298,6 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._options.noDetachChangeCache) {
       if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
         ChangeSummaryManager.detachChangeCache(this.sourceDb);
-      if (ChangeSummaryManager.isChangeCacheAttached(this.targetDb))
-        ChangeSummaryManager.detachChangeCache(this.targetDb);
     }
   }
 
@@ -1339,8 +1326,8 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
         = !this._options.forceExternalSourceAspectProvenance
-        ? sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`
-        : undefined;
+          ? sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`
+          : undefined;
       if (!provenance) {
         const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
         if (undefined === aspectProps.id) {
@@ -1353,66 +1340,34 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  // FIXME: need to check if the class was remapped and use that id instead
-  // is this really the best way to get class id? shouldn't we cache it somewhere?
-  // NOTE: maybe if we lower remapElementClass into here, we can use that
-  private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
-    // is it better to use un-cached `SELECT (ONLY ${classFullName})`?
-    return db.withPreparedStatement(`
-      SELECT c.ECInstanceId
-      FROM ECDbMeta.ECClassDef c
-      JOIN ECDbMeta.ECSchemaDef s ON c.Schema.Id=s.ECInstanceId
-      WHERE s.Name=? AND c.Name=?
-    `, (stmt) => {
-        const [schemaName, className] = classFullName.split(".");
-        stmt.bindString(1, schemaName);
-        stmt.bindString(2, className);
-        if (stmt.step() === DbResult.BE_SQLITE_ROW)
-          return stmt.getValue(0).getId();
-        assert(false, "relationship was not found");
-      }
-    );
-  }
-
   /** Override of [IModelExportHandler.onDeleteRelationship]($transformer) that is called when [IModelExporter]($transformer) detects that a [Relationship]($backend) has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteRelationship]($transformer).
    */
   public override onDeleteRelationship(sourceRelInstanceId: Id64String): void {
     nodeAssert(this._deletedSourceRelationshipData, "should be defined at initialization by now");
+
     const deletedRelData = this._deletedSourceRelationshipData.get(sourceRelInstanceId);
     if (!deletedRelData) {
+      // this can occur if both the source and target deleted it
       Logger.logWarning(loggerCategory, "tried to delete a relationship that wasn't in change data");
       return;
     }
-    const targetRelClassId = this._getRelClassId(this.targetDb, deletedRelData.classFullName);
-    // NOTE: if no remapping, could store the sourceRel class name earlier and reuse it instead of add to query
-    // TODO: name this query
-    const sql = `
-      SELECT SourceECInstanceId, TargetECInstanceId, erte.ECClassId
-      FROM BisCore.ElementRefersToElements erte
-      JOIN BisCore.Element se ON se.ECInstanceId=SourceECInstanceId
-      JOIN BisCore.Element te ON te.ECInstanceId=TargetECInstanceId
-      WHERE se.FederationGuid=:sourceFedGuid
-        AND te.FederationGuid=:targetFedGuid
-        AND erte.ECClassId=:relClassId
-    `;
-    this.targetDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      statement.bindGuid("sourceFedGuid", deletedRelData.sourceFedGuid);
-      statement.bindGuid("targetFedGuid", deletedRelData.targetFedGuid);
-      statement.bindId("relClassId", targetRelClassId);
-      if (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const sourceId = statement.getValue(0).getId();
-        const targetId = statement.getValue(1).getId();
-        const targetRelClassFullName = statement.getValue(2).getClassNameForClassId();
-        // FIXME: make importer.deleteRelationship not need full props
-        const targetRelationship = this.targetDb.relationships.tryGetInstance(targetRelClassFullName, { sourceId, targetId });
-        if (targetRelationship) {
-          this.importer.deleteRelationship(targetRelationship.toJSON());
-        }
-        // FIXME: restore in ESA compatible method
-        //this.targetDb.elements.deleteAspect(statement.getValue(0).getId());
-      }
-    });
+
+    const sourceId = deletedRelData.sourceIdInTarget;
+    const targetId = deletedRelData.targetIdInTarget;
+    // FIXME: make importer.deleteRelationship not need full props
+    const targetRelationship = this.targetDb.relationships.tryGetInstance(
+      deletedRelData.classFullName,
+      { sourceId, targetId }
+    );
+
+    if (targetRelationship) {
+      this.importer.deleteRelationship(targetRelationship.toJSON());
+    }
+
+    if (deletedRelData.provenanceAspectId) {
+      this.targetDb.elements.deleteAspect(deletedRelData.provenanceAspectId);
+    }
   }
 
   private _yieldManager = new YieldManager();
@@ -1648,7 +1603,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _initialized = false;
 
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
-  private _sourceChangeSummaryIds?: Id64String[] = undefined;
+  private _changeSummaryIds?: Id64String[] = undefined;
   private _sourceChangeDataState: ChangeDataState = "uninited";
 
   /**
@@ -1678,7 +1633,7 @@ export class IModelTransformer extends IModelExportHandler {
     const noChanges = this._targetScopeVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
       this._sourceChangeDataState = "no-changes";
-      this._sourceChangeSummaryIds = [];
+      this._changeSummaryIds = [];
       return;
     }
 
@@ -1700,7 +1655,7 @@ export class IModelTransformer extends IModelExportHandler {
         )
     );
 
-    this._sourceChangeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
+    this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
       accessToken: args.accessToken,
       iModelId: this.sourceDb.iModelId,
       iTwinId: this.sourceDb.iTwinId,
