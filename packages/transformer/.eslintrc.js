@@ -17,7 +17,8 @@ module.exports = {
         format: null,
         leadingUnderscore: "allowSingleOrDouble"
       },
-    ]
+    ],
+    "@typescript-eslint/indent": ["off"],
   },
   "parserOptions": {
     "project": "./tsconfig.json"
