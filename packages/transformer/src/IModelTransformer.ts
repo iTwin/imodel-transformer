@@ -1398,7 +1398,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _updateTargetScopeVersion() {
     nodeAssert(this._targetScopeProvenanceProps);
-    if (this._sourceChangeDataState === "has-changes") {
+    if (this._sourceChangeDataState === "has-changes" || this._isFirstSynchronization) {
       this._targetScopeProvenanceProps.version = `${this.provenanceSourceDb.changeset.id};${this.provenanceSourceDb.changeset.index}`;
       this.provenanceDb.elements.updateAspect(this._targetScopeProvenanceProps);
     }
