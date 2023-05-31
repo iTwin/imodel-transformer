@@ -757,16 +757,16 @@ export class IModelTransformer extends IModelExportHandler {
             // TODO: if I could attach the second db, will probably be much faster to get target id
             // as part of the whole query rather than with _queryElemIdByFedGuid
             /* eslint-disable @typescript-eslint/indent */
-            const targetId
-              = queryCanAccessProvenance
-                ? (identifierValue = stmt.getValue(5))
+            const targetId =
+              (queryCanAccessProvenance
+                && (identifierValue = stmt.getValue(5))
                 && !identifierValue.isNull
-                && identifierValue.getString()
-              : sourceElemFedGuid
-                // we could batch _queryElemIdByFedGuid but we should try to attach the second db and query both together
-                ? this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid)
+                && identifierValue.getString())
+              // maybe batching these queries would perform better but we should
+              // try to attach the second db and query both together anyway
+              || (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid))
               // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
-              : this._queryProvenanceForId(instId, ExternalSourceAspect.Kind.Element);
+              || this._queryProvenanceForElement(instId);
             /* eslint-enable @typescript-eslint/indent */
 
             // since we are processing one changeset at a time, we can see local source deletes
@@ -779,29 +779,47 @@ export class IModelTransformer extends IModelExportHandler {
 
           } else { // is deleted relationship
             const classFullName = stmt.getValue(4).getClassNameForClassId();
-            const [sourceIdInTarget, targetIdInTarget] = [[2, 5], [3, 6]].map(([guidColumn, identifierColumn]) => {
+            const [sourceIdInTarget, targetIdInTarget] = [
+              { guidColumn: 2, identifierColumn: 5, isTarget: false },
+              { guidColumn: 3, identifierColumn: 6, isTarget: true },
+            ].map(({ guidColumn, identifierColumn }) => {
               const fedGuid = stmt.getValue(guidColumn).getGuid();
               let identifierValue: ECSqlValue;
               // FIXME: purge this rule
               /* eslint-disable @typescript-eslint/indent */
               return (
-                queryCanAccessProvenance
-                  ? (identifierValue = stmt.getValue(identifierColumn))
+                (queryCanAccessProvenance
+                  // FIXME: this is really far from idiomatic, try to undo that
+                  && (identifierValue = stmt.getValue(identifierColumn))
                   && !identifierValue.isNull
-                  && identifierValue.getString()
-                : fedGuid
-                  // we could batch _queryElemIdByFedGuid but we should try to attach the second db and query both together
-                  ? this._queryElemIdByFedGuid(this.targetDb, fedGuid)
-                // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
-                : this._queryProvenanceForId(instId, ExternalSourceAspect.Kind.Relationship)
+                  && identifierValue.getString())
+                // maybe batching these queries would perform better but we should
+                // try to attach the second db and query both together anyway
+                || (fedGuid
+                    && this._queryElemIdByFedGuid(this.targetDb, fedGuid))
               );
               /* eslint-enable @typescript-eslint/indent */
             });
 
             // since we are processing one changeset at a time, we can see local source deletes
             // of entities that were never synced and can be safely ignored
-            if (sourceIdInTarget && targetIdInTarget)
-              this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceIdInTarget, targetIdInTarget });
+            if (sourceIdInTarget && targetIdInTarget) {
+              this._deletedSourceRelationshipData!.set(instId, {
+                classFullName,
+                sourceIdInTarget: sourceIdInTarget,
+                targetIdInTarget: targetIdInTarget,
+              });
+            } else {
+              // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
+              const relProvenance = this._queryProvenanceForRelationship(instId);
+              if (relProvenance)
+                this._deletedSourceRelationshipData!.set(instId, {
+                  classFullName,
+                  sourceIdInTarget: relProvenance?.relSourceId,
+                  targetIdInTarget: relProvenance.relTargetId,
+                  provenanceAspectId: relProvenance.relTargetId,
+                });
+            }
           }
         }
         // NEXT: remap sourceId and targetId to target, get provenance there
@@ -811,15 +829,15 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private _queryProvenanceForId(entityInProvenanceSourceId: Id64String, kind: ExternalSourceAspect.Kind): Id64String | undefined {
+  private _queryProvenanceForElement(entityInProvenanceSourceId: Id64String): Id64String | undefined {
     return this.provenanceDb.withPreparedStatement(`
-        SELECT Element.Id
-        FROM Bis.ExternalSourceAspect
-        WHERE Kind=?
-          AND Scope.Id=?
-          AND Identifier=?
+        SELECT esa.Element.Id
+        FROM Bis.ExternalSourceAspect esa
+        WHERE esa.Kind=?
+          AND esa.Scope.Id=?
+          AND esa.Identifier=?
       `, (stmt) => {
-      stmt.bindString(1, kind);
+      stmt.bindString(1, ExternalSourceAspect.Kind.Element);
       stmt.bindId(2, this.targetScopeElementId);
       stmt.bindString(3, entityInProvenanceSourceId);
       if (stmt.step() === DbResult.BE_SQLITE_ROW)
@@ -829,6 +847,38 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
+  private _queryProvenanceForRelationship(
+    entityInProvenanceSourceId: Id64String,
+  ): { // FIXME: disable the stupid indent rule, they admit that it's broken in their docs
+    aspectId: Id64String;
+    /** is the source */
+    relSourceId: Id64String;
+    relTargetId: Id64String;
+  } | undefined {
+
+    return this.provenanceDb.withPreparedStatement(`
+        SELECT esa.ECInstanceId, esa.Element.Id, erte.TargetECInstanceId
+        FROM Bis.ExternalSourceAspect esa
+        JOIN Bis.ElementRefersToElements erte
+          -- gross and probably non-optimizable... (although there should only be one row)
+          ON printf('0x%x', erte.ECInstanceId)=esa.Identifier
+        WHERE esa.Kind=?
+          AND esa.Scope.Id=?
+          AND esa.Identifier=?
+      `, (stmt) => {
+      stmt.bindString(1, ExternalSourceAspect.Kind.Relationship);
+      stmt.bindId(2, this.targetScopeElementId);
+      stmt.bindString(3, entityInProvenanceSourceId);
+      if (stmt.step() === DbResult.BE_SQLITE_ROW)
+        return {
+          aspectId: stmt.getValue(0).getId(),
+          relSourceId: stmt.getValue(1).getId(),
+          relTargetId: stmt.getValue(2).getId(),
+        };
+      else
+        return undefined;
+    });
+  }
   private _queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
     return db.withPreparedStatement("SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?", (stmt) => {
       stmt.bindGuid(1, fedGuid);
