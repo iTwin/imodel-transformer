@@ -443,7 +443,7 @@ export class IModelTransformer extends IModelExportHandler {
       kind: ExternalSourceAspect.Kind.Relationship,
       jsonProperties: JSON.stringify({ targetRelInstanceId }),
     };
-    [aspectProps.id] = this.queryScopeExternalSource(aspectProps);
+    aspectProps.id = this.queryScopeExternalSource(aspectProps).aspectId;
     return aspectProps;
   }
 
@@ -479,15 +479,18 @@ export class IModelTransformer extends IModelExportHandler {
       scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
       identifier: this._options.isReverseSynchronization ? this.targetDb.iModelId : this.sourceDb.iModelId, // the opposite side of where provenance is stored
       kind: ExternalSourceAspect.Kind.Scope,
+      jsonProperties: {},
     };
 
     // FIXME: handle older transformed iModels
-    let version!: Id64String | undefined;
-    [aspectProps.id, version] = this.queryScopeExternalSource(aspectProps) ?? []; // this query includes "identifier"
-    aspectProps.version = version;
+    const externalSource = this.queryScopeExternalSource(aspectProps) // this query includes "identifier"
+    aspectProps.id = externalSource.aspectId;
+    aspectProps.version = externalSource.version;
 
     if (undefined === aspectProps.id) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
+      aspectProps.jsonProperties.reverseSyncVersion = ""; // empty since never before transformed. Will be updated in first reverse sync
+
       // this query does not include "identifier" to find possible conflicts
       const sql = `
         SELECT ECInstanceId
@@ -497,12 +500,14 @@ export class IModelTransformer extends IModelExportHandler {
           AND Kind=:kind
         LIMIT 1
       `;
+
       const hasConflictingScope = this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): boolean => {
         statement.bindId("elementId", aspectProps.element.id);
         statement.bindId("scopeId", aspectProps.scope.id); // this scope.id can never be invalid, we create it above
         statement.bindString("kind", aspectProps.kind);
         return DbResult.BE_SQLITE_ROW === statement.step();
       });
+
       if (hasConflictingScope) {
         throw new IModelError(IModelStatus.InvalidId, "Provenance scope conflict");
       }
@@ -514,10 +519,20 @@ export class IModelTransformer extends IModelExportHandler {
     this._targetScopeProvenanceProps = aspectProps;
   }
 
-  /** @returns the [id, version] of an aspect with the given element, scope, kind, and identifier */
-  private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps): [Id64String, Id64String] | [undefined, undefined] {
+  /**
+   * @returns the id and version of an aspect with the given element, scope, kind, and identifier
+   * May also return a reverseSyncVersion from json properties if requested
+   */
+  private queryScopeExternalSource(aspectProps: ExternalSourceAspectProps, { getReverseSync = false } = {}): {
+    aspectId?: Id64String;
+    version?: string;
+    reverseSyncVersion?: string;
+  } {
     const sql = `
       SELECT ECInstanceId, Version
+      ${getReverseSync
+        ? ", JSON_EXTRACT(JsonProperties, '$.reverseSyncVersion')"
+        : ""}
       FROM ${ExternalSourceAspect.classFullName}
       WHERE Element.Id=:elementId
         AND Scope.Id=:scopeId
@@ -525,18 +540,20 @@ export class IModelTransformer extends IModelExportHandler {
         AND Identifier=:identifier
       LIMIT 1
     `;
+    const emptyResult = { aspectId: undefined, version: undefined, reverseSyncVersion: undefined };
     return this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
       if (aspectProps.scope === undefined)
-        return [undefined, undefined]; // return undefined instead of binding an invalid id
+        return emptyResult; // return undefined instead of binding an invalid id
       statement.bindId("scopeId", aspectProps.scope.id);
       statement.bindString("kind", aspectProps.kind);
       statement.bindString("identifier", aspectProps.identifier);
       if (DbResult.BE_SQLITE_ROW !== statement.step())
-        return [undefined, undefined];
+        return emptyResult;
       const aspectId = statement.getValue(0).getId();
       const version = statement.getValue(1).getString();
-      return [aspectId, version];
+      const reverseSyncVersion = getReverseSync ? statement.getValue(2).getString() : undefined;
+      return { aspectId, version, reverseSyncVersion };
     });
   }
 
@@ -638,6 +655,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async remapDeletedSourceEntities() {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
+    // FIXME: how can we tell when was the last time we ran a reverse sync?
     const noChanges = this._targetScopeVersion.index === this.provenanceSourceDb.changeset.index;
     if (notConnectedModel || noChanges)
       return;
@@ -1259,7 +1277,7 @@ export class IModelTransformer extends IModelExportHandler {
         : undefined;
       if (!provenance) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
-        let [aspectId] = this.queryScopeExternalSource(aspectProps);
+        let aspectId = this.queryScopeExternalSource(aspectProps).aspectId;
         if (aspectId === undefined) {
           aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
         } else {
@@ -1757,7 +1775,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private async _tryInitChangesetData(args?: InitArgs) {
-    if (!args || this.sourceDb.iTwinId === undefined) {
+    if (!args || this.sourceDb.iTwinId === undefined || this.sourceDb.changeset.index === undefined) {
       this._sourceChangeDataState = "unconnected";
       return;
     }
@@ -1773,6 +1791,7 @@ export class IModelTransformer extends IModelExportHandler {
     // to ignore those already processed changes
     const startChangesetIndexOrId = args?.startChangesetId ?? this._targetScopeVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
+
     const [startChangesetIndex, endChangesetIndex] = await Promise.all(
       ([startChangesetIndexOrId, endChangesetId])
         .map(async (indexOrId) => typeof indexOrId === "number"
@@ -1786,6 +1805,16 @@ export class IModelTransformer extends IModelExportHandler {
             .then((changeset) => changeset.index)
         )
     );
+
+    // FIXME: add an option to ignore this check
+    if (startChangesetIndex !== this._targetScopeVersion.index + 1) {
+      throw Error("synchronization is missing changesets, you should be updating starting from"
+        + " exactly the first changeset after the previous synchronization to not miss data.\n"
+        + `You specified '${startChangesetIndexOrId}' which is changeset #${startChangesetIndex}`
+        + ` but the previous synchronization for this targetScopeElement was '${this._targetScopeVersion.id}'`
+        + ` which is changeset #${this._targetScopeVersion.index}.`
+      );
+    }
 
     this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
       accessToken: args.accessToken,
