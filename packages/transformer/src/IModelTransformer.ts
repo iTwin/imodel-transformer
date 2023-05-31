@@ -751,19 +751,23 @@ export class IModelTransformer extends IModelExportHandler {
 
           if (isElemNotRel) {
             const sourceElemFedGuid = stmt.getValue(2).getGuid();
-            let identifierValue: ECSqlValue;
             // "Identifier" is a string, so null value returns '' which doesn't work with ??, and I don't like ||
-            const maybeEsaIdentifier: Id64String | undefined
-              = queryCanAccessProvenance
-              && (identifierValue = stmt.getValue(5))
-              && !identifierValue.isNull
-                ? identifierValue.getString()
-                : undefined;
+            let identifierValue: ECSqlValue;
 
             // TODO: if I could attach the second db, will probably be much faster to get target id
             // as part of the whole query rather than with _queryElemIdByFedGuid
-            const targetId = maybeEsaIdentifier
-              ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid));
+            /* eslint-disable @typescript-eslint/indent */
+            const targetId
+              = queryCanAccessProvenance
+                ? (identifierValue = stmt.getValue(5))
+                && !identifierValue.isNull
+                && identifierValue.getString()
+              : sourceElemFedGuid
+                // we could batch _queryElemIdByFedGuid but we should try to attach the second db and query both together
+                ? this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid)
+              // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
+              : this._queryProvenanceForId(instId, ExternalSourceAspect.Kind.Element);
+            /* eslint-enable @typescript-eslint/indent */
 
             // since we are processing one changeset at a time, we can see local source deletes
             // of entities that were never synced and can be safely ignored
@@ -778,14 +782,20 @@ export class IModelTransformer extends IModelExportHandler {
             const [sourceIdInTarget, targetIdInTarget] = [[2, 5], [3, 6]].map(([guidColumn, identifierColumn]) => {
               const fedGuid = stmt.getValue(guidColumn).getGuid();
               let identifierValue: ECSqlValue;
-              const maybeEsaIdentifier: Id64String | undefined
-                = queryCanAccessProvenance
-                && (identifierValue = stmt.getValue(identifierColumn))
-                && !identifierValue.isNull
-                  ? identifierValue.getString()
-                  : undefined;
-              // we could batch _queryElemIdByFedGuid but we should try to attach the second db and query both together
-              return maybeEsaIdentifier ?? (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid));
+              // FIXME: purge this rule
+              /* eslint-disable @typescript-eslint/indent */
+              return (
+                queryCanAccessProvenance
+                  ? (identifierValue = stmt.getValue(identifierColumn))
+                  && !identifierValue.isNull
+                  && identifierValue.getString()
+                : fedGuid
+                  // we could batch _queryElemIdByFedGuid but we should try to attach the second db and query both together
+                  ? this._queryElemIdByFedGuid(this.targetDb, fedGuid)
+                // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
+                : this._queryProvenanceForId(instId, ExternalSourceAspect.Kind.Relationship)
+              );
+              /* eslint-enable @typescript-eslint/indent */
             });
 
             // since we are processing one changeset at a time, we can see local source deletes
@@ -799,6 +809,24 @@ export class IModelTransformer extends IModelExportHandler {
         // something that the source deleted, in which case we can safely ignore the gone provenance
       });
     }
+  }
+
+  private _queryProvenanceForId(entityInProvenanceSourceId: Id64String, kind: ExternalSourceAspect.Kind): Id64String | undefined {
+    return this.provenanceDb.withPreparedStatement(`
+        SELECT Element.Id
+        FROM Bis.ExternalSourceAspect
+        WHERE Kind=?
+          AND Scope.Id=?
+          AND Identifier=?
+      `, (stmt) => {
+      stmt.bindString(1, kind);
+      stmt.bindId(2, this.targetScopeElementId);
+      stmt.bindString(3, entityInProvenanceSourceId);
+      if (stmt.step() === DbResult.BE_SQLITE_ROW)
+        return stmt.getValue(0).getId();
+      else
+        return undefined;
+    });
   }
 
   private _queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
