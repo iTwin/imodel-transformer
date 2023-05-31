@@ -51,10 +51,10 @@ export default async function identityTransformer(iModel: TestIModel, os: any, r
       await transformer.processSchemas();
     });
     Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
-    // [entityProcessingTimer] = await timed(async () => {
-    // await transformer.processAll();
-    // });
-    // Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
+    [entityProcessingTimer] = await timed(async () => {
+    await transformer.processAll();
+    });
+    Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
   } catch (err: any) {
     Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
     const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
