@@ -2802,8 +2802,8 @@ export class IModelTransformer extends IModelExportHandler {
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
-  private _changeSummaryIds?: Id64String[] = undefined;
-  private _changeDataState: "uninited" | "has-changes" | "no-changes" | "unconnected" = "uninited";
+  private _sourceChangeSummaryIds?: Id64String[] = undefined;
+  private _sourceChangeDataState: ChangeDataState = "uninited";
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
