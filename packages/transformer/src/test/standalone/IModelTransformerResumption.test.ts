@@ -3,7 +3,7 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { BriefcaseDb, Element, GraphicalElement3dRepresentsElement, HubMock, IModelDb, IModelHost, IModelJsNative, PhysicalModel, PhysicalObject, Relationship, SnapshotDb, SpatialCategory, SQLiteDb } from "@itwin/core-backend";
+import { BriefcaseDb, DrawingGraphicRepresentsElement, Element, ElementGroupsMembers, GraphicalElement3dRepresentsElement, HubMock, IModelDb, IModelHost, IModelJsNative, PhysicalModel, PhysicalObject, Relationship, SnapshotDb, SpatialCategory, SQLiteDb } from "@itwin/core-backend";
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, GuidString, Id64, Id64String, StopWatch } from "@itwin/core-bentley";
 import { ChangeOpCode, ChangesetId, Code, ElementProps, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
@@ -915,129 +915,214 @@ describe("test resuming transformations", () => {
     sinon.restore();
   });
 
-  describe("verifyTargetIModel", () => {
-    let sourceDb: BriefcaseDb;
-    let targetDb: BriefcaseDb;
-    let relationshipProps1: RelationshipProps;
-    let relationshipProps2: RelationshipProps;
+  describe.only("verifyTargetIModel", () => {
+    describe("relationship", () => {
+      let sourceDb: BriefcaseDb;
+      let targetDb: BriefcaseDb;
+      let relationshipProps1: RelationshipProps;
+      let relationshipProps2: RelationshipProps;
+      let physicalObjectId: Id64String;
 
-    beforeEach(async() => {
-      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "verifyTargetIModel.db");
-      SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "inserting-relationship" } }).close();
-      const sourceDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "verifyTargetIModel", description: "inserting relationship", version0: sourceDbPath, noLocks: true });
-      sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceDbId });
+      beforeEach(async() => {
+        const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "verifyTargetIModel.db");
+        SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "inserting-relationship" } }).close();
+        const sourceDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "verifyTargetIModel", description: "inserting relationship", version0: sourceDbPath, noLocks: true });
+        sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceDbId });
+  
+        const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
+        const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, `PhysicalModel`);
+        const physicalObjectProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: sourceModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+        };
+        const physicalObject1 = sourceDb.elements.insertElement(physicalObjectProps);
+        const physicalObject2 = sourceDb.elements.insertElement(physicalObjectProps);
+        physicalObjectId = sourceDb.elements.insertElement(physicalObjectProps);
+  
+        relationshipProps1 = {
+          classFullName: ElementGroupsMembers.classFullName,
+          targetId: physicalObject1,
+          sourceId: physicalObject2,
+        }
+        relationshipProps2 = {
+            classFullName: ElementGroupsMembers.classFullName,
+            targetId: physicalObject2,
+            sourceId: physicalObject1,
+        }
+        sourceDb.relationships.insertInstance(relationshipProps1); // this relationship will be saved as lastEntity
+        sourceDb.relationships.insertInstance(relationshipProps2);
+        sourceDb.performCheckpoint();
+        await sourceDb.pushChanges({ accessToken, description: "populated seed db" });
+  
+        const targetDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "targetDb1", description: "crashingTarget", noLocks: true });
+        targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
+      });
+  
+      afterEach(async () => {
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+      });
+  
+      it("verification should succeed and verify inserted relationship when transformer crashes after inserting it", async () => {
+        const modifySourceDbAfterProcessAll = (sourceDb: BriefcaseDb) => {
+          // Delete old relationships in sourceDb
+          sourceDb.relationships.deleteInstance(relationshipProps1);
+          sourceDb.relationships.deleteInstance(relationshipProps2);
+          // Insert new relationship to sourceDb. Need to change classFullName because how IModelImporter determines relationship operation code
+          sourceDb.relationships.insertInstance({ ...relationshipProps1, classFullName: GraphicalElement3dRepresentsElement.classFullName });
+          sourceDb.relationships.insertInstance({ ...relationshipProps2, classFullName: GraphicalElement3dRepresentsElement.classFullName });
+        };
+        
+        await performTest({
+          modifySourceDbAfterProcessAll,
+          expectedOperationCode: ChangeOpCode.Insert,
+          expectedEntityKind: EntityKind.Relationship,
+          shouldThrowError: false,
+          crashUntilReachesPropertyName: "relationshipExportsUntilCall"
+        });
+      });
+  
+      it("verification should succeed and verify updated relationship when transformer crashes after updated it", async () => {
+        // Update relationships in sourceDb
+        const modifySourceDbAfterProcessAll = (sourceDb: BriefcaseDb) => {
+          [
+            sourceDb.relationships.getInstance<ElementGroupsMembers>(relationshipProps1.classFullName, relationshipProps1),
+            sourceDb.relationships.getInstance<ElementGroupsMembers>(relationshipProps2.classFullName, relationshipProps2)
+          ].map(relationship => {
+            relationship.memberPriority = 0;
+            relationship.update();
+          });
+        };
 
-      const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
-      const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, `PhysicalModel`);
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-      };
-      const physicalObject1 = sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject2 = sourceDb.elements.insertElement(physicalObjectProps);
+        await performTest({
+          modifySourceDbAfterProcessAll,
+          expectedOperationCode: ChangeOpCode.Update,
+          expectedEntityKind: EntityKind.Relationship,
+          shouldThrowError: false,
+          crashUntilReachesPropertyName: "relationshipExportsUntilCall"
+        });
+      });
+  
+      // FIXME: this test fails because the relationship is not deleted from the targetDb
+      it.skip("verification should succeed and verify deleted relationship when transformer crashes after deleting it", async () => {
+        // Delete relationship from sourceDb
+        const modifySourceDbAfterProcessAll = (sourceDb: BriefcaseDb) => {
+          sourceDb.relationships.deleteInstance(relationshipProps1); // this relationship will be saved as lastEntity
+          sourceDb.relationships.deleteInstance(relationshipProps2);
+        }
 
-      relationshipProps1 = {
-        classFullName: GraphicalElement3dRepresentsElement.classFullName,
-        targetId: physicalObject1,
-        sourceId: physicalObject2,
+        await performTest({
+          modifySourceDbAfterProcessAll,
+          expectedOperationCode: ChangeOpCode.Delete,
+          expectedEntityKind: EntityKind.Relationship,
+          shouldThrowError: false,
+          crashUntilReachesPropertyName: "relationshipDeletesUntilCall"
+        });
+      });
+  
+      it("verification should throw TargetIModelVerificationError when last entity is inserted relationship and invalid targetIModel is passed for a resumption", async () => {
+        const modifySourceDbAfterProcessAll = (sourceDb: BriefcaseDb) => {
+          // Delete old relationships in sourceDb
+          sourceDb.relationships.deleteInstance(relationshipProps1);
+          sourceDb.relationships.deleteInstance(relationshipProps2);
+          // Insert new relationship to sourceDb. Need to change classFullName because how IModelImporter determines relationship operation code
+          sourceDb.relationships.insertInstance({ ...relationshipProps1, classFullName: GraphicalElement3dRepresentsElement.classFullName });
+          sourceDb.relationships.insertInstance({ ...relationshipProps2, classFullName: GraphicalElement3dRepresentsElement.classFullName });
+        };
+        
+        await performTest({
+          modifySourceDbAfterProcessAll,
+          expectedOperationCode: ChangeOpCode.Insert,
+          expectedEntityKind: EntityKind.Relationship,
+          shouldThrowError: true,
+          crashUntilReachesPropertyName: "relationshipExportsUntilCall"
+        });
+      });
+  
+      it("verification should throw TargetIModelVerificationError when last entity is updated relationship and invalid targetIModel is passed for a resumption", async () => {
+        // Update relationships in sourceDb
+        const modifySourceDbAfterProcessAll = (sourceDb: BriefcaseDb) => {
+          [
+            sourceDb.relationships.getInstance<ElementGroupsMembers>(relationshipProps1.classFullName, relationshipProps1),
+            sourceDb.relationships.getInstance<ElementGroupsMembers>(relationshipProps2.classFullName, relationshipProps2)
+          ].map(relationship => {
+            relationship.memberPriority = 0;
+            relationship.update();
+          });
+        };
+
+        await performTest({
+          modifySourceDbAfterProcessAll,
+          expectedOperationCode: ChangeOpCode.Update,
+          expectedEntityKind: EntityKind.Relationship,
+          shouldThrowError: true,
+          crashUntilReachesPropertyName: "relationshipExportsUntilCall"
+        });
+      });
+
+      // FIXME: this test fails because the relationship is not deleted from the targetDb
+      it.skip("verification should throw TargetIModelVerificationError when last entity is deleted relationship and invalid targetIModel is passed for a resumption", async () => {
+        // Delete relationship from sourceDb
+        const modifySourceDbAfterProcessAll = (sourceDb: BriefcaseDb) => {
+          sourceDb.relationships.deleteInstance(relationshipProps1); // this relationship will be saved as lastEntity
+          sourceDb.relationships.deleteInstance(relationshipProps2);
+        }
+
+        await performTest({
+          modifySourceDbAfterProcessAll,
+          expectedOperationCode: ChangeOpCode.Delete,
+          expectedEntityKind: EntityKind.Relationship,
+          shouldThrowError: true,
+          crashUntilReachesPropertyName: "relationshipDeletesUntilCall"
+        });
+      });
+
+      const performTest = async ({
+        modifySourceDbAfterProcessAll,
+        expectedOperationCode,
+        expectedEntityKind,
+        shouldThrowError,
+        crashUntilReachesPropertyName
+      }: {
+        modifySourceDbAfterProcessAll: (sourceDb: BriefcaseDb) => void;
+        expectedOperationCode: ChangeOpCode;
+        expectedEntityKind: EntityKind;
+        shouldThrowError: boolean;
+        crashUntilReachesPropertyName: "relationshipExportsUntilCall" | "relationshipDeletesUntilCall";
+      }) => {
+        let transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
+        await transformer.processAll();
+
+        modifySourceDbAfterProcessAll(sourceDb);
+        
+        sourceDb.saveChanges();
+        await sourceDb.pushChanges({ accessToken, description: "deleted relationships from source db" });
+  
+        transformer.dispose();
+        transformer = new CountdownToCrashTransformer(sourceDb, targetDb)
+        transformer[crashUntilReachesPropertyName] = 1;
+        await expect(transformer.processChanges(accessToken)).to.be.rejectedWith("crash");
+        expect(transformer.lastEntity.operationCode).to.be.equal(expectedOperationCode);
+        expect(transformer.lastEntity.entityKind).to.be.equal(expectedEntityKind);
+        const statePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
+        transformer.saveStateToFile(statePath);
+  
+        if (shouldThrowError) {
+          // redownload targetDb so that it is reset to the old state
+          targetDb.close();
+          targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDb.iModelId });
+          await expect(
+            CountdownToCrashTransformer.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
+          ).to.be.rejectedWith(TargetIModelVerificationError);
+        } else { 
+          await expect(
+            CountdownToCrashTransformer.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
+          ).to.not.be.rejectedWith(TargetIModelVerificationError);
+        }
+        transformer.dispose();
       }
-      relationshipProps2 = {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject2,
-          sourceId: physicalObject1,
-      }
-      sourceDb.relationships.insertInstance(relationshipProps1); // this relationship will be saved as lastEntity
-      sourceDb.relationships.insertInstance(relationshipProps2);
-      sourceDb.performCheckpoint();
-      await sourceDb.pushChanges({ accessToken, description: "populated seed db" });
-
-      const targetDbId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "targetDb1", description: "crashingTarget", noLocks: true });
-      targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
-    });
-
-    afterEach(async () => {
-      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
-      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
-    });
-
-    it("verification should succeed and verify inserted relationship when transformer crashes after inserting it", async () => {
-      const transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
-      
-      transformer.relationshipExportsUntilCall = 1;
-      await transformer.processSchemas();
-      await expect(transformer.processAll()).to.be.rejectedWith("crash");
-
-      expect(transformer.lastEntity.operationCode).to.be.equal(ChangeOpCode.Insert);
-      expect(transformer.lastEntity.entityKind).to.be.equal(EntityKind.Relationship);
-      const statePath = IModelTransformerTestUtils.prepareOutputFile(
-        "IModelTransformerResumption",
-        "transformer-state.db"
-      );
-      transformer.saveStateToFile(statePath);
-      // eslint-disable-next-line @typescript-eslint/naming-convention
-      const TransformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
-      await expect(
-        TransformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
-      ).to.not.be.rejectedWith(TargetIModelVerificationError);
-
-      transformer.dispose();
-    });
-
-    it("verification should succeed and verify updated relationship when transformer crashes after updated it", async () => {
-      let transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
-      await transformer.processAll();
-   
-      // Update relationship in sourceDb
-      sourceDb.relationships.updateInstance(relationshipProps1); // this relationship will be saved as lastEntity
-      sourceDb.relationships.updateInstance(relationshipProps2);
-      
-      const startChangesetId = sourceDb.changeset.id;
-      sourceDb.performCheckpoint();
-      await sourceDb.pushChanges({ accessToken, description: "deleted relationships from source db" });
-
-      transformer = new CountdownToCrashTransformer(sourceDb, targetDb)
-      transformer.relationshipExportsUntilCall = 1;
-      await expect(transformer.processChanges(accessToken, startChangesetId)).to.be.rejectedWith("crash");
-      expect(transformer.lastEntity.operationCode).to.be.equal(ChangeOpCode.Update);
-      expect(transformer.lastEntity.entityKind).to.be.equal(EntityKind.Relationship);
-      const statePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
-      transformer.saveStateToFile(statePath);
-      const transformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
-      await expect(
-        transformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
-      ).to.not.be.rejectedWith(TargetIModelVerificationError);
-      transformer.dispose();
-    });
-
-    // FIXME: this test fails because the relationship is not deleted from the targetDb
-    it.skip("verification should succeed and verify deleted relationship when transformer crashes after deleting it", async () => {
-      let transformer = new CountdownToCrashTransformer(sourceDb, targetDb);
-      await transformer.processAll();
-   
-      // Delete relationship from sourceDb
-      sourceDb.relationships.deleteInstance(relationshipProps1); // this relationship will be saved as lastEntity
-      sourceDb.relationships.deleteInstance(relationshipProps2);
-      
-      const startChangesetId = sourceDb.changeset.id;
-      sourceDb.performCheckpoint();
-      await sourceDb.pushChanges({ accessToken, description: "deleted relationships from source db" });
-
-      transformer.dispose();
-      transformer = new CountdownToCrashTransformer(sourceDb, targetDb)
-      transformer.relationshipDeletesUntilCall = 1;
-      await expect(transformer.processChanges(accessToken, startChangesetId)).to.be.rejectedWith("crash");
-      targetDb.saveChanges();
-      expect(transformer.lastEntity.operationCode).to.be.equal(ChangeOpCode.Delete);
-      expect(transformer.lastEntity.entityKind).to.be.equal(EntityKind.Relationship);
-      const statePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
-      transformer.saveStateToFile(statePath);
-      const transformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
-      await expect(
-        transformerClass.resumeTransformationWithInitialize({ statePath }, sourceDb, targetDb)
-      ).to.not.be.rejectedWith(TargetIModelVerificationError);
-      transformer.dispose();
     });
   });
 });
