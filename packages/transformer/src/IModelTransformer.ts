@@ -1350,7 +1350,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     // FIXME: make processAll have a try {} finally {} that cleans this up
-    if (this._options.noDetachChangeCache) {
+    if (!this._options.noDetachChangeCache) {
       if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
         ChangeSummaryManager.detachChangeCache(this.sourceDb);
     }
