@@ -17,7 +17,7 @@ import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
-  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
+  ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, ECSqlValue, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
@@ -648,46 +648,54 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
     nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
 
+    // optimization: if we have provenance, use it to avoid more querying later
+    // eventually when itwin.js supports attaching a second iModelDb in JS,
+    // this won't have to be a conditional part of the query, and we can always have it by attaching
+    const queryCanAccessProvenance = this.sourceDb === this.provenanceDb;
+
     /* eslint-disable @typescript-eslint/indent */
     const deletedElemSql = `
       SELECT
-        1 AS IsElemNotRel
+        1 AS IsElemNotRel,
         ic.ChangedInstance.Id AS InstanceId,
-        ec.FederationGuid AS FedGuid1,
+        ec.FederationGuid AS FedGuid,
         NULL AS FedGuid2,
         ic.ChangedInstance.ClassId AS ClassId
-        ${
-        // optimization: if we have provenance, use it to avoid more querying later
-        // eventually when itwin.js supports attaching a second iModelDb in JS,
-        // this won't have to be a conditional part of the query
-        this.sourceDb === this.provenanceDb ? `
-        , NULL AS SourceIdentifier
-        , NULL AS TargetIdentifier
-        ` : ""
-        }
-      SELECT ic.ChangedInstance.Id AS CID, ec.FederationGuid AS sfg, ec.FederationGuid AS tfg,
-        ic.ChangedInstance.ClassId AS ClassId
-        -- parser error using AS without iff (not even just parentheses works)
+        ${queryCanAccessProvenance ? `
+        , coalesce(esa.Identifier, esac.Identifier) AS Identifier1
+        , NULL AS Identifier2
+        ` : ""}
       FROM ecchange.change.InstanceChange ic
         LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
           ON ic.ChangedInstance.Id=ec.ECInstanceId
+        ${queryCanAccessProvenance ? `
+          LEFT JOIN bis.ExternalSourceAspect esa
+            ON ic.ChangedInstance.Id=esa.ECInstanceId
+          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
+            ON ic.ChangedInstance.Id=esac.ECInstanceId
+        ` : ""
+        }
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
         AND ic.ChangedInstance.ClassId IS (BisCore.Element)
+        ${queryCanAccessProvenance ? `
+          AND esa.Scope.Id IN (:targetScopeElement, NULL)
+          AND esac.Scope.Id IN (:targetScopeElement, NULL)
+          ` : ""
+        }
 
       UNION ALL
 
       SELECT
-        0 AS IsElemNotRel
+        0 AS IsElemNotRel,
         ic.ChangedInstance.Id AS InstanceId,
         coalesce(se.FederationGuid, sec.FederationGuid) AS FedGuid1,
         coalesce(te.FederationGuid, tec.FederationGuid) AS FedGuid2,
         ic.ChangedInstance.ClassId AS ClassId
-        ${this.sourceDb === this.provenanceDb ? `
-        , coalesce(sesac.Identifier, sesacc.Identifier) AS SourceIdentifier
-        , coalesce(tesac.Identifier, tesacc.Identifier) AS TargetIdentifier
-        ` : ""
-        }
+        ${queryCanAccessProvenance ? `
+        , coalesce(sesa.Identifier, sesac.Identifier) AS Identifier1
+        , coalesce(tesa.Identifier, tesac.Identifier) AS Identifier2
+        ` : ""}
       FROM ecchange.change.InstanceChange ic
         LEFT JOIN bis.ElementRefersToElements.Changes(:changeSummaryId, 'BeforeDelete') ertec
           ON ic.ChangedInstance.Id=ertec.ECInstanceId
@@ -700,21 +708,28 @@ export class IModelTransformer extends IModelExportHandler {
           ON sec.ECInstanceId=ertec.SourceECInstanceId
         LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') tec
           ON tec.ECInstanceId=ertec.TargetECInstanceId
-        ${this.sourceDb === this.provenanceDb ? `
+        ${queryCanAccessProvenance ? `
           -- NOTE: need to join on both se/te and sec/tec incase the element was deleted
+          LEFT JOIN bis.ExternalSourceAspect sesa
+            ON se.ECInstanceId=sesa.Element.Id -- don't use *esac*.Identifier because it's a string
           LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesac
-            ON se.ECInstanceId=sesac.Element.Id -- don't use *esac*.Identifier because it's a string
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') sesacc
-            ON sec.ECInstanceId=sesacc.Element.Id
+            ON sec.ECInstanceId=sesac.Element.Id
+          LEFT JOIN bis.ExternalSourceAspect tesa
+            ON te.ECInstanceId=tesa.Element.Id
           LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') tesac
-            ON te.ECInstanceId=tesac.Element.Id
-          LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') tesacc
-            ON tec.ECInstanceId=tesacc.Element.Id
+            ON tec.ECInstanceId=tesac.Element.Id
           ` : ""
         }
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
         AND ic.ChangedInstance.ClassId IS (BisCore.ElementRefersToElements)
+        ${queryCanAccessProvenance ? `
+          AND sesa.Scope.Id IN (:targetScopeElement, NULL)
+          AND sesac.Scope.Id IN (:targetScopeElement, NULL)
+          AND tesa.Scope.Id IN (:targetScopeElement, NULL)
+          AND tesac.Scope.Id IN (:targetScopeElement, NULL)
+          ` : ""
+        }
     `;
     /* eslint-enable @typescript-eslint/indent */
 
@@ -722,47 +737,60 @@ export class IModelTransformer extends IModelExportHandler {
       // FIXME: test deletion in both forward and reverse sync
       this.sourceDb.withPreparedStatement(deletedElemSql, (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
-        stmt.bindId("targetScopeElement", this.targetScopeElementId);
+        if (queryCanAccessProvenance)
+          stmt.bindId("targetScopeElement", this.targetScopeElementId);
         stmt.bindId("changeSummaryId", changeSummaryId);
         while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-          const instId = stmt.getValue(0).getId();
+          const isElemNotRel = stmt.getValue(0).getBoolean();
+          const instId = stmt.getValue(1).getId();
 
-          const elemOrRelOrAspect = stmt.getValue(3).getInteger();
-          const isElement = elemOrRelOrAspect === 0;
-          const isRelationship = elemOrRelOrAspect === 1;
-          const isAspect = elemOrRelOrAspect === 2;
+          if (isElemNotRel) {
+            const sourceElemFedGuid = stmt.getValue(2).getGuid();
+            let identifierValue: ECSqlValue;
+            // "Identifier" is a string, so null value returns '' which doesn't work with ??, and I don't like ||
+            const maybeEsaIdentifier: Id64String | undefined
+              = queryCanAccessProvenance
+              && (identifierValue = stmt.getValue(5))
+              && !identifierValue.isNull
+                ? identifierValue.getString()
+                : undefined;
 
-          if (isElement || isAspect) {
-            const sourceElemFedGuid = stmt.getValue(1).getGuid();
-            const identifierValue = stmt.getValue(2);
-            // null value returns an empty string which doesn't work with ??, and I don't like ||
-            const maybeEsaIdentifier = identifierValue.isNull ? undefined : identifierValue.getString();
             // TODO: if I could attach the second db, will probably be much faster to get target id
             // as part of the whole query rather than with _queryElemIdByFedGuid
             const targetId = maybeEsaIdentifier
               ?? (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid));
+
+            // FIXME: remove this comment and below commented code
             // don't assert because currently we get separate rows for the element and external source aspect change
             // so we may get a no-sourceFedGuid row which is fixed later (usually right after)
-            // nodeAssert(targetId, `target for elem ${sourceId} in source could not be determined, provenance is broken`);
-            const deletionNotInTarget = !targetId;
-            if (deletionNotInTarget)
-              continue;
+            nodeAssert(targetId, `target for elem ${instId} in source could not be determined, provenance is broken`);
+            // const deletionNotInTarget = !targetId;
+            // if (deletionNotInTarget)
+            //   continue;
 
-            // TODO: maybe delete and don't just remap?
             this.context.remapElement(instId, targetId);
 
-          } else if (isRelationship) {
+          } else { // is deleted relationship
             // we could batch these but we should try to attach the second db and query both together
-            const sourceFedGuid = stmt.getValue(4).getGuid();
-            const sourceIdInProvenance = sourceFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceFedGuid);
-            const targetFedGuid = stmt.getValue(5).getGuid();
-            const targetIdInProvenance = targetFedGuid && this._queryElemIdByFedGuid(this.targetDb, targetFedGuid);
-            const classFullName = stmt.getValue(6).getClassNameForClassId();
-            this._deletedSourceRelationshipData!.set(instId, {
-              classFullName,
-              sourceIdInTarget: sourceIdInProvenance,
-              targetIdInTarget: targetIdInProvenance,
+            const classFullName = stmt.getValue(4).getClassNameForClassId();
+            const [sourceIdInTarget, targetIdInTarget] = [[2, 5], [3, 6]].map(([guidColumn, identifierColumn]) => {
+              const fedGuid = stmt.getValue(guidColumn).getGuid();
+              let identifierValue: ECSqlValue;
+              const maybeEsaIdentifier: Id64String | undefined
+                = queryCanAccessProvenance
+                && (identifierValue = stmt.getValue(identifierColumn))
+                && !identifierValue.isNull
+                  ? identifierValue.getString()
+                  : undefined;
+              return maybeEsaIdentifier ?? (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid));
             });
+            // FIXME: might we attempt to process here a broken relationship legitimately without
+            // source or target, which should just be ignored?
+            nodeAssert(
+              sourceIdInTarget && targetIdInTarget,
+              `target for relationship ${instId} in source could not be determined, provenance is broken`
+            );
+            this._deletedSourceRelationshipData!.set(instId, { classFullName, sourceIdInTarget, targetIdInTarget });
           }
         }
         // NEXT: remap sourceId and targetId to target, get provenance there
