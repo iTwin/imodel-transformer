@@ -380,13 +380,13 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    const timeline: Timeline = {
-      0: { master: { seed: masterSeed } }, // masterSeedState is above
-      1: { branch1: { branch: "master" } },
-      2: { master: { 40:5 } },
-      3: { branch2: { branch: "master" } },
-      4: { branch1: { 2:2, 3:1, 4:1 } },
-      5: {
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } }, // masterSeedState is above
+      { branch1: { branch: "master" } },
+      { master: { 40:5 } },
+      { branch2: { branch: "master" } },
+      { branch1: { 2:2, 3:1, 4:1 } },
+      {
         branch1: {
           manualUpdate(db) {
             relationships.map(
@@ -401,7 +401,7 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      6: {
+      {
         branch1: {
           manualUpdate(db) {
             const rel = db.relationships.getInstance<ElementGroupsMembers>(
@@ -413,22 +413,22 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      7: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
-      8: { branch1: { 21:deleted, 30:1 } },
-      9: { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
-      10: {
+      { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
+      { branch1: { 21:deleted, 30:1 } },
+      { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
+      {
         assert({ master }) {
           // check deletions propagated from sync
           expect(IModelTestUtils.queryByUserLabel(master.db, "20")).to.equal(Id64.invalid);
           expect(IModelTestUtils.queryByUserLabel(master.db, "21")).to.equal(Id64.invalid);
         },
       },
-      11: { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
-      12: { branch2: { 7:1, 8:1 } },
+      { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
+      { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      13: { master: { 7:2, 9:1 } },
-      14: { master: { sync: ["branch2"] } }, // first master<-branch2 reverse sync
-      15: {
+      { master: { 7:2, 9:1 } },
+      { master: { sync: ["branch2"] } }, // first master<-branch2 reverse sync
+      {
         assert({ master, branch1, branch2 }) {
           for (const { db } of [master, branch1, branch2]) {
             const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
@@ -449,7 +449,7 @@ describe("IModelTransformerHub", () => {
             expect(branch.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
             const aspects =
               [...branch.db.queryEntityIds({ from: "BisCore.ExternalSourceAspect" })]
-                .map((aspectId) => branch.db.elements.getAspect(aspectId).toJSON()) as ExternalSourceAspectProps[];
+              .map((aspectId) => branch.db.elements.getAspect(aspectId).toJSON()) as ExternalSourceAspectProps[];
             expect(aspects).to.deep.subsetEqual([
               {
                 element: { id: IModelDb.rootSubjectId },
@@ -475,8 +475,8 @@ describe("IModelTransformerHub", () => {
           assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      16: { master: { 6:2 } },
-      17: {
+      { master: { 6:2 } },
+      {
         master: {
           manualUpdate(db) {
             // FIXME: also delete an element and merge that
@@ -496,8 +496,8 @@ describe("IModelTransformerHub", () => {
         },
       },
       // FIXME: do a later sync and resync
-      18: { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
-      19: {
+      { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
+      {
         assert({branch1}) {
           for (const rel of relationships) {
             expect(branch1.db.relationships.tryGetInstance(
@@ -514,7 +514,7 @@ describe("IModelTransformerHub", () => {
           }
         },
       },
-    };
+    ];
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
