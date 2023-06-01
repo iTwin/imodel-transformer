@@ -2309,6 +2309,53 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
+  it("detect element deletes works on children", async () => {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetectElemDeletesChildren.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DetectElemDeletes" } });
+    const model = PhysicalModel.insert(sourceDb, IModelDb.rootSubjectId, "Model 1");
+    const category = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "TestCategory", {});
+    const obj = new PhysicalObject({
+      code: Code.createEmpty(),
+      model,
+      category,
+      classFullName: PhysicalObject.classFullName,
+    }, sourceDb);
+    obj.insert();
+
+    sourceDb.saveChanges();
+
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetectElemDeletesChildrenTarget.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "Combined Model" } });
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    await expect(transformer.processAll()).not.to.be.rejected;
+    targetDb.saveChanges();
+    const modelInTarget = transformer.context.findTargetElementId(model);
+    const objInTarget = transformer.context.findTargetElementId(obj.id);
+
+    // delete from source for detectElementDeletes to handle
+    sourceDb.elements.deleteElement(obj.id);
+    sourceDb.models.deleteModel(model);
+    sourceDb.elements.deleteElement(model);
+
+    expect(sourceDb.models.tryGetModel(model)).to.be.undefined;
+    expect(sourceDb.elements.tryGetElement(model)).to.be.undefined;
+    expect(sourceDb.elements.tryGetElement(obj)).to.be.undefined;
+
+    sourceDb.saveChanges();
+
+    await expect(transformer.processAll()).not.to.be.rejected;
+    targetDb.saveChanges();
+
+    expect(sourceDb.models.tryGetModel(modelInTarget)).to.be.undefined;
+    expect(targetDb.elements.tryGetElement(modelInTarget)).to.be.undefined;
+    expect(targetDb.elements.tryGetElement(objInTarget)).to.be.undefined;
+
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
   it("handles long schema names and references to them", async function () {
     const longSchema1Name = `ThisSchemaIs${"Long".repeat(100)}`;
     assert(Buffer.from(longSchema1Name).byteLength > 255);
