@@ -1581,6 +1581,7 @@ export class TemplateModelCloner extends IModelTransformer {
     }
     return this._sourceIdToTargetIdMap; // return the sourceElementId -> targetElementId Map in case further post-processing is required.
   }
+
   /** Place a template from the sourceDb at the specified placement in the target model within the targetDb.
    * @param sourceTemplateModelId The Id of the template model in the sourceDb
    * @param targetModelId The Id of the target model (must be a subclass of GeometricModel2d) where the cloned component will be inserted.
@@ -1601,11 +1602,13 @@ export class TemplateModelCloner extends IModelTransformer {
     }
     return this._sourceIdToTargetIdMap; // return the sourceElementId -> targetElementId Map in case further post-processing is required.
   }
+
   /** Cloning from a template requires this override of onTransformElement. */
   public override onTransformElement(sourceElement: Element): ElementProps {
-    const referenceIds: Id64Set = sourceElement.getReferenceIds();
-    referenceIds.forEach((referenceId: Id64String) => {
-      if (Id64.invalid === this.context.findTargetElementId(referenceId)) {
+    const referenceIds: Id64Set = sourceElement.getReferenceConcreteIds();
+    referenceIds.forEach((referenceId) => {
+      // FIXME: consider going through all definition elements at once and remapping them to themselves
+      if (!EntityReferences.isValid(this.context.findTargetEntityId(referenceId))) {
         if (this.context.isBetweenIModels) {
           throw new IModelError(IModelStatus.BadRequest, `Remapping for source dependency ${referenceId} not found for target iModel`);
         } else {
@@ -1618,6 +1621,7 @@ export class TemplateModelCloner extends IModelTransformer {
         }
       }
     });
+
     const targetElementProps: ElementProps = super.onTransformElement(sourceElement);
     targetElementProps.federationGuid = Guid.createValue(); // clone from template should create a new federationGuid
     targetElementProps.code = Code.createEmpty(); // clone from template should not maintain codes
