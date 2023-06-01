@@ -12,7 +12,6 @@
 import "./setup";
 import { assert } from "chai";
 import * as path from "path";
-import * as fs from "fs";
 import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb } from "@itwin/core-backend";
 import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
@@ -23,7 +22,6 @@ import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
-import * as os from "os";
 
 async function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -102,7 +100,6 @@ void (async function () {
   var reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
 
-  // could probably add an outer describe here (surounding both foreaches) for any before after logic that isn't related to getting the test data. but idk for sure 
   describe('Transformer Regression Tests', function () {
     testIModels.forEach(async (value, index, _array) => {
       const iModel = value;
