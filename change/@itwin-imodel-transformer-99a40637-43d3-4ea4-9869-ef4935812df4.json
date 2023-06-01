@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "update deps to support 3.6-4.0",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "patch"
-}

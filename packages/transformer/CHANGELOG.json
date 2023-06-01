@@ -2,6 +2,21 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Thu, 01 Jun 2023 22:51:33 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.14",
+      "version": "0.1.14",
+      "comments": {
+        "patch": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "5a175aa5b15fb48e747cccd18be5886727fecb6a",
+            "comment": "update deps to support 3.6-4.0"
+          }
+        ]
+      }
+    },
+    {
       "date": "Wed, 31 May 2023 13:40:07 GMT",
       "tag": "@itwin/imodel-transformer_v0.1.12",
       "version": "0.1.12",
