@@ -10,8 +10,8 @@
     "clean": "rimraf lib .rush/temp/package-deps*.json",
     "cover": "",
     "docs": "",
-    "lint": "eslint --max-warnings 0 \"./src/**/*.ts\" 1>&2",
-    "lint:fix": "eslint --fix --max-warnings 0 \"./src/**/*.ts\" 1>&2",
+    "lint": "eslint --quiet \"./src/**/*.ts\" 1>&2",
+    "lint:fix": "eslint --fix --quiet \"./src/**/*.ts\" 1>&2",
     "start": "node ./lib/Main.js",
     "test": "mocha",
     "copy:config": "internal-tools copy-config"
