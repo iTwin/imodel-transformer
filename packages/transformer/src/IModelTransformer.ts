@@ -1819,7 +1819,11 @@ export class IModelTransformer extends IModelExportHandler {
 
     // NOTE: that we do NOT download the changesummary for the last transformed version, we want
     // to ignore those already processed changes
-    const startChangesetIndexOrId = args.startChangeset ?? args.startChangesetId ?? this._synchronizationVersion.index + 1;
+    const startChangesetIndexOrId
+      = args.startChangeset?.index
+      ?? args.startChangeset?.id
+      ?? args.startChangesetId // eslint-disable-line deprecation/deprecation
+      ?? this._synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
     const [startChangesetIndex, endChangesetIndex] = await Promise.all(
@@ -1829,6 +1833,7 @@ export class IModelTransformer extends IModelExportHandler {
           : IModelHost.hubAccess
             .queryChangeset({
               iModelId: this.sourceDb.iModelId,
+              // eslint-disable-next-line deprecation/deprecation
               changeset: { id: indexOrId },
               accessToken: args.accessToken,
             })
