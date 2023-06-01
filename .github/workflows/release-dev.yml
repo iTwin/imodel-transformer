@@ -43,6 +43,16 @@ jobs:
     - name: Build
       run: pnpm run build
 
+    - name: Print release
+      run: |
+        echo ${{ github.event.inputs.specialReleaseTag }}
+        echo $SPECIAL_TAG
+        if [[ "$SPECIAL_TAG" != "dev" ]]; then
+          exit 1
+        fi
+      env:
+        SPECIAL_TAG: ${{ github.event.inputs.specialReleaseTag }}
+
     - name: Publish packages
       run: |
         git config --local user.email imodeljs-admin@users.noreply.github.com
