@@ -1,6 +1,6 @@
 # Presentation Performance Tests
 
-A package containing performance tests for the [`@itwin/transformer` library](../../README.md).
+A package containing performance tests for the [`@itwin/imodel-transformer` library](../../README.md).
 
 ## Tests
 
