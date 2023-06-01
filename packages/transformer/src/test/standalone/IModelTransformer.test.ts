@@ -16,6 +16,7 @@ import {
   PhysicalModel, PhysicalObject, PhysicalPartition, PhysicalType, Relationship, RenderMaterialElement, RepositoryLink, Schema, SnapshotDb, SpatialCategory, StandaloneDb,
   SubCategory, Subject, Texture,
 } from "@itwin/core-backend";
+import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import * as TestUtils from "../TestUtils";
 import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
@@ -2236,8 +2237,10 @@ describe("IModelTransformer", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      getCodeValRawSqlite(targetDb, label, `${label}\xa0`, count);
-      getCodeValEcSql(targetDb, label, `${label}\xa0`, count);
+      // itwin.js 4.x will also trim the code value of utf-8 spaces in the native layer
+      const inItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
+      getCodeValRawSqlite(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
+      getCodeValEcSql(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
     }
 
     transformer.dispose();
