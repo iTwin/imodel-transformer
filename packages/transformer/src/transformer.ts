@@ -34,8 +34,13 @@ if (process.env[noStrictDepCheckEnvVar] !== "1" && !semver.satisfies(iTwinCoreBa
       const chunks: string[] = [];
       const packumentSrc = await new Promise<string>((r) => resp.setEncoding("utf8").on("data", (d) => chunks.push(d)).on("end", () => r(chunks.join(""))));
       interface PackumentSubset {
-        versions: Record<string, { peerDependencies?: { "@itwin/core-backend": string } }>;
+        versions: Record<string, {
+          peerDependencies?: {
+            "@itwin/core-backend": string; // eslint-disable-line @typescript-eslint/naming-convention
+          };
+        }>;
       }
+
       const packumentJson = JSON.parse(packumentSrc) as PackumentSubset;
       const isTaglessVersion = (version: string) => version.includes("-");
       const latestFirstApplicableVersions
