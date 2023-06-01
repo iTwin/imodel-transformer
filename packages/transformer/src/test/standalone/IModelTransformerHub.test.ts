@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, deleted, getIModelState, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -417,13 +417,19 @@ describe("IModelTransformerHub", () => {
       { branch1: { 21:deleted, 30:1 } },
       { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
       {
-        assert({ master }) {
-          // check deletions propagated from sync
-          expect(IModelTestUtils.queryByUserLabel(master.db, "20")).to.equal(Id64.invalid);
-          expect(IModelTestUtils.queryByUserLabel(master.db, "21")).to.equal(Id64.invalid);
+        assert({ master, branch1 }) {
+          assertElemState(master.db, {
+            // relationship props are a lot to type out so let's grab those from the branch
+            ...branch1.state,
+            // double check deletions propagated by sync
+            20: undefined as any,
+            21: undefined as any,
+            40:5, // this element was not changed in the branch, so the sync won't update it
+          });
         },
       },
       { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
+      { assert({ master, branch2 }) { assertElemState(branch2.db, master.state); } },
       { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
       { master: { 7:2, 9:1 } },
