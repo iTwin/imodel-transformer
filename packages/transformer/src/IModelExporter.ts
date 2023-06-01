@@ -15,7 +15,7 @@ import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IMo
 import { ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import type { InitArgs } from "./IModelTransformer.ts";
+import type { InitArgs } from "./IModelTransformer";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 

@@ -6,7 +6,7 @@
 import { assert, expect } from "chai";
 import {
   BriefcaseDb,
-  ExternalSourceAspect, IModelDb, IModelHost, PhysicalModel,
+  IModelDb, IModelHost, PhysicalModel,
   PhysicalObject, PhysicalPartition, SpatialCategory,
 } from "@itwin/core-backend";
 
@@ -17,7 +17,7 @@ import { HubWrappers, IModelTransformerTestUtils } from "../IModelTransformerUti
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
 
-const { count, saveAndPushChanges } = IModelTestUtils;
+const { saveAndPushChanges } = IModelTestUtils;
 
 export const deleted = Symbol("DELETED");
 
@@ -173,7 +173,7 @@ export type TimelineStateChange =
   // create a branch from an existing iModel with a given name
   | { branch: string }
   // synchronize with the changes in an iModel of a given name from a starting timeline point
-  | { sync: [string, { since: number }] }
+  | { sync: [source: string, opts?: { since: number }] }
   // manually update an iModel, state will be automatically detected after. Useful for more complicated
   // element changes with inter-dependencies.
   // @note: the key for the element in the state will be the userLabel or if none, the id
@@ -234,7 +234,9 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
 
   const getSeed = (model: TimelineStateChange) => (model as { seed: TimelineIModelState | undefined }).seed;
   const getBranch = (model: TimelineStateChange) => (model as { branch: string | undefined }).branch;
-  const getSync = (model: TimelineStateChange) => (model as { sync: [string, {since: number}] | undefined }).sync;
+  const getSync = (model: TimelineStateChange) =>
+    // HACK: concat {} so destructuring works if opts were undefined
+    (model as any).sync?.concat({}) as [src: string, opts: {since?: number}] | undefined;
   const getManualUpdate = (model: TimelineStateChange): { update: ManualUpdateFunc, doReopen: boolean } | undefined =>
     (model as any).manualUpdate || (model as any).manualUpdateAndReopen
       ? {
@@ -331,9 +333,11 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
           targetStateBefore = getIModelState(target.db);
 
         const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
-        const startChangesetId = timelineStates.get(startIndex)?.changesets[syncSource].id;
         try {
-          await syncer.processChanges(accessToken, startChangesetId);
+          await syncer.processChanges({
+            accessToken,
+            startChangeset: startIndex ? { index: startIndex } : undefined,
+          });
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             /* eslint-disable no-console */
