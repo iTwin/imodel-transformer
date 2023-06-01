@@ -380,12 +380,13 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    // FIXME: add some relationships
     const timeline: Timeline = {
       0: { master: { seed: masterSeed } }, // masterSeedState is above
-      1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
-      2: { branch1: { 2:2, 3:1, 4:1 } },
-      3: {
+      1: { branch1: { branch: "master" } },
+      2: { master: { 40:5 } },
+      3: { branch2: { branch: "master" } },
+      4: { branch1: { 2:2, 3:1, 4:1 } },
+      5: {
         branch1: {
           manualUpdate(db) {
             relationships.map(
@@ -400,7 +401,7 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      4: {
+      6: {
         branch1: {
           manualUpdate(db) {
             const rel = db.relationships.getInstance<ElementGroupsMembers>(
@@ -412,22 +413,22 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      5: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
-      6: { branch1: { 21:deleted, 30:1 } },
-      7: { master: { sync: ["branch1", { since: 1 }] } }, // first master<-branch1 reverse sync
-      8: {
+      7: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
+      8: { branch1: { 21:deleted, 30:1 } },
+      9: { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
+      10: {
         assert({ master }) {
           // check deletions propagated from sync
           expect(IModelTestUtils.queryByUserLabel(master.db, "20")).to.equal(Id64.invalid);
           expect(IModelTestUtils.queryByUserLabel(master.db, "21")).to.equal(Id64.invalid);
         },
       },
-      9: { branch2: { sync: ["master", { since: 7 }] } }, // first master->branch2 forward sync
-      10: { branch2: { 7:1, 8:1 } },
+      11: { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
+      12: { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      11: { master: { 7:2, 9:1 } },
-      12: { master: { sync: ["branch2", { since: 1 }] } }, // first master<-branch2 reverse sync
-      13: {
+      13: { master: { 7:2, 9:1 } },
+      14: { master: { sync: ["branch2"] } }, // first master<-branch2 reverse sync
+      15: {
         assert({ master, branch1, branch2 }) {
           for (const { db } of [master, branch1, branch2]) {
             const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
@@ -474,10 +475,11 @@ describe("IModelTransformerHub", () => {
           assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      14: { master: { 6:2 } },
-      15: {
+      16: { master: { 6:2 } },
+      17: {
         master: {
           manualUpdate(db) {
+            // FIXME: also delete an element and merge that
             relationships.forEach(
               ({ sourceLabel, targetLabel }) => {
                 const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
@@ -494,8 +496,8 @@ describe("IModelTransformerHub", () => {
         },
       },
       // FIXME: do a later sync and resync
-      16: { branch1: { sync: ["master", { since: 7 }] } }, // first master->branch1 forward sync
-      17: {
+      18: { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
+      19: {
         assert({branch1}) {
           for (const rel of relationships) {
             expect(branch1.db.relationships.tryGetInstance(
