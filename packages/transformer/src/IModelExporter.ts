@@ -9,7 +9,7 @@
 import {
   BriefcaseDb, BriefcaseManager, DefinitionModel, ECSqlStatement, Element, ElementAspect,
   ElementMultiAspect, ElementRefersToElements, ElementUniqueAspect, GeometricElement, IModelDb,
-  IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship,
+  IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship, TokenArg,
 } from "@itwin/core-backend";
 import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
 import { CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
@@ -27,16 +27,21 @@ export interface ExportSchemaResult {
   schemaPath?: string;
 }
 
-/** Arguments you can pass to [[IModelExporter.exportChanges]]
- * @param accessToken The access token
- * @param startChangesetId Include changes from this changeset up through and including the current changeset.
- * If this parameter is not provided, then just the current changeset will be exported.
- * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
- * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] will be called to discover changed elements.
+/**
+ * Arguments for [[IModelExporter.exportChanges]]
+ * @public
  */
-export interface ExportChangesArgs {
-  accessToken?: AccessToken;
+export interface ExportChangesArgs extends TokenArg {
+  /**
+   * Include changes from this changeset up through and including the current changeset.
+   * If this parameter is not provided, then just the current changeset will be exported.
+   * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   * */
   startChangesetId?: string;
+  /**
+   * Instance class that contains modified elements between 2 versions of an iModel.
+   * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] will be called to discover changed elements.
+   */
   changedInstanceIds?: ChangedInstanceIds;
 }
 
@@ -277,13 +282,13 @@ export class IModelExporter {
     await this.exportRelationships(ElementRefersToElements.classFullName);
   }
 
-  /** Export changes from the source iModel.
-   * @param args Check [[ExportChangesArgs]] interface for more information
-   * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+  /**
+   * Export changes from the source iModel.
    */
   public async exportChanges(args?: ExportChangesArgs): Promise<void>;
   /** @deprecated Don't use this overload. */
   public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, args?: ExportChangesArgs): Promise<void>;
+  /** @internal Don't use this overload. */
   public async exportChanges(accessTokenOrArgs?: AccessToken | ExportChangesArgs, startChangesetId?: string, args?: ExportChangesArgs): Promise<void> {
     const options: ExportChangesArgs | undefined = typeof accessTokenOrArgs === "string"
       ? { accessToken: accessTokenOrArgs, startChangesetId, changedInstanceIds: args?.changedInstanceIds }

@@ -19,7 +19,7 @@ import {
   ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
-  RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
+  RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink, TokenArg,
 } from "@itwin/core-backend";
 import {
   ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
@@ -218,15 +218,19 @@ export interface InitFromExternalSourceAspectsArgs {
   startChangesetId?: string;
 }
 
-/** Arguments you can pass to [[IModelTransformer.processChanges]]
- * @param accessToken A valid access token string
- * @param startChangesetId Include changes from this changeset up through and including the current changeset.
- * @param changedInstanceIds Instance class that contains modified elements between 2 versions of an iModel.
- * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]] will be called to discover changed elements.
+/**
+ * Arguments for [[IModelTransformer.processChanges]]
  */
-export interface ProcessChangesArgs {
-  accessToken: AccessToken;
+export interface ProcessChangesArgs extends MarkRequired<TokenArg, "accessToken"> {
+  /**
+   * Include changes from this changeset up through and including the current changeset.
+   * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   */
   startChangesetId?: string;
+  /**
+   * Class instance that contains modified elements between 2 versions of an iModel.
+   * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]] will be called to discover changed elements.
+   */
   changedInstanceIds?: ChangedInstanceIds;
 }
 
@@ -1521,13 +1525,13 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  /** Export changes from the source iModel and import the transformed entities into the target iModel.
-   * @param args Check [[ProcessChangesArgs]] interface for more information
-   * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+  /**
+   * Export changes from the source iModel and import the transformed entities into the target iModel.
    */
   public async processChanges(args: ProcessChangesArgs): Promise<void>;
   /** @deprecated Don't use this overload. */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void>;
+  /** @internal Don't use this overload. */
   public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesArgs, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void> {
     Logger.logTrace(loggerCategory, "processChanges()");
     this.logSettings();
