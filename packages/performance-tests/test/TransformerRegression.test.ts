@@ -16,7 +16,6 @@ import * as fs from "fs";
 import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb } from "@itwin/core-backend";
 import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
-// import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { getTestIModels } from "./TestContext";
 import { initOutputFile } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
@@ -109,19 +108,20 @@ void (async function () {
       const iModel = value;
       if (index === 2 || index === 5) {
         describe(`Transforms of ${iModel.name}`, async () => {
-          testCasesMap.forEach(async (testCase, key, _map) => {
+          testCasesMap.forEach(async (testCase, key) => {
             it(key, async () => {
-              reporter = await testCase.default(iModel, os, reporter);  // add timeout(0)
+              reporter = await testCase.default(iModel, reporter);  // add timeout(0)
             }).timeout(0);
           });
         });
       }
     });
   });
+
   after(async () => {
     reporter.exportCSV(reportPath);
   });
-  // See 'DELAYED ROOT SUITE' on https://mochajs.org/
-  // This function is a special bcallback function provided by mocha when passing it the --delay flag. This gives us an opportunity to load in the iModels that we'll be testing so we can dynamically generate testcases.
+  // See 'DELAYED ROOT SUITE' on https://mochajs.org/#delayed-root-suite
+  // This function is a special callback function provided by mocha when passing it the --delay flag. This gives us an opportunity to load in the iModels that we'll be testing so we can dynamically generate testcases.
   run();
 })();

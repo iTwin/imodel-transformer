@@ -2,25 +2,24 @@
 * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
-import * as path from "path";
-import * as fs from "fs";
-import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb, BriefcaseDb } from "@itwin/core-backend";
-import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
-import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
-//import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
-import { TestIModel } from "./TestContext";
-import { Reporter } from "@itwin/perf-tools";
-import { initOutputFile, timed } from "./TestUtils";
-
 /*
  * Tests where we perform "identity" transforms, that is just rebuilding an entire identical iModel (minus IDs)
  * through the transformation process.
  */
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb, BriefcaseDb } from "@itwin/core-backend";
+import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
+import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { TestIModel } from "./TestContext";
+import { Reporter } from "@itwin/perf-tools";
+import { initOutputFile, timed } from "./TestUtils";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(iModel: TestIModel, os: any, reporter: Reporter){
+export default async function identityTransformer(iModel: TestIModel, reporter: Reporter){
   Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
   const sourceDb = await iModel.load();
   const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
