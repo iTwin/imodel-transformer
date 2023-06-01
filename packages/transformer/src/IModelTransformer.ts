@@ -23,7 +23,7 @@ import {
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
@@ -236,7 +236,15 @@ function mapId64<R>(
  */
 export interface InitArgs {
   accessToken?: AccessToken;
+  /**
+   * @deprecated in 0.1.x. Use startChangeset instead
+  */
   startChangesetId?: string;
+  /**
+   * The starting changeset of the source, inclusive, from which to apply changes
+   * @default (if undefined) should mean the last synchronized changeset in a branch relationship
+   */
+  startChangeset?: ChangesetIndexOrId;
 }
 
 type ChangeDataState = "uninited" | "has-changes" | "no-changes" | "unconnected";
@@ -1779,9 +1787,9 @@ export class IModelTransformer extends IModelExportHandler {
   private _sourceChangeDataState: ChangeDataState = "uninited";
 
   /**
-   * Initialize prerequisites of processing, you must initialize with an [[InitFromExternalSourceAspectsArgs]] if you
-   * are intending process changes, but prefer using [[processChanges]]
-   * Called by all `process*` functions implicitly.
+   * Initialize prerequisites of processing, you must initialize with an [[InitArgs]] if you
+   * are intending to process changes, but prefer using [[processChanges]] explicitly since it calls this.
+   * @note Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
   public async initialize(args?: InitArgs): Promise<void> {
@@ -1811,7 +1819,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     // NOTE: that we do NOT download the changesummary for the last transformed version, we want
     // to ignore those already processed changes
-    const startChangesetIndexOrId = args?.startChangesetId ?? this._synchronizationVersion.index + 1;
+    const startChangesetIndexOrId = args.startChangeset ?? args.startChangesetId ?? this._synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
     const [startChangesetIndex, endChangesetIndex] = await Promise.all(
@@ -2120,12 +2128,37 @@ export class IModelTransformer extends IModelExportHandler {
    * If this parameter is not provided, then just the current changeset will be exported.
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
-    this.events.emit(TransformerEvent.beginProcessChanges, startChangesetId);
+  public async processChanges(options: InitArgs): Promise<void>;
+  /**
+   * @deprecated in 0.1.x.
+   * This overload follows the older behavior of defaulting an undefined startChangesetId to the
+   * current changeset.
+   */
+  public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
+  public async processChanges(optionsOrAccessToken: AccessToken | InitArgs, startChangesetId?: string): Promise<void> {
+    const args: InitArgs =
+      typeof optionsOrAccessToken === "string"
+      ? {
+          accessToken: optionsOrAccessToken,
+          startChangeset: startChangesetId
+            ? { id: startChangesetId }
+            : this.sourceDb.changeset,
+        }
+      : {
+          ...optionsOrAccessToken,
+          startChangeset: optionsOrAccessToken.startChangeset
+            /* eslint-disable deprecation/deprecation */
+            ?? (optionsOrAccessToken.startChangesetId !== undefined
+              ? { id: optionsOrAccessToken.startChangesetId }
+              : undefined),
+            /* eslint-enable deprecation/deprecation */
+        };
     this.logSettings();
     this.initScopeProvenance();
-    await this.initialize({ accessToken, startChangesetId });
-    await this.exporter.exportChanges(accessToken, startChangesetId);
+    await this.initialize(args);
+    // must wait for initialization of synchronization provenance data
+    const exportStartChangeset = args.startChangeset ?? { index: this._synchronizationVersion.index + 1 };
+    await this.exporter.exportChanges({ accessToken: args.accessToken, startChangeset: exportStartChangeset });
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)
