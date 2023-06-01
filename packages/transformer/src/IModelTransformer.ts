@@ -1605,7 +1605,8 @@ export class TemplateModelCloner extends IModelTransformer {
 
   /** Cloning from a template requires this override of onTransformElement. */
   public override onTransformElement(sourceElement: Element): ElementProps {
-    const referenceIds: Id64Set = sourceElement.getReferenceConcreteIds();
+    // eslint-disable-next-line deprecation/deprecation
+    const referenceIds = sourceElement.getReferenceConcreteIds();
     referenceIds.forEach((referenceId) => {
       // FIXME: consider going through all definition elements at once and remapping them to themselves
       if (!EntityReferences.isValid(this.context.findTargetEntityId(referenceId))) {
