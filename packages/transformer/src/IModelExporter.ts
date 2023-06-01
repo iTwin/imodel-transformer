@@ -286,7 +286,7 @@ export class IModelExporter {
    * Export changes from the source iModel.
    */
   public async exportChanges(args?: ExportChangesArgs): Promise<void>;
-  /** @deprecated Don't use this overload. */
+  /** @deprecated in 0.1.x, use a single ExportChangesArgs object instead */
   public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, args?: ExportChangesArgs): Promise<void>;
   /** @internal Don't use this overload. */
   public async exportChanges(accessTokenOrArgs?: AccessToken | ExportChangesArgs, startChangesetId?: string, args?: ExportChangesArgs): Promise<void> {

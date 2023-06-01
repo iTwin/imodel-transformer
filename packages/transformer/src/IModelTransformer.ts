@@ -1529,7 +1529,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Export changes from the source iModel and import the transformed entities into the target iModel.
    */
   public async processChanges(args: ProcessChangesArgs): Promise<void>;
-  /** @deprecated Don't use this overload. */
+  /** @deprecated in 0.1.x, use a single [[ProcessChangesArgs]] object instead */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void>;
   /** @internal Don't use this overload. */
   public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesArgs, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void> {
