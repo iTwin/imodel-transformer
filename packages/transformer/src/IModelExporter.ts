@@ -61,6 +61,25 @@ import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspects
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
+export interface ExportChangesArgs extends InitArgs {
+  accessToken?: AccessToken;
+  /**
+   * A changeset id or index signifiying the inclusive start of changes
+   * to include. The end is implicitly the changeset of the source iModel
+   * @note mutually exclusive with @see changesetRanges
+   */
+  startChangeset?: ChangesetIndexOrId;
+  /**
+   * An array of changeset index ranges, e.g. [[2,2], [4,5]] is [2,4,5]
+   * @note mutually exclusive with @see startChangeset
+   */
+  changesetRanges?: [number, number][];
+}
+
+export interface ChangedInstanceIdsInitOptions extends ExportChangesArgs {
+  iModel: BriefcaseDb;
+}
+
 /**
  * @beta
  * The (optional) result of [[IModelExportHandler.onExportSchema]]
@@ -1027,22 +1046,6 @@ export class ChangedInstanceOps {
         val.delete.forEach((id: Id64String) => this.deleteIds.add(id));
     }
   }
-}
-
-export interface ChangedInstanceIdsInitOptions {
-  accessToken?: AccessToken | undefined;
-  iModel: BriefcaseDb;
-  /**
-   * A changeset id or index signifiying the inclusive start of changes
-   * to include. The end is implicitly the changeset of the iModel parameter
-   * @note mutually exclusive with @see changesetRanges
-   */
-  startChangeset?: ChangesetIndexOrId;
-  /**
-   * An array of changeset index ranges, e.g. [[2,2], [4,5]] is [2,4,5]
-   * @note mutually exclusive with @see startChangeset
-   */
-  changesetRanges?: [number, number][];
 }
 
 /**
