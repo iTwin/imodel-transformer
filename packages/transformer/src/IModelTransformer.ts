@@ -262,6 +262,12 @@ export interface TargetScopeProvenanceJsonProps {
   reverseSyncVersion: string;
 }
 
+interface TargetScopeProvenanceJsonProps {
+  pendingReverseSyncChangesetIndices: number[];
+  pendingSyncChangesetIndices: number[];
+  reverseSyncVersion: string;
+}
+
 /**
  * Apply a function to each Id64 in a supported container type of Id64s.
  * Currently only supports raw Id64String or RelatedElement-like objects containing an `id` property that is a Id64String,
@@ -838,9 +844,17 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** NOTE: the json properties must be converted to string before insertion */
   private _targetScopeProvenanceProps:
-    ExternalSourceAspectProps & { jsonProperties: Record<string, any> } | undefined = undefined;
+    Omit<ExternalSourceAspectProps, "jsonProperties"> & { jsonProperties: TargetScopeProvenanceJsonProps }
+    | undefined
+      = undefined;
 
-  private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
+  /**
+   * Index of the changeset that the transformer was at when the transformation begins (was constructed).
+   * Used to determine at the end which changesets were part of a synchronization.
+   */
+  private _startingTargetChangesetIndex: number | undefined = undefined;
+
+  private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined = undefined;
 
   /** the changeset in the scoping element's source version found for this transformation
    * @note: the version depends on whether this is a reverse synchronization or not, as
@@ -848,7 +862,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note: empty string and -1 for changeset and index if it has never been transformed
    */
   private get _synchronizationVersion(): ChangesetIndexAndId {
-    if (!this._cachedTargetScopeVersion) {
+    if (!this._cachedSynchronizationVersion) {
       nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
       const version = this._options.isReverseSynchronization
         ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
@@ -859,13 +873,11 @@ export class IModelTransformer extends IModelExportHandler {
       const [id, index] = version === ""
         ? ["", -1]
         : version.split(";");
-      this._cachedTargetScopeVersion = { index: Number(index), id };
-      nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
+      this._cachedSynchronizationVersion = { index: Number(index), id };
+      nodeAssert(!Number.isNaN(this._cachedSynchronizationVersion.index), "bad parse: invalid index in version");
     }
-    return this._cachedTargetScopeVersion;
+    return this._cachedSynchronizationVersion;
   }
-
-  private _startingTargetChangesetIndex: number | undefined = undefined;
 
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
@@ -3259,6 +3271,7 @@ export class IModelTransformer extends IModelExportHandler {
           };
   }
 
+  // FIXME: force saveChanges after processChanges to prevent people accidentally lumping in other data
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
    * @note the transformer assumes that you saveChanges after processing changes. You should not
