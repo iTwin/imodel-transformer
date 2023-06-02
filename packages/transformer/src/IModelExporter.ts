@@ -1029,6 +1029,22 @@ export class ChangedInstanceOps {
   }
 }
 
+export interface ChangedInstanceIdsInitOptions {
+  accessToken?: AccessToken | undefined;
+  iModel: BriefcaseDb;
+  /**
+   * A changeset id or index signifiying the inclusive start of changes
+   * to include. The end is implicitly the changeset of the iModel parameter
+   * @note mutually exclusive with @see changesetRanges
+   */
+  startChangeset?: ChangesetIndexOrId;
+  /**
+   * An array of changeset index ranges, e.g. [[2,2], [4,5]] is [2,4,5]
+   * @note mutually exclusive with @see startChangeset
+   */
+  changesetRanges?: [number, number][];
+}
+
 /**
  * Class for discovering modified elements between 2 versions of an iModel.
  * @public
