@@ -12,12 +12,32 @@ import {
   IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship,
 } from "@itwin/core-backend";
 import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
-import { ChangesetFileProps, ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
+import { ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type { InitArgs } from "./IModelTransformer";
+import * as nodeAssert from "assert";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
+
+export interface ExportChangesArgs extends InitArgs {
+  accessToken?: AccessToken;
+  /**
+   * A changeset id or index signifiying the inclusive start of changes
+   * to include. The end is implicitly the changeset of the source iModel
+   * @note mutually exclusive with @see changesetRanges
+   */
+  startChangeset?: ChangesetIndexOrId;
+  /**
+   * An array of changeset index ranges, e.g. [[2,2], [4,5]] is [2,4,5]
+   * @note mutually exclusive with @see startChangeset
+   */
+  changesetRanges?: [number, number][];
+}
+
+export interface ChangedInstanceIdsInitOptions extends ExportChangesArgs {
+  iModel: BriefcaseDb;
+}
 
 /**
  * @beta
@@ -273,45 +293,38 @@ export class IModelExporter {
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async exportChanges(options: InitArgs): Promise<void>;
+  public async exportChanges(options: ExportChangesArgs): Promise<void>;
   /**
    * @deprecated in 0.1.x.
    */
   public async exportChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
-  public async exportChanges(optionsOrAccessToken: AccessToken | InitArgs, startChangesetId?: string): Promise<void> {
-    const args =
-      typeof optionsOrAccessToken === "string"
+  public async exportChanges(optionsOrAccessToken: AccessToken | ExportChangesArgs, startChangesetId?: string): Promise<void> {
+    const args: ExportChangesArgs
+      = typeof optionsOrAccessToken === "string"
       ? {
           accessToken: optionsOrAccessToken,
           startChangeset: startChangesetId
             ? { id: startChangesetId }
             : this.sourceDb.changeset,
         }
-      : {
-          ...optionsOrAccessToken,
-          startChangeset: optionsOrAccessToken.startChangeset
-            /* eslint-disable deprecation/deprecation */
-            ?? (optionsOrAccessToken.startChangesetId !== undefined
-              ? { id: optionsOrAccessToken.startChangesetId }
-              : this.sourceDb.changeset),
-            /* eslint-enable deprecation/deprecation */
-        };
+        : optionsOrAccessToken;
+
     if (!this.sourceDb.isBriefcaseDb()) {
       throw new IModelError(IModelStatus.BadRequest, "Must be a briefcase to export changes");
     }
+
     if ("" === this.sourceDb.changeset.id) {
       await this.exportAll(); // no changesets, so revert to exportAll
       return;
     }
-    this._sourceDbChanges = await ChangedInstanceIds.initialize({
-      ...args,
-      iModel: this.sourceDb,
-    });
+
+    this._sourceDbChanges = await ChangedInstanceIds.initialize({ ...args, iModel: this.sourceDb });
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
     await this.exportSubModels(IModel.repositoryModelId);
     await this.exportRelationships(ElementRefersToElements.classFullName);
+
     // handle deletes
     if (this.visitElements) {
       // must delete models first since they have a constraint on the submodeling element which may also be deleted
@@ -334,6 +347,7 @@ export class IModelExporter {
         }
       }
     }
+
     if (this.visitRelationships) {
       for (const relInstanceId of this._sourceDbChanges.relationship.deleteIds) {
         this.handler.onDeleteRelationship(relInstanceId);
@@ -874,22 +888,6 @@ export class ChangedInstanceOps {
   }
 }
 
-export interface ChangedInstanceIdsInitOptions {
-  accessToken?: AccessToken | undefined;
-  iModel: BriefcaseDb;
-  /**
-   * A changeset id or index signifiying the inclusive start of changes
-   * to include. The end is implicitly the changeset of the iModel parameter
-   * @note mutually exclusive with @see changesetRanges
-   */
-  startChangeset?: ChangesetIndexOrId;
-  /**
-   * An array of changeset index ranges, e.g. [[2,2], [4,5]] is [2,4,5]
-   * @note mutually exclusive with @see startChangeset
-   */
-  changesetRanges?: [number, number][];
-}
-
 /**
  * Class for discovering modified elements between 2 versions of an iModel.
  * @beta
@@ -922,12 +920,15 @@ export class ChangedInstanceIds {
         iModel: iModel!,
         startChangeset: { id: startChangesetId! },
       };
-    assert(
-      (opts.startChangeset ? 1 : 0) + (opts.changesetRanges ? 1 : 0) === 1,
+
+    nodeAssert(
+      ((opts.startChangeset ? 1 : 0) + (opts.changesetRanges ? 1 : 0)) === 1,
       "exactly one of options.startChangeset XOR opts.changesetRanges may be used",
     );
+
     const iModelId = opts.iModel.iModelId;
     const accessToken = opts.accessToken;
+
     const changesetRanges = opts.changesetRanges
       ?? [[
         opts.startChangeset!.index
@@ -943,6 +944,8 @@ export class ChangedInstanceIds {
               accessToken,
             })).index,
       ]];
+
+    Logger.logTrace(loggerCategory, `ChangedInstanceIds.initialize ranges: ${changesetRanges.join("|")}`);
 
     const changesets = (await Promise.all(
       changesetRanges.map(async ([first, end]) =>

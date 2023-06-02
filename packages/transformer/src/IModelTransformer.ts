@@ -303,6 +303,8 @@ export class IModelTransformer extends IModelExportHandler {
     return this._isSynchronization && !this._options.isReverseSynchronization;
   }
 
+  private _changesetRanges: [number, number][] | undefined = undefined;
+
   /** Set if it can be determined whether this is the first source --> target synchronization. */
   private _isFirstSynchronization?: boolean;
 
@@ -1465,13 +1467,18 @@ export class IModelTransformer extends IModelExportHandler {
         this.targetDb.changeset.index !== undefined && this._startingTargetChangesetIndex !== undefined,
         "_updateSynchronizationVersion was called without change history",
       );
+
       const jsonProps = this._targetScopeProvenanceProps.jsonProperties;
+
+      Logger.logTrace(loggerCategory, `previous pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`);
+      Logger.logTrace(loggerCategory, `previous pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`);
+
       const [syncChangesetsToClear, syncChangesetsToUpdate]
         = this._isReverseSynchronization
         ? [jsonProps.pendingReverseSyncChangesetIndices, jsonProps.pendingSyncChangesetIndices]
         : [jsonProps.pendingSyncChangesetIndices, jsonProps.pendingReverseSyncChangesetIndices];
 
-      // NOTE that as documented in [[processChanges]], this assumes that the right after
+      // NOTE that as documented in [[processChanges]], this assumes that right after
       // transformation finalization, the work will be saved immediately, otherwise we've
       // just marked this changeset as a synchronization to ignore, and the user can add other
       // stuff to it breaking future synchronizations
@@ -1480,6 +1487,8 @@ export class IModelTransformer extends IModelExportHandler {
         syncChangesetsToUpdate.push(i);
       syncChangesetsToClear.length = 0;
 
+      Logger.logTrace(loggerCategory, `new pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`);
+      Logger.logTrace(loggerCategory, `new pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`);
     }
 
     this.provenanceDb.elements.updateAspect({
@@ -1894,9 +1903,11 @@ export class IModelTransformer extends IModelExportHandler {
       ? this._targetScopeProvenanceProps.jsonProperties.pendingReverseSyncChangesetIndices
       : this._targetScopeProvenanceProps.jsonProperties.pendingSyncChangesetIndices;
 
-    const changesetRanges = rangesFromRangeAndSkipped(startChangesetIndex, endChangesetIndex, changesetsToSkip);
+    Logger.logTrace(loggerCategory, `changesets to skip: ${changesetsToSkip}`);
+    this._changesetRanges = rangesFromRangeAndSkipped(startChangesetIndex, endChangesetIndex, changesetsToSkip);
+    Logger.logTrace(loggerCategory, `ranges: ${this._changesetRanges}`);
 
-    for (const [first, end] of changesetRanges) {
+    for (const [first, end] of this._changesetRanges) {
       this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
         accessToken: args.accessToken,
         iModelId: this.sourceDb.iModelId,
@@ -2209,8 +2220,14 @@ export class IModelTransformer extends IModelExportHandler {
     this.initScopeProvenance();
     await this.initialize(args);
     // must wait for initialization of synchronization provenance data
-    const exportStartChangeset = args.startChangeset ?? { index: this._synchronizationVersion.index + 1 };
-    await this.exporter.exportChanges({ accessToken: args.accessToken, startChangeset: exportStartChangeset });
+    const changeArgs =
+      this._changesetRanges
+      ? { changesetRanges: this._changesetRanges }
+      : args.startChangeset
+      ? { startChangeset: args.startChangeset }
+      : { startChangeset: { index: this._synchronizationVersion.index + 1 } };
+
+    await this.exporter.exportChanges({ accessToken: args.accessToken, ...changeArgs });
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)

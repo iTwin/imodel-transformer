@@ -233,6 +233,16 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   >();
   /* eslint-enable @typescript-eslint/indent */
 
+  function printChangelogs() {
+    const rows = [...timelineStates.values()]
+      .map((state) => Object.fromEntries(
+        Object.entries(state.changesets)
+          .map(([name, cs]) => [name, cs.index] as any)
+      ));
+    // eslint-disable-next-line no-console
+    console.table(rows);
+  }
+
   const getSeed = (model: TimelineStateChange) => (model as { seed: TimelineIModelState | undefined }).seed;
   const getBranch = (model: TimelineStateChange) => (model as { branch: string | undefined }).branch;
   const getSync = (model: TimelineStateChange) =>
@@ -422,6 +432,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: state.id });
       }
     },
+    printChangelogs,
   };
 }
 
