@@ -6,7 +6,6 @@
  * @module iModels
  */
 import * as path from "path";
-import { EventEmitter } from "events";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
@@ -563,12 +562,6 @@ export class IModelTransformer extends IModelExportHandler {
     return [ExternalSourceAspect];
   }
 
-  /**
-   * Internal event emitter that is used by the transformer to signal events to profilers
-   * @internal
-   */
-  public events = new EventEmitter();
-
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
    * @param target Specifies the target IModelImporter or the target IModelDb that will be used to construct the target IModelImporter.
@@ -872,7 +865,7 @@ export class IModelTransformer extends IModelExportHandler {
     return this._cachedTargetScopeVersion;
   }
 
-  private _startingTargetChangsetIndex: number | undefined = undefined;
+  private _startingTargetChangesetIndex: number | undefined = undefined;
 
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
@@ -2701,7 +2694,6 @@ export class IModelTransformer extends IModelExportHandler {
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
   public async processSchemas(): Promise<void> {
-    this.events.emit(TransformerEvent.beginProcessSchemas);
     // we do not need to initialize for this since no entities are exported
     try {
       IModelJsFs.mkdirSync(this._schemaExportDir);
@@ -2722,7 +2714,6 @@ export class IModelTransformer extends IModelExportHandler {
     } finally {
       IModelJsFs.removeSync(this._schemaExportDir);
       this._longNamedSchemasMap.clear();
-      this.events.emit(TransformerEvent.endProcessSchemas);
     }
   }
 
@@ -3245,7 +3236,6 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.importer.computeProjectExtents();
     this.finalizeTransformation();
-    this.events.emit(TransformerEvent.endProcessAll);
   }
 
   /** previous provenance, either a federation guid, a `${sourceFedGuid}/${targetFedGuid}` pair, or required aspect props */
