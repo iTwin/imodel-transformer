@@ -12,7 +12,7 @@ import {
   IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship,
 } from "@itwin/core-backend";
 import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
-import { ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
+import { ChangesetFileProps, ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type { InitArgs } from "./IModelTransformer";
@@ -303,7 +303,10 @@ export class IModelExporter {
       await this.exportAll(); // no changesets, so revert to exportAll
       return;
     }
-    this._sourceDbChanges = await ChangedInstanceIds.initialize(args.accessToken, this.sourceDb, args.startChangeset);
+    this._sourceDbChanges = await ChangedInstanceIds.initialize({
+      ...args,
+      iModel: this.sourceDb,
+    });
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
@@ -871,6 +874,22 @@ export class ChangedInstanceOps {
   }
 }
 
+export interface ChangedInstanceIdsInitOptions {
+  accessToken?: AccessToken | undefined;
+  iModel: BriefcaseDb;
+  /**
+   * A changeset id or index signifiying the inclusive start of changes
+   * to include. The end is implicitly the changeset of the iModel parameter
+   * @note mutually exclusive with @see changesetRanges
+   */
+  startChangeset?: ChangesetIndexOrId;
+  /**
+   * An array of changeset index ranges, e.g. [[2,2], [4,5]] is [2,4,5]
+   * @note mutually exclusive with @see startChangeset
+   */
+  changesetRanges?: [number, number][];
+}
+
 /**
  * Class for discovering modified elements between 2 versions of an iModel.
  * @beta
@@ -886,26 +905,58 @@ export class ChangedInstanceIds {
 
   /**
    * Initializes a new ChangedInstanceIds object with information taken from a range of changesets.
-   * @param accessToken Access token.
-   * @param iModel IModel briefcase whose changesets will be queried.
-   * @param firstChangeset Either a changeset object containing an index, id, or both, or a string changeset id.
-   * @note Modified element information will be taken from a range of changesets. First changeset in a range will be the 'firstChangesetId', the last will be whichever changeset the 'iModel' briefcase is currently opened on.
    */
-  public static async initialize(accessToken: AccessToken | undefined, iModel: BriefcaseDb, firstChangeset: ChangesetIndexOrId): Promise<ChangedInstanceIds>;
-  /** @deprecated in 0.1.x. Pass a [ChangesetIndexOrId]($common) instead of a changeset id */
-  // eslint-disable-next-line @typescript-eslint/unified-signatures
-  public static async initialize(accessToken: AccessToken | undefined, iModel: BriefcaseDb, firstChangesetId: string): Promise<ChangedInstanceIds>;
-  public static async initialize(accessToken: AccessToken | undefined, iModel: BriefcaseDb, firstChangeset: string | ChangesetIndexOrId): Promise<ChangedInstanceIds> {
-    const iModelId = iModel.iModelId;
-    firstChangeset = typeof firstChangeset === "string" ? { id: firstChangeset } : firstChangeset;
-    const first = firstChangeset.index
-      ?? (await IModelHost.hubAccess.queryChangeset({ iModelId, changeset: { id: firstChangeset.id }, accessToken })).index;
-    const end = (await IModelHost.hubAccess.queryChangeset({ iModelId, changeset: { id: iModel.changeset.id }, accessToken })).index;
-    const changesets = await IModelHost.hubAccess.downloadChangesets({ accessToken, iModelId, range: { first, end }, targetDir: BriefcaseManager.getChangeSetsPath(iModelId) });
+  public static async initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds>;
+  /** @deprecated in 0.1.x. Pass a [[ChangedInstanceIdsInitOptions]] object instead of a changeset id */
+  public static async initialize(accessToken: AccessToken | undefined, iModel: BriefcaseDb, startChangesetId: string): Promise<ChangedInstanceIds>;
+  public static async initialize(
+    accessTokenOrOpts: AccessToken | ChangedInstanceIdsInitOptions | undefined,
+    iModel?: BriefcaseDb,
+    startChangesetId?: string,
+  ): Promise<ChangedInstanceIds> {
+    const opts: ChangedInstanceIdsInitOptions
+      = typeof accessTokenOrOpts === "object"
+      ? accessTokenOrOpts
+      : {
+        accessToken: accessTokenOrOpts,
+        iModel: iModel!,
+        startChangeset: { id: startChangesetId! },
+      };
+    assert(
+      (opts.startChangeset ? 1 : 0) + (opts.changesetRanges ? 1 : 0) === 1,
+      "exactly one of options.startChangeset XOR opts.changesetRanges may be used",
+    );
+    const iModelId = opts.iModel.iModelId;
+    const accessToken = opts.accessToken;
+    const changesetRanges = opts.changesetRanges
+      ?? [[
+        opts.startChangeset!.index
+          ?? (await IModelHost.hubAccess.queryChangeset({
+            iModelId,
+            changeset: { id: opts.startChangeset!.id },
+            accessToken,
+          })).index,
+        opts.iModel.changeset.index
+          ?? (await IModelHost.hubAccess.queryChangeset({
+              iModelId,
+              changeset: { id: opts.iModel.changeset.id },
+              accessToken,
+            })).index,
+      ]];
+
+    const changesets = (await Promise.all(
+      changesetRanges.map(async ([first, end]) =>
+        IModelHost.hubAccess.downloadChangesets({
+          accessToken,
+          iModelId, range: { first, end },
+          targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
+        })
+      )
+    )).flat();
 
     const changedInstanceIds = new ChangedInstanceIds();
     const changesetFiles = changesets.map((c) => c.pathname);
-    const statusOrResult = iModel.nativeDb.extractChangedInstanceIdsFromChangeSets(changesetFiles);
+    const statusOrResult = opts.iModel.nativeDb.extractChangedInstanceIdsFromChangeSets(changesetFiles);
     if (statusOrResult.error) {
       throw new IModelError(statusOrResult.error.status, "Error processing changeset");
     }

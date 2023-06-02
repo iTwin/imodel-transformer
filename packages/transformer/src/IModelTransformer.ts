@@ -2328,7 +2328,6 @@ export class TemplateModelCloner extends IModelTransformer {
   }
 }
 
-
 function queryElemFedGuid(db: IModelDb, elemId: Id64String) {
   return db.withPreparedStatement(`
     SELECT FederationGuid
