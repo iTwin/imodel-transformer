@@ -33,6 +33,7 @@ import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
+import { rangesFromRangeAndSkipped } from "./Algo";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -1887,12 +1888,22 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
 
-    this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
-      accessToken: args.accessToken,
-      iModelId: this.sourceDb.iModelId,
-      iTwinId: this.sourceDb.iTwinId,
-      range: { first: startChangesetIndex, end: endChangesetIndex },
-    });
+    nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps should be set by now");
+
+    const changesetsToSkip = this._isReverseSynchronization
+      ? this._targetScopeProvenanceProps.jsonProperties.pendingReverseSyncChangesetIndices
+      : this._targetScopeProvenanceProps.jsonProperties.pendingSyncChangesetIndices;
+
+    const changesetRanges = rangesFromRangeAndSkipped(startChangesetIndex, endChangesetIndex, changesetsToSkip);
+
+    for (const [first, end] of changesetRanges) {
+      this._changeSummaryIds = await ChangeSummaryManager.createChangeSummaries({
+        accessToken: args.accessToken,
+        iModelId: this.sourceDb.iModelId,
+        iTwinId: this.sourceDb.iTwinId,
+        range: { first, end },
+      });
+    }
 
     ChangeSummaryManager.attachChangeCache(this.sourceDb);
     this._sourceChangeDataState = "has-changes";
