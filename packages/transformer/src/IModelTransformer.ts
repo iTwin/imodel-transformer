@@ -195,6 +195,12 @@ class PartiallyCommittedEntity {
   }
 }
 
+interface TargetScopeProvenanceJsonProps {
+  pendingReverseSyncChangesetIndices: number[];
+  pendingSyncChangesetIndices: number[];
+  reverseSyncVersion: string;
+}
+
 /**
  * Apply a function to each Id64 in a supported container type of Id64s.
  * Currently only supports raw Id64String or RelatedElement-like objects containing an `id` property that is a Id64String,
@@ -441,9 +447,17 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** NOTE: the json properties must be converted to string before insertion */
   private _targetScopeProvenanceProps:
-    ExternalSourceAspectProps & { jsonProperties: Record<string, any> } | undefined = undefined;
+    Omit<ExternalSourceAspectProps, "jsonProperties"> & { jsonProperties: TargetScopeProvenanceJsonProps }
+    | undefined
+      = undefined;
 
-  private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
+  /**
+   * Index of the changeset that the transformer was at when the transformation begins (was constructed).
+   * Used to determine at the end which changesets were part of a synchronization.
+   */
+  private _startingTargetChangesetIndex: number | undefined = undefined;
+
+  private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined = undefined;
 
   /** the changeset in the scoping element's source version found for this transformation
    * @note: the version depends on whether this is a reverse synchronization or not, as
@@ -451,7 +465,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note: empty string and -1 for changeset and index if it has never been transformed
    */
   private get _synchronizationVersion(): ChangesetIndexAndId {
-    if (!this._cachedTargetScopeVersion) {
+    if (!this._cachedSynchronizationVersion) {
       nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
       const version = this._options.isReverseSynchronization
         ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
@@ -462,13 +476,11 @@ export class IModelTransformer extends IModelExportHandler {
       const [id, index] = version === ""
         ? ["", -1]
         : version.split(";");
-      this._cachedTargetScopeVersion = { index: Number(index), id };
-      nodeAssert(!Number.isNaN(this._cachedTargetScopeVersion.index), "bad parse: invalid index in version");
+      this._cachedSynchronizationVersion = { index: Number(index), id };
+      nodeAssert(!Number.isNaN(this._cachedSynchronizationVersion.index), "bad parse: invalid index in version");
     }
-    return this._cachedTargetScopeVersion;
+    return this._cachedSynchronizationVersion;
   }
-
-  private _startingTargetChangesetIndex: number | undefined = undefined;
 
   /**
    * Make sure there are no conflicting other scope-type external source aspects on the *target scope element*,
@@ -477,13 +489,15 @@ export class IModelTransformer extends IModelExportHandler {
    *          if this was a [BriefcaseDb]($backend)
    */
   private initScopeProvenance(): void {
-    const aspectProps: typeof this._targetScopeProvenanceProps = {
+    const aspectProps = {
+      id: undefined as string | undefined,
+      version: undefined as string | undefined,
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: this.targetScopeElementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
       identifier: this.provenanceSourceDb.iModelId,
       kind: ExternalSourceAspect.Kind.Scope,
-      jsonProperties: {},
+      jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
 
     // FIXME: handle older transformed iModels which do NOT have the version
@@ -491,7 +505,7 @@ export class IModelTransformer extends IModelExportHandler {
     const externalSource = this.queryScopeExternalSource(aspectProps, { getJsonProperties: true }); // this query includes "identifier"
     aspectProps.id = externalSource.aspectId;
     aspectProps.version = externalSource.version;
-    aspectProps.jsonProperties = externalSource.jsonProperties;
+    aspectProps.jsonProperties = externalSource.jsonProperties ? JSON.parse(externalSource.jsonProperties) : {};
 
     if (undefined === aspectProps.id) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
@@ -524,12 +538,12 @@ export class IModelTransformer extends IModelExportHandler {
       if (!this._options.noProvenance) {
         this.provenanceDb.elements.insertAspect({
           ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties),
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
       }
     }
 
-    this._targetScopeProvenanceProps = aspectProps;
+    this._targetScopeProvenanceProps = aspectProps as typeof this._targetScopeProvenanceProps;
   }
 
   /**
@@ -1436,17 +1450,35 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._options.isReverseSynchronization || this._isFirstSynchronization) {
       const oldVersion = this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
       Logger.logInfo(loggerCategory, `updating reverse version from ${oldVersion} to ${newVersion}`);
-      // NOTE: could technically just put a delimiter in the version field to avoid using json properties
+      // FIXME: could technically just put a delimiter in the version field to avoid using json properties
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion = newVersion;
-      this._targetScopeProvenanceProps.jsonProperties.pendingReverseSyncChangesetIndices = [];
-      this._targetScopeProvenanceProps.jsonProperties.pendingSyncChangesetIndices.push();
     }
 
     if (!this._options.isReverseSynchronization || this._isFirstSynchronization) {
       Logger.logInfo(loggerCategory, `updating sync version from ${this._targetScopeProvenanceProps.version} to ${newVersion}`);
       this._targetScopeProvenanceProps.version = newVersion;
-      this._targetScopeProvenanceProps.jsonProperties.pendingReverseSyncChangesetIndices.push();
-      this._targetScopeProvenanceProps.jsonProperties.pendingSyncChangesetIndices = [];
+    }
+
+    if (this._isSynchronization) {
+      assert(
+        this.targetDb.changeset.index !== undefined && this._startingTargetChangesetIndex !== undefined,
+        "_updateSynchronizationVersion was called without change history",
+      );
+      const jsonProps = this._targetScopeProvenanceProps.jsonProperties;
+      const [syncChangesetsToClear, syncChangesetsToUpdate]
+        = this._isReverseSynchronization
+        ? [jsonProps.pendingReverseSyncChangesetIndices, jsonProps.pendingSyncChangesetIndices]
+        : [jsonProps.pendingSyncChangesetIndices, jsonProps.pendingReverseSyncChangesetIndices];
+
+      // NOTE that as documented in [[processChanges]], this assumes that the right after
+      // transformation finalization, the work will be saved immediately, otherwise we've
+      // just marked this changeset as a synchronization to ignore, and the user can add other
+      // stuff to it breaking future synchronizations
+      // FIXME: force save for the user to prevent that
+      for (let i = this._startingTargetChangesetIndex; i <= this.targetDb.changeset.index; i++)
+        syncChangesetsToUpdate.push(i);
+      syncChangesetsToClear.length = 0;
+
     }
 
     this.provenanceDb.elements.updateAspect({
@@ -2125,8 +2157,12 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  // FIXME: force saveChanges after processChanges to prevent people accidentally lumping in other data
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
+   * @note the transformer assumes that you saveChanges after processing changes. You should not
+   * modify the iModel after processChanges until saveChanges, failure to do so may result in corrupted
+   * data loss in future branch operations
    * @param accessToken A valid access token string
    * @param startChangesetId Include changes from this changeset up through and including the current changeset.
    * If this parameter is not provided, then just the current changeset will be exported.
