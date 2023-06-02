@@ -843,7 +843,9 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
-  private _targetScopeProvenanceProps: ExternalSourceAspectProps | undefined = undefined;
+  /** NOTE: the json properties must be converted to string before insertion */
+  private _targetScopeProvenanceProps:
+    ExternalSourceAspectProps & { jsonProperties: Record<string, any> } | undefined = undefined;
 
   private _cachedTargetScopeVersion: ChangesetIndexAndId | undefined = undefined;
 
@@ -856,7 +858,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this._cachedTargetScopeVersion) {
       nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
       const version = this._options.isReverseSynchronization
-        ? JSON.parse(this._targetScopeProvenanceProps.jsonProperties ?? "{}").reverseSyncVersion
+        ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
       nodeAssert(version !== undefined, "no version contained in target scope");
@@ -869,6 +871,8 @@ export class IModelTransformer extends IModelExportHandler {
     }
     return this._cachedTargetScopeVersion;
   }
+
+  private _startingTargetChangsetIndex: number | undefined = undefined;
 
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
