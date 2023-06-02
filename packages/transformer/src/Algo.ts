@@ -10,7 +10,7 @@
  */
 export function rangesFromRangeAndSkipped(start: number, end: number, skipped: number[]): [number, number][] {
   function validRange(range: [number,number]): boolean {
-    return range[0] < range[1];
+    return range[0] <= range[1];
   }
 
   const firstRange = [start, end] as [number, number];
@@ -48,5 +48,6 @@ export function renderRanges(ranges: [number, number][]): number[] {
   for (const range of ranges)
     for (let i = range[0]; i <= range[1]; ++i)
       result.push(i);
+  return result;
 }
 
