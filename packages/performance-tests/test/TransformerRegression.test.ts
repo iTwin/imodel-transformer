@@ -67,18 +67,19 @@ const setupTestData = async () => {
 
   assert(process.env.OIDC_CLIENT_ID, "");
   assert(process.env.OIDC_REDIRECT, "");
-  assert(process.env.SCOPE, "List scopes");
+  assert(process.env.IMJS_URL_PREFIX, "")
+  assert(process.env.OIDC_SCOPE, "List scopes");
   const authClient = process.env.CI === "1"
     ? new TestBrowserAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: process.env.SCOPE,
-      authority: "https://qa-ims.bentley.com",
+      scope: process.env.OIDC_SCOPE,
+      authority: `https://${process.env.IMJS_URL_PREFIX}ims.bentley.com`,
     }, user)
     : new NodeCliAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: process.env.SCOPE,
+      scope: process.env.OIDC_SCOPE,
     });
 
   await authClient.signIn();
@@ -111,7 +112,7 @@ void (async function () {
         describe(`Transforms of ${iModel.name}`, async () => {
           testCasesMap.forEach(async (testCase, key) => {
             it(key, async () => {
-              reporter = await testCase.default(iModel, reporter);  // add timeout(0)
+              reporter = await testCase.default(iModel, reporter);
             }).timeout(0);
           });
         });
