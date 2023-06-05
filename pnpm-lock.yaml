@@ -22,8 +22,8 @@ importers:
 
   packages/performance-scripts:
     specifiers:
-      '@itwin/build-tools': ^3.6.1
-      '@itwin/core-backend': ^3.6.1
+      '@itwin/build-tools': 3.6.0 - 4.0.999
+      '@itwin/core-backend': 3.6.0 - 4.0.999
       '@types/node': ^18.11.5
       typescript: ^5.0.2
     devDependencies:
@@ -100,11 +100,11 @@ importers:
   packages/test-app:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 3.6.0 - 3.7.999
-      '@itwin/core-bentley': 3.6.0 - 3.7.999
-      '@itwin/core-common': 3.6.0 - 3.7.999
-      '@itwin/core-geometry': 3.6.0 - 3.7.999
-      '@itwin/eslint-plugin': 3.6.0 - 3.7.999
+      '@itwin/core-backend': 3.6.0 - 4.0.999
+      '@itwin/core-bentley': 3.6.0 - 4.0.999
+      '@itwin/core-common': 3.6.0 - 4.0.999
+      '@itwin/core-geometry': 3.6.0 - 4.0.999
+      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
       '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.2.1
       '@itwin/imodels-client-authoring': 2.3.0
@@ -157,13 +157,13 @@ importers:
   packages/transformer:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 3.6.0 - 3.7.999
-      '@itwin/core-bentley': 3.6.0 - 3.7.999
-      '@itwin/core-common': 3.6.0 - 3.7.999
-      '@itwin/core-geometry': 3.6.0 - 3.7.999
-      '@itwin/core-quantity': 3.6.0 - 3.7.999
-      '@itwin/ecschema-metadata': 3.6.0 - 3.7.999
-      '@itwin/eslint-plugin': 3.6.0 - 3.7.999
+      '@itwin/core-backend': 3.6.0 - 4.0.999
+      '@itwin/core-bentley': 3.6.0 - 4.0.999
+      '@itwin/core-common': 3.6.0 - 4.0.999
+      '@itwin/core-geometry': 3.6.0 - 4.0.999
+      '@itwin/core-quantity': 3.6.0 - 4.0.999
+      '@itwin/ecschema-metadata': 3.6.0 - 4.0.999
+      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
       '@types/chai': 4.3.1
       '@types/chai-as-promised': ^7.1.5
       '@types/mocha': ^8.2.3
@@ -2114,7 +2114,7 @@ packages:
     dev: true
 
   /charenc/0.0.2:
-    resolution: {integrity: sha1-wKHS86cJLgN3S/qD8UwPxXkKhmc=}
+    resolution: {integrity: sha512-yrLQ/yVUFXkzg7EDQsPieE/53+0RlaWTs+wBrvW36cyilJ2SaDWfl4Yj7MtLTXleV9uEKefbAGUPv2/iWSooRA==}
     dev: true
 
   /check-error/1.0.2:
@@ -2257,7 +2257,7 @@ packages:
     dev: true
 
   /concat-map/0.0.1:
-    resolution: {integrity: sha1-2Klr13/Wjfd5OnMDajug1UBdR3s=}
+    resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
     dev: true
 
   /content-disposition/0.5.4:
@@ -2277,7 +2277,7 @@ packages:
     dev: true
 
   /cookie-signature/1.0.6:
-    resolution: {integrity: sha1-4wOogrNCzD7oylE6eZmXNNqzriw=}
+    resolution: {integrity: sha512-QADzlaHc8icV8I7vbaJXJwod9HWYp8uCqf1xa4OfNu1T7JVxQIrUgOWtHdNDtPiywmFbiS12VjotIXLrKM3orQ==}
     dev: true
 
   /cookie/0.5.0:
@@ -2357,7 +2357,7 @@ packages:
     dev: true
 
   /crypt/0.0.2:
-    resolution: {integrity: sha1-iNf/fsDfuG9xPch7u0LQRNPmxBs=}
+    resolution: {integrity: sha512-mCxBlsHFYh9C+HVpiEacem8FEBnMXgU9gy4zmNC+SXAZNB/1idgp/aulFJ4FgCi7GPEVbfyng092GqL2k2rmow==}
     dev: true
 
   /damerau-levenshtein/1.0.8:
@@ -2580,7 +2580,7 @@ packages:
     dev: true
 
   /ee-first/1.1.1:
-    resolution: {integrity: sha1-WQxhFWsK4vTwJVcyoViyZrxWsh0=}
+    resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
     dev: true
 
   /electron-to-chromium/1.4.404:
@@ -3326,7 +3326,7 @@ packages:
     dev: true
 
   /fresh/0.5.2:
-    resolution: {integrity: sha1-PYyt2Q2XZWn6g1qx+OSyOhBWBac=}
+    resolution: {integrity: sha512-zJ2mQYM18rEFOudeV4GShTGIQ7RbzA7ozbU9I/XBpm7kqgMywgmylMwXHxZJmkVoYkna9d2pVXVXPdYTP9ej8Q==}
     engines: {node: '>= 0.6'}
     dev: true
 
@@ -3465,7 +3465,7 @@ packages:
     dev: true
 
   /github-from-package/0.0.0:
-    resolution: {integrity: sha1-l/tdlr/eiXMxPyDoKI75oWf6ZM4=}
+    resolution: {integrity: sha512-SyHy3T1v2NUXn29OsWdxmK6RwHD+vkj3v8en8AOBZ1wBQ/hCAQ5bAQTD02kW4W9tUp/3Qh6J8r9EvntiyCmOOw==}
     dev: false
 
   /glob-parent/5.1.2:
@@ -3498,7 +3498,7 @@ packages:
     dev: true
 
   /glob2base/0.0.12:
-    resolution: {integrity: sha1-nUGbPijxLoOjYhZKJ3BVkiycDVY=}
+    resolution: {integrity: sha512-ZyqlgowMbfj2NPjxaZZ/EtsXlOch28FRXgMd64vqZWk1bT9+wvSRLYD1om9M7QfQru51zJPAT17qXm4/zd+9QA==}
     engines: {node: '>= 0.10'}
     dependencies:
       find-index: 0.1.1
@@ -4395,7 +4395,7 @@ packages:
     dev: true
 
   /media-typer/0.3.0:
-    resolution: {integrity: sha1-hxDXrwqmJvj/+hzgAWhUUmMlV0g=}
+    resolution: {integrity: sha512-dq+qelQ9akHpcOl/gUVRTxVIOkAJ1wR3QAvb4RsVjS8oVoFjDGTc679wJYmUmknUF5HwMLOgb5O+a3KxfWapPQ==}
     engines: {node: '>= 0.6'}
     dev: true
 
@@ -4414,7 +4414,7 @@ packages:
     dev: true
 
   /merge-descriptors/1.0.1:
-    resolution: {integrity: sha1-sAqqVW3YtEVoFQ7J0blT8/kMu2E=}
+    resolution: {integrity: sha512-cCi6g3/Zr1iqQi6ySbseM1Xvooa98N0w31jzUYrXPX2xqObmFGHJ0tQ5u74H3mVh7wLouTseZyYIq39g8cNp1w==}
     dev: true
 
   /merge-stream/2.0.0:
@@ -5187,7 +5187,7 @@ packages:
   /puppeteer/15.5.0:
     resolution: {integrity: sha512-+vZPU8iBSdCx1Kn5hHas80fyo0TiVyMeqLGv/1dygX2HKhAZjO9YThadbRTCoTYq0yWw+w/CysldPsEekDtjDQ==}
     engines: {node: '>=14.1.0'}
-    deprecated: < 18.1.0 is no longer supported
+    deprecated: < 19.4.0 is no longer supported
     requiresBuild: true
     dependencies:
       cross-fetch: 3.1.5
@@ -6159,7 +6159,7 @@ packages:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
   /utils-merge/1.0.1:
-    resolution: {integrity: sha1-n5VxD1CiZ5R7LMwSR0HBAoQn5xM=}
+    resolution: {integrity: sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==}
     engines: {node: '>= 0.4.0'}
     dev: true
 
