@@ -22,8 +22,8 @@ importers:
 
   packages/performance-scripts:
     specifiers:
-      '@itwin/build-tools': ^3.6.1
-      '@itwin/core-backend': ^3.6.1
+      '@itwin/build-tools': 3.6.0 - 4.0.999
+      '@itwin/core-backend': 3.6.0 - 4.0.999
       '@types/node': ^18.11.5
       typescript: ^5.0.2
     devDependencies:
@@ -35,11 +35,11 @@ importers:
   packages/test-app:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 3.6.0 - 3.7.999
-      '@itwin/core-bentley': 3.6.0 - 3.7.999
-      '@itwin/core-common': 3.6.0 - 3.7.999
-      '@itwin/core-geometry': 3.6.0 - 3.7.999
-      '@itwin/eslint-plugin': 3.6.0 - 3.7.999
+      '@itwin/core-backend': 3.6.0 - 4.0.999
+      '@itwin/core-bentley': 3.6.0 - 4.0.999
+      '@itwin/core-common': 3.6.0 - 4.0.999
+      '@itwin/core-geometry': 3.6.0 - 4.0.999
+      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
       '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.3.0
       '@itwin/imodels-client-authoring': ^2.3.0
@@ -92,13 +92,13 @@ importers:
   packages/transformer:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 3.6.0 - 3.7.999
-      '@itwin/core-bentley': 3.6.0 - 3.7.999
-      '@itwin/core-common': 3.6.0 - 3.7.999
-      '@itwin/core-geometry': 3.6.0 - 3.7.999
-      '@itwin/core-quantity': 3.6.0 - 3.7.999
-      '@itwin/ecschema-metadata': 3.6.0 - 3.7.999
-      '@itwin/eslint-plugin': 3.6.0 - 3.7.999
+      '@itwin/core-backend': 3.6.0 - 4.0.999
+      '@itwin/core-bentley': 3.6.0 - 4.0.999
+      '@itwin/core-common': 3.6.0 - 4.0.999
+      '@itwin/core-geometry': 3.6.0 - 4.0.999
+      '@itwin/core-quantity': 3.6.0 - 4.0.999
+      '@itwin/ecschema-metadata': 3.6.0 - 4.0.999
+      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
       '@types/chai': 4.3.1
       '@types/chai-as-promised': ^7.1.5
       '@types/mocha': ^8.2.3
@@ -668,7 +668,7 @@ packages:
       typedoc-plugin-merge-modules: 4.1.0_typedoc@0.23.28
       typescript: 5.0.4
       wtfnode: 0.9.1
-      yargs: 17.7.1
+      yargs: 17.7.2
     transitivePeerDependencies:
       - supports-color
     dev: true
@@ -736,7 +736,7 @@ packages:
       js-base64: 3.7.5
       json5: 2.2.3
       multiparty: 4.2.3
-      semver: 7.3.8
+      semver: 7.5.1
       ws: 7.5.9
     transitivePeerDependencies:
       - bufferutil
@@ -772,7 +772,7 @@ packages:
       js-base64: 3.7.5
       json5: 2.2.3
       multiparty: 4.2.3
-      semver: 7.3.8
+      semver: 7.5.1
       ws: 7.5.9
     transitivePeerDependencies:
       - bufferutil
@@ -4850,6 +4850,7 @@ packages:
     hasBin: true
     dependencies:
       lru-cache: 6.0.0
+    dev: true
 
   /semver/7.5.1:
     resolution: {integrity: sha512-Wvss5ivl8TMRZXXESstBA4uR5iXgEN/VC5/sOcuXdVLzcdkz4HWetIoRfG5gb5X+ij/G9rw9YoGn3QoQ8OCSpw==}
@@ -5675,19 +5676,6 @@ packages:
       string-width: 4.2.3
       y18n: 5.0.8
       yargs-parser: 20.2.4
-    dev: true
-
-  /yargs/17.7.1:
-    resolution: {integrity: sha512-cwiTb08Xuv5fqF4AovYacTFNxk62th7LKJ6BL9IGUpTJrWoU7/7WdQGTP2SjKf1dUNBGzDd28p/Yfs/GI6JrLw==}
-    engines: {node: '>=12'}
-    dependencies:
-      cliui: 8.0.1
-      escalade: 3.1.1
-      get-caller-file: 2.0.5
-      require-directory: 2.1.1
-      string-width: 4.2.3
-      y18n: 5.0.8
-      yargs-parser: 21.1.1
     dev: true
 
   /yargs/17.7.2:

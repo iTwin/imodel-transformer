@@ -1,8 +1,24 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 30 May 2023 13:03:51 GMT and should not be manually modified.
+This log was last generated on Thu, 01 Jun 2023 22:51:33 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.1.14
+
+Thu, 01 Jun 2023 22:51:33 GMT
+
+### Patches
+
+- update deps to support 3.6-4.0 ([commit](https://github.com/iTwin/transformer/commit/5a175aa5b15fb48e747cccd18be5886727fecb6a))
+
+## 0.1.12
+
+Wed, 31 May 2023 13:40:07 GMT
+
+### Patches
+
+- add checks in EntityUnifier.exists for id validity ([commit](https://github.com/iTwin/transformer/commit/e7528fea595d9d1668154c0245abe6458789e5f1))
 
 ## 0.1.10
 
