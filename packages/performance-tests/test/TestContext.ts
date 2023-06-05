@@ -59,20 +59,21 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
   const PROGRESS_FREQ_MS = 2000;
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
-  var briefcaseProps;
-
   const asOf = briefcaseArg.asOf ?? IModelVersion.latest().toJSON();
   const changeset = await IModelHost.hubAccess.getChangesetFromVersion({ ...briefcaseArg, version: IModelVersion.fromJSON(asOf) });
   
   assert(IModelHost.authorizationClient !== undefined, "auth client undefined");
+  var briefcaseProps;
   BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId).forEach(briefcase => {
     if(briefcase.changeset === changeset){
+      console.log("found");
       briefcaseProps = briefcase;
     }
   });
 
-  briefcaseProps =
-    briefcaseProps ??
+  if(briefcaseProps === undefined){
+    console.log("not found");
+    briefcaseProps =
     (await BriefcaseManager.downloadBriefcase({
       ...briefcaseArg,
       accessToken: await IModelHost.authorizationClient!.getAccessToken(),
@@ -86,6 +87,7 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
         return 0;
       },
     }));
+  }
 
   return BriefcaseDb.open({
     fileName: briefcaseProps.fileName,
