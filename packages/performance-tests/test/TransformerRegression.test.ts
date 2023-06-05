@@ -36,7 +36,7 @@ const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
 const setupTestData = async () => {
-  const logLevel = +process.env.LOG_LEVEL!;
+  const logLevel = +(process.env.LOG_LEVEL ?? "2");
   if (LogLevel[logLevel] !== undefined) {
     Logger.initializeToConsole();
     Logger.setLevelDefault(LogLevel.Error);
