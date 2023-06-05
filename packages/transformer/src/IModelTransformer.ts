@@ -413,7 +413,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
-    // FIXME: deprecation isReverseSync option and instead detect from targetScopeElement provenance
+    // FIXME: deprecate isReverseSync option and instead detect from targetScopeElement provenance
     const elementId = this._options.isReverseSynchronization ? sourceElementId : targetElementId;
     const aspectIdentifier = this._options.isReverseSynchronization ? targetElementId : sourceElementId;
     const aspectProps: ExternalSourceAspectProps = {
@@ -452,7 +452,6 @@ export class IModelTransformer extends IModelExportHandler {
           },
         );
     const aspectIdentifier = this._options.isReverseSynchronization ? targetRelInstanceId : sourceRelationship.id;
-
     const jsonProperties
       = this._forceOldRelationshipProvenanceMethod
       ? { targetRelInstanceId }
@@ -700,10 +699,9 @@ export class IModelTransformer extends IModelExportHandler {
       return this.remapDeletedSourceEntities();
   }
 
-  /** When processing deleted entities in a reverse synchronization, the [[provenanceDb]]
-   * (source/branch) has already deleted the provenance that tell us which entities in
-   * master/target they corresponded to.
-   * We must use the changesets of the source/branch to get the values of those before they were deleted.
+  /**
+   * Scan changesets for deleted entities, if in a reverse synchronization, provenance has
+   * already been deleted, so we must scan for that as well.
    */
   private async remapDeletedSourceEntities() {
     // we need a connected iModel with changes to remap elements with deletions
@@ -726,6 +724,8 @@ export class IModelTransformer extends IModelExportHandler {
       SELECT
         1 AS IsElemNotRel,
         ic.ChangedInstance.Id AS InstanceId,
+        NULL AS InstId2, -- need these columns for relationship ends in the unioned query
+        NULL AS InstId3,
         ec.FederationGuid AS FedGuid,
         NULL AS FedGuid2,
         ic.ChangedInstance.ClassId AS ClassId
@@ -759,6 +759,8 @@ export class IModelTransformer extends IModelExportHandler {
       SELECT
         0 AS IsElemNotRel,
         ic.ChangedInstance.Id AS InstanceId,
+        coalesce(se.ECInstanceId, sec.ECInstanceId) AS InstId2,
+        coalesce(te.ECInstanceId, tec.ECInstanceId) AS InstId3,
         coalesce(se.FederationGuid, sec.FederationGuid) AS FedGuid1,
         coalesce(te.FederationGuid, tec.FederationGuid) AS FedGuid2,
         ic.ChangedInstance.ClassId AS ClassId
@@ -818,7 +820,7 @@ export class IModelTransformer extends IModelExportHandler {
           const instId = stmt.getValue(1).getId();
 
           if (isElemNotRel) {
-            const sourceElemFedGuid = stmt.getValue(2).getGuid();
+            const sourceElemFedGuid = stmt.getValue(4).getGuid();
             // "Identifier" is a string, so null value returns '' which doesn't work with ??, and I don't like ||
             let identifierValue: ECSqlValue;
 
@@ -826,7 +828,7 @@ export class IModelTransformer extends IModelExportHandler {
             // as part of the whole query rather than with _queryElemIdByFedGuid
             const targetId =
               (queryCanAccessProvenance
-                && (identifierValue = stmt.getValue(5))
+                && (identifierValue = stmt.getValue(7))
                 && !identifierValue.isNull
                 && identifierValue.getString())
               // maybe batching these queries would perform better but we should
@@ -844,10 +846,10 @@ export class IModelTransformer extends IModelExportHandler {
             this.context.remapElement(instId, targetId);
 
           } else { // is deleted relationship
-            const classFullName = stmt.getValue(4).getClassNameForClassId();
+            const classFullName = stmt.getValue(6).getClassNameForClassId();
             const [sourceIdInTarget, targetIdInTarget] = [
-              { guidColumn: 2, identifierColumn: 5, isTarget: false },
-              { guidColumn: 3, identifierColumn: 6, isTarget: true },
+              { guidColumn: 4, identifierColumn: 7, isTarget: false },
+              { guidColumn: 5, identifierColumn: 8, isTarget: true },
             ].map(({ guidColumn, identifierColumn }) => {
               const fedGuid = stmt.getValue(guidColumn).getGuid();
               let identifierValue: ECSqlValue;
@@ -873,8 +875,12 @@ export class IModelTransformer extends IModelExportHandler {
               });
             } else {
               // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
-              const relProvenance = this._queryProvenanceForRelationship(instId);
-              if (relProvenance)
+              const relProvenance = this._queryProvenanceForRelationship(instId, {
+                classFullName,
+                sourceId: stmt.getValue(2).getId(),
+                targetId: stmt.getValue(3).getId(),
+              });
+              if (relProvenance && relProvenance.relationshipId)
                 this._deletedSourceRelationshipData!.set(instId, {
                   classFullName,
                   relId: relProvenance.relationshipId,
@@ -910,14 +916,20 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _queryProvenanceForRelationship(
     entityInProvenanceSourceId: Id64String,
-  ): {
+    sourceRelInfo: {
+      classFullName: string;
+      sourceId: Id64String;
+      targetId: Id64String;
+    }): {
     aspectId: Id64String;
-    relationshipId: Id64String;
+    /** if undefined, the relationship could not be found, perhaps it was deleted */
+    relationshipId: Id64String | undefined;
   } | undefined {
     return this.provenanceDb.withPreparedStatement(`
         SELECT
           ECInstanceId,
-          JSON_EXTRACT(JsonProperties, '$.targetRelInstanceId')
+          JSON_EXTRACT(JsonProperties, '$.targetRelInstanceId'),
+          JSON_EXTRACT(JsonProperties, '$.provenanceRelInstanceId')
         FROM Bis.ExternalSourceAspect
         WHERE Kind=?
           AND Scope.Id=?
@@ -926,14 +938,77 @@ export class IModelTransformer extends IModelExportHandler {
       stmt.bindString(1, ExternalSourceAspect.Kind.Relationship);
       stmt.bindId(2, this.targetScopeElementId);
       stmt.bindString(3, entityInProvenanceSourceId);
-      if (stmt.step() === DbResult.BE_SQLITE_ROW)
-        return {
-          aspectId: stmt.getValue(0).getId(),
-          relationshipId: stmt.getValue(1).getString(), // from json so string
-        };
-      else
+      if (stmt.step() !== DbResult.BE_SQLITE_ROW)
         return undefined;
+
+      const aspectId = stmt.getValue(0).getId();
+      const provenanceRelInstIdVal = stmt.getValue(2);
+      const provenanceRelInstanceId
+        = !provenanceRelInstIdVal.isNull
+        ? provenanceRelInstIdVal.getString()
+        : this._queryTargetRelId(sourceRelInfo);
+      return {
+        aspectId,
+        relationshipId: provenanceRelInstanceId,
+      };
     });
+  }
+
+  private _queryTargetRelId(sourceRelInfo: {
+    classFullName: string;
+    sourceId: Id64String;
+    targetId: Id64String;
+  }): Id64String | undefined {
+    const targetRelInfo = {
+      sourceId: this.context.findTargetElementId(sourceRelInfo.sourceId),
+      targetId: this.context.findTargetElementId(sourceRelInfo.targetId),
+    };
+    if (targetRelInfo.sourceId === undefined || targetRelInfo.targetId === undefined)
+      return undefined; // couldn't find an element, rel is invalid or deleted
+    return this.targetDb.withPreparedStatement(`
+      SELECT ECInstanceId
+      FROM bis.ElementRefersToElements
+      WHERE SourceECInstanceId=?
+        AND TargetECInstanceId=?
+        AND ECClassId=?
+    `, (stmt) => {
+      stmt.bindId(1, targetRelInfo.sourceId);
+      stmt.bindId(2, targetRelInfo.targetId);
+      stmt.bindId(3, this._targetClassNameToClassId(sourceRelInfo.classFullName));
+      if (stmt.step() !== DbResult.BE_SQLITE_ROW)
+        return undefined;
+      return stmt.getValue(0).getId();
+    });
+  }
+
+  private _targetClassNameToClassIdCache = new Map<string, string>();
+
+  private _targetClassNameToClassId(classFullName: string): Id64String {
+    let classId = this._targetClassNameToClassIdCache.get(classFullName);
+    if (classId === undefined) {
+      classId = this._getRelClassId(this.targetDb, classFullName);
+      this._targetClassNameToClassIdCache.set(classFullName, classId);
+    }
+    return classId;
+  }
+
+  // NOTE: this doesn't handle remapped element classes,
+  // but is only used for relationships rn
+  private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
+    return db.withPreparedStatement(`
+      SELECT c.ECInstanceId
+      FROM ECDbMeta.ECClassDef c
+      JOIN ECDbMeta.ECSchemaDef s ON c.Schema.Id=s.ECInstanceId
+      WHERE s.Name=? AND c.Name=?
+    `, (stmt) => {
+        const [schemaName, className] = classFullName.split(".");
+        stmt.bindString(1, schemaName);
+        stmt.bindString(2, className);
+        if (stmt.step() === DbResult.BE_SQLITE_ROW)
+          return stmt.getValue(0).getId();
+        assert(false, "relationship was not found");
+      }
+    );
   }
 
   private _queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
