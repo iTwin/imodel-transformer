@@ -427,14 +427,30 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
+  // FIXME: add test using this
+  /**
+   * Previously the transformer would insert provenance always pointing to the "target" relationship.
+   * It should (and now by default does) instead insert provenance pointing to the provenanceSource
+   * SEE: https://github.com/iTwin/imodel-transformer/issues/54
+   * This exists only to facilitate testing that the transformer can handle the older, flawed method
+   */
+  private _forceOldRelationshipProvenanceMethod = false;
+
   /** Create an ExternalSourceAspectProps in a standard way for a Relationship in an iModel --> iModel transformations.
    * The ExternalSourceAspect is meant to be owned by the Element in the target iModel that is the `sourceId` of transformed relationship.
    * The `identifier` property of the ExternalSourceAspect will be the ECInstanceId of the relationship in the source iModel.
    * The ECInstanceId of the relationship in the target iModel will be stored in the JsonProperties of the ExternalSourceAspect.
    */
   private initRelationshipProvenance(sourceRelationship: Relationship, targetRelInstanceId: Id64String): ExternalSourceAspectProps {
-    const targetRelationship: Relationship = this.targetDb.relationships.getInstance(ElementRefersToElements.classFullName, targetRelInstanceId);
-    const elementId = this._options.isReverseSynchronization ? sourceRelationship.sourceId : targetRelationship.sourceId;
+    const elementId = this._options.isReverseSynchronization
+      ? sourceRelationship.sourceId
+      : this.targetDb.withPreparedStatement(
+          "SELECT SourceECInstanceId FROM Bis.ElementRefersToElements WHERE ECInstanceId=?",
+          (stmt) => {
+            nodeAssert(stmt.step() !== DbResult.BE_SQLITE_ROW);
+            return stmt.getValue(0).getId();
+          },
+        );
     const aspectIdentifier = this._options.isReverseSynchronization ? targetRelInstanceId : sourceRelationship.id;
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
