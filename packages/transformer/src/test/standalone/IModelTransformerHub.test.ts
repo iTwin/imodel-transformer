@@ -343,7 +343,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("should merge changes made on a branch back to master", async () => {
+  it("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -590,7 +590,6 @@ describe("IModelTransformerHub", () => {
       for (const masterDbChangeset of masterDbChangesets) {
         const replayTransformer = makeReplayTransformer();
         await sourceDb.pullChanges({ accessToken, toIndex: masterDbChangeset.index });
-        console.log("REPLAY: ", sourceDb.changeset);
         await replayTransformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
         await saveAndPushChanges(replayedDb, masterDbChangeset.description ?? "");
         replayTransformer.dispose();
