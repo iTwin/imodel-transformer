@@ -447,7 +447,8 @@ export class IModelTransformer extends IModelExportHandler {
       : this.targetDb.withPreparedStatement(
           "SELECT SourceECInstanceId FROM Bis.ElementRefersToElements WHERE ECInstanceId=?",
           (stmt) => {
-            nodeAssert(stmt.step() !== DbResult.BE_SQLITE_ROW);
+            stmt.bindId(1, targetRelInstanceId);
+            nodeAssert(stmt.step() === DbResult.BE_SQLITE_ROW);
             return stmt.getValue(0).getId();
           },
         );
