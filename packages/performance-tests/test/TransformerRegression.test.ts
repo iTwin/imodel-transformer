@@ -67,17 +67,18 @@ const setupTestData = async () => {
 
   assert(process.env.OIDC_CLIENT_ID, "");
   assert(process.env.OIDC_REDIRECT, "");
+  assert(process.env.SCOPE, "List scopes");
   const authClient = process.env.CI === "1"
     ? new TestBrowserAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: "itwins:read imodels:read imodels:modify",
+      scope: process.env.SCOPE,
       authority: "https://qa-ims.bentley.com",
     }, user)
     : new NodeCliAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
+      scope: process.env.SCOPE,
     });
 
   await authClient.signIn();
