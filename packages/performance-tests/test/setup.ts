@@ -4,5 +4,5 @@ import dotenv from "dotenv";
 const { error } = dotenv.config();
 
 if (error)
-  console.log("no env file found");
+  console.error("no env file found");
 
