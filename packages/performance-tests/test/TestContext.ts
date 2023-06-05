@@ -5,7 +5,7 @@
 
 import { BriefcaseDb, BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
 import { Logger } from "@itwin/core-bentley";
-import { BriefcaseIdValue } from "@itwin/core-common";
+import { BriefcaseIdValue, IModelVersion } from "@itwin/core-common";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import assert from "assert";
 
@@ -59,9 +59,20 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
   const PROGRESS_FREQ_MS = 2000;
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
+  var briefcaseProps;
+
+  const asOf = briefcaseArg.asOf ?? IModelVersion.latest().toJSON();
+  const changeset = await IModelHost.hubAccess.getChangesetFromVersion({ ...briefcaseArg, version: IModelVersion.fromJSON(asOf) });
+  
   assert(IModelHost.authorizationClient !== undefined, "auth client undefined");
-  const briefcaseProps =
-    BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)[0] ??
+  BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId).forEach(briefcase => {
+    if(briefcase.changeset === changeset){
+      briefcaseProps = briefcase;
+    }
+  });
+
+  briefcaseProps =
+    briefcaseProps ??
     (await BriefcaseManager.downloadBriefcase({
       ...briefcaseArg,
       accessToken: await IModelHost.authorizationClient!.getAccessToken(),
