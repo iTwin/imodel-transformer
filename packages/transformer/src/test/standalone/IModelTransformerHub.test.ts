@@ -517,6 +517,11 @@ describe("IModelTransformerHub", () => {
               ElementGroupsMembers.classFullName,
               { sourceId, targetId },
             ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.be.undefined;
+
+            // check rel aspect was deleted
+            const srcElemAspects = branch1.db.elements.getAspects(sourceId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+            expect(!srcElemAspects.some((a) => a.identifier === rel.idInBranch1)).to.be.true;
+            expect(srcElemAspects.length).to.lessThanOrEqual(1);
           }
         },
       },
@@ -537,7 +542,7 @@ describe("IModelTransformerHub", () => {
       assert(master);
 
       const masterDbChangesets = await IModelHost.hubAccess.downloadChangesets({ accessToken, iModelId: master.id, targetDir: BriefcaseManager.getChangeSetsPath(master.id) });
-      assert.equal(masterDbChangesets.length, 5);
+      assert.equal(masterDbChangesets.length, 6);
       const masterDeletedElementIds = new Set<Id64String>();
       const masterDeletedRelationshipIds = new Set<Id64String>();
       for (const masterDbChangeset of masterDbChangesets) {
@@ -560,7 +565,7 @@ describe("IModelTransformerHub", () => {
         }
       }
       expect(masterDeletedElementIds.size).to.equal(2); // elem '3' is never seen by master
-      expect(masterDeletedRelationshipIds.size).to.equal(1);
+      expect(masterDeletedRelationshipIds.size).to.equal(2);
 
       // replay master history to create replayed iModel
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: master.id, asOf: IModelVersion.first().toJSON() });
