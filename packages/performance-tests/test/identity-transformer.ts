@@ -74,5 +74,4 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
     transformer.dispose();
     return reporter;
   }
-  IModelHost.flushLog();
 };

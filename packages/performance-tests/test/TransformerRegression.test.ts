@@ -89,8 +89,11 @@ const setupTestData = async () => {
   await IModelHost.startup(hostConfig);
 
   const arrImodels = [];
+  const iModelIdStr = process.env.IMODEL_IDS;
+  const iModelIds = iModelIdStr === undefined || "" ? "" : iModelIdStr.split(",")
   for await (const iModel of getTestIModels()) {
-    arrImodels.push(iModel);
+    if(iModelIds.includes(iModel.iModelId) || iModelIds === "" )
+      arrImodels.push(iModel);
   }
   return arrImodels;
 };
@@ -101,9 +104,8 @@ void (async function () {
   const reportPath = initOutputFile("report.csv", outputDir);
 
   describe('Transformer Regression Tests', function () {
-    testIModels.forEach(async (value, index, _array) => {
+    testIModels.forEach(async (value) => {
       const iModel = value;
-      if (index === 2 || index === 5) {
         describe(`Transforms of ${iModel.name}`, async () => {
           testCasesMap.forEach(async (testCase, key) => {
             it(key, async () => {
@@ -111,7 +113,6 @@ void (async function () {
             }).timeout(0);
           });
         });
-      }
     });
   });
 
