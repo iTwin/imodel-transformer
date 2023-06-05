@@ -28,9 +28,9 @@ async function sleep(ms: number) {
     setTimeout(resolve, ms);
   });
 }
-const testCasesMap = new Map<string, any>();
-testCasesMap.set("identity transform", require("./identity-transformer"));
-// testCasesMap.set("prepare fork transform", require("./prepare-fork"));
+const testCasesMap = new Map([
+  ["identity transform", require("./identity-transformer")],
+]);
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
