@@ -452,15 +452,23 @@ export class IModelTransformer extends IModelExportHandler {
           },
         );
     const aspectIdentifier = this._options.isReverseSynchronization ? targetRelInstanceId : sourceRelationship.id;
+
+    const jsonProperties
+      = this._forceOldRelationshipProvenanceMethod
+      ? { targetRelInstanceId }
+      : { provenanceRelInstanceId: this._isReverseSynchronization
+          ? sourceRelationship.id
+          : targetRelInstanceId,
+        };
+
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: this.targetScopeElementId },
       identifier: aspectIdentifier,
       kind: ExternalSourceAspect.Kind.Relationship,
-      jsonProperties: JSON.stringify({ targetRelInstanceId }),
+      jsonProperties: JSON.stringify(jsonProperties),
     };
-    aspectProps.id = this.queryScopeExternalSource(aspectProps).aspectId;
     return aspectProps;
   }
 
@@ -1551,8 +1559,9 @@ export class IModelTransformer extends IModelExportHandler {
   public override onExportRelationship(sourceRelationship: Relationship): void {
     const sourceFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.sourceId);
     const targetFedGuid = queryElemFedGuid(this.sourceDb, sourceRelationship.targetId);
-    const targetRelationshipProps: RelationshipProps = this.onTransformRelationship(sourceRelationship);
-    const targetRelationshipInstanceId: Id64String = this.importer.importRelationship(targetRelationshipProps);
+    const targetRelationshipProps = this.onTransformRelationship(sourceRelationship);
+    const targetRelationshipInstanceId = this.importer.importRelationship(targetRelationshipProps);
+
     if (!this._options.noProvenance && Id64.isValid(targetRelationshipInstanceId)) {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
         = !this._options.forceExternalSourceAspectProvenance
@@ -1560,10 +1569,10 @@ export class IModelTransformer extends IModelExportHandler {
           : undefined;
       if (!provenance) {
         const aspectProps = this.initRelationshipProvenance(sourceRelationship, targetRelationshipInstanceId);
+        aspectProps.id = this.queryScopeExternalSource(aspectProps).aspectId;
         if (undefined === aspectProps.id) {
           aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
         }
-        assert(aspectProps.id !== undefined);
         provenance = aspectProps as MarkRequired<ExternalSourceAspectProps, "id">;
       }
       this.markLastProvenance(provenance, { isRelationship: true });
@@ -1599,7 +1608,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (deletedRelData.provenanceAspectId) {
-      this.targetDb.elements.deleteAspect(deletedRelData.provenanceAspectId);
+      this.provenanceDb.elements.deleteAspect(deletedRelData.provenanceAspectId);
     }
   }
 
@@ -1628,6 +1637,7 @@ export class IModelTransformer extends IModelExportHandler {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const sourceRelInstanceId: Id64String = Id64.fromJSON(statement.getValue(1).getString());
         if (undefined === this.sourceDb.relationships.tryGetInstanceProps(ElementRefersToElements.classFullName, sourceRelInstanceId)) {
+          // FIXME: make sure matches new provenance-based method
           // FIXME: use sql JSON_EXTRACT
           const json: any = JSON.parse(statement.getValue(2).getString());
           if (undefined !== json.targetRelInstanceId) {
