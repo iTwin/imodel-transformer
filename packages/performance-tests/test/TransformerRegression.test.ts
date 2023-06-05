@@ -90,7 +90,8 @@ const setupTestData = async () => {
 
   const arrImodels = [];
   const iModelIdStr = process.env.IMODEL_IDS;
-  const iModelIds = iModelIdStr === undefined || "" ? "" : iModelIdStr.split(",")
+  assert(iModelIdStr, "no Imodel Ids")
+  const iModelIds = iModelIdStr === "*" ? "" : iModelIdStr.split(",")
   for await (const iModel of getTestIModels()) {
     if(iModelIds.includes(iModel.iModelId) || iModelIds === "" )
       arrImodels.push(iModel);
