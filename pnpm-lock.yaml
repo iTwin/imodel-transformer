@@ -34,14 +34,14 @@ importers:
 
   packages/performance-tests:
     specifiers:
-      '@itwin/build-tools': 3.6.0 - 3.7.999
-      '@itwin/core-backend': 3.6.0 - 3.7.999
-      '@itwin/core-bentley': 3.6.0 - 3.7.999
-      '@itwin/core-common': 3.6.0 - 3.7.999
-      '@itwin/core-geometry': 3.6.0 - 3.7.999
-      '@itwin/core-quantity': 3.6.0 - 3.7.999
-      '@itwin/ecschema-metadata': 3.6.0 - 3.7.999
-      '@itwin/eslint-plugin': 3.6.0 - 3.7.999
+      '@itwin/build-tools': 3.6.0 - 4.0.999
+      '@itwin/core-backend': 3.6.0 - 4.0.999
+      '@itwin/core-bentley': 3.6.0 - 4.0.999
+      '@itwin/core-common': 3.6.0 - 4.0.999
+      '@itwin/core-geometry': 3.6.0 - 4.0.999
+      '@itwin/core-quantity': 3.6.0 - 4.0.999
+      '@itwin/ecschema-metadata': 3.6.0 - 4.0.999
+      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
       '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.2.1
       '@itwin/imodels-client-authoring': 2.3.0
