@@ -65,14 +65,12 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
   assert(IModelHost.authorizationClient !== undefined, "auth client undefined");
   var briefcaseProps;
   BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId).forEach(briefcase => {
-    if(briefcase.changeset === changeset){
-      console.log("found");
+    if(briefcase.changeset.id === changeset.id){
       briefcaseProps = briefcase;
     }
   });
 
   if(briefcaseProps === undefined){
-    console.log("not found");
     briefcaseProps =
     (await BriefcaseManager.downloadBriefcase({
       ...briefcaseArg,
