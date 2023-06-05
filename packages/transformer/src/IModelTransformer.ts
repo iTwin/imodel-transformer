@@ -1481,9 +1481,9 @@ export class IModelTransformer extends IModelExportHandler {
       // NOTE that as documented in [[processChanges]], this assumes that right after
       // transformation finalization, the work will be saved immediately, otherwise we've
       // just marked this changeset as a synchronization to ignore, and the user can add other
-      // stuff to it breaking future synchronizations
+      // stuff to it which would break future synchronizations
       // FIXME: force save for the user to prevent that
-      for (let i = this._startingTargetChangesetIndex; i <= this.targetDb.changeset.index; i++)
+      for (let i = this._startingTargetChangesetIndex + 1; i <= this.targetDb.changeset.index + 1; i++)
         syncChangesetsToUpdate.push(i);
       syncChangesetsToClear.length = 0;
 

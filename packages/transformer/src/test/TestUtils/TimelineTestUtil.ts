@@ -237,7 +237,10 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
     const rows = [...timelineStates.values()]
       .map((state) => Object.fromEntries(
         Object.entries(state.changesets)
-          .map(([name, cs]) => [name, cs.index] as any)
+          .map(([name, cs]) => [
+            [name, `${cs.index} ${cs.id.slice(0, 5)}`],
+            [`${name} state`, `${Object.keys(state.states[name]).map((k) => k.slice(0, 6))}`],
+          ]).flat()
       ));
     // eslint-disable-next-line no-console
     console.table(rows);
@@ -351,15 +354,8 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
           });
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
-            /* eslint-disable no-console */
-            console.log("change history:");
-            const rows = [...timelineStates.values()]
-              .map((state) => Object.fromEntries(
-                Object.entries(state.changesets)
-                  .map(([name, cs]) => [name, cs.index] as any)
-              ));
-            console.table(rows);
-            /* eslint-enable no-console */
+            console.log("change history:"); // eslint-disable-line
+            printChangelogs();
           }
           throw err;
         } finally {
