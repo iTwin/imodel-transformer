@@ -1981,14 +1981,16 @@ export class IModelTransformer extends IModelExportHandler {
 
     const missingChangesets = startChangesetIndex > this._synchronizationVersion.index + 1;
     // FIXME: add an option to ignore this check
-    if (startChangesetIndex !== this._synchronizationVersion.index + 1) {
+    if (startChangesetIndex !== this._synchronizationVersion.index + 1
+      && this._synchronizationVersion.index !== -1
+    ) {
       throw Error(`synchronization is ${missingChangesets ? "missing changesets" : ""},`
         + " startChangesetId should be"
         + " exactly the first changeset *after* the previous synchronization to not miss data."
         + ` You specified '${startChangesetIndexOrId}' which is changeset #${startChangesetIndex}`
         + ` but the previous synchronization for this targetScopeElement was '${this._synchronizationVersion.id}'`
         + ` which is changeset #${this._synchronizationVersion.index}. The transformer expected`
-        + ` #${this._synchronizationVersion.index +1}.`
+        + ` #${this._synchronizationVersion.index + 1}.`
       );
     }
 

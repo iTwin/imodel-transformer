@@ -569,20 +569,32 @@ describe("IModelTransformerHub", () => {
 
       // replay master history to create replayed iModel
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: master.id, asOf: IModelVersion.first().toJSON() });
-      const replayTransformer = new IModelTransformer(sourceDb, replayedDb);
-      // this replay strategy pretends that deleted elements never existed
-      for (const elementId of masterDeletedElementIds) {
-        replayTransformer.exporter.excludeElement(elementId);
-      }
-      // note: this test knows that there were no schema changes, so does not call `processSchemas`
-      await replayTransformer.processAll(); // process any elements that were part of the "seed"
+      const makeReplayTransformer = () => {
+        const result = new IModelTransformer(sourceDb, replayedDb);
+        // this replay strategy pretends that deleted elements never existed
+        for (const elementId of masterDeletedElementIds) {
+          result.exporter.excludeElement(elementId);
+        }
+        return result;
+      };
+
+      // FIXME: need to figure out how best to add the new restriction that transformers should not be
+      // reused across processChanges calls (or remove that restriction)
+
+      // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
+      const replayInitTransformer = makeReplayTransformer();
+      await replayInitTransformer.processAll(); // process any elements that were part of the "seed"
+      replayInitTransformer.dispose();
+
       await saveAndPushChanges(replayedDb, "changes from source seed");
       for (const masterDbChangeset of masterDbChangesets) {
+        const replayTransformer = makeReplayTransformer();
         await sourceDb.pullChanges({ accessToken, toIndex: masterDbChangeset.index });
-        await replayTransformer.processChanges(accessToken, sourceDb.changeset.id);
+        console.log("REPLAY: ", sourceDb.changeset);
+        await replayTransformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
         await saveAndPushChanges(replayedDb, masterDbChangeset.description ?? "");
+        replayTransformer.dispose();
       }
-      replayTransformer.dispose();
       sourceDb.close();
       assertElemState(replayedDb, master.state); // should have same ending state as masterDb
 
@@ -684,6 +696,7 @@ describe("IModelTransformerHub", () => {
           return super.onExportElement(sourceElement);
         }
       }
+
       const synchronizer = new IModelTransformerInjected(sourceDb, new IModelImporterInjected(targetDb));
       await synchronizer.processChanges(accessToken);
       expect(didExportModelSelector).to.be.true;
