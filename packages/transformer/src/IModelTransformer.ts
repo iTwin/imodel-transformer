@@ -698,8 +698,7 @@ export class IModelTransformer extends IModelExportHandler {
     // this won't have to be a conditional part of the query, and we can always have it by attaching
     const queryCanAccessProvenance = this.sourceDb === this.provenanceDb;
 
-    /* eslint-disable @typescript-eslint/indent */
-    const deletedElemSql = `
+    const deletedEntitySql = `
       SELECT
         1 AS IsElemNotRel,
         ic.ChangedInstance.Id AS InstanceId,
@@ -782,11 +781,10 @@ export class IModelTransformer extends IModelExportHandler {
           ` : ""
         }
     `;
-    /* eslint-enable @typescript-eslint/indent */
 
     for (const changeSummaryId of this._changeSummaryIds) {
       // FIXME: test deletion in both forward and reverse sync
-      this.sourceDb.withPreparedStatement(deletedElemSql, (stmt) => {
+      this.sourceDb.withPreparedStatement(deletedEntitySql, (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
         if (queryCanAccessProvenance)
           stmt.bindId("targetScopeElement", this.targetScopeElementId);
@@ -802,7 +800,6 @@ export class IModelTransformer extends IModelExportHandler {
 
             // TODO: if I could attach the second db, will probably be much faster to get target id
             // as part of the whole query rather than with _queryElemIdByFedGuid
-            /* eslint-disable @typescript-eslint/indent */
             const targetId =
               (queryCanAccessProvenance
                 && (identifierValue = stmt.getValue(5))
@@ -813,7 +810,6 @@ export class IModelTransformer extends IModelExportHandler {
               || (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid))
               // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
               || this._queryProvenanceForElement(instId);
-            /* eslint-enable @typescript-eslint/indent */
 
             // since we are processing one changeset at a time, we can see local source deletes
             // of entities that were never synced and can be safely ignored
@@ -831,8 +827,6 @@ export class IModelTransformer extends IModelExportHandler {
             ].map(({ guidColumn, identifierColumn }) => {
               const fedGuid = stmt.getValue(guidColumn).getGuid();
               let identifierValue: ECSqlValue;
-              // FIXME: purge this rule
-              /* eslint-disable @typescript-eslint/indent */
               return (
                 (queryCanAccessProvenance
                   // FIXME: this is really far from idiomatic, try to undo that
@@ -841,10 +835,8 @@ export class IModelTransformer extends IModelExportHandler {
                   && identifierValue.getString())
                 // maybe batching these queries would perform better but we should
                 // try to attach the second db and query both together anyway
-                || (fedGuid
-                    && this._queryElemIdByFedGuid(this.targetDb, fedGuid))
+                || (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid))
               );
-              /* eslint-enable @typescript-eslint/indent */
             });
 
             // since we are processing one changeset at a time, we can see local source deletes
@@ -894,11 +886,10 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _queryProvenanceForRelationship(
     entityInProvenanceSourceId: Id64String,
-  ): { // FIXME: disable the stupid indent rule, they admit that it's broken in their docs
+  ): {
     aspectId: Id64String;
     relationshipId: Id64String;
   } | undefined {
-
     return this.provenanceDb.withPreparedStatement(`
         SELECT
           ECInstanceId,
@@ -920,6 +911,7 @@ export class IModelTransformer extends IModelExportHandler {
         return undefined;
     });
   }
+
   private _queryElemIdByFedGuid(db: IModelDb, fedGuid: GuidString): Id64String | undefined {
     return db.withPreparedStatement("SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?", (stmt) => {
       stmt.bindGuid(1, fedGuid);
@@ -1620,6 +1612,7 @@ export class IModelTransformer extends IModelExportHandler {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const sourceRelInstanceId: Id64String = Id64.fromJSON(statement.getValue(1).getString());
         if (undefined === this.sourceDb.relationships.tryGetInstanceProps(ElementRefersToElements.classFullName, sourceRelInstanceId)) {
+          // FIXME: use sql JSON_EXTRACT
           const json: any = JSON.parse(statement.getValue(2).getString());
           if (undefined !== json.targetRelInstanceId) {
             const targetRelationship: Relationship = this.targetDb.relationships.getInstance(ElementRefersToElements.classFullName, json.targetRelInstanceId);
