@@ -162,6 +162,7 @@ export interface IModelTransformOptions {
    */
   forceExternalSourceAspectProvenance?: boolean;
 
+  // FIXME: test changecache reusage.
   /**
    * Do not detach the change cache that we build. Use this if you want to do multiple transformations to
    * the same iModels, to avoid the performance cost of reinitializing the change cache which can be
@@ -668,6 +669,8 @@ export class IModelTransformer extends IModelExportHandler {
       const runFnInProvDirection = (sourceId: Id64String, targetId: Id64String) =>
         this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
 
+      // NOTE: these comparisons rely upon the lowercase of the guid,
+      // and the fact that '0' < '9' < a' < 'f' in ascii/utf8
       while (true) {
         const currSourceRow = sourceRow, currContainerRow = containerRow;
         if (currSourceRow.federationGuid !== undefined
@@ -692,7 +695,7 @@ export class IModelTransformer extends IModelExportHandler {
             return;
           sourceRow = sourceStmt.getRow();
         }
-        if (!currContainerRow.federationGuid  && currContainerRow.aspectIdentifier)
+        if (!currContainerRow.federationGuid && currContainerRow.aspectIdentifier)
           runFnInProvDirection(currContainerRow.id, currContainerRow.aspectIdentifier);
       }
     }));
@@ -1049,32 +1052,38 @@ export class IModelTransformer extends IModelExportHandler {
     return true;
   }
 
-  /** Detect Element deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against Elements in the source iModel.
-   * @see processChanges
-   * @note This method is called from [[processAll]] and is not needed by [[processChanges]], so it only needs to be called directly when processing a subset of an iModel.
+  /**
+   * Detect Element deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against Elements
+   * in the source iModel.
+   * @deprecated in 0.1.x. This method is only called during [[processAll]] when the option
+   * [[IModelTransformerOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
+   * necessary when using [[processChanges]] since changeset information is sufficient.
+   * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
   public async detectElementDeletes(): Promise<void> {
-    // FIXME: this is no longer possible to do without change data loading
-    if (this._options.isReverseSynchronization) {
-      throw new IModelError(IModelStatus.BadRequest, "Cannot detect deletes when isReverseSynchronization=true");
-    }
-    const targetElementsToDelete: Id64String[] = [];
-    this.forEachTrackedElement((sourceElementId: Id64String, targetElementId: Id64String) => {
-      if (undefined === this.sourceDb.elements.tryGetElementProps(sourceElementId)) {
-        // if the sourceElement is not found, then it must have been deleted, so propagate the delete to the target iModel
-        targetElementsToDelete.push(targetElementId);
-      }
-    });
-    targetElementsToDelete.forEach((targetElementId: Id64String) => {
-      try {
-        // TODO: make it possible to delete more elements at once to prevent redundant expensive
-        // element reference scanning
-        this.importer.deleteElement(targetElementId);
-      } catch (err: any) {
-        // ignore not found elements, iterative element tree deletion might have already deleted them
-        if (err.name !== "Not Found")
-          throw err;
+    const sql = `
+      SELECT Identifier, Element.Id
+      FROM BisCore.ExternalSourceAspect
+      WHERE Scope.Id=:scopeId
+        AND Kind=:kind
+    `;
+
+    nodeAssert(
+      !this._options.isReverseSynchronization,
+      "synchronizations with processChagnes already detect element deletes, don't call detectElementDeletes"
+    );
+
+    this.provenanceDb.withPreparedStatement(sql, (stmt) => {
+      stmt.bindId("scopeId", this.targetScopeElementId);
+      stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        // ExternalSourceAspect.Identifier is of type string
+        const aspectIdentifier = stmt.getValue(0).getString();
+        const targetElemId = stmt.getValue(1).getId();
+        const wasDeletedInSource = !EntityUnifier.exists(this.sourceDb, { entityReference: `e${aspectIdentifier}` });
+        if (wasDeletedInSource)
+          this.importer.deleteElement(targetElemId);
       }
     });
   }
@@ -2350,6 +2359,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 }
 
+// FIXME: update this... although resumption is broken regardless
 /** @internal the json part of a transformation's state */
 interface TransformationJsonState {
   transformerClass: string;

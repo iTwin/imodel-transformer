@@ -2335,7 +2335,7 @@ describe("IModelTransformer", () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetectElemDeletesChildrenTarget.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "Combined Model" } });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const transformer = new IModelTransformer(sourceDb, targetDb, { forceExternalSourceAspectProvenance: true });
     await expect(transformer.processAll()).not.to.be.rejected;
     targetDb.saveChanges();
     const modelInTarget = transformer.context.findTargetElementId(model);
