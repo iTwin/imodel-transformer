@@ -18,13 +18,13 @@ import {
   ChangeSummaryManager,
   ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, ECSqlValue, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
-  FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
+  FolderLink, GeometricElement, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
   ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
-  ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
+  ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, GeometricElementProps, IModel, IModelError, ModelProps,
+  Placement2d, Placement2dProps, Placement3d, Placement3dProps, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -2372,6 +2372,7 @@ export class TemplateModelCloner extends IModelTransformer {
    * @returns The mapping of sourceElementIds from the template model to the instantiated targetElementIds in the targetDb in case further processing is required.
    */
   public async placeTemplate3d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement3d): Promise<Map<Id64String, Id64String>> {
+    await this.initialize();
     this.context.remapElement(sourceTemplateModelId, targetModelId);
     this._transform3d = Transform.createOriginAndMatrix(placement.origin, placement.angles.toMatrix3d());
     this._sourceIdToTargetIdMap = new Map<Id64String, Id64String>();
@@ -2393,6 +2394,7 @@ export class TemplateModelCloner extends IModelTransformer {
    * @returns The mapping of sourceElementIds from the template model to the instantiated targetElementIds in the targetDb in case further processing is required.
    */
   public async placeTemplate2d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement2d): Promise<Map<Id64String, Id64String>> {
+    await this.initialize();
     this.context.remapElement(sourceTemplateModelId, targetModelId);
     this._transform3d = Transform.createOriginAndMatrix(Point3d.createFrom(placement.origin), placement.rotation);
     this._sourceIdToTargetIdMap = new Map<Id64String, Id64String>();
@@ -2429,17 +2431,14 @@ export class TemplateModelCloner extends IModelTransformer {
     const targetElementProps: ElementProps = super.onTransformElement(sourceElement);
     targetElementProps.federationGuid = Guid.createValue(); // clone from template should create a new federationGuid
     targetElementProps.code = Code.createEmpty(); // clone from template should not maintain codes
-    if (sourceElement instanceof GeometricElement3d) {
-      const placement = Placement3d.fromJSON((targetElementProps as GeometricElement3dProps).placement);
+    if (sourceElement instanceof GeometricElement) {
+      const is3d = sourceElement instanceof GeometricElement3d;
+      const placementClass = is3d ? Placement3d : Placement2d;
+      const placement = (placementClass).fromJSON((targetElementProps as GeometricElementProps).placement as any);
       if (placement.isValid) {
-        placement.multiplyTransform(this._transform3d!);
-        (targetElementProps as GeometricElement3dProps).placement = placement;
-      }
-    } else if (sourceElement instanceof GeometricElement2d) {
-      const placement = Placement2d.fromJSON((targetElementProps as GeometricElement2dProps).placement);
-      if (placement.isValid) {
-        placement.multiplyTransform(this._transform3d!);
-        (targetElementProps as GeometricElement2dProps).placement = placement;
+        nodeAssert(this._transform3d);
+        placement.multiplyTransform(this._transform3d);
+        (targetElementProps as GeometricElementProps).placement = placement;
       }
     }
     this._sourceIdToTargetIdMap!.set(sourceElement.id, Id64.invalid); // keep track of (source) elementIds from the template model, but the target hasn't been inserted yet
