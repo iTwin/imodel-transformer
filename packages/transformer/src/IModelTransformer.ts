@@ -170,6 +170,15 @@ export interface IModelTransformOptions {
    * @default false
    */
   noDetachChangeCache?: boolean;
+
+  // FIXME: consider "deprecating"
+  /**
+   * Do not check that processChanges is called from the next changeset index.
+   * This is an unsafe option (e.g. it can cause data loss in future branch operations)
+   * and you should not use it.
+   * @default false
+   */
+  ignoreMissingChangesetsInSynchronizations?: boolean;
 }
 
 /**
@@ -1981,7 +1990,9 @@ export class IModelTransformer extends IModelExportHandler {
 
     const missingChangesets = startChangesetIndex > this._synchronizationVersion.index + 1;
     // FIXME: add an option to ignore this check
-    if (startChangesetIndex !== this._synchronizationVersion.index + 1
+    if (
+      !this._options.ignoreMissingChangesetsInSynchronizations
+      && startChangesetIndex !== this._synchronizationVersion.index + 1
       && this._synchronizationVersion.index !== -1
     ) {
       throw Error(`synchronization is ${missingChangesets ? "missing changesets" : ""},`
