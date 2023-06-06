@@ -624,6 +624,10 @@ export class IModelTransformer extends IModelExportHandler {
    * @note provenance is done by federation guids where possible
    */
   private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
+    // FIXME: do we need an alternative for in-iModel transforms?
+    if (!this.context.isBetweenIModels)
+      return;
+
     if (!this.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
@@ -1350,7 +1354,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     // if an existing remapping was not yet found, check by FederationGuid
-    if (!Id64.isValid(targetElementId) && sourceElement.federationGuid !== undefined) {
+    if (this.context.isBetweenIModels && !Id64.isValid(targetElementId) && sourceElement.federationGuid !== undefined) {
       targetElementId = this._queryElemIdByFedGuid(this.targetDb, sourceElement.federationGuid) ?? Id64.invalid;
       if (Id64.isValid(targetElementId))
         this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
