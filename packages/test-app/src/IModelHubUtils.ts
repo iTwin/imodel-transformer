@@ -192,11 +192,15 @@ export namespace IModelHubUtils {
                 `Downloaded ${asMb(loadedBytes)} of ${asMb(totalBytes)}`
               );
 
-              nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
-            }
-            return 0;
-          },
-        }));
+            const asMb = (n: number) => (n / (1024 * 1024)).toFixed(2);
+            if (loadedBytes < totalBytes)
+              Logger.logInfo(loggerCategory, `Downloaded ${asMb(loadedBytes)} of ${asMb(totalBytes)}`);
+
+            nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
+          }
+          return 0;
+        },
+      }));
 
     return BriefcaseDb.open({
       fileName: briefcaseProps.fileName,
