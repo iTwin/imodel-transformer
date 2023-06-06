@@ -15,7 +15,7 @@ import * as path from "path";
 import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb } from "@itwin/core-backend";
 import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { getTestIModels } from "./TestContext";
+import { getTestIModels, TestIModel } from "./TestContext";
 import { initOutputFile } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
@@ -90,18 +90,23 @@ const setupTestData = async () => {
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 
-  const arrImodels = [];
+  return realizeAsyncIterator(getTestIModels());
+};
+
+// Mocha tests must know the test cases ahead time, so we collect the the Imodels first before beginning the tests
+async function realizeAsyncIterator(getTestIModels:AsyncGenerator<TestIModel>) {
+  let arrImodels:TestIModel[] = [];
   const iModelIdStr = process.env.IMODEL_IDS;
   assert(iModelIdStr, "no Imodel Ids")
   const iModelIds = iModelIdStr === "*" ? "" : iModelIdStr.split(",")
-  for await (const iModel of getTestIModels()) {
+  for await (const iModel of getTestIModels) {
     if(iModelIds.includes(iModel.iModelId) || iModelIds === "" )
       arrImodels.push(iModel);
   }
   return arrImodels;
-};
+}
 
-void (async function () {
+async function runRegressionTests() {
   const testIModels = await setupTestData();
   var reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
@@ -125,4 +130,6 @@ void (async function () {
   // See 'DELAYED ROOT SUITE' on https://mochajs.org/#delayed-root-suite
   // This function is a special callback function provided by mocha when passing it the --delay flag. This gives us an opportunity to load in the iModels that we'll be testing so we can dynamically generate testcases.
   run();
-})();
+}
+
+runRegressionTests();
