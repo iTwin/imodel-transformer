@@ -207,6 +207,7 @@ export interface IModelTransformOptions {
    */
   forceExternalSourceAspectProvenance?: boolean;
 
+  // FIXME: test changecache reusage.
   /**
    * Do not detach the change cache that we build. Use this if you want to do multiple transformations to
    * the same iModels, to avoid the performance cost of reinitializing the change cache which can be
