@@ -93,28 +93,28 @@ export namespace IModelHubUtils {
     const PROGRESS_FREQ_MS = 2000;
     let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
-    const cached = BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)[0] as LocalBriefcaseProps | undefined;
-    const briefcaseProps =
-      // TODO: pull cached version up to desired changeset
-      cached && cached.changeset.id === briefcaseArg.asOf?.afterChangeSetId
-        ? cached
-        : (await BriefcaseManager.downloadBriefcase({
-          ...briefcaseArg,
-          accessToken: await IModelTransformerTestAppHost.acquireAccessToken(),
-          onProgress(loadedBytes, totalBytes) {
-            if (totalBytes !== 0 && Date.now() > nextProgressUpdate || loadedBytes === totalBytes) {
-              if (loadedBytes === totalBytes)
-                Logger.logInfo(loggerCategory, "Briefcase download completed");
+    // TODO: pull cached version up to desired changeset
+    const cached = BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)
+      .find((briefcase) => briefcase.changeset.id === briefcaseArg.asOf?.afterChangeSetId);
 
-              const asMb = (n: number) => (n / (1024 * 1024)).toFixed(2);
-              if (loadedBytes < totalBytes)
-                Logger.logInfo(loggerCategory, `Downloaded ${asMb(loadedBytes)} of ${asMb(totalBytes)}`);
+    const briefcaseProps = cached
+      ?? (await BriefcaseManager.downloadBriefcase({
+        ...briefcaseArg,
+        accessToken: await IModelTransformerTestAppHost.acquireAccessToken(),
+        onProgress(loadedBytes, totalBytes) {
+          if (totalBytes !== 0 && Date.now() > nextProgressUpdate || loadedBytes === totalBytes) {
+            if (loadedBytes === totalBytes)
+              Logger.logInfo(loggerCategory, "Briefcase download completed");
 
-              nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
-            }
-            return 0;
-          },
-        }));
+            const asMb = (n: number) => (n / (1024 * 1024)).toFixed(2);
+            if (loadedBytes < totalBytes)
+              Logger.logInfo(loggerCategory, `Downloaded ${asMb(loadedBytes)} of ${asMb(totalBytes)}`);
+
+            nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
+          }
+          return 0;
+        },
+      }));
 
     return BriefcaseDb.open({
       fileName: briefcaseProps.fileName,
