@@ -221,7 +221,10 @@ export interface InitFromExternalSourceAspectsArgs {
    * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    * @default the current changeset of the sourceDb, if undefined
    */
-  startChangeset?: ChangesetIndexOrId;
+  startChangeset?: {
+    id?: string;
+    index?: number;
+  };
 }
 
 /**
@@ -484,15 +487,23 @@ export class IModelTransformer extends IModelExportHandler {
       return;
 
     try {
-      const startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
+
+      const startChangesetIndexOrId
+        = args.startChangeset?.index
+        ?? args.startChangeset?.id
+        ?? this.sourceDb.changeset.index
+        ?? this.sourceDb.changeset.id;
       const endChangesetId = this.sourceDb.changeset.id;
+
       const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
-        [startChangesetId, endChangesetId]
-          .map(async (id) =>
-            IModelHost.hubAccess
+        ([startChangesetIndexOrId, endChangesetId])
+          .map(async (indexOrId) => typeof indexOrId === "number"
+            ? indexOrId
+            : IModelHost.hubAccess
               .queryChangeset({
                 iModelId: this.sourceDb.iModelId,
-                changeset: { id },
+                // eslint-disable-next-line deprecation/deprecation
+                changeset: { id: indexOrId },
                 accessToken: args.accessToken,
               })
               .then((changeset) => changeset.index)

@@ -23,7 +23,7 @@ import {
   GeometricElement3dProps, GeometryStreamIterator, IModel, ModelProps, ModelSelectorProps, PhysicalElementProps, Placement3d, QueryRowFormat, SkyBoxImageProps, SkyBoxImageType,
   SpatialViewDefinitionProps, SubCategoryAppearance, SubjectProps, ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../transformer";
+import { ExportChangesOptions, IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../transformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 export class HubWrappers extends TestUtils.HubWrappers {
@@ -1248,9 +1248,10 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeSeparator();
     await this.exporter.exportAll();
   }
-  public async exportChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
+  public async exportChanges(...args: Parameters<IModelExporter["exportChanges"]>): Promise<void> {
     this._shouldIndent = false;
-    return this.exporter.exportChanges({ accessToken, startChangesetId });
+    // eslint-disable-next-line deprecation/deprecation
+    return this.exporter.exportChanges(...args);
   }
   private writeLine(line: string, indentLevel: number = 0): void {
     if (this._shouldIndent) {
