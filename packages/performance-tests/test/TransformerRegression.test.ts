@@ -16,7 +16,7 @@ import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb 
 import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { getTestIModels, TestIModel } from "./TestContext";
-import { initOutputFile } from "./TestUtils";
+import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
@@ -90,21 +90,8 @@ const setupTestData = async () => {
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 
-  return realizeAsyncIterator(getTestIModels());
+  return preFetchAsyncIterator(getTestIModels(filterIModels));
 };
-
-// Mocha tests must know the test cases ahead time, so we collect the the Imodels first before beginning the tests
-async function realizeAsyncIterator(getTestIModels:AsyncGenerator<TestIModel>) {
-  let arrImodels:TestIModel[] = [];
-  const iModelIdStr = process.env.IMODEL_IDS;
-  assert(iModelIdStr, "no Imodel Ids")
-  const iModelIds = iModelIdStr === "*" ? "" : iModelIdStr.split(",")
-  for await (const iModel of getTestIModels) {
-    if(iModelIds.includes(iModel.iModelId) || iModelIds === "" )
-      arrImodels.push(iModel);
-  }
-  return arrImodels;
-}
 
 async function runRegressionTests() {
   const testIModels = await setupTestData();
@@ -112,8 +99,7 @@ async function runRegressionTests() {
   const reportPath = initOutputFile("report.csv", outputDir);
 
   describe('Transformer Regression Tests', function () {
-    testIModels.forEach(async (value) => {
-      const iModel = value;
+    testIModels.forEach(async (iModel) => {
         describe(`Transforms of ${iModel.name}`, async () => {
           testCasesMap.forEach(async (testCase, key) => {
             it(key, async () => {

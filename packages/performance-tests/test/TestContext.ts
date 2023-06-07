@@ -30,7 +30,7 @@ function getTShirtSizeFromName(name: string): TShirtSize {
   return /^(?<size>s|m|l|xl)\s*-/i.exec(name)?.groups?.size?.toLowerCase() as TShirtSize ?? "unknown";
 }
 
-export async function *getTestIModels() {
+export async function *getTestIModels(filter: (iModel:TestIModel) => boolean) {
   assert(IModelHost.authorizationClient !== undefined);
   const hubClient = (IModelHost.hubAccess as BackendIModelsAccess)["_iModelsClient"]
 
@@ -44,13 +44,16 @@ export async function *getTestIModels() {
 
     for await (const iModel of iModels) {
       const iModelId = iModel.id;
-      yield {
+      const iModelToCheck:TestIModel = {
         name: iModel.displayName,
         iModelId,
         iTwinId,
         tShirtSize: getTShirtSizeFromName(iModel.displayName),
         load: async () => downloadAndOpenBriefcase({ iModelId, iTwinId }),
-      };
+      }
+      if(filter(iModelToCheck)){
+        yield iModelToCheck;
+      }
     }
   }
 }
@@ -63,16 +66,9 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
   const changeset = await IModelHost.hubAccess.getChangesetFromVersion({ ...briefcaseArg, version: IModelVersion.fromJSON(asOf) });
   
   assert(IModelHost.authorizationClient !== undefined, "auth client undefined");
-  var briefcaseProps;
-  BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId).forEach(briefcase => {
-    if(briefcase.changeset.id === changeset.id){
-      briefcaseProps = briefcase;
-    }
-  });
+  var briefcaseProps = BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId).find(b => b.changeset.id === changeset.id);
 
-  if(briefcaseProps === undefined){
-    briefcaseProps =
-    (await BriefcaseManager.downloadBriefcase({
+  const briefcase = briefcaseProps ?? (await BriefcaseManager.downloadBriefcase({
       ...briefcaseArg,
       accessToken: await IModelHost.authorizationClient!.getAccessToken(),
       onProgress(loadedBytes, totalBytes) {
@@ -85,10 +81,9 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
         return 0;
       },
     }));
-  }
 
   return BriefcaseDb.open({
-    fileName: briefcaseProps.fileName,
+    fileName: briefcase.fileName,
     readonly: briefcaseArg.briefcaseId ? briefcaseArg.briefcaseId === BriefcaseIdValue.Unassigned : false,
   });
 }
