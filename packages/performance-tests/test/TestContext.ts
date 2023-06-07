@@ -21,7 +21,7 @@ export interface TestIModel {
 
 const iTwinIdStr = process.env.ITWIN_IDS;
 assert(iTwinIdStr, "no Itwins entered");
-assert(iTwinIdStr, "no iTwins entered");
+export const testITwinIds = iTwinIdStr.split(",");
 
 type TShirtSize = "s" | "m" | "l" | "xl" | "unknown";
 
