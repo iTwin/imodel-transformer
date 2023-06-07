@@ -12,34 +12,26 @@
 import "./setup";
 import { assert } from "chai";
 import * as path from "path";
-import * as fs from "fs";
-import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb } from "@itwin/core-backend";
-import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
-import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
-// import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
+import { IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
+import { Logger, LogLevel } from "@itwin/core-bentley";
+import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { getTestIModels } from "./TestContext";
-import { initOutputFile } from "./TestUtils";
+import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
-import * as os from "os";
 
-async function sleep(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-const testCasesMap = new Map<string, any>();
-testCasesMap.set("identity transform", require("./identity-transformer"));
-// testCasesMap.set("prepare fork transform", require("./prepare-fork"));
+const testCasesMap = new Map([
+  ["identity transform", require("./identity-transformer")],
+]);
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
 const setupTestData = async () => {
-  const logLevel = +process.env.LOG_LEVEL!;
+  const logLevel = process.env.LOG_LEVEL ? Number(process.env.LOG_LEVEL) : LogLevel.Warning;
   if (LogLevel[logLevel] !== undefined) {
     Logger.initializeToConsole();
     Logger.setLevelDefault(LogLevel.Error);
@@ -70,17 +62,19 @@ const setupTestData = async () => {
 
   assert(process.env.OIDC_CLIENT_ID, "");
   assert(process.env.OIDC_REDIRECT, "");
+  assert(process.env.IMJS_URL_PREFIX, "");
+  assert(process.env.OIDC_SCOPE, "List scopes");
   const authClient = process.env.CI === "1"
     ? new TestBrowserAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: "itwins:read imodels:read imodels:modify",
-      authority: "https://qa-ims.bentley.com",
+      scope: process.env.OIDC_SCOPE,
+      authority: `https://${process.env.IMJS_URL_PREFIX}ims.bentley.com`,
     }, user)
     : new NodeCliAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: "imodelaccess:read storage:modify realitydata:read imodels:read library:read imodels:modify realitydata:modify savedviews:read storage:read library:modify itwinjs savedviews:modify",
+      scope: process.env.OIDC_SCOPE,
     });
 
   await authClient.signIn();
@@ -91,37 +85,30 @@ const setupTestData = async () => {
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 
-  const arrImodels = [];
-  for await (const iModel of getTestIModels()) {
-    arrImodels.push(iModel);
-  }
-  return arrImodels;
+  return preFetchAsyncIterator(getTestIModels(filterIModels));
 };
 
-void (async function () {
+async function runRegressionTests() {
   const testIModels = await setupTestData();
-  var reporter = new Reporter();
+  let reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
 
-  // could probably add an outer describe here (surounding both foreaches) for any before after logic that isn't related to getting the test data. but idk for sure 
-  describe('Transformer Regression Tests', function () {
-    testIModels.forEach(async (value, index, _array) => {
-      const iModel = value;
-      if (index === 2 /*|| index === 5*/) {
-        describe(`Transforms of ${iModel.name}`, async () => {
-          testCasesMap.forEach(async (testCase, key, _map) => {
-            it(key, async () => {
-              reporter = await testCase.default(iModel, os, reporter);  // add timeout(0)
-            }).timeout(0);
-          });
+  describe("Transformer Regression Tests", function () {
+    testIModels.forEach(async (iModel) => {
+      describe(`Transforms of ${iModel.name}`, async () => {
+        testCasesMap.forEach(async (testCase, key) => {
+          it(key, async () => {
+            reporter = await testCase.default(iModel, reporter);
+          }).timeout(0);
         });
-      }
+      });
     });
   });
+
   after(async () => {
     reporter.exportCSV(reportPath);
   });
-  // See 'DELAYED ROOT SUITE' on https://mochajs.org/
-  // This function is a special bcallback function provided by mocha when passing it the --delay flag. This gives us an opportunity to load in the iModels that we'll be testing so we can dynamically generate testcases.
   run();
-})();
+}
+
+void runRegressionTests();

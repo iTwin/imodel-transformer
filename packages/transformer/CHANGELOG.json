@@ -2,6 +2,82 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Thu, 01 Jun 2023 22:51:33 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.14",
+      "version": "0.1.14",
+      "comments": {
+        "patch": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "5a175aa5b15fb48e747cccd18be5886727fecb6a",
+            "comment": "update deps to support 3.6-4.0"
+          }
+        ]
+      }
+    },
+    {
+      "date": "Wed, 31 May 2023 13:40:07 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.12",
+      "version": "0.1.12",
+      "comments": {
+        "patch": [
+          {
+            "author": "michael.belousov98@gmail.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "e7528fea595d9d1668154c0245abe6458789e5f1",
+            "comment": "add checks in EntityUnifier.exists for id validity"
+          }
+        ]
+      }
+    },
+    {
+      "date": "Tue, 30 May 2023 13:03:51 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.10",
+      "version": "0.1.10",
+      "comments": {
+        "none": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "b248d238de2da7dae5ebc5b2609d0d79890811d6",
+            "comment": "none"
+          }
+        ],
+        "patch": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "b248d238de2da7dae5ebc5b2609d0d79890811d6",
+            "comment": "fix detectElementDeletes since importer.deleteElement change"
+          }
+        ]
+      }
+    },
+    {
+      "date": "Tue, 02 May 2023 18:28:36 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.8",
+      "version": "0.1.8",
+      "comments": {
+        "patch": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "3b6ad3fbf7bfe36dfe63da7f8d6f9e5572793f05",
+            "comment": "rerelease again"
+          }
+        ],
+        "none": [
+          {
+            "author": "ben-polinsky@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "3b6ad3fbf7bfe36dfe63da7f8d6f9e5572793f05",
+            "comment": "docs: ts 5 compatibility"
+          }
+        ]
+      }
+    },
+    {
       "date": "Thu, 20 Apr 2023 12:20:33 GMT",
       "tag": "@itwin/imodel-transformer_v0.1.3",
       "version": "0.1.3",

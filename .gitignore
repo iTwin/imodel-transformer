@@ -54,3 +54,9 @@ common/autoinstallers/*/.npmrc
 common/api/summary/summary.exports.csv
 
 debug.log
+
+# ignore cpu profiles
+*.js.cpuprofile
+*.cpp.cpuprofile
+*.sqliteprofile.db
+

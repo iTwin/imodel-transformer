@@ -1,0 +1,24 @@
+{
+  "name": "@bentley/hook-profiler",
+  "version": "1.0.0",
+  "private": true,
+  "main": "lib/index.js",
+  "description": "Scripts for profiling performance of JavaScript (iTwin.js) applications",
+  "bin": {
+    "linux-syscall-perf": "./bin/linux-syscall-perf.sh",
+    "linux-resource-usage": "./bin/linux-resource-usage.sh"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "echo \"Error: no tests\" && exit 0"
+  },
+  "keywords": ["performance", "profiling"],
+  "author": "Bentley Systems, Inc.",
+  "license": "MIT",
+  "devDependencies": {
+    "@itwin/build-tools": "3.6.0 - 4.0.999",
+    "@itwin/core-backend": "3.6.0 - 4.0.999",
+    "@types/node": "^18.11.5",
+    "typescript": "~4.4.0"
+  }
+}

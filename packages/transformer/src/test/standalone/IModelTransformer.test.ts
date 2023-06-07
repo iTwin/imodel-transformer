@@ -16,6 +16,7 @@ import {
   PhysicalModel, PhysicalObject, PhysicalPartition, PhysicalType, Relationship, RenderMaterialElement, RepositoryLink, Schema, SnapshotDb, SpatialCategory, StandaloneDb,
   SubCategory, Subject, Texture,
 } from "@itwin/core-backend";
+import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import * as TestUtils from "../TestUtils";
 import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
@@ -1134,6 +1135,7 @@ describe("IModelTransformer", () => {
   /** gets a mapping of element ids to their invariant content */
   async function getAllElementsInvariants(db: IModelDb, filterPredicate?: (element: Element) => boolean) {
     const result: Record<Id64String, any> = {};
+    // eslint-disable-next-line deprecation/deprecation
     for await (const row of db.query("SELECT * FROM bis.Element", undefined, { rowFormat: QueryRowFormat.UseJsPropertyNames })) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
         const { lastMod: _lastMod, ...invariantPortion } = row;
@@ -1149,6 +1151,7 @@ describe("IModelTransformer", () => {
     filterPredicate?: (rel: { sourceId: string, targetId: string }) => boolean
   ): Promise<{ sourceId: Id64String, targetId: Id64String }[]> {
     const result = [];
+    // eslint-disable-next-line deprecation/deprecation
     for await (const row of db.query("SELECT * FROM bis.ElementRefersToElements", undefined, { rowFormat: QueryRowFormat.UseJsPropertyNames })) {
       if (!filterPredicate || filterPredicate(row)) {
         const { id: _id, ...invariantPortion } = row;
@@ -2234,8 +2237,10 @@ describe("IModelTransformer", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      getCodeValRawSqlite(targetDb, label, `${label}\xa0`, count);
-      getCodeValEcSql(targetDb, label, `${label}\xa0`, count);
+      // itwin.js 4.x will also trim the code value of utf-8 spaces in the native layer
+      const inItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
+      getCodeValRawSqlite(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
+      getCodeValEcSql(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
     }
 
     transformer.dispose();
@@ -2301,6 +2306,53 @@ describe("IModelTransformer", () => {
     assert.notEqual(targetElement12.code.scope, IModel.rootSubjectId);
     assert.notEqual(targetElement21.code.scope, IModel.rootSubjectId);
     assert.notEqual(targetElement22.code.scope, IModel.rootSubjectId);
+
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("detect element deletes works on children", async () => {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetectElemDeletesChildren.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DetectElemDeletes" } });
+    const model = PhysicalModel.insert(sourceDb, IModelDb.rootSubjectId, "Model 1");
+    const category = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "TestCategory", {});
+    const obj = new PhysicalObject({
+      code: Code.createEmpty(),
+      model,
+      category,
+      classFullName: PhysicalObject.classFullName,
+    }, sourceDb);
+    obj.insert();
+
+    sourceDb.saveChanges();
+
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetectElemDeletesChildrenTarget.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "Combined Model" } });
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    await expect(transformer.processAll()).not.to.be.rejected;
+    targetDb.saveChanges();
+    const modelInTarget = transformer.context.findTargetElementId(model);
+    const objInTarget = transformer.context.findTargetElementId(obj.id);
+
+    // delete from source for detectElementDeletes to handle
+    sourceDb.elements.deleteElement(obj.id);
+    sourceDb.models.deleteModel(model);
+    sourceDb.elements.deleteElement(model);
+
+    expect(sourceDb.models.tryGetModel(model)).to.be.undefined;
+    expect(sourceDb.elements.tryGetElement(model)).to.be.undefined;
+    expect(sourceDb.elements.tryGetElement(obj)).to.be.undefined;
+
+    sourceDb.saveChanges();
+
+    await expect(transformer.processAll()).not.to.be.rejected;
+    targetDb.saveChanges();
+
+    expect(sourceDb.models.tryGetModel(modelInTarget)).to.be.undefined;
+    expect(targetDb.elements.tryGetElement(modelInTarget)).to.be.undefined;
+    expect(targetDb.elements.tryGetElement(objInTarget)).to.be.undefined;
 
     transformer.dispose();
     sourceDb.close();
