@@ -6,17 +6,18 @@
 import { assert, expect } from "chai";
 import {
   BriefcaseDb,
-  ExternalSourceAspect, IModelDb, IModelHost, PhysicalModel,
+  IModelDb, IModelHost, PhysicalModel,
   PhysicalObject, PhysicalPartition, SpatialCategory,
 } from "@itwin/core-backend";
 
-import { ChangesetIdWithIndex, Code, ElementProps, IModel, PhysicalElementProps, SubCategoryAppearance } from "@itwin/core-common";
+import { ChangesetIdWithIndex, Code, ElementProps, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelTransformer } from "../../transformer";
 import { HubWrappers, IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
+import { omit } from "@itwin/core-bentley";
 
-const { count, saveAndPushChanges } = IModelTestUtils;
+const { saveAndPushChanges } = IModelTestUtils;
 
 export const deleted = Symbol("DELETED");
 
@@ -34,15 +35,38 @@ export function getIModelState(db: IModelDb): TimelineIModelElemState {
 
   for (const elemId of elemIds) {
     const elem = db.elements.getElement(elemId);
-    if (elem.userLabel && elem.userLabel in result)
+    const tag = elem.userLabel ?? elem.id;
+    if (tag in result)
       throw Error("timelines only support iModels with unique user labels");
     const isSimplePhysicalObject = elem.jsonProperties.updateState !== undefined;
 
-    result[elem.userLabel ?? elem.id]
-      = isSimplePhysicalObject
-        ? elem.jsonProperties.updateState
-        : elem.toJSON();
+    result[tag] = isSimplePhysicalObject ? elem.jsonProperties.updateState : elem.toJSON();
   }
+
+  const supportedRelIds = db.withPreparedStatement(`
+    SELECT erte.ECInstanceId, erte.ECClassId,
+        se.ECInstanceId AS SourceId, se.UserLabel AS SourceUserLabel,
+        te.ECInstanceId AS TargetId, te.UserLabel AS TargetUserLabel
+    FROM Bis.ElementRefersToElements erte
+    JOIN Bis.Element se
+      ON se.ECInstanceId=erte.SourceECInstanceId
+    JOIN Bis.Element te
+      ON te.ECInstanceId=erte.TargetECInstanceId
+  `, (s) => [...s]);
+
+  for (const {
+    id, className,
+    sourceId, sourceUserLabel,
+    targetId, targetUserLabel,
+  } of supportedRelIds) {
+    const relProps = db.relationships.getInstanceProps(className, id);
+    const tag = `REL_${sourceUserLabel ?? sourceId}_${targetUserLabel ?? targetId}_${className}`;
+    if (tag in result)
+      throw Error("timelines only support iModels with unique user labels");
+
+    result[tag] = omit(relProps, ["id"]);
+  }
+
   return result;
 }
 
@@ -61,7 +85,7 @@ export function populateTimelineSeed(db: IModelDb, state?: TimelineIModelElemSta
   SpatialCategory.insert(db, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
   PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
   if (state)
-    maintainPhysicalObjects(db, state);
+    maintainObjects(db, state);
   db.performCheckpoint();
 }
 
@@ -69,11 +93,20 @@ export function assertElemState(db: IModelDb, state: TimelineIModelElemStateDelt
   expect(getIModelState(db)).to.deep.subsetEqual(state, { useSubsetEquality: subset });
 }
 
-export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIModelElemStateDelta): void {
+function maintainObjects(iModelDb: IModelDb, delta: TimelineIModelElemStateDelta): void {
   const modelId = iModelDb.elements.queryElementIdByCode(PhysicalPartition.createCode(iModelDb, IModel.rootSubjectId, "PhysicalModel"))!;
   const categoryId = iModelDb.elements.queryElementIdByCode(SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory"))!;
 
   for (const [elemName, upsertVal] of Object.entries(delta)) {
+    const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
+      (d as RelationshipProps).sourceId !== undefined;
+
+    if (isRel(upsertVal))
+      throw Error(
+        "adding relationships to the small delta format is not supported"
+        + "use a `manualUpdate` step instead"
+      );
+
     const [id] = iModelDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel=?", bindings: [elemName] });
 
     if (upsertVal === deleted) {
@@ -113,8 +146,8 @@ export function maintainPhysicalObjects(iModelDb: IModelDb, delta: TimelineIMode
   iModelDb.saveChanges();
 }
 
-export type TimelineElemState = number | Omit<ElementProps, "userLabel">;
-export type TimelineElemDelta = number | TimelineElemState | typeof deleted;
+export type TimelineElemState = number | Omit<ElementProps, "userLabel"> | RelationshipProps;
+export type TimelineElemDelta = TimelineElemState | typeof deleted;
 
 export interface TimelineIModelElemStateDelta {
   [name: string]: TimelineElemDelta;
@@ -140,7 +173,7 @@ export type TimelineStateChange =
   // create a branch from an existing iModel with a given name
   | { branch: string }
   // synchronize with the changes in an iModel of a given name from a starting timeline point
-  | { sync: [string, number] }
+  | { sync: [source: string, opts?: { since: number }] }
   // manually update an iModel, state will be automatically detected after. Useful for more complicated
   // element changes with inter-dependencies.
   // @note: the key for the element in the state will be the userLabel or if none, the id
@@ -182,6 +215,9 @@ export interface TestContextOpts {
 /**
  * Run the branching and synchronization events in a @see Timeline object
  * you can print additional debug info from this by setting in your env TRANSFORMER_BRANCH_TEST_DEBUG=1
+ * @note expected state after synchronization is not asserted because element deletions and elements that are
+ * updated only in the target are hard to track. You can assert it yourself with @see assertElemState in
+ * an assert step for your timeline
  */
 export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: TestContextOpts) {
   const trackedIModels = new Map<string, TimelineIModelState>();
@@ -197,14 +233,29 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   >();
   /* eslint-enable @typescript-eslint/indent */
 
+  function printChangelogs() {
+    const rows = [...timelineStates.values()]
+      .map((state) => Object.fromEntries(
+        Object.entries(state.changesets)
+          .map(([name, cs]) => [
+            [name, `${cs.index} ${cs.id.slice(0, 5)}`],
+            [`${name} state`, `${Object.keys(state.states[name]).map((k) => k.slice(0, 6))}`],
+          ]).flat()
+      ));
+    // eslint-disable-next-line no-console
+    console.table(rows);
+  }
+
   const getSeed = (model: TimelineStateChange) => (model as { seed: TimelineIModelState | undefined }).seed;
   const getBranch = (model: TimelineStateChange) => (model as { branch: string | undefined }).branch;
-  const getSync = (model: TimelineStateChange) => (model as { sync: [string, number] | undefined }).sync;
+  const getSync = (model: TimelineStateChange) =>
+    // HACK: concat {} so destructuring works if opts were undefined
+    (model as any).sync?.concat({}) as [src: string, opts: {since?: number}] | undefined;
   const getManualUpdate = (model: TimelineStateChange): { update: ManualUpdateFunc, doReopen: boolean } | undefined =>
     (model as any).manualUpdate || (model as any).manualUpdateAndReopen
       ? {
         update: (model as any).manualUpdate ?? (model as any).manualUpdateAndReopen,
-        doReopen: !!(model as any).manualUpdateAndReopen
+        doReopen: !!(model as any).manualUpdateAndReopen,
       }
       : undefined;
 
@@ -271,7 +322,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
           }
           newTrackedIModel.state = getIModelState(newIModelDb);
         } else
-          maintainPhysicalObjects(newIModelDb, newIModelEvent as TimelineIModelElemStateDelta);
+          maintainObjects(newIModelDb, newIModelEvent as TimelineIModelElemStateDelta);
         await saveAndPushChanges(accessToken, newIModelDb, `new with state [${newIModelEvent}] at point ${i}`);
       }
 
@@ -285,7 +336,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         // "branch" and "seed" event has already been handled in the new imodels loop above
         continue;
       } else if ("sync" in event) {
-        const [syncSource, startIndex] = getSync(event)!;
+        const [syncSource, { since: startIndex }] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
         const target = trackedIModels.get(iModelName)!;
@@ -296,24 +347,33 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
           targetStateBefore = getIModelState(target.db);
 
         const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
-        const startChangesetId = timelineStates.get(startIndex)?.changesets[syncSource].id;
-        await syncer.processChanges(accessToken, startChangesetId);
-        syncer.dispose();
+        try {
+          await syncer.processChanges({
+            accessToken,
+            startChangeset: startIndex ? { index: startIndex } : undefined,
+          });
+        } catch (err: any) {
+          if (/startChangesetId should be exactly/.test(err.message)) {
+            console.log("change history:"); // eslint-disable-line
+            printChangelogs();
+          }
+          throw err;
+        } finally {
+          syncer.dispose();
+        }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG) {
           /* eslint-disable no-console */
           console.log(stateMsg);
-          console.log(` source range state: ${JSON.stringify(source.state)}`);
+          console.log(`       source state: ${JSON.stringify(source.state)}`);
           const targetState = getIModelState(target.db);
           console.log(`target before state: ${JSON.stringify(targetStateBefore!)}`);
           console.log(` target after state: ${JSON.stringify(targetState)}`);
           /* eslint-enable no-console */
         }
 
-        // subset because we don't care about elements that the target added itself
-        assertElemState(target.db, source.state, { subset: true });
-        target.state = source.state; // update the tracking state
+        target.state = getIModelState(target.db); // update the tracking state
 
         await saveAndPushChanges(accessToken, target.db, stateMsg);
       } else {
@@ -334,7 +394,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         } else {
           const delta = event;
           alreadySeenIModel.state = applyDelta(alreadySeenIModel.state, delta);
-          maintainPhysicalObjects(alreadySeenIModel.db, delta);
+          maintainObjects(alreadySeenIModel.db, delta);
           stateMsg = `${iModelName} becomes: ${JSON.stringify(alreadySeenIModel.state)}, `
             + `delta: [${JSON.stringify(delta)}], at ${i}`;
         }
@@ -368,6 +428,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: state.id });
       }
     },
+    printChangelogs,
   };
 }
 

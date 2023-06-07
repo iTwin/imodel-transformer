@@ -7,13 +7,13 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, StandaloneDb, Subject,
+  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
-import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Arg, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
+import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, deleted, getIModelState, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -369,7 +369,7 @@ describe("IModelTransformerHub", () => {
       // 60 elements added
       assert.equal(185, count(sourceDb, PhysicalObject.classFullName));
 
-      await transformer.processChanges(accessToken, sourceDb.changeset.id);
+      await transformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
       transformer.dispose();
 
       const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
@@ -493,25 +493,30 @@ describe("IModelTransformerHub", () => {
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
-    const masterSeedState = {1:1, 2:1, 20:1, 21:1};
+    const masterSeedState = {1:1, 2:1, 20:1, 21:1, 40:1, 41:2, 42:3};
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, { rootSubject: { name: masterIModelName } });
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
-    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1, 20)" });
-    const [elem1Id, elem20Id] = noFedGuidElemIds;
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1,20,41,42)" });
     for (const elemId of noFedGuidElemIds)
       masterSeedDb.withSqliteStatement(
         `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-        s => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
+        (s) => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
       );
     masterSeedDb.performCheckpoint();
 
     // hard to check this without closing the db...
     const seedSecondConn = SnapshotDb.openFile(masterSeedDb.pathName);
-    expect(seedSecondConn.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+    for (const elemId of noFedGuidElemIds)
+      expect(seedSecondConn.elements.getElement(elemId).federationGuid).to.be.undefined;
     seedSecondConn.close();
+
+    const relationships = [
+      { sourceLabel: "40", targetLabel: "2", idInBranch1: "not inserted yet", sourceFedGuid: true, targetFedGuid: true },
+      { sourceLabel: "41", targetLabel: "42", idInBranch1: "not inserted yet", sourceFedGuid: false, targetFedGuid: false },
+    ];
 
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
@@ -520,31 +525,82 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    // FIXME: add some relationships
-    const timeline: Timeline = {
-      0: { master: { seed: masterSeed } }, // above: masterSeedState = {1:1, 2:1, 20:1, 21:1};
-      1: { branch1: { branch: "master" }, branch2: { branch: "master" } },
-      2: { branch1: { 2:2, 3:1, 4:1 } },
-      3: { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
-      4: { branch1: { 21:deleted, 30:1 } },
-      5: { master: { sync: ["branch1", 2] } },
-      6: { branch2: { sync: ["master", 0] } },
-      7: { branch2: { 7:1, 8:1 } },
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } }, // masterSeedState is above
+      { branch1: { branch: "master" } },
+      { master: { 40:5 } },
+      { branch2: { branch: "master" } },
+      { branch1: { 2:2, 3:1, 4:1 } },
+      {
+        branch1: {
+          manualUpdate(db) {
+            relationships.map(
+              ({ sourceLabel, targetLabel }, i) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
+                assert(sourceId && targetId);
+                const rel = ElementGroupsMembers.create(db, sourceId, targetId, 0);
+                relationships[i].idInBranch1 = rel.insert();
+              }
+            );
+          },
+        },
+      },
+      {
+        branch1: {
+          manualUpdate(db) {
+            const rel = db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              relationships[0].idInBranch1,
+            );
+            rel.memberPriority = 1;
+            rel.update();
+          },
+        },
+      },
+      { branch1: { 1:2, 3:deleted, 5:1, 6:1, 20:deleted, 21:2 } },
+      { branch1: { 21:deleted, 30:1 } },
+      { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
+      {
+        assert({ master, branch1 }) {
+          assertElemState(master.db, {
+            // relationship props are a lot to type out so let's grab those from the branch
+            ...branch1.state,
+            // double check deletions propagated by sync
+            20: undefined as any,
+            21: undefined as any,
+            40:5, // this element was not changed in the branch, so the sync won't update it
+          });
+        },
+      },
+      { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
+      { assert({ master, branch2 }) { assertElemState(branch2.db, master.state); } },
+      { branch2: { 7:1, 8:1 } },
       // insert 9 and a conflicting state for 7 on master
-      8: { master: { 7:2, 9:1 } },
-      9: { master: { sync: ["branch2", 7] } },
-      10: {
+      { master: { 7:2, 9:1 } },
+      { master: { sync: ["branch2"] } }, // first master<-branch2 reverse sync
+      {
         assert({ master, branch1, branch2 }) {
-          for (const iModel of [master, branch1, branch2]) {
-            expect(iModel.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+          for (const { db } of [master, branch1, branch2]) {
+            const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
+            expect(db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
+
+            for (const rel of relationships) {
+              const sourceId = IModelTestUtils.queryByUserLabel(db, rel.sourceLabel);
+              const targetId = IModelTestUtils.queryByUserLabel(db, rel.targetLabel);
+              expect(db.elements.getElement(sourceId).federationGuid !== undefined).to.be.equal(rel.sourceFedGuid);
+              expect(db.elements.getElement(targetId).federationGuid !== undefined).to.be.equal(rel.targetFedGuid);
+            }
           }
+
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(0);
+
           for (const branch of [branch1, branch2]) {
+            const elem1Id = IModelTestUtils.queryByUserLabel(branch.db, "1");
             expect(branch.db.elements.getElement(elem1Id).federationGuid).to.be.undefined;
             const aspects =
-              [...branch.db .queryEntityIds({ from: "BisCore.ExternalSourceAspect" })]
+              [...branch.db.queryEntityIds({ from: "BisCore.ExternalSourceAspect" })]
               .map((aspectId) => branch.db.elements.getAspect(aspectId).toJSON()) as ExternalSourceAspectProps[];
-            // FIXME: wtf
             expect(aspects).to.deep.subsetEqual([
               {
                 element: { id: IModelDb.rootSubjectId },
@@ -565,13 +621,56 @@ describe("IModelTransformerHub", () => {
             ]);
             expect(Date.parse(aspects[3].version!)).not.to.be.NaN;
           }
+
           // branch2 won the conflict since it is the synchronization source
           assertElemState(master.db, {7:1}, { subset: true });
         },
       },
-      11: { master: { 6:2 } },
-      12: { branch1: { sync: ["master", 4] } },
-    };
+      { master: { 6:2 } },
+      {
+        master: {
+          manualUpdate(db) {
+            // FIXME: also delete an element and merge that
+            relationships.forEach(
+              ({ sourceLabel, targetLabel }) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
+                assert(sourceId && targetId);
+                const rel = db.relationships.getInstance(
+                  ElementGroupsMembers.classFullName,
+                  { sourceId, targetId }
+                );
+                return rel.delete();
+              }
+            );
+          },
+        },
+      },
+      // FIXME: do a later sync and resync
+      { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
+      {
+        assert({branch1}) {
+          for (const rel of relationships) {
+            expect(branch1.db.relationships.tryGetInstance(
+              ElementGroupsMembers.classFullName,
+              rel.idInBranch1,
+            ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.be.undefined;
+            const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, rel.sourceLabel);
+            const targetId = IModelTestUtils.queryByUserLabel(branch1.db, rel.targetLabel);
+            assert(sourceId && targetId);
+            expect(branch1.db.relationships.tryGetInstance(
+              ElementGroupsMembers.classFullName,
+              { sourceId, targetId },
+            ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.be.undefined;
+
+            // check rel aspect was deleted
+            const srcElemAspects = branch1.db.elements.getAspects(sourceId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+            expect(!srcElemAspects.some((a) => a.identifier === rel.idInBranch1)).to.be.true;
+            expect(srcElemAspects.length).to.lessThanOrEqual(1);
+          }
+        },
+      },
+    ];
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
 
@@ -588,8 +687,9 @@ describe("IModelTransformerHub", () => {
       assert(master);
 
       const masterDbChangesets = await IModelHost.hubAccess.downloadChangesets({ accessToken, iModelId: master.id, targetDir: BriefcaseManager.getChangeSetsPath(master.id) });
-      assert.equal(masterDbChangesets.length, 4);
+      assert.equal(masterDbChangesets.length, 6);
       const masterDeletedElementIds = new Set<Id64String>();
+      const masterDeletedRelationshipIds = new Set<Id64String>();
       for (const masterDbChangeset of masterDbChangesets) {
         assert.isDefined(masterDbChangeset.id);
         assert.isDefined(masterDbChangeset.description); // test code above always included a change description when pushChanges was called
@@ -602,29 +702,43 @@ describe("IModelTransformerHub", () => {
         if (result === undefined)
           throw Error("expected to be defined");
 
-        assert.isDefined(result.element);
         if (result.element?.delete) {
           result.element.delete.forEach((id: Id64String) => masterDeletedElementIds.add(id));
         }
+        if (result.relationship?.delete) {
+          result.relationship.delete.forEach((id: Id64String) => masterDeletedRelationshipIds.add(id));
+        }
       }
-      assert.isAtLeast(masterDeletedElementIds.size, 1);
+      expect(masterDeletedElementIds.size).to.equal(2); // elem '3' is never seen by master
+      expect(masterDeletedRelationshipIds.size).to.equal(2);
 
       // replay master history to create replayed iModel
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: master.id, asOf: IModelVersion.first().toJSON() });
-      const replayTransformer = new IModelTransformer(sourceDb, replayedDb);
-      // this replay strategy pretends that deleted elements never existed
-      for (const elementId of masterDeletedElementIds) {
-        replayTransformer.exporter.excludeElement(elementId);
-      }
-      // note: this test knows that there were no schema changes, so does not call `processSchemas`
-      await replayTransformer.processAll(); // process any elements that were part of the "seed"
+      const makeReplayTransformer = () => {
+        const result = new IModelTransformer(sourceDb, replayedDb);
+        // this replay strategy pretends that deleted elements never existed
+        for (const elementId of masterDeletedElementIds) {
+          result.exporter.excludeElement(elementId);
+        }
+        return result;
+      };
+
+      // FIXME: need to figure out how best to add the new restriction that transformers should not be
+      // reused across processChanges calls (or remove that restriction)
+
+      // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
+      const replayInitTransformer = makeReplayTransformer();
+      await replayInitTransformer.processAll(); // process any elements that were part of the "seed"
+      replayInitTransformer.dispose();
+
       await saveAndPushChanges(replayedDb, "changes from source seed");
       for (const masterDbChangeset of masterDbChangesets) {
+        const replayTransformer = makeReplayTransformer();
         await sourceDb.pullChanges({ accessToken, toIndex: masterDbChangeset.index });
-        await replayTransformer.processChanges(accessToken, sourceDb.changeset.id);
+        await replayTransformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
         await saveAndPushChanges(replayedDb, masterDbChangeset.description ?? "");
+        replayTransformer.dispose();
       }
-      replayTransformer.dispose();
       sourceDb.close();
       assertElemState(replayedDb, master.state); // should have same ending state as masterDb
 
@@ -726,6 +840,7 @@ describe("IModelTransformerHub", () => {
           return super.onExportElement(sourceElement);
         }
       }
+
       const synchronizer = new IModelTransformerInjected(sourceDb, new IModelImporterInjected(targetDb));
       await synchronizer.processChanges(accessToken);
       expect(didExportModelSelector).to.be.true;
@@ -886,7 +1001,7 @@ describe("IModelTransformerHub", () => {
         ...aspectDeletions.length > 0 && {
           aspect: {
             delete: aspectDeletions,
-          }
+          },
         },
         element: {
           delete: [
@@ -1031,7 +1146,7 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      3: { branch: { sync: ["master", 2] } },
+      3: { branch: { sync: ["master", { since: 2 }] } },
     };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });

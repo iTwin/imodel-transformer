@@ -473,7 +473,7 @@ class CatalogImporter extends IModelTransformer {
    * @param targetSpatialCategories Optional remapping for standard spatial categories.
    * @param targetDrawingCategories Optional remapping for standard drawing categories.
    */
-  public constructor(sourceDb: IModelDb, targetDb: IModelDb, targetScopeElementId?: Id64String, targetSpatialCategories?: Map<string, Id64String>, targetDrawingCategories?: Map<string, Id64String>) {
+  private constructor(sourceDb: IModelDb, targetDb: IModelDb, targetScopeElementId?: Id64String, targetSpatialCategories?: Map<string, Id64String>, targetDrawingCategories?: Map<string, Id64String>) {
     const options: IModelTransformOptions = {
       targetScopeElementId,
       noProvenance: targetScopeElementId ? undefined : true, // can't store provenance if targetScopeElementId is not defined
@@ -483,12 +483,20 @@ class CatalogImporter extends IModelTransformer {
     this._targetSpatialCategories = targetSpatialCategories;
     this._targetDrawingCategories = targetDrawingCategories;
   }
+
+  public static async create(sourceDb: IModelDb, targetDb: IModelDb, targetScopeElementId?: Id64String, targetSpatialCategories?: Map<string, Id64String>, targetDrawingCategories?: Map<string, Id64String>): Promise<CatalogImporter> {
+    const inst = new this(sourceDb, targetDb, targetScopeElementId, targetSpatialCategories, targetDrawingCategories);
+    await inst.initialize();
+    return inst;
+  }
+
   public async importDefinitionContainers(): Promise<void> {
     const containerIds = queryContainerIds(this.sourceDb);
     for (const containerId of containerIds) {
       await this.importDefinitionContainer(containerId);
     }
   }
+
   public async importDefinitionContainer(sourceContainerId: Id64String): Promise<void> {
     const sourceContainer = this.sourceDb.elements.getElement<DefinitionContainer>(sourceContainerId, DefinitionContainer); // throw Error if not a DefinitionContainer
     const sourceContainerCodeSpec = this.sourceDb.codeSpecs.getById(sourceContainer.code.spec);
@@ -587,8 +595,7 @@ describe("Catalog", () => {
     testCatalogDb.close();
   });
 
-  // FIXME
-  it.skip("should import from catalog", async () => {
+  it("should import from catalog", async () => {
     const iModelFile = IModelTestUtils.prepareOutputFile("Catalog", "Facility.bim");
     const iModelDb = SnapshotDb.createEmpty(iModelFile, { rootSubject: { name: "Facility" }, createClassViews });
     const domainSchemaFilePath = path.join(BackendKnownTestLocations.assetsDir, "TestDomain.ecschema.xml");
@@ -611,7 +618,7 @@ describe("Catalog", () => {
       const catalogContainerCodeSpec = catalogDb.codeSpecs.getById(catalogContainer.code.spec);
       const catalogContainerCodeValue = catalogContainer.code.value;
       const catalogRepositoryLinkId = insertCatalogRepositoryLink(iModelDb, path.basename(acmeCatalogDbFile), acmeCatalogDbFile);
-      const catalogImporter = new CatalogImporter(catalogDb, iModelDb, catalogRepositoryLinkId, standardSpatialCategories, standardDrawingCategories);
+      const catalogImporter = await CatalogImporter.create(catalogDb, iModelDb, catalogRepositoryLinkId, standardSpatialCategories, standardDrawingCategories);
       await catalogImporter.importDefinitionContainers();
       catalogImporter.dispose();
       catalogDb.close();
@@ -643,7 +650,7 @@ describe("Catalog", () => {
       const catalogContainerCodeSpec = catalogDb.codeSpecs.getById(catalogContainer.code.spec);
       const catalogContainerCodeValue = catalogContainer.code.value;
       const catalogRepositoryLinkId = insertCatalogRepositoryLink(iModelDb, path.basename(bestCatalogDbFile), bestCatalogDbFile);
-      const catalogImporter = new CatalogImporter(catalogDb, iModelDb, catalogRepositoryLinkId, standardSpatialCategories, standardDrawingCategories);
+      const catalogImporter = await CatalogImporter.create(catalogDb, iModelDb, catalogRepositoryLinkId, standardSpatialCategories, standardDrawingCategories);
       await catalogImporter.importDefinitionContainer(catalogContainerId); // only going to import 1 of the 2 containers
       catalogImporter.dispose();
       catalogDb.close();
@@ -673,7 +680,7 @@ describe("Catalog", () => {
       const catalogRepositoryLinkId = insertCatalogRepositoryLink(iModelDb, path.basename(testCatalogDbFile), testCatalogDbFile);
       const catalogTemplateRecipeIds = queryTemplateRecipeIds(catalogDb, catalogContainer.id);
       assert.equal(catalogTemplateRecipeIds.size, 3); // expected value from createTestCatalog
-      const catalogImporter = new CatalogImporter(catalogDb, iModelDb, catalogRepositoryLinkId); // no standard categories in this case
+      const catalogImporter = await CatalogImporter.create(catalogDb, iModelDb, catalogRepositoryLinkId); // no standard categories in this case
       const cylinderTemplateCode = TemplateRecipe3d.createCode(catalogDb, catalogContainer.id, "Cylinder Template");
       const cylinderTemplateId = catalogDb.elements.queryElementIdByCode(cylinderTemplateCode)!;
       catalogImporter.exporter.excludeElement(cylinderTemplateId); // one way to implement partial import, another is by overriding shouldExportElement

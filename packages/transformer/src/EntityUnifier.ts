@@ -10,6 +10,7 @@
 import * as assert from "assert";
 import { ConcreteEntityTypes, DbResult,  EntityReference, IModelError } from "@itwin/core-common";
 import { ConcreteEntity, ConcreteEntityProps, Element, ElementAspect, EntityReferences, IModelDb, Relationship } from "@itwin/core-backend";
+import { Id64 } from "@itwin/core-bentley";
 
 /** @internal */
 export namespace EntityUnifier {
@@ -41,6 +42,9 @@ export namespace EntityUnifier {
   export function exists(db: IModelDb, arg: { entity: ConcreteEntity } | { entityReference: EntityReference }) {
     if ("entityReference" in arg) {
       const [type, id] = EntityReferences.split(arg.entityReference);
+      // FIXME: add a test with a deleted reference that triggers this
+      if (id === undefined || Id64.isInvalid(id))
+        return false;
       const bisCoreRootClassName = ConcreteEntityTypes.toBisCoreRootClassFullName(type);
       return db.withPreparedStatement(`SELECT 1 FROM ${bisCoreRootClassName} WHERE ECInstanceId=?`, (stmt) => {
         stmt.bindId(1, id);
@@ -53,6 +57,8 @@ export namespace EntityUnifier {
           throw new IModelError(matchesResult, "query failed");
       });
     } else {
+      if (arg.entity.id === undefined || Id64.isInvalid(arg.entity.id))
+        return false;
       return db.withPreparedStatement(`SELECT 1 FROM [${arg.entity.schemaName}].[${arg.entity.className}] WHERE ECInstanceId=?`, (stmt) => {
         stmt.bindId(1, arg.entity.id);
         const matchesResult = stmt.step();

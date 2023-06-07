@@ -9,7 +9,7 @@ import * as assert from "assert";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { BriefcaseDb, BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
-import { BriefcaseIdValue, ChangesetId, ChangesetIndex, ChangesetProps } from "@itwin/core-common";
+import { BriefcaseIdValue, ChangesetId, ChangesetIndex, ChangesetProps, LocalBriefcaseProps } from "@itwin/core-common";
 import { IModelsClient, NamedVersion } from "@itwin/imodels-client-authoring";
 import { loggerCategory } from "./Transformer";
 
@@ -93,9 +93,12 @@ export namespace IModelHubUtils {
     const PROGRESS_FREQ_MS = 2000;
     let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
-    const briefcaseProps =
-      BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)[0] ??
-      (await BriefcaseManager.downloadBriefcase({
+    // TODO: pull cached version up to desired changeset
+    const cached = BriefcaseManager.getCachedBriefcases(briefcaseArg.iModelId)
+      .find((briefcase) => briefcase.changeset.id === briefcaseArg.asOf?.afterChangeSetId);
+
+    const briefcaseProps = cached
+      ?? (await BriefcaseManager.downloadBriefcase({
         ...briefcaseArg,
         accessToken: await IModelTransformerTestAppHost.acquireAccessToken(),
         onProgress(loadedBytes, totalBytes) {
