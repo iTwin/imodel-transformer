@@ -63,18 +63,18 @@ const setupTestData = async () => {
   assert(process.env.OIDC_CLIENT_ID, "");
   assert(process.env.OIDC_REDIRECT, "");
   assert(process.env.IMJS_URL_PREFIX, "");
-  assert(process.env.OIDC_SCOPE, "List scopes");
+  assert(process.env.OIDC_SCOPES, "List scopes");
   const authClient = process.env.CI === "1"
     ? new TestBrowserAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: process.env.OIDC_SCOPE,
+      scope: process.env.OIDC_SCOPES,
       authority: `https://${process.env.IMJS_URL_PREFIX}ims.bentley.com`,
     }, user)
     : new NodeCliAuthorizationClient({
       clientId: process.env.OIDC_CLIENT_ID,
       redirectUri: process.env.OIDC_REDIRECT,
-      scope: process.env.OIDC_SCOPE,
+      scope: process.env.OIDC_SCOPES,
     });
 
   await authClient.signIn();
