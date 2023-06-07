@@ -621,9 +621,9 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Iterate through element provenance. Provenance is determined by ExternalSourceAspects and FederationGuids.
-   * ExternalSourceAspect provenance takes precedence since elements might have "acquired" a FederationGuid during initial transformation but their provenance is actually tracked by an ExternalSourceAspect.
+   * Iterate all matching ExternalSourceAspects in the provenance iModel (target unless reverse sync) and call a function for each one.
    * @note provenance is done by federation guids where possible
+   * @note this may execute on each element more than once! Only use in cases where that is handled
    */
   private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
     // FIXME: do we need an alternative for in-iModel transforms?
@@ -634,51 +634,86 @@ export class IModelTransformer extends IModelExportHandler {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
 
+    const runFnInProvDirection = (sourceId: Id64String, targetId: Id64String) =>
+      this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
+
     // query for provenanceDb
     const provenanceContainerQuery = `
-      SELECT e.ECInstanceId, FederationGuid, esa.Identifier as AspectIdentifier
+      SELECT e.ECInstanceId, FederationGuid
       FROM bis.Element e
-      LEFT JOIN bis.ExternalSourceAspect esa ON e.ECInstanceId=esa.Element.Id
       WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements
-        AND ((Scope.Id IS NULL AND KIND IS NULL) OR (Scope.Id=:scopeId AND Kind=:kind))
+      ORDER BY FederationGuid
     `;
-
-    const provenanceByAspect = new Map<Id64String, Id64String> ();
-    const provenanceByFedGuid = new Map<GuidString, Id64String> ();
-    this.provenanceDb.withStatement(provenanceContainerQuery, (statement: ECSqlStatement) => {
-      statement.bindId("scopeId", this.targetScopeElementId);
-      statement.bindString("kind", ExternalSourceAspect.Kind.Element);
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const row = statement.getRow() as { id: Id64String, federationGuid?: GuidString, aspectIdentifier?: Id64String };
-        if (row.aspectIdentifier) {
-          provenanceByAspect.set(row.aspectIdentifier, row.id);
-          continue;
-        }
-        if (row.federationGuid) {
-          provenanceByFedGuid.set(row.federationGuid, row.id);
-          continue;
-        }
-        Logger.logWarning(loggerCategory, `Target Element '${row.id}' does not have any provenance to the source Element`);
-      }
-    });
 
     // query for nonProvenanceDb, the source to which the provenance is referring
     const provenanceSourceQuery = `
       SELECT e.ECInstanceId, FederationGuid
       FROM bis.Element e
       WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements
+      ORDER BY FederationGuid
     `;
-    this.provenanceSourceDb.withStatement(provenanceSourceQuery, (statement: ECSqlStatement) => {
-      const runFnInProvDirection = (sourceId: Id64String, targetId: Id64String) => this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const row = statement.getRow() as { id: Id64String, federationGuid?: GuidString };
-        let targetElementId = provenanceByAspect.get(row.id);
-        if (!targetElementId && row.federationGuid) {
-          targetElementId = provenanceByFedGuid.get(row.federationGuid);
+
+    // iterate through sorted list of fed guids from both dbs to get the intersection
+    // NOTE: if we exposed the native attach database support,
+    // we could get the intersection of fed guids in one query, not sure if it would be faster
+    // OR we could do a raw sqlite query...
+    this.provenanceSourceDb.withStatement(provenanceSourceQuery, (sourceStmt) => this.provenanceDb.withStatement(provenanceContainerQuery, (containerStmt) => {
+      if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW)
+        return;
+      let sourceRow = sourceStmt.getRow() as { federationGuid?: GuidString, id: Id64String };
+      if (containerStmt.step() !== DbResult.BE_SQLITE_ROW)
+        return;
+      let containerRow = containerStmt.getRow() as { federationGuid?: GuidString, id: Id64String };
+
+      // NOTE: these comparisons rely upon the lowercase of the guid,
+      // and the fact that '0' < '9' < a' < 'f' in ascii/utf8
+      while (true) {
+        const currSourceRow = sourceRow, currContainerRow = containerRow;
+        if (currSourceRow.federationGuid !== undefined
+          && currContainerRow.federationGuid !== undefined
+          && currSourceRow.federationGuid === currContainerRow.federationGuid
+        ) {
+          // not this is already in provenance direction, no need to use runFnInProvDirection
+          fn(sourceRow.id, containerRow.id);
         }
-        if (targetElementId) {
-          runFnInProvDirection(targetElementId, row.id);
+        if (currContainerRow.federationGuid === undefined
+          || (currSourceRow.federationGuid !== undefined
+            && currSourceRow.federationGuid >= currContainerRow.federationGuid)
+        ) {
+          if (containerStmt.step() !== DbResult.BE_SQLITE_ROW)
+            return;
+          containerRow = containerStmt.getRow();
         }
+        if (currSourceRow.federationGuid === undefined
+          || (currContainerRow.federationGuid !== undefined
+            && currSourceRow.federationGuid <= currContainerRow.federationGuid)
+        ) {
+          if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW)
+            return;
+          sourceRow = sourceStmt.getRow();
+        }
+      }
+    }));
+
+    // query for provenanceDb
+    const provenanceAspectsQuery = `
+      SELECT esa.Identifier, Element.Id
+      FROM bis.ExternalSourceAspect esa
+      WHERE Scope.Id=:scopeId
+        AND Kind=:kind
+    `;
+
+    // Technically this will a second time call the function (as documented) on
+    // victims of the old provenance method that have both fedguids and an inserted aspect.
+    // But this is a private function with one known caller where that doesn't matter
+    this.provenanceDb.withPreparedStatement(provenanceAspectsQuery, (stmt): void => {
+      stmt.bindId("scopeId", this.targetScopeElementId);
+      stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        // ExternalSourceAspect.Identifier is of type string
+        const aspectIdentifier: Id64String = stmt.getValue(0).getString();
+        const elementId: Id64String = stmt.getValue(1).getId();
+        runFnInProvDirection(elementId, aspectIdentifier);
       }
     });
   }
