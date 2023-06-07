@@ -7,9 +7,9 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
+  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
@@ -724,6 +724,76 @@ describe("IModelTransformerHub", () => {
       }
     }
   });
+
+  it("should correctly initialize provenance map for change processing", async () => {
+    const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("Source");
+    const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(sourceIModelId));
+    const targetIModelName: string = IModelTransformerTestUtils.generateUniqueName("Target");
+    const targetIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: targetIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(targetIModelId));
+
+    try {
+      // open/upgrade sourceDb
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+
+      const subject1 = Subject.create(sourceDb, IModel.rootSubjectId, "S1");
+      const subject2 = Subject.create(sourceDb, IModel.rootSubjectId, "S2");
+      subject2.federationGuid = Guid.empty; // Empty guid will force the element to have an undefined federation guid.
+      subject1.insert();
+      const subject2Id = subject2.insert();
+      PhysicalModel.insert(sourceDb, subject2Id, `PM1`);
+
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ accessToken, description: "subject with no fed guid" });
+
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.processAll();
+      targetDb.saveChanges();
+      transformer.dispose();
+
+      PhysicalModel.insert(sourceDb, subject2Id, `PM2`);
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ accessToken, description: "PhysicalPartition" });
+
+      transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.processChanges({accessToken, startChangeset: {id: sourceDb.changeset.id}});
+
+      const elementCodeValueMap = new Map<Id64String, string>();
+      targetDb.withStatement(`SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`, (statement: ECSqlStatement) => {
+        while (statement.step() === DbResult.BE_SQLITE_ROW) {
+            elementCodeValueMap.set(statement.getValue(0).getId(), statement.getValue(1).getString());
+        }
+      });
+
+      // make sure provenance was tracked for all elements
+      expect(count(sourceDb, Element.classFullName)).to.equal(4+3); // 2 Subjects, 2 PhysicalPartitions + 0x1, 0x10, 0xe
+      expect(elementCodeValueMap.size).to.equal(4);
+      elementCodeValueMap.forEach((codeValue: string, elementId: Id64String) => {
+        const sourceElementId = transformer.context.findTargetElementId(elementId);
+        expect(sourceElementId).to.not.be.undefined;
+        const sourceElement = sourceDb.elements.getElement(sourceElementId);
+        expect(sourceElement.code.value).to.equal(codeValue);
+      });
+
+      transformer.dispose();
+
+      // close iModel briefcases
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    } finally {
+      try {
+        // delete iModel briefcases
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
 
   it("should delete branch-deleted elements in reverse synchronization", async () => {
     const masterIModelName = "ReSyncDeleteMaster";
