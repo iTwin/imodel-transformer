@@ -12,10 +12,10 @@
 import "./setup";
 import { assert } from "chai";
 import * as path from "path";
-import { Element, IModelHost, IModelHostConfiguration, Relationship, SnapshotDb } from "@itwin/core-backend";
-import { Logger, LogLevel, PromiseReturnType, StopWatch } from "@itwin/core-bentley";
-import { IModelTransformer, TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { getTestIModels, TestIModel } from "./TestContext";
+import { IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
+import { Logger, LogLevel } from "@itwin/core-bentley";
+import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
@@ -23,11 +23,6 @@ import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
 
-async function sleep(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
 const testCasesMap = new Map([
   ["identity transform", require("./identity-transformer")],
 ]);
@@ -67,7 +62,7 @@ const setupTestData = async () => {
 
   assert(process.env.OIDC_CLIENT_ID, "");
   assert(process.env.OIDC_REDIRECT, "");
-  assert(process.env.IMJS_URL_PREFIX, "")
+  assert(process.env.IMJS_URL_PREFIX, "");
   assert(process.env.OIDC_SCOPE, "List scopes");
   const authClient = process.env.CI === "1"
     ? new TestBrowserAuthorizationClient({
@@ -95,27 +90,25 @@ const setupTestData = async () => {
 
 async function runRegressionTests() {
   const testIModels = await setupTestData();
-  var reporter = new Reporter();
+  let reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
 
-  describe('Transformer Regression Tests', function () {
+  describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
-        describe(`Transforms of ${iModel.name}`, async () => {
-          testCasesMap.forEach(async (testCase, key) => {
-            it(key, async () => {
-              reporter = await testCase.default(iModel, reporter);
-            }).timeout(0);
-          });
+      describe(`Transforms of ${iModel.name}`, async () => {
+        testCasesMap.forEach(async (testCase, key) => {
+          it(key, async () => {
+            reporter = await testCase.default(iModel, reporter);
+          }).timeout(0);
         });
+      });
     });
   });
 
   after(async () => {
     reporter.exportCSV(reportPath);
   });
-  // See 'DELAYED ROOT SUITE' on https://mochajs.org/#delayed-root-suite
-  // This function is a special callback function provided by mocha when passing it the --delay flag. This gives us an opportunity to load in the iModels that we'll be testing so we can dynamically generate testcases.
   run();
 }
 
-runRegressionTests();
+void runRegressionTests();
