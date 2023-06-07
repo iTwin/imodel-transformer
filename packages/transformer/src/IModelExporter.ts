@@ -9,12 +9,13 @@
 import {
   BriefcaseDb, BriefcaseManager, DefinitionModel, ECSqlStatement, Element, ElementAspect,
   ElementMultiAspect, ElementRefersToElements, ElementUniqueAspect, GeometricElement, IModelDb,
-  IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship, TokenArg,
+  IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship,
 } from "@itwin/core-backend";
 import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
-import { CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
+import { ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import type { InitFromExternalSourceAspectsArgs } from "./IModelTransformer";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -31,16 +32,11 @@ export interface ExportSchemaResult {
  * Arguments for [[IModelExporter.exportChanges]]
  * @public
  */
-export interface ExportChangesArgs extends TokenArg {
+export interface ExportChangesOptions extends InitFromExternalSourceAspectsArgs {
   /**
-   * Include changes from this changeset up through and including the current changeset.
-   * If this parameter is not provided, then just the current changeset will be exported.
-   * @note To form a range of versions to export, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
-   * */
-  startChangesetId?: string;
-  /**
-   * Instance class that contains modified elements between 2 versions of an iModel.
-   * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] will be called to discover changed elements.
+   * Class instance that contains modified elements between 2 versions of an iModel.
+   * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]]
+   * will be called to discover changed elements.
    */
   changedInstanceIds?: ChangedInstanceIds;
 }
@@ -285,28 +281,37 @@ export class IModelExporter {
   /**
    * Export changes from the source iModel.
    */
-  public async exportChanges(args?: ExportChangesArgs): Promise<void>;
+  public async exportChanges(args?: ExportChangesOptions): Promise<void>;
   /** @deprecated in 0.1.x, use a single ExportChangesArgs object instead */
-  public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, args?: ExportChangesArgs): Promise<void>;
+  public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, args?: ExportChangesOptions): Promise<void>;
   /** @internal Don't use this overload. */
-  public async exportChanges(accessTokenOrArgs?: AccessToken | ExportChangesArgs, startChangesetId?: string, args?: ExportChangesArgs): Promise<void> {
-    const options: ExportChangesArgs | undefined = typeof accessTokenOrArgs === "string"
-      ? { accessToken: accessTokenOrArgs, startChangesetId, changedInstanceIds: args?.changedInstanceIds }
-      : accessTokenOrArgs;
-
-    if (!this.sourceDb.isBriefcaseDb()) {
+  public async exportChanges(accessTokenOrArgs?: AccessToken | ExportChangesOptions, startChangesetId?: string): Promise<void> {
+    if (!this.sourceDb.isBriefcaseDb())
       throw new IModelError(IModelStatus.BadRequest, "Must be a briefcase to export changes");
-    }
+
     if ("" === this.sourceDb.changeset.id) {
       await this.exportAll(); // no changesets, so revert to exportAll
       return;
     }
-    this._sourceDbChanges = options?.changedInstanceIds ?? await ChangedInstanceIds.initialize(options?.accessToken, this.sourceDb, options?.startChangesetId ?? this.sourceDb.changeset.id);
+
+    const accessToken = typeof accessTokenOrArgs === "object" ? accessTokenOrArgs.accessToken : accessTokenOrArgs;
+    const startChangeset = startChangesetId ? { id: startChangesetId } : this.sourceDb.changeset;
+    this._sourceDbChanges =
+      (typeof accessTokenOrArgs === "object"
+        ? accessTokenOrArgs.changedInstanceIds
+        : undefined)
+      ?? await ChangedInstanceIds.initialize({
+        accessToken,
+        startChangeset,
+        iModel: this.sourceDb,
+      });
+
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
     await this.exportSubModels(IModel.repositoryModelId);
     await this.exportRelationships(ElementRefersToElements.classFullName);
+
     // handle deletes
     if (this.visitElements) {
       // must delete models first since they have a constraint on the submodeling element which may also be deleted
@@ -846,6 +851,17 @@ export interface IModelExporterState {
   additionalState?: any;
 }
 
+/**
+ * Arguments for [[ChangedInstanceIds.initialize]]
+ * @beta
+ */
+export interface ChangedInstanceIdsInitOptions extends ExportChangesOptions {
+  /** @inheritdoc */
+  startChangeset: ChangesetIndexOrId;
+  iModel: BriefcaseDb;
+}
+
+
 /** Class for holding change information.
  * @beta
 */
@@ -884,20 +900,42 @@ export class ChangedInstanceIds {
 
   /**
    * Initializes a new ChangedInstanceIds object with information taken from a range of changesets.
+   */
+  public static async initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds>;
+  /**
+   * Initializes a new ChangedInstanceIds object with information taken from a range of changesets.
+   * @deprecated in 0.1.x. Pass a [[ChangedInstanceIdsInitOptions]] object instead of a changeset id
    * @param accessToken Access token.
    * @param iModel IModel briefcase whose changesets will be queried.
    * @param firstChangesetId Changeset id.
    * @note Modified element information will be taken from a range of changesets. First changeset in a range will be the 'firstChangesetId', the last will be whichever changeset the 'iModel' briefcase is currently opened on.
    */
-  public static async initialize(accessToken: AccessToken | undefined, iModel: BriefcaseDb, firstChangesetId: string): Promise<ChangedInstanceIds> {
-    const iModelId = iModel.iModelId;
-    const first = (await IModelHost.hubAccess.queryChangeset({ iModelId, changeset: { id: firstChangesetId }, accessToken })).index;
-    const end = (await IModelHost.hubAccess.queryChangeset({ iModelId, changeset: { id: iModel.changeset.id }, accessToken })).index;
+  public static async initialize(
+    accessTokenOrOpts: AccessToken | ChangedInstanceIdsInitOptions | undefined,
+    iModel?: BriefcaseDb,
+    startChangesetId?: string,
+  ): Promise<ChangedInstanceIds> {
+    const opts: ChangedInstanceIdsInitOptions
+      = typeof accessTokenOrOpts === "object"
+        ? accessTokenOrOpts
+        : {
+          accessToken: accessTokenOrOpts,
+          iModel: iModel!,
+          startChangeset: { id: startChangesetId! },
+        };
+
+    const accessToken = opts.accessToken;
+    const iModelId = opts.iModel.iModelId;
+
+    const first = opts.startChangeset?.index
+      ?? (await IModelHost.hubAccess.queryChangeset({ iModelId, changeset: { id: opts.startChangeset.id }, accessToken })).index;
+    const end = opts.iModel.changeset.index
+      ?? (await IModelHost.hubAccess.queryChangeset({ iModelId, changeset: { id: opts.iModel.changeset.id }, accessToken })).index;
     const changesets = await IModelHost.hubAccess.downloadChangesets({ accessToken, iModelId, range: { first, end }, targetDir: BriefcaseManager.getChangeSetsPath(iModelId) });
 
     const changedInstanceIds = new ChangedInstanceIds();
     const changesetFiles = changesets.map((c) => c.pathname);
-    const statusOrResult = iModel.nativeDb.extractChangedInstanceIdsFromChangeSets(changesetFiles);
+    const statusOrResult = opts.iModel.nativeDb.extractChangedInstanceIdsFromChangeSets(changesetFiles);
     if (statusOrResult.error) {
       throw new IModelError(statusOrResult.error.status, "Error processing changeset");
     }

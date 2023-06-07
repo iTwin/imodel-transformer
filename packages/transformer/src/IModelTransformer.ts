@@ -19,14 +19,14 @@ import {
   ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
-  RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink, TokenArg,
+  RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
-import { ChangedInstanceIds, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
+import { ChangedInstanceIds, ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
@@ -215,23 +215,20 @@ function mapId64<R>(
  */
 export interface InitFromExternalSourceAspectsArgs {
   accessToken?: AccessToken;
-  startChangesetId?: string;
+  /**
+   * Include changes from this changeset up through and including the current changeset.
+   * @note To form a range of versions to process, set `startChangeset` for the start (inclusive)
+   * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   * @default the current changeset of the sourceDb, if undefined
+   */
+  startChangeset?: ChangesetIndexOrId;
 }
 
 /**
  * Arguments for [[IModelTransformer.processChanges]]
  */
-export interface ProcessChangesArgs extends MarkRequired<TokenArg, "accessToken"> {
-  /**
-   * Include changes from this changeset up through and including the current changeset.
-   * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
-   */
-  startChangesetId?: string;
-  /**
-   * Class instance that contains modified elements between 2 versions of an iModel.
-   * If this parameter is not provided, then [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]] will be called to discover changed elements.
-   */
-  changedInstanceIds?: ChangedInstanceIds;
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface ProcessChangesOptions extends ExportChangesOptions {
 }
 
 /** Base class used to transform a source iModel into a different target iModel.
@@ -1525,20 +1522,25 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  /**
-   * Export changes from the source iModel and import the transformed entities into the target iModel.
+  /** Export changes from the source iModel and import the transformed entities into the target iModel.
+   * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive)
+   * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async processChanges(args: ProcessChangesArgs): Promise<void>;
+  public async processChanges(args: ProcessChangesOptions): Promise<void>;
   /** @deprecated in 0.1.x, use a single [[ProcessChangesArgs]] object instead */
-  public async processChanges(accessToken: AccessToken, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void>;
+  public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
   /** @internal Don't use this overload. */
-  public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesArgs, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void> {
+  public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesOptions, startChangesetId?: string): Promise<void> {
     Logger.logTrace(loggerCategory, "processChanges()");
     this.logSettings();
     this.validateScopeProvenance();
 
-    const options: ProcessChangesArgs = typeof accessTokenOrArgs === "string"
-      ? { accessToken: accessTokenOrArgs, startChangesetId, changedInstanceIds: args?.changedInstanceIds }
+    const options: ProcessChangesOptions = typeof accessTokenOrArgs === "string"
+      ? {
+        accessToken: accessTokenOrArgs,
+        startChangeset: startChangesetId ? { id: startChangesetId } : this.sourceDb.changeset,
+        changedInstanceIds: undefined,
+      }
       : accessTokenOrArgs;
 
     await this.initialize(options);
