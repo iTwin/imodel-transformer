@@ -294,15 +294,23 @@ export class IModelExporter {
       return;
     }
 
-    const accessToken = typeof accessTokenOrArgs === "object" ? accessTokenOrArgs.accessToken : accessTokenOrArgs;
-    const startChangeset = startChangesetId ? { id: startChangesetId } : this.sourceDb.changeset;
+    const { accessToken, startChangeset }
+      = typeof accessTokenOrArgs === "object"
+        ? accessTokenOrArgs
+        : {
+          accessToken: accessTokenOrArgs,
+          startChangeset: { id: startChangesetId },
+        };
+
     this._sourceDbChanges =
       (typeof accessTokenOrArgs === "object"
         ? accessTokenOrArgs.changedInstanceIds
         : undefined)
       ?? await ChangedInstanceIds.initialize({
         accessToken,
-        startChangeset,
+        startChangeset: startChangeset?.id !== undefined || startChangeset?.index !== undefined
+          ? startChangeset as ChangesetIndexOrId
+          : this.sourceDb.changeset,
         iModel: this.sourceDb,
       });
 
