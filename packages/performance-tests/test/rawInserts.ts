@@ -99,5 +99,9 @@ export default async function rawInserts(reporter: Reporter) {
       relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
     }
   );
+
+  sourceDb.close();
+  targetDb.close();
+  targetNoProvDb.close();
 }
 
