@@ -75,7 +75,7 @@ export default async function rawInserts(reporter: Reporter) {
 
   const targetNoProvPath = initOutputFile(`RawInserts-TargetNoProv.bim`, outputDir);
   const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, { rootSubject: { name: "RawInsertsTarget" }});
-  const transformerNoProv = new IModelTransformer(sourceDb, targetNoProvDb, { noProvenance: true })
+  const transformerNoProv = new IModelTransformer(sourceDb, targetNoProvDb, { noProvenance: true });
 
   const [transformNoProvTimer] = await timed(async () => {
     await transformerNoProv.processAll();
