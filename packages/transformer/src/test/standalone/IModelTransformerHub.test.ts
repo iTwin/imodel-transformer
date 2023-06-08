@@ -434,7 +434,7 @@ describe("IModelTransformerHub", () => {
       await saveAndPushChanges(replayedDb, "changes from source seed");
       for (const masterDbChangeset of masterDbChangesets) {
         await sourceDb.pullChanges({ accessToken, toIndex: masterDbChangeset.index });
-        await replayTransformer.processChanges({ accessToken, startChangesetId: sourceDb.changeset.id });
+        await replayTransformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
         await saveAndPushChanges(replayedDb, masterDbChangeset.description ?? "");
       }
       replayTransformer.dispose();
@@ -783,7 +783,7 @@ describe("IModelTransformerHub", () => {
       isReverseSynchronization: true,
     });
     const queryChangeset = sinon.spy(HubMock, "queryChangeset");
-    await syncer.processChanges({ accessToken, startChangesetId: branchAt2Changeset.id });
+    await syncer.processChanges({ accessToken, startChangeset: branchAt2Changeset });
     expect(queryChangeset.alwaysCalledWith({
       accessToken,
       iModelId: branch.id,
