@@ -9,7 +9,7 @@ import * as path from "path";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
-  AccessToken, assert, DbResult, Guid, GuidString, Id64, Id64String, IModelStatus, Logger, MarkRequired,
+  AccessToken, assert, CompressedId64Set, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, IModelStatus, Logger, MarkRequired,
   OpenMode, YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
@@ -18,13 +18,13 @@ import {
   ChangeSummaryManager,
   ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, ECSqlValue, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
   ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
-  FolderLink, GeometricElement, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
+  FolderLink, GeometricElement, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
   ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
-  ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, GeometricElementProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement2dProps, Placement3d, Placement3dProps, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
+  ExternalSourceAspectProps, FontProps, GeometricElementProps, IModel, IModelError, ModelProps,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
 import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -296,6 +296,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** map of (unprocessed element, referencing processed element) pairs to the partially committed element that needs the reference resolved
    * and have some helper methods below for now */
   protected _pendingReferences = new PendingReferenceMap<PartiallyCommittedEntity>();
+
+  /** a set of elements for which source provenance will be explicitly tracked by ExternalSourceAspects */
+  protected _elementsWithExplicitlyTrackedProvenance = new Set<Id64String>();
 
   /** map of partially committed entities to their partial commit progress */
   protected _partiallyCommittedEntities = new EntityMap<PartiallyCommittedEntity>();
@@ -1431,18 +1434,18 @@ export class IModelTransformer extends IModelExportHandler {
     // make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
-        = !this._options.forceExternalSourceAspectProvenance
-        ? sourceElement.federationGuid
-        : undefined;
+        = this._options.forceExternalSourceAspectProvenance || this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)
+        ? undefined
+        : sourceElement.federationGuid;
       if (!provenance) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
-        let aspectId = this.queryScopeExternalSource(aspectProps).aspectId;
+        const aspectId = this.queryScopeExternalSource(aspectProps).aspectId;
         if (aspectId === undefined) {
-          aspectId = this.provenanceDb.elements.insertAspect(aspectProps);
+          aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
         } else {
+          aspectProps.id = aspectId;
           this.provenanceDb.elements.updateAspect(aspectProps);
         }
-        aspectProps.id = aspectId;
         provenance = aspectProps as MarkRequired<ExternalSourceAspectProps, "id">;
       }
       this.markLastProvenance(provenance, { isRelationship: false });
@@ -2196,6 +2199,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.context.loadStateFromDb(db);
     this.importer.loadStateFromJson(state.importerState);
     this.exporter.loadStateFromJson(state.exporterState);
+    this._elementsWithExplicitlyTrackedProvenance = CompressedId64Set.decompressSet(state.explicitlyTrackedElements);
     this.loadAdditionalStateJson(state.additionalState);
   }
 
@@ -2250,6 +2254,7 @@ export class IModelTransformer extends IModelExportHandler {
     const jsonState: TransformationJsonState = {
       transformerClass: this.constructor.name,
       options: this._options,
+      explicitlyTrackedElements: CompressedId64Set.compressSet(this._elementsWithExplicitlyTrackedProvenance),
       importerState: this.importer.saveStateToJson(),
       exporterState: this.exporter.saveStateToJson(),
       additionalState: this.getAdditionalStateJson(),
@@ -2374,6 +2379,18 @@ export class IModelTransformer extends IModelExportHandler {
     this.importer.computeProjectExtents();
     this.finalizeTransformation();
   }
+
+  /** Combine an array of source elements into a single target element.
+   * All source and target elements must be created before calling this method.
+   * The "combine" operation is a remap and no properties from the source elements will be exported into the target
+   * and provenance will be explicitly tracked by ExternalSourceAspects
+   */
+  public combineElements(sourceElementIds: Id64Array, targetElementId: Id64String) {
+    for (const elementId of sourceElementIds) {
+      this.context.remapElement(elementId, targetElementId);
+      this._elementsWithExplicitlyTrackedProvenance.add(elementId);
+    }
+  }
 }
 
 // FIXME: update this... although resumption is broken regardless
@@ -2383,6 +2400,7 @@ interface TransformationJsonState {
   options: IModelTransformOptions;
   importerState: IModelImporterState;
   exporterState: IModelExporterState;
+  explicitlyTrackedElements: CompressedId64Set;
   additionalState?: any;
 }
 

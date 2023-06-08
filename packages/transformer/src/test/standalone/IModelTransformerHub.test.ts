@@ -13,12 +13,12 @@ import {
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
-import { AccessToken, DbResult, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, SubCategoryAppearance } from "@itwin/core-common";
+import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
+import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
-  CountingIModelImporter, HubWrappers, IModelToTextFileExporter, IModelTransformerTestUtils, TestIModelTransformer,
+  CountingIModelImporter, HubWrappers, IModelToTextFileExporter, IModelTransformerTestUtils, PhysicalModelConsolidator, TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
 } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -26,7 +26,7 @@ import { IModelTestUtils } from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
-import { assertElemState, deleted, getIModelState, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
 
 const { count } = IModelTestUtils;
 
@@ -265,6 +265,157 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
     } finally {
       try {
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
+  it("should consolidate PhysicalModels", async () => {
+    const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("ConsolidateModelsSource");
+    const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(sourceIModelId));
+    const targetIModelName: string = IModelTransformerTestUtils.generateUniqueName("ConsolidateModelsTarget");
+    const targetIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: targetIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(targetIModelId));
+
+    try {
+      // open/upgrade sourceDb
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      const categoryId: Id64String = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.green.toJSON() });
+      const sourceModelIds: Id64Array = [];
+
+      const insertPhysicalObject = (physicalModelId: Id64String, modelIndex: number, originX: number, originY: number, undefinedFederationGuid: boolean = false) => {
+        const physicalObjectProps1: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: physicalModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          userLabel: `M${modelIndex}-PhysicalObject(${originX},${originY})`,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: Placement3d.fromJSON({ origin: { x: originX, y: originY }, angles: {} }),
+        };
+        if (undefinedFederationGuid)
+          physicalObjectProps1.federationGuid = Guid.empty;
+        sourceDb.elements.insertElement(physicalObjectProps1);
+      };
+
+      const insertModelWithElements = (modelIndex: number): Id64String => {
+        const sourceModelId: Id64String = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, `PhysicalModel${modelIndex}`);
+        const xArray: number[] = [20 * modelIndex + 1, 20 * modelIndex + 3, 20 * modelIndex + 5, 20 * modelIndex + 7, 20 * modelIndex + 9];
+        const yArray: number[] = [0, 2, 4, 6, 8];
+        let undefinedFederationGuid = false;
+        for (const x of xArray) {
+          for (const y of yArray) {
+              insertPhysicalObject(sourceModelId, modelIndex, x, y, undefinedFederationGuid);
+              undefinedFederationGuid = !undefinedFederationGuid;
+          }
+        }
+        return sourceModelId;
+      };
+
+      // insert models 0-4 with 25 elements each (5*25).
+      for (let i = 0; i < 5; i++) {
+        sourceModelIds.push(insertModelWithElements(i));
+      }
+
+      sourceDb.saveChanges();
+      assert.equal(5, count(sourceDb, PhysicalModel.classFullName));
+      assert.equal(125, count(sourceDb, PhysicalObject.classFullName));
+      await sourceDb.pushChanges({ accessToken, description: "5 physical models" });
+
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+      const targetModelId: Id64String = PhysicalModel.insert(targetDb, IModel.rootSubjectId, "PhysicalModel");
+      assert.isTrue(Id64.isValidId64(targetModelId));
+      targetDb.saveChanges();
+
+      const transformer = new PhysicalModelConsolidator(sourceDb, targetDb, targetModelId);
+      await transformer.processAll();
+
+      assert.equal(1, count(targetDb, PhysicalModel.classFullName));
+      const targetPartition = targetDb.elements.getElement<PhysicalPartition>(targetModelId);
+      assert.equal(targetPartition.code.value, "PhysicalModel", "Target PhysicalModel name should not be overwritten during consolidation");
+      assert.equal(125, count(targetDb, PhysicalObject.classFullName));
+      const aspects = targetDb.elements.getAspects(targetPartition.id, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+      expect(aspects.map((aspect) => aspect.identifier)).to.have.members(sourceModelIds);
+      expect(aspects.length).to.equal(5, "Provenance should be recorded for each source PhysicalModel");
+
+      // Insert 10 objects under model-1
+      const xArr: number[] = [101, 105];
+      const yArr: number[] = [0, 2, 4, 6, 8];
+      let undefinedFedGuid = false;
+      for (const x of xArr) {
+        for (const y of yArr) {
+          insertPhysicalObject(sourceModelIds[1], 1, x, y, undefinedFedGuid);
+          undefinedFedGuid = !undefinedFedGuid;
+        }
+      }
+
+      // Update model2 and partition2
+      const model2 = sourceDb.models.getModel(sourceModelIds[2]);
+      model2.isPrivate = true;
+      model2.update();
+
+      const partition2 = sourceDb.elements.getElement(sourceModelIds[2]);
+      partition2.userLabel = "Element-Updated";
+      partition2.update();
+
+      // insert model 5 & 6 and 50 physical objects
+      for (let i = 5; i < 7; i++) {
+        sourceModelIds.push(insertModelWithElements(i));
+      }
+
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({description: "additional PhysicalModels"});
+      // 2 models added
+      assert.equal(7, count(sourceDb, PhysicalModel.classFullName));
+      // 60 elements added
+      assert.equal(185, count(sourceDb, PhysicalObject.classFullName));
+
+      await transformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
+      transformer.dispose();
+
+      const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
+      targetDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
+        let objectCounter = 0;
+        while (DbResult.BE_SQLITE_ROW === statement.step()) {
+          const targetElementId = statement.getValue(0).getId();
+          const targetElement = targetDb.elements.getElement<PhysicalObject>({ id: targetElementId, wantGeometry: true });
+          assert.exists(targetElement.geom);
+          assert.isFalse(targetElement.calculateRange3d().isNull);
+          const targetElementModelId = statement.getValue(1).getId();
+          assert.equal(targetModelId, targetElementModelId);
+          ++objectCounter;
+        }
+        assert.equal(185, objectCounter);
+      });
+
+      assert.equal(1, count(targetDb, PhysicalModel.classFullName));
+      const modelId = targetDb.withPreparedStatement(`SELECT ECInstanceId, isPrivate FROM ${PhysicalModel.classFullName}`, (statement: ECSqlStatement) => {
+        if (DbResult.BE_SQLITE_ROW === statement.step()) {
+          const isPrivate = statement.getValue(1).getBoolean();
+          assert.isFalse(isPrivate);
+          return statement.getValue(0).getId();
+        }
+        return Id64.invalid;
+      });
+      assert.isTrue(Id64.isValidId64(modelId));
+
+      const physicalPartition = targetDb.elements.getElement<PhysicalPartition>(modelId);
+      assert.equal("PhysicalModel", physicalPartition.code.value);
+
+      const sourceAspects = targetDb.elements.getAspects(modelId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+      expect(sourceAspects.map((aspect) => aspect.identifier)).to.have.members(sourceModelIds);
+
+      // close iModel briefcases
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    } finally {
+      try {
+        // delete iModel briefcases
         await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
         await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
       } catch (err) {
