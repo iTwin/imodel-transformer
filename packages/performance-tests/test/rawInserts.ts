@@ -13,7 +13,7 @@ import { Guid, Logger, OpenMode } from "@itwin/core-bentley";
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
 
-const ELEM_COUNT = 1000; // 50k
+const ELEM_COUNT = 100_000;
 assert(ELEM_COUNT % 2 === 0, "elem count must be divisible by 2");
 
 export default async function rawInserts(reporter: Reporter) {
