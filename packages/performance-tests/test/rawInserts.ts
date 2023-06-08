@@ -6,12 +6,16 @@ import path from "path";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { Code } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
+import { Logger } from "@itwin/core-bentley";
 
+const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
 
 export default async function rawInserts(reporter: Reporter) {
   const sourcePath = initOutputFile(`RawInserts-source.bim`, outputDir);
   const sourceDb = SnapshotDb.createEmpty(sourcePath, { rootSubject: { name: "RawInsertsSource" }});
+
+  Logger.logInfo(loggerCategory, "starting 150k entity inserts");
 
   const [insertsTimer] = timed(() => {
     const physModelId = PhysicalModel.insert(sourceDb, IModelDb.rootSubjectId, "physical model");
@@ -54,6 +58,8 @@ export default async function rawInserts(reporter: Reporter) {
     }
   );
 
+  Logger.logInfo(loggerCategory, "Done. Starting with-provenance transformation of same content");
+
   const targetPath = initOutputFile(`RawInserts-Target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: "RawInsertsTarget" }});
   const transformerWithProv = new IModelTransformer(sourceDb, targetDb, { noProvenance: false });
@@ -72,6 +78,8 @@ export default async function rawInserts(reporter: Reporter) {
       relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
     }
   );
+
+  Logger.logInfo(loggerCategory, "Done. Starting without-provenance transformation of same content");
 
   const targetNoProvPath = initOutputFile(`RawInserts-TargetNoProv.bim`, outputDir);
   const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, { rootSubject: { name: "RawInsertsTarget" }});
