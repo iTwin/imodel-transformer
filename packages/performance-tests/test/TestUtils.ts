@@ -47,8 +47,5 @@ export function filterIModels(iModel: TestIModel): boolean{
   const iModelIdStr = process.env.IMODEL_IDS;
   assert(iModelIdStr, "no Imodel Ids");
   const iModelIds = iModelIdStr === "*" ? "" : iModelIdStr.split(",");
-  if(iModelIds.includes(iModel.iModelId) || iModelIds === "" )
-    return true;
-  else
-    return false;
+  return iModelIds.includes(iModel.iModelId) || iModelIds === "";
 }

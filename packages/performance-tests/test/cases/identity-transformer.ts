@@ -68,7 +68,13 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
       "Gb size": sizeInGb,
       /* eslint-enable @typescript-eslint/naming-convention */
     };
-    reporter.addEntry("Identity Transform Regression Test", iModel.name, "time", entityProcessingTimer?.elapsedSeconds ?? -1, record);
+    reporter.addEntry(
+      "Transformer Regression Tests",
+      `identity transform: ${iModel.name}`,
+      "time elapsed (seconds)",
+      entityProcessingTimer?.elapsedSeconds ?? -1,
+      record
+    );
     targetDb.close();
     sourceDb.close();
     transformer.dispose();
