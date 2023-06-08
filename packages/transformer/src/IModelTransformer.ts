@@ -298,7 +298,7 @@ export class IModelTransformer extends IModelExportHandler {
   protected _pendingReferences = new PendingReferenceMap<PartiallyCommittedEntity>();
 
   /** a set of elements for which source provenance will be explicitly tracked by ExternalSourceAspects */
-  protected _elementsWithExplicitlyTrackedProvenance = new Set<Id64String> ();
+  protected _elementsWithExplicitlyTrackedProvenance = new Set<Id64String>();
 
   /** map of partially committed entities to their partial commit progress */
   protected _partiallyCommittedEntities = new EntityMap<PartiallyCommittedEntity>();
@@ -1417,10 +1417,10 @@ export class IModelTransformer extends IModelExportHandler {
     // make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
-        = !this._options.forceExternalSourceAspectProvenance
-        ? sourceElement.federationGuid
-        : undefined;
-      if (!provenance || this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)) {
+        = this._options.forceExternalSourceAspectProvenance || this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)
+        ? undefined
+        : sourceElement.federationGuid;
+      if (!provenance) {
         const aspectProps = this.initElementProvenance(sourceElement.id, targetElementProps.id!);
         const aspectId = this.queryScopeExternalSource(aspectProps).aspectId;
         if (aspectId === undefined) {
@@ -2363,10 +2363,10 @@ export class IModelTransformer extends IModelExportHandler {
     this.finalizeTransformation();
   }
 
-  /** Combine an array source elements into a single target element.
+  /** Combine an array of source elements into a single target element.
    * All source and target elements must be created before calling this method.
-   * The "combine" operation is a simple remap and no properties from the source elements will be exported into the target.
-   * Provenance will be explicitly tracked by ExternalSourceAspects for all sourceElements.
+   * The "combine" operation is a remap and no properties from the source elements will be exported into the target
+   * and provenance will be explicitly tracked by ExternalSourceAspects
    */
   public combineElements(sourceElementIds: Id64Array, targetElementId: Id64String) {
     for (const elementId of sourceElementIds) {

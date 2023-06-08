@@ -288,7 +288,7 @@ describe("IModelTransformerHub", () => {
       const categoryId: Id64String = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.green.toJSON() });
       const sourceModelIds: Id64Array = [];
 
-      const insertPhysicalObject = (physicalModelId: Id64String, modelIndex: number, originX: number, originY: number) => {
+      const insertPhysicalObject = (physicalModelId: Id64String, modelIndex: number, originX: number, originY: number, undefinedFederationGuid: boolean = false) => {
         const physicalObjectProps1: PhysicalElementProps = {
           classFullName: PhysicalObject.classFullName,
           model: physicalModelId,
@@ -298,6 +298,8 @@ describe("IModelTransformerHub", () => {
           geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
           placement: Placement3d.fromJSON({ origin: { x: originX, y: originY }, angles: {} }),
         };
+        if (undefinedFederationGuid)
+          physicalObjectProps1.federationGuid = Guid.empty;
         sourceDb.elements.insertElement(physicalObjectProps1);
       };
 
@@ -305,9 +307,11 @@ describe("IModelTransformerHub", () => {
         const sourceModelId: Id64String = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, `PhysicalModel${modelIndex}`);
         const xArray: number[] = [20 * modelIndex + 1, 20 * modelIndex + 3, 20 * modelIndex + 5, 20 * modelIndex + 7, 20 * modelIndex + 9];
         const yArray: number[] = [0, 2, 4, 6, 8];
+        let undefinedFederationGuid = false;
         for (const x of xArray) {
           for (const y of yArray) {
-            insertPhysicalObject(sourceModelId, modelIndex, x, y);
+              insertPhysicalObject(sourceModelId, modelIndex, x, y, undefinedFederationGuid);
+              undefinedFederationGuid = !undefinedFederationGuid;
           }
         }
         return sourceModelId;
@@ -342,9 +346,11 @@ describe("IModelTransformerHub", () => {
       // Insert 10 objects under model-1
       const xArr: number[] = [101, 105];
       const yArr: number[] = [0, 2, 4, 6, 8];
+      let undefinedFedGuid = false;
       for (const x of xArr) {
         for (const y of yArr) {
-          insertPhysicalObject(sourceModelIds[1], 1, x, y);
+          insertPhysicalObject(sourceModelIds[1], 1, x, y, undefinedFedGuid);
+          undefinedFedGuid = !undefinedFedGuid;
         }
       }
 
