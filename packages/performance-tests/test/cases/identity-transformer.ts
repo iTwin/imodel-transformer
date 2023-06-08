@@ -69,8 +69,8 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
       /* eslint-enable @typescript-eslint/naming-convention */
     };
     reporter.addEntry(
-      "Transformer Regression Tests",
-      `identity transform: ${iModel.name}`,
+      "identity transform (provenance)",
+      iModel.name,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
       record

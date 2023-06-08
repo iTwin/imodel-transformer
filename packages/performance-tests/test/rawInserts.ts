@@ -13,6 +13,8 @@ import { Guid, Logger, OpenMode } from "@itwin/core-bentley";
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
 
+const iModelName = "Many PhysicalObjects and Relationships";
+
 const ELEM_COUNT = 100_000;
 assert(ELEM_COUNT % 2 === 0, "elem count must be divisible by 2");
 
@@ -60,8 +62,8 @@ export default async function rawInserts(reporter: Reporter) {
   });
 
   reporter.addEntry(
-    "Transformer Regression Tests",
-    "populate with raw insert calls",
+    "populate by insert",
+    iModelName,
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
@@ -85,8 +87,8 @@ export default async function rawInserts(reporter: Reporter) {
   });
 
   reporter.addEntry(
-    "Transformer Regression Tests",
-    "apply changeset of insert calls",
+    "populate by applying changeset",
+    iModelName,
     "time elapsed (seconds)",
     applyChangeSetTimer?.elapsedSeconds ?? -1,
     {
@@ -106,8 +108,8 @@ export default async function rawInserts(reporter: Reporter) {
   });
 
   reporter.addEntry(
-    "Transformer Regression Tests",
-    "transform raw insert populated model (with provenance)",
+    "populate by transform (adding provenance)",
+    iModelName,
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
@@ -127,8 +129,8 @@ export default async function rawInserts(reporter: Reporter) {
   });
 
   reporter.addEntry(
-    "Transformer Regression Tests",
-    "transform raw insert populated model (no provenance)",
+    "populate by transform",
+    iModelName,
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
@@ -159,9 +161,9 @@ function createChangeset(imodel: IModelDb): ChangesetFileProps {
 
 // TODO: dedup with other packages
 // for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
-function setToStandalone(iModelName: string) {
+function setToStandalone(iModelPath: string) {
   const nativeDb = new IModelHost.platform.DgnDb();
-  nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
+  nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
   nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
   nativeDb.saveChanges(); // save change to iTwinId
   nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
