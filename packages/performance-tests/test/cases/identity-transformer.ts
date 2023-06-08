@@ -12,14 +12,14 @@ import * as os from "os";
 import { Element, Relationship, SnapshotDb } from "@itwin/core-backend";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { TestIModel } from "./TestContext";
+import { TestIModel } from "../TestContext";
 import { Reporter } from "@itwin/perf-tools";
-import { initOutputFile, timed } from "./TestUtils";
+import { initOutputFile, timed } from "../TestUtils";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(iModel: TestIModel, reporter: Reporter){
+export default async function identityTransformer(iModel: TestIModel, reporter: Reporter) {
   Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
   const sourceDb = await iModel.load();
   const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
@@ -33,7 +33,6 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
       this._count++;
       if (this._count % 1000 === 0)
         Logger.logInfo(loggerCategory, `exported ${this._count} entities`);
-
     }
     public override onExportElement(sourceElement: Element): void {
       this._increment();
