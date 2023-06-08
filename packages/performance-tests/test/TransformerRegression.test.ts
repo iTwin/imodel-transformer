@@ -105,11 +105,16 @@ async function runRegressionTests() {
         });
       });
     });
+
+    const _20minutes = 20 * 60 * 1000;
+
+    it("Transform vs raw inserts", rawInserts).timeout(_20minutes);
   });
 
   after(async () => {
     reporter.exportCSV(reportPath);
   });
+
   run();
 }
 
