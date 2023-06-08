@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { assert } from "chai";
-import { PromiseReturnType, StopWatch } from "@itwin/core-bentley";
+import { StopWatch } from "@itwin/core-bentley";
 import { TestIModel } from "./TestContext";
 
 export function initOutputFile(fileBaseName: string, outputDir: string) {
@@ -15,20 +15,22 @@ export function initOutputFile(fileBaseName: string, outputDir: string) {
   return outputFileName;
 }
 
-export function timed<F extends (() => any) | (() => Promise<any>)>(
-  f: F
-): [StopWatch, ReturnType<F>] | Promise<[StopWatch, PromiseReturnType<F>]> {
+type PromiseInnerType<T> = T extends Promise<infer R> ? R : never;
+
+export function timed<R extends any | Promise<any>>(
+  f: () => R
+): R extends Promise<any> ? Promise<[StopWatch, PromiseInnerType<R>]> : [StopWatch, R] {
   const stopwatch = new StopWatch();
   stopwatch.start();
   const result = f();
   if (result instanceof Promise) {
-    return result.then<[StopWatch, PromiseReturnType<F>]>((innerResult) => {
+    return result.then((innerResult) => {
       stopwatch.stop();
       return [stopwatch, innerResult];
-    });
+    }) as any; // stupid type system
   } else {
     stopwatch.stop();
-    return [stopwatch, result];
+    return [stopwatch, result] as any;
   }
 }
 
@@ -45,8 +47,5 @@ export function filterIModels(iModel: TestIModel): boolean{
   const iModelIdStr = process.env.IMODEL_IDS;
   assert(iModelIdStr, "no Imodel Ids");
   const iModelIds = iModelIdStr === "*" ? "" : iModelIdStr.split(",");
-  if(iModelIds.includes(iModel.iModelId) || iModelIds === "" )
-    return true;
-  else
-    return false;
+  return iModelIds.includes(iModel.iModelId) || iModelIds === "";
 }

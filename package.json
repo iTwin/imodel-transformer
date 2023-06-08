@@ -22,7 +22,7 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "beachball": "^2.33.2",
+    "beachball": "^2.33.3",
     "fast-glob": "^3.2.12",
     "husky": "^8.0.3",
     "lint-staged": "^13.2.2"
