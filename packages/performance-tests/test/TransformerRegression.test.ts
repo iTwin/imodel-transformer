@@ -14,7 +14,7 @@ import * as path from "path";
 import { IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
 import { Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { TestIModel, getTestIModels } from "./TestContext";
+import { getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
