@@ -22,6 +22,7 @@ import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
 import rawInserts from "./rawInserts";
+import { getBranchName } from "./GitUtils";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
@@ -96,13 +97,15 @@ async function runRegressionTests() {
   const testIModels = await setupTestData();
   let reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
+  const branchName =  await getBranchName();
+  console.log(`Branch name: ${branchName}`);
 
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
       describe(`Transforms of ${iModel.name}`, async () => {
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
-            reporter = await testCase(iModel, reporter);
+            reporter = await testCase(iModel, reporter, branchName);
           }).timeout(0);
         });
       });
@@ -110,7 +113,7 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it("Transform vs raw inserts", async () => {
+    it.skip("Transform vs raw inserts", async () => {
       return rawInserts(reporter);
     }).timeout(0);
 

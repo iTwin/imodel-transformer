@@ -1,11 +1,11 @@
 
-export function getBranchName(): string{
-  const { exec } = require('child_process');
-  let branchName: string = '';
-  exec('git rev-parse --abbrev-ref HEAD', (err: boolean, stdout: string, stderr: string) => {
-    if (err)
-      throw stderr
-    branchName = stdout.trim()
-  });
-  return branchName;
+const util = require('node:util');
+const exec = util.promisify(require('node:child_process').exec);
+
+export async function getBranchName(): Promise<string> {
+  const { stdout, stderr } = await exec('git rev-parse --abbrev-ref HEAD');
+  if (stderr)
+    throw new Error(`exec error: ${stderr}`);
+  else 
+    return stdout.trim();
 }

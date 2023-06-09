@@ -15,11 +15,12 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { TestIModel } from "../TestContext";
 import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "../TestUtils";
+import { getBranchName } from "../GitUtils";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(iModel: TestIModel, reporter: Reporter) {
+export default async function identityTransformer(iModel: TestIModel, reporter: Reporter, branchName:string) {
   Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
   const sourceDb = await iModel.load();
   const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
@@ -66,6 +67,7 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
       "Id": iModel.iModelId,
       "T-shirt size": iModel.tShirtSize,
       "Gb size": sizeInGb,
+      "Branch Name": branchName,
       /* eslint-enable @typescript-eslint/naming-convention */
     };
     reporter.addEntry(
