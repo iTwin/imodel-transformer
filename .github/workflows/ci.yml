@@ -4,6 +4,18 @@ on:
   pull_request:
     branches: [ "main" ]
 
+  # for testing
+  workflow_dispatch:
+    inputs:
+      nativeBackTraceTest:
+        description: |
+          Run tests under gdb and try to get a native
+          backtrace in the event of a crash
+        default: 'false'
+        options:
+        - 'true'
+        - 'false'
+
 jobs:
   check-change-files:
     runs-on: ubuntu-latest
@@ -158,4 +170,12 @@ jobs:
 
     - name: Test
       run: pnpm run test
+      if: ${{ inputs.nativeBackTraceTest == 'false' || inputs.nativeBackTraceTest == '' }}
 
+    - name: Test
+      run: |
+        gdb -batch node \
+          -ex "run node_modules/mocha/bin/mocha.js 'lib/cjs/test/**/*.test.js' --timeout 8000 --require source-map-support/register" \
+          -ex bt
+      working-directory: packages/transformer
+      if: ${{ inputs.nativeBackTraceTest == 'true' }}
