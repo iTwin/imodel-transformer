@@ -95,7 +95,7 @@ jobs:
             )
             ._getMaxes()
             .concat("USE_FROZEN_DEV_DEPS");
-          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ version: supportedMinors }));
+          require("fs").writeFileSync("$GITHUB_OUTPUT", "matrix="+JSON.stringify({ version: ["USE_FROZEN_DEV_DEPS"] }));
         }));
         EOF
 
