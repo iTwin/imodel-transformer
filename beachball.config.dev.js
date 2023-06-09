@@ -11,7 +11,10 @@ module.exports = {
   tag: !process.env.SPECIAL_TAG || process.env.SPECIAL_TAG === "dev"
     ? "nightly"
     : process.env.SPECIAL_TAG,
-  prereleasePrefix: process.env.SPECIAL_TAG ?? "dev",
+  prereleasePrefix: process.env.SPECIAL_TAG || "dev",
   generateChangelog: false,
   gitTags: false,
 };
+
+if (!module.exports.tag)
+  throw Error("Sanity Error: using dev config but prerelease tag wasn't set");
