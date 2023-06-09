@@ -156,7 +156,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
             targetId: this.findTargetEntityId(relInSource.targetId),
           };
           // return a null
-          if (!Id64.isValidId64(relInTarget.sourceId) || !Id64.isValidId64(relInTarget.targetId))
+          if (!EntityReferences.isValid(relInTarget.sourceId) || !EntityReferences.isValid(relInTarget.targetId))
             break;
           const relInTargetId = this.sourceDb.withPreparedStatement(
             `
