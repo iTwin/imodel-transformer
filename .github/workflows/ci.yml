@@ -168,9 +168,8 @@ jobs:
     - name: Lint
       run: pnpm run lint
 
-    - name: Test
-      run: pnpm run test
-      if: ${{ inputs.nativeBackTraceTest == 'false' }}
+    - name: install gdb
+      run: sudo apt-get install -y gdb
 
     - name: Test
       run: |
