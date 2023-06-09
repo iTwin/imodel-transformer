@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "fixed findTargetEntityId when searching for relationship that points to non-existing element in targetIModel",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "51540204+simsta6@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
