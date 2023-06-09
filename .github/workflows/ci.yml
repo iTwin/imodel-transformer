@@ -170,7 +170,7 @@ jobs:
 
     - name: Test
       run: pnpm run test
-      if: ${{ inputs.nativeBackTraceTest == 'false' || inputs.nativeBackTraceTest == '' }}
+      if: ${{ inputs.nativeBackTraceTest == 'false' }}
 
     - name: Test
       run: |
@@ -178,4 +178,4 @@ jobs:
           -ex "run node_modules/mocha/bin/mocha.js 'lib/cjs/test/**/*.test.js' --timeout 8000 --require source-map-support/register" \
           -ex bt
       working-directory: packages/transformer
-      if: ${{ inputs.nativeBackTraceTest == 'true' }}
+      if: ${{ inputs.nativeBackTraceTest == 'true' || inputs.nativeBackTraceTest == '' }}
