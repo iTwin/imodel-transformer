@@ -173,6 +173,7 @@ jobs:
 
     - name: Test
       run: |
+        echo why dont you work
         gdb -batch node \
           -ex "run node_modules/mocha/bin/mocha.js 'lib/cjs/test/**/*.test.js' --timeout 8000 --require source-map-support/register" \
           -ex bt
