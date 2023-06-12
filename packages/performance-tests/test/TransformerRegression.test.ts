@@ -39,7 +39,7 @@ const setupTestData = async () => {
   assert(LogLevel[logLevel] !== undefined, "unknown log level");
 
   Logger.initializeToConsole();
-  Logger.setLevelDefault(LogLevel.Error);
+  Logger.setLevelDefault(logLevel);
   Logger.setLevel(TransformerLoggerCategory.IModelExporter, logLevel);
   Logger.setLevel(TransformerLoggerCategory.IModelImporter, logLevel);
   Logger.setLevel(TransformerLoggerCategory.IModelTransformer, logLevel);
