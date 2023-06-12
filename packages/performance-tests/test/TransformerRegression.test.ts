@@ -34,16 +34,16 @@ const testCasesMap = new Map([
 const outputDir = path.join(__dirname, ".output");
 
 const setupTestData = async () => {
-  const logLevel = process.env.LOG_LEVEL ? Number(process.env.LOG_LEVEL) : LogLevel.Warning;
+  const logLevel = process.env.LOG_LEVEL ? Number(process.env.LOG_LEVEL) : LogLevel.Error;
 
   assert(LogLevel[logLevel] !== undefined, "unknown log level");
 
   Logger.initializeToConsole();
-  Logger.setLevelDefault(logLevel);
-  Logger.setLevel(TransformerLoggerCategory.IModelExporter, LogLevel.Warning);
-  Logger.setLevel(TransformerLoggerCategory.IModelImporter, LogLevel.Warning);
-  Logger.setLevel(TransformerLoggerCategory.IModelTransformer, LogLevel.Warning);
-
+  Logger.setLevelDefault(LogLevel.Error);
+  Logger.setLevel(TransformerLoggerCategory.IModelExporter, logLevel);
+  Logger.setLevel(TransformerLoggerCategory.IModelImporter, logLevel);
+  Logger.setLevel(TransformerLoggerCategory.IModelTransformer, logLevel);
+  
   let usrEmail;
   let usrPass;
   if(process.env.V2_CHECKPOINT_USER_NAME){
@@ -98,7 +98,6 @@ async function runRegressionTests() {
   let reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
   const branchName =  await getBranchName();
-  console.log(`Branch name: ${branchName}`);
 
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
@@ -113,8 +112,8 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it.skip("Transform vs raw inserts", async () => {
-      return rawInserts(reporter);
+    it("Transform vs raw inserts", async () => {
+      return rawInserts(reporter, branchName);
     }).timeout(0);
 
   });

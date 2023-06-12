@@ -18,7 +18,7 @@ const iModelName = "Many PhysicalObjects and Relationships";
 const ELEM_COUNT = 100_000;
 assert(ELEM_COUNT % 2 === 0, "elem count must be divisible by 2");
 
-export default async function rawInserts(reporter: Reporter) {
+export default async function rawInserts(reporter: Reporter, branchName: string) {
   const sourcePath = initOutputFile(`RawInserts-source.bim`, outputDir);
   if (fs.existsSync(sourcePath))
     fs.unlinkSync(sourcePath);
@@ -69,6 +69,7 @@ export default async function rawInserts(reporter: Reporter) {
     {
       elementCount: IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -94,6 +95,7 @@ export default async function rawInserts(reporter: Reporter) {
     {
       elementCount: IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -115,6 +117,7 @@ export default async function rawInserts(reporter: Reporter) {
     {
       elementCount: IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -136,6 +139,7 @@ export default async function rawInserts(reporter: Reporter) {
     {
       elementCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
