@@ -71,7 +71,7 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
     };
     reporter.addEntry(
       "identity transform (provenance)",
-      `${iModel.name} - ${branchName}`,
+      `${branchName}: ${iModel.name}`,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
       record

@@ -1,8 +1,8 @@
-import util = require("node:util");
-import childPoc = require("node:child_process");
+import util from "util";
+import child_proc from "child_process";
 
 export async function getBranchName(): Promise<string> {
-  const exec = util.promisify(childPoc.exec);
+  const exec = util.promisify(child_proc.exec);
 
   const { stdout, stderr } = await exec("git rev-parse --abbrev-ref HEAD");
   if (stderr)
