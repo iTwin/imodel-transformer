@@ -22,6 +22,7 @@ import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
 import rawInserts from "./rawInserts";
+import { getBranchName } from "./GitUtils";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
@@ -33,15 +34,15 @@ const testCasesMap = new Map([
 const outputDir = path.join(__dirname, ".output");
 
 const setupTestData = async () => {
-  const logLevel = process.env.LOG_LEVEL ? Number(process.env.LOG_LEVEL) : LogLevel.Warning;
+  const logLevel = process.env.LOG_LEVEL ? Number(process.env.LOG_LEVEL) : LogLevel.Error;
 
   assert(LogLevel[logLevel] !== undefined, "unknown log level");
 
   Logger.initializeToConsole();
   Logger.setLevelDefault(logLevel);
-  Logger.setLevel(TransformerLoggerCategory.IModelExporter, LogLevel.Warning);
-  Logger.setLevel(TransformerLoggerCategory.IModelImporter, LogLevel.Warning);
-  Logger.setLevel(TransformerLoggerCategory.IModelTransformer, LogLevel.Warning);
+  Logger.setLevel(TransformerLoggerCategory.IModelExporter, logLevel);
+  Logger.setLevel(TransformerLoggerCategory.IModelImporter, logLevel);
+  Logger.setLevel(TransformerLoggerCategory.IModelTransformer, logLevel);
 
   let usrEmail;
   let usrPass;
@@ -96,13 +97,14 @@ async function runRegressionTests() {
   const testIModels = await setupTestData();
   let reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
+  const branchName =  await getBranchName();
 
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
       describe(`Transforms of ${iModel.name}`, async () => {
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
-            reporter = await testCase(iModel, reporter);
+            reporter = await testCase(iModel, reporter, branchName);
           }).timeout(0);
         });
       });
@@ -111,7 +113,7 @@ async function runRegressionTests() {
     const _15minutes = 15 * 60 * 1000;
 
     it("Transform vs raw inserts", async () => {
-      return rawInserts(reporter);
+      return rawInserts(reporter, branchName);
     }).timeout(0);
 
   });
