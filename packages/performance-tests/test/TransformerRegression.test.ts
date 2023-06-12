@@ -43,7 +43,7 @@ const setupTestData = async () => {
   Logger.setLevel(TransformerLoggerCategory.IModelExporter, logLevel);
   Logger.setLevel(TransformerLoggerCategory.IModelImporter, logLevel);
   Logger.setLevel(TransformerLoggerCategory.IModelTransformer, logLevel);
-  
+
   let usrEmail;
   let usrPass;
   if(process.env.V2_CHECKPOINT_USER_NAME){

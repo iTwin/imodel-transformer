@@ -69,7 +69,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     {
       elementCount: IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
-      "Branch Name": branchName,
+      branchName,
     }
   );
 
@@ -95,7 +95,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     {
       elementCount: IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
-      "Branch Name": branchName,
+      branchName,
     }
   );
 
@@ -117,7 +117,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     {
       elementCount: IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
-      "Branch Name": branchName,
+      branchName,
     }
   );
 
@@ -139,7 +139,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     {
       elementCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
-      "Branch Name": branchName,
+      branchName,
     }
   );
 
