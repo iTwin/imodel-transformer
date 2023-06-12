@@ -28,7 +28,7 @@ export async function runWithCpuProfiler<F extends () => any>(
     sampleIntervalMicroSec = +(process.env.PROFILE_SAMPLE_INTERVAL ?? 500), // half a millisecond
   } = {}
 ): Promise<ReturnType<F>> {
-  const maybeNameTimePortion = timestamp ? `_${new Date().toISOString().replace(":","_")}` : "";
+  const maybeNameTimePortion = timestamp ? `_${new Date().toISOString().replace(/:/g, "-").replace(/\./g, "-")}` : "";
   const profilePath = path.join(profileDir, `${profileName}${maybeNameTimePortion}${profileExtension}`);
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   // implementation influenced by https://github.com/wallet77/v8-inspector-api/blob/master/src/utils.js
