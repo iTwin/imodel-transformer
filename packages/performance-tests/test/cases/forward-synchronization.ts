@@ -3,9 +3,9 @@ import * as fs from "fs";
 import { RepositoryLink, IModelDb, BriefcaseDb, BriefcaseManager, IModelHost } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Reporter } from "@itwin/perf-tools";
-import { TestIModel } from "./TestContext";
+import { TestIModel } from "../TestContext";
 import { Logger, StopWatch } from "@itwin/core-bentley";
-import { timed } from "./TestUtils";
+import { timed } from "../TestUtils";
 
 const loggerCategory = "Transformer Performance Tests Forward Sync";
 const outputDir = path.join(__dirname, ".output");
