@@ -2,6 +2,21 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Fri, 09 Jun 2023 13:24:23 GMT",
+      "tag": "@itwin/imodel-transformer_v0.1.16",
+      "version": "0.1.16",
+      "comments": {
+        "patch": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "d27dc1f156b72a10acfb1fc717606364f651f662",
+            "comment": "fixed findTargetEntityId when searching for relationship that points to non-existing element in targetIModel"
+          }
+        ]
+      }
+    },
+    {
       "date": "Thu, 01 Jun 2023 22:51:33 GMT",
       "tag": "@itwin/imodel-transformer_v0.1.14",
       "version": "0.1.14",

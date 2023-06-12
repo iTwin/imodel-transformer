@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   check-change-files:
@@ -150,11 +151,11 @@ jobs:
       env:
         CORE_VERSION: ${{ matrix.version }}
 
-    - name: Build
-      run: pnpm run build
-
     - name: Lint
       run: pnpm run lint
+
+    - name: Build
+      run: pnpm run build
 
     - name: Test
       run: pnpm run test

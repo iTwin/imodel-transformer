@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Thu, 01 Jun 2023 22:51:33 GMT and should not be manually modified.
+This log was last generated on Fri, 09 Jun 2023 13:24:23 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.1.16
+
+Fri, 09 Jun 2023 13:24:23 GMT
+
+### Patches
+
+- fixed findTargetEntityId when searching for relationship that points to non-existing element in targetIModel ([commit](https://github.com/iTwin/transformer/commit/d27dc1f156b72a10acfb1fc717606364f651f662))
 
 ## 0.1.14
 
