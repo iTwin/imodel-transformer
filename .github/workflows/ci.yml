@@ -177,14 +177,14 @@ jobs:
         do
           echo attempt $i
           date
-          if [[ -n "$USE_GDB" ]]
-          then
-            timeout 20s gdb -batch node \
-              -ex "run node_modules/mocha/bin/mocha.js 'lib/cjs/test/**/*.test.js' --timeout 8000 --require source-map-support/register" \
-              -ex bt && echo attempt succeeded || echo attempt failed with code $?
-          else
+          # if [[ -n "$USE_GDB" ]]
+          # then
+          #   timeout 20s gdb -batch node \
+          #     -ex "run node_modules/mocha/bin/mocha.js 'lib/cjs/test/**/*.test.js' --timeout 8000 --require source-map-support/register" \
+          #     -ex bt && echo attempt succeeded || echo attempt failed with code $?
+          # else
             timeout 20s pnpm test && echo attempt succeeded || echo attempt failed with code $?
-          fi
+          # fi
         done
       working-directory: packages/transformer
       env:
