@@ -1538,7 +1538,7 @@ export class IModelTransformer extends IModelExportHandler {
    * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   public async processChanges(args: ProcessChangesOptions): Promise<void>;
-  /** @deprecated in 0.1.x, use a single [[ProcessChangesArgs]] object instead */
+  /** @deprecated in 0.1.x, use a single [[ProcessChangesOptions]] object instead */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
   public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesOptions, startChangesetId?: string): Promise<void> {
     Logger.logTrace(loggerCategory, "processChanges()");
