@@ -128,7 +128,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        await transformer.processChanges(accessToken);
+        await transformer.processChanges({ accessToken });
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
@@ -168,7 +168,7 @@ describe("IModelTransformerHub", () => {
         const numTargetRelationships: number = count(targetDb, ElementRefersToElements.classFullName);
         const targetImporter = new CountingIModelImporter(targetDb);
         const transformer = new TestIModelTransformer(sourceDb, targetImporter);
-        await transformer.processChanges(accessToken);
+        await transformer.processChanges({ accessToken });
         assert.equal(targetImporter.numModelsInserted, 0);
         assert.equal(targetImporter.numModelsUpdated, 0);
         assert.equal(targetImporter.numElementsInserted, 0);
@@ -221,7 +221,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.model.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        await transformer.processChanges(accessToken);
+        await transformer.processChanges({ accessToken });
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #2" });
@@ -848,7 +848,7 @@ describe("IModelTransformerHub", () => {
       }
 
       const synchronizer = new IModelTransformerInjected(sourceDb, new IModelImporterInjected(targetDb));
-      await synchronizer.processChanges(accessToken);
+      await synchronizer.processChanges({ accessToken });
       expect(didExportModelSelector).to.be.true;
       expect(didImportModelSelector).to.be.true;
       synchronizer.dispose();
@@ -1102,7 +1102,7 @@ describe("IModelTransformerHub", () => {
         // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
         isReverseSynchronization: true,
       });
-      await synchronizer.processChanges(accessToken);
+      await synchronizer.processChanges({ accessToken });
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
@@ -1165,7 +1165,7 @@ describe("IModelTransformerHub", () => {
       isReverseSynchronization: true,
     });
     const queryChangeset = sinon.spy(HubMock, "queryChangeset");
-    await syncer.processChanges(accessToken, branchAt2Changeset.id);
+    await syncer.processChanges({ accessToken, startChangeset: branchAt2Changeset });
     expect(queryChangeset.alwaysCalledWith({
       accessToken,
       iModelId: branch.id,

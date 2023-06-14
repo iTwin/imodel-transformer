@@ -22,11 +22,11 @@ import {
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, ChangesetIndexAndId, ChangesetIndexOrId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElementProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
-import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
+import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
@@ -251,25 +251,32 @@ function mapId64<R>(
 /** Arguments you can pass to [[IModelTransformer.initialize]]
  * @beta
  */
-export interface InitArgs {
+export interface InitOptions {
   accessToken?: AccessToken;
   /**
-   * @deprecated in 0.1.x. Use startChangeset instead
-  */
-  startChangesetId?: string;
-  /**
-   * The starting changeset of the source, inclusive, from which to apply changes
-   * @default (if undefined) should mean the last synchronized changeset in a branch relationship
+   * Include changes from this changeset up through and including the current changeset.
+   * @note To form a range of versions to process, set `startChangeset` for the start (inclusive)
+   * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   * @default the current changeset of the sourceDb, if undefined
    */
-  startChangeset?: ChangesetIndexOrId;
+  startChangeset?: {
+    id?: string;
+    index?: number;
+  };
 }
+
+/**
+ * Arguments for [[IModelTransformer.processChanges]]
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface ProcessChangesOptions extends ExportChangesOptions {}
 
 type ChangeDataState = "uninited" | "has-changes" | "no-changes" | "unconnected";
 
 /** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
- * @deprecated in 0.1.0. Use [[InitArgs]] (and [[IModelTransformer.initialize]]) instead.
+ * @deprecated in 0.1.0. Use [[InitOptions]] (and [[IModelTransformer.initialize]]) instead.
  */
-export type InitFromExternalSourceAspectsArgs = InitArgs;
+export type InitFromExternalSourceAspectsArgs = InitOptions;
 
 /** Base class used to transform a source iModel into a different target iModel.
  * @see [iModel Transformation and Data Exchange]($docs/learning/transformer/index.md), [IModelExporter]($transformer), [IModelImporter]($transformer)
@@ -727,7 +734,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Passing an [[InitFromExternalSourceAspectsArgs]] is required when processing changes, to remap any elements that may have been deleted.
    *       You must await the returned promise as well in this case. The synchronous behavior has not changed but is deprecated and won't process everything.
    */
-  public initFromExternalSourceAspects(args?: InitArgs): void | Promise<void> {
+  public initFromExternalSourceAspects(args?: InitOptions): void | Promise<void> {
     this.forEachTrackedElement((sourceElementId: Id64String, targetElementId: Id64String) => {
       this.context.remapElement(sourceElementId, targetElementId);
     });
@@ -1967,12 +1974,12 @@ export class IModelTransformer extends IModelExportHandler {
   private _sourceChangeDataState: ChangeDataState = "uninited";
 
   /**
-   * Initialize prerequisites of processing, you must initialize with an [[InitArgs]] if you
+   * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
    * are intending to process changes, but prefer using [[processChanges]] explicitly since it calls this.
    * @note Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
-  public async initialize(args?: InitArgs): Promise<void> {
+  public async initialize(args?: InitOptions): Promise<void> {
     if (this._initialized)
       return;
 
@@ -1984,7 +1991,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._initialized = true;
   }
 
-  private async _tryInitChangesetData(args?: InitArgs) {
+  private async _tryInitChangesetData(args?: InitOptions) {
     if (!args || this.sourceDb.iTwinId === undefined || this.sourceDb.changeset.index === undefined) {
       this._sourceChangeDataState = "unconnected";
       return;
@@ -2002,7 +2009,6 @@ export class IModelTransformer extends IModelExportHandler {
     const startChangesetIndexOrId
       = args.startChangeset?.index
       ?? args.startChangeset?.id
-      ?? args.startChangesetId // eslint-disable-line deprecation/deprecation
       ?? this._synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
@@ -2333,16 +2339,16 @@ export class IModelTransformer extends IModelExportHandler {
    * If this parameter is not provided, then just the current changeset will be exported.
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async processChanges(options: InitArgs): Promise<void>;
+  public async processChanges(options: ProcessChangesOptions): Promise<void>;
   /**
    * @deprecated in 0.1.x.
    * This overload follows the older behavior of defaulting an undefined startChangesetId to the
    * current changeset.
    */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
-  public async processChanges(optionsOrAccessToken: AccessToken | InitArgs, startChangesetId?: string): Promise<void> {
+  public async processChanges(optionsOrAccessToken: AccessToken | ProcessChangesOptions, startChangesetId?: string): Promise<void> {
     this._isSynchronization = true;
-    const args: InitArgs =
+    const args: ProcessChangesOptions =
       typeof optionsOrAccessToken === "string"
       ? {
           accessToken: optionsOrAccessToken,
@@ -2350,16 +2356,10 @@ export class IModelTransformer extends IModelExportHandler {
             ? { id: startChangesetId }
             : this.sourceDb.changeset,
         }
-      : {
-          ...optionsOrAccessToken,
-          startChangeset: optionsOrAccessToken.startChangeset
-            /* eslint-disable deprecation/deprecation */
-            ?? (optionsOrAccessToken.startChangesetId !== undefined
-              ? { id: optionsOrAccessToken.startChangesetId }
-              : undefined),
-            /* eslint-enable deprecation/deprecation */
-        };
+        : optionsOrAccessToken
+    ;
     this.logSettings();
+    // FIXME: we used to validateScopeProvenance... does initing it cover that?
     this.initScopeProvenance();
     await this.initialize(args);
     // must wait for initialization of synchronization provenance data

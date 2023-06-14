@@ -15,3 +15,6 @@ module.exports = {
   generateChangelog: false,
   gitTags: false,
 };
+
+if (!module.exports.tag)
+  throw Error("Sanity Error: using dev config but prerelease tag wasn't set");
