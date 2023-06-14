@@ -7,7 +7,7 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as fs from "fs";
 import * as inspector from "inspector";
-import { AccessToken, CompressedId64Set, DbResult, Guid, Id64, Id64Set, Id64String, Mutable } from "@itwin/core-bentley";
+import { CompressedId64Set, DbResult, Guid, Id64, Id64Set, Id64String, Mutable } from "@itwin/core-bentley";
 import { Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
@@ -1248,9 +1248,10 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeSeparator();
     await this.exporter.exportAll();
   }
-  public async exportChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
+  public async exportChanges(...args: Parameters<IModelExporter["exportChanges"]>): Promise<void> {
     this._shouldIndent = false;
-    return this.exporter.exportChanges({ accessToken, startChangesetId });
+    // eslint-disable-next-line deprecation/deprecation
+    return this.exporter.exportChanges(...args);
   }
   private writeLine(line: string, indentLevel: number = 0): void {
     if (this._shouldIndent) {
