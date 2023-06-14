@@ -66,3 +66,16 @@ stages:
       parameters:
         checkout: itwinjs-core
         useCurrentTransformerDocsArtifact: true
+
+  # TODO: once docs-build.yaml@itwinjs-core names their top-level job, don't need to do this in a separate stage
+  - stage: Tag_Valid_Docs
+    dependsOn: Validate_docs
+    condition: and(succeeded(), in(variables['Build.Reason'], 'IndividualCI', 'PullRequest', 'Manual'))
+    jobs:
+    - job: TagValidDocs
+      steps:
+      - task: tagBuildOrRelease@0
+        inputs:
+          type: "Build"
+          tags: "hasDocs"
+        dependsOn: ValidateDocs
