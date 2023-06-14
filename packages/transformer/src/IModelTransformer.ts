@@ -1531,7 +1531,6 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChanges(args: ProcessChangesArgs): Promise<void>;
   /** @deprecated in 0.1.x, use a single [[ProcessChangesArgs]] object instead */
   public async processChanges(accessToken: AccessToken, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void>;
-  /** @internal Don't use this overload. */
   public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesArgs, startChangesetId?: string, args?: ProcessChangesArgs): Promise<void> {
     Logger.logTrace(loggerCategory, "processChanges()");
     this.logSettings();

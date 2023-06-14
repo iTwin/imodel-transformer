@@ -288,7 +288,6 @@ export class IModelExporter {
   public async exportChanges(args?: ExportChangesArgs): Promise<void>;
   /** @deprecated in 0.1.x, use a single ExportChangesArgs object instead */
   public async exportChanges(accessToken?: AccessToken, startChangesetId?: string, args?: ExportChangesArgs): Promise<void>;
-  /** @internal Don't use this overload. */
   public async exportChanges(accessTokenOrArgs?: AccessToken | ExportChangesArgs, startChangesetId?: string, args?: ExportChangesArgs): Promise<void> {
     const options: ExportChangesArgs | undefined = typeof accessTokenOrArgs === "string"
       ? { accessToken: accessTokenOrArgs, startChangesetId, changedInstanceIds: args?.changedInstanceIds }
