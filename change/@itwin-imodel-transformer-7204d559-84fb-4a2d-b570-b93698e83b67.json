@@ -2,6 +2,6 @@
   "type": "none",
   "comment": "turn on docs validation on main and fix broken doc ref",
   "packageName": "@itwin/imodel-transformer",
-  "email": "michael.belousov98@gmail.com",
+  "email": "mike.belousov@bentley.com",
   "dependentChangeType": "none"
 }
