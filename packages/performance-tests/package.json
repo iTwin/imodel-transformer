@@ -1,0 +1,59 @@
+{
+  "name": "transformer-performance-tests",
+  "private": true,
+  "license": "MIT",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "tsc 1>&2",
+    "build:ci": "npm run -s build",
+    "clean": "rimraf lib",
+    "lint": "eslint --max-warnings 0 \"./test/**/*.ts\" 1>&2",
+    "test": "mocha --delay --timeout 300000 --require ts-node/register test/**/*.test.ts",
+    "test-mocha": "mocha --delay --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
+    "process-reports": "node scripts/process-reports"
+  },
+  "repository": {},
+  "dependencies": {
+    "@itwin/core-backend": "3.6.0 - 4.0.999",
+    "@itwin/core-bentley": "3.6.0 - 4.0.999",
+    "@itwin/core-common": "3.6.0 - 4.0.999",
+    "@itwin/core-geometry": "3.6.0 - 4.0.999",
+    "@itwin/core-quantity": "3.6.0 - 4.0.999",
+    "@itwin/imodel-transformer": "workspace:*",
+    "@itwin/ecschema-metadata": "3.6.0 - 4.0.999",
+    "@itwin/imodels-access-backend": "^2.2.1",
+    "@itwin/imodels-client-authoring": "2.3.0",
+    "@itwin/node-cli-authorization": "~0.9.0",
+    "@itwin/perf-tools": "3.7.2",
+    "dotenv": "^10.0.0",
+    "dotenv-expand": "^5.1.0",
+    "fs-extra": "^8.1.0",
+    "yargs": "^16.0.0"
+  },
+  "devDependencies": {
+    "@itwin/build-tools": "3.6.0 - 4.0.999",
+    "@itwin/eslint-plugin": "3.6.0 - 4.0.999",
+    "@itwin/oidc-signin-tool": "^3.4.1",
+    "@itwin/projects-client": "^0.6.0",
+    "@types/chai": "^4.1.4",
+    "@types/fs-extra": "^4.0.7",
+    "@types/mocha": "^8.2.2",
+    "@types/node": "14.14.31",
+    "@types/yargs": "^12.0.5",
+    "chai": "^4.3.6",
+    "eslint": "^7.11.0",
+    "mocha": "^10.0.0",
+    "rimraf": "^3.0.2",
+    "ts-node": "^10.7.0",
+    "typescript": "~4.4.0"
+  },
+  "eslintConfig": {
+    "plugins": [
+      "@itwin"
+    ],
+    "extends": "plugin:@itwin/itwinjs-recommended",
+    "parserOptions": {
+      "project": "./tsconfig.json"
+    }
+  }
+}

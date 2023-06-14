@@ -2,4 +2,5 @@ packages:
   - packages/transformer
   - packages/test-app
   - packages/performance-scripts
+  - packages/performance-tests
 
