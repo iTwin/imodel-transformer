@@ -118,8 +118,8 @@ describe("IModelCloneContext", () => {
           atLeastOneRelIdMissMatches = targetRelId !== sourceRelId;
       });
       /**
-       * If this fails then relationship ids match and we didn't really know if sourceDb and targetDb relationship ids differs
-       * It doesn't mean that functionality fails itself
+       * If this fails, then relationship ids match, and we don't really know if sourceDb and targetDb relationship ids differ.
+       * It doesn't mean that functionality fails by itself.
       */
       expect(atLeastOneRelIdMissMatches).to.be.true;
 
