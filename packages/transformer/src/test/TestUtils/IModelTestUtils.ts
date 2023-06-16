@@ -1040,8 +1040,8 @@ export class ExtensiveTestScenario {
       model: physicalModelId,
       category: spatialCategoryId,
       code: Code.createEmpty(),
-      userLabel: "PhysicalObject5"
-    }
+      userLabel: "PhysicalObject5",
+    };
 
     const physicalObjectId5 = sourceDb.elements.insertElement(physicalObjectProps5);
     assert.isTrue(Id64.isValidId64(physicalObjectId5));
@@ -1052,10 +1052,10 @@ export class ExtensiveTestScenario {
       model: physicalModelId,
       category: spatialCategoryId,
       code: { spec: "0x1", scope: physicalObjectId5 },
-      userLabel: "PhysicalObject6"
-    }
+      userLabel: "PhysicalObject6",
+    };
 
-    const physicalObjectId6 = sourceDb.elements.insertElement(physicalObjectProps6); 
+    const physicalObjectId6 = sourceDb.elements.insertElement(physicalObjectProps6);
     assert.isTrue(Id64.isValidId64(physicalObjectId6));
   }
 

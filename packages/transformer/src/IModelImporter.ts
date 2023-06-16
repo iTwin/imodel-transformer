@@ -5,15 +5,16 @@
 /** @packageDocumentation
  * @module iModels
  */
-import { CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
+import { CompressedId64Set, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, Base64EncodedString, ElementAspectProps, ElementProps, EntityProps, IModel, IModelError, ModelProps, PrimitiveTypeCode,
   PropertyMetaData, RelatedElement, SubCategoryProps,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { ElementAspect, ElementMultiAspect, ElementTreeDeleter, ElementTreeWalkerScope, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
+import { ElementAspect, ElementMultiAspect, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
 import type { IModelTransformOptions } from "./IModelTransformer";
 import * as assert from "assert";
+import { deleteElementCascadeTree } from "./ElementCascadingDeleter";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -264,7 +265,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
   protected onDeleteElement(elementId: Id64String): void {
-    deleteElementTree(this.targetDb, elementId);
+    deleteElementCascadeTree(this.targetDb, elementId);
     Logger.logInfo(loggerCategory, `Deleted element ${elementId} and its descendants`);
     this.trackProgress();
   }
@@ -677,42 +678,4 @@ function isDefaultSubCategory(props: SubCategoryProps): boolean {
   if (props.parent?.id === undefined)
     throw new IModelError(IModelStatus.BadElement, `subcategory with id ${props.id} had no parent`);
   return props.id === IModelDb.getDefaultSubCategoryId(props.parent.id);
-}
-
-/** Deletes an element tree and code scope references starting with the specified top element. The top element is also deleted. Uses ElementCascadeDeleter.
- * @param iModel The iModel
- * @param topElement The parent of the sub-tree
- */
-export function deleteElementTree(iModel: IModelDb, topElement: Id64String): void {
-  const del = new ElementCascadingDeleter(iModel);
-  del.deleteNormalElements(topElement);
-  del.deleteSpecialElements();
-} 
-
-/** Deletes an entire element tree, including sub-models and child elements, as well as code scope references.
- * Items are deleted in bottom-up order. Definitions and Subjects are deleted after normal elements.
- * Call deleteNormalElements on each tree. Then call deleteSpecialElements.
- */
-export class ElementCascadingDeleter extends ElementTreeDeleter {
-
-  protected shouldVisitCodeScopes(_elementId : Id64String, _scope : ElementTreeWalkerScope) { return true; }
-
-  /** The main tree-walking function */
-  override processElementTree(element: Id64String, scope: ElementTreeWalkerScope): void {
-    if(this.shouldVisitCodeScopes(element, scope)) {
-      this._processCodeScopes(element, scope);
-    super.processElementTree(element, scope);
-    }
-  }
-  /** Process code scope references */
-  private _processCodeScopes(element: Id64String, scope: ElementTreeWalkerScope) {
-    const newScope = new ElementTreeWalkerScope(scope, element);
-    this._iModel.withPreparedStatement("select ECInstanceId from bis.Element where CodeScope.id=? and Parent.id is null", stmt => {
-      stmt.bindId(1, element);
-      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-        const elementId = stmt.getValue(0).getId();
-        this.processElementTree(elementId, newScope);
-      }
-    });
-  }
 }
