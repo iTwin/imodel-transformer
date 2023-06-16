@@ -13,34 +13,34 @@ import { DbResult, Id64String } from "@itwin/core-bentley";
  * @param topElement The parent of the sub-tree
  */
 export function deleteElementCascadeTree(iModel: IModelDb, topElement: Id64String): void {
-    const del = new ElementCascadingDeleter(iModel);
-    del.deleteNormalElements(topElement);
-    del.deleteSpecialElements();
-  }
-  
-  /** Deletes an entire element tree, including sub-models, child elements and code scope references.
-   * Items are deleted in bottom-up order. Definitions and Subjects are deleted after normal elements.
-   * Call deleteNormalElements on each tree. Then call deleteSpecialElements.
-   */
+  const del = new ElementCascadingDeleter(iModel);
+  del.deleteNormalElements(topElement);
+  del.deleteSpecialElements();
+}
+
+/** Deletes an entire element tree, including sub-models, child elements and code scope references.
+  * Items are deleted in bottom-up order. Definitions and Subjects are deleted after normal elements.
+  * Call deleteNormalElements on each tree. Then call deleteSpecialElements.
+  */
 export class ElementCascadingDeleter extends ElementTreeDeleter {
-    protected shouldVisitCodeScopes(_elementId: Id64String, _scope: ElementTreeWalkerScope) { return true; }
+  protected shouldVisitCodeScopes(_elementId: Id64String, _scope: ElementTreeWalkerScope) { return true; }
   
-    /** The main tree-walking function */
-    protected override processElementTree(element: Id64String, scope: ElementTreeWalkerScope): void {
-      if(this.shouldVisitCodeScopes(element, scope)) {
-        this._processCodeScopes(element, scope);
+  /** The main tree-walking function */
+  protected override processElementTree(element: Id64String, scope: ElementTreeWalkerScope): void {
+    if(this.shouldVisitCodeScopes(element, scope)) {
+      this._processCodeScopes(element, scope);
+    }
+    super.processElementTree(element, scope);
+  }
+  /** Process code scope references */
+  private _processCodeScopes(element: Id64String, scope: ElementTreeWalkerScope) {
+    const newScope = new ElementTreeWalkerScope(scope, element);
+    this._iModel.withPreparedStatement("select ECInstanceId from bis.Element where CodeScope.id=? and Parent.id is null", (stmt) => {
+      stmt.bindId(1, element);
+      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const elementId = stmt.getValue(0).getId();
+        this.processElementTree(elementId, newScope);
       }
-      super.processElementTree(element, scope);
-    }
-    /** Process code scope references */
-    private _processCodeScopes(element: Id64String, scope: ElementTreeWalkerScope) {
-      const newScope = new ElementTreeWalkerScope(scope, element);
-      this._iModel.withPreparedStatement("select ECInstanceId from bis.Element where CodeScope.id=? and Parent.id is null", stmt => {
-        stmt.bindId(1, element);
-        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-          const elementId = stmt.getValue(0).getId();
-          this.processElementTree(elementId, newScope);
-        }
-      });
-    }
+    });
+  }
 }
