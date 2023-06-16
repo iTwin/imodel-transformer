@@ -24,7 +24,7 @@ export function deleteElementCascadeTree(iModel: IModelDb, topElement: Id64Strin
   */
 export class ElementCascadingDeleter extends ElementTreeDeleter {
   protected shouldVisitCodeScopes(_elementId: Id64String, _scope: ElementTreeWalkerScope) { return true; }
-  
+
   /** The main tree-walking function */
   protected override processElementTree(element: Id64String, scope: ElementTreeWalkerScope): void {
     if(this.shouldVisitCodeScopes(element, scope)) {
