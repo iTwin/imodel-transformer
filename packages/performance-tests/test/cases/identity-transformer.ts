@@ -19,7 +19,7 @@ import { initOutputFile, timed } from "../TestUtils";
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(iModel: TestIModel, reporter: Reporter) {
+export default async function identityTransformer(iModel: TestIModel, reporter: Reporter, branchName: string) {
   Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
   const sourceDb = await iModel.load();
   const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
@@ -66,11 +66,12 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
       "Id": iModel.iModelId,
       "T-shirt size": iModel.tShirtSize,
       "Gb size": sizeInGb,
+      "Branch Name": branchName,
       /* eslint-enable @typescript-eslint/naming-convention */
     };
     reporter.addEntry(
       "identity transform (provenance)",
-      iModel.name,
+      `${branchName}: ${iModel.name}`,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
       record

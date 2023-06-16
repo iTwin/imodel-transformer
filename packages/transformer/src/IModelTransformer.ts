@@ -26,7 +26,7 @@ import {
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
-import { ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
+import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
@@ -215,7 +215,23 @@ function mapId64<R>(
  */
 export interface InitFromExternalSourceAspectsArgs {
   accessToken?: AccessToken;
-  startChangesetId?: string;
+  /**
+   * Include changes from this changeset up through and including the current changeset.
+   * @note To form a range of versions to process, set `startChangeset` for the start (inclusive)
+   * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   * @default the current changeset of the sourceDb, if undefined
+   */
+  startChangeset?: {
+    id?: string;
+    index?: number;
+  };
+}
+
+/**
+ * Arguments for [[IModelTransformer.processChanges]]
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface ProcessChangesOptions extends ExportChangesOptions {
 }
 
 /** Base class used to transform a source iModel into a different target iModel.
@@ -471,15 +487,23 @@ export class IModelTransformer extends IModelExportHandler {
       return;
 
     try {
-      const startChangesetId = args.startChangesetId ?? this.sourceDb.changeset.id;
+
+      const startChangesetIndexOrId
+        = args.startChangeset?.index
+        ?? args.startChangeset?.id
+        ?? this.sourceDb.changeset.index
+        ?? this.sourceDb.changeset.id;
       const endChangesetId = this.sourceDb.changeset.id;
+
       const [firstChangesetIndex, endChangesetIndex] = await Promise.all(
-        [startChangesetId, endChangesetId]
-          .map(async (id) =>
-            IModelHost.hubAccess
+        ([startChangesetIndexOrId, endChangesetId])
+          .map(async (indexOrId) => typeof indexOrId === "number"
+            ? indexOrId
+            : IModelHost.hubAccess
               .queryChangeset({
                 iModelId: this.sourceDb.iModelId,
-                changeset: { id },
+                // eslint-disable-next-line deprecation/deprecation
+                changeset: { id: indexOrId },
                 accessToken: args.accessToken,
               })
               .then((changeset) => changeset.index)
@@ -1510,18 +1534,27 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
- * Inserts, updates, and deletes are determined by inspecting the changeset(s).
- * @param accessToken A valid access token string
- * @param startChangesetId Include changes from this changeset up through and including the current changeset.
- * If this parameter is not provided, then just the current changeset will be exported.
- * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
- */
-  public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void> {
+   * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive)
+   * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   */
+  public async processChanges(args: ProcessChangesOptions): Promise<void>;
+  /** @deprecated in 0.1.x, use a single [[ProcessChangesOptions]] object instead */
+  public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
+  public async processChanges(accessTokenOrArgs: AccessToken | ProcessChangesOptions, startChangesetId?: string): Promise<void> {
     Logger.logTrace(loggerCategory, "processChanges()");
     this.logSettings();
     this.validateScopeProvenance();
-    await this.initialize({ accessToken, startChangesetId });
-    await this.exporter.exportChanges(accessToken, startChangesetId);
+
+    const options: ProcessChangesOptions = typeof accessTokenOrArgs === "string"
+      ? {
+        accessToken: accessTokenOrArgs,
+        startChangeset: startChangesetId ? { id: startChangesetId } : this.sourceDb.changeset,
+        changedInstanceIds: undefined,
+      }
+      : accessTokenOrArgs;
+
+    await this.initialize(options);
+    await this.exporter.exportChanges(options);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)

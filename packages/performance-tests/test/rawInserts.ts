@@ -18,7 +18,7 @@ const iModelName = "Many PhysicalObjects and Relationships";
 const ELEM_COUNT = 100_000;
 assert(ELEM_COUNT % 2 === 0, "elem count must be divisible by 2");
 
-export default async function rawInserts(reporter: Reporter) {
+export default async function rawInserts(reporter: Reporter, branchName: string) {
   const sourcePath = initOutputFile(`RawInserts-source.bim`, outputDir);
   if (fs.existsSync(sourcePath))
     fs.unlinkSync(sourcePath);
@@ -63,12 +63,13 @@ export default async function rawInserts(reporter: Reporter) {
 
   reporter.addEntry(
     "populate by insert",
-    iModelName,
+    `${branchName}: ${iModelName}`,
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
       elementCount: IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
+      branchName,
     }
   );
 
@@ -88,12 +89,13 @@ export default async function rawInserts(reporter: Reporter) {
 
   reporter.addEntry(
     "populate by applying changeset",
-    iModelName,
+    `${branchName}: ${iModelName}`,
     "time elapsed (seconds)",
     applyChangeSetTimer?.elapsedSeconds ?? -1,
     {
       elementCount: IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
+      branchName,
     }
   );
 
@@ -109,12 +111,13 @@ export default async function rawInserts(reporter: Reporter) {
 
   reporter.addEntry(
     "populate by transform (adding provenance)",
-    iModelName,
+    `${branchName}: ${iModelName}`,
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
       elementCount: IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
+      branchName,
     }
   );
 
@@ -130,12 +133,13 @@ export default async function rawInserts(reporter: Reporter) {
 
   reporter.addEntry(
     "populate by transform",
-    iModelName,
+    `${branchName}: ${iModelName}`,
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
       elementCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
       relationshipCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
+      branchName,
     }
   );
 

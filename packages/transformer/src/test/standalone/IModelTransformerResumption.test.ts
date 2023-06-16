@@ -684,7 +684,7 @@ describe("test resuming transformations", () => {
       await transformNoCrash({
         sourceDb, targetDb, transformer,
         async transformerProcessing(t) {
-          await t.processChanges(accessToken);
+          await t.processChanges({ accessToken });
         },
       });
       targetDb.saveChanges();
@@ -707,7 +707,7 @@ describe("test resuming transformations", () => {
         sourceDb, targetDb, transformer, disableCrashing(t) {
           t.elementExportsUntilCall = undefined;
         }, async transformerProcessing(t) {
-          await t.processChanges(accessToken);
+          await t.processChanges({ accessToken });
         },
       });
       targetDb.saveChanges();
