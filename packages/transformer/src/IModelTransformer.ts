@@ -382,7 +382,7 @@ export class IModelTransformer extends IModelExportHandler {
       scope: { id: this.targetScopeElementId },
       identifier: aspectIdentifier,
       kind: ExternalSourceAspect.Kind.Element,
-      version: this.provenanceSourceDb.elements.queryLastModifiedTime(sourceElementId),
+      version: this.provenanceSourceDb.elements.queryLastModifiedTime(this._options.isReverseSynchronization ? targetElementId : sourceElementId),
     };
     return aspectProps;
   }
