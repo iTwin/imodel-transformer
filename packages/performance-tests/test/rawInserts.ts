@@ -9,6 +9,7 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { BriefcaseIdValue, ChangesetFileProps, Code } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Guid, Logger, OpenMode } from "@itwin/core-bentley";
+import { setToStandalone } from "./iModelUtils";
 
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
@@ -161,19 +162,5 @@ function createChangeset(imodel: IModelDb): ChangesetFileProps {
 
   imodel.nativeDb.completeCreateChangeset({ index: 0 });
   return changeset as any; // FIXME: bad peer deps
-}
-
-// TODO: dedup with other packages
-// for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
-function setToStandalone(iModelPath: string) {
-  const nativeDb = new IModelHost.platform.DgnDb();
-  nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
-  nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-  nativeDb.saveChanges(); // save change to iTwinId
-  nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-  nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-  nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
-  nativeDb.saveChanges(); // save change to briefcaseId
-  nativeDb.closeIModel();
 }
 

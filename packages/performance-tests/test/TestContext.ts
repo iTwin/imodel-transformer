@@ -8,6 +8,8 @@ import { Logger } from "@itwin/core-bentley";
 import { BriefcaseIdValue, IModelVersion } from "@itwin/core-common";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import assert from "assert";
+import { generateTestIModel } from "./iModelUtils";
+import { iModelParams } from "./iModelUtils";
 
 const loggerCategory = "TestContext";
 
@@ -25,7 +27,7 @@ export const testITwinIds = iTwinIdStr.split(",");
 
 type TShirtSize = "s" | "m" | "l" | "xl" | "unknown";
 
-function getTShirtSizeFromName(name: string): TShirtSize {
+export function getTShirtSizeFromName(name: string): TShirtSize {
   return /^(?<size>s|m|l|xl)\s*-/i.exec(name)?.groups?.size?.toLowerCase() as TShirtSize ?? "unknown";
 }
 
@@ -56,6 +58,16 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
       }
     }
   }
+  const iModelParamsFedguids: iModelParams = {
+    numElements: 100000, 
+    fedGuids: true
+  }
+  yield generateTestIModel(iModelParamsFedguids);
+  const iModelParamsNoFedguids: iModelParams = {
+    numElements: 100000, 
+    fedGuids: false
+  }
+  yield generateTestIModel(iModelParamsNoFedguids);
 }
 
 export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<BriefcaseDb> {
