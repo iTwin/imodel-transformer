@@ -650,7 +650,9 @@ export class IModelExporter {
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {
       await this.handler.preExportElement(element);
-      this.handler.onExportElement(element, isUpdate);
+      // this API is intended to become async and in a test is currently async
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this.exportElementAspects(elementId);
       return this.exportChildElements(elementId);

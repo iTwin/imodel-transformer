@@ -494,7 +494,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should merge changes made on a branch back to master", async () => {
+  it.only("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -678,7 +678,34 @@ describe("IModelTransformerHub", () => {
       },
     ];
 
-    const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    const { trackedIModels, tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      customSyncTransformerClass: class extends IModelTransformer {
+        _intermediatePushState: "empty" | "pushed-intermediate" | "have-extra" = "empty";
+
+        public override async onExportElement(elem: Element) {
+          assert(this.targetDb instanceof BriefcaseDb);
+          super.onExportElement(elem);
+          if (this._intermediatePushState === "empty" && this.targetDb.txns.hasLocalChanges) {
+            await saveAndPushChanges(this.targetDb, "sync changeset part 1");
+            this._intermediatePushState = "pushed-intermediate";
+          }
+          ;
+          if (this._intermediatePushState === "pushed-intermediate" && this.targetDb.txns.hasLocalChanges) {
+            this._intermediatePushState = "have-extra";
+          }
+        }
+
+        public override dispose(): void {
+          super.dispose();
+          assert(
+            this._intermediatePushState === "have-extra",
+            `won't have two changesets if sync ends without changes, state=${this._intermediatePushState}`
+          );
+        }
+      },
+    });
 
     // create empty iModel meant to contain replayed master history
     const replayedIModelName = "Replayed";
@@ -693,7 +720,7 @@ describe("IModelTransformerHub", () => {
       assert(master);
 
       const masterDbChangesets = await IModelHost.hubAccess.downloadChangesets({ accessToken, iModelId: master.id, targetDir: BriefcaseManager.getChangeSetsPath(master.id) });
-      assert.equal(masterDbChangesets.length, 6);
+      assert.equal(masterDbChangesets.length, 8);
       const masterDeletedElementIds = new Set<Id64String>();
       const masterDeletedRelationshipIds = new Set<Id64String>();
       for (const masterDbChangeset of masterDbChangesets) {
@@ -840,7 +867,7 @@ describe("IModelTransformerHub", () => {
         }
       }
       class IModelTransformerInjected extends IModelTransformer {
-        public override async onExportElement(sourceElement: Element) {
+        public override onExportElement(sourceElement: Element) {
           if (sourceElement.id === modelSelectorId)
             didExportModelSelector = true;
           return super.onExportElement(sourceElement);

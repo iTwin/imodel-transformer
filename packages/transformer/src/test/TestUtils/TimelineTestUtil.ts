@@ -210,6 +210,7 @@ export type Timeline = Record<number, {
 export interface TestContextOpts {
   iTwinId: string;
   accessToken: string;
+  customSyncTransformerClass?: typeof IModelTransformer;
 }
 
 /**
@@ -219,7 +220,15 @@ export interface TestContextOpts {
  * updated only in the target are hard to track. You can assert it yourself with @see assertElemState in
  * an assert step for your timeline
  */
-export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: TestContextOpts) {
+export async function runTimeline(
+  timeline: Timeline,
+  {
+    iTwinId,
+    accessToken,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    customSyncTransformerClass: SyncTransformer = IModelTransformer,
+  }: TestContextOpts
+) {
   const trackedIModels = new Map<string, TimelineIModelState>();
   const masterOfBranch = new Map<string, string>();
 
@@ -233,13 +242,13 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
   >();
   /* eslint-enable @typescript-eslint/indent */
 
-  function printChangelogs() {
+  function printChangelogs(showStates = true) {
     const rows = [...timelineStates.values()]
       .map((state) => Object.fromEntries(
         Object.entries(state.changesets)
           .map(([name, cs]) => [
             [name, `${cs.index} ${cs.id.slice(0, 5)}`],
-            [`${name} state`, `${Object.keys(state.states[name]).map((k) => k.slice(0, 6))}`],
+            ...showStates ? [[`${name} state`, `${Object.keys(state.states[name]).map((k) => k.slice(0, 6))}`]] : [],
           ]).flat()
       ));
     // eslint-disable-next-line no-console
@@ -346,7 +355,9 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
 
-        const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
+        const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;
+
+        const syncer = new SyncTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
         try {
           await syncer.processChanges({
             accessToken,
@@ -362,7 +373,6 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
           syncer.dispose();
         }
 
-        const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG) {
           /* eslint-disable no-console */
           console.log(stateMsg);
@@ -418,6 +428,9 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: 
       }
     );
   }
+
+  if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
+    printChangelogs(false);
 
   return {
     trackedIModels,
