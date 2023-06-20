@@ -11,7 +11,8 @@
 import "./setup";
 import assert from "assert";
 import * as path from "path";
-import { IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
+import * as fs from "fs";
+import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
 import { Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { getTestIModels } from "./TestContext";
@@ -26,11 +27,31 @@ import { getBranchName } from "./GitUtils";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
+import prepareFork from "./cases/prepare-fork";
+export interface reporterInfo {
+  /* eslint-disable @typescript-eslint/naming-convention */
+  "Id": string;
+  "T-shirt size": string;
+  "Gb size": string;
+  "Branch Name": string;
+  "Federation Guid Saturation": number;
+  /* eslint-enable @typescript-eslint/naming-convention */
+};
+
+export interface reporterEntry {
+  testSuite: string;
+  testName: string;
+  valueDescription: string;
+  value: number;
+  info?: reporterInfo;
+}
 
 const testCasesMap = new Map([
-  ["identity transform", identityTransformer],
+  // ["identity transform", identityTransformer],
+  ["prepare-fork", prepareFork],
 ]);
 
+const loggerCategory = "Transformer Performance Regression Tests";
 const outputDir = path.join(__dirname, ".output");
 
 const setupTestData = async () => {
@@ -102,9 +123,37 @@ async function runRegressionTests() {
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
       describe(`Transforms of ${iModel.name}`, async () => {
+        let sourceDb: BriefcaseDb;
+        let record: reporterInfo;
+        before( async () => {
+          Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
+          sourceDb = await iModel.load();
+          const fedGuidSaturation = sourceDb.withStatement("SELECT CAST(SUM(hasGuid) as DOUBLE)/SUM(total) ratio FROM (SELECT IIF(FederationGuid IS NOT NULL, 1, 0) hasGuid, 1 as total FROM bis.Element)", (stmt) => {stmt.step(); return stmt.getValue(0).getDouble()})
+          Logger.logInfo(loggerCategory, `Federation Guid Saturation '${fedGuidSaturation}'`);
+          const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
+          const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
+          Logger.logInfo(loggerCategory, `loaded (${sizeInGb})'`);
+          record = {
+            /* eslint-disable @typescript-eslint/naming-convention */
+            "Id": iModel.iModelId,
+            "T-shirt size": iModel.tShirtSize,
+            "Gb size": sizeInGb,
+            "Branch Name": branchName,
+            "Federation Guid Saturation": fedGuidSaturation,
+            /* eslint-enable @typescript-eslint/naming-convention */
+          };
+        });
+
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
-            reporter = await testCase(iModel, reporter, branchName);
+            const reporterEntry = await testCase(sourceDb);
+            reporter.addEntry(
+              reporterEntry.testSuite, 
+              `${branchName}: ${reporterEntry.testName}`,
+              reporterEntry.valueDescription,
+              reporterEntry.value,
+              record
+            );
           }).timeout(0);
         });
       });
