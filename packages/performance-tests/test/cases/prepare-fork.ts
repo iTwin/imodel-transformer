@@ -2,20 +2,26 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { BriefcaseManager, BriefcaseDb, IModelHost, IModelDb, ExternalSource, RepositoryLink, StandaloneDb, ExternalSourceIsInRepository } from "@itwin/core-backend";
-import { Code } from "@itwin/core-common";
+import { BriefcaseIdValue, Code } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { TestIModel } from "../TestContext";
 import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, OpenMode, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
-import { reporterEntry } from "../TransformerRegression.test";
+import { briefcaseArgs, reporterEntry } from "../TransformerRegression.test";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb){
+export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcaseArgs: briefcaseArgs){
   let reporterData: reporterEntry;
+
+  if(!sourceDb.isOpen)
+    BriefcaseDb.open({
+      fileName: sourceBriefcaseArgs.fileName,
+      readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
+    });
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
@@ -76,7 +82,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb){
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
     reporterData = {
-      testSuite: "identity transform (provenance)",
+      testSuite: "Prepare Fork",
       testName: sourceDb.name,
       valueDescription: "time elapsed (seconds)",
       value: entityProcessingTimer?.elapsedSeconds ?? -1,

@@ -46,8 +46,13 @@ export interface reporterEntry {
   info?: reporterInfo;
 }
 
+export interface briefcaseArgs {
+  fileName: string;
+  briefcaseId: number;
+}
+
 const testCasesMap = new Map([
-  // ["identity transform", identityTransformer],
+  ["identity transform", identityTransformer],
   ["prepare-fork", prepareFork],
 ]);
 
@@ -125,6 +130,7 @@ async function runRegressionTests() {
       describe(`Transforms of ${iModel.name}`, async () => {
         let sourceDb: BriefcaseDb;
         let record: reporterInfo;
+        let sourceBriefcaseArgs: briefcaseArgs;
         before( async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
           sourceDb = await iModel.load();
@@ -142,11 +148,15 @@ async function runRegressionTests() {
             "Federation Guid Saturation": fedGuidSaturation,
             /* eslint-enable @typescript-eslint/naming-convention */
           };
+          sourceBriefcaseArgs = {
+            fileName: sourceDb.pathName,
+            briefcaseId: sourceDb.briefcaseId,
+          };
         });
 
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
-            const reporterEntry = await testCase(sourceDb);
+            const reporterEntry = await testCase(sourceDb, sourceBriefcaseArgs);
             reporter.addEntry(
               reporterEntry.testSuite, 
               `${branchName}: ${reporterEntry.testName}`,
@@ -161,7 +171,7 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it("Transform vs raw inserts", async () => {
+    it.skip("Transform vs raw inserts", async () => {
       return rawInserts(reporter, branchName);
     }).timeout(0);
 

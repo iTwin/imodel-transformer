@@ -15,12 +15,20 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { TestIModel } from "../TestContext";
 import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "../TestUtils";
-import { reporterEntry, reporterInfo } from "../TransformerRegression.test";
+import { briefcaseArgs, reporterEntry, reporterInfo } from "../TransformerRegression.test";
+import { BriefcaseIdValue } from "@itwin/core-common";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb) {
+export default async function identityTransformer(sourceDb: BriefcaseDb, sourceBriefcaseArgs: briefcaseArgs) {
+
+  if(!sourceDb.isOpen)
+    BriefcaseDb.open({
+      fileName: sourceBriefcaseArgs.fileName,
+      readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
+    });
+
   const targetPath = initOutputFile(`${sourceDb.iTwinId}-${sourceDb.name}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
   let reporterData: reporterEntry;
