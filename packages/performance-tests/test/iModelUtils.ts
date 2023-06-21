@@ -34,7 +34,7 @@ export function generateTestIModel(iModelParam: iModelParams): TestIModel {
   if (fs.existsSync(sourcePath))
     fs.unlinkSync(sourcePath);
 
-  let sourceDb = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: "RawInsertsSource" }});
+  let sourceDb = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: `testIModel-fedguids-${iModelParam.fedGuids}.bim` }});
   const pathName = sourceDb.pathName;
   sourceDb.close();
   setToStandalone(pathName);
@@ -56,8 +56,7 @@ export function generateTestIModel(iModelParam: iModelParams): TestIModel {
       model: physModelId,
       code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: `${2*i + n}`}),
       userLabel: `${2*i + n}`,
-      // federationGuid:fedguidstatus, // Guid.empty = 00000000-0000-0000-0000-000000000000
-      federationGuid: iModelParam.fedGuids ? Guid.createValue() : Guid.empty, // Guid.empty = 00000000-0000-0000-0000-000000000000/
+      federationGuid: iModelParam.fedGuids ? Guid.createValue() : Guid.empty, // Guid.empty = 00000000-0000-0000-0000-000000000000
     }, sourceDb).insert());
 
     const rel = new ElementGroupsMembers({
@@ -68,8 +67,6 @@ export function generateTestIModel(iModelParam: iModelParams): TestIModel {
     }, sourceDb);
 
     rel.insert();
-    // if (!iModelParam.fedGuids)
-    //   console.log(sourceDb.elements.getElementProps(id1));
   }
   const iModelId = sourceDb.iModelId;
   const iTwinId = sourceDb.iTwinId;

@@ -24,7 +24,7 @@ const outputDir = path.join(__dirname, ".output");
 export default async function identityTransformer(sourceDb: BriefcaseDb, sourceBriefcaseArgs: briefcaseArgs) {
 
   if(!sourceDb.isOpen)
-    BriefcaseDb.open({
+    sourceDb = await BriefcaseDb.open({
       fileName: sourceBriefcaseArgs.fileName,
       readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
     });

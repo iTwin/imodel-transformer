@@ -18,7 +18,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
   let reporterData: reporterEntry;
 
   if(!sourceDb.isOpen)
-    BriefcaseDb.open({
+    sourceDb = await BriefcaseDb.open({
       fileName: sourceBriefcaseArgs.fileName,
       readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
     });
