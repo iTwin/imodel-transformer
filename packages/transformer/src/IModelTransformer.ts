@@ -365,7 +365,7 @@ export class IModelTransformer extends IModelExportHandler {
     return this._options.isReverseSynchronization ? this.sourceDb : this.targetDb;
   }
 
-  /** Return the IModelDb where IModelTransformer will NOT store its provenance.
+  /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
    * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
    */
   public get provenanceSourceDb(): IModelDb {
