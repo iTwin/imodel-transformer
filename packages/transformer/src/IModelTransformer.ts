@@ -152,7 +152,7 @@ export interface IModelTransformOptions {
 
   /** If defined, will export elements out of order if pending reference count to them reaches provided number.
    * This option might lower overall memory usage since it should allow clearing up stored pending references.
-   * 
+   *
    * @note this is not a strict limit since transformer doesn't check if element needs to be exported out of order on each element, but does it periodically.
    * @beta
    */
@@ -172,7 +172,7 @@ class PartiallyCommittedEntity {
      */
     private _missingReferences: EntityReferenceSet,
     private _onComplete: () => void
-  ) {}
+  ) { }
   public resolveReference(id: EntityReference) {
     this._missingReferences.delete(id);
     if (this._missingReferences.size === 0)
@@ -834,6 +834,36 @@ export class IModelTransformer extends IModelExportHandler {
           await this.exporter.exportModel(reference);
       }
     }
+
+    if (this._options.maxReferenceCountForEarlyExport) {
+      await this.forceExportHighlyReferencedEntities(this._options.maxReferenceCountForEarlyExport);
+    }
+  }
+
+  private highlyReferencedEntityCheckCount = 0;
+  private async forceExportHighlyReferencedEntities(threshold: number): Promise<void> {
+    // This is an optimization so that transformer wouldn't iterate through all pending references on each element.
+    // This will allow referenced entity to get more referencers than the threshold, but will always be less than double of the threshold
+    if (this.highlyReferencedEntityCheckCount < threshold) {
+      ++this.highlyReferencedEntityCheckCount;
+      return;
+    }
+
+    this.highlyReferencedEntityCheckCount = 0;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pendingReferencedEntities = this._pendingReferences.getReferencedWithThresholdReferencers(threshold);
+    for (const referenced of pendingReferencedEntities) {
+      const [type, id] = EntityReferences.split(referenced);
+
+      Logger.logInfo(loggerCategory, `Forcing exporting of referenced entity ${referenced} because it has been referenced more than ${threshold} times`);
+      // only force export of models or elements
+      if (type === "m") {
+        await this.exporter.exportModel(id);
+      } else if (type === "e") {
+        await this.exporter.exportElement(id);
+      }
+    }
   }
 
   private getElemTransformState(elementId: Id64String) {
@@ -912,37 +942,7 @@ export class IModelTransformer extends IModelExportHandler {
       aspectProps.id = aspectId;
       this.markLastProvenance(aspectProps as MarkRequired<ExternalSourceAspectProps, "id">, { isRelationship: false });
     }
-
-    if (this._options.maxReferenceCountForEarlyExport) {
-      this.forceExportHighlyReferencedEntities(this._options.maxReferenceCountForEarlyExport);
-    }
   }
-
-  private highlyReferencedEntityCheckCount = 0;
-  private forceExportHighlyReferencedEntities(threshold: number) {
-    // This is an optimization so that transformer wouldn't iterate through all pending references on each element.
-    // This will allow referenced entity to get more referencers than the threshold, but will always be less than double of the threshold
-    if (this.highlyReferencedEntityCheckCount < threshold) {
-        ++this.highlyReferencedEntityCheckCount;
-        return;
-    }
-
-    this.highlyReferencedEntityCheckCount = 0;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pendingReferencedEntities = this._pendingReferences.getReferencedWithThresholdReferencers(threshold);
-    for (const referenced of pendingReferencedEntities) {
-        const [type, id] = EntityReferences.split(referenced);
-
-        Logger.logInfo(loggerCategory, `Forcing exporting of referenced entity ${referenced} because it has been referenced more than ${threshold} times`);
-        // only force export of models or elements
-        if (type === "m") {
-            this.exporter.exportModel(id);
-        } else if (type === "e") {
-            this.exporter.exportElement(id);
-        }
-    }
-}
 
   private resolvePendingReferences(entity: ConcreteEntity) {
     for (const referencer of this._pendingReferences.getReferencers(entity)) {
@@ -1063,7 +1063,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Import elements that were deferred in a prior pass.
    * @deprecated in 3.x. This method is no longer necessary since the transformer no longer needs to defer elements
    */
-  public async processDeferredElements(_numRetries: number = 3): Promise<void> {}
+  public async processDeferredElements(_numRetries: number = 3): Promise<void> { }
 
   private finalizeTransformation() {
     if (this._partiallyCommittedEntities.size > 0) {
@@ -1174,9 +1174,9 @@ export class IModelTransformer extends IModelExportHandler {
    */
   protected onTransformRelationship(sourceRelationship: Relationship): RelationshipProps {
     const targetRelationshipProps: RelationshipProps = sourceRelationship.toJSON();
-    const targetSourceId = this.context.findTargetElementId(sourceRelationship.sourceId)
+    const targetSourceId = this.context.findTargetElementId(sourceRelationship.sourceId);
     targetRelationshipProps.sourceId = targetSourceId !== missingReferenceId ? targetSourceId : Id64.invalid;
-    const targetTargetId = this.context.findTargetElementId(sourceRelationship.targetId)
+    const targetTargetId = this.context.findTargetElementId(sourceRelationship.targetId);
     targetRelationshipProps.targetId = targetTargetId !== missingReferenceId ? targetTargetId : Id64.invalid;
     sourceRelationship.forEachProperty((propertyName: string, propertyMetaData: PropertyMetaData) => {
       if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
@@ -1455,22 +1455,22 @@ export class IModelTransformer extends IModelExportHandler {
           AND Kind=:kind
           AND Element.Id=:entityId
       `,
-        (statement: ECSqlStatement): boolean => {
-          statement.bindId("scopeId", this.targetScopeElementId);
-          statement.bindId("aspectId", lastProvenanceEntityInfo.aspectId);
-          statement.bindString("kind", lastProvenanceEntityInfo.aspectKind);
-          statement.bindId("entityId", lastProvenanceEntityInfo.entityId);
-          const stepResult = statement.step();
-          switch (stepResult) {
-            case DbResult.BE_SQLITE_ROW:
-              const version = statement.getValue(0).getString();
-              return version === lastProvenanceEntityInfo.aspectVersion;
-            case DbResult.BE_SQLITE_DONE:
-              return false;
-            default:
-              throw new IModelError(IModelStatus.SQLiteError, `got sql error ${stepResult}`);
-          }
-        });
+      (statement: ECSqlStatement): boolean => {
+        statement.bindId("scopeId", this.targetScopeElementId);
+        statement.bindId("aspectId", lastProvenanceEntityInfo.aspectId);
+        statement.bindString("kind", lastProvenanceEntityInfo.aspectKind);
+        statement.bindId("entityId", lastProvenanceEntityInfo.entityId);
+        const stepResult = statement.step();
+        switch (stepResult) {
+          case DbResult.BE_SQLITE_ROW:
+            const version = statement.getValue(0).getString();
+            return version === lastProvenanceEntityInfo.aspectVersion;
+          case DbResult.BE_SQLITE_DONE:
+            return false;
+          default:
+            throw new IModelError(IModelStatus.SQLiteError, `got sql error ${stepResult}`);
+        }
+      });
     if (!targetHasCorrectLastProvenance)
       throw Error([
         "Target for resuming from does not have the expected provenance ",
@@ -1532,7 +1532,7 @@ export class IModelTransformer extends IModelExportHandler {
    * You may override this to load arbitrary json state in a transformer state dump, useful for some resumptions
    * @see [[IModelTransformer.loadStateFromFile]]
    */
-  protected loadAdditionalStateJson(_additionalState: any): void {}
+  protected loadAdditionalStateJson(_additionalState: any): void { }
 
   /**
    * Save the state of the active transformation to an open SQLiteDb
