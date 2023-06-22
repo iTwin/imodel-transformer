@@ -82,9 +82,7 @@ export abstract class IModelExportHandler {
    */
   public shouldExportElement(_element: Element): boolean { return true; }
 
-  /** Called when element is skipped instead of exported.
-   * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
-   */
+  /** Called when element is skipped instead of exported. */
   public onSkipElement(_element: Element): void { }
 
   /** Called when an element should be exported.

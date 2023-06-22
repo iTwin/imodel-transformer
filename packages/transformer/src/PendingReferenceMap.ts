@@ -87,7 +87,7 @@ export class PendingReferenceMap<T> {
     return this;
   }
 
-  public getReferencedWithThresholdReferencers(threshold: number): EntityReference[] {
+  public getReferencedAboveThreshold(threshold: number): EntityReference[] {
     const aboveThreshold: EntityReference[] = [];
     for (const [referenced, referencers] of this._referencedToReferencers.entries()) {
       if (referencers.size >= threshold) {

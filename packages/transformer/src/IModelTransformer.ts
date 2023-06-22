@@ -35,7 +35,7 @@ import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
-const missingReferenceId = "0x2";
+const missingReferenceId = "0x2"; // any non-existent EcInstanceId is fine
 
 const nullLastProvenanceEntityInfo = {
   entityId: Id64.invalid,
@@ -857,7 +857,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.highlyReferencedEntityCheckCount = 0;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pendingReferencedEntities = this._pendingReferences.getReferencedWithThresholdReferencers(threshold);
+    const pendingReferencedEntities = this._pendingReferences.getReferencedAboveThreshold(threshold);
     for (const referenced of pendingReferencedEntities) {
       const [type, id] = EntityReferences.split(referenced);
 
