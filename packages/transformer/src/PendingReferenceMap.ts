@@ -87,6 +87,17 @@ export class PendingReferenceMap<T> {
     return this;
   }
 
+  public getReferencedWithThresholdReferencers(threshold: number): EntityReference[] {
+    const aboveThreshold: EntityReference[] = [];
+    for (const [referenced, referencers] of this._referencedToReferencers.entries()) {
+        if (referencers.size >= threshold) {
+            aboveThreshold.push(referenced);
+        }
+    }
+
+    return aboveThreshold;
+  }
+
   public get size(): number { return this._map.size; }
 
   public get [Symbol.toStringTag](): string { return "PendingReferenceMap"; }

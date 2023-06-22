@@ -81,6 +81,11 @@ export abstract class IModelExportHandler {
    * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
    */
   public shouldExportElement(_element: Element): boolean { return true; }
+  
+  /** Called when element is skipped instead of exported.
+   * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
+   */
+  public onSkipElement(_element: Element): void { }
 
   /** Called when an element should be exported.
    * @param element The element to export
@@ -650,6 +655,8 @@ export class IModelExporter {
       await this.trackProgress();
       await this.exportElementAspects(elementId);
       return this.exportChildElements(elementId);
+    } else {
+      this.handler.onSkipElement(element);
     }
   }
 
