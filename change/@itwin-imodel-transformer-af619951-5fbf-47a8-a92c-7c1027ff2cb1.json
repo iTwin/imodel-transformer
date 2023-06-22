@@ -1,5 +1,5 @@
 {
-  "type": "minor",
+  "type": "patch",
   "comment": "Add heap memory optimizations",
   "packageName": "@itwin/imodel-transformer",
   "email": "Mindaugas.Dirgincius@bentley.com",

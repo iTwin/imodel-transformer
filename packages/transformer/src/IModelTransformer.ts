@@ -771,6 +771,11 @@ export class IModelTransformer extends IModelExportHandler {
   public override shouldExportElement(_sourceElement: Element): boolean { return true; }
 
   public override onSkipElement(sourceElement: Element): void {
+    if (this.context.findTargetElementId(sourceElement.id) !== Id64.invalid) {
+      // element already has provenance
+      return;
+    }
+
     Logger.logInfo(loggerCategory, `Element '${sourceElement.id}' won't be exported. Marking its references as resolved`);
     // Remap skipped element to root subject.
     // When exporting other elements we will be able to check if reference changes to root subject it will mark
