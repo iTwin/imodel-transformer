@@ -8,8 +8,7 @@ import { Logger } from "@itwin/core-bentley";
 import { BriefcaseIdValue, IModelVersion } from "@itwin/core-common";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import assert from "assert";
-import { generateTestIModel } from "./iModelUtils";
-import { iModelParams } from "./iModelUtils";
+import { generateTestIModel, IModelParams } from "./iModelUtils";
 
 const loggerCategory = "TestContext";
 
@@ -58,15 +57,15 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
       }
     }
   }
-  const iModelParamsFedguids: iModelParams = {
-    numElements: 100000, 
-    fedGuids: true
-  }
+  const iModelParamsFedguids: IModelParams = {
+    numElements: 100000,
+    fedGuids: true,
+  };
   yield generateTestIModel(iModelParamsFedguids);
-  const iModelParamsNoFedguids: iModelParams = {
-    numElements: 100000, 
-    fedGuids: false
-  }
+  const iModelParamsNoFedguids: IModelParams = {
+    numElements: 100000,
+    fedGuids: false,
+  };
   yield generateTestIModel(iModelParamsNoFedguids);
 }
 

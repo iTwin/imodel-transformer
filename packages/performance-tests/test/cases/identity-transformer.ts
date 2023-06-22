@@ -12,16 +12,14 @@ import * as os from "os";
 import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-backend";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { TestIModel } from "../TestContext";
-import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "../TestUtils";
-import { briefcaseArgs, reporterEntry, reporterInfo } from "../TransformerRegression.test";
+import { BriefcaseArgs, ReporterEntry } from "../TransformerRegression.test";
 import { BriefcaseIdValue } from "@itwin/core-common";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, sourceBriefcaseArgs: briefcaseArgs) {
+export default async function identityTransformer(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs) {
 
   if(!sourceDb.isOpen)
     sourceDb = await BriefcaseDb.open({
@@ -31,7 +29,7 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, sourceB
 
   const targetPath = initOutputFile(`${sourceDb.iTwinId}-${sourceDb.name}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
-  let reporterData: reporterEntry;
+  let reporterData: ReporterEntry;
   class ProgressTransformer extends IModelTransformer {
     private _count = 0;
     private _increment() {
@@ -71,7 +69,7 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, sourceB
       testName: sourceDb.name,
       valueDescription: "time elapsed (seconds)",
       value: entityProcessingTimer?.elapsedSeconds ?? -1,
-    }
+    };
     targetDb.close();
     sourceDb.close();
     transformer.dispose();

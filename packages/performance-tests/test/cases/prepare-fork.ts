@@ -1,21 +1,19 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseManager, BriefcaseDb, IModelHost, IModelDb, ExternalSource, RepositoryLink, StandaloneDb, ExternalSourceIsInRepository } from "@itwin/core-backend";
+import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
 import { BriefcaseIdValue, Code } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { TestIModel } from "../TestContext";
-import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "../TestUtils";
-import { Logger, OpenMode, StopWatch } from "@itwin/core-bentley";
+import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
-import { briefcaseArgs, reporterEntry } from "../TransformerRegression.test";
+import { BriefcaseArgs, ReporterEntry } from "../TransformerRegression.test";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcaseArgs: briefcaseArgs){
-  let reporterData: reporterEntry;
+export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs){
+  let reporterData: ReporterEntry;
 
   if(!sourceDb.isOpen)
     sourceDb = await BriefcaseDb.open({
@@ -29,9 +27,9 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
     fs.unlinkSync(branchPath);
   const filePath = sourceDb.pathName;
   fs.copyFileSync(filePath, branchPath);
-  setToStandalone(branchPath)
+  setToStandalone(branchPath);
   const branchDb = StandaloneDb.openFile(branchPath);
-  
+
   let entityProcessingTimer: StopWatch | undefined;
   try {
     [entityProcessingTimer] = await timed(async () => {
@@ -45,16 +43,17 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
         repositoryGuid: sourceDb.iModelId,
         description: "master iModel repository",
       }, branchDb).insert();
-      
+
       const masterExternalSourceId = new ExternalSource({
         classFullName: ExternalSource.classFullName,
         model: IModelDb.rootSubjectId,
         code: Code.createEmpty(),
         repository: new ExternalSourceIsInRepository(masterLinkRepoId),
         connectorName: "iModel Transformer",
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         connectorVersion: require("@itwin/imodel-transformer/package.json").version,
       }, branchDb).insert();
-      
+
       // initialize the branch provenance
       const branchInitializer = new IModelTransformer(sourceDb, branchDb, {
         // tells the transformer that we have a raw copy of a source and the target should receive
@@ -63,7 +62,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
         // store the synchronization provenance in the scope of our representation of the external source, master
         targetScopeElementId: masterExternalSourceId,
       });
-    
+
       await branchInitializer.processAll();
       // save+push our changes to whatever hub we're using
       const description = "initialized branch iModel";
@@ -86,8 +85,8 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
       testName: sourceDb.name,
       valueDescription: "time elapsed (seconds)",
       value: entityProcessingTimer?.elapsedSeconds ?? -1,
-    }
+    };
   }
 
   return reporterData;
-};
+}

@@ -28,7 +28,7 @@ import { getBranchName } from "./GitUtils";
 // cases
 import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
-export interface reporterInfo {
+export interface ReporterInfo {
   /* eslint-disable @typescript-eslint/naming-convention */
   "Id": string;
   "T-shirt size": string;
@@ -36,17 +36,17 @@ export interface reporterInfo {
   "Branch Name": string;
   "Federation Guid Saturation": number;
   /* eslint-enable @typescript-eslint/naming-convention */
-};
+}
 
-export interface reporterEntry {
+export interface ReporterEntry {
   testSuite: string;
   testName: string;
   valueDescription: string;
   value: number;
-  info?: reporterInfo;
+  info?: ReporterInfo;
 }
 
-export interface briefcaseArgs {
+export interface BriefcaseArgs {
   fileName: string;
   briefcaseId: number;
 }
@@ -121,7 +121,7 @@ const setupTestData = async () => {
 
 async function runRegressionTests() {
   const testIModels = await setupTestData();
-  let reporter = new Reporter();
+  const reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
   const branchName =  await getBranchName();
 
@@ -129,12 +129,18 @@ async function runRegressionTests() {
     testIModels.forEach(async (iModel) => {
       describe(`Transforms of ${iModel.name}`, async () => {
         let sourceDb: BriefcaseDb;
-        let record: reporterInfo;
-        let sourceBriefcaseArgs: briefcaseArgs;
+        let record: ReporterInfo;
+        let sourceBriefcaseArgs: BriefcaseArgs;
         before( async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
           sourceDb = await iModel.load();
-          const fedGuidSaturation = sourceDb.withStatement("SELECT CAST(SUM(hasGuid) as DOUBLE)/SUM(total) ratio FROM (SELECT IIF(FederationGuid IS NOT NULL, 1, 0) hasGuid, 1 as total FROM bis.Element)", (stmt) => {stmt.step(); return stmt.getValue(0).getDouble()})
+          const fedGuidSaturation = sourceDb.withStatement(
+            "SELECT CAST(SUM(hasGuid) as DOUBLE)/SUM(total) ratio FROM (SELECT IIF(FederationGuid IS NOT NULL, 1, 0) hasGuid, 1 as total FROM bis.Element)",
+            (stmt) => {
+              stmt.step();
+              return stmt.getValue(0).getDouble();
+            }
+          );
           Logger.logInfo(loggerCategory, `Federation Guid Saturation '${fedGuidSaturation}'`);
           const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
           const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
@@ -158,7 +164,7 @@ async function runRegressionTests() {
           it(key, async () => {
             const reporterEntry = await testCase(sourceDb, sourceBriefcaseArgs);
             reporter.addEntry(
-              reporterEntry.testSuite, 
+              reporterEntry.testSuite,
               `${branchName}: ${reporterEntry.testName}`,
               reporterEntry.valueDescription,
               reporterEntry.value,

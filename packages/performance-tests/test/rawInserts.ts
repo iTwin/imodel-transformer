@@ -1,14 +1,14 @@
 import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "./TestUtils";
-import { ElementGroupsMembers, IModelDb, IModelHost, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
+import { ElementGroupsMembers, IModelDb, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import path from "path";
 import fs from "fs";
 import assert from "assert";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { BriefcaseIdValue, ChangesetFileProps, Code } from "@itwin/core-common";
+import { ChangesetFileProps, Code } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { Guid, Logger, OpenMode } from "@itwin/core-bentley";
+import { Logger, OpenMode } from "@itwin/core-bentley";
 import { setToStandalone } from "./iModelUtils";
 
 const loggerCategory = "Raw Inserts";

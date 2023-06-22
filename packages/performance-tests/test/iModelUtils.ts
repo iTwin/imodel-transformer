@@ -1,18 +1,18 @@
 import * as fs from "fs";
 import * as path from "path";
 import { ElementGroupsMembers, IModelDb, IModelHost, PhysicalModel, PhysicalObject, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
-import { OpenMode, Guid } from "@itwin/core-bentley";
+import { Guid, OpenMode } from "@itwin/core-bentley";
 import { BriefcaseIdValue, Code } from "@itwin/core-common";
-import { initOutputFile, timed } from "./TestUtils";
+import { initOutputFile } from "./TestUtils";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
-import { TestIModel, downloadAndOpenBriefcase, getTShirtSizeFromName } from "./TestContext";
+import { getTShirtSizeFromName, TestIModel  } from "./TestContext";
 
 const outputDir = path.join(__dirname, ".output");
 
-export interface iModelParams {
-  numElements: number, 
-  fedGuids: boolean
+export interface IModelParams {
+  numElements: number;
+  fedGuids: boolean;
 }
 
 // TODO: dedup with other packages
@@ -29,7 +29,7 @@ export function setToStandalone(iModelPath: string) {
   nativeDb.closeIModel();
 }
 
-export function generateTestIModel(iModelParam: iModelParams): TestIModel {
+export function generateTestIModel(iModelParam: IModelParams): TestIModel {
   const sourcePath = initOutputFile(`testIModel-fedguids-${iModelParam.fedGuids}.bim`, outputDir);
   if (fs.existsSync(sourcePath))
     fs.unlinkSync(sourcePath);
