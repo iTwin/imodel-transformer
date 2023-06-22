@@ -13,7 +13,7 @@ import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-back
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
-import { BriefcaseArgs, ReporterEntry } from "../TransformerRegression.test";
+import { BriefcaseArgs, ReporterEntry } from "../TestContext";
 import { BriefcaseIdValue } from "@itwin/core-common";
 
 const loggerCategory = "Transformer Performance Tests Identity";

@@ -12,6 +12,29 @@ import { generateTestIModel, IModelParams } from "./iModelUtils";
 
 const loggerCategory = "TestContext";
 
+export interface ReporterInfo {
+  /* eslint-disable @typescript-eslint/naming-convention */
+  "Id": string;
+  "T-shirt size": string;
+  "Gb size": string;
+  "Branch Name": string;
+  "Federation Guid Saturation": number;
+  /* eslint-enable @typescript-eslint/naming-convention */
+}
+
+export interface ReporterEntry {
+  testSuite: string;
+  testName: string;
+  valueDescription: string;
+  value: number;
+  info?: ReporterInfo;
+}
+
+export interface BriefcaseArgs {
+  fileName: string;
+  briefcaseId: number;
+}
+
 export interface TestIModel {
   name: string;
   iModelId: string;

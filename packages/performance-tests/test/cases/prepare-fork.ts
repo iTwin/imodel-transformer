@@ -7,7 +7,7 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
-import { BriefcaseArgs, ReporterEntry } from "../TransformerRegression.test";
+import { BriefcaseArgs, ReporterEntry } from "../TestContext";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
