@@ -15,7 +15,7 @@ import * as fs from "fs";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
 import { Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { BriefcaseArgs, getTestIModels, ReporterInfo } from "./TestContext";
+import { BriefcaseArgs, getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
@@ -24,10 +24,12 @@ import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
 import rawInserts from "./rawInserts";
 import { getBranchName } from "./GitUtils";
+import { ReporterInfo } from "./ReporterUtils";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
+
 
 const testCasesMap = new Map([
   ["identity transform", identityTransformer],
@@ -129,7 +131,7 @@ async function runRegressionTests() {
             "T-shirt size": iModel.tShirtSize,
             "Gb size": sizeInGb,
             "Branch Name": branchName,
-            "Federation Guid Saturation": fedGuidSaturation,
+            "Federation Guid Saturation 0-1": fedGuidSaturation,
             /* eslint-enable @typescript-eslint/naming-convention */
           };
           sourceBriefcaseArgs = {

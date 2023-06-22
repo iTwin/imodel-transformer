@@ -7,7 +7,8 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
-import { BriefcaseArgs, ReporterEntry } from "../TestContext";
+import { BriefcaseArgs } from "../TestContext";
+import { ReporterEntry } from "../ReporterUtils";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
@@ -72,7 +73,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
       sourceDb.close();
       branchInitializer.dispose();
     });
-    Logger.logInfo(loggerCategory, `Preparefork time: ${entityProcessingTimer.elapsedSeconds}`);
+    Logger.logInfo(loggerCategory, `Prepare Fork time: ${entityProcessingTimer.elapsedSeconds}`);
 
   } catch (err: any) {
     Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);

@@ -13,8 +13,9 @@ import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-back
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
-import { BriefcaseArgs, ReporterEntry } from "../TestContext";
+import { BriefcaseArgs } from "../TestContext";
 import { BriefcaseIdValue } from "@itwin/core-common";
+import { ReporterEntry } from "../ReporterUtils";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
@@ -27,7 +28,7 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, sourceB
       readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
     });
 
-  const targetPath = initOutputFile(`${sourceDb.iTwinId}-${sourceDb.name}-target.bim`, outputDir);
+    const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
   let reporterData: ReporterEntry;
   class ProgressTransformer extends IModelTransformer {
