@@ -153,7 +153,7 @@ async function runRegressionTests() {
             reporter = await testCase(sourceDb, reporter, reportInfo);
           }).timeout(0);
           
-          sourceDb.close();
+          sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
       });
     });

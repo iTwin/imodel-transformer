@@ -14,7 +14,6 @@ const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
 export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Reporter, reportInfo: ReporterInfo){
-  let reporterData: ReporterEntry;
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
