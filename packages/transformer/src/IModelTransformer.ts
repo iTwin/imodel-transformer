@@ -366,17 +366,27 @@ export class IModelTransformer extends IModelExportHandler {
     return this._options.isReverseSynchronization ? this.sourceDb : this.targetDb;
   }
 
+  /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
+   * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
+   */
+  public get provenanceSourceDb(): IModelDb {
+    return this._options.isReverseSynchronization ? this.targetDb : this.sourceDb;
+  }
+
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
   private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
     const elementId = this._options.isReverseSynchronization ? sourceElementId : targetElementId;
     const aspectIdentifier = this._options.isReverseSynchronization ? targetElementId : sourceElementId;
+    const version = this._options.isReverseSynchronization
+      ? this.targetDb.elements.queryLastModifiedTime(targetElementId)
+      : this.sourceDb.elements.queryLastModifiedTime(sourceElementId);
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: this.targetScopeElementId },
       identifier: aspectIdentifier,
       kind: ExternalSourceAspect.Kind.Element,
-      version: this.sourceDb.elements.queryLastModifiedTime(sourceElementId),
+      version,
     };
     return aspectProps;
   }
