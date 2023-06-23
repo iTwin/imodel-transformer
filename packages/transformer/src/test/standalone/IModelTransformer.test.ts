@@ -2446,7 +2446,7 @@ describe("IModelTransformer", () => {
     }
   });
 
-  it("should transform correctly transform when some elements are not exported", async () => {
+  it("should transform correctly when some elements are not exported", async () => {
     // create source iModel
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformWithSkippedElements-Source.bim");
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "TransformWithSkippedElements-Source" } });
