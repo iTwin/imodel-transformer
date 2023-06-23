@@ -3,18 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [ "main" ]
-
   # for testing
   workflow_dispatch:
-    inputs:
-      nativeBackTraceTest:
-        description: |
-          Run tests under gdb and try to get a native
-          backtrace in the event of a crash
-        default: 'true'
-        options:
-        - 'true'
-        - 'false'
 
 jobs:
   check-change-files:
@@ -184,13 +174,11 @@ jobs:
           sudo env PATH="$PATH" bash -c "pnpm run test"
         done
         # https://gist.github.com/kudaba/53f68340bd28cd1e8824ac1e6ba8cf88
-        sudo chmod -R +rwx packages/transformer/core.*
-
-      env:
-        USE_GDB: ${{ inputs.nativeBackTraceTest == 'true' }}
+        sudo chmod -R +rwx packages/transformer/core.* || echo "no cores"
 
     - name: Upload core dump
       uses: actions/upload-artifact@v3
+      if: failed()
       with:
         name: coredump
         path: packages/transformer/core.*
