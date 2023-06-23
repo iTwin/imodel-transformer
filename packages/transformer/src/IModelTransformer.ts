@@ -149,14 +149,6 @@ export interface IModelTransformOptions {
    * @beta
    */
   optimizeGeometry?: OptimizeGeometryOptions;
-
-  /** If defined, will export elements out of order if pending reference count to them reaches provided number.
-   * This option might lower overall memory usage since it should allow clearing up stored pending references.
-   *
-   * @note this is not a strict limit since transformer doesn't check if element needs to be exported out of order on each element, but does it periodically.
-   * @beta
-   */
-  maxReferenceCountForEarlyExport?: number;
 }
 
 /**
@@ -839,36 +831,6 @@ export class IModelTransformer extends IModelExportHandler {
           await this.exporter.exportModel(reference);
       }
     }
-
-    if (this._options.maxReferenceCountForEarlyExport) {
-      await this.forceExportHighlyReferencedEntities(this._options.maxReferenceCountForEarlyExport);
-    }
-  }
-
-  private highlyReferencedEntityCheckCount = 0;
-  private async forceExportHighlyReferencedEntities(threshold: number): Promise<void> {
-    // This is an optimization so that transformer wouldn't iterate through all pending references on each element.
-    // This will allow referenced entity to get more referencers than the threshold, but will always be less than double of the threshold
-    if (this.highlyReferencedEntityCheckCount < threshold) {
-      ++this.highlyReferencedEntityCheckCount;
-      return;
-    }
-
-    this.highlyReferencedEntityCheckCount = 0;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pendingReferencedEntities = this._pendingReferences.getReferencedAboveThreshold(threshold);
-    for (const referenced of pendingReferencedEntities) {
-      const [type, id] = EntityReferences.split(referenced);
-
-      Logger.logInfo(loggerCategory, `Forcing exporting of referenced entity ${referenced} because it has been referenced more than ${threshold} times`);
-      // only force export of models or elements
-      if (type === "m") {
-        await this.exporter.exportModel(id);
-      } else if (type === "e") {
-        await this.exporter.exportElement(id);
-      }
-    }
   }
 
   private getElemTransformState(elementId: Id64String) {
@@ -1460,22 +1422,22 @@ export class IModelTransformer extends IModelExportHandler {
           AND Kind=:kind
           AND Element.Id=:entityId
       `,
-      (statement: ECSqlStatement): boolean => {
-        statement.bindId("scopeId", this.targetScopeElementId);
-        statement.bindId("aspectId", lastProvenanceEntityInfo.aspectId);
-        statement.bindString("kind", lastProvenanceEntityInfo.aspectKind);
-        statement.bindId("entityId", lastProvenanceEntityInfo.entityId);
-        const stepResult = statement.step();
-        switch (stepResult) {
-          case DbResult.BE_SQLITE_ROW:
-            const version = statement.getValue(0).getString();
-            return version === lastProvenanceEntityInfo.aspectVersion;
-          case DbResult.BE_SQLITE_DONE:
-            return false;
-          default:
-            throw new IModelError(IModelStatus.SQLiteError, `got sql error ${stepResult}`);
-        }
-      });
+        (statement: ECSqlStatement): boolean => {
+          statement.bindId("scopeId", this.targetScopeElementId);
+          statement.bindId("aspectId", lastProvenanceEntityInfo.aspectId);
+          statement.bindString("kind", lastProvenanceEntityInfo.aspectKind);
+          statement.bindId("entityId", lastProvenanceEntityInfo.entityId);
+          const stepResult = statement.step();
+          switch (stepResult) {
+            case DbResult.BE_SQLITE_ROW:
+              const version = statement.getValue(0).getString();
+              return version === lastProvenanceEntityInfo.aspectVersion;
+            case DbResult.BE_SQLITE_DONE:
+              return false;
+            default:
+              throw new IModelError(IModelStatus.SQLiteError, `got sql error ${stepResult}`);
+          }
+        });
     if (!targetHasCorrectLastProvenance)
       throw Error([
         "Target for resuming from does not have the expected provenance ",
