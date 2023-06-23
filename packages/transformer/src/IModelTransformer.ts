@@ -769,8 +769,8 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     Logger.logInfo(loggerCategory, `Element '${sourceElement.id}' won't be exported. Marking its references as resolved`);
-    // Remap skipped element to root subject.
-    // When exporting other elements we will be able to check if reference changes to root subject it will mark
+    // Remap skipped element to non-existent EcInstanceId.
+    // When exporting other elements transformer needs reset all references to missingReferenceId
     this.context.remapElement(sourceElement.id, missingReferenceId);
 
     for (const referencer of this._pendingReferences.getReferencers(sourceElement)) {
