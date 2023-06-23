@@ -13,7 +13,7 @@ import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-back
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
-import { ReporterEntry, ReporterInfo } from "../ReporterUtils";
+import { ReporterInfo } from "../ReporterUtils";
 import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Identity";
@@ -23,7 +23,6 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, reporte
 
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
-  let reporterData: ReporterEntry;
   class ProgressTransformer extends IModelTransformer {
     private _count = 0;
     private _increment() {

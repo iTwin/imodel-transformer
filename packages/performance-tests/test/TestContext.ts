@@ -12,11 +12,6 @@ import { generateTestIModel } from "./iModelUtils";
 
 const loggerCategory = "TestContext";
 
-export interface BriefcaseArgs {
-  fileName: string;
-  briefcaseId: number;
-}
-
 export interface TestIModel {
   name: string;
   iModelId: string;

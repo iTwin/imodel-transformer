@@ -7,11 +7,3 @@ export interface ReporterInfo {
   "Federation Guid Saturation 0-1": number;
   /* eslint-enable @typescript-eslint/naming-convention */
 }
-
-export interface ReporterEntry {
-  testSuite: string;
-  testName: string;
-  valueDescription: string;
-  value: number;
-  info?: ReporterInfo;
-}

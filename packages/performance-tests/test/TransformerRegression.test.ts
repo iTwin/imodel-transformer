@@ -108,7 +108,7 @@ async function runRegressionTests() {
     testIModels.forEach(async (iModel) => {
       describe(`Transforms of ${iModel.name}`, async () => {
         let sourceDb: BriefcaseDb;
-        let reportInfo: ReporterInfo
+        let reportInfo: ReporterInfo;
 
         before(async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
@@ -116,13 +116,13 @@ async function runRegressionTests() {
           const fedGuidSaturation = sourceDb.withStatement(
             `
             SELECT
-            CAST(SUM(hasGuid) as DOUBLE)/SUM(total) ratio 
+            CAST(SUM(hasGuid) AS DOUBLE)/COUNT(*) ratio 
             FROM (
-              SELECT IIF(FederationGuid IS NOT NULL, 1, 0) hasGuid,
-              1 as total FROM bis.Element
+              SELECT IIF(FederationGuid IS NOT NULL, 1, 0) AS hasGuid,
+              1 AS total FROM bis.Element
             )`,
             (stmt) => {
-              assert(stmt.step() === DbResult.BE_SQLITE_ROW);;
+              assert(stmt.step() === DbResult.BE_SQLITE_ROW);
               return stmt.getValue(0).getDouble();
             }
           );
@@ -160,7 +160,7 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it.skip("Transform vs raw inserts", async () => {
+    it("Transform vs raw inserts", async () => {
       return rawInserts(reporter, branchName);
     }).timeout(0);
 
