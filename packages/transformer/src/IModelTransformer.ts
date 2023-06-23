@@ -282,7 +282,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Set of entity keys which were not exported and don't need to be tracked for pending reference resolution.
    * @note Currently only tracks elements which were not exported.
    */
-  protected _skippedElements = new Set<EntityKey>();
+  protected _skippedEntities = new Set<EntityKey>();
 
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
@@ -700,7 +700,7 @@ export class IModelTransformer extends IModelExportHandler {
     for (const referenceId of entity.getReferenceConcreteIds()) {
       // TODO: probably need to rename from 'id' to 'ref' so these names aren't so ambiguous
       const referenceIdInTarget = this.context.findTargetEntityId(referenceId);
-      const alreadyProcessed = EntityReferences.isValid(referenceIdInTarget) || this._skippedElements.has(referenceId);
+      const alreadyProcessed = EntityReferences.isValid(referenceIdInTarget) || this._skippedEntities.has(referenceId);
       if (alreadyProcessed)
         continue;
       Logger.logTrace(loggerCategory, `Deferring resolution of reference '${referenceId}' of element '${entity.id}'`);
@@ -768,7 +768,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     Logger.logInfo(loggerCategory, `Element '${sourceElementId}' won't be exported. Marking its references as resolved`);
     const elementKey: EntityKey = `e${sourceElementId}`;
-    this._skippedElements.add(elementKey);
+    this._skippedEntities.add(elementKey);
 
     // Mark any existing pending references to the skipped element as resolved.
     for (const referencer of this._pendingReferences.getReferencersByEntityKey(elementKey)) {
