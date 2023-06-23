@@ -8,7 +8,7 @@
 
 import { EntityReference } from "@itwin/core-common";
 import { ConcreteEntity, EntityReferences } from "@itwin/core-backend";
-import { EntityMap } from "./EntityMap";
+import { EntityKey, EntityMap } from "./EntityMap";
 
 /**
  * A reference relationships from an element, "referencer", to an element or its submodel, "referenced"
@@ -47,10 +47,15 @@ export class PendingReferenceMap<T> {
   private _referencedToReferencers = new EntityMap<Set<EntityReference>>();
 
   public getReferencers(referenced: ConcreteEntity): Set<EntityReference> {
-    let referencers = this._referencedToReferencers.get(referenced);
+    const referencedKey = EntityMap.makeKey(referenced);
+    return this.getReferencersByEntityKey(referencedKey);
+  }
+  
+  public getReferencersByEntityKey(referenced: EntityKey): Set<EntityReference> {
+    let referencers = this._referencedToReferencers.getByKey(referenced);
     if (referencers === undefined) {
       referencers = new Set();
-      this._referencedToReferencers.set(referenced, referencers);
+      this._referencedToReferencers.setByKey(referenced, referencers);
     }
     return referencers;
   }

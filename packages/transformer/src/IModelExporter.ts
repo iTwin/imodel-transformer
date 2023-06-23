@@ -83,7 +83,7 @@ export abstract class IModelExportHandler {
   public shouldExportElement(_element: Element): boolean { return true; }
 
   /** Called when element is skipped instead of exported. */
-  public onSkipElement(_element: Element): void { }
+  public onSkipElement(_elementId: Id64String): void { }
 
   /** Called when an element should be exported.
    * @param element The element to export
@@ -654,7 +654,7 @@ export class IModelExporter {
       await this.exportElementAspects(elementId);
       return this.exportChildElements(elementId);
     } else {
-      this.handler.onSkipElement(element);
+      this.handler.onSkipElement(element.id);
     }
   }
 

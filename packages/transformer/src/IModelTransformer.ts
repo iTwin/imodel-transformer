@@ -30,12 +30,11 @@ import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporte
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
-import { EntityMap } from "./EntityMap";
+import { EntityKey, EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
-const missingReferenceId = "0x2"; // any non-existent EcInstanceId is fine
 
 const nullLastProvenanceEntityInfo = {
   entityId: Id64.invalid,
@@ -279,6 +278,11 @@ export class IModelTransformer extends IModelExportHandler {
   public static get provenanceElementAspectClasses(): (typeof Entity)[] {
     return [ExternalSourceAspect];
   }
+
+  /** Set of entity keys which were not exported and don't need to be tracked for pending reference resolution.
+   * @note Currently only tracks elements which were not exported.
+   */
+  protected _skippedElements = new Set<EntityKey>();
 
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
@@ -610,21 +614,6 @@ export class IModelTransformer extends IModelExportHandler {
     Logger.logWarning(loggerCategory, `Tried to defer/skip an element, which is no longer necessary`);
   }
 
-  private isRelatedElementProps(obj: any): obj is RelatedElementProps {
-    return typeof (obj) === "object" && "id" in obj;
-  }
-
-  private resetInvalidRelatedIds(entityProps: EntityProps) {
-    for (const key of Object.keys(entityProps)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const prop: any = (entityProps as any)[key];
-      if (this.isRelatedElementProps(prop) && prop.id === missingReferenceId) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (entityProps as any)[key] = undefined;
-      }
-    }
-  }
-
   /** Transform the specified sourceElement into ElementProps for the target iModel.
    * @param sourceElement The Element from the source iModel to transform.
    * @returns ElementProps for the target iModel.
@@ -640,7 +629,6 @@ export class IModelTransformer extends IModelExportHandler {
         targetElementProps.jsonProperties.Subject.Job = undefined;
       }
     }
-    this.resetInvalidRelatedIds(targetElementProps);
     return targetElementProps;
   }
 
@@ -712,8 +700,8 @@ export class IModelTransformer extends IModelExportHandler {
     for (const referenceId of entity.getReferenceConcreteIds()) {
       // TODO: probably need to rename from 'id' to 'ref' so these names aren't so ambiguous
       const referenceIdInTarget = this.context.findTargetEntityId(referenceId);
-      const alreadyImported = EntityReferences.isValid(referenceIdInTarget);
-      if (alreadyImported)
+      const alreadyProcessed = EntityReferences.isValid(referenceIdInTarget) || this._skippedElements.has(referenceId);
+      if (alreadyProcessed)
         continue;
       Logger.logTrace(loggerCategory, `Deferring resolution of reference '${referenceId}' of element '${entity.id}'`);
       const referencedExistsInSource = EntityUnifier.exists(this.sourceDb, { entityReference: referenceId });
@@ -772,23 +760,23 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public override shouldExportElement(_sourceElement: Element): boolean { return true; }
 
-  public override onSkipElement(sourceElement: Element): void {
-    if (this.context.findTargetElementId(sourceElement.id) !== Id64.invalid) {
+  public override onSkipElement(sourceElementId: Id64String): void {
+    if (this.context.findTargetElementId(sourceElementId) !== Id64.invalid) {
       // element already has provenance
       return;
     }
 
-    Logger.logInfo(loggerCategory, `Element '${sourceElement.id}' won't be exported. Marking its references as resolved`);
-    // Remap skipped element to non-existent EcInstanceId.
-    // When exporting other elements transformer needs reset all references to missingReferenceId
-    this.context.remapElement(sourceElement.id, missingReferenceId);
+    Logger.logInfo(loggerCategory, `Element '${sourceElementId}' won't be exported. Marking its references as resolved`);
+    const elementKey: EntityKey = `e${sourceElementId}`;
+    this._skippedElements.add(elementKey);
 
-    for (const referencer of this._pendingReferences.getReferencers(sourceElement)) {
-      const key = PendingReference.from(referencer, sourceElement);
+    // Mark any existing pending references to the skipped element as resolved.
+    for (const referencer of this._pendingReferences.getReferencersByEntityKey(elementKey)) {
+      const key = PendingReference.from(referencer, elementKey);
       const pendingRef = this._pendingReferences.get(key);
       if (!pendingRef)
         continue;
-      pendingRef.resolveReference(EntityReferences.from(sourceElement));
+      pendingRef.resolveReference(elementKey);
       this._pendingReferences.delete(key);
     }
   }
@@ -1033,7 +1021,6 @@ export class IModelTransformer extends IModelExportHandler {
     targetModelProps.modeledElement = { ...targetModelProps.modeledElement, id: targetModeledElementId };
     targetModelProps.id = targetModeledElementId;
     targetModelProps.parentModel = this.context.findTargetElementId(targetModelProps.parentModel!);
-    this.resetInvalidRelatedIds(targetModelProps);
     return targetModelProps;
   }
 
@@ -1151,14 +1138,11 @@ export class IModelTransformer extends IModelExportHandler {
    */
   protected onTransformRelationship(sourceRelationship: Relationship): RelationshipProps {
     const targetRelationshipProps: RelationshipProps = sourceRelationship.toJSON();
-    const targetSourceId = this.context.findTargetElementId(sourceRelationship.sourceId);
-    targetRelationshipProps.sourceId = targetSourceId !== missingReferenceId ? targetSourceId : Id64.invalid;
-    const targetTargetId = this.context.findTargetElementId(sourceRelationship.targetId);
-    targetRelationshipProps.targetId = targetTargetId !== missingReferenceId ? targetTargetId : Id64.invalid;
+    targetRelationshipProps.sourceId = this.context.findTargetElementId(sourceRelationship.sourceId);
+    targetRelationshipProps.targetId = this.context.findTargetElementId(sourceRelationship.targetId);
     sourceRelationship.forEachProperty((propertyName: string, propertyMetaData: PropertyMetaData) => {
       if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
-        const targetElementId = this.context.findTargetElementId(sourceRelationship.asAny[propertyName]);
-        (targetRelationshipProps as any)[propertyName] = targetElementId !== missingReferenceId ? targetElementId : Id64.invalid;
+        (targetRelationshipProps as any)[propertyName] = this.context.findTargetElementId(sourceRelationship.asAny[propertyName]);
       }
     });
     return targetRelationshipProps;
@@ -1204,7 +1188,6 @@ export class IModelTransformer extends IModelExportHandler {
    */
   protected onTransformElementAspect(sourceElementAspect: ElementAspect, _targetElementId: Id64String): ElementAspectProps {
     const targetElementAspectProps = this.context.cloneElementAspect(sourceElementAspect);
-    this.resetInvalidRelatedIds(targetElementAspectProps);
     return targetElementAspectProps;
   }
 
