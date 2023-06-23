@@ -1,0 +1,7 @@
+{
+  "type": "prerelease",
+  "comment": "Started using provenanceSourceDb instead of sourceDb in initElementProvenance",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "51540204+simsta6@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
