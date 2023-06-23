@@ -165,8 +165,10 @@ jobs:
     - name: Lint
       run: pnpm run lint
 
-    - name: install gdb
-      run: sudo apt-get install -y gdb
+    - name: install gdb and valgrind
+      run: |
+        sudo apt-get install -y gdb
+        sudo apt-get install -y valgrind
 
     - name: Build
       run: pnpm run build
@@ -178,12 +180,14 @@ jobs:
           echo attempt $i with gdb
           date
           timeout 25s gdb -batch node \
-            -ex "run node_modules/mocha/bin/mocha.js 'lib/cjs/test/**/*.test.js' --timeout 8000 --require source-map-support/register" \
+            -ex "set follow-fork-mode child" \
+            -ex "pnpm run test" \
             -ex bt \
             && echo attempt succeeded \
             || echo attempt failed with code $?
           echo attempt $i no gdb
           timeout 18s pnpm run test && echo attempt succeeded || echo attempt failed with code $?
+          timeout 2m valgrind --trace-children=yes pnpm run test && echo attempt succeeded || echo attempt failed with code $?
         done
       env:
         USE_GDB: ${{ inputs.nativeBackTraceTest == 'true' }}
