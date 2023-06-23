@@ -50,7 +50,7 @@ export class PendingReferenceMap<T> {
     const referencedKey = EntityMap.makeKey(referenced);
     return this.getReferencersByEntityKey(referencedKey);
   }
-  
+
   public getReferencersByEntityKey(referenced: EntityKey): Set<EntityReference> {
     let referencers = this._referencedToReferencers.getByKey(referenced);
     if (referencers === undefined) {
