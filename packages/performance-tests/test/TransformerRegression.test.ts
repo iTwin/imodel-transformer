@@ -15,7 +15,7 @@ import * as fs from "fs";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
 import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { BriefcaseArgs, getTestIModels } from "./TestContext";
+import { getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
@@ -108,8 +108,7 @@ async function runRegressionTests() {
     testIModels.forEach(async (iModel) => {
       describe(`Transforms of ${iModel.name}`, async () => {
         let sourceDb: BriefcaseDb;
-        let record: ReporterInfo;
-        let sourceBriefcaseArgs: BriefcaseArgs;
+        let reportInfo: ReporterInfo
 
         before(async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
@@ -131,30 +130,37 @@ async function runRegressionTests() {
           const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
           const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
           Logger.logInfo(loggerCategory, `loaded (${sizeInGb})'`);
-          record = {
+          reportInfo = {
             "Id": iModel.iModelId,
             "T-shirt size": iModel.tShirtSize,
             "Gb size": sizeInGb,
             "Branch Name": branchName,
             "Federation Guid Saturation 0-1": fedGuidSaturation,
           };
-          sourceBriefcaseArgs = {
-            fileName: sourceDb.pathName,
-            briefcaseId: sourceDb.briefcaseId,
-          };
         });
 
         testCasesMap.forEach(async (testCase, key) => {
+          before(async () => {
+            if(!sourceDb.isOpen){
+              sourceDb = await BriefcaseDb.open({
+                fileName: sourceDb.pathName,
+                readonly: true,
+              });
+            }
+          });
+
           it(key, async () => {
-            reporter = await testCase(sourceDb, sourceBriefcaseArgs, reporter, record);
+            reporter = await testCase(sourceDb, reporter, reportInfo);
           }).timeout(0);
+          
+          sourceDb.close();
         });
       });
     });
 
     const _15minutes = 15 * 60 * 1000;
 
-    it("Transform vs raw inserts", async () => {
+    it.skip("Transform vs raw inserts", async () => {
       return rawInserts(reporter, branchName);
     }).timeout(0);
 

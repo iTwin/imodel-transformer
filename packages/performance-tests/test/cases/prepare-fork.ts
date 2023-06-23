@@ -7,21 +7,14 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
-import { BriefcaseArgs } from "../TestContext";
 import { ReporterEntry, ReporterInfo } from "../ReporterUtils";
 import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs, reporter: Reporter, record: ReporterInfo){
+export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Reporter, reportInfo: ReporterInfo){
   let reporterData: ReporterEntry;
-
-  if(!sourceDb.isOpen)
-    sourceDb = await BriefcaseDb.open({
-      fileName: sourceBriefcaseArgs.fileName,
-      readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
-    });
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
@@ -71,7 +64,6 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
       branchDb.saveChanges(description);
 
       branchDb.close();
-      sourceDb.close();
       branchInitializer.dispose();
     });
     Logger.logInfo(loggerCategory, `Prepare Fork time: ${entityProcessingTimer.elapsedSeconds}`);
@@ -82,18 +74,12 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    reporterData = {
-      testSuite: "Prepare Fork",
-      testName: sourceDb.name,
-      valueDescription: "time elapsed (seconds)",
-      value: entityProcessingTimer?.elapsedSeconds ?? -1,
-    };
     reporter.addEntry(
       "Prepare Fork",
-      `${record["Branch Name"]}: ${sourceDb.name}`,
+      `${reportInfo["Branch Name"]}: ${sourceDb.name}`,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
-      record
+      reportInfo
     );
   }
 

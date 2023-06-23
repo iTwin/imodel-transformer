@@ -13,21 +13,13 @@ import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-back
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
-import { BriefcaseArgs } from "../TestContext";
-import { BriefcaseIdValue } from "@itwin/core-common";
 import { ReporterEntry, ReporterInfo } from "../ReporterUtils";
 import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs, reporter: Reporter, record: ReporterInfo) {
-
-  if(!sourceDb.isOpen)
-    sourceDb = await BriefcaseDb.open({
-      fileName: sourceBriefcaseArgs.fileName,
-      readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
-    });
+export default async function identityTransformer(sourceDb: BriefcaseDb, reporter: Reporter, reportInfo: ReporterInfo) {
 
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
@@ -68,13 +60,12 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, sourceB
   } finally {
     reporter.addEntry(
       "identity transform (provenance)",
-      `${record["Branch Name"]}: ${sourceDb.name}`,
+      `${reportInfo["Branch Name"]}: ${sourceDb.name}`,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
-      record
+      reportInfo
     );
     targetDb.close();
-    sourceDb.close();
     transformer.dispose();
   }
   return reporter;
