@@ -187,8 +187,8 @@ jobs:
             || echo attempt failed with code $?
           echo attempt $i no gdb
           timeout 18s pnpm run test && echo attempt succeeded || echo attempt failed with code $?
-          echo attempt $i no valgrind
-          timeout 2m valgrind --trace-children=yes pnpm run test && echo attempt succeeded || echo attempt failed with code $?
+          # echo attempt $i no valgrind
+          # timeout 2m valgrind --trace-children=yes pnpm run test && echo attempt succeeded || echo attempt failed with code $?
         done
       env:
         USE_GDB: ${{ inputs.nativeBackTraceTest == 'true' }}
