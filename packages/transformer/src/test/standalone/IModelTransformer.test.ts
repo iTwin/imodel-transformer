@@ -2446,7 +2446,7 @@ describe("IModelTransformer", () => {
     }
   });
 
-  it("should transform correctly transform when some elements are not exported", async() => {
+  it("should transform correctly transform when some elements are not exported", async () => {
     // create source iModel
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformWithSkippedElements-Source.bim");
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "TransformWithSkippedElements-Source" } });
@@ -2483,7 +2483,7 @@ describe("IModelTransformer", () => {
       category: sourceCategoryId,
       code: Code.createEmpty(),
       model: sourceModelId,
-      referencedElement: { id: sourceReferencedElementId, relClassName: "CustomSchema:CustomNavigationalPropertyRelationship" }
+      referencedElement: { id: sourceReferencedElementId, relClassName: "CustomSchema:CustomNavigationalPropertyRelationship" },
     };
 
     for (let i = 0; i < 10; ++i) {
@@ -2509,7 +2509,7 @@ describe("IModelTransformer", () => {
     await transformer.processAll();
     targetDb.saveChanges();
 
-    targetDb.withPreparedStatement(`SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'`, statement => {
+    targetDb.withPreparedStatement(`SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'`, (statement) => {
       while(DbResult.BE_SQLITE_ROW === statement.step()) {
         assert(statement.getValue(0).isNull);
       }
