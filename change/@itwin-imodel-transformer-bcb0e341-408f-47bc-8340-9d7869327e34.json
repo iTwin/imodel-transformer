@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Added new functions overloads for IModelTransformer.processChanges and IModelExporter.exportChanges. Deprecated old overloads, they still work.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "51540204+simsta6@users.noreply.github.com",
+  "dependentChangeType": "minor"
+}

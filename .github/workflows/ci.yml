@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
   # for testing
   workflow_dispatch:
@@ -162,14 +163,14 @@ jobs:
       env:
         CORE_VERSION: ${{ matrix.version }}
 
-    - name: Build
-      run: pnpm run build
-
     - name: Lint
       run: pnpm run lint
 
     - name: install gdb
       run: sudo apt-get install -y gdb
+
+    - name: Build
+      run: pnpm run build
 
     - name: Test
       run: |
@@ -183,9 +184,9 @@ jobs:
           #     -ex "run node_modules/mocha/bin/mocha.js 'lib/cjs/test/**/*.test.js' --timeout 8000 --require source-map-support/register" \
           #     -ex bt && echo attempt succeeded || echo attempt failed with code $?
           # else
-            timeout 20s pnpm test && echo attempt succeeded || echo attempt failed with code $?
+          # timeout 20s pnpm test && echo attempt succeeded || echo attempt failed with code $?
+          pnpm run test && echo attempt succeeded || echo attempt failed with code $?
           # fi
         done
-      working-directory: packages/transformer
       env:
         USE_GDB: ${{ inputs.nativeBackTraceTest == 'true' }}
