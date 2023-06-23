@@ -183,7 +183,7 @@ jobs:
 
     - name: Upload core dump
       uses: actions/upload-artifact@v3
-      if: failed()
+      if: failure()
       with:
         name: coredump
         path: packages/transformer/core.*
