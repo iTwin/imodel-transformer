@@ -12,13 +12,16 @@
     "build": "tsc -p tsconfig.json",
     "test": "echo \"Error: no tests\" && exit 0"
   },
-  "keywords": ["performance", "profiling"],
+  "keywords": [
+    "performance",
+    "profiling"
+  ],
   "author": "Bentley Systems, Inc.",
   "license": "MIT",
   "devDependencies": {
-    "@itwin/build-tools": "3.6.0 - 4.0.999",
-    "@itwin/core-backend": "3.6.0 - 4.0.999",
-    "@types/node": "^18.11.5",
-    "typescript": "~4.4.0"
+    "@itwin/build-tools": "^4.0.2",
+    "@itwin/core-backend": "^4.0.2",
+    "@types/node": "^18.16.18",
+    "typescript": "^5.1.3"
   }
 }
