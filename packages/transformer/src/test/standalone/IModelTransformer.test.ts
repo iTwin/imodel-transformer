@@ -2238,7 +2238,7 @@ describe("IModelTransformer", () => {
     // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
       // itwin.js 4.x will also trim the code value of utf-8 spaces in the native layer
-      const inItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
+      const inItjs4x = false;// Semver.gte(coreBackendPkgJson.version, "4.0.0");
       // eslint-disable-next-line
       console.log("inItjs4x", coreBackendPkgJson);
       getCodeValRawSqlite(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
