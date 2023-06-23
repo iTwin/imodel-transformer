@@ -15,12 +15,13 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { BriefcaseArgs } from "../TestContext";
 import { BriefcaseIdValue } from "@itwin/core-common";
-import { ReporterEntry } from "../ReporterUtils";
+import { ReporterEntry, ReporterInfo } from "../ReporterUtils";
+import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs) {
+export default async function identityTransformer(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs, reporter: Reporter, record: ReporterInfo) {
 
   if(!sourceDb.isOpen)
     sourceDb = await BriefcaseDb.open({
@@ -28,7 +29,7 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, sourceB
       readonly: sourceBriefcaseArgs.briefcaseId ? sourceBriefcaseArgs.briefcaseId === BriefcaseIdValue.Unassigned : false,
     });
 
-    const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
+  const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
   let reporterData: ReporterEntry;
   class ProgressTransformer extends IModelTransformer {
@@ -65,15 +66,16 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, sourceB
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    reporterData = {
-      testSuite: "identity transform (provenance)",
-      testName: sourceDb.name,
-      valueDescription: "time elapsed (seconds)",
-      value: entityProcessingTimer?.elapsedSeconds ?? -1,
-    };
+    reporter.addEntry(
+      "identity transform (provenance)",
+      `${record["Branch Name"]}: ${sourceDb.name}`,
+      "time elapsed (seconds)",
+      entityProcessingTimer?.elapsedSeconds ?? -1,
+      record
+    );
     targetDb.close();
     sourceDb.close();
     transformer.dispose();
   }
-  return reporterData;
+  return reporter;
 }

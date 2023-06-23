@@ -8,12 +8,13 @@ import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
 import { BriefcaseArgs } from "../TestContext";
-import { ReporterEntry } from "../ReporterUtils";
+import { ReporterEntry, ReporterInfo } from "../ReporterUtils";
+import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs){
+export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcaseArgs: BriefcaseArgs, reporter: Reporter, record: ReporterInfo){
   let reporterData: ReporterEntry;
 
   if(!sourceDb.isOpen)
@@ -87,7 +88,14 @@ export default async function prepareFork(sourceDb: BriefcaseDb, sourceBriefcase
       valueDescription: "time elapsed (seconds)",
       value: entityProcessingTimer?.elapsedSeconds ?? -1,
     };
+    reporter.addEntry(
+      "Prepare Fork",
+      `${record["Branch Name"]}: ${sourceDb.name}`,
+      "time elapsed (seconds)",
+      entityProcessingTimer?.elapsedSeconds ?? -1,
+      record
+    );
   }
 
-  return reporterData;
+  return reporter;
 }

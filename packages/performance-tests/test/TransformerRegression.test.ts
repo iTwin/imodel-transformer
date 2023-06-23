@@ -13,7 +13,7 @@ import assert from "assert";
 import * as path from "path";
 import * as fs from "fs";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
-import { Logger, LogLevel } from "@itwin/core-bentley";
+import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { BriefcaseArgs, getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
@@ -29,7 +29,6 @@ import { ReporterInfo } from "./ReporterUtils";
 // cases
 import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
-
 
 const testCasesMap = new Map([
   ["identity transform", identityTransformer],
@@ -101,7 +100,7 @@ const setupTestData = async () => {
 
 async function runRegressionTests() {
   const testIModels = await setupTestData();
-  const reporter = new Reporter();
+  let reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
   const branchName =  await getBranchName();
 
@@ -111,13 +110,20 @@ async function runRegressionTests() {
         let sourceDb: BriefcaseDb;
         let record: ReporterInfo;
         let sourceBriefcaseArgs: BriefcaseArgs;
-        before( async () => {
+
+        before(async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
           sourceDb = await iModel.load();
           const fedGuidSaturation = sourceDb.withStatement(
-            "SELECT CAST(SUM(hasGuid) as DOUBLE)/SUM(total) ratio FROM (SELECT IIF(FederationGuid IS NOT NULL, 1, 0) hasGuid, 1 as total FROM bis.Element)",
+            `
+            SELECT
+            CAST(SUM(hasGuid) as DOUBLE)/SUM(total) ratio 
+            FROM (
+              SELECT IIF(FederationGuid IS NOT NULL, 1, 0) hasGuid,
+              1 as total FROM bis.Element
+            )`,
             (stmt) => {
-              stmt.step();
+              assert(stmt.step() === DbResult.BE_SQLITE_ROW);;
               return stmt.getValue(0).getDouble();
             }
           );
@@ -126,13 +132,11 @@ async function runRegressionTests() {
           const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
           Logger.logInfo(loggerCategory, `loaded (${sizeInGb})'`);
           record = {
-            /* eslint-disable @typescript-eslint/naming-convention */
             "Id": iModel.iModelId,
             "T-shirt size": iModel.tShirtSize,
             "Gb size": sizeInGb,
             "Branch Name": branchName,
             "Federation Guid Saturation 0-1": fedGuidSaturation,
-            /* eslint-enable @typescript-eslint/naming-convention */
           };
           sourceBriefcaseArgs = {
             fileName: sourceDb.pathName,
@@ -142,14 +146,7 @@ async function runRegressionTests() {
 
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
-            const reporterEntry = await testCase(sourceDb, sourceBriefcaseArgs);
-            reporter.addEntry(
-              reporterEntry.testSuite,
-              `${branchName}: ${reporterEntry.testName}`,
-              reporterEntry.valueDescription,
-              reporterEntry.value,
-              record
-            );
+            reporter = await testCase(sourceDb, sourceBriefcaseArgs, reporter, record);
           }).timeout(0);
         });
       });
