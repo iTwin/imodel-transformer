@@ -181,7 +181,7 @@ jobs:
         do
           echo attempt $i
           date
-          sudo $(which pnpm) run test
+          sudo env PATH="$PATH" bash -c "pnpm run test"
         done
         # https://gist.github.com/kudaba/53f68340bd28cd1e8824ac1e6ba8cf88
         sudo chmod -R +rwx packages/transformer/core.*
