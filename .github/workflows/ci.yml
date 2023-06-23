@@ -175,20 +175,22 @@ jobs:
 
     - name: Test
       run: |
+        ulimit -c unlimited
+        echo 'core.%p' | sudo tee /proc/sys/kernel/core_pattern
         for i in {1..5}
         do
-          echo attempt $i with gdb
+          echo attempt $i
           date
-          timeout 25s gdb -batch node \
-            -ex "set follow-fork-mode child" \
-            -ex "$(which pnpm) run test" \
-            -ex bt \
-            && echo attempt succeeded \
-            || echo attempt failed with code $?
-          echo attempt $i no gdb
-          timeout 18s pnpm run test && echo attempt succeeded || echo attempt failed with code $?
-          # echo attempt $i no valgrind
-          # timeout 2m valgrind --trace-children=yes pnpm run test && echo attempt succeeded || echo attempt failed with code $?
+          sudo pnpm run test
         done
+        # https://gist.github.com/kudaba/53f68340bd28cd1e8824ac1e6ba8cf88
+        sudo chmod -R +rwx packages/transformer/core.*
+
       env:
         USE_GDB: ${{ inputs.nativeBackTraceTest == 'true' }}
+
+    - name: Upload core dump
+      uses: actions/upload-artifact@v3
+      with:
+        name: coredump
+        path: packages/transformer/core.*
