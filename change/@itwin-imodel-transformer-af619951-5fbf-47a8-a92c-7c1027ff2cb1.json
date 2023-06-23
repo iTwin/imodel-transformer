@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Add heap memory optimizations",
+  "comment": "Add pending reference resolution when referenced element is not exported",
   "packageName": "@itwin/imodel-transformer",
   "email": "Mindaugas.Dirgincius@bentley.com",
   "dependentChangeType": "patch"
