@@ -2,6 +2,45 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Sat, 24 Jun 2023 03:30:05 GMT",
+      "tag": "@itwin/imodel-transformer_v0.2.0",
+      "version": "0.2.0",
+      "comments": {
+        "prerelease": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "085590025bddffbf95dbfb6092f6b14c99fb8bcf",
+            "comment": "Started using provenanceSourceDb instead of sourceDb in initElementProvenance"
+          }
+        ],
+        "none": [
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "085590025bddffbf95dbfb6092f6b14c99fb8bcf",
+            "comment": "turn on docs validation on main and fix broken doc ref"
+          }
+        ],
+        "minor": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "085590025bddffbf95dbfb6092f6b14c99fb8bcf",
+            "comment": "Added new functions overloads for IModelTransformer.processChanges and IModelExporter.exportChanges. Deprecated old overloads, they still work."
+          }
+        ],
+        "patch": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "085590025bddffbf95dbfb6092f6b14c99fb8bcf",
+            "comment": "Changed sourceDb to targetDb in IModelCloneContext.findTargetEntityId"
+          }
+        ]
+      }
+    },
+    {
       "date": "Fri, 09 Jun 2023 13:24:23 GMT",
       "tag": "@itwin/imodel-transformer_v0.1.16",
       "version": "0.1.16",
