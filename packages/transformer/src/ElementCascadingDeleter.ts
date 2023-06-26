@@ -40,12 +40,12 @@ export class ElementCascadingDeleter extends ElementTreeDeleter {
       FROM bis.Element
       WHERE CodeScope.id=?
         AND Parent.id IS NULL
-      `, (stmt) => {
-        stmt.bindId(1, element);
-        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-          const elementId = stmt.getValue(0).getId();
-          this.processElementTree(elementId, newScope);
-        }
-      });
+    `, (stmt) => {
+      stmt.bindId(1, element);
+      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const elementId = stmt.getValue(0).getId();
+        this.processElementTree(elementId, newScope);
+      }
+    });
   }
 }
