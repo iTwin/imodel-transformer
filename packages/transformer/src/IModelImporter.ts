@@ -14,7 +14,7 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { ElementAspect, ElementMultiAspect, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
 import type { IModelTransformOptions } from "./IModelTransformer";
 import * as assert from "assert";
-import { deleteElementCascadeTree } from "./ElementCascadingDeleter";
+import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -265,7 +265,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
   protected onDeleteElement(elementId: Id64String): void {
-    deleteElementCascadeTree(this.targetDb, elementId);
+    deleteElementTreeCascade(this.targetDb, elementId);
     Logger.logInfo(loggerCategory, `Deleted element ${elementId} and its descendants`);
     this.trackProgress();
   }

@@ -12,7 +12,7 @@ import { DbResult, Id64String } from "@itwin/core-bentley";
  * @param iModel The iModel
  * @param topElement The parent of the sub-tree
  */
-export function deleteElementCascadeTree(iModel: IModelDb, topElement: Id64String): void {
+export function deleteElementTreeCascade(iModel: IModelDb, topElement: Id64String): void {
   const del = new ElementCascadingDeleter(iModel);
   del.deleteNormalElements(topElement);
   del.deleteSpecialElements();
@@ -27,7 +27,7 @@ export class ElementCascadingDeleter extends ElementTreeDeleter {
 
   /** The main tree-walking function */
   protected override processElementTree(element: Id64String, scope: ElementTreeWalkerScope): void {
-    if(this.shouldVisitCodeScopes(element, scope)) {
+    if (this.shouldVisitCodeScopes(element, scope)) {
       this._processCodeScopes(element, scope);
     }
     super.processElementTree(element, scope);
@@ -35,12 +35,17 @@ export class ElementCascadingDeleter extends ElementTreeDeleter {
   /** Process code scope references */
   private _processCodeScopes(element: Id64String, scope: ElementTreeWalkerScope) {
     const newScope = new ElementTreeWalkerScope(scope, element);
-    this._iModel.withPreparedStatement("select ECInstanceId from bis.Element where CodeScope.id=? and Parent.id is null", (stmt) => {
-      stmt.bindId(1, element);
-      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-        const elementId = stmt.getValue(0).getId();
-        this.processElementTree(elementId, newScope);
-      }
-    });
+    this._iModel.withPreparedStatement(`
+      SELECT ECInstanceId
+      FROM bis.Element
+      WHERE CodeScope.id=?
+        AND Parent.id IS NULL
+      `, (stmt) => {
+        stmt.bindId(1, element);
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          const elementId = stmt.getValue(0).getId();
+          this.processElementTree(elementId, newScope);
+        }
+      });
   }
 }
