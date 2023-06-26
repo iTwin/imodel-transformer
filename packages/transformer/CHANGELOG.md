@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Sat, 24 Jun 2023 03:30:05 GMT and should not be manually modified.
+This log was last generated on Mon, 26 Jun 2023 13:40:00 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.2.1
+
+Mon, 26 Jun 2023 13:40:00 GMT
+
+### Patches
+
+- Added ElementCascadingDeleter to fix FK errors while deleting element which is referenced in code scopes of other elements ([commit](https://github.com/iTwin/transformer/commit/c82f3b93754787392bff3f1e66023058e65d219f))
 
 ## 0.2.0
 
