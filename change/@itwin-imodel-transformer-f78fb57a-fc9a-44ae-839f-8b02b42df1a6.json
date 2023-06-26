@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Added ElementCascadingDeleter to fix FK errors while deleting element which is referenced in code scopes of other elements",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "deividas.davidavicius@bentley.com",
+  "dependentChangeType": "patch"
+}
