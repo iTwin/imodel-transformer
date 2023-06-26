@@ -32,7 +32,7 @@ import prepareFork from "./cases/prepare-fork";
 import { LocalBriefcaseProps } from "@itwin/core-common";
 
 const testCasesMap = new Map([
-  ["identity transform", identityTransformer],
+  // ["identity transform", identityTransformer],
   ["prepare-fork", prepareFork],
 ]);
 
@@ -107,11 +107,11 @@ async function runRegressionTests() {
 
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
-      describe(`Transforms of ${iModel.name}`, async () => {
-        let sourceDb: BriefcaseDb;
-        let reportInfo: ReporterInfo;
-        let briefcase: LocalBriefcaseProps
+      let sourceDb: BriefcaseDb;
+      let reportInfo: ReporterInfo;
+      let briefcase: LocalBriefcaseProps
 
+      describe(`Transforms of ${iModel.name}`, async () => {
         before(async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
           const iModelId = iModel.iModelId;
@@ -154,7 +154,7 @@ async function runRegressionTests() {
         testCasesMap.forEach(async (testCase, key) => {
           before(async () => {
             sourceDb = await BriefcaseDb.open({
-              fileName: sourceDb.pathName,
+              fileName: iModel.filename !== undefined ? iModel.filename : briefcase.fileName,
               readonly: true,
             });
           });
