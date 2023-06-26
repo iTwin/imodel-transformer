@@ -43,7 +43,6 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
   const physModelId = PhysicalModel.insert(sourceDb, IModelDb.rootSubjectId, "physical model");
   const categoryId = SpatialCategory.insert(sourceDb, IModelDb.dictionaryId, "spatial category", {});
 
-  // 100,000 elements, 50,000  relationships
   for (let i = 0; i < iModelParam.numElements / 2; ++i) {
     const [id1, id2] = [0, 1].map((n) => new PhysicalObject({
       classFullName: PhysicalObject.classFullName,
@@ -56,7 +55,7 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
       model: physModelId,
       code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: `${2*i + n}`}),
       userLabel: `${2*i + n}`,
-      federationGuid: iModelParam.fedGuids ? Guid.createValue() : Guid.empty, // Guid.empty = 00000000-0000-0000-0000-000000000000
+      federationGuid: iModelParam.fedGuids ? undefined : Guid.empty, // Guid.empty = 00000000-0000-0000-0000-000000000000
     }, sourceDb).insert());
 
     const rel = new ElementGroupsMembers({
