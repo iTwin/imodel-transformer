@@ -27,43 +27,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Repor
   let entityProcessingTimer: StopWatch | undefined;
   try {
     [entityProcessingTimer] = await timed(async () => {
-        // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-        const masterLinkRepoId = new RepositoryLink({
-          classFullName: RepositoryLink.classFullName,
-          code: RepositoryLink.createCode(branchDb, IModelDb.repositoryModelId, "test-imodel"),
-          model: IModelDb.repositoryModelId,
-          // url: "https://wherever-you-got-your-imodel.net",
-          format: "iModel",
-          repositoryGuid: sourceDb.iModelId,
-          description: "master iModel repository",
-        }, branchDb).insert();
-
-        const masterExternalSourceId = new ExternalSource({
-          classFullName: ExternalSource.classFullName,
-          model: IModelDb.rootSubjectId,
-          code: Code.createEmpty(),
-          repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-          connectorName: "iModel Transformer",
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          connectorVersion: require("@itwin/imodel-transformer/package.json").version,
-        }, branchDb).insert();
-
-        // initialize the branch provenance
-        const branchInitializer = new IModelTransformer(sourceDb, branchDb, {
-          // tells the transformer that we have a raw copy of a source and the target should receive
-          // provenance from the source that is necessary for performing synchronizations in the future
-          wasSourceIModelCopiedToTarget: true,
-          // store the synchronization provenance in the scope of our representation of the external source, master
-          targetScopeElementId: masterExternalSourceId,
-        });
-
-        await branchInitializer.processAll();
-        // save+push our changes to whatever hub we're using
-        const description = "initialized branch iModel";
-        branchDb.saveChanges(description);
-
-        branchDb.close();
-        branchInitializer.dispose();
+      await classicalTransformerBranchInit(sourceDb, branchDb);
     });
     Logger.logInfo(loggerCategory, `Prepare Fork time: ${entityProcessingTimer.elapsedSeconds}`);
 
@@ -85,42 +49,42 @@ export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Repor
   return reporter;
 }
 
-// async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb,) {
-//   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-//   const masterLinkRepoId = new RepositoryLink({
-//     classFullName: RepositoryLink.classFullName,
-//     code: RepositoryLink.createCode(branchDb, IModelDb.repositoryModelId, "test-imodel"),
-//     model: IModelDb.repositoryModelId,
-//     // url: "https://wherever-you-got-your-imodel.net",
-//     format: "iModel",
-//     repositoryGuid: sourceDb.iModelId,
-//     description: "master iModel repository",
-//   }, branchDb).insert();
+async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb,) {
+  // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
+  const masterLinkRepoId = new RepositoryLink({
+    classFullName: RepositoryLink.classFullName,
+    code: RepositoryLink.createCode(branchDb, IModelDb.repositoryModelId, "test-imodel"),
+    model: IModelDb.repositoryModelId,
+    // url: "https://wherever-you-got-your-imodel.net",
+    format: "iModel",
+    repositoryGuid: sourceDb.iModelId,
+    description: "master iModel repository",
+  }, branchDb).insert();
 
-//   const masterExternalSourceId = new ExternalSource({
-//     classFullName: ExternalSource.classFullName,
-//     model: IModelDb.rootSubjectId,
-//     code: Code.createEmpty(),
-//     repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-//     connectorName: "iModel Transformer",
-//     // eslint-disable-next-line @typescript-eslint/no-var-requires
-//     connectorVersion: require("@itwin/imodel-transformer/package.json").version,
-//   }, branchDb).insert();
+  const masterExternalSourceId = new ExternalSource({
+    classFullName: ExternalSource.classFullName,
+    model: IModelDb.rootSubjectId,
+    code: Code.createEmpty(),
+    repository: new ExternalSourceIsInRepository(masterLinkRepoId),
+    connectorName: "iModel Transformer",
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    connectorVersion: require("@itwin/imodel-transformer/package.json").version,
+  }, branchDb).insert();
 
-//   // initialize the branch provenance
-//   const branchInitializer = new IModelTransformer(sourceDb, branchDb, {
-//     // tells the transformer that we have a raw copy of a source and the target should receive
-//     // provenance from the source that is necessary for performing synchronizations in the future
-//     wasSourceIModelCopiedToTarget: true,
-//     // store the synchronization provenance in the scope of our representation of the external source, master
-//     targetScopeElementId: masterExternalSourceId,
-//   });
+  // initialize the branch provenance
+  const branchInitializer = new IModelTransformer(sourceDb, branchDb, {
+    // tells the transformer that we have a raw copy of a source and the target should receive
+    // provenance from the source that is necessary for performing synchronizations in the future
+    wasSourceIModelCopiedToTarget: true,
+    // store the synchronization provenance in the scope of our representation of the external source, master
+    targetScopeElementId: masterExternalSourceId,
+  });
 
-//   await branchInitializer.processAll();
-//   // save+push our changes to whatever hub we're using
-//   const description = "initialized branch iModel";
-//   branchDb.saveChanges(description);
+  await branchInitializer.processAll();
+  // save+push our changes to whatever hub we're using
+  const description = "initialized branch iModel";
+  branchDb.saveChanges(description);
 
-//   branchDb.close();
-//   branchInitializer.dispose();
-// }
+  branchDb.close();
+  branchInitializer.dispose();
+}
