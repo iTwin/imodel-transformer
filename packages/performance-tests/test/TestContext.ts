@@ -17,8 +17,8 @@ export interface TestIModel {
   iModelId: string;
   iTwinId: string;
   tShirtSize: string;
-  filename?: string;
-  // load: () => Promise<BriefcaseDb>;
+  _cachedFileName?: string;
+  getFileName(): Promise<void>;
 }
 
 const iTwinIdStr = process.env.ITWIN_IDS;
@@ -51,7 +51,11 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
         iModelId,
         iTwinId,
         tShirtSize: getTShirtSizeFromName(iModel.displayName),
-        // load: async () => downloadAndOpenBriefcase({ iModelId, iTwinId }),
+        // _cachedFileName: undefined,
+        async getFileName(): Promise<void> {
+          const _briefcase = await downloadBriefcase({ iModelId, iTwinId}); // note not downloadAndOpen
+          this._cachedFileName = _briefcase.fileName;
+        },
       };
       if(filter(iModelToCheck)){
         yield iModelToCheck;
@@ -62,7 +66,7 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
   yield generateTestIModel({ numElements: 100_000, fedGuids: false });
 }
 
-export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<LocalBriefcaseProps> {
+export async function downloadBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<LocalBriefcaseProps> {
   const PROGRESS_FREQ_MS = 2000;
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 

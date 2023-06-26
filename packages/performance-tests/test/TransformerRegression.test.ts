@@ -15,7 +15,7 @@ import * as fs from "fs";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
 import { DbResult, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { downloadAndOpenBriefcase, getTestIModels } from "./TestContext";
+import { downloadBriefcase, getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
@@ -109,18 +109,14 @@ async function runRegressionTests() {
     testIModels.forEach(async (iModel) => {
       let sourceDb: BriefcaseDb;
       let reportInfo: ReporterInfo;
-      let briefcase: LocalBriefcaseProps
 
       describe(`Transforms of ${iModel.name}`, async () => {
         before(async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
-          const iModelId = iModel.iModelId;
-          const iTwinId = iModel.iTwinId;
-          if(iTwinId !== Guid.empty){
-            briefcase = await downloadAndOpenBriefcase({ iModelId, iTwinId });
-          }
+          await iModel.getFileName();
+          assert(iModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
           sourceDb = await BriefcaseDb.open({
-            fileName: iModel.filename !== undefined ? iModel.filename : briefcase.fileName,
+            fileName: iModel._cachedFileName,
             readonly: true,
           });
           // sourceDb = await iModel.load();
@@ -153,8 +149,9 @@ async function runRegressionTests() {
 
         testCasesMap.forEach(async (testCase, key) => {
           before(async () => {
+            assert(iModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
             sourceDb = await BriefcaseDb.open({
-              fileName: iModel.filename !== undefined ? iModel.filename : briefcase.fileName,
+              fileName: iModel._cachedFileName,
               readonly: true,
             });
           });
