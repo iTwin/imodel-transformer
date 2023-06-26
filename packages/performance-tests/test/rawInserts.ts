@@ -9,7 +9,7 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { ChangesetFileProps, Code } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger, OpenMode } from "@itwin/core-bentley";
-import { setToStandalone } from "./iModelUtils";
+import { generateTestIModel, setToStandalone } from "./iModelUtils";
 
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
@@ -20,47 +20,15 @@ const ELEM_COUNT = 100_000;
 assert(ELEM_COUNT % 2 === 0, "elem count must be divisible by 2");
 
 export default async function rawInserts(reporter: Reporter, branchName: string) {
-  const sourcePath = initOutputFile(`RawInserts-source.bim`, outputDir);
-  if (fs.existsSync(sourcePath))
-    fs.unlinkSync(sourcePath);
-
-  let sourceDb = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: "RawInsertsSource" }});
-  const pathName = sourceDb.pathName;
-  sourceDb.close();
-  setToStandalone(pathName);
-  sourceDb = StandaloneDb.openFile(sourcePath, OpenMode.ReadWrite);
 
   Logger.logInfo(loggerCategory, "starting 150k entity inserts");
 
+  let sourceDb: StandaloneDb | undefined;
   const [insertsTimer] = timed(() => {
-    const physModelId = PhysicalModel.insert(sourceDb, IModelDb.rootSubjectId, "physical model");
-    const categoryId = SpatialCategory.insert(sourceDb, IModelDb.dictionaryId, "spatial category", {});
-
-    // 100,000 elements, 50,000  relationships
-    for (let i = 0; i < ELEM_COUNT / 2; ++i) {
-      const [id1, id2] = [0, 1].map((n) => new PhysicalObject({
-        classFullName: PhysicalObject.classFullName,
-        category: categoryId,
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(i, i, i)),
-        placement: {
-          origin: Point3d.create(i, i, i),
-          angles: YawPitchRollAngles.createDegrees(i, i, i),
-        },
-        model: physModelId,
-        code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: `${2*i + n}`}),
-        userLabel: `${2*i + n}`,
-      }, sourceDb).insert());
-
-      const rel = new ElementGroupsMembers({
-        classFullName: ElementGroupsMembers.classFullName,
-        sourceId: id1,
-        targetId: id2,
-        memberPriority: i,
-      }, sourceDb);
-
-      rel.insert();
-    }
+    sourceDb = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`RawInserts-source.bim` });
   });
+
+  if (sourceDb === undefined) throw Error
 
   reporter.addEntry(
     "populate by insert",

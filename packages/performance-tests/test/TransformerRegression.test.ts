@@ -29,10 +29,9 @@ import { ReporterInfo } from "./ReporterUtils";
 // cases
 import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
-import { LocalBriefcaseProps } from "@itwin/core-common";
 
 const testCasesMap = new Map([
-  // ["identity transform", identityTransformer],
+  ["identity transform", identityTransformer],
   ["prepare-fork", prepareFork],
 ]);
 
@@ -119,7 +118,6 @@ async function runRegressionTests() {
             fileName: iModel._cachedFileName,
             readonly: true,
           });
-          // sourceDb = await iModel.load();
           const fedGuidSaturation = sourceDb.withStatement(
             `
             SELECT
@@ -167,7 +165,7 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it.skip("Transform vs raw inserts", async () => {
+    it("Transform vs raw inserts", async () => {
       return rawInserts(reporter, branchName);
     }).timeout(0);
 

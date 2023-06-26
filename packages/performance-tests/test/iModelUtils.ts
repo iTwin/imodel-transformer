@@ -11,6 +11,7 @@ import { getTShirtSizeFromName, TestIModel  } from "./TestContext";
 const outputDir = path.join(__dirname, ".output");
 
 export interface IModelParams {
+  fileName: string;
   numElements: number;
   fedGuids: boolean;
 }
@@ -29,12 +30,12 @@ export function setToStandalone(iModelPath: string) {
   nativeDb.closeIModel();
 }
 
-export function generateTestIModel(iModelParam: IModelParams): TestIModel {
-  const sourcePath = initOutputFile(`testIModel-fedguids-${iModelParam.fedGuids}.bim`, outputDir);
+export function generateTestIModel(iModelParam: IModelParams): StandaloneDb {
+  const sourcePath = initOutputFile(iModelParam.fileName, outputDir);
   if (fs.existsSync(sourcePath))
     fs.unlinkSync(sourcePath);
 
-  let sourceDb = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: `testIModel-fedguids-${iModelParam.fedGuids}.bim` }});
+  let sourceDb = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: iModelParam.fileName }});
   const pathName = sourceDb.pathName;
   sourceDb.close();
   setToStandalone(pathName);
@@ -67,16 +68,5 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
 
     rel.insert();
   }
-  const iModelId = sourceDb.iModelId;
-  const iTwinId = sourceDb.iTwinId;
-  const filePath = sourceDb.pathName;
-  sourceDb.close();
-  const iModelToTest: TestIModel = {
-    name: `testIModel-fedguids-${iModelParam.fedGuids}`,
-    iModelId,
-    iTwinId,
-    tShirtSize: getTShirtSizeFromName(sourceDb.name),
-    async getFileName(): Promise<void> { this._cachedFileName = filePath },
-  };
-  return iModelToTest;
+  return sourceDb;
 }
