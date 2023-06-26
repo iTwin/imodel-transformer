@@ -5,7 +5,7 @@
 
 import { BriefcaseDb, BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
 import { Logger } from "@itwin/core-bentley";
-import { BriefcaseIdValue, IModelVersion } from "@itwin/core-common";
+import { BriefcaseIdValue, IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import assert from "assert";
 import { generateTestIModel } from "./iModelUtils";
@@ -17,7 +17,8 @@ export interface TestIModel {
   iModelId: string;
   iTwinId: string;
   tShirtSize: string;
-  load: () => Promise<BriefcaseDb>;
+  filename?: string;
+  // load: () => Promise<BriefcaseDb>;
 }
 
 const iTwinIdStr = process.env.ITWIN_IDS;
@@ -50,7 +51,7 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
         iModelId,
         iTwinId,
         tShirtSize: getTShirtSizeFromName(iModel.displayName),
-        load: async () => downloadAndOpenBriefcase({ iModelId, iTwinId }),
+        // load: async () => downloadAndOpenBriefcase({ iModelId, iTwinId }),
       };
       if(filter(iModelToCheck)){
         yield iModelToCheck;
@@ -61,7 +62,7 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
   yield generateTestIModel({ numElements: 100_000, fedGuids: false });
 }
 
-export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<BriefcaseDb> {
+export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<LocalBriefcaseProps> {
   const PROGRESS_FREQ_MS = 2000;
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
@@ -87,8 +88,10 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
     },
   }));
 
-  return BriefcaseDb.open({
-    fileName: briefcase.fileName,
-    readonly: briefcaseArg.briefcaseId ? briefcaseArg.briefcaseId === BriefcaseIdValue.Unassigned : false,
-  });
+  return briefcase;
+
+  // return BriefcaseDb.open({
+  //   fileName: briefcase.fileName,
+  //   readonly: briefcaseArg.briefcaseId ? briefcaseArg.briefcaseId === BriefcaseIdValue.Unassigned : false,
+  // });
 }

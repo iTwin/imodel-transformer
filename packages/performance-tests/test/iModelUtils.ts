@@ -70,13 +70,15 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
   }
   const iModelId = sourceDb.iModelId;
   const iTwinId = sourceDb.iTwinId;
+  const filePath = sourceDb.pathName;
   sourceDb.close();
   const iModelToTest: TestIModel = {
     name: `testIModel-fedguids-${iModelParam.fedGuids}`,
     iModelId,
     iTwinId,
     tShirtSize: getTShirtSizeFromName(sourceDb.name),
-    load: async () => StandaloneDb.openFile(sourcePath, OpenMode.ReadWrite),
+    filename: filePath,
+    // load: async () => StandaloneDb.openFile(sourcePath, OpenMode.ReadWrite),
   };
   return iModelToTest;
 }

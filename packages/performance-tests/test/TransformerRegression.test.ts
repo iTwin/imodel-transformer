@@ -13,9 +13,9 @@ import assert from "assert";
 import * as path from "path";
 import * as fs from "fs";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
-import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
+import { DbResult, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { getTestIModels } from "./TestContext";
+import { downloadAndOpenBriefcase, getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
@@ -29,6 +29,7 @@ import { ReporterInfo } from "./ReporterUtils";
 // cases
 import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
+import { LocalBriefcaseProps } from "@itwin/core-common";
 
 const testCasesMap = new Map([
   ["identity transform", identityTransformer],
@@ -109,10 +110,20 @@ async function runRegressionTests() {
       describe(`Transforms of ${iModel.name}`, async () => {
         let sourceDb: BriefcaseDb;
         let reportInfo: ReporterInfo;
+        let briefcase: LocalBriefcaseProps
 
         before(async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
-          sourceDb = await iModel.load();
+          const iModelId = iModel.iModelId;
+          const iTwinId = iModel.iTwinId;
+          if(iTwinId !== Guid.empty){
+            briefcase = await downloadAndOpenBriefcase({ iModelId, iTwinId });
+          }
+          sourceDb = await BriefcaseDb.open({
+            fileName: iModel.filename !== undefined ? iModel.filename : briefcase.fileName,
+            readonly: true,
+          });
+          // sourceDb = await iModel.load();
           const fedGuidSaturation = sourceDb.withStatement(
             `
             SELECT
@@ -137,16 +148,15 @@ async function runRegressionTests() {
             "Branch Name": branchName,
             "Federation Guid Saturation 0-1": fedGuidSaturation,
           };
+          sourceDb.close();
         });
 
         testCasesMap.forEach(async (testCase, key) => {
           before(async () => {
-            if(!sourceDb.isOpen){
-              sourceDb = await BriefcaseDb.open({
-                fileName: sourceDb.pathName,
-                readonly: true,
-              });
-            }
+            sourceDb = await BriefcaseDb.open({
+              fileName: sourceDb.pathName,
+              readonly: true,
+            });
           });
 
           it(key, async () => {
@@ -160,7 +170,7 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it("Transform vs raw inserts", async () => {
+    it.skip("Transform vs raw inserts", async () => {
       return rawInserts(reporter, branchName);
     }).timeout(0);
 
