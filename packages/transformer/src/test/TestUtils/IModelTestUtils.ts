@@ -1033,6 +1033,30 @@ export class ExtensiveTestScenario {
     } as any);
     const relationshipId2 = sourceDb.relationships.insertInstance(relationship2.toJSON());
     assert.isTrue(Id64.isValidId64(relationshipId2));
+
+    // Insert PhysicalObject5
+    const physicalObjectProps5: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: physicalModelId,
+      category: spatialCategoryId,
+      code: Code.createEmpty(),
+      userLabel: "PhysicalObject5",
+    };
+
+    const physicalObjectId5 = sourceDb.elements.insertElement(physicalObjectProps5);
+    assert.isTrue(Id64.isValidId64(physicalObjectId5));
+
+    // Insert PhysicalObject6
+    const physicalObjectProps6: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: physicalModelId,
+      category: spatialCategoryId,
+      code: { spec: "0x1", scope: physicalObjectId5 },
+      userLabel: "PhysicalObject6",
+    };
+
+    const physicalObjectId6 = sourceDb.elements.insertElement(physicalObjectProps6);
+    assert.isTrue(Id64.isValidId64(physicalObjectId6));
   }
 
   public static updateDb(sourceDb: IModelDb): void {
@@ -1088,29 +1112,42 @@ export class ExtensiveTestScenario {
     assert.isTrue(Id64.isValidId64(physicalObjectId3));
     sourceDb.elements.deleteElement(physicalObjectId3);
     assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(sourceDb, "PhysicalObject3"));
-    // Insert PhysicalObject5
+
+    // delete PhysicalObject6
+    const physicalObjectId6 = IModelTestUtils.queryByUserLabel(sourceDb, "PhysicalObject6");
+    assert.isTrue(Id64.isValidId64(physicalObjectId6));
+    sourceDb.elements.deleteElement(physicalObjectId6);
+    assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(sourceDb, "PhysicalObject6"));
+
+    // delete PhysicalObject5
+    const physicalObjectId5 = IModelTestUtils.queryByUserLabel(sourceDb, "PhysicalObject5");
+    assert.isTrue(Id64.isValidId64(physicalObjectId5));
+    sourceDb.elements.deleteElement(physicalObjectId5);
+    assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(sourceDb, "PhysicalObject5"));
+
+    // Insert PhysicalObject7
     const physicalObjectProps5: PhysicalElementProps = {
       classFullName: PhysicalObject.classFullName,
       model: physicalElement1.model,
       category: spatialCategoryId,
       code: Code.createEmpty(),
-      userLabel: "PhysicalObject5",
+      userLabel: "PhysicalObject7",
       geom: IModelTestUtils.createBox(Point3d.create(1, 1, 1)),
       placement: {
         origin: Point3d.create(5, 5, 5),
         angles: YawPitchRollAngles.createDegrees(0, 0, 0),
       },
     };
-    const physicalObjectId5 = sourceDb.elements.insertElement(physicalObjectProps5);
-    assert.isTrue(Id64.isValidId64(physicalObjectId5));
+    const physicalObjectId7 = sourceDb.elements.insertElement(physicalObjectProps5);
+    assert.isTrue(Id64.isValidId64(physicalObjectId7));
     // delete relationship
     const drawingGraphicId1 = IModelTestUtils.queryByUserLabel(sourceDb, "DrawingGraphic1");
     const drawingGraphicId2 = IModelTestUtils.queryByUserLabel(sourceDb, "DrawingGraphic2");
     const relationship: Relationship = sourceDb.relationships.getInstance(DrawingGraphicRepresentsElement.classFullName, { sourceId: drawingGraphicId2, targetId: physicalObjectId1 });
     relationship.delete();
     // insert relationships
-    DrawingGraphicRepresentsElement.insert(sourceDb, drawingGraphicId1, physicalObjectId5);
-    DrawingGraphicRepresentsElement.insert(sourceDb, drawingGraphicId2, physicalObjectId5);
+    DrawingGraphicRepresentsElement.insert(sourceDb, drawingGraphicId1, physicalObjectId7);
+    DrawingGraphicRepresentsElement.insert(sourceDb, drawingGraphicId2, physicalObjectId7);
     // update InformationRecord2
     const informationRecordCodeSpec: CodeSpec = sourceDb.codeSpecs.getByName("InformationRecords");
     const informationModelId = sourceDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(sourceDb, subjectId, "Information"))!;
@@ -1202,14 +1239,14 @@ export class ExtensiveTestScenario {
     const physicalElementId = IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalElement1");
     const physicalElement: PhysicalElement = iModelDb.elements.getElement(physicalElementId);
     assert.isUndefined(physicalElement.asAny.commonNavigation);
-    // assert PhysicalObject5 was inserted
-    const physicalObjectId5 = IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject5");
-    assert.isTrue(Id64.isValidId64(physicalObjectId5));
+    // assert PhysicalObject7 was inserted
+    const physicalObjectId7 = IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject7");
+    assert.isTrue(Id64.isValidId64(physicalObjectId7));
     // assert relationships were inserted
     const drawingGraphicId1 = IModelTestUtils.queryByUserLabel(iModelDb, "DrawingGraphic1");
     const drawingGraphicId2 = IModelTestUtils.queryByUserLabel(iModelDb, "DrawingGraphic2");
-    iModelDb.relationships.getInstance(DrawingGraphicRepresentsElement.classFullName, { sourceId: drawingGraphicId1, targetId: physicalObjectId5 });
-    iModelDb.relationships.getInstance(DrawingGraphicRepresentsElement.classFullName, { sourceId: drawingGraphicId2, targetId: physicalObjectId5 });
+    iModelDb.relationships.getInstance(DrawingGraphicRepresentsElement.classFullName, { sourceId: drawingGraphicId1, targetId: physicalObjectId7 });
+    iModelDb.relationships.getInstance(DrawingGraphicRepresentsElement.classFullName, { sourceId: drawingGraphicId2, targetId: physicalObjectId7 });
     // assert InformationRecord2 was updated
     const informationRecordCodeSpec: CodeSpec = iModelDb.codeSpecs.getByName("InformationRecords");
     const informationModelId = iModelDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(iModelDb, subjectId, "Information"))!;
@@ -1224,6 +1261,8 @@ export class ExtensiveTestScenario {
     // detect deletes if possible - cannot detect during processAll when isReverseSynchronization is true
     if (assertDeletes) {
       assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject3"));
+      assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject5"));
+      assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject6"));
       assert.throws(() => iModelDb.relationships.getInstanceProps(DrawingGraphicRepresentsElement.classFullName, { sourceId: drawingGraphicId2, targetId: physicalObjectId1 }));
       assert.isUndefined(iModelDb.elements.queryElementIdByCode(new Code({ spec: informationRecordCodeSpec.id, scope: informationModelId, value: "InformationRecord3" })));
     }
