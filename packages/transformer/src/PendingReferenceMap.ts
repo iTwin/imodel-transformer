@@ -9,6 +9,7 @@
 import { EntityReference } from "@itwin/core-common";
 import { ConcreteEntity, EntityReferences } from "@itwin/core-backend";
 import { EntityMap } from "./EntityMap";
+import { BigMap } from "./BigMap";
 
 /**
  * A reference relationships from an element, "referencer", to an element or its submodel, "referenced"
@@ -43,7 +44,7 @@ export namespace PendingReference {
  * as well as getting a list of referencers from a referencee (called referenced)
  */
 export class PendingReferenceMap<T> {
-  private _map = new Map<string, T>();
+  private _map = new BigMap<string, T>();
   private _referencedToReferencers = new EntityMap<Set<EntityReference>>();
 
   public getReferencers(referenced: ConcreteEntity): Set<EntityReference> {

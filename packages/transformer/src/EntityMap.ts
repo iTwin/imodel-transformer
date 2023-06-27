@@ -7,13 +7,14 @@
  */
 import { EntityReference } from "@itwin/core-common";
 import { ConcreteEntity, EntityReferences } from "@itwin/core-backend";
+import { BigMap } from "./BigMap";
 
 /** @internal */
 export type EntityKey = EntityReference;
 
 /** @internal */
 export class EntityMap<V> {
-  private _map = new Map<EntityKey, V>();
+  private _map = new BigMap<EntityKey, V>();
 
   public static makeKey(entity: ConcreteEntity): EntityKey {
     return EntityReferences.from(entity);
