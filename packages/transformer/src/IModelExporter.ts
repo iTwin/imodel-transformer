@@ -12,7 +12,7 @@ import {
   IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship,
 } from "@itwin/core-backend";
 import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
-import { ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
+import { ChangesetIndexOrId, CodeSpec, ElementAspectProps, FontProps, IModel, IModelError, QueryBinder, QueryRowFormat } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type { InitFromExternalSourceAspectsArgs } from "./IModelTransformer";
@@ -698,13 +698,51 @@ export class IModelExporter {
         }
       }));
 
-    const multiAspects = this.sourceDb.elements
-      ._queryAspects(elementId, ElementMultiAspect.classFullName, this._excludedElementAspectClassFullNames)
-      .filter((a) => this.shouldExportElementAspect(a));
+    // const multiAspects = this.sourceDb.elements
+    //   ._queryAspects(elementId, ElementMultiAspect.classFullName, this._excludedElementAspectClassFullNames)
+    //   .filter((a) => this.shouldExportElementAspect(a));
+    // if (multiAspects.length > 0) {
+    //   this.handler.onExportElementMultiAspects(multiAspects);
+    //   return this.trackProgress();
+    // }
 
-    if (multiAspects.length > 0) {
-      this.handler.onExportElementMultiAspects(multiAspects);
-      return this.trackProgress();
+    const aspectsWithClasses = this.sourceDb.withStatement(`SELECT ECInstanceId,ECClassId FROM ${ElementMultiAspect.classFullName} WHERE Element.Id=:elementId ORDER BY ECClassId,ECInstanceId`, (stmt) => {
+      stmt.bindId("elementId", elementId);
+      const results: ({ id: Id64String, classFullName: string })[] = [];
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        const id = stmt.getValue(0).getId();
+        const classFullName: string = stmt.getValue(1).getClassNameForClassId().replace(".", ":");
+        results.push({ id, classFullName });
+      }
+      return results;
+    });
+
+    const queryAspectsAsync = async (aspectId: string, aspectClass: string) => {
+      const sql = `SELECT * FROM ${aspectClass} WHERE EcInstanceId=:aspectId`;
+      const queryReader = this.sourceDb.query(sql, new QueryBinder().bindId("aspectId", aspectId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      const aspectEntities: ElementAspect[] = [];
+      for await (const rawAspectProps of queryReader) {
+        const aspectProps: ElementAspectProps = { ...rawAspectProps, classFullName: rawAspectProps.className.replace(".", ":") }; // add in property required by EntityProps
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (aspectProps as any).className = undefined; // clear property from SELECT * that we don't want in the final instance
+        aspectEntities.push(this.sourceDb.constructEntity<ElementAspect>(aspectProps));
+      }
+
+      return aspectEntities;
+    };
+
+    for (const aspectInfo of aspectsWithClasses) {
+      if (this._excludedElementAspectClassFullNames.has(aspectInfo.classFullName)) {
+        continue;
+      }
+
+      const aspects: ElementAspect[] = (await queryAspectsAsync(aspectInfo.id, aspectInfo.classFullName))
+        .filter((a) => this.shouldExportElementAspect(a));
+
+      if (aspects.length > 0) {
+        this.handler.onExportElementMultiAspects(aspects);
+        return this.trackProgress();
+      }
     }
   }
 

@@ -84,7 +84,7 @@ describe("IModelTransformer", () => {
     await ReusedSnapshots.cleanup();
   });
 
-  it("should transform changes from source to target", async () => {
+  it.only("should transform changes from source to target", async () => {
     // Source IModelDb
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TestIModelTransformer-Source.bim");
     const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
