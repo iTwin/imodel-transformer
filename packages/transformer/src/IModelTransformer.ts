@@ -30,7 +30,7 @@ import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporte
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
-import { EntityMap } from "./EntityMap";
+import { EntityKey, EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 
@@ -278,6 +278,11 @@ export class IModelTransformer extends IModelExportHandler {
   public static get provenanceElementAspectClasses(): (typeof Entity)[] {
     return [ExternalSourceAspect];
   }
+
+  /** Set of entity keys which were not exported and don't need to be tracked for pending reference resolution.
+   * @note Currently only tracks elements which were not exported.
+   */
+  protected _skippedEntities = new Set<EntityKey>();
 
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
@@ -695,8 +700,8 @@ export class IModelTransformer extends IModelExportHandler {
     for (const referenceId of entity.getReferenceConcreteIds()) {
       // TODO: probably need to rename from 'id' to 'ref' so these names aren't so ambiguous
       const referenceIdInTarget = this.context.findTargetEntityId(referenceId);
-      const alreadyImported = EntityReferences.isValid(referenceIdInTarget);
-      if (alreadyImported)
+      const alreadyProcessed = EntityReferences.isValid(referenceIdInTarget) || this._skippedEntities.has(referenceId);
+      if (alreadyProcessed)
         continue;
       Logger.logTrace(loggerCategory, `Deferring resolution of reference '${referenceId}' of element '${entity.id}'`);
       const referencedExistsInSource = EntityUnifier.exists(this.sourceDb, { entityReference: referenceId });
@@ -754,6 +759,27 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Reaching this point means that the element has passed the standard exclusion checks in IModelExporter.
    */
   public override shouldExportElement(_sourceElement: Element): boolean { return true; }
+
+  public override onSkipElement(sourceElementId: Id64String): void {
+    if (this.context.findTargetElementId(sourceElementId) !== Id64.invalid) {
+      // element already has provenance
+      return;
+    }
+
+    Logger.logInfo(loggerCategory, `Element '${sourceElementId}' won't be exported. Marking its references as resolved`);
+    const elementKey: EntityKey = `e${sourceElementId}`;
+    this._skippedEntities.add(elementKey);
+
+    // Mark any existing pending references to the skipped element as resolved.
+    for (const referencer of this._pendingReferences.getReferencersByEntityKey(elementKey)) {
+      const key = PendingReference.from(referencer, elementKey);
+      const pendingRef = this._pendingReferences.get(key);
+      if (!pendingRef)
+        continue;
+      pendingRef.resolveReference(elementKey);
+      this._pendingReferences.delete(key);
+    }
+  }
 
   /**
    * If they haven't been already, import all of the required references
