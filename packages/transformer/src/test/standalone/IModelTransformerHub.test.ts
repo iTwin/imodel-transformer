@@ -1188,54 +1188,54 @@ describe("IModelTransformerHub", () => {
     assert.isTrue(Guid.isGuid(targetIModelId));
 
     try {
-        const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
-        const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
 
-        const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "C1", {});
-        const modelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "PM1");
-        const physicalElement: PhysicalElementProps = {
-            classFullName: PhysicalObject.classFullName,
-            model: modelId,
-            category: categoryId,
-            code: Code.createEmpty(),
-            userLabel: "Element1"
-        };
-        const originalElementId = sourceDb.elements.insertElement(physicalElement);
+      const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "C1", {});
+      const modelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "PM1");
+      const physicalElement: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        userLabel: "Element1"
+      };
+      const originalElementId = sourceDb.elements.insertElement(physicalElement);
 
-        sourceDb.saveChanges();
-        await sourceDb.pushChanges({ description: "insert physical element" });
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ description: "insert physical element" });
 
-        let transformer = new IModelTransformer(sourceDb, targetDb);
-        await transformer.processAll();
-        const forkedElementId = transformer.context.findTargetElementId(originalElementId);
-        expect(forkedElementId).not.to.be.undefined;
-        transformer.dispose();
-        targetDb.saveChanges();
-        await targetDb.pushChanges({ description: "initial transformation" });
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.processAll();
+      const forkedElementId = transformer.context.findTargetElementId(originalElementId);
+      expect(forkedElementId).not.to.be.undefined;
+      transformer.dispose();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({ description: "initial transformation" });
 
-        const forkedElement = targetDb.elements.getElement(forkedElementId);
-        forkedElement.userLabel = "Element1_updated";
-        forkedElement.update();
-        targetDb.saveChanges();
-        await targetDb.pushChanges({ description: "update forked element's userLabel" });
+      const forkedElement = targetDb.elements.getElement(forkedElementId);
+      forkedElement.userLabel = "Element1_updated";
+      forkedElement.update();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({ description: "update forked element's userLabel" });
 
-        transformer = new IModelTransformer(targetDb, sourceDb, {isReverseSynchronization: true});
-        await transformer.processChanges({startChangeset: {id: targetDb.changeset.id}});
-        sourceDb.saveChanges();
-        await sourceDb.pushChanges({ description: "change processing transformation" });
+      transformer = new IModelTransformer(targetDb, sourceDb, {isReverseSynchronization: true});
+      await transformer.processChanges({startChangeset: targetDb.changeset});
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ description: "change processing transformation" });
 
-        const masterElement = sourceDb.elements.getElement(originalElementId);
-        expect(masterElement).to.not.be.undefined;
-        expect(masterElement.userLabel).to.be.equal("Element1_updated");
+      const masterElement = sourceDb.elements.getElement(originalElementId);
+      expect(masterElement).to.not.be.undefined;
+      expect(masterElement.userLabel).to.be.equal("Element1_updated");
     } finally {
-        try {
+      try {
         // delete iModel briefcases
         await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
         await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
-        } catch (err) {
+      } catch (err) {
         // eslint-disable-next-line no-console
         console.log("can't destroy", err);
-        }
+      }
     }
 });
 
