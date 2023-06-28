@@ -23,7 +23,7 @@ import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import rawInserts from "./rawInserts";
 import { getBranchName } from "./GitUtils";
-import { Reporter, ReporterEntry, ReporterInfo } from "./ReporterUtils";
+import { Reporter, ReporterEntry } from "./ReporterUtils";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
@@ -106,7 +106,6 @@ async function runRegressionTests() {
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
       let sourceDb: BriefcaseDb;
-      let reportInfo: ReporterInfo;
       let reportEntry: ReporterEntry;
 
       describe(`Transforms of ${iModel.name}`, async () => {
@@ -135,7 +134,7 @@ async function runRegressionTests() {
           const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
           const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
           Logger.logInfo(loggerCategory, `loaded (${sizeInGb})'`);
-          reportInfo = {
+          const reportInfo = {
             "Id": iModel.iModelId,
             "T-shirt size": iModel.tShirtSize,
             "Gb size": sizeInGb,
