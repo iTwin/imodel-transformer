@@ -1107,6 +1107,9 @@ export class IModelTransformer extends IModelExportHandler {
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
         // ExternalSourceAspect.Identifier is of type string
         const aspectIdentifier = stmt.getValue(0).getString();
+        if (!Id64.isId64(aspectIdentifier)) {
+          continue;
+        }
         const targetElemId = stmt.getValue(1).getId();
         const wasDeletedInSource = !EntityUnifier.exists(this.sourceDb, { entityReference: `e${aspectIdentifier}` });
         if (wasDeletedInSource)
@@ -2130,7 +2133,7 @@ export class IModelTransformer extends IModelExportHandler {
             "expected row when getting lastProvenanceEntityId from target state table"
           );
         const entityId = stmt.getValueString(0);
-        const isGuidOrGuidPair = entityId.includes('-')
+        const isGuidOrGuidPair = entityId.includes("-");
         return isGuidOrGuidPair
           ? entityId
           : {

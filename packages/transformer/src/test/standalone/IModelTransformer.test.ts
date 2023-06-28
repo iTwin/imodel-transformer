@@ -2310,6 +2310,76 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
+  it("detect elements deletes skips elements where Identifier is not id", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "SourceProvenance.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "Source Provenance Test" } });
+    const sourceRepositoryId = IModelTransformerTestUtils.insertRepositoryLink(sourceDb, "master.dgn", "https://test.bentley.com/folder/master.dgn", "DGN");
+    const sourceExternalSourceId = IModelTransformerTestUtils.insertExternalSource(sourceDb, sourceRepositoryId, "Default Model");
+    const sourceCategoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.green.toJSON() });
+    const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "Physical");
+    const sourcePhysicalObjectsToSkip = new Set<Id64String>();
+    for (const x of [1, 2, 3]) {
+      const physicalObjectProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: sourceModelId,
+        category: sourceCategoryId,
+        code: Code.createEmpty(),
+      };
+      const physicalObjectId = sourceDb.elements.insertElement(physicalObjectProps);
+      sourcePhysicalObjectsToSkip.add(physicalObjectId);
+      const externalSourceAspects: ExternalSourceAspectProps = {
+        classFullName: ExternalSourceAspect.classFullName,
+        element: { id: physicalObjectId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
+        scope: { id: "0x1" },
+        source: { id: sourceExternalSourceId },
+        identifier: `notID${x}`,
+        kind: ExternalSourceAspect.Kind.Element,
+      };
+      sourceDb.elements.insertAspect(externalSourceAspects);
+    }
+
+    const objectProps: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: sourceModelId,
+      category: sourceCategoryId,
+      code: Code.createEmpty(),
+    };
+    const physicalObjectToDelete = sourceDb.elements.insertElement(objectProps);
+    const aspectProps: ExternalSourceAspectProps = {
+      classFullName: ExternalSourceAspect.classFullName,
+      element: { id: physicalObjectToDelete, relClassName: ElementOwnsExternalSourceAspects.classFullName },
+      scope: { id: "0x1" },
+      source: { id: sourceExternalSourceId },
+      identifier: `0x333`,
+      kind: ExternalSourceAspect.Kind.Element,
+    };
+
+    sourceDb.elements.insertAspect(aspectProps);
+    sourceDb.saveChanges();
+
+    // create target iModel
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "SourceProvenance-Target.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "Source Provenance Test (Target)" } });
+
+    // clone
+    const transformer = new IModelTransformer(sourceDb, targetDb, { includeSourceProvenance: true });
+    await transformer.processAll();
+    targetDb.saveChanges();
+
+    // verify target contents
+    for (const sourceElementId of sourcePhysicalObjectsToSkip){
+      const targetElementId = transformer.context.findTargetElementId(sourceElementId);
+      expect(targetDb.elements.tryGetElement(targetElementId)).to.be.not.undefined;
+    }
+    const deletedElement = transformer.context.findTargetElementId(physicalObjectToDelete);
+    expect(targetDb.elements.tryGetElement(deletedElement)).to.be.undefined;
+
+    // clean up
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
   it("handles long schema names and references to them", async function () {
     const longSchema1Name = `ThisSchemaIs${"Long".repeat(100)}`;
     assert(Buffer.from(longSchema1Name).byteLength > 255);
