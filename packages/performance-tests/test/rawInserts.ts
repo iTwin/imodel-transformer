@@ -1,4 +1,4 @@
-import { Reporter, ReporterEntry } from "./ReporterUtils";
+import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "./TestUtils";
 import { ElementGroupsMembers, IModelDb, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
@@ -30,19 +30,17 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   if (sourceDb === undefined) throw Error
 
-  let reportEntry: ReporterEntry = {
-    iModelName: iModelName,
-    branch: branchName,
-  };
-
-  reportEntry.testName = "populate by insert";
-  reportEntry.value = insertsTimer?.elapsedSeconds ?? -1;
-  reportEntry.info = {
-    elementCount: IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
-    relationshipCount: IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
-    branchName: reportEntry.branch,
-  }
-  reporter.addEntry(reportEntry);
+  reporter.addEntry(
+    "populate by insert",
+    `${branchName}: ${iModelName}`,
+    "time elapsed (seconds)",
+    insertsTimer?.elapsedSeconds ?? -1,
+    {
+      elementCount: IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
+      relationshipCount: IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
+      branchName,
+    }
+  );
 
   sourceDb.saveChanges();
 
@@ -58,14 +56,17 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     changesetDb.nativeDb.applyChangeset(changeset1);
   });
 
-  reportEntry.testName = "populate by applying changeset";
-  reportEntry.value = applyChangeSetTimer?.elapsedSeconds ?? -1;
-  reportEntry.info = {
-    elementCount: IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
-    relationshipCount: IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
-    branchName: reportEntry.branch,
-  }
-  reporter.addEntry(reportEntry);
+  reporter.addEntry(
+    "populate by applying changeset",
+    `${branchName}: ${iModelName}`,
+    "time elapsed (seconds)",
+    applyChangeSetTimer?.elapsedSeconds ?? -1,
+    {
+      elementCount: IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
+      relationshipCount: IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
+      branchName,
+    }
+  );
 
   Logger.logInfo(loggerCategory, "Done. Starting with-provenance transformation of same content");
 
@@ -77,14 +78,17 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     await transformerWithProv.processAll();
   });
 
-  reportEntry.testName = "populate by transform (adding provenance)";
-  reportEntry.value = transformWithProvTimer?.elapsedSeconds ?? -1;
-  reportEntry.info = {
-    elementCount: IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
-    relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
-    branchName: reportEntry.branch,
-  }
-  reporter.addEntry(reportEntry);
+  reporter.addEntry(
+    "populate by transform (adding provenance)",
+    `${branchName}: ${iModelName}`,
+    "time elapsed (seconds)",
+    transformWithProvTimer?.elapsedSeconds ?? -1,
+    {
+      elementCount: IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
+      relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
+      branchName,
+    }
+  );
 
   Logger.logInfo(loggerCategory, "Done. Starting without-provenance transformation of same content");
 
@@ -96,14 +100,17 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     await transformerNoProv.processAll();
   });
 
-  reportEntry.testName = "populate by transform";
-  reportEntry.value = transformNoProvTimer?.elapsedSeconds ?? -1;
-  reportEntry.info = {
-    elementCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
-    relationshipCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
-    branchName: reportEntry.branch,
-  }
-  reporter.addEntry(reportEntry);
+  reporter.addEntry(
+    "populate by transform",
+    `${branchName}: ${iModelName}`,
+    "time elapsed (seconds)",
+    transformNoProvTimer?.elapsedSeconds ?? -1,
+    {
+      elementCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
+      relationshipCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
+      branchName,
+    }
+  );
 
   sourceDb.close();
   changesetDb.close();
