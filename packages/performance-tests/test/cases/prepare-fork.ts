@@ -7,13 +7,12 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
-import { ReporterInfo } from "../ReporterUtils";
-import { Reporter } from "@itwin/perf-tools";
+import { Reporter, ReporterEntry, ReporterInfo } from "../ReporterUtils";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Reporter, reportInfo: ReporterInfo){
+export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Reporter, reportEntry: ReporterEntry){
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
@@ -37,13 +36,9 @@ export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Repor
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    reporter.addEntry(
-      "Prepare Fork",
-      `${reportInfo["Branch Name"]}: ${sourceDb.name}`,
-      "time elapsed (seconds)",
-      entityProcessingTimer?.elapsedSeconds ?? -1,
-      reportInfo
-    );
+    reportEntry.testName = "Prepare Fork";
+    reportEntry.value = entityProcessingTimer?.elapsedSeconds ?? -1;
+    reporter.addEntry(reportEntry);
   }
 
   return reporter;

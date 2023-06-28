@@ -21,10 +21,9 @@ import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
-import { Reporter } from "@itwin/perf-tools";
 import rawInserts from "./rawInserts";
 import { getBranchName } from "./GitUtils";
-import { ReporterInfo } from "./ReporterUtils";
+import { Reporter, ReporterEntry, ReporterInfo } from "./ReporterUtils";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
@@ -108,6 +107,7 @@ async function runRegressionTests() {
     testIModels.forEach(async (iModel) => {
       let sourceDb: BriefcaseDb;
       let reportInfo: ReporterInfo;
+      let reportEntry: ReporterEntry;
 
       describe(`Transforms of ${iModel.name}`, async () => {
         before(async () => {
@@ -142,6 +142,12 @@ async function runRegressionTests() {
             "Branch Name": branchName,
             "Federation Guid Saturation 0-1": fedGuidSaturation,
           };
+          reportEntry = {
+            iModelName: iModel.name,
+            branch: branchName,
+            info: reportInfo,
+          };
+
           sourceDb.close();
         });
 
@@ -155,7 +161,7 @@ async function runRegressionTests() {
           });
 
           it(key, async () => {
-            reporter = await testCase(sourceDb, reporter, reportInfo);
+            reporter = await testCase(sourceDb, reporter, reportEntry);
           }).timeout(0);
           
           sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
