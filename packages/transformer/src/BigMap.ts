@@ -55,6 +55,7 @@ export class BigMap<K, V> extends Map<K, V> {
     for (const map of this._maps) {
       if (map.has(key)) {
         map.set(key, value);
+        return this;
       }
     }
 
