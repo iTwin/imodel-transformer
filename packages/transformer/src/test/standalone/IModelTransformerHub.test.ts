@@ -1179,6 +1179,66 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
+  it("should reverse synchronize forked iModel when an element was updated", async() => {
+    const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("Master");
+    const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(sourceIModelId));
+    const targetIModelName: string = IModelTransformerTestUtils.generateUniqueName("Fork");
+    const targetIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: targetIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(targetIModelId));
+
+    try {
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+
+      const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "C1", {});
+      const modelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "PM1");
+      const physicalElement: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        userLabel: "Element1"
+      };
+      const originalElementId = sourceDb.elements.insertElement(physicalElement);
+
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ description: "insert physical element" });
+
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.processAll();
+      const forkedElementId = transformer.context.findTargetElementId(originalElementId);
+      expect(forkedElementId).not.to.be.undefined;
+      transformer.dispose();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({ description: "initial transformation" });
+
+      const forkedElement = targetDb.elements.getElement(forkedElementId);
+      forkedElement.userLabel = "Element1_updated";
+      forkedElement.update();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({ description: "update forked element's userLabel" });
+
+      transformer = new IModelTransformer(targetDb, sourceDb, {isReverseSynchronization: true});
+      await transformer.processChanges({startChangeset: targetDb.changeset});
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ description: "change processing transformation" });
+
+      const masterElement = sourceDb.elements.getElement(originalElementId);
+      expect(masterElement).to.not.be.undefined;
+      expect(masterElement.userLabel).to.be.equal("Element1_updated");
+    } finally {
+      try {
+        // delete iModel briefcases
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+});
+
   // will fix in separate PR, tracked here: https://github.com/iTwin/imodel-transformer/issues/27
   it.skip("should delete definition elements when processing changes", async () => {
     let spatialViewDef: SpatialViewDefinition;

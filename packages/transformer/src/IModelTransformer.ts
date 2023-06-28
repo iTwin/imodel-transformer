@@ -644,19 +644,8 @@ export class IModelTransformer extends IModelExportHandler {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
 
-    const runFnInProvDirection = (sourceId: Id64String, targetId: Id64String) =>
-      this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
-
     // query for provenanceDb
-    const provenanceContainerQuery = `
-      SELECT e.ECInstanceId, FederationGuid
-      FROM bis.Element e
-      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements
-      ORDER BY FederationGuid
-    `;
-
-    // query for nonProvenanceDb, the source to which the provenance is referring
-    const provenanceSourceQuery = `
+    const elementIdByFedGuidQuery = `
       SELECT e.ECInstanceId, FederationGuid
       FROM bis.Element e
       WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements
@@ -667,36 +656,36 @@ export class IModelTransformer extends IModelExportHandler {
     // NOTE: if we exposed the native attach database support,
     // we could get the intersection of fed guids in one query, not sure if it would be faster
     // OR we could do a raw sqlite query...
-    this.provenanceSourceDb.withStatement(provenanceSourceQuery, (sourceStmt) => this.provenanceDb.withStatement(provenanceContainerQuery, (containerStmt) => {
+    this.sourceDb.withStatement(elementIdByFedGuidQuery, (sourceStmt) => this.targetDb.withStatement(elementIdByFedGuidQuery, (targetStmt) => {
       if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW)
         return;
       let sourceRow = sourceStmt.getRow() as { federationGuid?: GuidString, id: Id64String };
-      if (containerStmt.step() !== DbResult.BE_SQLITE_ROW)
+      if (targetStmt.step() !== DbResult.BE_SQLITE_ROW)
         return;
-      let containerRow = containerStmt.getRow() as { federationGuid?: GuidString, id: Id64String };
+      let targetRow = targetStmt.getRow() as { federationGuid?: GuidString, id: Id64String };
 
       // NOTE: these comparisons rely upon the lowercase of the guid,
       // and the fact that '0' < '9' < a' < 'f' in ascii/utf8
       while (true) {
-        const currSourceRow = sourceRow, currContainerRow = containerRow;
+        const currSourceRow = sourceRow, currTargetRow = targetRow;
         if (currSourceRow.federationGuid !== undefined
-          && currContainerRow.federationGuid !== undefined
-          && currSourceRow.federationGuid === currContainerRow.federationGuid
+          && currTargetRow.federationGuid !== undefined
+          && currSourceRow.federationGuid === currTargetRow.federationGuid
         ) {
-          // not this is already in provenance direction, no need to use runFnInProvDirection
-          fn(sourceRow.id, containerRow.id);
+          // data flow direction is always sourceDb -> targetDb and it does not depend on where the explicit element provenance is stored
+          fn(sourceRow.id, targetRow.id);
         }
-        if (currContainerRow.federationGuid === undefined
+        if (currTargetRow.federationGuid === undefined
           || (currSourceRow.federationGuid !== undefined
-            && currSourceRow.federationGuid >= currContainerRow.federationGuid)
+            && currSourceRow.federationGuid >= currTargetRow.federationGuid)
         ) {
-          if (containerStmt.step() !== DbResult.BE_SQLITE_ROW)
+          if (targetStmt.step() !== DbResult.BE_SQLITE_ROW)
             return;
-          containerRow = containerStmt.getRow();
+          targetRow = targetStmt.getRow();
         }
         if (currSourceRow.federationGuid === undefined
-          || (currContainerRow.federationGuid !== undefined
-            && currSourceRow.federationGuid <= currContainerRow.federationGuid)
+          || (currTargetRow.federationGuid !== undefined
+            && currSourceRow.federationGuid <= currTargetRow.federationGuid)
         ) {
           if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW)
             return;
@@ -717,13 +706,15 @@ export class IModelTransformer extends IModelExportHandler {
     // victims of the old provenance method that have both fedguids and an inserted aspect.
     // But this is a private function with one known caller where that doesn't matter
     this.provenanceDb.withPreparedStatement(provenanceAspectsQuery, (stmt): void => {
+      const runFnInDataFlowDirection = (sourceId: Id64String, targetId: Id64String) =>
+        this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
       stmt.bindId("scopeId", this.targetScopeElementId);
       stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
         // ExternalSourceAspect.Identifier is of type string
         const aspectIdentifier: Id64String = stmt.getValue(0).getString();
         const elementId: Id64String = stmt.getValue(1).getId();
-        runFnInProvDirection(elementId, aspectIdentifier);
+        runFnInDataFlowDirection(elementId, aspectIdentifier);
       }
     });
   }
