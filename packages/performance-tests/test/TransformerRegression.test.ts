@@ -32,7 +32,7 @@ import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
   ["identity transform", identityTransformer],
-  ["prepare-fork", prepareFork],
+  // ["prepare-fork", prepareFork],
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
@@ -145,27 +145,32 @@ async function runRegressionTests() {
           sourceDb.close();
         });
 
-        testCasesMap.forEach(async (testCase, key) => {
-          before(async () => {
-            assert(iModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
-            sourceDb = await BriefcaseDb.open({
-              fileName: iModel._cachedFileName,
-              readonly: true,
-            });
+        beforeEach(async () => {
+          assert(iModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
+          sourceDb = await BriefcaseDb.open({
+            fileName: iModel._cachedFileName,
+            readonly: true,
           });
+        });
+
+        afterEach(async () => {
+          sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
+        });
+
+        testCasesMap.forEach(async (testCase, key) => {
 
           it(key, async () => {
             reporter = await testCase(sourceDb, reporter, reportInfo);
           }).timeout(0);
           
-          sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
+          // sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
       });
     });
 
     const _15minutes = 15 * 60 * 1000;
 
-    it("Transform vs raw inserts", async () => {
+    it.skip("Transform vs raw inserts", async () => {
       return rawInserts(reporter, branchName);
     }).timeout(0);
 

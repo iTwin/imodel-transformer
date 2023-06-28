@@ -68,5 +68,6 @@ export function generateTestIModel(iModelParam: IModelParams): StandaloneDb {
 
     rel.insert();
   }
+  sourceDb.saveChanges();
   return sourceDb;
 }
