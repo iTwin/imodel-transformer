@@ -13,9 +13,9 @@ import assert from "assert";
 import * as path from "path";
 import * as fs from "fs";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
-import { DbResult, Guid, Logger, LogLevel } from "@itwin/core-bentley";
+import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { downloadBriefcase, getTestIModels } from "./TestContext";
+import { getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
@@ -100,7 +100,7 @@ const setupTestData = async () => {
 
 async function runRegressionTests() {
   const testIModels = await setupTestData();
-  let reporter = new Reporter();
+  const reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
   const branchName =  await getBranchName();
 
@@ -162,7 +162,7 @@ async function runRegressionTests() {
             await testCase(sourceDb,
               (smallReportSubset: [string, string, string, number]) => {
                 reporter.addEntry( ...smallReportSubset, reportInfo );
-            });
+              });
           }).timeout(0);
         });
       });

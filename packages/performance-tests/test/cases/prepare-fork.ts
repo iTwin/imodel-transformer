@@ -7,8 +7,6 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
-import { ReporterInfo } from "../ReporterUtils";
-import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
@@ -37,7 +35,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (sma
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    const smallReportSubset : [string, string, string, number] = [
+    const smallReportSubset: [string, string, string, number] = [
       "Prepare Fork",
       sourceDb.name,
       "time elapsed (seconds)",

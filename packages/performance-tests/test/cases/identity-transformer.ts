@@ -13,8 +13,6 @@ import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-back
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
-import { ReporterInfo } from "../ReporterUtils";
-import { Reporter } from "@itwin/perf-tools";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
@@ -57,7 +55,7 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, addRepo
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    const smallReportSubset : [string, string, string, number] = [
+    const smallReportSubset: [string, string, string, number] = [
       "identity transform (provenance)",
       sourceDb.name,
       "time elapsed (seconds)",

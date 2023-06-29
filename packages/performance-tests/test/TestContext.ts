@@ -3,9 +3,9 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { BriefcaseDb, BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
+import { BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
 import { Logger } from "@itwin/core-bentley";
-import { BriefcaseIdValue, IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
+import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import assert from "assert";
 import { generateTestIModel } from "./iModelUtils";

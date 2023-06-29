@@ -1,15 +1,14 @@
 import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "./TestUtils";
-import { ElementGroupsMembers, IModelDb, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
+import { IModelDb, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import path from "path";
 import fs from "fs";
 import assert from "assert";
-import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { ChangesetFileProps, Code } from "@itwin/core-common";
+import { ChangesetFileProps } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger, OpenMode } from "@itwin/core-bentley";
-import { generateTestIModel, setToStandalone } from "./iModelUtils";
+import { generateTestIModel } from "./iModelUtils";
 import { TestIModel } from "./TestContext";
 
 const loggerCategory = "Raw Inserts";
@@ -29,8 +28,9 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     testIModel = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`RawInserts-source.bim` });
   });
 
-  if (testIModel === undefined) throw Error("Generated iModel not correctly defined"); // needed because TS does not know that timer will run before insertsTimer
-  testIModel.getFileName();
+  if (testIModel === undefined)
+    throw Error("Generated iModel not correctly defined"); // needed because TS does not know that timer will run before insertsTimer
+  await testIModel.getFileName();
   assert(testIModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
   const sourceDb = StandaloneDb.openFile(testIModel._cachedFileName, OpenMode.ReadWrite);
 
