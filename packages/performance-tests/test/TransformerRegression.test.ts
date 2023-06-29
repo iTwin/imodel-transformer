@@ -32,7 +32,7 @@ import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
   ["identity transform", identityTransformer],
-  // ["prepare-fork", prepareFork],
+  ["prepare-fork", prepareFork],
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
@@ -159,7 +159,10 @@ async function runRegressionTests() {
 
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
-            reporter = await testCase(sourceDb, reporter, reportInfo);
+            await testCase(sourceDb,
+              (smallReportSubset: [string, string, string, number]) => {
+                reporter.addEntry( ...smallReportSubset, reportInfo );
+            });
           }).timeout(0);
         });
       });

@@ -13,7 +13,7 @@ import { Reporter } from "@itwin/perf-tools";
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Reporter, reportInfo: ReporterInfo){
+export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (smallReportSubset: [string, string, string, number]) => void){
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
@@ -37,16 +37,14 @@ export default async function prepareFork(sourceDb: BriefcaseDb, reporter: Repor
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    reporter.addEntry(
+    const smallReportSubset : [string, string, string, number] = [
       "Prepare Fork",
-      `${reportInfo["Branch Name"]}: ${sourceDb.name}`,
+      sourceDb.name,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
-      reportInfo
-    );
+    ];
+    addReport(smallReportSubset);
   }
-
-  return reporter;
 }
 
 async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb,) {

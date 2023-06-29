@@ -19,7 +19,7 @@ import { Reporter } from "@itwin/perf-tools";
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, reporter: Reporter, reportInfo: ReporterInfo) {
+export default async function identityTransformer(sourceDb: BriefcaseDb, addReport: (smallReportSubset: [string, string, string, number]) => void) {
 
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
@@ -57,15 +57,14 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, reporte
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    reporter.addEntry(
+    const smallReportSubset : [string, string, string, number] = [
       "identity transform (provenance)",
-      `${reportInfo["Branch Name"]}: ${sourceDb.name}`,
+      sourceDb.name,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
-      reportInfo
-    );
+    ];
+    addReport(smallReportSubset);
     targetDb.close();
     transformer.dispose();
   }
-  return reporter;
 }
