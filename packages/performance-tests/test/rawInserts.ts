@@ -36,7 +36,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   reporter.addEntry(
     "populate by insert",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
@@ -62,7 +62,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   reporter.addEntry(
     "populate by applying changeset",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     applyChangeSetTimer?.elapsedSeconds ?? -1,
     {
@@ -84,7 +84,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   reporter.addEntry(
     "populate by transform (adding provenance)",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
@@ -106,7 +106,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   reporter.addEntry(
     "populate by transform",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
