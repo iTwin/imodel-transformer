@@ -62,26 +62,9 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
       }
     }
   }
-  const fedGuidDb = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`testIModel-fedguids-true.bim` });
-  const fedGuidTestIModel: TestIModel = {
-    name: `testIModel-fedguids-true`,
-    iModelId: fedGuidDb.iModelId,
-    iTwinId: fedGuidDb.iTwinId,
-    tShirtSize: getTShirtSizeFromName(fedGuidDb.name),
-    async getFileName(): Promise<void> { this._cachedFileName = fedGuidDb.pathName },
-  }
 
-  yield fedGuidTestIModel;
-
-  const nonFedGuidDb = generateTestIModel({ numElements: 100_000, fedGuids: false, fileName:`testIModel-fedguids-false.bim` });
-  const nonFedGuidTestIModel: TestIModel = {
-    name: `testIModel-fedguids-false`,
-    iModelId: nonFedGuidDb.iModelId,
-    iTwinId: nonFedGuidDb.iTwinId,
-    tShirtSize: getTShirtSizeFromName(nonFedGuidDb.name),
-    async getFileName(): Promise<void> { this._cachedFileName = nonFedGuidDb.pathName },
-  }
-  yield nonFedGuidTestIModel;
+  yield generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`testIModel-fedguids-true.bim` });
+  yield generateTestIModel({ numElements: 100_000, fedGuids: false, fileName:`testIModel-fedguids-false.bim` });
 }
 
 export async function downloadBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<LocalBriefcaseProps> {

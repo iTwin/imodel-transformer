@@ -30,7 +30,7 @@ export function setToStandalone(iModelPath: string) {
   nativeDb.closeIModel();
 }
 
-export function generateTestIModel(iModelParam: IModelParams): StandaloneDb {
+export function generateTestIModel(iModelParam: IModelParams): TestIModel {
   const sourcePath = initOutputFile(iModelParam.fileName, outputDir);
   if (fs.existsSync(sourcePath))
     fs.unlinkSync(sourcePath);
@@ -68,6 +68,19 @@ export function generateTestIModel(iModelParam: IModelParams): StandaloneDb {
 
     rel.insert();
   }
+
+  const iModelId = sourceDb.iModelId;
+  const iTwinId = sourceDb.iTwinId;
+  const filePath = sourceDb.pathName;
   sourceDb.saveChanges();
-  return sourceDb;
+  sourceDb.close();
+  const iModelToTest: TestIModel = {
+    name: `testIModel-fedguids-${iModelParam.fedGuids}`,
+    iModelId,
+    iTwinId,
+    tShirtSize: getTShirtSizeFromName(sourceDb.name),
+    _cachedFileName: filePath,
+    async getFileName(): Promise<void> { this._cachedFileName = filePath },
+  };
+  return iModelToTest;
 }

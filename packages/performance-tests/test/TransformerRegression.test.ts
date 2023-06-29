@@ -158,19 +158,16 @@ async function runRegressionTests() {
         });
 
         testCasesMap.forEach(async (testCase, key) => {
-
           it(key, async () => {
             reporter = await testCase(sourceDb, reporter, reportInfo);
           }).timeout(0);
-          
-          // sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
       });
     });
 
     const _15minutes = 15 * 60 * 1000;
 
-    it.skip("Transform vs raw inserts", async () => {
+    it("Transform vs raw inserts", async () => {
       return rawInserts(reporter, branchName);
     }).timeout(0);
 

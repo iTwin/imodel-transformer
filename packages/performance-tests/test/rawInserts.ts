@@ -10,6 +10,7 @@ import { ChangesetFileProps, Code } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger, OpenMode } from "@itwin/core-bentley";
 import { generateTestIModel, setToStandalone } from "./iModelUtils";
+import { TestIModel } from "./TestContext";
 
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
@@ -23,12 +24,15 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   Logger.logInfo(loggerCategory, "starting 150k entity inserts");
 
-  let sourceDb: StandaloneDb | undefined;
+  let testIModel: TestIModel | undefined;
   const [insertsTimer] = timed(() => {
-    sourceDb = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`RawInserts-source.bim` });
+    testIModel = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`RawInserts-source.bim` });
   });
 
-  if (sourceDb === undefined) throw Error
+  if (testIModel === undefined) throw Error("Generated iModel not correctly defined"); // needed because TS does not know that timer will run before insertsTimer
+  testIModel.getFileName();
+  assert(testIModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
+  const sourceDb = StandaloneDb.openFile(testIModel._cachedFileName, OpenMode.ReadWrite);
 
   reporter.addEntry(
     "populate by insert",
