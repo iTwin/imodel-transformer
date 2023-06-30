@@ -146,7 +146,6 @@ async function runRegressionTests() {
         });
 
         beforeEach(async () => {
-          sourceFileName = await iModel.getFileName();
           sourceDb = await BriefcaseDb.open({
             fileName: sourceFileName,
             readonly: true,
