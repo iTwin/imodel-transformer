@@ -13,7 +13,7 @@ module.exports = {
     "@typescript-eslint/naming-convention": [
       ...itwinjsRecommended.rules["@typescript-eslint/naming-convention"],
       {
-        selector: "objectLiteralProperty",
+        selector: ["objectLiteralProperty","typeProperty"],
         format: null,
         leadingUnderscore: "allowSingleOrDouble"
       },
