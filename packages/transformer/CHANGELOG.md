@@ -1,8 +1,32 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Fri, 09 Jun 2023 13:24:23 GMT and should not be manually modified.
+This log was last generated on Mon, 26 Jun 2023 13:40:00 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.2.1
+
+Mon, 26 Jun 2023 13:40:00 GMT
+
+### Patches
+
+- Added ElementCascadingDeleter to fix FK errors while deleting element which is referenced in code scopes of other elements ([commit](https://github.com/iTwin/transformer/commit/c82f3b93754787392bff3f1e66023058e65d219f))
+
+## 0.2.0
+
+Sat, 24 Jun 2023 03:30:05 GMT
+
+### Minor changes
+
+- Added new functions overloads for IModelTransformer.processChanges and IModelExporter.exportChanges. Deprecated old overloads, they still work. ([commit](https://github.com/iTwin/transformer/commit/085590025bddffbf95dbfb6092f6b14c99fb8bcf))
+
+### Patches
+
+- Changed sourceDb to targetDb in IModelCloneContext.findTargetEntityId ([commit](https://github.com/iTwin/transformer/commit/085590025bddffbf95dbfb6092f6b14c99fb8bcf))
+
+### Changes
+
+- Started using provenanceSourceDb instead of sourceDb in initElementProvenance ([commit](https://github.com/iTwin/transformer/commit/085590025bddffbf95dbfb6092f6b14c99fb8bcf))
 
 ## 0.1.16
 

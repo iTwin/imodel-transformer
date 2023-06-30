@@ -30,7 +30,7 @@ import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporte
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
-import { EntityMap } from "./EntityMap";
+import { EntityKey, EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 
@@ -279,6 +279,11 @@ export class IModelTransformer extends IModelExportHandler {
     return [ExternalSourceAspect];
   }
 
+  /** Set of entity keys which were not exported and don't need to be tracked for pending reference resolution.
+   * @note Currently only tracks elements which were not exported.
+   */
+  protected _skippedEntities = new Set<EntityKey>();
+
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
    * @param target Specifies the target IModelImporter or the target IModelDb that will be used to construct the target IModelImporter.
@@ -365,17 +370,27 @@ export class IModelTransformer extends IModelExportHandler {
     return this._options.isReverseSynchronization ? this.sourceDb : this.targetDb;
   }
 
+  /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
+   * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
+   */
+  public get provenanceSourceDb(): IModelDb {
+    return this._options.isReverseSynchronization ? this.targetDb : this.sourceDb;
+  }
+
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
   private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
     const elementId = this._options.isReverseSynchronization ? sourceElementId : targetElementId;
     const aspectIdentifier = this._options.isReverseSynchronization ? targetElementId : sourceElementId;
+    const version = this._options.isReverseSynchronization
+      ? this.targetDb.elements.queryLastModifiedTime(targetElementId)
+      : this.sourceDb.elements.queryLastModifiedTime(sourceElementId);
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: this.targetScopeElementId },
       identifier: aspectIdentifier,
       kind: ExternalSourceAspect.Kind.Element,
-      version: this.sourceDb.elements.queryLastModifiedTime(sourceElementId),
+      version,
     };
     return aspectProps;
   }
@@ -685,8 +700,8 @@ export class IModelTransformer extends IModelExportHandler {
     for (const referenceId of entity.getReferenceConcreteIds()) {
       // TODO: probably need to rename from 'id' to 'ref' so these names aren't so ambiguous
       const referenceIdInTarget = this.context.findTargetEntityId(referenceId);
-      const alreadyImported = EntityReferences.isValid(referenceIdInTarget);
-      if (alreadyImported)
+      const alreadyProcessed = EntityReferences.isValid(referenceIdInTarget) || this._skippedEntities.has(referenceId);
+      if (alreadyProcessed)
         continue;
       Logger.logTrace(loggerCategory, `Deferring resolution of reference '${referenceId}' of element '${entity.id}'`);
       const referencedExistsInSource = EntityUnifier.exists(this.sourceDb, { entityReference: referenceId });
@@ -744,6 +759,27 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Reaching this point means that the element has passed the standard exclusion checks in IModelExporter.
    */
   public override shouldExportElement(_sourceElement: Element): boolean { return true; }
+
+  public override onSkipElement(sourceElementId: Id64String): void {
+    if (this.context.findTargetElementId(sourceElementId) !== Id64.invalid) {
+      // element already has provenance
+      return;
+    }
+
+    Logger.logInfo(loggerCategory, `Element '${sourceElementId}' won't be exported. Marking its references as resolved`);
+    const elementKey: EntityKey = `e${sourceElementId}`;
+    this._skippedEntities.add(elementKey);
+
+    // Mark any existing pending references to the skipped element as resolved.
+    for (const referencer of this._pendingReferences.getReferencersByEntityKey(elementKey)) {
+      const key = PendingReference.from(referencer, elementKey);
+      const pendingRef = this._pendingReferences.get(key);
+      if (!pendingRef)
+        continue;
+      pendingRef.resolveReference(elementKey);
+      this._pendingReferences.delete(key);
+    }
+  }
 
   /**
    * If they haven't been already, import all of the required references

@@ -194,7 +194,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 1);
       assert.equal(targetImporter.numElementsUpdated, 5);
-      assert.equal(targetImporter.numElementsDeleted, 2);
+      assert.equal(targetImporter.numElementsDeleted, 3);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 2);
       assert.equal(targetImporter.numRelationshipsInserted, 2);
@@ -264,7 +264,7 @@ describe("IModelTransformer", () => {
     branchToMasterTransformer.dispose();
     masterDb.saveChanges();
     TransformerExtensiveTestScenario.assertUpdatesInDb(masterDb, false);
-    assert.equal(numBranchElements, count(masterDb, Element.classFullName) - 2); // processAll cannot detect deletes when isReverseSynchronization=true
+    assert.equal(numBranchElements, count(masterDb, Element.classFullName) - 4); // processAll cannot detect deletes when isReverseSynchronization=true
     assert.equal(numBranchRelationships, count(masterDb, ElementRefersToElements.classFullName) - 1); // processAll cannot detect deletes when isReverseSynchronization=true
     assert.equal(0, count(masterDb, ExternalSourceAspect.classFullName));
 
@@ -2444,6 +2444,76 @@ describe("IModelTransformer", () => {
       transformer.dispose();
       sinon.restore();
     }
+  });
+
+  it("should transform correctly when some elements are not exported", async () => {
+    // create source iModel
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformWithSkippedElements-Source.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "TransformWithSkippedElements-Source" } });
+    const customSchema = `<?xml version="1.0" encoding="UTF-8"?>
+    <ECSchema schemaName="CustomSchema" alias="cs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1" description="Custom schema to test optional reference handling when referenced elements are not exported">
+      <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+      <ECEntityClass typeName="CustomPhysicalElement" modifier="Sealed" description="For testing optional navigational properties to skipped elements">
+        <BaseClass>bis:PhysicalElement</BaseClass>
+        <ECNavigationProperty propertyName="ReferencedElement" relationshipName="CustomNavigationalPropertyRelationship" direction="Forward" description="Navigational property to other CustomPhysicalElement"/>
+      </ECEntityClass>
+      <ECRelationshipClass typeName="CustomNavigationalPropertyRelationship" strength="referencing" modifier="None">
+        <Source multiplicity="(0..*)" roleLabel="uses" polymorphic="true">
+            <Class class="CustomPhysicalElement" />
+        </Source>
+        <Target multiplicity="(0..1)" roleLabel="is used by" polymorphic="true">
+            <Class class="CustomPhysicalElement"/>
+        </Target>
+      </ECRelationshipClass>
+    </ECSchema>
+  `;
+    await sourceDb.importSchemaStrings([customSchema]);
+    const sourceCategoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.blue.toJSON() });
+    const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "PhysicalModel");
+    const sourceReferencedElementProps: PhysicalElementProps = {
+      classFullName: "CustomSchema:CustomPhysicalElement",
+      category: sourceCategoryId,
+      code: Code.createEmpty(),
+      userLabel: "Referenced Element",
+      model: sourceModelId,
+    };
+    const sourceReferencedElementId = sourceDb.elements.insertElement(sourceReferencedElementProps);
+    const defaultSourceReferencerElementProps = {
+      classFullName: "CustomSchema:CustomPhysicalElement",
+      category: sourceCategoryId,
+      code: Code.createEmpty(),
+      model: sourceModelId,
+      referencedElement: { id: sourceReferencedElementId, relClassName: "CustomSchema:CustomNavigationalPropertyRelationship" },
+    };
+
+    for (let i = 0; i < 10; ++i) {
+      sourceDb.elements.insertElement({ ...defaultSourceReferencerElementProps, userLabel: `Referencer ${i}` });
+    }
+    sourceDb.saveChanges();
+
+    // create target iModel
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformWithSkippedElements-Target.bim");
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "TransformWithSkippedElements-Target" } });
+
+    class SkipElementTransformer extends IModelTransformer {
+      public skippedElement = Id64.invalid;
+
+      public override shouldExportElement(sourceElement: Element): boolean {
+        return this.skippedElement !== sourceElement.id;
+      }
+    }
+
+    const transformer = new SkipElementTransformer(sourceDb, targetDb);
+    transformer.skippedElement = sourceReferencedElementId;
+    await transformer.processSchemas();
+    await transformer.processAll();
+    targetDb.saveChanges();
+
+    targetDb.withPreparedStatement(`SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'`, (statement) => {
+      while(DbResult.BE_SQLITE_ROW === statement.step()) {
+        assert(statement.getValue(0).isNull);
+      }
+    });
   });
 
   // FIXME: unskip, fixed in iTwin.js native addon 4.0.0, (@bentley/imodeljs-native@4.0.0)
