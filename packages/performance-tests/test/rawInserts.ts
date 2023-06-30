@@ -30,9 +30,8 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   if (testIModel === undefined)
     throw Error("Generated iModel not correctly defined"); // needed because TS does not know that timer will run before insertsTimer
-  await testIModel.getFileName();
-  assert(testIModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
-  const sourceDb = StandaloneDb.openFile(testIModel._cachedFileName, OpenMode.ReadWrite);
+  const fileName = await testIModel.getFileName();
+  const sourceDb = StandaloneDb.openFile(fileName, OpenMode.ReadWrite);
 
   reporter.addEntry(
     "populate by insert",
