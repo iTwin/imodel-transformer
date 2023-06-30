@@ -108,14 +108,14 @@ async function runRegressionTests() {
     testIModels.forEach(async (iModel) => {
       let sourceDb: BriefcaseDb;
       let reportInfo: ReporterInfo;
+      let sourceFileName: string;
 
       describe(`Transforms of ${iModel.name}`, async () => {
         before(async () => {
           Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
-          await iModel.getFileName();
-          assert(iModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
+          sourceFileName = await iModel.getFileName();
           sourceDb = await BriefcaseDb.open({
-            fileName: iModel._cachedFileName,
+            fileName: sourceFileName,
             readonly: true,
           });
           const fedGuidSaturation = sourceDb.withStatement(
@@ -146,9 +146,9 @@ async function runRegressionTests() {
         });
 
         beforeEach(async () => {
-          assert(iModel._cachedFileName, "Imodel file name not Cached to TestIModel Object");
+          sourceFileName = await iModel.getFileName();
           sourceDb = await BriefcaseDb.open({
-            fileName: iModel._cachedFileName,
+            fileName: sourceFileName,
             readonly: true,
           });
         });
@@ -160,7 +160,7 @@ async function runRegressionTests() {
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
             await testCase(sourceDb,
-              (smallReportSubset: [string, string, string, number]) => {
+              (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => {
                 reporter.addEntry( ...smallReportSubset, reportInfo );
               });
           }).timeout(0);

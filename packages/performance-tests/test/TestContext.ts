@@ -17,8 +17,7 @@ export interface TestIModel {
   iModelId: string;
   iTwinId: string;
   tShirtSize: string;
-  _cachedFileName?: string;
-  getFileName(): Promise<void>;
+  getFileName(): Promise<string>;
 }
 
 const iTwinIdStr = process.env.ITWIN_IDS;
@@ -51,13 +50,12 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
         iModelId,
         iTwinId,
         tShirtSize: getTShirtSizeFromName(iModel.displayName),
-        // _cachedFileName: undefined,
-        async getFileName(): Promise<void> {
+        async getFileName(): Promise<string> {
           const _briefcase = await downloadBriefcase({ iModelId, iTwinId}); // note not downloadAndOpen
-          this._cachedFileName = _briefcase.fileName;
+          return _briefcase.fileName;
         },
       };
-      if(filter(iModelToCheck)){
+      if (filter(iModelToCheck)){
         yield iModelToCheck;
       }
     }

@@ -11,7 +11,7 @@ import { setToStandalone } from "../iModelUtils";
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (smallReportSubset: [string, string, string, number]) => void){
+export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void){
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
@@ -35,13 +35,12 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (sma
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    const smallReportSubset: [string, string, string, number] = [
+    addReport(
       "Prepare Fork",
       sourceDb.name,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
-    ];
-    addReport(smallReportSubset);
+    );
   }
 }
 

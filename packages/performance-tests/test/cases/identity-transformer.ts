@@ -17,7 +17,7 @@ import { initOutputFile, timed } from "../TestUtils";
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, addReport: (smallReportSubset: [string, string, string, number]) => void) {
+export default async function identityTransformer(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void) {
 
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
@@ -55,13 +55,12 @@ export default async function identityTransformer(sourceDb: BriefcaseDb, addRepo
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    const smallReportSubset: [string, string, string, number] = [
+    addReport(
       "identity transform (provenance)",
       sourceDb.name,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
-    ];
-    addReport(smallReportSubset);
+    );
     targetDb.close();
     transformer.dispose();
   }

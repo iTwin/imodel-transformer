@@ -79,7 +79,7 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
     iModelId,
     iTwinId,
     tShirtSize: getTShirtSizeFromName(sourceDb.name),
-    async getFileName(): Promise<void> { this._cachedFileName = filePath; },
+    async getFileName(): Promise<string> { return filePath; },
   };
   return iModelToTest;
 }
