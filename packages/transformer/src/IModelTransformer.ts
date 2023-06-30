@@ -1134,6 +1134,21 @@ export class IModelTransformer extends IModelExportHandler {
     this.resolvePendingReferences(sourceAspect);
   }
 
+  public override preExportElementAspects(elementId: Id64String): void {
+    const targetElementId = this.context.findTargetElementId(elementId);
+
+    const targetElementAspects = this.targetDb.withPreparedStatement(`SELECT EcInstanceId FROM ${ElementMultiAspect.classFullName} WHERE Element.Id = :elementId AND ECInstanceId NOT IN (SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName} WHERE Element.Id = :elementId AND Scope.id=:targetScopeElementId)`, (stmt) => {
+      stmt.bindId("elementId", targetElementId);
+      stmt.bindId("targetScopeElementId", this.targetScopeElementId);
+      const aspects: Id64String[] = [];
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        aspects.push(stmt.getValue(0).getId());
+      }
+      return aspects;
+    });
+
+    this.targetDb.elements.deleteAspect(targetElementAspects);
+  }
   /** Override of [IModelExportHandler.onExportElementMultiAspects]($transformer) that imports ElementMultiAspects into the target iModel when they are exported from the source iModel.
    * This override calls [[onTransformElementAspect]] for each ElementMultiAspect and then [IModelImporter.importElementMultiAspects]($transformer) to update the target iModel.
    * @note ElementMultiAspects are handled as a group to make it easier to differentiate between insert, update, and delete.
@@ -1151,6 +1166,34 @@ export class IModelTransformer extends IModelExportHandler {
     for (let i = 0; i < targetIds.length; ++i) {
       this.context.remapElementAspect(sourceAspects[i].id, targetIds[i]);
       this.resolvePendingReferences(sourceAspects[i]);
+    }
+  }
+
+  public override onExportElementMultiAspect(sourceAspect: ElementMultiAspect): void {
+    const targetElementId: Id64String = this.context.findTargetElementId(sourceAspect.element.id);
+    // Transform source ElementMultiAspects into target ElementAspectProps
+    const targetAspectProps = this.onTransformElementAspect(sourceAspect, targetElementId);
+    this.collectUnmappedReferences(sourceAspect);
+
+    const isExternalSourceAspectFromTransformer = sourceAspect instanceof ExternalSourceAspect && (targetAspectProps as ExternalSourceAspectProps).scope?.id === this.targetScopeElementId;
+    if (!this._options.includeSourceProvenance || !isExternalSourceAspectFromTransformer) {
+      const aspectId = this.importer.importElementMultiAspect(targetAspectProps);
+      this.context.remapElementAspect(sourceAspect.id, aspectId);
+      this.resolvePendingReferences(sourceAspect);
+    }
+  }
+
+  public override onExportElementAspect(sourceElementAspect: ElementAspect) {
+    const targetElementId: Id64String = this.context.findTargetElementId(sourceElementAspect.element.id);
+    // Transform source ElementMultiAspects into target ElementAspectProps
+    const targetAspectProps = this.onTransformElementAspect(sourceElementAspect, targetElementId);
+    this.collectUnmappedReferences(sourceElementAspect);
+
+    const isExternalSourceAspectFromTransformer = sourceElementAspect instanceof ExternalSourceAspect && (targetAspectProps as ExternalSourceAspectProps).scope?.id === this.targetScopeElementId;
+    if (!this._options.includeSourceProvenance || !isExternalSourceAspectFromTransformer) {
+      const aspectId = this.importer.importElementMultiAspect(targetAspectProps);
+      this.context.remapElementAspect(sourceElementAspect.id, aspectId);
+      this.resolvePendingReferences(sourceElementAspect);
     }
   }
 

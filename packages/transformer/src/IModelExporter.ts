@@ -117,6 +117,12 @@ export abstract class IModelExportHandler {
    */
   public onExportElementMultiAspects(_aspects: ElementMultiAspect[]): void { }
 
+  public onExportElementMultiAspect(_aspects: ElementMultiAspect): void { }
+
+  public onExportElementAspect(_sourceElementAspect: ElementAspect) {}
+
+  public preExportElementAspects(_elementId: Id64String): void {}
+
   /** If `true` is returned, then the relationship will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
    */
@@ -557,6 +563,10 @@ export class IModelExporter {
         statement.bindId("rootSubjectId", IModel.rootSubjectId);
       }
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
+        if(statement.getValue(0).getId() === "0x2d"){
+          // eslint-disable-next-line no-console
+          console.log("elementId");
+        }
         await this.exportElement(statement.getValue(0).getId());
         await this._yieldManager.allowYield();
       }
@@ -625,6 +635,10 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportElement(elementId: Id64String): Promise<void> {
+    if(elementId === "0x2d"){
+      // eslint-disable-next-line no-console
+      console.log("elementId");
+    }
     if (!this.visitElements) {
       Logger.logTrace(loggerCategory, `visitElements=false, skipping exportElement(${elementId})`);
       return;
@@ -684,7 +698,7 @@ export class IModelExporter {
 
   /** Export ElementAspects from the specified element from the source iModel. */
   private async exportElementAspects(elementId: Id64String): Promise<void> {
-    const _uniqueAspects = await Promise.all(this.sourceDb.elements
+    await Promise.all(this.sourceDb.elements
       ._queryAspects(elementId, ElementUniqueAspect.classFullName, this._excludedElementAspectClassFullNames)
       .filter((a) => this.shouldExportElementAspect(a))
       .map(async (uniqueAspect: ElementUniqueAspect) => {
@@ -706,42 +720,59 @@ export class IModelExporter {
     //   return this.trackProgress();
     // }
 
-    const aspectsWithClasses = this.sourceDb.withStatement(`SELECT ECInstanceId,ECClassId FROM ${ElementMultiAspect.classFullName} WHERE Element.Id=:elementId ORDER BY ECClassId,ECInstanceId`, (stmt) => {
+    const aspectClassNameIdMap = new Map<string, Id64String> ();
+    // const sql = `SELECT DISTINCT ECClassId as clId, (ec_classname(ECClassId)) as clname FROM ${ElementMultiAspect.classFullName} WHERE Element.Id=:elementId`;
+    this.sourceDb.withPreparedStatement(`SELECT DISTINCT ECClassId as clId, (ec_classname(ECClassId)) as clname FROM ${ElementMultiAspect.classFullName} WHERE Element.Id=:elementId`, (stmt) => {
       stmt.bindId("elementId", elementId);
-      const results: ({ id: Id64String, classFullName: string })[] = [];
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-        const id = stmt.getValue(0).getId();
-        const classFullName: string = stmt.getValue(1).getClassNameForClassId().replace(".", ":");
-        results.push({ id, classFullName });
+        aspectClassNameIdMap.set(stmt.getValue(1).getString(), stmt.getValue(0).getId());
       }
-      return results;
     });
 
-    const queryAspectsAsync = async (aspectId: string, aspectClass: string) => {
-      const sql = `SELECT * FROM ${aspectClass} WHERE EcInstanceId=:aspectId`;
-      const queryReader = this.sourceDb.query(sql, new QueryBinder().bindId("aspectId", aspectId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
-      const aspectEntities: ElementAspect[] = [];
-      for await (const rawAspectProps of queryReader) {
-        const aspectProps: ElementAspectProps = { ...rawAspectProps, classFullName: rawAspectProps.className.replace(".", ":") }; // add in property required by EntityProps
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (aspectProps as any).className = undefined; // clear property from SELECT * that we don't want in the final instance
-        aspectEntities.push(this.sourceDb.constructEntity<ElementAspect>(aspectProps));
-      }
+    if(aspectClassNameIdMap.size === 0){
+      return;
+    }
 
-      return aspectEntities;
-    };
-
-    for (const aspectInfo of aspectsWithClasses) {
-      if (this._excludedElementAspectClassFullNames.has(aspectInfo.classFullName)) {
+    this._handler?.preExportElementAspects(elementId);
+    for (const [className, classId] of aspectClassNameIdMap){
+      if(this._excludedElementAspectClassFullNames.has(className)){
         continue;
       }
+      const sql = `SELECT * FROM ${className} WHERE Element.id=:elementId AND ECClassId=:classId`;
+      const queryReader = this.sourceDb.query(sql, new QueryBinder().bindId("elementId", elementId).bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames, includeMetaData: true });
+      for await (const rawAspectProps of queryReader) {
+        const aspectProps: ElementAspectProps = { ...rawAspectProps, classFullName: className }; // add in property required by EntityProps
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (aspectProps as any).className = undefined; // clear property from SELECT * that we don't want in the final instance
+        const elementAspectEntity = this.sourceDb.constructEntity<ElementAspect>(aspectProps);
+        if (this.shouldExportElementAspect(elementAspectEntity)) {
+          this.handler.onExportElementMultiAspect(elementAspectEntity);
+          await this.trackProgress();
+        }
+      }
+    }
+  }
 
-      const aspects: ElementAspect[] = (await queryAspectsAsync(aspectInfo.id, aspectInfo.classFullName))
-        .filter((a) => this.shouldExportElementAspect(a));
+  public async exportAspects(): Promise<void> {
+    const aspectClassNameIdMap = new Map<string, Id64String>();
+    const sql = `SELECT DISTINCT ECClassId as clId, (ec_classname(ECClassId)) as clname FROM ${ElementAspect.classFullName}`;
+    this.sourceDb.withPreparedStatement(sql, (statement) => {
+      while (DbResult.BE_SQLITE_ROW === statement.step()) {
+        aspectClassNameIdMap.set(statement.getValue(1).getString(), statement.getValue(0).getId());
+      }
+    });
 
-      if (aspects.length > 0) {
-        this.handler.onExportElementMultiAspects(aspects);
-        return this.trackProgress();
+    for (const [className, classId] of aspectClassNameIdMap) {
+      const sql2 = `SELECT * FROM ${className} WHERE ECClassId = :classId ORDER BY Element.Id`;
+      const queryReader = this.sourceDb.query(sql2, new QueryBinder().bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      for await (const rawAspectProps of queryReader) {
+        const aspectProps: ElementAspectProps = { ...rawAspectProps, classFullName: rawAspectProps.className.replace(".", ":") }; // add in property required by EntityProps
+        (aspectProps as any).className = undefined; // clear property from SELECT * that we don't want in the final instance
+        const aspectEntity = this.sourceDb.constructEntity<ElementAspect>(aspectProps);
+        if (this.handler.shouldExportElementAspect(aspectEntity)) {
+          this.handler.onExportElementAspect(aspectEntity);
+        }
+        await this.trackProgress();
       }
     }
   }
