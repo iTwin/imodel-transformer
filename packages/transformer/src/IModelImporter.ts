@@ -381,17 +381,15 @@ export class IModelImporter implements Required<IModelImportOptions> {
     assert(result.every((r) => typeof r !== undefined));
     return result as Id64String[];
   }
+
   public importElementMultiAspect(
     aspectProps: ElementAspectProps
   ): Id64String {
-    let id = Id64.invalid;
     if (aspectProps.id) {
       this.onUpdateElementAspect(aspectProps);
-      id = aspectProps.id;
-    } else {
-      id = this.onInsertElementAspect(aspectProps);
+      return aspectProps.id;
     }
-    return id;
+    return this.onInsertElementAspect(aspectProps);
   }
 
   /** Insert the ElementAspect into the target iModel.

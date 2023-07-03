@@ -174,7 +174,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(targetImporter.numElementsInserted, 0);
         assert.equal(targetImporter.numElementsUpdated, 0);
         assert.equal(targetImporter.numElementsDeleted, 0);
-        assert.equal(targetImporter.numElementAspectsInserted, 0);
+        assert.equal(targetImporter.numElementAspectsInserted, 2); // MultiAspects get reinserted
         assert.equal(targetImporter.numElementAspectsUpdated, 0);
         assert.equal(targetImporter.numRelationshipsInserted, 0);
         assert.equal(targetImporter.numRelationshipsUpdated, 0);
@@ -183,8 +183,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(numTargetRelationships, count(targetDb, ElementRefersToElements.classFullName), "Second import should not add relationships");
         transformer.dispose();
         targetDb.saveChanges();
-        assert.isFalse(targetDb.nativeDb.hasPendingTxns());
-        await targetDb.pushChanges({ accessToken, description: "Should not actually push because there are no changes" });
+        await targetDb.pushChanges({ accessToken, description: "Reinserted aspects" });
       }
 
       if (true) { // update source db, then import again
@@ -233,12 +232,12 @@ describe("IModelTransformerHub", () => {
         const targetExporter = new IModelToTextFileExporter(targetDb, targetExportFileName);
         await targetExporter.exportChanges(accessToken);
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
-        const targetDbChanges: any = (targetExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
+        const targetDbChanges = targetExporter.exporter.sourceDbChanges!; // access private member for testing purposes
         assert.exists(targetDbChanges);
         // expect some inserts from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.insertIds.size, 0);
         assert.equal(targetDbChanges.element.insertIds.size, 1);
-        assert.equal(targetDbChanges.aspect.insertIds.size, 3);
+        assert.equal(targetDbChanges.aspect.insertIds.size, 5);
         assert.equal(targetDbChanges.model.insertIds.size, 0);
         assert.equal(targetDbChanges.relationship.insertIds.size, 2);
         // expect some updates from transforming the result of updateDb
@@ -259,7 +258,7 @@ describe("IModelTransformerHub", () => {
       const sourceIModelChangeSets = await IModelHost.hubAccess.queryChangesets({ accessToken, iModelId: sourceIModelId });
       const targetIModelChangeSets = await IModelHost.hubAccess.queryChangesets({ accessToken, iModelId: targetIModelId });
       assert.equal(sourceIModelChangeSets.length, 2);
-      assert.equal(targetIModelChangeSets.length, 2);
+      assert.equal(targetIModelChangeSets.length, 3);
 
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);

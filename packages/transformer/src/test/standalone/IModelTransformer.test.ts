@@ -275,8 +275,8 @@ describe("IModelTransformer", () => {
     branchDb.close();
   });
 
-  function count(iModelDb: IModelDb, classFullName: string): number {
-    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}`, (statement: ECSqlStatement): number => {
+  function count(iModelDb: IModelDb, classFullName: string, where?: string): number {
+    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}${where ? ` WHERE ${where}` : ""}`, (statement: ECSqlStatement): number => {
       return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
     });
   }
@@ -1940,11 +1940,6 @@ describe("IModelTransformer", () => {
     await TransformerExtensiveTestScenario.prepareDb(targetDb);
     targetDb.saveChanges();
 
-    const targetAfterCreation = count(targetDb, ElementAspect.classFullName);
-    targetAfterCreation;
-    const sourceAfterCreation = count(sourceDb, ElementAspect.classFullName);
-    sourceAfterCreation;
-
     // const importer = new AspectTrackingImporter(targetDb);
     const transformer = new IModelTransformer(sourceDb, targetDb);
     assert.isTrue(transformer.context.isBetweenIModels);
@@ -1956,18 +1951,10 @@ describe("IModelTransformer", () => {
     assert(physicalObj1InTargetId !== Id64.invalid);
 
     const targetAspectCount = count(targetDb, ElementAspect.classFullName);
+    const targetExternalSourceAspects = count(targetDb, ExternalSourceAspect.classFullName, `Scope.id = ${transformer.targetScopeElementId}`);
     const sourceAspectCount = count(sourceDb, ElementAspect.classFullName);
     expect(sourceAspectCount).to.equal(3);
-    expect(targetAspectCount).to.equal(sourceAspectCount);
-
-    // for (let i = 0; i < exportedAspectSources.length; ++i) {
-    //   const sourceId = exportedAspectSources[i].id;
-    //   const targetId = importedAspectTargetIds[i];
-    //   const mappedTarget = transformer.context.findTargetAspectId(sourceId);
-    //   assert(mappedTarget !== Id64.invalid);
-    //   const indexInResult = importedAspectTargetIds.findIndex((id) => id === mappedTarget);
-    //   assert(mappedTarget === targetId, `aspect ${i} (${sourceId} in source, ${mappedTarget} in target) but got ${targetId} and the expected id was at index ${indexInResult}`);
-    // }
+    expect(targetAspectCount - targetExternalSourceAspects).to.equal(sourceAspectCount);
   });
 
   it("handles nested schema references during schema export", async () => {
