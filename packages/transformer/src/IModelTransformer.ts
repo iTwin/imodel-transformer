@@ -378,21 +378,39 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
-  private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
-    const elementId = this._options.isReverseSynchronization ? sourceElementId : targetElementId;
-    const aspectIdentifier = this._options.isReverseSynchronization ? targetElementId : sourceElementId;
-    const version = this._options.isReverseSynchronization
-      ? this.targetDb.elements.queryLastModifiedTime(targetElementId)
-      : this.sourceDb.elements.queryLastModifiedTime(sourceElementId);
+  public static initElementProvenanceOptions(
+    sourceElementId: Id64String,
+    targetElementId: Id64String,
+    args: {
+      sourceDb: IModelDb;
+      isReverseSynchronization: boolean;
+      targetScopeElementId: Id64String;
+    },
+  ): ExternalSourceAspectProps {
+    const elementId = args.isReverseSynchronization ? sourceElementId : targetElementId;
+    const aspectIdentifier = args.isReverseSynchronization ? targetElementId : sourceElementId;
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
-      scope: { id: this.targetScopeElementId },
+      scope: { id: args.targetScopeElementId },
       identifier: aspectIdentifier,
       kind: ExternalSourceAspect.Kind.Element,
-      version,
+      version: args.sourceDb.elements.queryLastModifiedTime(sourceElementId),
     };
     return aspectProps;
+  }
+
+  /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
+  private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
+    return IModelTransformer.initElementProvenanceOptions(
+      sourceElementId,
+      targetElementId,
+      {
+        isReverseSynchronization: !!this._options.isReverseSynchronization,
+        targetScopeElementId: this.targetScopeElementId,
+        sourceDb: this.sourceDb,
+      },
+    );
   }
 
   /** Create an ExternalSourceAspectProps in a standard way for a Relationship in an iModel --> iModel transformations.
@@ -457,23 +475,39 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Iterate all matching ExternalSourceAspects in the provenance iModel (target unless reverse sync) and call a function for each one. */
-  private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
-    if (!this.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
+  public static forEachTrackedElement(args: {
+    provenanceSource: IModelDb;
+    provenanceLinker: IModelDb;
+    targetScopeElementId: Id64String;
+    isReverseSynchronization: boolean;
+    fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
+  }): void {
+    if (!args.provenanceLinker.containsClass(ExternalSourceAspect.classFullName)) {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
     const sql = `SELECT Identifier,Element.Id FROM ${ExternalSourceAspect.classFullName} WHERE Scope.Id=:scopeId AND Kind=:kind`;
-    this.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      statement.bindId("scopeId", this.targetScopeElementId);
+    args.provenanceLinker.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
+      statement.bindId("scopeId", args.targetScopeElementId);
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const aspectIdentifier: Id64String = statement.getValue(0).getString(); // ExternalSourceAspect.Identifier is of type string
         const elementId: Id64String = statement.getValue(1).getId();
-        if (this._options.isReverseSynchronization) {
-          fn(elementId, aspectIdentifier); // provenance coming from the sourceDb
+        if (args.isReverseSynchronization) {
+          args.fn(elementId, aspectIdentifier); // provenance coming from the sourceDb
         } else {
-          fn(aspectIdentifier, elementId); // provenance coming from the targetDb
+          args.fn(aspectIdentifier, elementId); // provenance coming from the targetDb
         }
       }
+    });
+  }
+
+  private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
+    return IModelTransformer.forEachTrackedElement({
+      provenanceSource: this._options.isReverseSynchronization ? this.sourceDb : this.targetDb,
+      provenanceLinker: this.provenanceDb,
+      targetScopeElementId: this.targetScopeElementId,
+      isReverseSynchronization: !!this._options.isReverseSynchronization,
+      fn,
     });
   }
 
