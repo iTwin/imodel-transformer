@@ -39,9 +39,9 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -65,9 +65,9 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     applyChangeSetTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -87,9 +87,9 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -109,9 +109,9 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
