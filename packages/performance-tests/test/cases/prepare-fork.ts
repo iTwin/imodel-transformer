@@ -1,9 +1,9 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
+import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { Code } from "@itwin/core-common";
-import { IModelTransformer } from "@itwin/imodel-transformer";
+import { IModelTransformer, initializeBranchProvenance } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
@@ -42,6 +42,23 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
       entityProcessingTimer?.elapsedSeconds ?? -1,
     );
   }
+
+  const targetPath = initOutputFile(`${sourceDb.iTwinId}-${sourceDb.name}-target.bim`, outputDir);
+  const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
+
+  const [branchProvenanceInitTimer] = await timed(async () => {
+    await initializeBranchProvenance({
+      master: sourceDb,
+      branch: targetDb,
+    });
+  });
+
+  addReport(
+    "Init Fork raw",
+    sourceDb.name,
+    "time elapsed (seconds)",
+    branchProvenanceInitTimer?.elapsedSeconds ?? -1,
+  );
 }
 
 async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb,) {
