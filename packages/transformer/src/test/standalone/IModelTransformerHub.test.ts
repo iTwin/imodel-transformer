@@ -959,7 +959,7 @@ describe("IModelTransformerHub", () => {
       category: categoryId,
       model: modelId,
       classFullName: PhysicalObject.classFullName,
-      code: Code.createEmpty()
+      code: Code.createEmpty(),
     };
     seedDb.elements.insertElement(physicalElementProps);
     seedDb.saveChanges();
@@ -984,21 +984,29 @@ describe("IModelTransformerHub", () => {
       await targetDb.pushChanges({description: "Initial transformation completed"});
       transformer.dispose();
 
-      const targetSubjectId = Subject.insert(targetDb, IModel.rootSubjectId, "S2")
-      const targetModelId = PhysicalModel.insert(targetDb, targetSubjectId, "PM2")
-      const targetCategoryId = SpatialCategory.insert(targetDb, IModel.dictionaryId, "C2", {});
-      const targetPhysicalElementProps: PhysicalElementProps = {
-        category: targetCategoryId,
-        model: targetModelId,
-        classFullName: PhysicalObject.classFullName,
-        code: Code.createEmpty()
-      };
-      targetDb.elements.insertElement(targetPhysicalElementProps);
-      targetDb.saveChanges();
-      await targetDb.pushChanges({description: "Inserted 2nd PhysicalObject"});
+      for(let i = 0; i < 4; i++){
+        const targetSubjectId = Subject.insert(targetDb, IModel.rootSubjectId, `S2 ${i}`);
+        const targetModelId = PhysicalModel.insert(targetDb, targetSubjectId, `PM2 ${i}`);
+        const targetCategoryId = SpatialCategory.insert(targetDb, IModel.dictionaryId, `C2 ${i}`, {});
+        const targetPhysicalElementProps: PhysicalElementProps = {
+          category: targetCategoryId,
+          model: targetModelId,
+          classFullName: PhysicalObject.classFullName,
+          code: Code.createEmpty(),
+        };
+        targetDb.elements.insertElement(targetPhysicalElementProps);
+        targetDb.saveChanges();
+        await targetDb.pushChanges({description: `Inserted ${i} PhysicalObject`});
+      }
 
       transformer = new IModelTransformer(targetDb, sourceDb, { isReverseSynchronization: true });
-      await transformer.processChanges({accessToken, startChangeset: { id: targetDb.changeset.id }});
+      let changesetIndex = targetDb.changeset.index;
+      if(changesetIndex){
+        changesetIndex -= 1;
+      }
+
+      transformer = new IModelTransformer(targetDb, sourceDb, { isReverseSynchronization: true });
+      await transformer.processChanges({accessToken, startChangeset: { index: changesetIndex }});
       transformer.dispose();
 
       expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(2);
