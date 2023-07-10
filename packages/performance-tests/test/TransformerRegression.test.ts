@@ -3,6 +3,11 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
+/*
+ * Tests where we perform "identity" transforms, that is just rebuilding an entire identical iModel (minus IDs)
+ * through the transformation process.
+ */
+
 import "./setup";
 import assert from "assert";
 import * as path from "path";
