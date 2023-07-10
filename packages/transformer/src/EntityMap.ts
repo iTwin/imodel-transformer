@@ -14,7 +14,7 @@ export type EntityKey = EntityReference;
 
 /** @internal */
 export class EntityMap<V> {
-  private _map = new BigMap<EntityKey, V>();
+  private _map = new BigMap<V>();
 
   public static makeKey(entity: ConcreteEntity): EntityKey {
     return EntityReferences.from(entity);

@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Add pending reference resolution when referenced element is not exported",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "51540204+simsta6@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

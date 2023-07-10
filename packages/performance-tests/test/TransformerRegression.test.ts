@@ -11,8 +11,9 @@
 import "./setup";
 import assert from "assert";
 import * as path from "path";
-import { IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
-import { Logger, LogLevel } from "@itwin/core-bentley";
+import * as fs from "fs";
+import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
+import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { getTestIModels } from "./TestContext";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
@@ -23,14 +24,18 @@ import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { Reporter } from "@itwin/perf-tools";
 import rawInserts from "./rawInserts";
 import { getBranchName } from "./GitUtils";
+import { ReporterInfo } from "./ReporterUtils";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
+import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
   ["identity transform", identityTransformer],
+  ["prepare-fork", prepareFork],
 ]);
 
+const loggerCategory = "Transformer Performance Regression Tests";
 const outputDir = path.join(__dirname, ".output");
 
 const setupTestData = async () => {
@@ -95,16 +100,68 @@ const setupTestData = async () => {
 
 async function runRegressionTests() {
   const testIModels = await setupTestData();
-  let reporter = new Reporter();
+  const reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
   const branchName =  await getBranchName();
 
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
+      let sourceDb: BriefcaseDb;
+      let reportInfo: ReporterInfo;
+      let sourceFileName: string;
+
       describe(`Transforms of ${iModel.name}`, async () => {
+        before(async () => {
+          Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
+          sourceFileName = await iModel.getFileName();
+          sourceDb = await BriefcaseDb.open({
+            fileName: sourceFileName,
+            readonly: true,
+          });
+          const fedGuidSaturation = sourceDb.withStatement(
+            `
+            SELECT
+            CAST(SUM(hasGuid) AS DOUBLE)/COUNT(*) ratio 
+            FROM (
+              SELECT IIF(FederationGuid IS NOT NULL, 1, 0) AS hasGuid,
+              1 AS total FROM bis.Element
+            )`,
+            (stmt) => {
+              assert(stmt.step() === DbResult.BE_SQLITE_ROW);
+              return stmt.getValue(0).getDouble();
+            }
+          );
+          Logger.logInfo(loggerCategory, `Federation Guid Saturation '${fedGuidSaturation}'`);
+          const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
+          const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
+          Logger.logInfo(loggerCategory, `loaded (${sizeInGb})'`);
+          reportInfo = {
+            "Id": iModel.iModelId,
+            "T-shirt size": iModel.tShirtSize,
+            "Gb size": sizeInGb,
+            "Branch Name": branchName,
+            "Federation Guid Saturation 0-1": fedGuidSaturation,
+          };
+          sourceDb.close();
+        });
+
+        beforeEach(async () => {
+          sourceDb = await BriefcaseDb.open({
+            fileName: sourceFileName,
+            readonly: true,
+          });
+        });
+
+        afterEach(async () => {
+          sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
+        });
+
         testCasesMap.forEach(async (testCase, key) => {
           it(key, async () => {
-            reporter = await testCase(iModel, reporter, branchName);
+            await testCase(sourceDb,
+              (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => {
+                reporter.addEntry( ...smallReportSubset, reportInfo );
+              });
           }).timeout(0);
         });
       });

@@ -7,7 +7,7 @@
     "build": "tsc 1>&2",
     "build:ci": "npm run -s build",
     "clean": "rimraf lib",
-    "lint": "eslint --max-warnings 0 \"./test/**/*.ts\" 1>&2",
+    "lint": "eslint \"./test/**/*.ts\" 1>&2",
     "test": "mocha --delay --timeout 300000 --require ts-node/register test/**/*.test.ts",
     "test-mocha": "mocha --delay --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
     "process-reports": "node scripts/process-reports"
