@@ -952,17 +952,17 @@ describe("IModelTransformerHub", () => {
 
     const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: "TransformerSource" } });
     assert.isTrue(IModelJsFs.existsSync(seedFileName));
-    const subjectId = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
-    const modelId = PhysicalModel.insert(seedDb, subjectId, "PM1");
-    const categoryId = SpatialCategory.insert(seedDb, IModel.dictionaryId, "C1", {});
-    const physicalElementProps: PhysicalElementProps = {
-      category: categoryId,
-      model: modelId,
-      classFullName: PhysicalObject.classFullName,
-      code: Code.createEmpty(),
-    };
-    seedDb.elements.insertElement(physicalElementProps);
-    seedDb.saveChanges();
+    const subjectId1 = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
+    const modelId1 = PhysicalModel.insert(seedDb, subjectId1, "PM1");
+    const categoryId1 = SpatialCategory.insert(seedDb, IModel.dictionaryId, "C1", {});
+      const physicalElementProps1: PhysicalElementProps = {
+        category: categoryId1,
+        model: modelId1,
+        classFullName: PhysicalObject.classFullName,
+        code: Code.createEmpty(),
+      };
+      seedDb.elements.insertElement(physicalElementProps1);
+      seedDb.saveChanges();
     seedDb.close();
 
     const sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerSource", description: "source", version0: seedFileName, noLocks: true });
@@ -971,20 +971,48 @@ describe("IModelTransformerHub", () => {
     try {
       // open/upgrade sourceDb
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      // creating changesets for source
+      for(let i = 0; i < 4; i++){
+        const subjectId = Subject.insert(sourceDb, IModel.rootSubjectId, `S123 ${i}`);
+        const modelId = PhysicalModel.insert(sourceDb, subjectId, `PM123 ${i}`);
+        const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, `C123 ${i}`, {});
+        const physicalElementProps: PhysicalElementProps = {
+          category: categoryId,
+          model: modelId,
+          classFullName: PhysicalObject.classFullName,
+          code: Code.createEmpty(),
+        };
+        sourceDb.elements.insertElement(physicalElementProps);
+        sourceDb.saveChanges();
+        await sourceDb.pushChanges({description: `Inserted ${i} PhysicalObject`});
+      }
       assert.isTrue(Guid.isGuid(targetIModelId));
       const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+      // filling up target with the same elements but without having changesets
+      for(let i = 0; i < 4; i++){
+        const subjectId = Subject.insert(targetDb, IModel.rootSubjectId, `S123 ${i}`);
+        const modelId = PhysicalModel.insert(targetDb, subjectId, `PM123 ${i}`);
+        const categoryId = SpatialCategory.insert(targetDb, IModel.dictionaryId, `C123 ${i}`, {});
+        const physicalElementProps: PhysicalElementProps = {
+          category: categoryId,
+          model: modelId,
+          classFullName: PhysicalObject.classFullName,
+          code: Code.createEmpty(),
+        };
+        targetDb.elements.insertElement(physicalElementProps);
+        targetDb.saveChanges();
+      }
       assert.isTrue(Guid.isGuid(targetIModelId));
 
-      expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(1);
-      expect(count(targetDb, PhysicalObject.classFullName)).to.equal(1);
-
+      // running forward synchronization
       let transformer = new IModelTransformer(sourceDb, targetDb, { wasSourceIModelCopiedToTarget: true });
       await transformer.processAll();
       targetDb.saveChanges();
       await targetDb.pushChanges({description: "Initial transformation completed"});
       transformer.dispose();
 
-      for(let i = 0; i < 4; i++){
+      // adding more changesets to target
+      for(let i = 0; i < 2; i++){
         const targetSubjectId = Subject.insert(targetDb, IModel.rootSubjectId, `S2 ${i}`);
         const targetModelId = PhysicalModel.insert(targetDb, targetSubjectId, `PM2 ${i}`);
         const targetCategoryId = SpatialCategory.insert(targetDb, IModel.dictionaryId, `C2 ${i}`, {});
@@ -999,14 +1027,10 @@ describe("IModelTransformerHub", () => {
         await targetDb.pushChanges({description: `Inserted ${i} PhysicalObject`});
       }
 
+      // running reverse synchronization
       transformer = new IModelTransformer(targetDb, sourceDb, { isReverseSynchronization: true });
-      let changesetIndex = targetDb.changeset.index;
-      if(changesetIndex){
-        changesetIndex -= 1;
-      }
 
-      transformer = new IModelTransformer(targetDb, sourceDb, { isReverseSynchronization: true });
-      await transformer.processChanges({accessToken, startChangeset: { index: changesetIndex }});
+      await transformer.processChanges({accessToken});
       transformer.dispose();
 
       expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(2);
