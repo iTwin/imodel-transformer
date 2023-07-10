@@ -10,9 +10,9 @@ export async function getBranchName(): Promise<string> {
     throw new Error(`exec error: ${stderr}`);
   else
     branch = stdout.trim();
-    
+   
   if (branch === "HEAD")
     return "main";
   else
-    return branch; 
+    return branch;
 }

@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
+import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
 import { Code } from "@itwin/core-common";
 import { IModelTransformer, initializeBranchProvenance } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
