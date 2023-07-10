@@ -54,15 +54,15 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
     code: Code.createEmpty(),
     repository: new ExternalSourceIsInRepository(masterLinkRepoId),
     /* eslint-disable @typescript-eslint/no-var-requires */
-    connectorName: require("../package.json").name,
-    connectorVersion: require("../package.json").version,
+    connectorName: require("../../package.json").name,
+    connectorVersion: require("../../package.json").version,
     /* eslint-enable @typescript-eslint/no-var-requires */
   }, args.branch).insert();
 
-  const fedGuidLessElemsSql = "SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid IS NULL";
+  const fedGuidLessElemsSql = "SELECT ECInstanceId as id FROM Bis.Element WHERE FederationGuid IS NULL";
   const reader = args.branch.createQueryReader(fedGuidLessElemsSql);
   while (await reader.step()) {
-    const id = reader.current.toRow().id;
+    const id:string = reader.current.toRow().id;
     IModelTransformer.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
