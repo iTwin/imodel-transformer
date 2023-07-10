@@ -71,17 +71,17 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
   setToStandalone(sourceCopy);
   const sourceCopyDb = StandaloneDb.openFile(sourceCopy);
 
-  const NoTransformAddFedGuidsFork = initOutputFile(`NoTransformAddFedGuidsFork-copy.bim`, outputDir);
-  if (fs.existsSync(NoTransformAddFedGuidsFork))
-    fs.unlinkSync(NoTransformAddFedGuidsFork);
-  fs.copyFileSync(filePath, NoTransformAddFedGuidsFork);
-  setToStandalone(NoTransformAddFedGuidsFork);
-  const NoTransformAddFedGuidsForkDb = StandaloneDb.openFile(NoTransformAddFedGuidsFork);
+  const noTransformAddFedGuidsFork = initOutputFile(`NoTransformAddFedGuidsFork-copy.bim`, outputDir);
+  if (fs.existsSync(noTransformAddFedGuidsFork))
+    fs.unlinkSync(noTransformAddFedGuidsFork);
+  fs.copyFileSync(filePath, noTransformAddFedGuidsFork);
+  setToStandalone(noTransformAddFedGuidsFork);
+  const noTransformAddFedGuidsForkDb = StandaloneDb.openFile(noTransformAddFedGuidsFork);
 
   const [createFedGuidsForMasterTimer] = await timed(async () => {
     await initializeBranchProvenance({
       master: sourceCopyDb,
-      branch: NoTransformAddFedGuidsForkDb,
+      branch: noTransformAddFedGuidsForkDb,
       createFedGuidsForMaster: true,
     });
   });
