@@ -9,7 +9,7 @@ import { Id64String } from "@itwin/core-bentley";
  * This class serves as a temporary solution to address the issue of the V8 JavaScript engine's Map implementation,
  * which is limited to approximately 16.7 million elements. Currently, only valid or invalid Id64 string
  * representations are supported by this Map; any other type will lead to errors. It's worth noting that
- * our future plan is to replace this stopgap with a more robust solution, utilizing a temporary SQLite database.
+ * our future plan is to replace this stopgap with a more robust solution, utilizing a temporary SQLite database (https://github.com/iTwin/imodel-transformer/issues/83).
  */
 export class BigMap<V> extends Map<Id64String, V> {
     private _maps: Record<string, Map<string, V>>;
