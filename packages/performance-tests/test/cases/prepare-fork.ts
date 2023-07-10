@@ -14,7 +14,7 @@ const outputDir = path.join(__dirname, ".output");
 export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void){
 
   // create a duplicate of master for branch
-  const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
+  const branchPath = initOutputFile(`PrepareFork-${sourceDb.name}-target.bim`, outputDir);
   if (fs.existsSync(branchPath))
     fs.unlinkSync(branchPath);
   const filePath = sourceDb.pathName;
@@ -43,13 +43,17 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
     );
   }
 
-  const targetPath = initOutputFile(`${sourceDb.iTwinId}-${sourceDb.name}-target.bim`, outputDir);
-  const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
+  const targetPath1 = initOutputFile(`RawFork-${sourceDb.name}-target.bim`, outputDir);
+  if (fs.existsSync(targetPath1))
+    fs.unlinkSync(targetPath1);
+  fs.copyFileSync(filePath, targetPath1);
+  setToStandalone(targetPath1);
+  const targetDb1 = StandaloneDb.openFile(branchPath);
 
   const [branchProvenanceInitTimer] = await timed(async () => {
     await initializeBranchProvenance({
       master: sourceDb,
-      branch: targetDb,
+      branch: targetDb1,
     });
   });
 
@@ -58,6 +62,35 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
     sourceDb.name,
     "time elapsed (seconds)",
     branchProvenanceInitTimer?.elapsedSeconds ?? -1,
+  );
+
+  const sourceCopy = initOutputFile(`RawFork-${sourceDb.name}-target.bim`, outputDir);
+  if (fs.existsSync(sourceCopy))
+    fs.unlinkSync(sourceCopy);
+  fs.copyFileSync(filePath, sourceCopy);
+  setToStandalone(sourceCopy);
+  const sourceCopyDb = StandaloneDb.openFile(sourceCopy);
+
+  const targetPath2 = initOutputFile(`RawFork-${sourceDb.name}-copy.bim`, outputDir);
+  if (fs.existsSync(targetPath2))
+    fs.unlinkSync(targetPath2);
+  fs.copyFileSync(filePath, targetPath2);
+  setToStandalone(targetPath2);
+  const targetDb2 = StandaloneDb.openFile(targetPath2);
+
+  const [createFedGuidsForMasterTimer] = await timed(async () => {
+    await initializeBranchProvenance({
+      master: sourceCopyDb,
+      branch: targetDb2,
+      createFedGuidsForMaster: true,
+    });
+  });
+
+  addReport(
+    "Init Fork raw createFedGuidsForMaster",
+    sourceDb.name,
+    "time elapsed (seconds)",
+    createFedGuidsForMasterTimer?.elapsedSeconds ?? -1,
   );
 }
 
