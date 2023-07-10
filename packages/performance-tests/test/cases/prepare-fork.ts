@@ -43,22 +43,22 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
     );
   }
 
-  const targetPath1 = initOutputFile(`RawFork-${sourceDb.name}-target.bim`, outputDir);
-  if (fs.existsSync(targetPath1))
-    fs.unlinkSync(targetPath1);
-  fs.copyFileSync(filePath, targetPath1);
-  setToStandalone(targetPath1);
-  const targetDb1 = StandaloneDb.openFile(branchPath);
+  const noTransformForkPath = initOutputFile(`NoTransform-${sourceDb.name}-target.bim`, outputDir);
+  if (fs.existsSync(noTransformForkPath))
+    fs.unlinkSync(noTransformForkPath);
+  fs.copyFileSync(filePath, noTransformForkPath);
+  setToStandalone(noTransformForkPath);
+  const noTransformForkDb = StandaloneDb.openFile(noTransformForkPath);
 
   const [branchProvenanceInitTimer] = await timed(async () => {
     await initializeBranchProvenance({
       master: sourceDb,
-      branch: targetDb1,
+      branch: noTransformForkDb,
     });
   });
 
   addReport(
-    "Init Fork raw",
+    "Init Fork no transform",
     sourceDb.name,
     "time elapsed (seconds)",
     branchProvenanceInitTimer?.elapsedSeconds ?? -1,
@@ -71,17 +71,17 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
   setToStandalone(sourceCopy);
   const sourceCopyDb = StandaloneDb.openFile(sourceCopy);
 
-  const targetPath2 = initOutputFile(`RawFork-${sourceDb.name}-copy.bim`, outputDir);
-  if (fs.existsSync(targetPath2))
-    fs.unlinkSync(targetPath2);
-  fs.copyFileSync(filePath, targetPath2);
-  setToStandalone(targetPath2);
-  const targetDb2 = StandaloneDb.openFile(targetPath2);
+  const NoTransformAddFedGuidsFork = initOutputFile(`NoTransformAddFedGuidsFork-copy.bim`, outputDir);
+  if (fs.existsSync(NoTransformAddFedGuidsFork))
+    fs.unlinkSync(NoTransformAddFedGuidsFork);
+  fs.copyFileSync(filePath, NoTransformAddFedGuidsFork);
+  setToStandalone(NoTransformAddFedGuidsFork);
+  const NoTransformAddFedGuidsForkDb = StandaloneDb.openFile(NoTransformAddFedGuidsFork);
 
   const [createFedGuidsForMasterTimer] = await timed(async () => {
     await initializeBranchProvenance({
       master: sourceCopyDb,
-      branch: targetDb2,
+      branch: NoTransformAddFedGuidsForkDb,
       createFedGuidsForMaster: true,
     });
   });
