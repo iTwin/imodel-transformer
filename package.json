@@ -30,7 +30,8 @@
   },
   "lint-staged": {
     "*.{ts,html}": [
-      "pnpm lint:copyright --fix"
+      "pnpm lint:copyright --fix",
+      "pnpm lint"
     ]
   },
   "engines": {
