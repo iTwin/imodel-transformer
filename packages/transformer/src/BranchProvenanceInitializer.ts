@@ -62,7 +62,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   const fedGuidLessElemsSql = "SELECT ECInstanceId as id FROM Bis.Element WHERE FederationGuid IS NULL";
   const reader = args.branch.createQueryReader(fedGuidLessElemsSql);
   while (await reader.step()) {
-    const id:string = reader.current.toRow().id;
+    const id: string = reader.current.toRow().id;
     IModelTransformer.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
