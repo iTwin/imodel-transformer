@@ -476,17 +476,17 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Iterate all matching ExternalSourceAspects in the provenance iModel (target unless reverse sync) and call a function for each one. */
   public static forEachTrackedElement(args: {
-    provenanceSource: IModelDb;
-    provenanceLinker: IModelDb;
+    provenanceSourceDb: IModelDb;
+    provenanceDb: IModelDb;
     targetScopeElementId: Id64String;
     isReverseSynchronization: boolean;
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
   }): void {
-    if (!args.provenanceLinker.containsClass(ExternalSourceAspect.classFullName)) {
+    if (!args.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
     const sql = `SELECT Identifier,Element.Id FROM ${ExternalSourceAspect.classFullName} WHERE Scope.Id=:scopeId AND Kind=:kind`;
-    args.provenanceLinker.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
+    args.provenanceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindId("scopeId", args.targetScopeElementId);
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -503,8 +503,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
     return IModelTransformer.forEachTrackedElement({
-      provenanceSource: this._options.isReverseSynchronization ? this.sourceDb : this.targetDb,
-      provenanceLinker: this.provenanceDb,
+      provenanceSourceDb: this._options.isReverseSynchronization ? this.sourceDb : this.targetDb,
+      provenanceDb: this.provenanceDb,
       targetScopeElementId: this.targetScopeElementId,
       isReverseSynchronization: !!this._options.isReverseSynchronization,
       fn,

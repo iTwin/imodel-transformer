@@ -5,7 +5,10 @@ import { Code } from "@itwin/core-common";
 import assert = require("assert");
 import { IModelTransformer } from "./IModelTransformer";
 
-interface ProvenanceInitArgs {
+/**
+ * @alpha
+ */
+export interface ProvenanceInitArgs {
   /** the master iModel which is the source of the provenance */
   master: IModelDb;
   /** the canonical url of the master iModel */
@@ -29,6 +32,9 @@ interface ProvenanceInitResult {
   targetScopeElementId: Id64String;
 }
 
+/**
+ * @alpha
+ */
 export async function initializeBranchProvenance(args: ProvenanceInitArgs): Promise<ProvenanceInitResult> {
   if (args.createFedGuidsForMaster) {
     // FIXME: elements in the cache could be wrong after this so need to purge cache somehow, maybe close the iModel
