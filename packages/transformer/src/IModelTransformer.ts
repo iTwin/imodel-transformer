@@ -1583,18 +1583,23 @@ export class IModelTransformer extends IModelExportHandler {
 
     nodeAssert(this._targetScopeProvenanceProps);
 
-    const newVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
+    const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
+
+    if (this._options.isReverseSynchronization || this._isFirstSynchronization) {
+      const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
+      this._targetScopeProvenanceProps.version = sourceVersion;
+      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion = targetVersion;
+    }
 
     if (this._options.isReverseSynchronization || this._isFirstSynchronization) {
       const oldVersion = this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
-      Logger.logInfo(loggerCategory, `updating reverse version from ${oldVersion} to ${newVersion}`);
-      // FIXME: could technically just put a delimiter in the version field to avoid using json properties
-      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion = newVersion;
+      Logger.logInfo(loggerCategory, `updating reverse version from ${oldVersion} to ${sourceVersion}`);
+      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion = sourceVersion;
     }
 
     if (!this._options.isReverseSynchronization || this._isFirstSynchronization) {
-      Logger.logInfo(loggerCategory, `updating sync version from ${this._targetScopeProvenanceProps.version} to ${newVersion}`);
-      this._targetScopeProvenanceProps.version = newVersion;
+      Logger.logInfo(loggerCategory, `updating sync version from ${this._targetScopeProvenanceProps.version} to ${sourceVersion}`);
+      this._targetScopeProvenanceProps.version = sourceVersion;
     }
 
     if (this._isSynchronization) {
