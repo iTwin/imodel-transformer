@@ -1585,19 +1585,15 @@ export class IModelTransformer extends IModelExportHandler {
 
     const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
 
-    if (this._options.isReverseSynchronization || this._isFirstSynchronization) {
+    if (this._isFirstSynchronization) {
       const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
       this._targetScopeProvenanceProps.version = sourceVersion;
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion = targetVersion;
-    }
-
-    if (this._options.isReverseSynchronization || this._isFirstSynchronization) {
+    } else if (this._options.isReverseSynchronization) {
       const oldVersion = this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
       Logger.logInfo(loggerCategory, `updating reverse version from ${oldVersion} to ${sourceVersion}`);
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion = sourceVersion;
-    }
-
-    if (!this._options.isReverseSynchronization || this._isFirstSynchronization) {
+    } else if (!this._options.isReverseSynchronization) {
       Logger.logInfo(loggerCategory, `updating sync version from ${this._targetScopeProvenanceProps.version} to ${sourceVersion}`);
       this._targetScopeProvenanceProps.version = sourceVersion;
     }

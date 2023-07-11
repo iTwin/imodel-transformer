@@ -946,23 +946,11 @@ describe("IModelTransformerHub", () => {
   });
 
   it.only("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
-    const timeline: Timeline = [
-      { master: { 1:1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1:2, 2:1 } },
-      { branch: { 3:3 } },
-      { master: { sync: ["branch"] } },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
-    await tearDown();
-
     const seedFileName = path.join(outputDir, `seed.bim`);
     if (IModelJsFs.existsSync(seedFileName))
       IModelJsFs.removeSync(seedFileName);
 
     const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: "TransformerSource" } });
-    assert.isTrue(IModelJsFs.existsSync(seedFileName));
     const subjectId1 = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
     const modelId1 = PhysicalModel.insert(seedDb, subjectId1, "PM1");
     const categoryId1 = SpatialCategory.insert(seedDb, IModel.dictionaryId, "C1", {});
@@ -1001,14 +989,15 @@ describe("IModelTransformerHub", () => {
       }
       sourceDb.performCheckpoint(); // so we can use as a seed
 
+      // forking target
       targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerTarget", description: "target", version0: sourceDb.pathName, noLocks: true });
       const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
 
-      // running forward synchronization
+      // fork provenance init
       let transformer = new IModelTransformer(sourceDb, targetDb, { wasSourceIModelCopiedToTarget: true });
       await transformer.processAll();
       targetDb.saveChanges();
-      await targetDb.pushChanges({description: "Initial transformation completed"});
+      await targetDb.pushChanges({description: "fork init"});
       transformer.dispose();
 
       // adding more changesets to target
@@ -1033,20 +1022,20 @@ describe("IModelTransformerHub", () => {
       await transformer.processChanges({accessToken});
       transformer.dispose();
 
-      expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(2);
-      expect(count(targetDb, PhysicalObject.classFullName)).to.equal(2);
+      expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(7);
+      expect(count(targetDb, PhysicalObject.classFullName)).to.equal(7);
 
-      expect(count(sourceDb, Subject.classFullName)).to.equal(2+1); // 2 inserted manually + root subject
-      expect(count(targetDb, Subject.classFullName)).to.equal(2+1); // 2 inserted manually + root subject
+      expect(count(sourceDb, Subject.classFullName)).to.equal(7+1); // 7 inserted manually + root subject
+      expect(count(targetDb, Subject.classFullName)).to.equal(7+1); // 7 inserted manually + root subject
 
-      expect(count(sourceDb, SpatialCategory.classFullName)).to.equal(2);
-      expect(count(targetDb, SpatialCategory.classFullName)).to.equal(2);
+      expect(count(sourceDb, SpatialCategory.classFullName)).to.equal(7);
+      expect(count(targetDb, SpatialCategory.classFullName)).to.equal(7);
 
-      expect(count(sourceDb, PhysicalModel.classFullName)).to.equal(2);
-      expect(count(targetDb, PhysicalModel.classFullName)).to.equal(2);
+      expect(count(sourceDb, PhysicalModel.classFullName)).to.equal(7);
+      expect(count(targetDb, PhysicalModel.classFullName)).to.equal(7);
 
-      expect(count(sourceDb, PhysicalPartition.classFullName)).to.equal(2);
-      expect(count(targetDb, PhysicalPartition.classFullName)).to.equal(2);
+      expect(count(sourceDb, PhysicalPartition.classFullName)).to.equal(7);
+      expect(count(targetDb, PhysicalPartition.classFullName)).to.equal(7);
 
       // close iModel briefcases
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
@@ -1064,7 +1053,6 @@ describe("IModelTransformerHub", () => {
       }
     }
   });
-
 
   it("should delete branch-deleted elements in reverse synchronization", async () => {
     const masterIModelName = "ReSyncDeleteMaster";
