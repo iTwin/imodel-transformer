@@ -84,3 +84,8 @@ if (process.env[noStrictDepCheckEnvVar] !== "1" && !semver.satisfies(iTwinCoreBa
  * @docs-group-description Logging
  * Logger categories used by this package.
  */
+/**
+ * @docs-group-description BigMap
+ * This class provides an interim solution to overcome V8 JavaScript engine's Map size limitation of about 16.7 million elements.
+ * It currently only supports Id64 string representations. We aim to eventually replace this patch with a temporary SQLite database.
+ */
