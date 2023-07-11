@@ -1,9 +1,13 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
 import { Code } from "@itwin/core-common";
-import { IModelTransformer } from "@itwin/imodel-transformer";
+import { IModelTransformer, initializeBranchProvenance } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
@@ -14,9 +18,7 @@ const outputDir = path.join(__dirname, ".output");
 export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void){
 
   // create a duplicate of master for branch
-  const branchPath = initOutputFile(`PrepareFork-branch.bim`, outputDir);
-  if (fs.existsSync(branchPath))
-    fs.unlinkSync(branchPath);
+  const branchPath = initOutputFile(`PrepareFork-${sourceDb.name}-target.bim`, outputDir);
   const filePath = sourceDb.pathName;
   fs.copyFileSync(filePath, branchPath);
   setToStandalone(branchPath);
@@ -42,6 +44,53 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
       entityProcessingTimer?.elapsedSeconds ?? -1,
     );
   }
+
+  const noTransformForkPath = initOutputFile(`NoTransform-${sourceDb.name}-target.bim`, outputDir);
+  fs.copyFileSync(filePath, noTransformForkPath);
+  setToStandalone(noTransformForkPath);
+  const noTransformForkDb = StandaloneDb.openFile(noTransformForkPath);
+
+  const [branchProvenanceInitTimer] = await timed(async () => {
+    await initializeBranchProvenance({
+      master: sourceDb,
+      branch: noTransformForkDb,
+    });
+  });
+
+  addReport(
+    "Init Fork no transform",
+    sourceDb.name,
+    "time elapsed (seconds)",
+    branchProvenanceInitTimer?.elapsedSeconds ?? -1,
+  );
+  noTransformForkDb.close();
+
+  const sourceCopy = initOutputFile(`RawFork-${sourceDb.name}-target.bim`, outputDir);
+  fs.copyFileSync(filePath, sourceCopy);
+  setToStandalone(sourceCopy);
+  const sourceCopyDb = StandaloneDb.openFile(sourceCopy);
+
+  const noTransformAddFedGuidsFork = initOutputFile(`NoTransform-AddFedGuidsFork-copy.bim`, outputDir);
+  fs.copyFileSync(filePath, noTransformAddFedGuidsFork);
+  setToStandalone(noTransformAddFedGuidsFork);
+  const noTransformAddFedGuidsForkDb = StandaloneDb.openFile(noTransformAddFedGuidsFork);
+
+  const [createFedGuidsForMasterTimer] = await timed(async () => {
+    await initializeBranchProvenance({
+      master: sourceCopyDb,
+      branch: noTransformAddFedGuidsForkDb,
+      createFedGuidsForMaster: true,
+    });
+  });
+
+  addReport(
+    "Init Fork raw createFedGuidsForMaster",
+    sourceDb.name,
+    "time elapsed (seconds)",
+    createFedGuidsForMasterTimer?.elapsedSeconds ?? -1,
+  );
+  noTransformAddFedGuidsForkDb.close();
+  sourceCopyDb.close();
 }
 
 async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb,) {

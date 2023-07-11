@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "add BranchProvenanceInitializer functions",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "'DanRod1999@users.noreply.github.com'",
+  "dependentChangeType": "patch"
+}
