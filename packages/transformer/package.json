@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "0.1.17-fedguidopt.3",
+  "version": "0.1.17-fedguidopt.4",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/transformer.js",
   "typings": "lib/cjs/transformer",
