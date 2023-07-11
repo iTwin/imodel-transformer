@@ -945,7 +945,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
+  it("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
     const seedFileName = path.join(outputDir, `seed.bim`);
     if (IModelJsFs.existsSync(seedFileName))
       IModelJsFs.removeSync(seedFileName);
@@ -974,12 +974,9 @@ describe("IModelTransformerHub", () => {
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
       // creating changesets for source
       for (let i = 0; i < 4; i++) {
-        const subjectId = Subject.insert(sourceDb, IModel.rootSubjectId, `S123 ${i}`);
-        const modelId = PhysicalModel.insert(sourceDb, subjectId, `PM123 ${i}`);
-        const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, `C123 ${i}`, {});
         const physicalElementProps: PhysicalElementProps = {
-          category: categoryId,
-          model: modelId,
+          category: categoryId1,
+          model: modelId1,
           classFullName: PhysicalObject.classFullName,
           code: Code.createEmpty(),
         };
@@ -1000,11 +997,12 @@ describe("IModelTransformerHub", () => {
       await targetDb.pushChanges({description: "fork init"});
       transformer.dispose();
 
+      const targetSubjectId = Subject.insert(targetDb, IModel.rootSubjectId, "S2");
+      const targetModelId = PhysicalModel.insert(targetDb, targetSubjectId, "PM2");
+      const targetCategoryId = SpatialCategory.insert(targetDb, IModel.dictionaryId, "C2", {});
+
       // adding more changesets to target
       for(let i = 0; i < 2; i++){
-        const targetSubjectId = Subject.insert(targetDb, IModel.rootSubjectId, `S2 ${i}`);
-        const targetModelId = PhysicalModel.insert(targetDb, targetSubjectId, `PM2 ${i}`);
-        const targetCategoryId = SpatialCategory.insert(targetDb, IModel.dictionaryId, `C2 ${i}`, {});
         const targetPhysicalElementProps: PhysicalElementProps = {
           category: targetCategoryId,
           model: targetModelId,
@@ -1025,17 +1023,17 @@ describe("IModelTransformerHub", () => {
       expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(7);
       expect(count(targetDb, PhysicalObject.classFullName)).to.equal(7);
 
-      expect(count(sourceDb, Subject.classFullName)).to.equal(7+1); // 7 inserted manually + root subject
-      expect(count(targetDb, Subject.classFullName)).to.equal(7+1); // 7 inserted manually + root subject
+      expect(count(sourceDb, Subject.classFullName)).to.equal(2+1); // 2 inserted manually + root subject
+      expect(count(targetDb, Subject.classFullName)).to.equal(2+1); // 2 inserted manually + root subject
 
-      expect(count(sourceDb, SpatialCategory.classFullName)).to.equal(7);
-      expect(count(targetDb, SpatialCategory.classFullName)).to.equal(7);
+      expect(count(sourceDb, SpatialCategory.classFullName)).to.equal(2);
+      expect(count(targetDb, SpatialCategory.classFullName)).to.equal(2);
 
-      expect(count(sourceDb, PhysicalModel.classFullName)).to.equal(7);
-      expect(count(targetDb, PhysicalModel.classFullName)).to.equal(7);
+      expect(count(sourceDb, PhysicalModel.classFullName)).to.equal(2);
+      expect(count(targetDb, PhysicalModel.classFullName)).to.equal(2);
 
-      expect(count(sourceDb, PhysicalPartition.classFullName)).to.equal(7);
-      expect(count(targetDb, PhysicalPartition.classFullName)).to.equal(7);
+      expect(count(sourceDb, PhysicalPartition.classFullName)).to.equal(2);
+      expect(count(targetDb, PhysicalPartition.classFullName)).to.equal(2);
 
       // close iModel briefcases
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
