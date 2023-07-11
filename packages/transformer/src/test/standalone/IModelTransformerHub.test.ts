@@ -946,6 +946,17 @@ describe("IModelTransformerHub", () => {
   });
 
   it.only("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
+    const timeline: Timeline = [
+      { master: { 1:1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1:2, 2:1 } },
+      { branch: { 3:3 } },
+      { master: { sync: ["branch"] } },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    await tearDown();
+
     const seedFileName = path.join(outputDir, `seed.bim`);
     if (IModelJsFs.existsSync(seedFileName))
       IModelJsFs.removeSync(seedFileName);
@@ -955,24 +966,26 @@ describe("IModelTransformerHub", () => {
     const subjectId1 = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
     const modelId1 = PhysicalModel.insert(seedDb, subjectId1, "PM1");
     const categoryId1 = SpatialCategory.insert(seedDb, IModel.dictionaryId, "C1", {});
-      const physicalElementProps1: PhysicalElementProps = {
-        category: categoryId1,
-        model: modelId1,
-        classFullName: PhysicalObject.classFullName,
-        code: Code.createEmpty(),
-      };
-      seedDb.elements.insertElement(physicalElementProps1);
-      seedDb.saveChanges();
+    const physicalElementProps1: PhysicalElementProps = {
+      category: categoryId1,
+      model: modelId1,
+      classFullName: PhysicalObject.classFullName,
+      code: Code.createEmpty(),
+    };
+    seedDb.elements.insertElement(physicalElementProps1);
+    seedDb.saveChanges();
     seedDb.close();
 
-    const sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerSource", description: "source", version0: seedFileName, noLocks: true });
-    const targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerTarget", description: "target", version0: seedFileName, noLocks: true });
+    let sourceIModelId: string | undefined;
+    let targetIModelId: string | undefined;
 
     try {
+      sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerSource", description: "source", version0: seedFileName, noLocks: true });
+
       // open/upgrade sourceDb
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
       // creating changesets for source
-      for(let i = 0; i < 4; i++){
+      for (let i = 0; i < 4; i++) {
         const subjectId = Subject.insert(sourceDb, IModel.rootSubjectId, `S123 ${i}`);
         const modelId = PhysicalModel.insert(sourceDb, subjectId, `PM123 ${i}`);
         const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, `C123 ${i}`, {});
@@ -986,23 +999,10 @@ describe("IModelTransformerHub", () => {
         sourceDb.saveChanges();
         await sourceDb.pushChanges({description: `Inserted ${i} PhysicalObject`});
       }
-      assert.isTrue(Guid.isGuid(targetIModelId));
+      sourceDb.performCheckpoint(); // so we can use as a seed
+
+      targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerTarget", description: "target", version0: sourceDb.pathName, noLocks: true });
       const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
-      // filling up target with the same elements but without having changesets
-      for(let i = 0; i < 4; i++){
-        const subjectId = Subject.insert(targetDb, IModel.rootSubjectId, `S123 ${i}`);
-        const modelId = PhysicalModel.insert(targetDb, subjectId, `PM123 ${i}`);
-        const categoryId = SpatialCategory.insert(targetDb, IModel.dictionaryId, `C123 ${i}`, {});
-        const physicalElementProps: PhysicalElementProps = {
-          category: categoryId,
-          model: modelId,
-          classFullName: PhysicalObject.classFullName,
-          code: Code.createEmpty(),
-        };
-        targetDb.elements.insertElement(physicalElementProps);
-        targetDb.saveChanges();
-      }
-      assert.isTrue(Guid.isGuid(targetIModelId));
 
       // running forward synchronization
       let transformer = new IModelTransformer(sourceDb, targetDb, { wasSourceIModelCopiedToTarget: true });
@@ -1054,8 +1054,10 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
-        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+        if (sourceIModelId)
+          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+        if (targetIModelId)
+          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
       } catch (err) {
         // eslint-disable-next-line no-console
         console.log("can't destroy", err);
