@@ -1262,7 +1262,7 @@ describe("IModelTransformerHub", () => {
 
     const master = trackedIModels.get("master")!;
     const branch = trackedIModels.get("branch")!;
-    const branchAt2Changeset = timelineStates.get(2)?.changesets.branch;
+    const branchAt2Changeset = timelineStates.get(1)?.changesets.branch;
     assert(branchAt2Changeset?.index);
     const branchAt2 = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: branch.id, asOf: { first: true } });
     await branchAt2.pullChanges({ toIndex: branchAt2Changeset.index, accessToken });
