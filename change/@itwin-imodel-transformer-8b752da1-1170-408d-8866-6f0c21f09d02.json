@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "Start using in BigMap instead of Map to overcome size limits",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "51540204+simsta6@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

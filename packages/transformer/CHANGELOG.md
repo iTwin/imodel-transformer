@@ -1,8 +1,21 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Mon, 26 Jun 2023 13:40:00 GMT and should not be manually modified.
+This log was last generated on Tue, 11 Jul 2023 18:59:25 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.3.0
+
+Tue, 11 Jul 2023 18:59:25 GMT
+
+### Minor changes
+
+- Add pending reference resolution when referenced element is not exported ([commit](https://github.com/iTwin/transformer/commit/c9e2ecdd80df3fd155111313f2abdc82963775fd))
+
+### Patches
+
+- Start using in BigMap instead of Map to overcome size limits ([commit](https://github.com/iTwin/transformer/commit/c9e2ecdd80df3fd155111313f2abdc82963775fd))
+- add BranchProvenanceInitializer functions ([commit](https://github.com/iTwin/transformer/commit/c9e2ecdd80df3fd155111313f2abdc82963775fd))
 
 ## 0.2.1
 

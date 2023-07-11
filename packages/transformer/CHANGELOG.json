@@ -2,6 +2,35 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Tue, 11 Jul 2023 18:59:25 GMT",
+      "tag": "@itwin/imodel-transformer_v0.3.0",
+      "version": "0.3.0",
+      "comments": {
+        "minor": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "c9e2ecdd80df3fd155111313f2abdc82963775fd",
+            "comment": "Add pending reference resolution when referenced element is not exported"
+          }
+        ],
+        "patch": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "c9e2ecdd80df3fd155111313f2abdc82963775fd",
+            "comment": "Start using in BigMap instead of Map to overcome size limits"
+          },
+          {
+            "author": "'DanRod1999@users.noreply.github.com'",
+            "package": "@itwin/imodel-transformer",
+            "commit": "c9e2ecdd80df3fd155111313f2abdc82963775fd",
+            "comment": "add BranchProvenanceInitializer functions"
+          }
+        ]
+      }
+    },
+    {
       "date": "Mon, 26 Jun 2023 13:40:00 GMT",
       "tag": "@itwin/imodel-transformer_v0.2.1",
       "version": "0.2.1",
