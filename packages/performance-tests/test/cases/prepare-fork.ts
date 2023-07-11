@@ -19,8 +19,6 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-${sourceDb.name}-target.bim`, outputDir);
-  if (fs.existsSync(branchPath))
-    fs.unlinkSync(branchPath);
   const filePath = sourceDb.pathName;
   fs.copyFileSync(filePath, branchPath);
   setToStandalone(branchPath);
@@ -48,8 +46,6 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
   }
 
   const noTransformForkPath = initOutputFile(`NoTransform-${sourceDb.name}-target.bim`, outputDir);
-  if (fs.existsSync(noTransformForkPath))
-    fs.unlinkSync(noTransformForkPath);
   fs.copyFileSync(filePath, noTransformForkPath);
   setToStandalone(noTransformForkPath);
   const noTransformForkDb = StandaloneDb.openFile(noTransformForkPath);
@@ -67,17 +63,14 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
     "time elapsed (seconds)",
     branchProvenanceInitTimer?.elapsedSeconds ?? -1,
   );
+  noTransformForkDb.close();
 
   const sourceCopy = initOutputFile(`RawFork-${sourceDb.name}-target.bim`, outputDir);
-  if (fs.existsSync(sourceCopy))
-    fs.unlinkSync(sourceCopy);
   fs.copyFileSync(filePath, sourceCopy);
   setToStandalone(sourceCopy);
   const sourceCopyDb = StandaloneDb.openFile(sourceCopy);
 
-  const noTransformAddFedGuidsFork = initOutputFile(`NoTransformAddFedGuidsFork-copy.bim`, outputDir);
-  if (fs.existsSync(noTransformAddFedGuidsFork))
-    fs.unlinkSync(noTransformAddFedGuidsFork);
+  const noTransformAddFedGuidsFork = initOutputFile(`NoTransform-AddFedGuidsFork-copy.bim`, outputDir);
   fs.copyFileSync(filePath, noTransformAddFedGuidsFork);
   setToStandalone(noTransformAddFedGuidsFork);
   const noTransformAddFedGuidsForkDb = StandaloneDb.openFile(noTransformAddFedGuidsFork);
@@ -96,6 +89,8 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
     "time elapsed (seconds)",
     createFedGuidsForMasterTimer?.elapsedSeconds ?? -1,
   );
+  noTransformAddFedGuidsForkDb.close();
+  sourceCopyDb.close();
 }
 
 async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb,) {
