@@ -3,7 +3,7 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 /** @packageDocumentation
- * @module BigMap
+ * @module Utils
  */
 import { Id64String } from "@itwin/core-bentley";
 
@@ -12,6 +12,7 @@ import { Id64String } from "@itwin/core-bentley";
  * which is limited to approximately 16.7 million elements. Currently, only Id64 string representations are
  * supported by this Map; any other type will lead to errors. It's worth noting that our future plan is to
  * replace this stopgap with a more robust solution, utilizing a temporary SQLite database (https://github.com/iTwin/imodel-transformer/issues/83).
+ * @internal
  */
 export class BigMap<V> extends Map<Id64String, V> {
     private _maps: Record<string, Map<string, V>>;
