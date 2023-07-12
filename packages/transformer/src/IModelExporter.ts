@@ -123,6 +123,8 @@ export abstract class IModelExportHandler {
 
   public preExportElementAspects(_elementId: Id64String): void {}
 
+  public shouldExportElementAspects(_elementId: Id64String): boolean { return true; }
+
   /** If `true` is returned, then the relationship will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
    */
@@ -662,7 +664,10 @@ export class IModelExporter {
       await this.handler.preExportElement(element);
       this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
-      await this.exportElementAspects(elementId);
+      if (this.handler.shouldExportElementAspects(elementId)) {
+        this.handler.preExportElementAspects(elementId);
+        await this.exportElementAspects(elementId);
+      }
       return this.exportChildElements(elementId);
     }
   }
@@ -733,13 +738,16 @@ export class IModelExporter {
       return;
     }
 
-    this._handler?.preExportElementAspects(elementId);
+    // this._handler?.preExportElementAspects(elementId);
     for (const [className, classId] of aspectClassNameIdMap){
       if(this._excludedElementAspectClassFullNames.has(className)){
         continue;
       }
       const sql = `SELECT * FROM ${className} WHERE Element.id=:elementId AND ECClassId=:classId`;
-      const queryReader = this.sourceDb.query(sql, new QueryBinder().bindId("elementId", elementId).bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames, includeMetaData: true });
+      const queryReader = this.sourceDb.query(sql, new QueryBinder().bindId("elementId", elementId).bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      // const queryReader22 = this.sourceDb.createQueryReader(sql, new QueryBinder().bindId("elementId", elementId).bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      // const metadata = await queryReader22.getMetaData();
+      // metadata;
       for await (const rawAspectProps of queryReader) {
         const aspectProps: ElementAspectProps = { ...rawAspectProps, classFullName: className }; // add in property required by EntityProps
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -763,6 +771,9 @@ export class IModelExporter {
     });
 
     for (const [className, classId] of aspectClassNameIdMap) {
+      if(this._excludedElementAspectClassFullNames.has(className))
+        continue;
+
       const sql2 = `SELECT * FROM ${className} WHERE ECClassId = :classId ORDER BY Element.Id`;
       const queryReader = this.sourceDb.query(sql2, new QueryBinder().bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
       for await (const rawAspectProps of queryReader) {
