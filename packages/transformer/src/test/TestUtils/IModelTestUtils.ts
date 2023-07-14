@@ -693,8 +693,8 @@ export class IModelTestUtils {
     });
   }
 
-  public static count(iModelDb: IModelDb, classFullName: string): number {
-    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}`, (statement: ECSqlStatement): number => {
+  public static count(iModelDb: IModelDb, classFullName: string, whereClause?: string): number {
+    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}${whereClause ? ` WHERE ${whereClause}` : ""}`, (statement: ECSqlStatement): number => {
       return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
     });
   }

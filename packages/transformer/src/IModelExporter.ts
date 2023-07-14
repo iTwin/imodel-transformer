@@ -104,6 +104,12 @@ export abstract class IModelExportHandler {
    */
   public async preExportElement(_element: Element): Promise<void> {}
 
+  /**
+   * Do any asynchronous actions before element deletions are handled.
+   * @internal
+   */
+  public async preDeleteElements(): Promise<void> {}
+
   /** Called when an element should be deleted. */
   public onDeleteElement(_elementId: Id64String): void { }
 
@@ -324,6 +330,7 @@ export class IModelExporter {
 
     // handle deletes
     if (this.visitElements) {
+      await this.handler.preDeleteElements();
       // must delete models first since they have a constraint on the submodeling element which may also be deleted
       for (const modelId of this._sourceDbChanges.model.deleteIds) {
         this.handler.onDeleteModel(modelId);

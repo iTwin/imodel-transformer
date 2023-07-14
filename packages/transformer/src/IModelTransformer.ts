@@ -9,7 +9,7 @@ import * as path from "path";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
-  AccessToken, assert, CompressedId64Set, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, IModelStatus, Logger, MarkRequired,
+  AccessToken, assert, CompressedId64Set, DbResult, Guid, GuidString, Id64, Id64Array, Id64Set, Id64String, IModelStatus, Logger, MarkRequired,
   OpenMode, YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
@@ -306,6 +306,11 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** a set of elements for which source provenance will be explicitly tracked by ExternalSourceAspects */
   protected _elementsWithExplicitlyTrackedProvenance = new Set<Id64String>();
+
+  /** a set of target element ids that were newly inserted during change processing workflow.
+   * This set will be initialized only after processing element inserts.
+   */
+  private _insertedTargetElementIds: Id64Set = new Set<Id64String> ();
 
   /** map of partially committed entities to their partial commit progress */
   protected _partiallyCommittedEntities = new EntityMap<PartiallyCommittedEntity>();
@@ -1464,12 +1469,21 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  /**
+   * Remember all target element ids that were newly inserted during current change processing.
+   */
+  public override async preDeleteElements(): Promise<void> {
+    this.exporter.sourceDbChanges?.element.insertIds.forEach((insertedSourceElementId) => this._insertedTargetElementIds.add(this.context.findTargetElementId(insertedSourceElementId)));
+  }
+
   /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteElement]($transformer).
    */
   public override onDeleteElement(sourceElementId: Id64String): void {
     const targetElementId: Id64String = this.context.findTargetElementId(sourceElementId);
-    if (Id64.isValidId64(targetElementId)) {
+    // An unnecessary delete will be triggered if a source element was deleted and then inserted with the same federation guid.
+    // In such case an element update will have already been triggered and a delete operation will not be necessary.
+    if (Id64.isValidId64(targetElementId) && !this._insertedTargetElementIds.has(targetElementId)) {
       this.importer.deleteElement(targetElementId);
     }
   }
@@ -1493,7 +1507,9 @@ export class IModelTransformer extends IModelExportHandler {
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceEntities]] will find and remap the deleted element making this operation valid
     const targetModelId: Id64String = this.context.findTargetElementId(sourceModelId);
-    if (Id64.isValidId64(targetModelId)) {
+    // An unnecessary delete will be triggered if a source element was deleted and then inserted with the same federation guid.
+    // In such case an element update will have already been triggered and a delete operation will not be necessary.
+    if (Id64.isValidId64(targetModelId) && !this._insertedTargetElementIds.has(targetModelId)) {
       this.importer.deleteModel(targetModelId);
     }
   }

@@ -9,12 +9,12 @@ import * as semver from "semver";
 import {
   BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
+  PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject, SubjectOwnsPartitionElements, SubjectOwnsSubjects,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -1343,7 +1343,118 @@ describe("IModelTransformerHub", () => {
         console.log("can't destroy", err);
       }
     }
-});
+  });
+
+  it("should preserve FederationGuid when element is recreated", async () => {
+    const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("Source");
+    const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(sourceIModelId));
+    const targetIModelName: string = IModelTransformerTestUtils.generateUniqueName("Fork");
+    const targetIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: targetIModelName, noLocks: true });
+    assert.isTrue(Guid.isGuid(targetIModelId));
+
+    try {
+    const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+    const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+
+    const constSubjectFedGuid = Guid.createValue();
+    const originalSubjectId = sourceDb.elements.insertElement({
+      classFullName: Subject.classFullName,
+      code: Code.createEmpty(),
+      model: IModel.repositoryModelId,
+      parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+      federationGuid: constSubjectFedGuid,
+      userLabel: "A",
+    });
+
+    const constPartitionFedGuid = Guid.createValue();
+    const originalPartitionId = sourceDb.elements.insertElement({
+      model: IModel.repositoryModelId,
+      code: PhysicalPartition.createCode(sourceDb, IModel.rootSubjectId, "original partition"),
+      classFullName: PhysicalPartition.classFullName,
+      federationGuid: constPartitionFedGuid,
+      parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+    });
+    const originalModelId = sourceDb.models.insertModel({
+      classFullName: PhysicalModel.classFullName,
+      modeledElement: {id: originalPartitionId},
+      isPrivate: true,
+    });
+
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "inserted elements & models" });
+
+    let transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.processAll();
+    transformer.dispose();
+    targetDb.saveChanges();
+    await targetDb.pushChanges({ description: "initial transformation" });
+
+    const originalTargetElement = targetDb.elements.getElement<Subject>({federationGuid: constSubjectFedGuid}, Subject);
+    expect(originalTargetElement?.userLabel).to.equal("A");
+    const originalTargetPartition = targetDb.elements.getElement<PhysicalPartition>({federationGuid: constPartitionFedGuid}, PhysicalPartition);
+    expect(originalTargetPartition.code.value).to.be.equal("original partition");
+    const originalTargetModel = targetDb.models.getModel<PhysicalModel>(originalTargetPartition.id, PhysicalModel);
+    expect(originalTargetModel.isPrivate).to.be.true;
+
+    sourceDb.elements.deleteElement(originalSubjectId);
+    sourceDb.elements.insertElement({
+      classFullName: Subject.classFullName,
+      code: Code.createEmpty(),
+      model: IModel.repositoryModelId,
+      parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+      federationGuid: constSubjectFedGuid,
+      userLabel: "B",
+    });
+
+    sourceDb.models.deleteModel(originalModelId);
+    sourceDb.elements.deleteElement(originalPartitionId);
+    const recreatedPartitionId = sourceDb.elements.insertElement({
+      model: IModel.repositoryModelId,
+      code: PhysicalPartition.createCode(sourceDb, IModel.rootSubjectId, "recreated partition"),
+      classFullName: PhysicalPartition.classFullName,
+      federationGuid: constPartitionFedGuid,
+      parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+    });
+    sourceDb.models.insertModel({
+      classFullName: PhysicalModel.classFullName,
+      modeledElement: {id: recreatedPartitionId},
+      isPrivate: false,
+    });
+
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "recreated elements & models" });
+
+    transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.processChanges({startChangeset: sourceDb.changeset});
+    targetDb.saveChanges();
+    await targetDb.pushChanges({ description: "change processing transformation" });
+
+    const targetElement = targetDb.elements.getElement<Subject>({federationGuid: constSubjectFedGuid}, Subject);
+    expect(targetElement?.userLabel).to.equal("B");
+    const targetPartition = targetDb.elements.getElement<PhysicalPartition>({federationGuid: constPartitionFedGuid}, PhysicalPartition);
+    expect(targetPartition.code.value).to.be.equal("recreated partition");
+    const targetModel = targetDb.models.getModel<PhysicalModel>(targetPartition.id, PhysicalModel);
+    expect(targetModel.isPrivate).to.be.false;
+
+    expect(count(sourceDb, Subject.classFullName, `Parent.Id = ${IModel.rootSubjectId}`)).to.equal(1);
+    expect(count(targetDb, Subject.classFullName, `Parent.Id = ${IModel.rootSubjectId}`)).to.equal(1);
+    expect(count(sourceDb, PhysicalPartition.classFullName)).to.equal(1);
+    expect(count(targetDb, PhysicalPartition.classFullName)).to.equal(1);
+    expect(count(sourceDb, PhysicalModel.classFullName)).to.equal(1);
+    expect(count(targetDb, PhysicalModel.classFullName)).to.equal(1);
+
+    } finally {
+      try {
+        // delete iModel briefcases
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
 
   // will fix in separate PR, tracked here: https://github.com/iTwin/imodel-transformer/issues/27
   it.skip("should delete definition elements when processing changes", async () => {
