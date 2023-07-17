@@ -14,7 +14,7 @@ import {
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {

@@ -773,8 +773,10 @@ export class IModelExporter {
     }
   }
 
+ // An unnecessary delete will be triggered if a source element was deleted and then inserted with the same federation guid.
+ // In such case an element update will have already been triggered and a delete operation will not be necessary.
   private handleEntityRecreations(): void {
-    const alreadyInsertedElementIds = new Set<Id64String> ();
+    const alreadyInsertedElementIds = new Set<Id64String>();
     this.sourceDbChanges?.element.insertIds.forEach((insertedSourceElementId) => {
       const targetElementId = this.handler.findTargetElementId(insertedSourceElementId);
       if (Id64.isValid(targetElementId))
@@ -788,10 +790,10 @@ export class IModelExporter {
     });
 
     this.sourceDbChanges?.model.deleteIds.forEach((deletedModelId) => {
-        const targetModelToDelete = this.handler.findTargetElementId(deletedModelId);
-        if (alreadyInsertedElementIds.has(targetModelToDelete))
-          this.sourceDbChanges?.model.deleteIds.delete(deletedModelId);
-      });
+      const targetModelToDelete = this.handler.findTargetElementId(deletedModelId);
+      if (alreadyInsertedElementIds.has(targetModelToDelete))
+        this.sourceDbChanges?.model.deleteIds.delete(deletedModelId);
+    });
   }
 
   /** Tracks incremental progress */
