@@ -104,11 +104,10 @@ export abstract class IModelExportHandler {
    */
   public async preExportElement(_element: Element): Promise<void> {}
 
-  /**
-   * Do any asynchronous actions before element deletions are handled.
-   * @internal
+  /** Look up a target ElementId from the source ElementId.
+   * @returns the target ElementId or [Id64.invalid]($bentley) if a mapping not found.
    */
-  public async preDeleteElements(): Promise<void> {}
+  public findTargetElementId(_sourceElementId: Id64String): Id64String { return Id64.invalid; }
 
   /** Called when an element should be deleted. */
   public onDeleteElement(_elementId: Id64String): void { }
@@ -321,6 +320,7 @@ export class IModelExporter {
         ? accessTokenOrOpts.changedInstanceIds
         : undefined)
       ?? await ChangedInstanceIds.initialize({ ...opts, iModel: this.sourceDb });
+    this.handleEntityRecreations();
 
     await this.exportCodeSpecs();
     await this.exportFonts();
@@ -330,7 +330,6 @@ export class IModelExporter {
 
     // handle deletes
     if (this.visitElements) {
-      await this.handler.preDeleteElements();
       // must delete models first since they have a constraint on the submodeling element which may also be deleted
       for (const modelId of this._sourceDbChanges.model.deleteIds) {
         this.handler.onDeleteModel(modelId);
@@ -772,6 +771,27 @@ export class IModelExporter {
       this.handler.onExportRelationship(relationship, isUpdate);
       await this.trackProgress();
     }
+  }
+
+  private handleEntityRecreations(): void {
+    const alreadyInsertedElementIds = new Set<Id64String> ();
+    this.sourceDbChanges?.element.insertIds.forEach((insertedSourceElementId) => {
+      const targetElementId = this.handler.findTargetElementId(insertedSourceElementId);
+      if (Id64.isValid(targetElementId))
+        alreadyInsertedElementIds.add(targetElementId);
+    });
+
+    this.sourceDbChanges?.element.deleteIds.forEach((deletedElementId) => {
+      const targetElementToDelete = this.handler.findTargetElementId(deletedElementId);
+      if (alreadyInsertedElementIds.has(targetElementToDelete))
+        this.sourceDbChanges?.element.deleteIds.delete(deletedElementId);
+    });
+
+    this.sourceDbChanges?.model.deleteIds.forEach((deletedModelId) => {
+        const targetModelToDelete = this.handler.findTargetElementId(deletedModelId);
+        if (alreadyInsertedElementIds.has(targetModelToDelete))
+          this.sourceDbChanges?.model.deleteIds.delete(deletedModelId);
+      });
   }
 
   /** Tracks incremental progress */
