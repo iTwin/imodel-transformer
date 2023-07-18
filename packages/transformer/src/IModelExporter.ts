@@ -89,6 +89,9 @@ export abstract class IModelExportHandler {
    */
   public shouldExportElement(_element: Element): boolean { return true; }
 
+  /** Called when element is skipped instead of exported. */
+  public onSkipElement(_elementId: Id64String): void { }
+
   /** Called when an element should be exported.
    * @param element The element to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
@@ -654,6 +657,8 @@ export class IModelExporter {
       await this.trackProgress();
       await this.exportElementAspects(elementId);
       return this.exportChildElements(elementId);
+    } else {
+      this.handler.onSkipElement(element.id);
     }
   }
 

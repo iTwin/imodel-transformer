@@ -1,14 +1,15 @@
 import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "./TestUtils";
-import { ElementGroupsMembers, IModelDb, IModelHost, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
+import { IModelDb, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import path from "path";
 import fs from "fs";
 import assert from "assert";
-import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { BriefcaseIdValue, ChangesetFileProps, Code } from "@itwin/core-common";
+import { ChangesetFileProps } from "@itwin/core-common";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { Guid, Logger, OpenMode } from "@itwin/core-bentley";
+import { Logger, OpenMode } from "@itwin/core-bentley";
+import { generateTestIModel } from "./iModelUtils";
+import { TestIModel } from "./TestContext";
 
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
@@ -19,57 +20,28 @@ const ELEM_COUNT = 100_000;
 assert(ELEM_COUNT % 2 === 0, "elem count must be divisible by 2");
 
 export default async function rawInserts(reporter: Reporter, branchName: string) {
-  const sourcePath = initOutputFile(`RawInserts-source.bim`, outputDir);
-  if (fs.existsSync(sourcePath))
-    fs.unlinkSync(sourcePath);
-
-  let sourceDb = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: "RawInsertsSource" }});
-  const pathName = sourceDb.pathName;
-  sourceDb.close();
-  setToStandalone(pathName);
-  sourceDb = StandaloneDb.openFile(sourcePath, OpenMode.ReadWrite);
 
   Logger.logInfo(loggerCategory, "starting 150k entity inserts");
 
+  let testIModel: TestIModel | undefined;
   const [insertsTimer] = timed(() => {
-    const physModelId = PhysicalModel.insert(sourceDb, IModelDb.rootSubjectId, "physical model");
-    const categoryId = SpatialCategory.insert(sourceDb, IModelDb.dictionaryId, "spatial category", {});
-
-    // 100,000 elements, 50,000  relationships
-    for (let i = 0; i < ELEM_COUNT / 2; ++i) {
-      const [id1, id2] = [0, 1].map((n) => new PhysicalObject({
-        classFullName: PhysicalObject.classFullName,
-        category: categoryId,
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(i, i, i)),
-        placement: {
-          origin: Point3d.create(i, i, i),
-          angles: YawPitchRollAngles.createDegrees(i, i, i),
-        },
-        model: physModelId,
-        code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: `${2*i + n}`}),
-        userLabel: `${2*i + n}`,
-      }, sourceDb).insert());
-
-      const rel = new ElementGroupsMembers({
-        classFullName: ElementGroupsMembers.classFullName,
-        sourceId: id1,
-        targetId: id2,
-        memberPriority: i,
-      }, sourceDb);
-
-      rel.insert();
-    }
+    testIModel = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`RawInserts-source.bim` });
   });
+
+  if (testIModel === undefined)
+    throw Error("Generated iModel not correctly defined"); // needed because TS does not know that timer will run before insertsTimer
+  const fileName = await testIModel.getFileName();
+  const sourceDb = StandaloneDb.openFile(fileName, OpenMode.ReadWrite);
 
   reporter.addEntry(
     "populate by insert",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -89,13 +61,13 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   reporter.addEntry(
     "populate by applying changeset",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     applyChangeSetTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -111,13 +83,13 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   reporter.addEntry(
     "populate by transform (adding provenance)",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -133,13 +105,13 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   reporter.addEntry(
     "populate by transform",
-    `${branchName}: ${iModelName}`,
+    iModelName,
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
-      elementCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
-      relationshipCount: IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
-      branchName,
+      "Element Count": IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
+      "Relationship Count": IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
+      "Branch Name": branchName,
     }
   );
 
@@ -161,19 +133,5 @@ function createChangeset(imodel: IModelDb): ChangesetFileProps {
 
   imodel.nativeDb.completeCreateChangeset({ index: 0 });
   return changeset as any; // FIXME: bad peer deps
-}
-
-// TODO: dedup with other packages
-// for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
-function setToStandalone(iModelPath: string) {
-  const nativeDb = new IModelHost.platform.DgnDb();
-  nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
-  nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-  nativeDb.saveChanges(); // save change to iTwinId
-  nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-  nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-  nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
-  nativeDb.saveChanges(); // save change to briefcaseId
-  nativeDb.closeIModel();
 }
 

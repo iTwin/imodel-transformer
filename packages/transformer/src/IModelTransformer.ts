@@ -30,7 +30,7 @@ import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporte
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
-import { EntityMap } from "./EntityMap";
+import { EntityKey, EntityMap } from "./EntityMap";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
@@ -99,7 +99,7 @@ export interface IModelTransformOptions {
   /** Flag that indicates whether or not the transformation process should clone using binary geometry.
    *
    * Prefer to never to set this flag. If you need geometry changes, instead override [[IModelTransformer.onTransformElement]]
-   * and provide an [ElementGeometryBuilderParams]($backend) to the `elementGeometryBuilderParams`
+   * and provide an [ElementGeometryBuilderParams]($common) to the `elementGeometryBuilderParams`
    * property of [ElementProps]($common) instead, it is much faster. You can read geometry during the transformation by setting the
    * [[IModelTransformOptions.loadSourceGeometry]] property to `true`, and passing that to a [GeometryStreamIterator]($common)
    * @note this flag will be deprecated when `elementGeometryBuilderParams` is no longer an alpha API
@@ -338,6 +338,11 @@ export class IModelTransformer extends IModelExportHandler {
     return [ExternalSourceAspect];
   }
 
+  /** Set of entity keys which were not exported and don't need to be tracked for pending reference resolution.
+   * @note Currently only tracks elements which were not exported.
+   */
+  protected _skippedEntities = new Set<EntityKey>();
+
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
    * @param target Specifies the target IModelImporter or the target IModelDb that will be used to construct the target IModelImporter.
@@ -425,24 +430,32 @@ export class IModelTransformer extends IModelExportHandler {
     return this._options.isReverseSynchronization ? this.sourceDb : this.targetDb;
   }
 
-  /** Return the IModelDb where IModelTransformer will NOT store its provenance.
+  /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
    * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
    */
   public get provenanceSourceDb(): IModelDb {
     return this._options.isReverseSynchronization ? this.targetDb : this.sourceDb;
   }
 
-  private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
-    // FIXME: deprecate isReverseSync option and instead detect from targetScopeElement provenance
-    const elementId = this._options.isReverseSynchronization ? sourceElementId : targetElementId;
-    const aspectIdentifier = this._options.isReverseSynchronization ? targetElementId : sourceElementId;
+  /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
+  public static initElementProvenanceOptions(
+    sourceElementId: Id64String,
+    targetElementId: Id64String,
+    args: {
+      sourceDb: IModelDb;
+      isReverseSynchronization: boolean;
+      targetScopeElementId: Id64String;
+    },
+  ): ExternalSourceAspectProps {
+    const elementId = args.isReverseSynchronization ? sourceElementId : targetElementId;
+    const aspectIdentifier = args.isReverseSynchronization ? targetElementId : sourceElementId;
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
-      scope: { id: this.targetScopeElementId },
+      scope: { id: args.targetScopeElementId },
       identifier: aspectIdentifier,
       kind: ExternalSourceAspect.Kind.Element,
-      version: this.sourceDb.elements.queryLastModifiedTime(sourceElementId),
+      version: args.sourceDb.elements.queryLastModifiedTime(sourceElementId),
     };
     return aspectProps;
   }
@@ -455,6 +468,20 @@ export class IModelTransformer extends IModelExportHandler {
    * This exists only to facilitate testing that the transformer can handle the older, flawed method
    */
   private _forceOldRelationshipProvenanceMethod = false;
+
+  /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
+  private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
+    return IModelTransformer.initElementProvenanceOptions(
+      sourceElementId,
+      targetElementId,
+      {
+        // FIXME: deprecate isReverseSync option and instead detect from targetScopeElement provenance
+        isReverseSynchronization: !!this._options.isReverseSynchronization,
+        targetScopeElementId: this.targetScopeElementId,
+        sourceDb: this.sourceDb,
+      },
+    );
+  }
 
   /** Create an ExternalSourceAspectProps in a standard way for a Relationship in an iModel --> iModel transformations.
    * The ExternalSourceAspect is meant to be owned by the Element in the target iModel that is the `sourceId` of transformed relationship.
@@ -631,18 +658,27 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Iterate all matching ExternalSourceAspects in the provenance iModel (target unless reverse sync) and call a function for each one.
+   * Iterate all matching federation guids and ExternalSourceAspects in the provenance iModel (target unless reverse sync)
+   * and call a function for each one.
    * @note provenance is done by federation guids where possible
    * @note this may execute on each element more than once! Only use in cases where that is handled
    */
-  private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
-    // FIXME: do we need an alternative for in-iModel transforms?
-    if (!this.context.isBetweenIModels)
+  public static forEachTrackedElement(args: {
+    provenanceSourceDb: IModelDb;
+    provenanceDb: IModelDb;
+    targetScopeElementId: Id64String;
+    isReverseSynchronization: boolean;
+    fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
+  }): void {
+    if (args.provenanceDb === args.provenanceSourceDb)
       return;
 
-    if (!this.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
+    if (!args.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
       throw new IModelError(IModelStatus.BadSchema, "The BisCore schema version of the target database is too old");
     }
+
+    const sourceDb = args.isReverseSynchronization ? args.provenanceDb : args.provenanceSourceDb;
+    const targetDb = args.isReverseSynchronization ? args.provenanceSourceDb : args.provenanceDb;
 
     // query for provenanceDb
     const elementIdByFedGuidQuery = `
@@ -656,7 +692,7 @@ export class IModelTransformer extends IModelExportHandler {
     // NOTE: if we exposed the native attach database support,
     // we could get the intersection of fed guids in one query, not sure if it would be faster
     // OR we could do a raw sqlite query...
-    this.sourceDb.withStatement(elementIdByFedGuidQuery, (sourceStmt) => this.targetDb.withStatement(elementIdByFedGuidQuery, (targetStmt) => {
+    sourceDb.withStatement(elementIdByFedGuidQuery, (sourceStmt) => targetDb.withStatement(elementIdByFedGuidQuery, (targetStmt) => {
       if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW)
         return;
       let sourceRow = sourceStmt.getRow() as { federationGuid?: GuidString, id: Id64String };
@@ -673,7 +709,7 @@ export class IModelTransformer extends IModelExportHandler {
           && currSourceRow.federationGuid === currTargetRow.federationGuid
         ) {
           // data flow direction is always sourceDb -> targetDb and it does not depend on where the explicit element provenance is stored
-          fn(sourceRow.id, targetRow.id);
+          args.fn(sourceRow.id, targetRow.id);
         }
         if (currTargetRow.federationGuid === undefined
           || (currSourceRow.federationGuid !== undefined
@@ -705,10 +741,10 @@ export class IModelTransformer extends IModelExportHandler {
     // Technically this will a second time call the function (as documented) on
     // victims of the old provenance method that have both fedguids and an inserted aspect.
     // But this is a private function with one known caller where that doesn't matter
-    this.provenanceDb.withPreparedStatement(provenanceAspectsQuery, (stmt): void => {
+    args.provenanceDb.withPreparedStatement(provenanceAspectsQuery, (stmt): void => {
       const runFnInDataFlowDirection = (sourceId: Id64String, targetId: Id64String) =>
-        this._options.isReverseSynchronization ? fn(sourceId, targetId) : fn(targetId, sourceId);
-      stmt.bindId("scopeId", this.targetScopeElementId);
+        args.isReverseSynchronization ? args.fn(sourceId, targetId) : args.fn(targetId, sourceId);
+      stmt.bindId("scopeId", args.targetScopeElementId);
       stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
         // ExternalSourceAspect.Identifier is of type string
@@ -716,6 +752,16 @@ export class IModelTransformer extends IModelExportHandler {
         const elementId: Id64String = stmt.getValue(1).getId();
         runFnInDataFlowDirection(elementId, aspectIdentifier);
       }
+    });
+  }
+
+  private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
+    return IModelTransformer.forEachTrackedElement({
+      provenanceSourceDb: this._options.isReverseSynchronization ? this.sourceDb : this.targetDb,
+      provenanceDb: this.provenanceDb,
+      targetScopeElementId: this.targetScopeElementId,
+      isReverseSynchronization: !!this._options.isReverseSynchronization,
+      fn,
     });
   }
 
@@ -1244,8 +1290,8 @@ export class IModelTransformer extends IModelExportHandler {
     for (const referenceId of entity.getReferenceConcreteIds()) {
       // TODO: probably need to rename from 'id' to 'ref' so these names aren't so ambiguous
       const referenceIdInTarget = this.context.findTargetEntityId(referenceId);
-      const alreadyImported = EntityReferences.isValid(referenceIdInTarget);
-      if (alreadyImported)
+      const alreadyProcessed = EntityReferences.isValid(referenceIdInTarget) || this._skippedEntities.has(referenceId);
+      if (alreadyProcessed)
         continue;
       Logger.logTrace(loggerCategory, `Deferring resolution of reference '${referenceId}' of element '${entity.id}'`);
       const referencedExistsInSource = EntityUnifier.exists(this.sourceDb, { entityReference: referenceId });
@@ -1303,6 +1349,27 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Reaching this point means that the element has passed the standard exclusion checks in IModelExporter.
    */
   public override shouldExportElement(_sourceElement: Element): boolean { return true; }
+
+  public override onSkipElement(sourceElementId: Id64String): void {
+    if (this.context.findTargetElementId(sourceElementId) !== Id64.invalid) {
+      // element already has provenance
+      return;
+    }
+
+    Logger.logInfo(loggerCategory, `Element '${sourceElementId}' won't be exported. Marking its references as resolved`);
+    const elementKey: EntityKey = `e${sourceElementId}`;
+    this._skippedEntities.add(elementKey);
+
+    // Mark any existing pending references to the skipped element as resolved.
+    for (const referencer of this._pendingReferences.getReferencersByEntityKey(elementKey)) {
+      const key = PendingReference.from(referencer, elementKey);
+      const pendingRef = this._pendingReferences.get(key);
+      if (!pendingRef)
+        continue;
+      pendingRef.resolveReference(elementKey);
+      this._pendingReferences.delete(key);
+    }
+  }
 
   /**
    * If they haven't been already, import all of the required references
@@ -2336,7 +2403,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async processChanges(options: ProcessChangesOptions): Promise<void>;
   /**
-   * @deprecated in 0.1.x.
+   * @deprecated in 0.1.x, use a single [[ProcessChangesOptions]] object instead
    * This overload follows the older behavior of defaulting an undefined startChangesetId to the
    * current changeset.
    */
