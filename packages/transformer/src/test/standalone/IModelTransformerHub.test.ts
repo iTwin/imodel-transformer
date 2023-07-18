@@ -8,17 +8,17 @@ import * as path from "path";
 import * as semver from "semver";
 import {
   BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
-  ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
+  ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, OrthographicViewDefinition, PhysicalModel,
   PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, ColorDef, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
-import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
+import { Point3d, Range3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
-  CountingIModelImporter, HubWrappers, IModelToTextFileExporter, IModelTransformerTestUtils, PhysicalModelConsolidator, TestIModelTransformer,
+  CountingIModelImporter, FilterByViewTransformer, HubWrappers, IModelToTextFileExporter, IModelTransformerTestUtils, PhysicalModelConsolidator, TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
 } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -1039,6 +1039,94 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
     } finally {
+      try {
+        // delete iModel briefcases
+        if (sourceIModelId)
+          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+        if (targetIModelId)
+          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
+  it.only("should successfully remove element in master iModel after reverse synchronization", async () => {
+    let sourceIModelId: string | undefined;
+    let targetIModelId: string | undefined;
+    try{
+      sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "Model_A", description: "source", noLocks: true });
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "Model_B", description: "target", noLocks: true });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+
+      const subjectId1 = Subject.insert(sourceDb, IModel.rootSubjectId, "S1234");
+      const modelId1 = PhysicalModel.insert(sourceDb, subjectId1, "PM1234");
+      const categoryId1 = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "C1234", {});
+      const elementToDeleteUserLabel = "elementOne";
+      const physicalElementProps1: PhysicalElementProps = {
+        category: categoryId1,
+        model: modelId1,
+        classFullName: PhysicalObject.classFullName,
+        code: Code.createEmpty(),
+        userLabel: elementToDeleteUserLabel,
+      };
+      const sourceElementOneId = sourceDb.elements.insertElement(physicalElementProps1);
+      const exportCategorySelectorId = CategorySelector.insert(sourceDb, IModel.dictionaryId, "Export", [categoryId1]);
+      const exportModelSelectorId = ModelSelector.insert(sourceDb, IModel.dictionaryId, "Export", [modelId1]);
+      const projectExtents = new Range3d();
+      const displayStyleId = DisplayStyle3d.insert(sourceDb, IModel.dictionaryId, "DisplayStyle");
+      const exportViewId = OrthographicViewDefinition.insert(
+        sourceDb,
+        IModel.dictionaryId,
+        "Export",
+        exportModelSelectorId,
+        exportCategorySelectorId,
+        displayStyleId,
+        projectExtents
+      );
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({description: "Initial changes"});
+
+      const filterByViewTransformer = new FilterByViewTransformer(sourceDb, targetDb, exportViewId);
+      await filterByViewTransformer.processAll();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({description: "FilterByView transformed"});
+      filterByViewTransformer.dispose();
+
+      expect(count(targetDb, Element.classFullName)).to.be.equal(count(sourceDb, Element.classFullName));
+
+      const targetElementOneId = targetDb.withPreparedStatement(
+        `SELECT ECInstanceId FROM ${Element.classFullName} WHERE UserLabel=?`,
+        (stmt) => {
+          stmt.bindString(1, elementToDeleteUserLabel);
+          stmt.step() === DbResult.BE_SQLITE_ROW;
+          return stmt.getValue(0).getId();
+        },
+      );
+      targetDb.elements.deleteElement(targetElementOneId);
+      targetDb.saveChanges();
+      await targetDb.pushChanges({description: "Removed elementOne from Model_B"});
+
+      const iModelTransformer = new IModelTransformer(targetDb, sourceDb, { isReverseSynchronization: true });
+
+      await iModelTransformer.processChanges({accessToken});
+      sourceDb.saveChanges();
+      targetDb.saveChanges();
+      iModelTransformer.dispose();
+
+      const sourceElementsCountAfterMerge = count(sourceDb, Element.classFullName);
+      const targetElementsCountAfterMerge = count(targetDb, Element.classFullName);
+
+      expect(targetDb.elements.tryGetElement(targetElementOneId)).to.be.undefined;
+      expect(sourceDb.elements.tryGetElement(sourceElementOneId)).to.be.undefined;
+      expect(sourceElementsCountAfterMerge).to.be.equal(targetElementsCountAfterMerge);
+
+      // close iModel briefcases
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    }finally{
       try {
         // delete iModel briefcases
         if (sourceIModelId)
