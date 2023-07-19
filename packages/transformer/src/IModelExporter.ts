@@ -643,10 +643,6 @@ export class IModelExporter {
       : this._sourceDbChanges?.element.updateIds.has(elementId) ? true
       : undefined;
 
-    if (this._sourceDbChanges?.element.updateIds.has(elementId) || this.sourceDbChanges?.element.insertIds.has(elementId)) { // is changeset information available?
-      return this.exportChildElements(elementId);
-    }
-
     const element = this.sourceDb.elements.getElement({ id: elementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
     Logger.logTrace(loggerCategory, `exportElement(${element.id}, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`);
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
