@@ -664,8 +664,6 @@ export class IModelExporter {
       return;
     }
 
-    console.log(this._sourceDbChanges);
-
     // are we processing changes?
     const isUpdate
       = this._sourceDbChanges?.element.insertIds.has(elementId) ? false
@@ -682,7 +680,7 @@ export class IModelExporter {
       await this.trackProgress();
       await this.exportElementAspects(elementId);
       // if we have change data, changed children are exported directly
-      if (this._sourceDbChanges !== undefined)
+      if (this._sourceDbChanges === undefined)
         await this.exportChildElements(elementId);
     } else {
       this.handler.onSkipElement(element.id);
