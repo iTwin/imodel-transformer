@@ -321,36 +321,9 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-
-    // handle element inserts/updates
-    if (this.visitElements) {
-      for (const insertedId of this._sourceDbChanges.element.insertIds) {
-        await this.exportElement(insertedId);
-      }
-      for (const updatedId of this._sourceDbChanges.element.updateIds) {
-        await this.exportElement(updatedId);
-      }
-    }
-
-    // handle relationships inserts/updates
-    if (this.visitRelationships) {
-      await this.exportRelationships(ElementRefersToElements.classFullName);
-      // FIXME: sourceDbChanges should contain the relationship classFullName itself
-      const getRelClassNameFromId = (id: Id64String) => this.sourceDb.withPreparedStatement(
-        "SELECT ECClassId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
-        (stmt) => {
-          stmt.bindId(1, id);
-          assert(stmt.step() === DbResult.BE_SQLITE_ROW);
-          return stmt.getValue(0).getClassNameForClassId();
-        }
-      );
-      for (const insertedId of this._sourceDbChanges.relationship.insertIds) {
-        await this.exportRelationship(getRelClassNameFromId(insertedId), insertedId);
-      }
-      for (const updatedId of this._sourceDbChanges.relationship.updateIds) {
-        await this.exportRelationship(getRelClassNameFromId(updatedId), updatedId);
-      }
-    }
+    await this.exportModelContents(IModel.repositoryModelId);
+    await this.exportSubModels(IModel.repositoryModelId);
+    await this.exportRelationships(ElementRefersToElements.classFullName);
 
     // handle deletes
     if (this.visitElements) {
@@ -670,18 +643,19 @@ export class IModelExporter {
       : this._sourceDbChanges?.element.updateIds.has(elementId) ? true
       : undefined;
 
+    if (this._sourceDbChanges?.element.updateIds.has(elementId) || this.sourceDbChanges?.element.insertIds.has(elementId)) { // is changeset information available?
+      return this.exportChildElements(elementId);
+    }
+
     const element = this.sourceDb.elements.getElement({ id: elementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
     Logger.logTrace(loggerCategory, `exportElement(${element.id}, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`);
-
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {
       await this.handler.preExportElement(element);
       this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this.exportElementAspects(elementId);
-      // if we have change data, changed children are exported directly
-      if (this._sourceDbChanges === undefined)
-        await this.exportChildElements(elementId);
+      return this.exportChildElements(elementId);
     } else {
       this.handler.onSkipElement(element.id);
     }
