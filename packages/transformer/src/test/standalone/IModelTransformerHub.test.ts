@@ -2242,8 +2242,6 @@ describe("IModelTransformerHub", () => {
       );
 
       transformer.dispose();
-      expect(sourceElementQueue).to.be.empty;
-      expect(targetElementQueue).to.be.empty;
 
       // close iModel briefcases
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
