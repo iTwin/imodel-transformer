@@ -3,6 +3,9 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
+// this API is deprecated so no point in maintaining the tests
+/* eslint-disable deprecation/deprecation */
+
 import { BriefcaseDb, Element, HubMock, IModelDb, IModelHost, IModelJsNative, Relationship, SnapshotDb, SQLiteDb } from "@itwin/core-backend";
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, GuidString, Id64, Id64String, StopWatch } from "@itwin/core-bentley";

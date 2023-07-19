@@ -2272,6 +2272,9 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
+   * @deprecated in 0.1.x, this is buggy, and it is now equivalently efficient to simply restart the transformation
+   * from the original changeset
+   *
    * Return a new transformer instance with the same remappings state as saved from a previous [[IModelTransformer.saveStateToFile]] call.
    * This allows you to "resume" an iModel transformation, you will have to call [[IModelTransformer.processChanges]]/[[IModelTransformer.processAll]]
    * again but the remapping state will cause already mapped elements to be skipped.
@@ -2369,6 +2372,9 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
+   * @deprecated in 0.1.x, this is buggy, and it is now equivalently efficient to simply restart the transformation
+   * from the original changeset
+   *
    * Save the state of the active transformation to a file path, if a file at the path already exists, it will be overwritten
    * This state can be used by [[IModelTransformer.resumeTransformation]] to resume a transformation from this point.
    * The serialization format is a custom sqlite database.
