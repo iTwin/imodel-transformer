@@ -757,7 +757,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   private forEachTrackedElement(fn: (sourceElementId: Id64String, targetElementId: Id64String) => void): void {
     return IModelTransformer.forEachTrackedElement({
-      provenanceSourceDb: this._options.isReverseSynchronization ? this.sourceDb : this.targetDb,
+      provenanceSourceDb: this.provenanceSourceDb,
       provenanceDb: this.provenanceDb,
       targetScopeElementId: this.targetScopeElementId,
       isReverseSynchronization: !!this._options.isReverseSynchronization,
