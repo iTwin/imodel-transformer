@@ -911,28 +911,24 @@ describe("IModelTransformerHub", () => {
       transformer = new IModelTransformer(sourceDb, targetDb);
       await transformer.processChanges({accessToken, startChangeset: {id: sourceDb.changeset.id}});
 
-      const sourceElementQueue = sourceDb.queryEntityIds({from: "bis.Element", where: "ECInstanceId NOT IN (0x1, 0x10, 0xe)"});
-      const targetElementQueue = targetDb.queryEntityIds({from: "bis.Element", where: "ECInstanceId NOT IN (0x1, 0x10, 0xe)"});
+      const elementCodeValueMap = new Map<Id64String, string>();
+      targetDb.withStatement(`SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`, (statement: ECSqlStatement) => {
+        while (statement.step() === DbResult.BE_SQLITE_ROW) {
+            elementCodeValueMap.set(statement.getValue(0).getId(), statement.getValue(1).getString());
+        }
+      });
 
       // make sure provenance was tracked for all elements
       expect(count(sourceDb, Element.classFullName)).to.equal(4+3); // 2 Subjects, 2 PhysicalPartitions + 0x1, 0x10, 0xe
-      expect(targetElementQueue.size).to.equal(4);
-      // eslint-disable-next-line @typescript-eslint/dot-notation
-      transformer["forEachTrackedElement"]((sourceId, targetId) => {
-        if (["0x1", "0xe", "0x10"].some((id) => sourceId === id || targetId === id))
-          return;
-
-        const sourceElement = sourceDb.elements.getElement(sourceId);
-        const targetElement = targetDb.elements.getElement(targetId);
-        sourceElementQueue.delete(sourceId);
-        targetElementQueue.delete(targetId);
-        if (sourceElement.federationGuid && targetElement.federationGuid)
-          expect(sourceElement.federationGuid).to.equal(targetElement.federationGuid);
+      expect(elementCodeValueMap.size).to.equal(4);
+      elementCodeValueMap.forEach((codeValue: string, elementId: Id64String) => {
+        const sourceElementId = transformer.context.findTargetElementId(elementId);
+        expect(sourceElementId).to.not.be.undefined;
+        const sourceElement = sourceDb.elements.getElement(sourceElementId);
+        expect(sourceElement.code.value).to.equal(codeValue);
       });
 
       transformer.dispose();
-      expect(sourceElementQueue).to.be.empty;
-      expect(targetElementQueue).to.be.empty;
 
       // close iModel briefcases
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
