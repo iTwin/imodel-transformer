@@ -876,7 +876,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("should correctly initialize provenance map for change processing", async () => {
+  it("should correctly initialize provenance map for change processing", async () => {
     const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("Source");
     const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
     assert.isTrue(Guid.isGuid(sourceIModelId));
