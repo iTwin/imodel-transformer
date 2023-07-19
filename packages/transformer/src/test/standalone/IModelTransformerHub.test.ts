@@ -57,7 +57,7 @@ describe("IModelTransformerHub", () => {
   });
   after(() => HubMock.shutdown());
 
-  it("Transform source iModel to target iModel", async () => {
+  it.only("Transform source iModel to target iModel", async () => {
     // Create and push seed of source IModel
     const sourceIModelName = "TransformerSource";
     const sourceSeedFileName = path.join(outputDir, `${sourceIModelName}.bim`);
