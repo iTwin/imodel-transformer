@@ -104,11 +104,6 @@ export abstract class IModelExportHandler {
    */
   public async preExportElement(_element: Element): Promise<void> {}
 
-  /** Look up a target ElementId from the source ElementId.
-   * @returns the target ElementId or [Id64.invalid]($bentley) if a mapping not found.
-   */
-  public findTargetElementId(_sourceElementId: Id64String): Id64String { return Id64.invalid; }
-
   /** Called when an element should be deleted. */
   public onDeleteElement(_elementId: Id64String): void { }
 
@@ -244,6 +239,26 @@ export class IModelExporter {
     this.sourceDb = sourceDb;
   }
 
+  /** state to prevent reinitialization of change data, @see [[initialize]] */
+  private _changeDataInitialized = false;
+
+  /**
+   * Initialize prerequisites of processing.
+   * If you wish to call [[exportChanges]] you must use identical [[ExportChangesOptions]] to the [[ExporterInitOptions.exportChangesOptions]] that you provided to [[initialize]] method.
+   * [[exportChanges]] will initialize the Exporter itself if it was not initialized prior to calling it so prefer using [[exportChanges]].
+   */
+  public async initialize(options: ExporterInitOptions): Promise<void> {
+    if (!this._changeDataInitialized && options?.exportChangesOptions && this.sourceDb.isBriefcaseDb()) {
+      await this.initializeChangeData({iModel: this.sourceDb, ...options.exportChangesOptions});
+      this._changeDataInitialized = true;
+    }
+  }
+
+  /** Initialize changeData that is needed to exportChanges */
+  private async initializeChangeData(args: ChangedInstanceIdsInitOptions): Promise<void> {
+    this._sourceDbChanges = await ChangedInstanceIds.initialize(args);
+  }
+
   /** Register the handler that will be called by IModelExporter. */
   public registerHandler(handler: IModelExportHandler): void {
     this._handler = handler;
@@ -284,6 +299,8 @@ export class IModelExporter {
    * @note [[exportSchemas]] must be called separately.
    */
   public async exportAll(): Promise<void> {
+    await this.initialize({});
+
     await this.exportCodeSpecs();
     await this.exportFonts();
     await this.exportModel(IModel.repositoryModelId);
@@ -307,20 +324,19 @@ export class IModelExporter {
       return;
     }
 
-    const opts: ExportChangesOptions
+    const initOpts: ExporterInitOptions
       = typeof accessTokenOrOpts === "object"
-        ? accessTokenOrOpts
+        ? { exportChangesOptions: accessTokenOrOpts }
         : {
-          accessToken: accessTokenOrOpts,
-          startChangeset: { id: startChangesetId },
+            exportChangesOptions: {
+              accessToken: accessTokenOrOpts,
+              startChangeset: { id: startChangesetId },
+            },
         };
 
-    this._sourceDbChanges =
-      (typeof accessTokenOrOpts === "object"
-        ? accessTokenOrOpts.changedInstanceIds
-        : undefined)
-      ?? await ChangedInstanceIds.initialize({ ...opts, iModel: this.sourceDb });
-    this.handleEntityRecreations();
+    await this.initialize(initOpts);
+    // _sourceDbChanges are initialized in this.initialize
+    nodeAssert(this._sourceDbChanges, "sourceDbChanges must be initialized.");
 
     await this.exportCodeSpecs();
     await this.exportFonts();
@@ -356,6 +372,9 @@ export class IModelExporter {
         this.handler.onDeleteRelationship(relInstanceId);
       }
     }
+
+    // Enable consecutive exportChanges runs without the need to re-instantiate the exporter.
+    this._changeDataInitialized = false;
   }
 
   /** Export schemas from the source iModel.
@@ -773,29 +792,6 @@ export class IModelExporter {
     }
   }
 
- // An unnecessary delete will be triggered if a source element was deleted and then inserted with the same federation guid.
- // In such case an element update will have already been triggered and a delete operation will not be necessary.
-  private handleEntityRecreations(): void {
-    const alreadyInsertedElementIds = new Set<Id64String>();
-    this.sourceDbChanges?.element.insertIds.forEach((insertedSourceElementId) => {
-      const targetElementId = this.handler.findTargetElementId(insertedSourceElementId);
-      if (Id64.isValid(targetElementId))
-        alreadyInsertedElementIds.add(targetElementId);
-    });
-
-    this.sourceDbChanges?.element.deleteIds.forEach((deletedElementId) => {
-      const targetElementToDelete = this.handler.findTargetElementId(deletedElementId);
-      if (alreadyInsertedElementIds.has(targetElementToDelete))
-        this.sourceDbChanges?.element.deleteIds.delete(deletedElementId);
-    });
-
-    this.sourceDbChanges?.model.deleteIds.forEach((deletedModelId) => {
-      const targetModelToDelete = this.handler.findTargetElementId(deletedModelId);
-      if (alreadyInsertedElementIds.has(targetModelToDelete))
-        this.sourceDbChanges?.model.deleteIds.delete(deletedModelId);
-    });
-  }
-
   /** Tracks incremental progress */
   private async trackProgress(): Promise<void> {
     this._progressCounter++;
@@ -897,6 +893,13 @@ export interface IModelExporterState {
  */
 export interface ChangedInstanceIdsInitOptions extends ExportChangesOptions {
   iModel: BriefcaseDb;
+}
+
+export interface ExporterInitOptions {
+    exportChangesOptions?: ExportChangesOptions;
+
+    // Nothing to initialize for full export logic
+    // exportOptions: ExportOptions;
 }
 
 /** Class for holding change information.
