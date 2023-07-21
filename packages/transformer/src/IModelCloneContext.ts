@@ -158,7 +158,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
           // return a null
           if (!EntityReferences.isValid(relInTarget.sourceId) || !EntityReferences.isValid(relInTarget.targetId))
             break;
-          const relInTargetId = this.sourceDb.withPreparedStatement(
+          const relInTargetId = this.targetDb.withPreparedStatement(
             `
             SELECT ECInstanceId
             FROM BisCore:ElementRefersToElements
@@ -167,8 +167,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
             `, (stmt) => {
               stmt.bindId(1, EntityReferences.toId64(relInTarget.sourceId));
               stmt.bindId(2, EntityReferences.toId64(relInTarget.targetId));
-              let status: DbResult;
-              if ((status = stmt.step()) === DbResult.BE_SQLITE_ROW)
+              const status: DbResult = stmt.step();
+              if (status === DbResult.BE_SQLITE_ROW)
                 return stmt.getValue(0).getId();
               if (status !== DbResult.BE_SQLITE_DONE)
                 throw new IModelError(status, "unexpected query failure");

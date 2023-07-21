@@ -18,7 +18,8 @@
     "version-bump": "beachball bump",
     "version-bump-dev": "beachball bump --config beachball.config.dev.js --keep-change-files",
     "publish-packages": "beachball publish",
-    "publish-packages-dev": "beachball publish --config beachball.config.dev.js --keep-change-files"
+    "publish-packages-dev": "beachball publish --config beachball.config.dev.js --keep-change-files",
+    "pre-commit": "lint-staged"
   },
   "license": "MIT",
   "devDependencies": {

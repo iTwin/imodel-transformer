@@ -3,11 +3,12 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { BriefcaseDb, BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
+import { BriefcaseManager, IModelHost, RequestNewBriefcaseArg } from "@itwin/core-backend";
 import { Logger } from "@itwin/core-bentley";
-import { BriefcaseIdValue, IModelVersion } from "@itwin/core-common";
+import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
 import { AccessTokenAdapter, BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import assert from "assert";
+import { generateTestIModel } from "./iModelUtils";
 
 const loggerCategory = "TestContext";
 
@@ -16,7 +17,7 @@ export interface TestIModel {
   iModelId: string;
   iTwinId: string;
   tShirtSize: string;
-  load: () => Promise<BriefcaseDb>;
+  getFileName(): Promise<string>;
 }
 
 const iTwinIdStr = process.env.ITWIN_IDS;
@@ -25,7 +26,7 @@ export const testITwinIds = iTwinIdStr.split(",");
 
 type TShirtSize = "s" | "m" | "l" | "xl" | "unknown";
 
-function getTShirtSizeFromName(name: string): TShirtSize {
+export function getTShirtSizeFromName(name: string): TShirtSize {
   return /^(?<size>s|m|l|xl)\s*-/i.exec(name)?.groups?.size?.toLowerCase() as TShirtSize ?? "unknown";
 }
 
@@ -49,16 +50,22 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
         iModelId,
         iTwinId,
         tShirtSize: getTShirtSizeFromName(iModel.displayName),
-        load: async () => downloadAndOpenBriefcase({ iModelId, iTwinId }),
+        async getFileName(): Promise<string> {
+          const _briefcase = await downloadBriefcase({ iModelId, iTwinId}); // note not downloadAndOpen
+          return _briefcase.fileName;
+        },
       };
-      if(filter(iModelToCheck)){
+      if (filter(iModelToCheck)){
         yield iModelToCheck;
       }
     }
   }
+
+  yield generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`testIModel-fedguids-true.bim` });
+  yield generateTestIModel({ numElements: 100_000, fedGuids: false, fileName:`testIModel-fedguids-false.bim` });
 }
 
-export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<BriefcaseDb> {
+export async function downloadBriefcase(briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">): Promise<LocalBriefcaseProps> {
   const PROGRESS_FREQ_MS = 2000;
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
@@ -84,8 +91,5 @@ export async function downloadAndOpenBriefcase(briefcaseArg: Omit<RequestNewBrie
     },
   }));
 
-  return BriefcaseDb.open({
-    fileName: briefcase.fileName,
-    readonly: briefcaseArg.briefcaseId ? briefcaseArg.briefcaseId === BriefcaseIdValue.Unassigned : false,
-  });
+  return briefcase;
 }

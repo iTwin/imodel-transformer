@@ -89,6 +89,9 @@ export abstract class IModelExportHandler {
    */
   public shouldExportElement(_element: Element): boolean { return true; }
 
+  /** Called when element is skipped instead of exported. */
+  public onSkipElement(_elementId: Id64String): void { }
+
   /** Called when an element should be exported.
    * @param element The element to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
@@ -658,19 +661,14 @@ export class IModelExporter {
       Logger.logTrace(loggerCategory, `visitElements=false, skipping exportElement(${elementId})`);
       return;
     }
-    let isUpdate: boolean | undefined;
-    if (undefined !== this._sourceDbChanges) { // is changeset information available?
-      if (this._sourceDbChanges.element.insertIds.has(elementId)) {
-        isUpdate = false;
-      } else if (this._sourceDbChanges.element.updateIds.has(elementId)) {
-        isUpdate = true;
-      } else {
-        // NOTE: This optimization assumes that the Element will change (LastMod) if an owned ElementAspect changes
-        // NOTE: However, child elements may have changed without the parent changing
-        return this.exportChildElements(elementId);
-      }
-    }
-    const element: Element = this.sourceDb.elements.getElement({ id: elementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
+
+    // are we processing changes?
+    const isUpdate
+      = this._sourceDbChanges?.element.insertIds.has(elementId) ? false
+      : this._sourceDbChanges?.element.updateIds.has(elementId) ? true
+      : undefined;
+
+    const element = this.sourceDb.elements.getElement({ id: elementId, wantGeometry: this.wantGeometry, wantBRepData: this.wantGeometry });
     Logger.logTrace(loggerCategory, `exportElement(${element.id}, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`);
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {
@@ -679,6 +677,8 @@ export class IModelExporter {
       await this.trackProgress();
       await this.exportElementAspects(elementId);
       return this.exportChildElements(elementId);
+    } else {
+      this.handler.onSkipElement(element.id);
     }
   }
 

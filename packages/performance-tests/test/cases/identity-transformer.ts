@@ -9,24 +9,18 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { Element, Relationship, SnapshotDb } from "@itwin/core-backend";
+import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-backend";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { TestIModel } from "../TestContext";
-import { Reporter } from "@itwin/perf-tools";
 import { initOutputFile, timed } from "../TestUtils";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(iModel: TestIModel, reporter: Reporter, branchName: string) {
-  Logger.logInfo(loggerCategory, `processing iModel '${iModel.name}' of size '${iModel.tShirtSize.toUpperCase()}'`);
-  const sourceDb = await iModel.load();
-  const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
-  const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
-  Logger.logInfo(loggerCategory, `loaded (${sizeInGb})'`);
-  const targetPath = initOutputFile(`${iModel.iTwinId}-${iModel.name}-target.bim`, outputDir);
-  const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: iModel.name}});
+export default async function identityTransformer(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void) {
+
+  const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
+  const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
   class ProgressTransformer extends IModelTransformer {
     private _count = 0;
     private _increment() {
@@ -61,24 +55,13 @@ export default async function identityTransformer(iModel: TestIModel, reporter: 
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
   } finally {
-    const record = {
-      /* eslint-disable @typescript-eslint/naming-convention */
-      "Id": iModel.iModelId,
-      "T-shirt size": iModel.tShirtSize,
-      "Gb size": sizeInGb,
-      "Branch Name": branchName,
-      /* eslint-enable @typescript-eslint/naming-convention */
-    };
-    reporter.addEntry(
+    addReport(
       "identity transform (provenance)",
-      `${branchName}: ${iModel.name}`,
+      sourceDb.name,
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
-      record
     );
     targetDb.close();
-    sourceDb.close();
     transformer.dispose();
   }
-  return reporter;
 }

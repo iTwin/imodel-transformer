@@ -65,4 +65,18 @@ stages:
     - template: common/config/azure-pipelines/jobs/docs-build.yaml@itwinjs-core
       parameters:
         checkout: itwinjs-core
-        useCurrentPresentationDocsArtifact: true
+        useCurrentTransformerDocsArtifact: true
+
+  - stage: Tag_Docs
+    dependsOn: Validate_Docs
+    condition: and(succeeded(), in(variables['Build.Reason'], 'IndividualCI', 'Manual'))
+    jobs:
+      - job:
+        displayName: Tag Docs
+        steps:
+          - task: tagBuildOrRelease@0
+            displayName: Tag Docs
+            inputs:
+              type: "Build"
+              tags: "hasDocs"
+            condition: contains(variables['Build.SourceVersionMessage'], '[publish docs]')
