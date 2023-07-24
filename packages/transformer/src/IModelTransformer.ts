@@ -3325,6 +3325,23 @@ export class IModelTransformer extends IModelExportHandler {
     };
   }
 
+  /** Changeset data must be initialized in order to build correct changeOptions.
+   * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
+   */
+  private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
+    if (!this._isSynchronization)
+      return {};
+
+    return {
+      accessToken: opts.accessToken,
+      ...this._changesetRanges
+        ? { changesetRanges: this._changesetRanges }
+        : opts.startChangeset
+        ? { startChangeset: opts.startChangeset }
+        : { startChangeset: { index: this._synchronizationVersion.index + 1 } },
+    };
+  }
+
   /** Combine an array of source elements into a single target element.
    * All source and target elements must be created before calling this method.
    * The "combine" operation is a remap and no properties from the source elements will be exported into the target
