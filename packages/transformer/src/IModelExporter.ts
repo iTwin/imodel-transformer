@@ -49,7 +49,8 @@ export interface ExportChangesOptions extends InitOptions {
 }
 
 /**
- * Arguments for [[IModelExporter.initialize]], necessary
+ * Arguments for [[IModelExporter.initialize]], usually in case you want to query changedata early
+ * such as in the transformer's case
  * @beta
  */
 export type ExporterInitOptions = ExportChangesOptions;
@@ -260,12 +261,8 @@ export class IModelExporter {
     if (this._sourceDbChanges || !this.sourceDb.isBriefcaseDb() || !hasChangeData)
       return;
 
-    await this.initializeChangeData({ iModel: this.sourceDb, ...options });
-  }
-
-  /** Initialize changeData that is needed for exportChanges */
-  private async initializeChangeData(args: ChangedInstanceIdsInitOptions): Promise<void> {
-    this._sourceDbChanges = await ChangedInstanceIds.initialize(args);
+    this._sourceDbChanges = options.changedInstanceIds
+      ?? await ChangedInstanceIds.initialize({ iModel: this.sourceDb, ...options });
   }
 
   /** Register the handler that will be called by IModelExporter. */
