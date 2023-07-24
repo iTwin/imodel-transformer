@@ -1408,7 +1408,6 @@ export class ClassCounter extends IModelExportHandler {
  */
 export function copyDbPreserveId(sourceDb: IModelDb, pathForCopy: string) {
   const copy = SnapshotDb.createFrom(sourceDb, pathForCopy);
-  // eslint-disable-next-line @typescript-eslint/dot-notation
   copy["_iModelId"] = sourceDb.iModelId;
   return copy;
 }

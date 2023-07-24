@@ -39,7 +39,6 @@ export class IModelCloneContext extends IModelElementCloneContext {
    * @internal
    */
   public override cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
-    // eslint-disable-next-line @typescript-eslint/dot-notation
     const targetElementProps: ElementProps = this["_nativeContext"].cloneElement(sourceElement.id, cloneOptions);
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
     sourceElement.forEachProperty((propertyName: string, meta: PropertyMetaData) => {
@@ -61,7 +60,6 @@ export class IModelCloneContext extends IModelElementCloneContext {
       targetElementProps.code = Code.createEmpty();
     }
     const jsClass = this.sourceDb.getJsClass<typeof Element>(sourceElement.classFullName);
-    // eslint-disable-next-line @typescript-eslint/dot-notation
     jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
     return targetElementProps;
   }

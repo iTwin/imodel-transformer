@@ -19,6 +19,10 @@ module.exports = {
       },
     ],
     "@typescript-eslint/indent": ["off"],
+    "@typescript-eslint/dot-notation": ["error", {
+      allowProtectedClassPropertyAccess: true,
+      allowPrivateClassPropertyAccess: true,
+    }],
   },
   "parserOptions": {
     "project": "./tsconfig.json"

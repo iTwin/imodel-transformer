@@ -26,7 +26,7 @@ import {
   ExternalSourceAspectProps, FontProps, GeometricElementProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
-import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
+import { ExportChangesOptions, ExporterInitOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
@@ -796,6 +796,19 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
     nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
 
+    const alreadyImportedElementInserts = new Set<Id64String> ();
+    const alreadyImportedModelInserts = new Set<Id64String> ();
+    this.exporter.sourceDbChanges?.element.insertIds.forEach((insertedSourceElementId) => {
+      const targetElementId = this.context.findTargetElementId(insertedSourceElementId);
+      if (Id64.isValid(targetElementId))
+        alreadyImportedElementInserts.add(targetElementId);
+    });
+    this.exporter.sourceDbChanges?.model.insertIds.forEach((insertedSourceModelId) => {
+      const targetModelId = this.context.findTargetElementId(insertedSourceModelId);
+      if (Id64.isValid(targetModelId))
+        alreadyImportedModelInserts.add(targetModelId);
+    });
+
     // optimization: if we have provenance, use it to avoid more querying later
     // eventually when itwin.js supports attaching a second iModelDb in JS,
     // this won't have to be a conditional part of the query, and we can always have it by attaching
@@ -925,6 +938,14 @@ export class IModelTransformer extends IModelExportHandler {
               continue;
 
             this.context.remapElement(instId, targetId);
+            // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
+            // In such case an entity update will be triggered and we no longer need to delete the entity.
+            if (alreadyImportedElementInserts.has(targetId)) {
+              this.exporter.sourceDbChanges?.element.deleteIds.delete(instId);
+            }
+            if (alreadyImportedModelInserts.has(targetId)) {
+              this.exporter.sourceDbChanges?.model.deleteIds.delete(instId);
+            }
 
           } else { // is deleted relationship
             const classFullName = stmt.getValue(6).getClassNameForClassId();
@@ -2047,6 +2068,10 @@ export class IModelTransformer extends IModelExportHandler {
 
     await this.context.initialize();
     await this._tryInitChangesetData(args);
+
+    await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
+
+    // Exporter must be initialized prior to `initFromExternalSourceAspects` in order to handle entity recreations.
     // eslint-disable-next-line deprecation/deprecation
     await this.initFromExternalSourceAspects(args);
 
@@ -2431,14 +2456,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.initScopeProvenance();
     await this.initialize(args);
     // must wait for initialization of synchronization provenance data
-    const changeArgs =
-      this._changesetRanges
-      ? { changesetRanges: this._changesetRanges }
-      : args.startChangeset
-      ? { startChangeset: args.startChangeset }
-      : { startChangeset: { index: this._synchronizationVersion.index + 1 } };
-
-    await this.exporter.exportChanges({ accessToken: args.accessToken, ...changeArgs });
+    await this.exporter.exportChanges(this.getExportInitOpts(args));
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)
@@ -2446,6 +2464,23 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.importer.computeProjectExtents();
     this.finalizeTransformation();
+  }
+
+  /** Changeset data must be initialized in order to build correct changeOptions.
+   * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
+   */
+  private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
+    if (!this._isSynchronization)
+      return {};
+
+    return {
+      accessToken: opts.accessToken,
+      ...this._changesetRanges
+        ? { changesetRanges: this._changesetRanges }
+        : opts.startChangeset
+        ? { startChangeset: opts.startChangeset }
+        : { startChangeset: { index: this._synchronizationVersion.index + 1 } },
+    };
   }
 
   /** Combine an array of source elements into a single target element.
