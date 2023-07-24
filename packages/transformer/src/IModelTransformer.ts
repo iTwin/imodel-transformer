@@ -2069,7 +2069,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.context.initialize();
     await this._tryInitChangesetData(args);
 
-    await this.exporter.initialize(this.getExportChangesOptions(args?.accessToken, args?.startChangeset?.id));
+    await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
 
     // Exporter must be initialized prior to `initFromExternalSourceAspects` in order to handle entity recreations.
     // eslint-disable-next-line deprecation/deprecation
@@ -2456,7 +2456,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.initScopeProvenance();
     await this.initialize(args);
     // must wait for initialization of synchronization provenance data
-    await this.exporter.exportChanges(this.getExportChangesOptions(args.accessToken, startChangesetId));
+    await this.exporter.exportChanges(this.getExportInitOpts(args));
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)
@@ -2469,18 +2469,17 @@ export class IModelTransformer extends IModelExportHandler {
   /** Changeset data must be initialized in order to build correct changeOptions.
    * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
    */
-  private getExportChangesOptions(accessToken?: AccessToken, startChangesetId?: string): ExportChangesOptions {
+  private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
     if (!this._isSynchronization)
       return {};
 
     return {
-      accessToken,
+      accessToken: opts.accessToken,
       ...this._changesetRanges
         ? { changesetRanges: this._changesetRanges }
-        : { startChangeset: startChangesetId
-            ? { id: startChangesetId }
-            : { index: this._synchronizationVersion.index + 1 },
-        },
+        : opts.startChangeset
+        ? { startChangeset: opts.startChangeset }
+        : { startChangeset: { index: this._synchronizationVersion.index + 1 } },
     };
   }
 
