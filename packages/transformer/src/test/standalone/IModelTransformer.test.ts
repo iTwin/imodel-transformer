@@ -2425,7 +2425,6 @@ describe("IModelTransformer", () => {
       public override async exportSchemas(): Promise<void> {
         await super.exportSchemas();
         assert(exportedSchemaPaths.length === 4);
-        // eslint-disable-next-line @typescript-eslint/dot-notation
         const reffingSchemaFile = path.join(transformer["_schemaExportDir"], `${reffingSchemaName}.ecschema.xml`);
         assert(exportedSchemaPaths.includes(reffingSchemaFile), `Expected ${reffingSchemaFile} in ${exportedSchemaPaths}`);
         // make sure the referencing schema is first, so it is imported first, and the schema locator is forced

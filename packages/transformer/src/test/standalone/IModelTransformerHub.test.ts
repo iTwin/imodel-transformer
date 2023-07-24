@@ -104,6 +104,7 @@ describe("IModelTransformerHub", () => {
         const sourceExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerSource-ExportChanges-1.txt");
         assert.isFalse(IModelJsFs.existsSync(sourceExportFileName));
         const sourceExporter = new IModelToTextFileExporter(sourceDb, sourceExportFileName);
+        sourceExporter.exporter["_resetChangeDataOnExport"] = false;
         await sourceExporter.exportChanges(accessToken);
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges = (sourceExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
@@ -138,6 +139,7 @@ describe("IModelTransformerHub", () => {
         const targetExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerTarget-ExportChanges-1.txt");
         assert.isFalse(IModelJsFs.existsSync(targetExportFileName));
         const targetExporter = new IModelToTextFileExporter(targetDb, targetExportFileName);
+        targetExporter.exporter["_resetChangeDataOnExport"] = false;
         await targetExporter.exportChanges(accessToken);
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
@@ -196,6 +198,7 @@ describe("IModelTransformerHub", () => {
         const sourceExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerSource-ExportChanges-2.txt");
         assert.isFalse(IModelJsFs.existsSync(sourceExportFileName));
         const sourceExporter = new IModelToTextFileExporter(sourceDb, sourceExportFileName);
+        sourceExporter.exporter["_resetChangeDataOnExport"] = false;
         await sourceExporter.exportChanges(accessToken);
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges: any = (sourceExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
@@ -231,6 +234,7 @@ describe("IModelTransformerHub", () => {
         const targetExportFileName: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "TransformerTarget-ExportChanges-2.txt");
         assert.isFalse(IModelJsFs.existsSync(targetExportFileName));
         const targetExporter = new IModelToTextFileExporter(targetDb, targetExportFileName);
+        targetExporter.exporter["_resetChangeDataOnExport"] = false;
         await targetExporter.exportChanges(accessToken);
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes

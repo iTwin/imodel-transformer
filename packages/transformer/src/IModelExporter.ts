@@ -343,11 +343,6 @@ export class IModelExporter {
           startChangeset: { id: startChangesetId },
         };
 
-    // Enable consecutive exportChanges runs without the need to re-instantiate the exporter.
-    // You can counteract the obvious impact of losing this expensive data by always calling
-    // exportChanges with the [[ExportChangesOptions.changedInstanceIds]] option set to
-    // whatever you want
-    (this._sourceDbChanges as any) = undefined; // FIXME: typescript doesn't seem to understand the type after this so casting
     await this.initialize(initOpts);
     // _sourceDbChanges are (re-)initialized in this.initialize
     nodeAssert(this._sourceDbChanges !== undefined, "sourceDbChanges must be initialized.");
@@ -386,7 +381,16 @@ export class IModelExporter {
         this.handler.onDeleteRelationship(relInstanceId);
       }
     }
+
+    // Enable consecutive exportChanges runs without the need to re-instantiate the exporter.
+    // You can counteract the obvious impact of losing this expensive data by always calling
+    // exportChanges with the [[ExportChangesOptions.changedInstanceIds]] option set to
+    // whatever you want
+    if (this._resetChangeDataOnExport)
+      this._sourceDbChanges = undefined;
   }
+
+  private _resetChangeDataOnExport = true;
 
   /** Export schemas from the source iModel.
    * @note This must be called separately from [[exportAll]] or [[exportChanges]].
