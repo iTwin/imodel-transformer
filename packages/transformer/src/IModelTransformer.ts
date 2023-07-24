@@ -2069,10 +2069,8 @@ export class IModelTransformer extends IModelExportHandler {
     await this.context.initialize();
     await this._tryInitChangesetData(args);
 
-    const exporterInitOptions: ExporterInitOptions = {};
-    if (this._isSynchronization)
-      exporterInitOptions.exportChangesOptions = this.getExportChangesOptions(args?.accessToken, args?.startChangeset?.id);
-    await this.exporter.initialize(exporterInitOptions);
+    await this.exporter.initialize(this.getExportChangesOptions(args?.accessToken, args?.startChangeset?.id));
+
     // Exporter must be initialized prior to `initFromExternalSourceAspects` in order to handle entity recreations.
     // eslint-disable-next-line deprecation/deprecation
     await this.initFromExternalSourceAspects(args);
@@ -2468,15 +2466,22 @@ export class IModelTransformer extends IModelExportHandler {
     this.finalizeTransformation();
   }
 
-  /** Changeset data must be initialized in order to build correct changeOptions. Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data */
+  /** Changeset data must be initialized in order to build correct changeOptions.
+   * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
+   */
   private getExportChangesOptions(accessToken?: AccessToken, startChangesetId?: string): ExportChangesOptions {
-    const changeOptions: ExportChangesOptions = {
+    if (!this._isSynchronization)
+      return {};
+
+    return {
       accessToken,
-      changesetRanges: this._changesetRanges,
+      ...this._changesetRanges
+        ? { changesetRanges: this._changesetRanges }
+        : { startChangeset: startChangesetId
+            ? { id: startChangesetId }
+            : { index: this._synchronizationVersion.index + 1 },
+        },
     };
-    if (!changeOptions.changesetRanges)
-      changeOptions.startChangeset = startChangesetId ? { id: startChangesetId } : {index: this._synchronizationVersion.index + 1};
-    return changeOptions;
   }
 
   /** Combine an array of source elements into a single target element.

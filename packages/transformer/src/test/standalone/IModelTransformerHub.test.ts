@@ -106,7 +106,7 @@ describe("IModelTransformerHub", () => {
         const sourceExporter = new IModelToTextFileExporter(sourceDb, sourceExportFileName);
         await sourceExporter.exportChanges(accessToken);
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
-        const sourceDbChanges: any = (sourceExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
+        const sourceDbChanges = (sourceExporter.exporter as any)._sourceDbChanges; // access private member for testing purposes
         assert.exists(sourceDbChanges);
         // expect inserts and 1 update from populateSourceDb
         assert.isAtLeast(sourceDbChanges.codeSpec.insertIds.size, 1);
