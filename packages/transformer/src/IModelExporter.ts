@@ -344,7 +344,7 @@ export class IModelExporter {
         };
 
     await this.initialize(initOpts);
-    // _sourceDbChanges are (re-)initialized in this.initialize
+    // _sourceDbChanges are initialized in this.initialize
     nodeAssert(this._sourceDbChanges !== undefined, "sourceDbChanges must be initialized.");
 
     await this.exportCodeSpecs();
