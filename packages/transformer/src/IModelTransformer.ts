@@ -943,7 +943,7 @@ export class IModelTransformer extends IModelExportHandler {
             if (alreadyImportedElementInserts.has(targetId)) {
               this.exporter.sourceDbChanges?.element.deleteIds.delete(instId);
             }
-            if(alreadyImportedModelInserts.has(targetId)) {
+            if (alreadyImportedModelInserts.has(targetId)) {
               this.exporter.sourceDbChanges?.model.deleteIds.delete(instId);
             }
 
