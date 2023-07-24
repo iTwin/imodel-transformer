@@ -50,7 +50,7 @@ export interface ExportChangesOptions extends InitOptions {
 
 /**
  * Arguments for [[IModelExporter.initialize]], usually in case you want to query changedata early
- * such as in the transformer's case
+ * such as in the case of the IModelTransformer
  * @beta
  */
 export type ExporterInitOptions = ExportChangesOptions;
