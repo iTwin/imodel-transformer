@@ -2070,7 +2070,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this._tryInitChangesetData(args);
 
     const exporterInitOptions: ExporterInitOptions = {};
-    if(this._isSynchronization)
+    if (this._isSynchronization)
       exporterInitOptions.exportChangesOptions = this.getExportChangesOptions(args?.accessToken, args?.startChangeset?.id);
     await this.exporter.initialize(exporterInitOptions);
     // Exporter must be initialized prior to `initFromExternalSourceAspects` in order to handle entity recreations.
