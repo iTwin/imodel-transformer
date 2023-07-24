@@ -940,7 +940,7 @@ export class IModelTransformer extends IModelExportHandler {
             this.context.remapElement(instId, targetId);
             // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
             // In such case an entity update will be triggered and we no longer need to delete the entity.
-            if(alreadyImportedElementInserts.has(targetId)) {
+            if (alreadyImportedElementInserts.has(targetId)) {
               this.exporter.sourceDbChanges?.element.deleteIds.delete(instId);
             }
             if(alreadyImportedModelInserts.has(targetId)) {
