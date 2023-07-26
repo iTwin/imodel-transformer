@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseDb, ElementGroupsMembers, ExternalSource, ExternalSourceIsInRepository, IModelDb, IModelHost, PhysicalModel, PhysicalObject, RepositoryLink, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
+import { BriefcaseDb, ElementGroupsMembers, ExternalSource, ExternalSourceAspect, ExternalSourceIsInRepository, IModelDb, IModelHost, PhysicalModel, PhysicalObject, RepositoryLink, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
 import { initializeBranchProvenance } from "../../BranchProvenanceInitializer";
 import { IModelTransformerTestUtils, assertIdentityTransformation } from "../IModelTransformerUtils";
 import * as TestUtils from "../TestUtils";
@@ -22,23 +22,29 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
     let index = 0;
     for (const targetHasFedguid of [true, false]) {
       it.only(`elements have fed guid, Source:'${sourceHasFedguid}',  Target:'${targetHasFedguid}'`, async () => {
-        const sourceFileName: string = `Source-'${sourceHasFedguid}'-Target-'${targetHasFedguid}'.bim`;
+        const sourceFileName: string = `Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`;
         const insertData = generateEmptyIModel(sourceFileName);
         const pathName = insertData.pathName;
-        // let sourceDb = StandaloneDb.openFile(pathName, OpenMode.ReadWrite);
 
         const sourceElem = insertElementToImodel(insertData, sourceHasFedguid, index, 0);
         const targetElem = insertElementToImodel(insertData, targetHasFedguid, index, 1);
         insertRelationship(pathName, sourceElem, targetElem);
 
-        const TraditionalTransformTargetPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transfromer-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
-        // const filePath = sourceDb.pathName;
+        // should have an extra source aspect on the source elem if sourceHasFedGuid && targetHasFedGuid
+        let sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
+        sourceDb.close();
+
+        const TraditionalTransformTargetPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transfromer-Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
         fs.copyFileSync(pathName, TraditionalTransformTargetPath);
         setToStandalone(TraditionalTransformTargetPath);
         const TraditionalTransformTarget = StandaloneDb.openFile(TraditionalTransformTargetPath);
     
-        const sourceDb = StandaloneDb.openFile(pathName, OpenMode.ReadWrite);
+        sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
         classicalTransformerBranchInit(sourceDb, TraditionalTransformTarget);
+        if (!sourceHasFedguid)
+          console.log(TraditionalTransformTarget.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName))
+        if (!targetHasFedguid)
+          console.log(TraditionalTransformTarget.elements.getAspects(targetElem, ExternalSourceAspect.classFullName))
     
         const noTransformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transformerless-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
         fs.copyFileSync(pathName, noTransformerForkPath);
@@ -50,6 +56,11 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           master: sourceDb,
           branch: noTransformerForkDb,
         });
+
+        if (!sourceHasFedguid)
+          console.log(noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName))
+        if (!targetHasFedguid)
+          console.log(noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName))
 
         sourceDb.close();
         
@@ -108,7 +119,7 @@ async function classicalTransformerBranchInit(sourceDb: StandaloneDb, branchDb: 
   const description = "initialized branch iModel";
   branchDb.saveChanges(description);
 
-  branchDb.close();
+  branchDb.close(); 
   branchInitializer.dispose();
 }
 
