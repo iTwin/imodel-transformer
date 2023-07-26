@@ -7,26 +7,12 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Regression Tests",
+            "name": "Unit tests",
             "runtimeExecutable": "npm",
             "cwd": "${workspaceFolder}/packages/performance-tests/",
             "runtimeArgs": [
               "run",
               "test-mocha"
-            ],
-            "skipFiles": [
-              "<node_internals>/**"
-            ]
-          },
-          {
-            "type": "node",
-            "request": "launch",
-            "name": "Unit tests",
-            "runtimeExecutable": "npm",
-            "cwd": "${workspaceFolder}/packages/transformer/",
-            "runtimeArgs": [
-              "run",
-              "test"
             ],
             "skipFiles": [
               "<node_internals>/**"
