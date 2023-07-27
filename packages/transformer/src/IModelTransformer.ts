@@ -148,6 +148,9 @@ export interface IModelTransformOptions {
    * @beta
    */
   optimizeGeometry?: OptimizeGeometryOptions;
+
+  /** This should be true if targetDb is empty iModel */
+  isFirstSynchronization?: boolean;
 }
 
 /**
@@ -266,9 +269,6 @@ export class IModelTransformer extends IModelExportHandler {
   /** the options that were used to initialize this transformer */
   private readonly _options: MarkRequired<IModelTransformOptions, "targetScopeElementId" | "danglingReferencesBehavior">;
 
-  /** Set if it can be determined whether this is the first source --> target synchronization. */
-  private _isFirstSynchronization?: boolean;
-
   /** The element classes that are considered to define provenance in the iModel */
   public static get provenanceElementClasses(): (typeof Entity)[] {
     return [FolderLink, SynchronizationConfigLink, ExternalSource, ExternalSourceAttachment];
@@ -300,7 +300,6 @@ export class IModelTransformer extends IModelExportHandler {
       // eslint-disable-next-line deprecation/deprecation
       danglingReferencesBehavior: options?.danglingReferencesBehavior ?? options?.danglingPredecessorsBehavior ?? "reject",
     };
-    this._isFirstSynchronization = this._options.wasSourceIModelCopiedToTarget ? true : undefined;
     // initialize exporter and sourceDb
     if (source instanceof IModelDb) {
       this.exporter = new IModelExporter(source);
@@ -603,11 +602,15 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Not relevant for processChanges when change history is known.
    */
   private shouldDetectDeletes(): boolean {
-    if (this._isFirstSynchronization)
+    if (this._options.isFirstSynchronization)
       return false; // not necessary the first time since there are no deletes to detect
 
     if (this._options.isReverseSynchronization)
       return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
+
+    if (this._options.wasSourceIModelCopiedToTarget) {
+      return false;
+    }
 
     return true;
   }
