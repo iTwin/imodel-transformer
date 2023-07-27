@@ -40,7 +40,7 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
         const TraditionalTransformTarget = StandaloneDb.openFile(TraditionalTransformTargetPath);
     
         sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
-        classicalTransformerBranchInit(sourceDb, TraditionalTransformTarget);
+        await classicalTransformerBranchInit(sourceDb, TraditionalTransformTarget);
         if (!sourceHasFedguid)
           console.log(TraditionalTransformTarget.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName))
         if (!targetHasFedguid)
@@ -102,7 +102,7 @@ async function classicalTransformerBranchInit(sourceDb: StandaloneDb, branchDb: 
     repository: new ExternalSourceIsInRepository(masterLinkRepoId),
     connectorName: "iModel Transformer",
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    connectorVersion: require("@itwin/imodel-transformer/package.json").version,
+    connectorVersion: require("../../../../package.json").version,
   }, branchDb).insert();
 
   // initialize the branch provenance
@@ -119,7 +119,7 @@ async function classicalTransformerBranchInit(sourceDb: StandaloneDb, branchDb: 
   const description = "initialized branch iModel";
   branchDb.saveChanges(description);
 
-  branchDb.close(); 
+  // branchDb.close(); 
   branchInitializer.dispose();
 }
 
