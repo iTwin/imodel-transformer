@@ -2,6 +2,29 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Thu, 27 Jul 2023 13:07:39 GMT",
+      "tag": "@itwin/imodel-transformer_v0.3.1",
+      "version": "0.3.1",
+      "comments": {
+        "patch": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "88fd8d15b82bc45e962eedd6fe16323498aa732f",
+            "comment": "Changed shouldDetectDeletes from private to protected"
+          }
+        ],
+        "none": [
+          {
+            "author": "ben-polinsky@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "88fd8d15b82bc45e962eedd6fe16323498aa732f",
+            "comment": "fix ElementGeometryBuilderParams core package link"
+          }
+        ]
+      }
+    },
+    {
       "date": "Tue, 11 Jul 2023 18:59:25 GMT",
       "tag": "@itwin/imodel-transformer_v0.3.0",
       "version": "0.3.0",

@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "Changed shouldDetectDeletes from private to protected",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "51540204+simsta6@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

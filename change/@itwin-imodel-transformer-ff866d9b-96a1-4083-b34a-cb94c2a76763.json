@@ -1,7 +1,0 @@
-{
-  "type": "none",
-  "comment": "fix ElementGeometryBuilderParams core package link",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "ben-polinsky@users.noreply.github.com",
-  "dependentChangeType": "none"
-}
