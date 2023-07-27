@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Added 'isFirstSynchronization' to options",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "51540204+simsta6@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
