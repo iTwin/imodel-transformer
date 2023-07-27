@@ -7,7 +7,8 @@ import { IModelTransformerTestUtils, assertIdentityTransformation } from "../IMo
 import * as TestUtils from "../TestUtils";
 import { BriefcaseIdValue, Code } from "@itwin/core-common";
 import { IModelTransformer } from "../../IModelTransformer";
-import { OpenMode, Guid, assert, DbResult } from "@itwin/core-bentley";
+import { OpenMode, Guid, DbResult } from "@itwin/core-bentley";
+import { assert } from "chai";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 
 interface InsertParams {
@@ -34,17 +35,13 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
         let sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
         sourceDb.close();
 
-        const TraditionalTransformTargetPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transfromer-Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
-        fs.copyFileSync(pathName, TraditionalTransformTargetPath);
-        setToStandalone(TraditionalTransformTargetPath);
-        const TraditionalTransformTarget = StandaloneDb.openFile(TraditionalTransformTargetPath);
+        const transformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transfromer-Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
+        fs.copyFileSync(pathName, transformerForkPath);
+        setToStandalone(transformerForkPath);
+        const transformerForkDb = StandaloneDb.openFile(transformerForkPath);
     
         sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
-        await classicalTransformerBranchInit(sourceDb, TraditionalTransformTarget);
-        if (!sourceHasFedguid)
-          console.log(TraditionalTransformTarget.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName))
-        if (!targetHasFedguid)
-          console.log(TraditionalTransformTarget.elements.getAspects(targetElem, ExternalSourceAspect.classFullName))
+        await classicalTransformerBranchInit(sourceDb, transformerForkDb);
     
         const noTransformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transformerless-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
         fs.copyFileSync(pathName, noTransformerForkPath);
@@ -58,13 +55,24 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
         });
 
         if (!sourceHasFedguid)
-          console.log(noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName))
+          assert(noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length > 0,
+          "source element does not have a federation guid, and is was not given an extenral source aspect"
+          );
         if (!targetHasFedguid)
-          console.log(noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName))
+          assert(noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length > 0,
+          "target element does not have a federation guid, and is was not given an extenral source aspect"
+          );
+      
+        if (!targetHasFedguid && !sourceHasFedguid)
+          assert(noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length > 1, 
+            "source and target element does not have a federation guid, and the source element was not assinged an extra external source aspect"
+            );
+
+        assertIdentityTransformation(transformerForkDb, noTransformerForkDb);
 
         sourceDb.close();
-        
-        assertIdentityTransformation(TraditionalTransformTarget, noTransformerForkDb);
+        transformerForkDb.close();
+        noTransformerForkDb.close();
       });
     }
     index ++;
