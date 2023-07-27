@@ -9,37 +9,21 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-backend";
+import { BriefcaseDb, SnapshotDb } from "@itwin/core-backend";
 import { Logger, StopWatch } from "@itwin/core-bentley";
-import { IModelTransformer } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
+import { TestTransformerModule } from "../TestTransformerNodule";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void) {
+export default async function identityTransformer(sourceDb: BriefcaseDb, transformerModule: TestTransformerModule, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void) {
 
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
-  const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
-  class ProgressTransformer extends IModelTransformer {
-    private _count = 0;
-    private _increment() {
-      this._count++;
-      if (this._count % 1000 === 0)
-        Logger.logInfo(loggerCategory, `exported ${this._count} entities`);
-    }
-    public override onExportElement(sourceElement: Element): void {
-      this._increment();
-      return super.onExportElement(sourceElement);
-    }
-    public override onExportRelationship(sourceRelationship: Relationship): void {
-      this._increment();
-      return super.onExportRelationship(sourceRelationship);
-    }
-  }
-  const transformer = new ProgressTransformer(sourceDb, targetDb);
+  const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: sourceDb.name } });
   let schemaProcessingTimer: StopWatch | undefined;
   let entityProcessingTimer: StopWatch | undefined;
+  const transformer = await transformerModule.createIdentityTransform!(sourceDb, targetDb);
   try {
     [schemaProcessingTimer] = await timed(async () => {
       await transformer.processSchemas();

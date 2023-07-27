@@ -7,15 +7,16 @@ import * as fs from "fs";
 import * as os from "os";
 import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
 import { Code } from "@itwin/core-common";
-import { IModelTransformer, initializeBranchProvenance } from "@itwin/imodel-transformer";
+import { initializeBranchProvenance } from "@itwin/imodel-transformer";
 import { initOutputFile, timed } from "../TestUtils";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { setToStandalone } from "../iModelUtils";
+import { TestTransformerModule } from "../TestTransformerNodule";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void){
+export default async function prepareFork(sourceDb: BriefcaseDb, transformerModule: TestTransformerModule, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void){
 
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-${sourceDb.name}-target.bim`, outputDir);
@@ -27,7 +28,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
   let entityProcessingTimer: StopWatch | undefined;
   try {
     [entityProcessingTimer] = await timed(async () => {
-      await classicalTransformerBranchInit(sourceDb, branchDb);
+      await classicalTransformerBranchInit(sourceDb, branchDb, transformerModule);
     });
     Logger.logInfo(loggerCategory, `Prepare Fork time: ${entityProcessingTimer.elapsedSeconds}`);
 
@@ -93,7 +94,7 @@ export default async function prepareFork(sourceDb: BriefcaseDb, addReport: (...
   sourceCopyDb.close();
 }
 
-async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb,) {
+async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb, transformerModule: TestTransformerModule,) {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
   const masterLinkRepoId = new RepositoryLink({
     classFullName: RepositoryLink.classFullName,
@@ -116,13 +117,7 @@ async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: S
   }, branchDb).insert();
 
   // initialize the branch provenance
-  const branchInitializer = new IModelTransformer(sourceDb, branchDb, {
-    // tells the transformer that we have a raw copy of a source and the target should receive
-    // provenance from the source that is necessary for performing synchronizations in the future
-    wasSourceIModelCopiedToTarget: true,
-    // store the synchronization provenance in the scope of our representation of the external source, master
-    targetScopeElementId: masterExternalSourceId,
-  });
+  const branchInitializer = await transformerModule.createForkInitTransform!(sourceDb, branchDb);
 
   await branchInitializer.processAll();
   // save+push our changes to whatever hub we're using
