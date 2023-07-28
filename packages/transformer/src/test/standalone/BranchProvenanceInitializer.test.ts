@@ -42,8 +42,6 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
     
         sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
         await classicalTransformerBranchInit(sourceDb, transformerForkDb);
-        console.log(sourceHasFedguid,targetHasFedguid);
-        console.log(transformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length, transformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length);
     
         const noTransformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transformerless-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
         fs.copyFileSync(pathName, noTransformerForkPath);
@@ -56,21 +54,25 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           branch: noTransformerForkDb,
         });
 
-        console.log(noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length, noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length);
-
-        if (!sourceHasFedguid)
-          assert(noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length > 0,
-          "source element does not have a federation guid and is was not given an external source aspect"
+        const sourceNumElem = noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length;
+        const targetNumElem = noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length;
+        if (targetHasFedguid && sourceHasFedguid)
+          assert(sourceNumElem === 0 && targetNumElem === 0, 
+            `Expected External Source Aspects for Source Element and Target Element: 0-0, Received: ${sourceNumElem}-${targetNumElem}`
           );
-        if (!targetHasFedguid)
-          assert(noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length > 0,
-          "target element does not have a federation guid and is was not given an external source aspect"
+        if (!sourceHasFedguid && targetHasFedguid)
+          assert(sourceNumElem === 2 && targetNumElem === 0,
+            `Expected External Source Aspects for Source Element and Target Element: 2-0, Received: ${sourceNumElem}-${targetNumElem}`
+          );
+        if (sourceHasFedguid && !targetHasFedguid)
+          assert(sourceNumElem === 1 && targetNumElem === 1,
+            `Expected External Source Aspects for Source Element and Target Element: 1-1, Received: ${sourceNumElem}-${targetNumElem}`
+          );
+        if (!sourceHasFedguid && !targetHasFedguid)
+          assert(sourceNumElem === 2 && targetNumElem === 1,
+            `Expected External Source Aspects for Source Element and Target Element: 2-1, Received: ${sourceNumElem}-${targetNumElem}`
           );
       
-        if (!targetHasFedguid && !sourceHasFedguid)
-          assert(noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length > 1, 
-            "source and target element does not have a federation guid, and the source element was not assinged an extra external source aspect"
-            );
 
         assertIdentityTransformation(transformerForkDb, noTransformerForkDb);
 
