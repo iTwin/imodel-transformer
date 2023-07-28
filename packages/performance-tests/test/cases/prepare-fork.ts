@@ -2,22 +2,22 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
-import { Code } from "@itwin/core-common";
-import { initializeBranchProvenance } from "@itwin/imodel-transformer";
-import { initOutputFile, timed } from "../TestUtils";
+import * as path from "path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
+import { StandaloneDb } from "@itwin/core-backend";
+import { TestCaseContext } from "./TestCaseContext";
+import { initOutputFile, timed } from "../TestUtils";
+import { initializeBranchProvenance } from "@itwin/imodel-transformer";
 import { setToStandalone } from "../iModelUtils";
-import { TestTransformerModule } from "../TestTransformerNodule";
+import assert from "assert";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function prepareFork(sourceDb: BriefcaseDb, transformerModule: TestTransformerModule, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void){
-
+export default async function prepareFork(context: TestCaseContext) {
+  const { sourceDb, transformerModule, addReport } = context;
   // create a duplicate of master for branch
   const branchPath = initOutputFile(`PrepareFork-${sourceDb.name}-target.bim`, outputDir);
   const filePath = sourceDb.pathName;
@@ -26,12 +26,18 @@ export default async function prepareFork(sourceDb: BriefcaseDb, transformerModu
   const branchDb = StandaloneDb.openFile(branchPath);
 
   let entityProcessingTimer: StopWatch | undefined;
+  assert(transformerModule.createForkInitTransform, "The createForkInitTransform method does not exist on the module.");
+  // initialize the branch provenance
+  const branchInitializer = await transformerModule.createForkInitTransform(sourceDb, branchDb);
   try {
     [entityProcessingTimer] = await timed(async () => {
-      await classicalTransformerBranchInit(sourceDb, branchDb, transformerModule);
+      await branchInitializer.processAll();
     });
-    Logger.logInfo(loggerCategory, `Prepare Fork time: ${entityProcessingTimer.elapsedSeconds}`);
+    // save+push our changes to whatever hub we're using
+    const description = "initialized branch iModel";
+    branchDb.saveChanges(description);
 
+    Logger.logInfo(loggerCategory, `Prepare Fork time: ${entityProcessingTimer.elapsedSeconds}`);
   } catch (err: any) {
     Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
     const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
@@ -44,6 +50,8 @@ export default async function prepareFork(sourceDb: BriefcaseDb, transformerModu
       "time elapsed (seconds)",
       entityProcessingTimer?.elapsedSeconds ?? -1,
     );
+    branchDb.close();
+    branchInitializer.dispose();
   }
 
   const noTransformForkPath = initOutputFile(`NoTransform-${sourceDb.name}-target.bim`, outputDir);
@@ -92,38 +100,4 @@ export default async function prepareFork(sourceDb: BriefcaseDb, transformerModu
   );
   noTransformAddFedGuidsForkDb.close();
   sourceCopyDb.close();
-}
-
-async function classicalTransformerBranchInit(sourceDb: BriefcaseDb, branchDb: StandaloneDb, transformerModule: TestTransformerModule,) {
-  // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterLinkRepoId = new RepositoryLink({
-    classFullName: RepositoryLink.classFullName,
-    code: RepositoryLink.createCode(branchDb, IModelDb.repositoryModelId, "test-imodel"),
-    model: IModelDb.repositoryModelId,
-    // url: "https://wherever-you-got-your-imodel.net",
-    format: "iModel",
-    repositoryGuid: sourceDb.iModelId,
-    description: "master iModel repository",
-  }, branchDb).insert();
-
-  const masterExternalSourceId = new ExternalSource({
-    classFullName: ExternalSource.classFullName,
-    model: IModelDb.rootSubjectId,
-    code: Code.createEmpty(),
-    repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-    connectorName: "iModel Transformer",
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    connectorVersion: require("@itwin/imodel-transformer/package.json").version,
-  }, branchDb).insert();
-
-  // initialize the branch provenance
-  const branchInitializer = await transformerModule.createForkInitTransform!(sourceDb, branchDb);
-
-  await branchInitializer.processAll();
-  // save+push our changes to whatever hub we're using
-  const description = "initialized branch iModel";
-  branchDb.saveChanges(description);
-
-  branchDb.close();
-  branchInitializer.dispose();
 }

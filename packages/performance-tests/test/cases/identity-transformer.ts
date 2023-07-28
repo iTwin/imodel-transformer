@@ -6,24 +6,26 @@
  * Tests where we perform "identity" transforms, that is just rebuilding an entire identical iModel (minus IDs)
  * through the transformation process.
  */
-import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseDb, SnapshotDb } from "@itwin/core-backend";
+import * as path from "path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
+import { SnapshotDb } from "@itwin/core-backend";
+import { TestCaseContext } from "./TestCaseContext";
 import { initOutputFile, timed } from "../TestUtils";
-import { TestTransformerModule } from "../TestTransformerNodule";
+import assert from "assert";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, transformerModule: TestTransformerModule, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void) {
-
+export default async function identityTransformer(context: TestCaseContext) {
+  const { sourceDb, transformerModule, addReport } = context;
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: sourceDb.name } });
   let schemaProcessingTimer: StopWatch | undefined;
   let entityProcessingTimer: StopWatch | undefined;
-  const transformer = await transformerModule.createIdentityTransform!(sourceDb, targetDb);
+  assert(transformerModule.createIdentityTransform, "The createIdentityTransform method does not exist on the module.");
+  const transformer = await transformerModule.createIdentityTransform(sourceDb, targetDb);
   try {
     [schemaProcessingTimer] = await timed(async () => {
       await transformer.processSchemas();

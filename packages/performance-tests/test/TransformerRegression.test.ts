@@ -9,28 +9,28 @@
  */
 
 import "./setup";
-import assert from "assert";
-import * as path from "path";
 import * as fs from "fs";
-import { BriefcaseDb, IModelHost, IModelHostConfiguration, SnapshotDb } from "@itwin/core-backend";
-import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
-import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { getTestIModels } from "./TestContext";
-import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
-import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
+import * as path from "path";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
+import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
+import { DbResult, LogLevel, Logger } from "@itwin/core-bentley";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
-import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
+import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { Reporter } from "@itwin/perf-tools";
-import rawInserts from "./rawInserts";
-import { getBranchName } from "./GitUtils";
 import { ReporterInfo } from "./ReporterUtils";
+import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { TestTransformerModule } from "./TestTransformerNodule";
+import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
+import { getBranchName } from "./GitUtils";
+import { getTestIModels } from "./TestContext";
+import assert from "assert";
+import nativeTransformerModule from "./transformers/NativeTransformer";
+import rawInserts from "./rawInserts";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
-import ProgressTransformer from "./ProgressTransformer";
 
 const testCasesMap = new Map([
   ["identity transform", identityTransformer],
@@ -42,15 +42,15 @@ const outputDir = path.join(__dirname, ".output");
 
 const loadTransformers = async () => {
   const moduleNames = process.env.EXTRA_TRANSFORMERS?.split(',').map((name) => name.trim()) ?? [];
-  const transformerModules = [ProgressTransformer];
-
-  for (const moduleName of moduleNames) {
-    try {
-      const module = (await import(moduleName)).default;
-      transformerModules.push(module.default);
-    } catch (error) {
-      Logger.logError(loggerCategory, `Error while importing module "${moduleName}": ${error}`);
-    }
+  const transformerModules = new Map<string, TestTransformerModule>();
+  transformerModules.set("NativeTransformer", nativeTransformerModule);
+  try {
+    const modules = await Promise.all(
+      moduleNames.map(async moduleName => ({ name: moduleName, module: (await import(moduleName)).default }))
+    );
+    modules.forEach(({ name, module }) => transformerModules.set(name, module));
+  } catch (error) {
+    Logger.logError(loggerCategory, `Error while importing module: ${error}`);
   }
 
   return transformerModules;
@@ -175,13 +175,16 @@ async function runRegressionTests() {
           sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
 
-        transformerModules.forEach((transformerModule: TestTransformerModule) => {
-          testCasesMap.forEach(async (testCase, key) => {
-            it(key, async () => {
-              await testCase(sourceDb, transformerModule,
-                (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => {
+        testCasesMap.forEach(async (testCase, key) => {
+          transformerModules.forEach((transformerModule: TestTransformerModule, moduleName: string) => {
+            it(`${key} on ${moduleName}`, async () => {
+              await testCase({
+                sourceDb,
+                transformerModule,
+                addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => {
                   reporter.addEntry(...smallReportSubset, reportInfo);
-                });
+                }
+              });
               console.log("Finished the test");
             }).timeout(0);
           });
