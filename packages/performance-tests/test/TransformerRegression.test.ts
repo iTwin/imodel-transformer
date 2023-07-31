@@ -13,7 +13,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
-import { DbResult, LogLevel, Logger } from "@itwin/core-bentley";
+import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { Reporter } from "@itwin/perf-tools";
@@ -25,7 +25,9 @@ import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtil
 import { getBranchName } from "./GitUtils";
 import { getTestIModels } from "./TestContext";
 import assert from "assert";
-import nativeTransformerModule from "./transformers/NativeTransformer";
+import nativeTransformerTestModule from "./transformers/NativeTransformer";
+import rawForkCreateFedGuidsTestModule from "./transformers/RawForkCreateFedGuids";
+import rawForkOperationsTestModule from "./transformers/RawForkOperations";
 import rawInserts from "./rawInserts";
 
 // cases
@@ -33,28 +35,26 @@ import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
-  ["identity transform", identityTransformer],
-  ["prepare-fork", prepareFork],
+  ["identity transform", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
+  ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
 const outputDir = path.join(__dirname, ".output");
 
 const loadTransformers = async () => {
-  const moduleNames = process.env.EXTRA_TRANSFORMERS?.split(',').map((name) => name.trim()) ?? [];
-  const transformerModules = new Map<string, TestTransformerModule>();
-  transformerModules.set("NativeTransformer", nativeTransformerModule);
-  try {
-    const modules = await Promise.all(
-      moduleNames.map(async moduleName => ({ name: moduleName, module: (await import(moduleName)).default }))
-    );
-    modules.forEach(({ name, module }) => transformerModules.set(name, module));
-  } catch (error) {
-    Logger.logError(loggerCategory, `Error while importing module: ${error}`);
-  }
-
+  const modulePaths = process.env.EXTRA_TRANSFORMERS?.split(",").map((name) => name.trim()).filter(Boolean) ?? [];
+  const envSpecifiedExtraTransformerCases = await Promise.all(
+    modulePaths.map(async (m) => [m, (await import(m)).default])
+  );
+  const transformerModules = new Map<string, TestTransformerModule>([
+    ["NativeTransformer", nativeTransformerTestModule],
+    ["RawForkOperations", rawForkOperationsTestModule],
+    ["RawForkCreateFedGuids", rawForkCreateFedGuidsTestModule],
+    ...envSpecifiedExtraTransformerCases as [string, TestTransformerModule][],
+  ]);
   return transformerModules;
-}
+};
 
 const setupTestData = async () => {
   const logLevel = process.env.LOG_LEVEL ? Number(process.env.LOG_LEVEL) : LogLevel.Error;
@@ -175,18 +175,19 @@ async function runRegressionTests() {
           sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
 
-        testCasesMap.forEach(async (testCase, key) => {
+        testCasesMap.forEach(async ({testCase, functionNameToValidate}, key) => {
           transformerModules.forEach((transformerModule: TestTransformerModule, moduleName: string) => {
-            it(`${key} on ${moduleName}`, async () => {
-              await testCase({
-                sourceDb,
-                transformerModule,
-                addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => {
-                  reporter.addEntry(...smallReportSubset, reportInfo);
-                }
-              });
-              console.log("Finished the test");
-            }).timeout(0);
+            const moduleFunc = transformerModule[functionNameToValidate as keyof TestTransformerModule];
+            if (moduleFunc) {
+              it(`${key} on ${moduleName}`, async () => {
+                const addReport = (testName: string, iModelName: string, valDescription: string, value: number) => {
+                  reporter.addEntry(testName, iModelName, valDescription, value, reportInfo);
+                };
+                await testCase({ sourceDb, transformerModule, addReport });
+                // eslint-disable-next-line no-console
+                console.log("Finished the test");
+              }).timeout(0);
+            }
           });
         });
       });

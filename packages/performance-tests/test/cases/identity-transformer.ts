@@ -13,7 +13,6 @@ import { Logger, StopWatch } from "@itwin/core-bentley";
 import { SnapshotDb } from "@itwin/core-backend";
 import { TestCaseContext } from "./TestCaseContext";
 import { initOutputFile, timed } from "../TestUtils";
-import assert from "assert";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
@@ -22,19 +21,16 @@ export default async function identityTransformer(context: TestCaseContext) {
   const { sourceDb, transformerModule, addReport } = context;
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: sourceDb.name } });
-  let schemaProcessingTimer: StopWatch | undefined;
-  let entityProcessingTimer: StopWatch | undefined;
-  assert(transformerModule.createIdentityTransform, "The createIdentityTransform method does not exist on the module.");
+  let timer: StopWatch | undefined;
+  if (!transformerModule.createIdentityTransform){
+    throw Error("The createIdentityTransform method does not exist on the module.");
+  }
   const transformer = await transformerModule.createIdentityTransform(sourceDb, targetDb);
   try {
-    [schemaProcessingTimer] = await timed(async () => {
-      await transformer.processSchemas();
+    [timer] = await timed(async () => {
+      await transformer.run();
     });
-    Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
-    [entityProcessingTimer] = await timed(async () => {
-      await transformer.processAll();
-    });
-    Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
+    Logger.logInfo(loggerCategory, `schema processing time: ${timer.elapsedSeconds}`);
   } catch (err: any) {
     Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
     const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
@@ -45,9 +41,8 @@ export default async function identityTransformer(context: TestCaseContext) {
       "identity transform (provenance)",
       sourceDb.name,
       "time elapsed (seconds)",
-      entityProcessingTimer?.elapsedSeconds ?? -1,
+      timer?.elapsedSeconds ?? -1,
     );
     targetDb.close();
-    transformer.dispose();
   }
 }

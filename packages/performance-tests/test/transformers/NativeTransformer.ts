@@ -7,7 +7,7 @@ import { Code } from "@itwin/core-common";
 import { Element, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger } from "@itwin/core-bentley";
-import { TestTransformerModule } from "../TestTransformerNodule";
+import { TestTransformerModule, TransformRunner } from "../TestTransformerNodule";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 
@@ -29,11 +29,17 @@ class ProgressTransformer extends IModelTransformer {
 }
 
 const nativeTransformerTestModule: TestTransformerModule = {
-  async createIdentityTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<IModelTransformer> {
+  async createIdentityTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<TransformRunner> {
     const transformer = new ProgressTransformer(sourceDb, targetDb);
-    return transformer;
+    return {
+      async run() {
+        await transformer.processSchemas();
+        await transformer.processAll();
+        transformer.dispose();
+      },
+    };
   },
-  async createForkInitTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<IModelTransformer> {
+  async createForkInitTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<TransformRunner> {
     // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
     const masterLinkRepoId = new RepositoryLink({
       classFullName: RepositoryLink.classFullName,
@@ -61,8 +67,13 @@ const nativeTransformerTestModule: TestTransformerModule = {
       // store the synchronization provenance in the scope of our representation of the external source, master
       targetScopeElementId: masterExternalSourceId,
     });
-    return transformer;
-  }
-}
+    return {
+      async run() {
+        await transformer.processAll();
+        transformer.dispose();
+      },
+    };
+  },
+};
 
 export default nativeTransformerTestModule;
