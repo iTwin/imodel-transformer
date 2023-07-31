@@ -1,5 +1,5 @@
 
-import { ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink } from "@itwin/core-backend";
+import { ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink } from "@itwin/core-backend";
 import { DbResult, Id64String } from "@itwin/core-bentley";
 import { Code } from "@itwin/core-common";
 import assert = require("assert");
@@ -66,14 +66,37 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   }, args.branch).insert();
 
   const fedGuidLessElemsSql = "SELECT ECInstanceId as id FROM Bis.Element WHERE FederationGuid IS NULL";
-  const reader = args.branch.createQueryReader(fedGuidLessElemsSql);
-  while (await reader.step()) {
-    const id: string = reader.current.toRow().id;
-    IModelTransformer.initElementProvenanceOptions(id, id, {
+  const elemReader = args.branch.createQueryReader(fedGuidLessElemsSql);
+  while (await elemReader.step()) {
+    const id: string = elemReader.current.toRow().id;
+    const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
       sourceDb: args.master,
     });
+    args.branch.elements.insertAspect(aspectProps);
+  }
+
+  const fedGuidLessRelsSql = `
+    SELECT erte.ECInstanceId as id
+    FROM Bis.ElementRefersToElements erte
+    JOIN bis.Element se
+      ON se.ECInstanceId=erte.SourceECInstanceId
+    JOIN bis.Element te
+      ON te.ECInstanceId=erte.TargetECInstanceId
+      WHERE se.FederationGuid IS NULL
+      OR te.FederationGuid IS NULL`;
+  const relReader = args.branch.createQueryReader(fedGuidLessRelsSql);
+  while (await relReader.step()) {
+    const id: string = relReader.current.toRow().id;
+    const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(id, id, {
+      isReverseSynchronization: false,
+      targetScopeElementId: masterExternalSourceId,
+      sourceDb: args.master,
+      targetDb: args.branch,
+      forceOldRelationshipProvenanceMethod: false
+    });
+    args.branch.elements.insertAspect(aspectProps);
   }
 
   return {

@@ -52,6 +52,7 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
         await initializeBranchProvenance({
           master: sourceDb,
           branch: noTransformerForkDb,
+          createFedGuidsForMaster: false
         });
 
         const sourceNumElem = noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length;

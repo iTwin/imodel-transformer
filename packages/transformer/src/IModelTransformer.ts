@@ -460,6 +460,49 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
+  public static initRelationshipProvenanceOptions(
+    sourceRelInstanceId: Id64String, 
+    targetRelInstanceId: Id64String,
+    args: {
+      sourceDb: IModelDb;
+      targetDb: IModelDb;
+      isReverseSynchronization: boolean;
+      targetScopeElementId: Id64String;
+      forceOldRelationshipProvenanceMethod: boolean;
+    },
+  ): ExternalSourceAspectProps {
+    const dbToUse = args.isReverseSynchronization ? args.sourceDb : args.targetDb;
+    const elementId = dbToUse.withPreparedStatement(
+          "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
+          (stmt) => {
+            stmt.bindId(1, args.isReverseSynchronization
+              ? sourceRelInstanceId
+              : targetRelInstanceId);
+            assert(stmt.step() === DbResult.BE_SQLITE_ROW)
+            // console.error(new Error())
+              return stmt.getValue(0).getId();
+          },
+        );
+    const aspectIdentifier = args.isReverseSynchronization ? targetRelInstanceId : sourceRelInstanceId;
+    const jsonProperties
+      = args.forceOldRelationshipProvenanceMethod
+      ? { targetRelInstanceId }
+      : { provenanceRelInstanceId: args.isReverseSynchronization
+          ? sourceRelInstanceId
+          : targetRelInstanceId,
+        };
+
+    const aspectProps: ExternalSourceAspectProps = {
+      classFullName: ExternalSourceAspect.classFullName,
+      element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
+      scope: { id: args.targetScopeElementId },
+      identifier: aspectIdentifier,
+      kind: ExternalSourceAspect.Kind.Relationship,
+      jsonProperties: JSON.stringify(jsonProperties),
+    };
+    return aspectProps;
+  }
+
   // FIXME: add test using this
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
@@ -489,34 +532,18 @@ export class IModelTransformer extends IModelExportHandler {
    * The ECInstanceId of the relationship in the target iModel will be stored in the JsonProperties of the ExternalSourceAspect.
    */
   private initRelationshipProvenance(sourceRelationship: Relationship, targetRelInstanceId: Id64String): ExternalSourceAspectProps {
-    const elementId = this._options.isReverseSynchronization
-      ? sourceRelationship.sourceId
-      : this.targetDb.withPreparedStatement(
-          "SELECT SourceECInstanceId FROM Bis.ElementRefersToElements WHERE ECInstanceId=?",
-          (stmt) => {
-            stmt.bindId(1, targetRelInstanceId);
-            nodeAssert(stmt.step() === DbResult.BE_SQLITE_ROW);
-            return stmt.getValue(0).getId();
-          },
-        );
-    const aspectIdentifier = this._options.isReverseSynchronization ? targetRelInstanceId : sourceRelationship.id;
-    const jsonProperties
-      = this._forceOldRelationshipProvenanceMethod
-      ? { targetRelInstanceId }
-      : { provenanceRelInstanceId: this._isReverseSynchronization
-          ? sourceRelationship.id
-          : targetRelInstanceId,
-        };
+    return IModelTransformer.initRelationshipProvenanceOptions(
+      sourceRelationship.id,
+      targetRelInstanceId,
+      {
+        sourceDb: this.sourceDb,
+        targetDb: this.targetDb,
+        isReverseSynchronization: !!this._options.isReverseSynchronization,
+        targetScopeElementId: this.targetScopeElementId,
+        forceOldRelationshipProvenanceMethod: this._forceOldRelationshipProvenanceMethod,
 
-    const aspectProps: ExternalSourceAspectProps = {
-      classFullName: ExternalSourceAspect.classFullName,
-      element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
-      scope: { id: this.targetScopeElementId },
-      identifier: aspectIdentifier,
-      kind: ExternalSourceAspect.Kind.Relationship,
-      jsonProperties: JSON.stringify(jsonProperties),
-    };
-    return aspectProps;
+      }
+    )
   }
 
   /** NOTE: the json properties must be converted to string before insertion */
