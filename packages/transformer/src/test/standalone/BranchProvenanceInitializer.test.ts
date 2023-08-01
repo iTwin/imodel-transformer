@@ -1,13 +1,10 @@
-import * as path from "path";
 import * as fs from "fs";
-import * as os from "os";
-import { BriefcaseDb, ElementGroupsMembers, ExternalSource, ExternalSourceAspect, ExternalSourceIsInRepository, IModelDb, IModelHost, PhysicalModel, PhysicalObject, RepositoryLink, SnapshotDb, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
+import { ElementGroupsMembers, ExternalSource, ExternalSourceAspect, ExternalSourceIsInRepository, IModelDb, IModelHost, PhysicalModel, PhysicalObject, RepositoryLink, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
 import { initializeBranchProvenance } from "../../BranchProvenanceInitializer";
 import { IModelTransformerTestUtils, assertIdentityTransformation } from "../IModelTransformerUtils";
-import * as TestUtils from "../TestUtils";
 import { BriefcaseIdValue, Code } from "@itwin/core-common";
 import { IModelTransformer } from "../../IModelTransformer";
-import { OpenMode, Guid, DbResult } from "@itwin/core-bentley";
+import { OpenMode, Guid } from "@itwin/core-bentley";
 import { assert } from "chai";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 
@@ -27,8 +24,8 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
         const insertData = generateEmptyIModel(sourceFileName);
         const pathName = insertData.pathName;
 
-        const sourceElem = insertElementToImodel(insertData, sourceHasFedguid, index, 0);
-        const targetElem = insertElementToImodel(insertData, targetHasFedguid, index, 1);
+        const sourceElem = insertElementToImodel(insertData, sourceHasFedguid, index);
+        const targetElem = insertElementToImodel(insertData, targetHasFedguid, index);
         insertRelationship(pathName, sourceElem, targetElem);
 
         // should have an extra source aspect on the source elem if sourceHasFedGuid && targetHasFedGuid
@@ -161,7 +158,7 @@ export function generateEmptyIModel(fileName: string): InsertParams {
   return insertData;
 }
 
-function insertElementToImodel(insertData: InsertParams, withFedGuid: boolean, index: number, code: number): string {
+function insertElementToImodel(insertData: InsertParams, withFedGuid: boolean, index: number): string {
 
   const sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
 
@@ -175,8 +172,8 @@ function insertElementToImodel(insertData: InsertParams, withFedGuid: boolean, i
       angles: YawPitchRollAngles.createDegrees(1, 1, 1),
     },
     model: insertData.physModelId,
-    code: new Code({ spec: IModelDb.rootSubjectId, scope: IModelDb.rootSubjectId, value: `${2*index + code}`}),
-    userLabel: `${2*index + code}`,
+    code: Code.createEmpty(),
+    userLabel: `${2*index}`,
     federationGuid: fedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
   }, sourceDb).insert();
 

@@ -471,25 +471,23 @@ export class IModelTransformer extends IModelExportHandler {
       forceOldRelationshipProvenanceMethod: boolean;
     },
   ): ExternalSourceAspectProps {
-    const dbToUse = args.isReverseSynchronization ? args.sourceDb : args.targetDb;
+    function  checkReverseSynchronization(source: any, target: any): any {
+      return args.isReverseSynchronization ? source : target;
+    }
+    const dbToUse = checkReverseSynchronization(args.sourceDb, args.targetDb);
     const elementId = dbToUse.withPreparedStatement(
           "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
-          (stmt) => {
-            stmt.bindId(1, args.isReverseSynchronization
-              ? sourceRelInstanceId
-              : targetRelInstanceId);
+          (stmt: ECSqlStatement) => {
+            stmt.bindId(1, checkReverseSynchronization(sourceRelInstanceId, targetRelInstanceId));
             assert(stmt.step() === DbResult.BE_SQLITE_ROW)
-            // console.error(new Error())
               return stmt.getValue(0).getId();
           },
         );
-    const aspectIdentifier = args.isReverseSynchronization ? targetRelInstanceId : sourceRelInstanceId;
+    const aspectIdentifier = checkReverseSynchronization(sourceRelInstanceId, targetRelInstanceId);
     const jsonProperties
       = args.forceOldRelationshipProvenanceMethod
       ? { targetRelInstanceId }
-      : { provenanceRelInstanceId: args.isReverseSynchronization
-          ? sourceRelInstanceId
-          : targetRelInstanceId,
+      : { provenanceRelInstanceId: checkReverseSynchronization(sourceRelInstanceId, targetRelInstanceId),
         };
 
     const aspectProps: ExternalSourceAspectProps = {
