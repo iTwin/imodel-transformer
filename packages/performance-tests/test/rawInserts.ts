@@ -1,15 +1,15 @@
-import { Reporter } from "@itwin/perf-tools";
-import { initOutputFile, timed } from "./TestUtils";
-import { IModelDb, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
-import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
-import path from "path";
-import fs from "fs";
-import assert from "assert";
 import { ChangesetFileProps } from "@itwin/core-common";
+import { Element, ElementGroupsMembers, IModelDb, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
+import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import { Logger, OpenMode } from "@itwin/core-bentley";
-import { generateTestIModel } from "./iModelUtils";
+import { Reporter } from "@itwin/perf-tools";
 import { TestIModel } from "./TestContext";
+import { generateTestIModel } from "./iModelUtils";
+import { initOutputFile, timed } from "./TestUtils";
+import assert from "assert";
+import fs from "fs";
+import path from "path";
 
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
@@ -25,7 +25,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
   let testIModel: TestIModel | undefined;
   const [insertsTimer] = timed(() => {
-    testIModel = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName:`RawInserts-source.bim` });
+    testIModel = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName: `RawInserts-source.bim` });
   });
 
   if (testIModel === undefined)
@@ -39,8 +39,8 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(sourceDb, "Bis.ElementGroupsMembers"),
-      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, "Bis.Element"),
+      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
+      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
       "Branch Name": branchName,
     }
   );
@@ -53,7 +53,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
   const changesetDbPath = initOutputFile(`RawInsertsApply.bim`, outputDir);
   if (fs.existsSync(changesetDbPath))
     fs.unlinkSync(changesetDbPath);
-  const changesetDb = StandaloneDb.createEmpty(changesetDbPath, { rootSubject: { name: "RawInsertsApply" }});
+  const changesetDb = StandaloneDb.createEmpty(changesetDbPath, { rootSubject: { name: "RawInsertsApply" } });
 
   const [applyChangeSetTimer] = timed(() => {
     changesetDb.nativeDb.applyChangeset(changeset1);
@@ -65,8 +65,8 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     applyChangeSetTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(changesetDb, "Bis.ElementGroupsMembers"),
-      "Relationship Count": IModelTransformerTestUtils.count(changesetDb, "Bis.Element"),
+      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
+      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
       "Branch Name": branchName,
     }
   );
@@ -74,7 +74,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
   Logger.logInfo(loggerCategory, "Done. Starting with-provenance transformation of same content");
 
   const targetPath = initOutputFile(`RawInserts-Target.bim`, outputDir);
-  const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: "RawInsertsTarget" }});
+  const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: "RawInsertsTarget" } });
   const transformerWithProv = new IModelTransformer(sourceDb, targetDb, { noProvenance: false });
 
   const [transformWithProvTimer] = await timed(async () => {
@@ -87,8 +87,8 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(targetDb, "Bis.ElementGroupsMembers"),
-      "Relationship Count": IModelTransformerTestUtils.count(targetDb, "Bis.Element"),
+      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
+      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
       "Branch Name": branchName,
     }
   );
@@ -96,7 +96,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
   Logger.logInfo(loggerCategory, "Done. Starting without-provenance transformation of same content");
 
   const targetNoProvPath = initOutputFile(`RawInserts-TargetNoProv.bim`, outputDir);
-  const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, { rootSubject: { name: "RawInsertsTarget" }});
+  const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, { rootSubject: { name: "RawInsertsTarget" } });
   const transformerNoProv = new IModelTransformer(sourceDb, targetNoProvDb, { noProvenance: true });
 
   const [transformNoProvTimer] = await timed(async () => {
@@ -109,8 +109,8 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(targetNoProvDb, "Bis.ElementGroupsMembers"),
-      "Relationship Count": IModelTransformerTestUtils.count(targetNoProvDb, "Bis.Element"),
+      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
+      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
       "Branch Name": branchName,
     }
   );
@@ -134,4 +134,3 @@ function createChangeset(imodel: IModelDb): ChangesetFileProps {
   imodel.nativeDb.completeCreateChangeset({ index: 0 });
   return changeset as any; // FIXME: bad peer deps
 }
-
