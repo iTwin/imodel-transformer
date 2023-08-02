@@ -602,7 +602,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Returns `true` if *brute force* delete detections should be run.
    * @note Not relevant for processChanges when change history is known.
    */
-  private shouldDetectDeletes(): boolean {
+  protected shouldDetectDeletes(): boolean {
     if (this._isFirstSynchronization)
       return false; // not necessary the first time since there are no deletes to detect
 
