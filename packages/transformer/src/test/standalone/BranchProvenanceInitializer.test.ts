@@ -4,8 +4,8 @@ import { initializeBranchProvenance } from "../../BranchProvenanceInitializer";
 import { IModelTransformerTestUtils, assertIdentityTransformation } from "../IModelTransformerUtils";
 import { BriefcaseIdValue, Code } from "@itwin/core-common";
 import { IModelTransformer } from "../../IModelTransformer";
-import { OpenMode, Guid } from "@itwin/core-bentley";
-import { assert } from "chai";
+import { OpenMode, Guid, TupleKeyedMap } from "@itwin/core-bentley";
+import { assert, expect } from "chai";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 
 interface InsertParams {
@@ -14,72 +14,109 @@ interface InsertParams {
   categoryId: string;
 }
 
-describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
+describe.only("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
+  // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)
+  const sourceTargetFedGuidToAspectCountMap = new TupleKeyedMap([
+    [[false, false, false], [2, 1]],
+    [[false, false, "keep-reopened-db"], [0, 0]],
+    [[false, true, false], [2, 0]],
+    [[false, true, "keep-reopened-db"], [0, 0]],
+    [[true, false, false], [1, 1]],
+    [[true, false, "keep-reopened-db"], [0, 0]],
+    [[true, true, false], [0, 0]],
+    [[true, true, "keep-reopened-db"], [0, 0]],
+  ]);
 
-  for (const sourceHasFedguid of [true, false]){
-    let index = 0;
+  let index = 0;
+  // FIXME: don't use a separate iModel for each loop iteration, just add more element pairs
+  // to the one iModel. That will be much faster
+  for (const sourceHasFedguid of [true, false]) {
     for (const targetHasFedguid of [true, false]) {
-      it.only(`elements have fed guid, Source:'${sourceHasFedguid}',  Target:'${targetHasFedguid}'`, async () => {
-        const sourceFileName: string = `Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`;
-        const insertData = generateEmptyIModel(sourceFileName);
-        const pathName = insertData.pathName;
+      for (const createFedGuidsForMaster of ["keep-reopened-db", false] as const) {
+        it.only(`branch provenance init, Source:'${sourceHasFedguid}',  Target:'${targetHasFedguid}'`, async () => {
+          let sourceDb!: StandaloneDb;
+          let transformerForkDb!: StandaloneDb;
+          let noTransformerForkDb!: StandaloneDb;
 
-        const sourceElem = insertElementToImodel(insertData, sourceHasFedguid, index);
-        const targetElem = insertElementToImodel(insertData, targetHasFedguid, index);
-        insertRelationship(pathName, sourceElem, targetElem);
+          try {
+            const sourceFileName = `Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`;
+            const insertData = generateEmptyIModel(sourceFileName);
+            const pathName = insertData.pathName;
 
-        // should have an extra source aspect on the source elem if sourceHasFedGuid && targetHasFedGuid
-        let sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
-        sourceDb.close();
+            const sourceElem = insertElementToImodel(insertData, sourceHasFedguid, index);
+            const targetElem = insertElementToImodel(insertData, targetHasFedguid, index);
+            insertRelationship(pathName, sourceElem, targetElem);
 
-        const transformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transfromer-Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
-        fs.copyFileSync(pathName, transformerForkPath);
-        setToStandalone(transformerForkPath);
-        const transformerForkDb = StandaloneDb.openFile(transformerForkPath);
-    
-        sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
-        await classicalTransformerBranchInit(sourceDb, transformerForkDb);
-    
-        const noTransformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transformerless-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
-        fs.copyFileSync(pathName, noTransformerForkPath);
-        setToStandalone(noTransformerForkPath);
-        const noTransformerForkDb = StandaloneDb.openFile(noTransformerForkPath);
-      
-    
-        await initializeBranchProvenance({
-          master: sourceDb,
-          branch: noTransformerForkDb,
-          createFedGuidsForMaster: false
+            // should have an extra source aspect on the source elem if sourceHasFedGuid && targetHasFedGuid
+            sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
+            sourceDb.close();
+
+            const transformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transfromer-Source-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
+            fs.copyFileSync(pathName, transformerForkPath);
+            setToStandalone(transformerForkPath);
+            transformerForkDb = StandaloneDb.openFile(transformerForkPath);
+
+            sourceDb = StandaloneDb.openFile(insertData.pathName, OpenMode.ReadWrite);
+            await classicalTransformerBranchInit(sourceDb, transformerForkDb);
+
+            const noTransformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", `Transformerless-${sourceHasFedguid}-Target-${targetHasFedguid}.bim`);
+            fs.copyFileSync(pathName, noTransformerForkPath);
+            setToStandalone(noTransformerForkPath);
+            noTransformerForkDb = StandaloneDb.openFile(noTransformerForkPath);
+
+            const initProvenanceArgs = {
+              master: sourceDb,
+              branch: noTransformerForkDb,
+              createFedGuidsForMaster,
+            };
+            await initializeBranchProvenance(initProvenanceArgs);
+
+            sourceDb = initProvenanceArgs.master;
+            noTransformerForkDb = initProvenanceArgs.branch;
+
+            const sourceNumAspects = noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length;
+            const targetNumAspects = noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length;
+
+            expect(sourceTargetFedGuidToAspectCountMap.get([sourceHasFedguid, targetHasFedguid, createFedGuidsForMaster]))
+              .to.equal([sourceNumAspects, targetNumAspects]);
+
+            if (targetHasFedguid && sourceHasFedguid)
+              assert(sourceNumAspects === 0 && targetNumAspects === 0,
+                `Expected External Source Aspects for Source Element and Target Element: 0-0, Received: ${sourceNumAspects}-${targetNumAspects}`
+              );
+            if (!sourceHasFedguid && targetHasFedguid)
+              assert(sourceNumAspects === 2 && targetNumAspects === 0,
+                `Expected External Source Aspects for Source Element and Target Element: 2-0, Received: ${sourceNumAspects}-${targetNumAspects}`
+              );
+            if (sourceHasFedguid && !targetHasFedguid)
+              assert(sourceNumAspects === 1 && targetNumAspects === 1,
+                `Expected External Source Aspects for Source Element and Target Element: 1-1, Received: ${sourceNumAspects}-${targetNumAspects}`
+              );
+            if (!sourceHasFedguid && !targetHasFedguid)
+              assert(sourceNumAspects === 2 && targetNumAspects === 1,
+                `Expected External Source Aspects for Source Element and Target Element: 2-1, Received: ${sourceNumAspects}-${targetNumAspects}`
+              );
+
+            // logical tests
+            const relHasFedguidProvenance = sourceHasFedguid && targetHasFedguid;
+            const expectedSourceAspectNum
+              = (sourceHasFedguid ? 1 : 0)
+              + (relHasFedguidProvenance ? 1 : 0);
+            const expectedTargetAspectNum = targetHasFedguid ? 1 : 0;
+
+            expect(sourceNumAspects).to.equal(expectedSourceAspectNum);
+            expect(targetNumAspects).to.equal(expectedTargetAspectNum);
+
+            await assertIdentityTransformation(transformerForkDb, noTransformerForkDb);
+          } finally {
+            sourceDb?.close();
+            transformerForkDb?.close();
+            noTransformerForkDb?.close();
+          }
         });
-
-        const sourceNumElem = noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length;
-        const targetNumElem = noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length;
-        if (targetHasFedguid && sourceHasFedguid)
-          assert(sourceNumElem === 0 && targetNumElem === 0, 
-            `Expected External Source Aspects for Source Element and Target Element: 0-0, Received: ${sourceNumElem}-${targetNumElem}`
-          );
-        if (!sourceHasFedguid && targetHasFedguid)
-          assert(sourceNumElem === 2 && targetNumElem === 0,
-            `Expected External Source Aspects for Source Element and Target Element: 2-0, Received: ${sourceNumElem}-${targetNumElem}`
-          );
-        if (sourceHasFedguid && !targetHasFedguid)
-          assert(sourceNumElem === 1 && targetNumElem === 1,
-            `Expected External Source Aspects for Source Element and Target Element: 1-1, Received: ${sourceNumElem}-${targetNumElem}`
-          );
-        if (!sourceHasFedguid && !targetHasFedguid)
-          assert(sourceNumElem === 2 && targetNumElem === 1,
-            `Expected External Source Aspects for Source Element and Target Element: 2-1, Received: ${sourceNumElem}-${targetNumElem}`
-          );
-      
-
-        assertIdentityTransformation(transformerForkDb, noTransformerForkDb);
-
-        sourceDb.close();
-        transformerForkDb.close();
-        noTransformerForkDb.close();
-      });
+        ++index;
+      }
     }
-    index ++;
   }
 });
 

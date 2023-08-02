@@ -23,9 +23,12 @@ export interface ProvenanceInitArgs {
   /**
    * insert Federation Guids in all lacking elements in the master database, which will prevent
    * needing to insert External Source Aspects for provenance tracking
-   * @note requires a read/write master, and will close your copy so you may have to reopen
+   * @note requires a read/write master
+   * @note closes both the master and branch iModels to reset caches, so you must reopen them.
+   *       If you pass `"keep-reopened-db"`, this object's `master` and `branch` properties will
+   *       be set to new, open databases.
    */
-  createFedGuidsForMaster?: boolean;
+  createFedGuidsForMaster?: true | false | "keep-reopened-db";
 }
 
 interface ProvenanceInitResult {
@@ -37,10 +40,6 @@ interface ProvenanceInitResult {
  */
 export async function initializeBranchProvenance(args: ProvenanceInitArgs): Promise<ProvenanceInitResult> {
   if (args.createFedGuidsForMaster) {
-    args.master.withSqliteStatement(
-      `ATTACH DATABASE '${args.branch.pathName}' AS branch`,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
-    );
     args.master.withSqliteStatement(`
         UPDATE bis_Element
         SET FederationGuid=randomblob(16)
@@ -49,13 +48,31 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       `,
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
+    // NOTE: unfortunately attached database tables may not be used in an update query
+    // Couple other possibilities to test:
+    // - create a temporary table in the main tablespace and copy everything there, then update from that
+    // - batch select in js, transform into sqlite syntax and batch the updates into less queries
     args.master.withSqliteStatement(`
-        UPDATE branch.bis_Element
-          SET FederationGuid=me.FederationGuid
-        FROM bis_Element me
-        WHERE me.Id=branch.bis_Element.Id
+        SELECT Id, FederationGuid
+        FROM bis_Element
+        WHERE Id NOT IN (0x1, 0xe, 0x10) -- ignore special elems
       `,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
+      (s1) => {
+        while (s1.step() === DbResult.BE_SQLITE_ROW) {
+          const id = s1.getValueId(0);
+          const fedGuid = s1.getValueBlob(1);
+          args.branch.withPreparedSqliteStatement(`
+            UPDATE bis_Element
+            SET FederationGuid=?
+            WHERE Id=?
+          `, (s2) => {
+              s2.bindBlob(1, fedGuid);
+              s2.bindId(2, id);
+              assert(s2.step() === DbResult.BE_SQLITE_DONE);
+            }
+          );
+        }
+      }
     );
 
     const reopenMaster = makeDbReopener(args.master);
@@ -88,12 +105,12 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   }, args.branch).insert();
 
   const fedGuidLessElemsSql = `
-    SELECT ECInstanceId AS id
+    SELECT ECInstanceId AS Id
     FROM Bis.Element
     WHERE FederationGuid IS NULL
-      AND ECInstanceId NOT IN (0x1, 0xe, 0x10) -- ignore special elems
+      AND ECInstanceId NOT IN (0x1, 0xe, 0x10) /* ignore special elems */
   `;
-  const elemReader = args.branch.createQueryReader(fedGuidLessElemsSql);
+  const elemReader = args.branch.createQueryReader(fedGuidLessElemsSql, undefined, { usePrimaryConn: true });
   while (await elemReader.step()) {
     const id: string = elemReader.current.toRow().id;
     const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
@@ -113,7 +130,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       ON te.ECInstanceId=erte.TargetECInstanceId
       WHERE se.FederationGuid IS NULL
       OR te.FederationGuid IS NULL`;
-  const relReader = args.branch.createQueryReader(fedGuidLessRelsSql);
+  const relReader = args.branch.createQueryReader(fedGuidLessRelsSql, undefined, { usePrimaryConn: true });
   while (await relReader.step()) {
     const id: string = relReader.current.toRow().id;
     const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(id, id, {
@@ -121,14 +138,15 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       targetScopeElementId: masterExternalSourceId,
       sourceDb: args.master,
       targetDb: args.branch,
-      forceOldRelationshipProvenanceMethod: false
+      forceOldRelationshipProvenanceMethod: false,
     });
     args.branch.elements.insertAspect(aspectProps);
   }
 
-  // prevent leak
-  if (args.createFedGuidsForMaster)
+  if (args.createFedGuidsForMaster === true) {
     args.master.close();
+    args.branch.close();
+  }
 
   return {
     targetScopeElementId: masterExternalSourceId,
