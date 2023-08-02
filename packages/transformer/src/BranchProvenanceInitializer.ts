@@ -37,29 +37,32 @@ interface ProvenanceInitResult {
  */
 export async function initializeBranchProvenance(args: ProvenanceInitArgs): Promise<ProvenanceInitResult> {
   if (args.createFedGuidsForMaster) {
-    // FIXME: elements in the cache could be wrong after this so need to purge cache somehow, maybe close the iModel
+    args.master.withSqliteStatement(
+      `ATTACH DATABASE '${args.branch.pathName}' AS branch`,
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
+    );
     args.master.withSqliteStatement(`
         UPDATE bis_Element
         SET FederationGuid=randomblob(16)
         WHERE FederationGuid IS NULL
           AND Id NOT IN (0x1, 0xe, 0x10) -- ignore special elems
       `,
-      (s) => {
-        assert(s.step() === DbResult.BE_SQLITE_DONE);
-      }
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
+    );
+    args.master.withSqliteStatement(`
+        UPDATE branch.bis_Element
+          SET FederationGuid=me.FederationGuid
+        FROM bis_Element me
+        WHERE me.Id=branch.bis_Element.Id
+      `,
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
 
-    const masterPath = args.master.pathName;
-    let reopenMaster: () => IModelDb | Promise<IModelDb>;
-    if (args.master instanceof BriefcaseDb)
-      reopenMaster = async () => BriefcaseDb.open({ fileName: masterPath });
-    else if (args.master instanceof StandaloneDb)
-      reopenMaster = () => StandaloneDb.openFile(masterPath);
-    else
-      assert(false, `master db type '${args.master.constructor.name}' not supported`);
-
+    const reopenMaster = makeDbReopener(args.master);
+    const reopenBranch = makeDbReopener(args.branch);
     args.master.close();
-    args.master = await reopenMaster();
+    args.branch.close();
+    [args.master, args.branch] = await Promise.all([reopenMaster(), reopenBranch()]);
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
@@ -85,25 +88,24 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   }, args.branch).insert();
 
   const fedGuidLessElemsSql = `
-    SELECT ECInstanceId
+    SELECT ECInstanceId AS id
     FROM Bis.Element
     WHERE FederationGuid IS NULL
       AND ECInstanceId NOT IN (0x1, 0xe, 0x10) -- ignore special elems
   `;
-  args.branch.withPreparedStatement(fedGuidLessElemsSql, (stmt) => {
-    while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-      const id = stmt.getValue(0).getId();
-      const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
-        isReverseSynchronization: false,
-        targetScopeElementId: masterExternalSourceId,
-        sourceDb: args.master,
-      });
-      args.branch.elements.insertAspect(aspectProps);
-    }
-  });
+  const elemReader = args.branch.createQueryReader(fedGuidLessElemsSql);
+  while (await elemReader.step()) {
+    const id: string = elemReader.current.toRow().id;
+    const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
+      isReverseSynchronization: false,
+      targetScopeElementId: masterExternalSourceId,
+      sourceDb: args.master,
+    });
+    args.branch.elements.insertAspect(aspectProps);
+  }
 
   const fedGuidLessRelsSql = `
-    SELECT erte.ECInstanceId
+    SELECT erte.ECInstanceId as id
     FROM Bis.ElementRefersToElements erte
     JOIN bis.Element se
       ON se.ECInstanceId=erte.SourceECInstanceId
@@ -111,20 +113,18 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       ON te.ECInstanceId=erte.TargetECInstanceId
       WHERE se.FederationGuid IS NULL
       OR te.FederationGuid IS NULL`;
-
-  args.branch.withPreparedStatement(fedGuidLessRelsSql, (stmt) => {
-    while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-      const id = stmt.getValue(0).getId();
-      const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(id, id, {
-        isReverseSynchronization: false,
-        targetScopeElementId: masterExternalSourceId,
-        sourceDb: args.master,
-        targetDb: args.branch,
-        forceOldRelationshipProvenanceMethod: false,
-      });
-      args.branch.elements.insertAspect(aspectProps);
-    }
-  });
+  const relReader = args.branch.createQueryReader(fedGuidLessRelsSql);
+  while (await relReader.step()) {
+    const id: string = relReader.current.toRow().id;
+    const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(id, id, {
+      isReverseSynchronization: false,
+      targetScopeElementId: masterExternalSourceId,
+      sourceDb: args.master,
+      targetDb: args.branch,
+      forceOldRelationshipProvenanceMethod: false
+    });
+    args.branch.elements.insertAspect(aspectProps);
+  }
 
   // prevent leak
   if (args.createFedGuidsForMaster)
@@ -133,5 +133,17 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   return {
     targetScopeElementId: masterExternalSourceId,
   };
+}
+
+function makeDbReopener(db: IModelDb) {
+  const dbPath = db.pathName;
+  let reopenDb: () => IModelDb | Promise<IModelDb>;
+  if (db instanceof BriefcaseDb)
+    reopenDb = async () => BriefcaseDb.open({ fileName: dbPath });
+  else if (db instanceof StandaloneDb)
+    reopenDb = () => StandaloneDb.openFile(dbPath);
+  else
+    assert(false, `db db type '${db.constructor.name}' not supported`);
+  return reopenDb;
 }
 
