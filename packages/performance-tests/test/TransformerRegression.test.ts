@@ -19,7 +19,7 @@ import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { Reporter } from "@itwin/perf-tools";
 import { ReporterInfo } from "./ReporterUtils";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
-import { TestTransformerModule } from "./TestTransformerNodule";
+import { TestTransformerModule } from "./TestTransformerModule";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
 import { getBranchName } from "./GitUtils";
@@ -46,12 +46,12 @@ const loadTransformers = async () => {
   const modulePaths = process.env.EXTRA_TRANSFORMERS?.split(",").map((name) => name.trim()).filter(Boolean) ?? [];
   const envSpecifiedExtraTransformerCases = await Promise.all(
     modulePaths.map(async (m) => [m, (await import(m)).default])
-  );
+  ) as [string, TestTransformerModule][];
   const transformerModules = new Map<string, TestTransformerModule>([
     ["NativeTransformer", nativeTransformerTestModule],
     ["RawForkOperations", rawForkOperationsTestModule],
     ["RawForkCreateFedGuids", rawForkCreateFedGuidsTestModule],
-    ...envSpecifiedExtraTransformerCases as [string, TestTransformerModule][],
+    ...envSpecifiedExtraTransformerCases,
   ]);
   return transformerModules;
 };

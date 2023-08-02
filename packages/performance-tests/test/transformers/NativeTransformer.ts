@@ -7,7 +7,7 @@ import { Code } from "@itwin/core-common";
 import { Element, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger } from "@itwin/core-bentley";
-import { TestTransformerModule, TransformRunner } from "../TestTransformerNodule";
+import { TestTransformerModule, TransformRunner } from "../TestTransformerModule";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 

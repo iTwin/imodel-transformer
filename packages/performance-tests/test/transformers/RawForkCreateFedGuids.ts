@@ -1,5 +1,5 @@
 import { initializeBranchProvenance } from "@itwin/imodel-transformer";
-import { TestTransformerModule, TransformRunner } from "../TestTransformerNodule";
+import { TestTransformerModule, TransformRunner } from "../TestTransformerModule";
 
 const rawForkCreateFedGuidsTestModule: TestTransformerModule = {
   async createForkInitTransform(sourceDb, targetDb): Promise<TransformRunner> {
