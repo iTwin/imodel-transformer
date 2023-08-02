@@ -14,7 +14,7 @@ interface InsertParams {
   categoryId: string;
 }
 
-describe.only("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
+describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
   // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)
   const sourceTargetFedGuidToAspectCountMap = new TupleKeyedMap([
     [[false, false, false], [2, 1]],
@@ -34,7 +34,7 @@ describe.only("compare imodels from BranchProvenanceInitializer and traditional 
   for (const sourceHasFedguid of [true, false]) {
     for (const targetHasFedguid of [true, false]) {
       for (const createFedGuidsForMaster of ["keep-reopened-db", false] as const) {
-        it.only(`branch provenance init with ${[
+        it(`branch provenance init with ${[
           sourceHasFedguid && "relSourceHasFedGuid",
           targetHasFedguid && "relTargetHasFedGuid",
           createFedGuidsForMaster && "createFedGuidsForMaster",
