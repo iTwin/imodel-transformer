@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, DefinitionContainer, DefinitionModel, DefinitionPartition, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject,
+  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject, SubjectOwnsPartitionElements,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementProps, IModel, IModelVersion, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, DefinitionElementProps, ElementProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -214,11 +214,11 @@ describe("IModelTransformerHub", () => {
         // expect some deletes from updateDb
         assert.isAtLeast(sourceDbChanges.element.deleteIds.size, 1);
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 1);
+        assert.equal(sourceDbChanges.model.deleteIds.size, 1);
         // don't expect other changes from updateDb
         assert.equal(sourceDbChanges.codeSpec.updateIds.size, 0);
         assert.equal(sourceDbChanges.codeSpec.deleteIds.size, 0);
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
-        assert.equal(sourceDbChanges.model.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
         await transformer.processChanges({ accessToken });
@@ -250,10 +250,10 @@ describe("IModelTransformerHub", () => {
         assert.isAtLeast(targetDbChanges.element.deleteIds.size, 1);
         assert.isAtLeast(targetDbChanges.aspect.deleteIds.size, 1);
         assert.equal(targetDbChanges.relationship.deleteIds.size, 1);
+        assert.equal(targetDbChanges.model.deleteIds.size, 1);
         // don't expect other changes from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.updateIds.size, 0);
         assert.equal(targetDbChanges.codeSpec.deleteIds.size, 0);
-        assert.equal(targetDbChanges.model.deleteIds.size, 0);
       }
 
       const sourceIModelChangeSets = await IModelHost.hubAccess.queryChangesets({ accessToken, iModelId: sourceIModelId });
@@ -853,6 +853,76 @@ describe("IModelTransformerHub", () => {
 
     expect(branch.db.elements.tryGetElement(spatialViewDef!.code)).to.be.undefined;
     expect(branch.db.elements.tryGetElement(displayStyle!.code)).to.be.undefined;
+
+    await tearDown();
+    sinon.restore();
+  });
+
+  it("should delete definition elements and models when processing changes", async () => {
+    let definitionPartitionId1: string;
+    let definitionModelId1: string;
+    let definitionContainerId1: string;
+    let definitionModelId2: string;
+
+    const timeline: Timeline = {
+      0: {
+        master: {
+          manualUpdate(db) {
+            const definitionPartitionProps1: InformationPartitionElementProps = {
+              classFullName: DefinitionPartition.classFullName,
+              model: IModel.repositoryModelId,
+              parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+              code: Code.createEmpty(),
+            };
+            definitionPartitionId1 = db.elements.insertElement(definitionPartitionProps1);
+
+            const definitionModelProps1: ModelProps = {
+              classFullName: DefinitionModel.classFullName,
+              modeledElement: { id: definitionPartitionId1 },
+              parentModel: IModel.repositoryModelId,
+            };
+            definitionModelId1 = db.models.insertModel(definitionModelProps1);
+
+            const definitionContainerProps1: DefinitionElementProps = {
+              classFullName: DefinitionContainer.classFullName,
+              model: definitionModelId1,
+              code: Code.createEmpty(),
+            };
+            definitionContainerId1 = db.elements.insertElement(definitionContainerProps1);
+
+            const definitionModelProps2: ModelProps = {
+              classFullName: DefinitionModel.classFullName,
+              modeledElement: { id: definitionContainerId1 },
+              parentModel: definitionModelId1,
+            };
+            definitionModelId2 = db.models.insertModel(definitionModelProps2);
+          },
+        },
+      },
+      1: { branch: { branch: "master" } },
+      2: {
+        master: {
+          manualUpdate(db) {
+            db.models.deleteModel(definitionModelId2);
+            db.models.deleteModel(definitionModelId1);
+          },
+        },
+      },
+      3: { branch: { sync: ["master", 2] } },
+    };
+
+    const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+
+    const master = trackedIModels.get("master")!;
+    const branch = trackedIModels.get("branch")!;
+
+    expect(master.db.models.tryGetModel(definitionModelId2!)).to.be.undefined;
+    expect(master.db.elements.tryGetElement(definitionContainerId1!)).to.be.undefined;
+    expect(master.db.models.tryGetModel(definitionModelId1!)).to.be.undefined;
+
+    expect(branch.db.models.tryGetModel(definitionModelId2!)).to.be.undefined;
+    expect(branch.db.elements.tryGetElement(definitionContainerId1!)).to.be.undefined;
+    expect(branch.db.models.tryGetModel(definitionModelId1!)).to.be.undefined;
 
     await tearDown();
     sinon.restore();

@@ -983,8 +983,37 @@ export class IModelTransformer extends IModelExportHandler {
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceElements]] will find and remap the deleted element making this operation valid
     const targetModelId: Id64String = this.context.findTargetElementId(sourceModelId);
-    if (Id64.isValidId64(targetModelId)) {
-      this.importer.deleteModel(targetModelId);
+    try {
+      if (Id64.isValidId64(targetModelId)) {
+        if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
+          const targetPartitionElement = this.targetDb.elements.tryGetElement(targetModelId);
+          const isDefinitionPartition = targetPartitionElement && targetPartitionElement instanceof DefinitionPartition;
+          if (isDefinitionPartition) {
+            // Skipping model deletion because model's partition will also be deleted.
+            // It expects that model will be present and will fail if it's missing.
+            // Model will be deleted when its partition will be deleted.
+            return;
+          }
+        }
+        this.importer.deleteModel(targetModelId);
+      }
+    } catch (error) {
+      const isDeletionProhibitedErr = error instanceof IModelError && (error.errorNumber === IModelStatus.DeletionProhibited || error.errorNumber === IModelStatus.ForeignKeyConstraint);
+      if (!isDeletionProhibitedErr)
+        throw error;
+
+      // Transformer tries to delete models before it deletes elements. Definition models cannot be deleted unless all of their modeled elements are deleted first.
+      // In case a definition model needs to be deleted we need to skip it for now and register its modeled partition for deletion.
+      // The `OnDeleteElement` calls `DeleteElementTree` Which deletes the model together with its partition after deleting all of the modeled elements.
+      this.scheduleModeledPartitionDeletion(sourceModelId);
+    }
+  }
+
+  /** Schedule modeled partition deletion */
+  private scheduleModeledPartitionDeletion(sourceModelId: Id64String): void {
+    const deletedElements = this.exporter.sourceDbChanges?.element.deleteIds as Set<Id64String>;
+    if (!deletedElements.has(sourceModelId)) {
+      deletedElements.add(sourceModelId);
     }
   }
 

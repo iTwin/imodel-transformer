@@ -194,7 +194,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 1);
       assert.equal(targetImporter.numElementsUpdated, 5);
-      assert.equal(targetImporter.numElementsDeleted, 3);
+      assert.equal(targetImporter.numElementsDeleted, 4);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 2);
       assert.equal(targetImporter.numRelationshipsInserted, 2);
@@ -264,7 +264,7 @@ describe("IModelTransformer", () => {
     branchToMasterTransformer.dispose();
     masterDb.saveChanges();
     TransformerExtensiveTestScenario.assertUpdatesInDb(masterDb, false);
-    assert.equal(numBranchElements, count(masterDb, Element.classFullName) - 4); // processAll cannot detect deletes when isReverseSynchronization=true
+    assert.equal(numBranchElements, count(masterDb, Element.classFullName) - 5); // processAll cannot detect deletes when isReverseSynchronization=true
     assert.equal(numBranchRelationships, count(masterDb, ElementRefersToElements.classFullName) - 1); // processAll cannot detect deletes when isReverseSynchronization=true
     assert.equal(0, count(masterDb, ExternalSourceAspect.classFullName));
 
