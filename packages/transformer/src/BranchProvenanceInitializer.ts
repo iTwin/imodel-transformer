@@ -31,8 +31,13 @@ export interface ProvenanceInitArgs {
   createFedGuidsForMaster?: true | false | "keep-reopened-db";
 }
 
-interface ProvenanceInitResult {
+/**
+ * @alpha
+ */
+export interface ProvenanceInitResult {
   targetScopeElementId: Id64String;
+  masterExternalSourceId: Id64String;
+  masterRepositoryLinkId: Id64String;
 }
 
 /**
@@ -83,7 +88,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterLinkRepoId = new RepositoryLink({
+  const masterRepoLinkId = new RepositoryLink({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(args.branch, IModelDb.repositoryModelId, "example-code-value"),
     model: IModelDb.repositoryModelId,
@@ -97,7 +102,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
-    repository: new ExternalSourceIsInRepository(masterLinkRepoId),
+    repository: new ExternalSourceIsInRepository(masterRepoLinkId),
     /* eslint-disable @typescript-eslint/no-var-requires */
     connectorName: require("../../package.json").name,
     connectorVersion: require("../../package.json").version,
@@ -105,7 +110,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   }, args.branch).insert();
 
   const fedGuidLessElemsSql = `
-    SELECT ECInstanceId AS Id
+    SELECT ECInstanceId AS id
     FROM Bis.Element
     WHERE FederationGuid IS NULL
       AND ECInstanceId NOT IN (0x1, 0xe, 0x10) /* ignore special elems */
@@ -150,6 +155,8 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
 
   return {
     targetScopeElementId: masterExternalSourceId,
+    masterExternalSourceId,
+    masterRepositoryLinkId: masterRepoLinkId,
   };
 }
 
