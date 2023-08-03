@@ -8,12 +8,6 @@ import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
 import { expect } from "chai";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 
-interface InsertParams {
-  db: StandaloneDb;
-  physModelId: string;
-  categoryId: string;
-}
-
 describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
   // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)
   const sourceTargetFedGuidToAspectCountMap = new TupleKeyedMap([
@@ -49,29 +43,62 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           try {
             const suffixName = (s: string) => `${s}_${sourceHasFedguid ? "S" : "_"}${targetHasFedguid ? "T" : "_"}${createFedGuidsForMaster ? "C" : "_"}.bim`;
             const sourceFileName = suffixName("ProvInitSource");
-            const generatedIModel = generateEmptyIModel(sourceFileName);
-
-            const sourceElem = insertElementToImodel(generatedIModel, sourceHasFedguid, index);
-            const targetElem = insertElementToImodel(generatedIModel, targetHasFedguid, index);
+            // const generatedIModel = generateIModel(sourceFileName, sourceHasFedguid, targetHasFedguid);
+            const sourcePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", sourceFileName);
+            if (fs.existsSync(sourcePath))
+              fs.unlinkSync(sourcePath);
+          
+            const generatedIModel = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: sourceFileName }});
+          
+            const physModelId = PhysicalModel.insert(generatedIModel, IModelDb.rootSubjectId, "physical model");
+            const categoryId = SpatialCategory.insert(generatedIModel, IModelDb.dictionaryId, "spatial category", {});
+          
+            const baseProps = {
+              classFullName: PhysicalObject.classFullName,
+              category: categoryId,
+              geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+              placement: {
+                origin: Point3d.create(1, 1, 1),
+                angles: YawPitchRollAngles.createDegrees(1, 1, 1),
+              },
+              model: physModelId,
+            };
+            
+            const sourceFedGuid = sourceHasFedguid ? undefined : Guid.empty;
+            const sourceElem = new PhysicalObject({
+              ...baseProps,
+              code: Code.createEmpty(),
+              federationGuid: sourceFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
+            }, generatedIModel).insert();
+          
+            const targetFedGuid = targetHasFedguid ? undefined : Guid.empty;
+            const targetElem = new PhysicalObject({
+              ...baseProps,
+              code: Code.createEmpty(),
+              federationGuid: targetFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
+            }, generatedIModel).insert();
+          
+            generatedIModel.saveChanges();
+          
             const rel = new ElementGroupsMembers({
               classFullName: ElementGroupsMembers.classFullName,
               sourceId: sourceElem,
               targetId: targetElem,
               memberPriority: 1,
-            }, generatedIModel.db);
+            }, generatedIModel);
             rel.insert();
-            generatedIModel.db.saveChanges();
-            generatedIModel.db.performCheckpoint();
+            generatedIModel.saveChanges();
+            generatedIModel.performCheckpoint();
 
             const transformerMasterPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", suffixName("TransformerMaster"));
             const transformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", suffixName("TransformerFork.bim"));
             const noTransformerMasterPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", suffixName("NoTransformerMaster"));
             const noTransformerForkPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", suffixName("NoTransformerFork"));
             await Promise.all([
-              fs.promises.copyFile(generatedIModel.db.pathName, transformerForkPath),
-              fs.promises.copyFile(generatedIModel.db.pathName, transformerMasterPath),
-              fs.promises.copyFile(generatedIModel.db.pathName, noTransformerForkPath),
-              fs.promises.copyFile(generatedIModel.db.pathName, noTransformerMasterPath),
+              fs.promises.copyFile(generatedIModel.pathName, transformerForkPath),
+              fs.promises.copyFile(generatedIModel.pathName, transformerMasterPath),
+              fs.promises.copyFile(generatedIModel.pathName, noTransformerForkPath),
+              fs.promises.copyFile(generatedIModel.pathName, noTransformerMasterPath),
             ]);
             setToStandalone(transformerForkPath);
             setToStandalone(transformerMasterPath);
@@ -147,7 +174,6 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             noTransformerForkDb?.close();
           }
         });
-        ++index;
       }
     }
   }
@@ -210,7 +236,7 @@ function setToStandalone(iModelName: string) {
   nativeDb.closeIModel();
 }
 
-export function generateEmptyIModel(fileName: string): InsertParams {
+export function generateIModel(fileName: string, sourceHasFedGuid: boolean, targetHasFedGuid: boolean): StandaloneDb {
   const sourcePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", fileName);
   if (fs.existsSync(sourcePath))
     fs.unlinkSync(sourcePath);
@@ -220,29 +246,42 @@ export function generateEmptyIModel(fileName: string): InsertParams {
   const physModelId = PhysicalModel.insert(db, IModelDb.rootSubjectId, "physical model");
   const categoryId = SpatialCategory.insert(db, IModelDb.dictionaryId, "spatial category", {});
 
-  return {
-    db,
-    physModelId,
-    categoryId,
-  };
-}
-
-function insertElementToImodel(insertData: InsertParams, withFedGuid: boolean, index: number): string {
-  const fedGuid = withFedGuid ? undefined : Guid.empty;
-  const elem = new PhysicalObject({
+  const baseProps = {
     classFullName: PhysicalObject.classFullName,
-    category: insertData.categoryId,
+    category: categoryId,
     geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
     placement: {
       origin: Point3d.create(1, 1, 1),
       angles: YawPitchRollAngles.createDegrees(1, 1, 1),
     },
-    model: insertData.physModelId,
-    code: Code.createEmpty(),
-    userLabel: `${2*index}`,
-    federationGuid: fedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
-  }, insertData.db).insert();
+    model: physModelId,
+  };
 
-  insertData.db.saveChanges();
-  return elem;
+  const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
+  const sourceElem = new PhysicalObject({
+    ...baseProps,
+    code: Code.createEmpty(),
+    federationGuid: sourceFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
+  }, db).insert();
+
+  const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
+  const targetElem = new PhysicalObject({
+    ...baseProps,
+    code: Code.createEmpty(),
+    federationGuid: targetFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
+  }, db).insert();
+
+  db.saveChanges();
+
+  const rel = new ElementGroupsMembers({
+    classFullName: ElementGroupsMembers.classFullName,
+    sourceId: sourceElem,
+    targetId: targetElem,
+    memberPriority: 1,
+  }, db);
+  rel.insert();
+  db.saveChanges();
+  db.performCheckpoint();
+
+  return db;
 }
