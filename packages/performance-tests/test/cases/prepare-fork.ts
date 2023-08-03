@@ -43,6 +43,7 @@ export default async function prepareFork(context: TestCaseContext) {
     const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "fork-test-schemas-dump-"));
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
+    throw err;
   } finally {
     addReport(
       "Prepare Fork",
