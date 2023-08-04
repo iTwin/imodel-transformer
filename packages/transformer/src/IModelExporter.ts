@@ -12,7 +12,7 @@ import {
   IModelHost, IModelJsNative, Model, RecipeDefinitionElement, Relationship,
 } from "@itwin/core-backend";
 import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
-import { ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
+import { ChangesetIndexOrId, CodeSpec, ElementAspectProps, FontProps, IModel, IModelError, QueryBinder, QueryRowFormat } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type { InitFromExternalSourceAspectsArgs } from "./IModelTransformer";
@@ -119,6 +119,14 @@ export abstract class IModelExportHandler {
    * @note This should be overridden to actually do the export.
    */
   public onExportElementMultiAspects(_aspects: ElementMultiAspect[]): void { }
+
+  public onExportElementMultiAspect(_aspects: ElementMultiAspect): void { }
+
+  public onExportElementAspect(_sourceElementAspect: ElementAspect) {}
+
+  public preExportElementAspects(_elementId: Id64String): void {}
+
+  public shouldExportElementAspects(_elementId: Id64String): boolean { return true; }
 
   /** If `true` is returned, then the relationship will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
@@ -560,6 +568,10 @@ export class IModelExporter {
         statement.bindId("rootSubjectId", IModel.rootSubjectId);
       }
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
+        if(statement.getValue(0).getId() === "0x2d"){
+          // eslint-disable-next-line no-console
+          console.log("elementId");
+        }
         await this.exportElement(statement.getValue(0).getId());
         await this._yieldManager.allowYield();
       }
@@ -628,6 +640,10 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportElement(elementId: Id64String): Promise<void> {
+    if(elementId === "0x2d"){
+      // eslint-disable-next-line no-console
+      console.log("elementId");
+    }
     if (!this.visitElements) {
       Logger.logTrace(loggerCategory, `visitElements=false, skipping exportElement(${elementId})`);
       return;
@@ -651,7 +667,10 @@ export class IModelExporter {
       await this.handler.preExportElement(element);
       this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
-      await this.exportElementAspects(elementId);
+      if (this.handler.shouldExportElementAspects(elementId)) {
+        this.handler.preExportElementAspects(elementId);
+        await this.exportElementAspects(elementId);
+      }
       return this.exportChildElements(elementId);
     } else {
       this.handler.onSkipElement(element.id);
@@ -689,7 +708,7 @@ export class IModelExporter {
 
   /** Export ElementAspects from the specified element from the source iModel. */
   private async exportElementAspects(elementId: Id64String): Promise<void> {
-    const _uniqueAspects = await Promise.all(this.sourceDb.elements
+    await Promise.all(this.sourceDb.elements
       ._queryAspects(elementId, ElementUniqueAspect.classFullName, this._excludedElementAspectClassFullNames)
       .filter((a) => this.shouldExportElementAspect(a))
       .map(async (uniqueAspect: ElementUniqueAspect) => {
@@ -703,13 +722,74 @@ export class IModelExporter {
         }
       }));
 
-    const multiAspects = this.sourceDb.elements
-      ._queryAspects(elementId, ElementMultiAspect.classFullName, this._excludedElementAspectClassFullNames)
-      .filter((a) => this.shouldExportElementAspect(a));
+    // const multiAspects = this.sourceDb.elements
+    //   ._queryAspects(elementId, ElementMultiAspect.classFullName, this._excludedElementAspectClassFullNames)
+    //   .filter((a) => this.shouldExportElementAspect(a));
+    // if (multiAspects.length > 0) {
+    //   this.handler.onExportElementMultiAspects(multiAspects);
+    //   return this.trackProgress();
+    // }
 
-    if (multiAspects.length > 0) {
-      this.handler.onExportElementMultiAspects(multiAspects);
-      return this.trackProgress();
+    const aspectClassNameIdMap = new Map<string, Id64String> ();
+    // const sql = `SELECT DISTINCT ECClassId as clId, (ec_classname(ECClassId)) as clname FROM ${ElementMultiAspect.classFullName} WHERE Element.Id=:elementId`;
+    this.sourceDb.withPreparedStatement(`SELECT DISTINCT ECClassId as clId, (ec_classname(ECClassId)) as clname FROM ${ElementMultiAspect.classFullName} WHERE Element.Id=:elementId`, (stmt) => {
+      stmt.bindId("elementId", elementId);
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        aspectClassNameIdMap.set(stmt.getValue(1).getString(), stmt.getValue(0).getId());
+      }
+    });
+
+    if(aspectClassNameIdMap.size === 0){
+      return;
+    }
+
+    // this._handler?.preExportElementAspects(elementId);
+    for (const [className, classId] of aspectClassNameIdMap){
+      if(this._excludedElementAspectClassFullNames.has(className)){
+        continue;
+      }
+      const sql = `SELECT * FROM ${className} WHERE Element.id=:elementId AND ECClassId=:classId`;
+      const queryReader = this.sourceDb.query(sql, new QueryBinder().bindId("elementId", elementId).bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      // const queryReader22 = this.sourceDb.createQueryReader(sql, new QueryBinder().bindId("elementId", elementId).bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      // const metadata = await queryReader22.getMetaData();
+      // metadata;
+      for await (const rawAspectProps of queryReader) {
+        const aspectProps: ElementAspectProps = { ...rawAspectProps, classFullName: className }; // add in property required by EntityProps
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (aspectProps as any).className = undefined; // clear property from SELECT * that we don't want in the final instance
+        const elementAspectEntity = this.sourceDb.constructEntity<ElementAspect>(aspectProps);
+        if (this.shouldExportElementAspect(elementAspectEntity)) {
+          this.handler.onExportElementMultiAspect(elementAspectEntity);
+          await this.trackProgress();
+        }
+      }
+    }
+  }
+
+  public async exportAspects(): Promise<void> {
+    const aspectClassNameIdMap = new Map<string, Id64String>();
+    const sql = `SELECT DISTINCT ECClassId as clId, (ec_classname(ECClassId)) as clname FROM ${ElementAspect.classFullName}`;
+    this.sourceDb.withPreparedStatement(sql, (statement) => {
+      while (DbResult.BE_SQLITE_ROW === statement.step()) {
+        aspectClassNameIdMap.set(statement.getValue(1).getString(), statement.getValue(0).getId());
+      }
+    });
+
+    for (const [className, classId] of aspectClassNameIdMap) {
+      if(this._excludedElementAspectClassFullNames.has(className))
+        continue;
+
+      const sql2 = `SELECT * FROM ${className} WHERE ECClassId = :classId ORDER BY Element.Id`;
+      const queryReader = this.sourceDb.query(sql2, new QueryBinder().bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      for await (const rawAspectProps of queryReader) {
+        const aspectProps: ElementAspectProps = { ...rawAspectProps, classFullName: rawAspectProps.className.replace(".", ":") }; // add in property required by EntityProps
+        (aspectProps as any).className = undefined; // clear property from SELECT * that we don't want in the final instance
+        const aspectEntity = this.sourceDb.constructEntity<ElementAspect>(aspectProps);
+        if (this.handler.shouldExportElementAspect(aspectEntity)) {
+          this.handler.onExportElementAspect(aspectEntity);
+        }
+        await this.trackProgress();
+      }
     }
   }
 

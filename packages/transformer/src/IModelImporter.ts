@@ -382,6 +382,16 @@ export class IModelImporter implements Required<IModelImportOptions> {
     return result as Id64String[];
   }
 
+  public importElementMultiAspect(
+    aspectProps: ElementAspectProps
+  ): Id64String {
+    if (aspectProps.id) {
+      this.onUpdateElementAspect(aspectProps);
+      return aspectProps.id;
+    }
+    return this.onInsertElementAspect(aspectProps);
+  }
+
   /** Insert the ElementAspect into the target iModel.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElementAspect`.
    */

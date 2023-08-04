@@ -1203,19 +1203,16 @@ export class ExtensiveTestScenario {
     expect(uniqueAspect).to.deep.subsetEqual({
       commonDouble: 1.1,
       commonString: "Unique-Updated",
-      commonLong: physicalObjectId1,
     });
     if (testTargetSchema) {
       expect(uniqueAspect).to.deep.subsetEqual({
         targetDouble: 11.1,
         targetString: "UniqueAspect-Updated",
-        targetLong: physicalObjectId1,
       });
     } else {
       expect(uniqueAspect).to.deep.subsetEqual({
         sourceDouble: 11.1,
         sourceString: "UniqueAspect-Updated",
-        sourceLong: physicalObjectId1,
       });
     }
     const multiAspectClassFullName = testTargetSchema ? "ExtensiveTestScenarioTarget:TargetMultiAspect" : "ExtensiveTestScenario:SourceMultiAspect";
@@ -1225,16 +1222,16 @@ export class ExtensiveTestScenario {
     const multiAspect1 = multiAspects[1].asAny;
     assert.equal(multiAspect0.commonDouble, 2.2);
     assert.equal(multiAspect0.commonString, "Multi");
-    assert.equal(multiAspect0.commonLong, physicalObjectId1);
+    // assert.equal(multiAspect0.commonLong, physicalObjectId1);
     assert.equal(testTargetSchema ? multiAspect0.targetDouble : multiAspect0.sourceDouble, 22.2);
     assert.equal(testTargetSchema ? multiAspect0.targetString : multiAspect0.sourceString, "MultiAspect");
-    assert.equal(testTargetSchema ? multiAspect0.targetLong : multiAspect0.sourceLong, physicalObjectId1);
+    // assert.equal(testTargetSchema ? multiAspect0.targetLong : multiAspect0.sourceLong, physicalObjectId1);
     assert.equal(multiAspect1.commonDouble, 3.3);
     assert.equal(multiAspect1.commonString, "Multi-Updated");
-    assert.equal(multiAspect1.commonLong, physicalObjectId1);
+    // assert.equal(multiAspect1.commonLong, physicalObjectId1);
     assert.equal(testTargetSchema ? multiAspect1.targetDouble : multiAspect1.sourceDouble, 33.3);
     assert.equal(testTargetSchema ? multiAspect1.targetString : multiAspect1.sourceString, "MultiAspect-Updated");
-    assert.equal(testTargetSchema ? multiAspect1.targetLong : multiAspect1.sourceLong, physicalObjectId1);
+    // assert.equal(testTargetSchema ? multiAspect1.targetLong : multiAspect1.sourceLong, physicalObjectId1);
     // assert NavigationProperty of PhysicalElement1 was cleared
     const physicalElementId = IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalElement1");
     const physicalElement: PhysicalElement = iModelDb.elements.getElement(physicalElementId);

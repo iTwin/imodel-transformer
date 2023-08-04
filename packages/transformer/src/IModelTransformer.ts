@@ -148,6 +148,8 @@ export interface IModelTransformOptions {
    * @beta
    */
   optimizeGeometry?: OptimizeGeometryOptions;
+
+  detachAspectProcessing?: boolean;
 }
 
 /**
@@ -1182,6 +1184,11 @@ export class IModelTransformer extends IModelExportHandler {
     return targetRelationshipProps;
   }
 
+  // TODO: this will only be called when processing aspects for each element separately.
+  public override shouldExportElementAspects(_elementId: Id64String): boolean {
+    return !this._options.detachAspectProcessing;
+  }
+
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElementAspect]] and then [IModelImporter.importElementUniqueAspect]($transformer) to update the target iModel.
    */
@@ -1192,6 +1199,36 @@ export class IModelTransformer extends IModelExportHandler {
     const targetId = this.importer.importElementUniqueAspect(targetAspectProps);
     this.context.remapElementAspect(sourceAspect.id, targetId);
     this.resolvePendingReferences(sourceAspect);
+  }
+
+  private preExportAspects(): void {
+    const targetElementAspects = this.targetDb.withPreparedStatement(`SELECT EcInstanceId FROM ${ElementAspect.classFullName} WHERE ECInstanceId NOT IN (SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName} WHERE Scope.id=:targetScopeElementId) AND ECInstanceId NOT IN (SELECT ECInstanceId FROM BisCore:TextAnnotationData)`, (stmt) => {
+    //   stmt.bindId("elementId", targetElementId);
+      stmt.bindId("targetScopeElementId", this.targetScopeElementId);
+      const aspects: Id64String[] = [];
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        aspects.push(stmt.getValue(0).getId());
+      }
+      return aspects;
+    });
+
+    this.targetDb.elements.deleteAspect(targetElementAspects);
+  }
+
+  public override preExportElementAspects(elementId: Id64String): void {
+    const targetElementId = this.context.findTargetElementId(elementId);
+
+    const targetElementAspects = this.targetDb.withPreparedStatement(`SELECT EcInstanceId FROM ${ElementMultiAspect.classFullName} WHERE Element.Id = :elementId AND ECInstanceId NOT IN (SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName} WHERE Element.Id = :elementId AND Scope.id=:targetScopeElementId)`, (stmt) => {
+      stmt.bindId("elementId", targetElementId);
+      stmt.bindId("targetScopeElementId", this.targetScopeElementId);
+      const aspects: Id64String[] = [];
+      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+        aspects.push(stmt.getValue(0).getId());
+      }
+      return aspects;
+    });
+
+    this.targetDb.elements.deleteAspect(targetElementAspects);
   }
 
   /** Override of [IModelExportHandler.onExportElementMultiAspects]($transformer) that imports ElementMultiAspects into the target iModel when they are exported from the source iModel.
@@ -1211,6 +1248,37 @@ export class IModelTransformer extends IModelExportHandler {
     for (let i = 0; i < targetIds.length; ++i) {
       this.context.remapElementAspect(sourceAspects[i].id, targetIds[i]);
       this.resolvePendingReferences(sourceAspects[i]);
+    }
+  }
+
+  public override onExportElementMultiAspect(sourceAspect: ElementMultiAspect): void {
+    const targetElementId: Id64String = this.context.findTargetElementId(sourceAspect.element.id);
+    // Transform source ElementMultiAspects into target ElementAspectProps
+    const targetAspectProps = this.onTransformElementAspect(sourceAspect, targetElementId);
+    this.collectUnmappedReferences(sourceAspect);
+
+    const isExternalSourceAspectFromTransformer = sourceAspect instanceof ExternalSourceAspect && (targetAspectProps as ExternalSourceAspectProps).scope?.id === this.targetScopeElementId;
+    if (!this._options.includeSourceProvenance || !isExternalSourceAspectFromTransformer) {
+      const aspectId = this.importer.importElementMultiAspect(targetAspectProps);
+      this.context.remapElementAspect(sourceAspect.id, aspectId);
+      this.resolvePendingReferences(sourceAspect);
+    }
+  }
+
+  public override onExportElementAspect(sourceElementAspect: ElementAspect) {
+    const targetElementId: Id64String = this.context.findTargetElementId(sourceElementAspect.element.id);
+    // Transform source ElementMultiAspects into target ElementAspectProps
+    const targetAspectProps = this.onTransformElementAspect(sourceElementAspect, targetElementId);
+    this.collectUnmappedReferences(sourceElementAspect);
+
+    const isExternalSourceAspectFromTransformer = sourceElementAspect instanceof ExternalSourceAspect && (targetAspectProps as ExternalSourceAspectProps).scope?.id === this.targetScopeElementId;
+    if (!this._options.includeSourceProvenance || !isExternalSourceAspectFromTransformer) {
+      if (sourceElementAspect instanceof ElementUniqueAspect) {
+        this.context.remapElementAspect(sourceElementAspect.id, this.importer.importElementUniqueAspect(targetAspectProps));
+      } else {
+        this.context.remapElementAspect(sourceElementAspect.id, this.importer.importElementMultiAspect(targetAspectProps));
+      }
+      this.resolvePendingReferences(sourceElementAspect);
     }
   }
 
@@ -1375,6 +1443,7 @@ export class IModelTransformer extends IModelExportHandler {
  * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
  */
   public async processAll(): Promise<void> {
+    this._options.detachAspectProcessing = true;
     Logger.logTrace(loggerCategory, "processAll()");
     this.logSettings();
     this.validateScopeProvenance();
@@ -1386,6 +1455,10 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportModelContents(IModel.repositoryModelId, Element.classFullName, true); // after the Subject hierarchy, process the other elements of the RepositoryModel
     await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
     await this.exporter.exportRelationships(ElementRefersToElements.classFullName);
+    if(this._options.detachAspectProcessing) {
+      this.preExportAspects();
+      await this.exporter.exportAspects();
+    }
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
     if (this.shouldDetectDeletes()) {
       await this.detectElementDeletes();

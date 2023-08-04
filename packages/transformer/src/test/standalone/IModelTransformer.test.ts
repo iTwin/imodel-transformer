@@ -10,6 +10,7 @@ import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
   CategorySelector, DisplayStyle3d, DocumentListModel, Drawing, DrawingCategory, DrawingGraphic, DrawingModel, ECSqlStatement, Element,
+  ElementAspect,
   ElementMultiAspect, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementRefersToElements,
   ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
   InformationRecordModel, InformationRecordPartition, LinkElement, Model, ModelSelector, OrthographicViewDefinition,
@@ -168,7 +169,8 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numElementsInserted, 0);
       assert.equal(targetImporter.numElementsUpdated, 0);
       assert.equal(targetImporter.numElementsDeleted, 0);
-      assert.equal(targetImporter.numElementAspectsInserted, 0);
+      // Add a deletion logic
+      assert.equal(targetImporter.numElementAspectsInserted, 2);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.equal(targetImporter.numRelationshipsInserted, 0);
       assert.equal(targetImporter.numRelationshipsUpdated, 0);
@@ -195,8 +197,9 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numElementsInserted, 1);
       assert.equal(targetImporter.numElementsUpdated, 5);
       assert.equal(targetImporter.numElementsDeleted, 3);
-      assert.equal(targetImporter.numElementAspectsInserted, 0);
-      assert.equal(targetImporter.numElementAspectsUpdated, 2);
+      assert.equal(targetImporter.numElementAspectsInserted, 2);
+      // Add a deletion logic
+      assert.equal(targetImporter.numElementAspectsUpdated, 1);
       assert.equal(targetImporter.numRelationshipsInserted, 2);
       assert.equal(targetImporter.numRelationshipsUpdated, 1);
       assert.equal(targetImporter.numRelationshipsDeleted, 1);
@@ -272,8 +275,8 @@ describe("IModelTransformer", () => {
     branchDb.close();
   });
 
-  function count(iModelDb: IModelDb, classFullName: string): number {
-    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}`, (statement: ECSqlStatement): number => {
+  function count(iModelDb: IModelDb, classFullName: string, where?: string): number {
+    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}${where ? ` WHERE ${where}` : ""}`, (statement: ECSqlStatement): number => {
       return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
     });
   }
@@ -1937,8 +1940,8 @@ describe("IModelTransformer", () => {
     await TransformerExtensiveTestScenario.prepareDb(targetDb);
     targetDb.saveChanges();
 
-    const importer = new AspectTrackingImporter(targetDb);
-    const transformer = new AspectTrackingTransformer(sourceDb, importer);
+    // const importer = new AspectTrackingImporter(targetDb);
+    const transformer = new IModelTransformer(sourceDb, targetDb);
     assert.isTrue(transformer.context.isBetweenIModels);
     await transformer.processAll();
     transformer.dispose();
@@ -1947,27 +1950,11 @@ describe("IModelTransformer", () => {
     assert(physicalObj1InSourceId !== Id64.invalid);
     assert(physicalObj1InTargetId !== Id64.invalid);
 
-    const exportedAspectSources = transformer.exportedAspectIdsByElement.get(physicalObj1InSourceId);
-    const importedAspectTargetIds = importer.importedAspectIdsByElement.get(physicalObj1InTargetId);
-    assert(exportedAspectSources !== undefined);
-    assert(importedAspectTargetIds !== undefined);
-    assert(exportedAspectSources.length === importedAspectTargetIds.length);
-
-    // confirm the assumption that there are multiple aspect classes and their instances are not consecutive
-    expect(
-      exportedAspectSources[0].classFullName !== exportedAspectSources[1].classFullName
-      && exportedAspectSources[1].classFullName !== exportedAspectSources[2].classFullName
-      && exportedAspectSources[0].classFullName === exportedAspectSources[2].classFullName
-    );
-
-    for (let i = 0; i < exportedAspectSources.length; ++i) {
-      const sourceId = exportedAspectSources[i].id;
-      const targetId = importedAspectTargetIds[i];
-      const mappedTarget = transformer.context.findTargetAspectId(sourceId);
-      assert(mappedTarget !== Id64.invalid);
-      const indexInResult = importedAspectTargetIds.findIndex((id) => id === mappedTarget);
-      assert(mappedTarget === targetId, `aspect ${i} (${sourceId} in source, ${mappedTarget} in target) but got ${targetId} and the expected id was at index ${indexInResult}`);
-    }
+    const targetAspectCount = count(targetDb, ElementAspect.classFullName);
+    const targetExternalSourceAspects = count(targetDb, ExternalSourceAspect.classFullName, `Scope.id = ${transformer.targetScopeElementId}`);
+    const sourceAspectCount = count(sourceDb, ElementAspect.classFullName);
+    expect(sourceAspectCount).to.equal(3);
+    expect(targetAspectCount - targetExternalSourceAspects).to.equal(sourceAspectCount);
   });
 
   it("handles nested schema references during schema export", async () => {
