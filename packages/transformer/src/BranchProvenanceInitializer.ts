@@ -53,10 +53,12 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       `,
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
+    args.master.performCheckpoint();
     // NOTE: unfortunately attached database tables may not be used in an update query
     // Couple other possibilities to test:
     // - create a temporary table in the main tablespace and copy everything there, then update from that
     // - batch select in js, transform into sqlite syntax and batch the updates into less queries
+    /*
     args.master.withSqliteStatement(`
         SELECT Id, FederationGuid
         FROM bis_Element
@@ -79,6 +81,25 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
         }
       }
     );
+    */
+    args.branch.withSqliteStatement(
+      `ATTACH DATABASE '${args.master.pathName}' AS master`,
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
+    );
+    args.branch.withSqliteStatement(`
+      UPDATE main.bis_Element
+      SET FederationGuid = (
+        SELECT m.FederationGuid
+        FROM master.bis_Element m
+        WHERE m.Id=main.bis_Element.Id
+      )`,
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
+    );
+    args.branch.withSqliteStatement(
+      `DETACH DATABASE [master];`,
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
+    );
+    args.branch.performCheckpoint();
 
     const reopenMaster = makeDbReopener(args.master);
     const reopenBranch = makeDbReopener(args.branch);

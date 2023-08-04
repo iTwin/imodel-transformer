@@ -137,8 +137,8 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             const sourceNumAspects = noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length;
             const targetNumAspects = noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length;
 
-            expect(sourceTargetFedGuidToAspectCountMap.get([sourceHasFedguid, targetHasFedguid, createFedGuidsForMaster]))
-              .to.deep.equal([sourceNumAspects, targetNumAspects]);
+            expect([sourceNumAspects, targetNumAspects])
+              .to.deep.equal(sourceTargetFedGuidToAspectCountMap.get([sourceHasFedguid, targetHasFedguid, createFedGuidsForMaster]));
 
             if (!createFedGuidsForMaster) {
               // logical tests
