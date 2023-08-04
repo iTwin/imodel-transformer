@@ -860,42 +860,52 @@ describe("IModelTransformerHub", () => {
 
   it("should delete definition elements and models when processing changes", async () => {
     let definitionPartitionId1: string;
-    let definitionModelId1: string;
+    let definitionPartitionModelId1: string;
+    let definitionPartitionId2: string;
+    let definitionPartitionModelId2: string;
     let definitionContainerId1: string;
-    let definitionModelId2: string;
+    let definitionContainerModelId1: string;
 
     const timeline: Timeline = {
       0: {
         master: {
           manualUpdate(db) {
-            const definitionPartitionProps1: InformationPartitionElementProps = {
+            const definitionPartitionProps: InformationPartitionElementProps = {
               classFullName: DefinitionPartition.classFullName,
               model: IModel.repositoryModelId,
               parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
               code: Code.createEmpty(),
             };
-            definitionPartitionId1 = db.elements.insertElement(definitionPartitionProps1);
+            definitionPartitionId1 = db.elements.insertElement(definitionPartitionProps);
+            definitionPartitionId2 = db.elements.insertElement(definitionPartitionProps);
 
             const definitionModelProps1: ModelProps = {
               classFullName: DefinitionModel.classFullName,
               modeledElement: { id: definitionPartitionId1 },
               parentModel: IModel.repositoryModelId,
             };
-            definitionModelId1 = db.models.insertModel(definitionModelProps1);
+            definitionPartitionModelId1 = db.models.insertModel(definitionModelProps1);
+
+            const definitionModelProps2: ModelProps = {
+              classFullName: DefinitionModel.classFullName,
+              modeledElement: { id: definitionPartitionId2 },
+              parentModel: IModel.repositoryModelId,
+            };
+            definitionPartitionModelId2 = db.models.insertModel(definitionModelProps2);
 
             const definitionContainerProps1: DefinitionElementProps = {
               classFullName: DefinitionContainer.classFullName,
-              model: definitionModelId1,
+              model: definitionPartitionModelId1,
               code: Code.createEmpty(),
             };
             definitionContainerId1 = db.elements.insertElement(definitionContainerProps1);
 
-            const definitionModelProps2: ModelProps = {
+            const definitionModelProps3: ModelProps = {
               classFullName: DefinitionModel.classFullName,
               modeledElement: { id: definitionContainerId1 },
-              parentModel: definitionModelId1,
+              parentModel: definitionPartitionModelId1,
             };
-            definitionModelId2 = db.models.insertModel(definitionModelProps2);
+            definitionContainerModelId1 = db.models.insertModel(definitionModelProps3);
           },
         },
       },
@@ -903,12 +913,20 @@ describe("IModelTransformerHub", () => {
       2: {
         master: {
           manualUpdate(db) {
-            db.models.deleteModel(definitionModelId2);
-            db.models.deleteModel(definitionModelId1);
+            db.models.deleteModel(definitionContainerModelId1);
+            db.models.deleteModel(definitionPartitionModelId1);
           },
         },
       },
       3: { branch: { sync: ["master", 2] } },
+      4: {
+        master: {
+          manualUpdate(db) {
+            db.models.deleteModel(definitionPartitionModelId2);
+          },
+        },
+      },
+      5: { branch: { sync: ["master", 4] } },
     };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
@@ -916,13 +934,17 @@ describe("IModelTransformerHub", () => {
     const master = trackedIModels.get("master")!;
     const branch = trackedIModels.get("branch")!;
 
-    expect(master.db.models.tryGetModel(definitionModelId2!)).to.be.undefined;
+    expect(master.db.models.tryGetModel(definitionContainerModelId1!)).to.be.undefined;
     expect(master.db.elements.tryGetElement(definitionContainerId1!)).to.be.undefined;
-    expect(master.db.models.tryGetModel(definitionModelId1!)).to.be.undefined;
+    expect(master.db.models.tryGetModel(definitionPartitionModelId1!)).to.be.undefined;
+    expect(master.db.elements.tryGetElement(definitionPartitionId2!)).to.not.be.undefined;
+    expect(master.db.models.tryGetModel(definitionPartitionModelId2!)).to.be.undefined;
 
-    expect(branch.db.models.tryGetModel(definitionModelId2!)).to.be.undefined;
+    expect(branch.db.models.tryGetModel(definitionContainerModelId1!)).to.be.undefined;
     expect(branch.db.elements.tryGetElement(definitionContainerId1!)).to.be.undefined;
-    expect(branch.db.models.tryGetModel(definitionModelId1!)).to.be.undefined;
+    expect(branch.db.models.tryGetModel(definitionPartitionModelId1!)).to.be.undefined;
+    expect(branch.db.elements.tryGetElement(definitionPartitionId2!)).to.not.be.undefined;
+    expect(branch.db.models.tryGetModel(definitionPartitionModelId2!)).to.be.undefined;
 
     await tearDown();
     sinon.restore();
