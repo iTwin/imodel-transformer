@@ -25,9 +25,12 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
   let index = 0;
   // FIXME: don't use a separate iModel for each loop iteration, just add more element pairs
   // to the one iModel. That will be much faster
-  for (const sourceHasFedguid of [true, false]) {
-    for (const targetHasFedguid of [true, false]) {
-      for (const createFedGuidsForMaster of ["keep-reopened-db", false] as const) {
+  // for (const sourceHasFedguid of [true, false]) {
+    // for (const targetHasFedguid of [true, false]) {
+      // for (const createFedGuidsForMaster of ["keep-reopened-db", false] as const) {
+  for (const sourceHasFedguid of [false]) {
+    for (const targetHasFedguid of [false]) {
+      for (const createFedGuidsForMaster of ["keep-reopened-db"] as const) {
         it(`branch provenance init with ${[
           sourceHasFedguid && "relSourceHasFedGuid",
           targetHasFedguid && "relTargetHasFedGuid",

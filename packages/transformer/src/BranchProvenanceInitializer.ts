@@ -1,7 +1,7 @@
 
 import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
-import { DbResult, Id64String } from "@itwin/core-bentley";
-import { Code, DbRequestKind } from "@itwin/core-common";
+import { DbResult, Id64String, OpenMode } from "@itwin/core-bentley";
+import { Code } from "@itwin/core-common";
 import assert = require("assert");
 import { IModelTransformer } from "./IModelTransformer";
 
@@ -53,38 +53,11 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       `,
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
+    const masterPath = args.master.pathName;
     args.master.performCheckpoint();
-    // NOTE: unfortunately attached database tables may not be used in an update query
-    // Couple other possibilities to test:
-    // - create a temporary table in the main tablespace and copy everything there, then update from that
-    // - batch select in js, transform into sqlite syntax and batch the updates into less queries
-    /*
-    args.master.withSqliteStatement(`
-        SELECT Id, FederationGuid
-        FROM bis_Element
-        WHERE Id NOT IN (0x1, 0xe, 0x10) -- ignore special elems
-      `,
-      (s1) => {
-        while (s1.step() === DbResult.BE_SQLITE_ROW) {
-          const id = s1.getValueId(0);
-          const fedGuid = s1.getValueBlob(1);
-          args.branch.withPreparedSqliteStatement(`
-            UPDATE bis_Element
-            SET FederationGuid=?
-            WHERE Id=?
-          `, (s2) => {
-              s2.bindBlob(1, fedGuid);
-              s2.bindId(2, id);
-              assert(s2.step() === DbResult.BE_SQLITE_DONE);
-            }
-          );
-        }
-      }
-    );
-    */
     args.branch.withSqliteStatement(
-      `ATTACH DATABASE '${args.master.pathName}' AS master`,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
+      `ATTACH DATABASE '${masterPath}' AS master`,
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
     args.branch.withSqliteStatement(`
       UPDATE main.bis_Element
@@ -95,14 +68,17 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       )`,
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
     );
+    //args.branch.nativeDb.updateElement
+    //args.branch.clearCaches(); // statements write lock attached db
     args.branch.withSqliteStatement(
-      `DETACH DATABASE [master];`,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
+      `DETACH DATABASE master`,
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
     args.branch.performCheckpoint();
 
     const reopenMaster = makeDbReopener(args.master);
     const reopenBranch = makeDbReopener(args.branch);
+    // close dbs because element cache could be invalid
     args.master.close();
     args.branch.close();
     [args.master, args.branch] = await Promise.all([reopenMaster(), reopenBranch()]);
@@ -182,12 +158,13 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
 }
 
 function makeDbReopener(db: IModelDb) {
+  const originalMode = db.isReadonly ? OpenMode.Readonly : OpenMode.ReadWrite;
   const dbPath = db.pathName;
-  let reopenDb: () => IModelDb | Promise<IModelDb>;
+  let reopenDb: (mode?: OpenMode) => IModelDb | Promise<IModelDb>;
   if (db instanceof BriefcaseDb)
-    reopenDb = async () => BriefcaseDb.open({ fileName: dbPath });
+    reopenDb = async (mode = originalMode) => BriefcaseDb.open({ fileName: dbPath, readonly: mode === OpenMode.Readonly });
   else if (db instanceof StandaloneDb)
-    reopenDb = () => StandaloneDb.openFile(dbPath);
+    reopenDb = (mode = originalMode) => StandaloneDb.openFile(dbPath, mode);
   else
     assert(false, `db db type '${db.constructor.name}' not supported`);
   return reopenDb;
