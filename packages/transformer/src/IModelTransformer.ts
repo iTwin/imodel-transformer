@@ -990,7 +990,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
       const isDefinitionPartition = this.targetDb.withPreparedStatement(`
         SELECT 1
-        FROM bis.DefinitionElement
+        FROM bis.DefinitionPartition
         WHERE ECInstanceId=?
       `, (stmt) => {
         stmt.bindId(1, targetModelId);
