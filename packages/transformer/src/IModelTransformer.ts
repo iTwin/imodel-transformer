@@ -461,7 +461,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   public static initRelationshipProvenanceOptions(
-    sourceRelInstanceId: Id64String, 
+    sourceRelInstanceId: Id64String,
     targetRelInstanceId: Id64String,
     args: {
       sourceDb: IModelDb;
@@ -471,24 +471,21 @@ export class IModelTransformer extends IModelExportHandler {
       forceOldRelationshipProvenanceMethod: boolean;
     },
   ): ExternalSourceAspectProps {
-    function  checkReverseSynchronization(source: any, target: any): any {
-      return args.isReverseSynchronization ? source : target;
-    }
-    const dbToUse = checkReverseSynchronization(args.sourceDb, args.targetDb);
-    const elementId = dbToUse.withPreparedStatement(
-          "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
-          (stmt: ECSqlStatement) => {
-            stmt.bindId(1, checkReverseSynchronization(sourceRelInstanceId, targetRelInstanceId));
-            assert(stmt.step() === DbResult.BE_SQLITE_ROW)
-              return stmt.getValue(0).getId();
-          },
-        );
-    const aspectIdentifier = checkReverseSynchronization(sourceRelInstanceId, targetRelInstanceId);
+    const provenanceDb = args.isReverseSynchronization ? args.sourceDb : args.targetDb;
+    const aspectIdentifier = args.isReverseSynchronization ? sourceRelInstanceId : targetRelInstanceId;
+    const elementId = provenanceDb.withPreparedStatement(
+      "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
+      (stmt) => {
+        stmt.bindId(1, aspectIdentifier);
+        assert(stmt.step() === DbResult.BE_SQLITE_ROW);
+          return stmt.getValue(0).getId();
+      },
+    );
+
     const jsonProperties
       = args.forceOldRelationshipProvenanceMethod
       ? { targetRelInstanceId }
-      : { provenanceRelInstanceId: checkReverseSynchronization(sourceRelInstanceId, targetRelInstanceId),
-        };
+      : { provenanceRelInstanceId: aspectIdentifier };
 
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
