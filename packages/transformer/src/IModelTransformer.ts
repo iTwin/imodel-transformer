@@ -983,20 +983,34 @@ export class IModelTransformer extends IModelExportHandler {
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceElements]] will find and remap the deleted element making this operation valid
     const targetModelId: Id64String = this.context.findTargetElementId(sourceModelId);
-    try {
-      if (Id64.isValidId64(targetModelId)) {
-        if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
-          const targetPartitionElement = this.targetDb.elements.tryGetElement(targetModelId);
-          const isDefinitionPartition = targetPartitionElement && targetPartitionElement instanceof DefinitionPartition;
-          if (isDefinitionPartition) {
-            // Skipping model deletion because model's partition will also be deleted.
-            // It expects that model will be present and will fail if it's missing.
-            // Model will be deleted when its partition will be deleted.
-            return;
-          }
+
+    if (!Id64.isValidId64(targetModelId))
+      return;
+
+    if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
+      const isDefinitionPartition = this.targetDb.withPreparedStatement(`
+        SELECT 1
+        FROM bis.DefinitionElement
+        WHERE ECInstanceId=?
+      `, (stmt) => {
+        stmt.bindId(1, targetModelId);
+        const val: DbResult = stmt.step();
+        switch (val) {
+          case DbResult.BE_SQLITE_ROW: return true;
+          case DbResult.BE_SQLITE_DONE: return false;
+          default: assert(false, `unexpected db result: '${stmt}'`);
         }
-        this.importer.deleteModel(targetModelId);
+      });
+      if (isDefinitionPartition) {
+        // Skipping model deletion because model's partition will also be deleted.
+        // It expects that model will be present and will fail if it's missing.
+        // Model will be deleted when its partition will be deleted.
+        return;
       }
+    }
+
+    try {
+      this.importer.deleteModel(targetModelId);
     } catch (error) {
       const isDeletionProhibitedErr = error instanceof IModelError && (error.errorNumber === IModelStatus.DeletionProhibited || error.errorNumber === IModelStatus.ForeignKeyConstraint);
       if (!isDeletionProhibitedErr)
