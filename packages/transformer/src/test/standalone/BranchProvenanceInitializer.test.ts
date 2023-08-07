@@ -131,7 +131,7 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
               branch: noTransformerForkDb,
             };
             const noTransformerBranchInitResult = await initializeBranchProvenance(initProvenanceArgs);
-            // initializeBranchProvenance can reset the passed in databases when we use "keep-reopened-db"
+            // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
             noTransformerMasterDb = initProvenanceArgs.master as StandaloneDb;
             noTransformerForkDb = initProvenanceArgs.branch as StandaloneDb;
 
