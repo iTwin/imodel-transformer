@@ -1,4 +1,3 @@
-
 import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { DbResult, Id64String, OpenMode } from "@itwin/core-bentley";
 import { Code } from "@itwin/core-common";
