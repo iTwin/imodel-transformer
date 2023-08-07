@@ -166,7 +166,7 @@ function makeDbReopener(db: IModelDb) {
   else if (db instanceof StandaloneDb)
     reopenDb = (mode = originalMode) => StandaloneDb.openFile(dbPath, mode);
   else
-    assert(false, `db db type '${db.constructor.name}' not supported`);
+    assert(false, `db type '${db.constructor.name}' not supported`);
   return reopenDb;
 }
 
