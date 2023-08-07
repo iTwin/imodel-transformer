@@ -2129,7 +2129,7 @@ describe("IModelTransformer", () => {
     newDb.close();
   });
 
-  it("transforms code values with non standard space characters", async () => {
+  it.only("transforms code values with non standard space characters", async () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "CodeValNbspSrc.bim");
     let sourceDb  = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "CodeValNbspSrc" } });
 
@@ -2175,38 +2175,38 @@ describe("IModelTransformer", () => {
     for (const label of ["SpatialCategory", "PhysicalModel", "PhysicalObject"])
       addNonBreakingSpaceToCodeValue(sourceDb, label);
 
-    const getCodeValRawSqlite = (db: IModelDb, initialCodeValue: string, expected: string, expectedRows: number) => {
+    const getCodeValRawSqlite = (db: IModelDb, args: { initialVal: string, expected: string, expectedMatchCount: number}) => {
       db.withSqliteStatement(
-        `SELECT CodeValue FROM bis_Element WHERE CodeValue LIKE'${initialCodeValue}%'`,
+        `SELECT CodeValue FROM bis_Element WHERE CodeValue LIKE '${args.initialVal}%'`,
         (stmt) => {
           let rows = 0;
           for (const { codeValue } of stmt) {
             rows++;
-            expect(codeValue).to.equal(expected);
+            expect(codeValue).to.equal(args.expected);
           }
-          expect(rows).to.equal(expectedRows);
+          expect(rows).to.equal(args.expectedMatchCount);
         }
       );
     };
 
-    const getCodeValEcSql = (db: IModelDb, initialCodeValue: string, expected: string, expectedRows: number) => {
+    const getCodeValEcSql = (db: IModelDb, args: { initialVal: string, expected: string, expectedMatchCount: number }) => {
       db.withStatement(
-        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE'${initialCodeValue}%'`,
+        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
         (stmt) => {
           let rows = 0;
           for (const { codeValue } of stmt) {
             rows++;
-            expect(codeValue).to.equal(expected);
+            expect(codeValue).to.equal(args.expected);
           }
-          expect(rows).to.equal(expectedRows);
+          expect(rows).to.equal(args.expectedMatchCount);
         }
       );
     };
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
-    for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      getCodeValRawSqlite(sourceDb, label, `${label}\xa0`, count);
-      getCodeValEcSql(sourceDb, label, `${label}\xa0`, count);
+    for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
+      getCodeValRawSqlite(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
+      getCodeValEcSql(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
     }
 
     sourceDb.saveChanges();
@@ -2214,9 +2214,9 @@ describe("IModelTransformer", () => {
     sourceDb = SnapshotDb.openFile(sourceDbFile);
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
-    for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      getCodeValRawSqlite(sourceDb, label, `${label}\xa0`, count);
-      getCodeValEcSql(sourceDb, label, `${label}\xa0`, count);
+    for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
+      getCodeValRawSqlite(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
+      getCodeValEcSql(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
     }
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "CoreNewSchemaRefTarget.bim");
@@ -2236,13 +2236,13 @@ describe("IModelTransformer", () => {
     expect(targetDb.elements.getElement(physObjectInTargetId).code.value).to.equal("PhysicalObject");
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
-    for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      // itwin.js 4.x will also trim the code value of utf-8 spaces in the native layer
-      const inItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
-      // eslint-disable-next-line
-      console.log("inItjs4x", coreBackendPkgJson);
-      getCodeValRawSqlite(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
-      getCodeValEcSql(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
+    for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
+      // some versions of itwin.js do not have a path for the transformer to preserve bad codes
+      //const inNonPreservingItjsVersion = Semver.satisfies(coreBackendPkgJson.version, ">= 4.0.0 && <= 4.1.1");
+      const inNonPreservingItjsVersion = false;
+      const expected = inNonPreservingItjsVersion ? initialVal : `${initialVal}\xa0`;
+      getCodeValRawSqlite(targetDb, { initialVal, expected, expectedMatchCount });
+      getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });
     }
 
     transformer.dispose();
@@ -2608,7 +2608,7 @@ describe("IModelTransformer", () => {
     transformer.targetDb.close();
   });
 
-  it.only("handle same name dynamic schemas", async function () {
+  it("handle same name dynamic schemas", async function () {
     const makeDynamicSchema = (version: string) => `<?xml version="1.0" encoding="UTF-8"?>
         <ECSchema schemaName="Dynamic" alias="d1" version="${version}" displayLabel="dyn" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
             <ECCustomAttributes>
