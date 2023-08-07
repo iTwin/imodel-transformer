@@ -42,7 +42,6 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           try {
             const suffixName = (s: string) => `${s}_${sourceHasFedguid ? "S" : "_"}${targetHasFedguid ? "T" : "_"}${createFedGuidsForMaster ? "C" : "_"}.bim`;
             const sourceFileName = suffixName("ProvInitSource");
-            // const generatedIModel = generateIModel(sourceFileName, sourceHasFedguid, targetHasFedguid);
             const sourcePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", sourceFileName);
             if (fs.existsSync(sourcePath))
               fs.unlinkSync(sourcePath);
@@ -234,54 +233,4 @@ function setToStandalone(iModelName: string) {
   nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
   nativeDb.saveChanges(); // save change to briefcaseId
   nativeDb.closeIModel();
-}
-
-export function generateIModel(fileName: string, sourceHasFedGuid: boolean, targetHasFedGuid: boolean): StandaloneDb {
-  const sourcePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", fileName);
-  if (fs.existsSync(sourcePath))
-    fs.unlinkSync(sourcePath);
-
-  const db = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: fileName }});
-
-  const physModelId = PhysicalModel.insert(db, IModelDb.rootSubjectId, "physical model");
-  const categoryId = SpatialCategory.insert(db, IModelDb.dictionaryId, "spatial category", {});
-
-  const baseProps = {
-    classFullName: PhysicalObject.classFullName,
-    category: categoryId,
-    geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-    placement: {
-      origin: Point3d.create(1, 1, 1),
-      angles: YawPitchRollAngles.createDegrees(1, 1, 1),
-    },
-    model: physModelId,
-  };
-
-  const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
-  const sourceElem = new PhysicalObject({
-    ...baseProps,
-    code: Code.createEmpty(),
-    federationGuid: sourceFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
-  }, db).insert();
-
-  const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
-  const targetElem = new PhysicalObject({
-    ...baseProps,
-    code: Code.createEmpty(),
-    federationGuid: targetFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
-  }, db).insert();
-
-  db.saveChanges();
-
-  const rel = new ElementGroupsMembers({
-    classFullName: ElementGroupsMembers.classFullName,
-    sourceId: sourceElem,
-    targetId: targetElem,
-    memberPriority: 1,
-  }, db);
-  rel.insert();
-  db.saveChanges();
-  db.performCheckpoint();
-
-  return db;
 }
