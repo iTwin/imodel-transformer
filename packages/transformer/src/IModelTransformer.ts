@@ -2130,7 +2130,6 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     const missingChangesets = startChangesetIndex > this._synchronizationVersion.index + 1;
-    // FIXME: add an option to ignore this check
     if (
       !this._options.ignoreMissingChangesetsInSynchronizations
       && startChangesetIndex !== this._synchronizationVersion.index + 1
