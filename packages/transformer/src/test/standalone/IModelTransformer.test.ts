@@ -2516,8 +2516,11 @@ describe("IModelTransformer", () => {
     });
   });
 
-  // FIXME: unskip, fixed in iTwin.js native addon 4.0.0, (@bentley/imodeljs-native@4.0.0)
-  it.skip("should remap textures in target iModel", async () => {
+  it("should remap textures in target iModel", async function () {
+    const inItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
+    if (inItjs4x)
+      this.skip();
+
     // create source iModel
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "Transform3d-Source.bim");
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "Transform3d-Source" } });
