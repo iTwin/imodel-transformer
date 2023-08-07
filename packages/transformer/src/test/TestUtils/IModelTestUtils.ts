@@ -12,7 +12,8 @@ import { AccessToken, BeEvent, DbResult, Guid, GuidString, Id64, Id64String, IMo
 import {
   AuxCoordSystem2dProps, Base64EncodedString, ChangesetIdWithIndex, Code, CodeProps, CodeScopeSpec, CodeSpec, ColorDef, ElementAspectProps,
   ElementProps, Environment, ExternalSourceProps, GeometricElement2dProps, GeometryParams, GeometryPartProps, GeometryStreamBuilder,
-  GeometryStreamProps, ImageSourceFormat, IModel, IModelError, IModelReadRpcInterface, IModelVersion, IModelVersionProps, LocalFileName,
+  GeometryStreamProps, ImageSourceFormat, IModel, IModelError, IModelReadRpcInterface, IModelVersion, IModelVersionProps,  InformationPartitionElementProps, LocalFileName,
+  ModelProps,
   PhysicalElementProps, PlanProjectionSettings, RelatedElement, RepositoryLinkProps, RequestNewBriefcaseProps, RpcConfiguration, RpcManager,
   RpcPendingResponse, SkyBoxImageType, SubCategoryAppearance, SubCategoryOverride, SyncMode,
 } from "@itwin/core-common";
@@ -1057,6 +1058,29 @@ export class ExtensiveTestScenario {
 
     const physicalObjectId6 = sourceDb.elements.insertElement(physicalObjectProps6);
     assert.isTrue(Id64.isValidId64(physicalObjectId6));
+
+    // Insert DefinitionPartition1
+    const definitionPartitionProps1: InformationPartitionElementProps = {
+      classFullName: DefinitionPartition.classFullName,
+      model: IModel.repositoryModelId,
+      parent: new SubjectOwnsPartitionElements(subjectId),
+      code: Code.createEmpty(),
+      userLabel: "DefinitionPartition1",
+    };
+
+    const definitionPartitionId1 = sourceDb.elements.insertElement(definitionPartitionProps1);
+    assert.isTrue(Id64.isValidId64(definitionPartitionId1));
+
+    // Insert DefinitionModel1
+    const definitionModelProps1: ModelProps = {
+      classFullName: DefinitionModel.classFullName,
+      modeledElement: { id: definitionPartitionId1 },
+      parentModel: IModel.repositoryModelId,
+    };
+
+    const definitionModelId1 = sourceDb.models.insertModel(definitionModelProps1);
+    assert.isTrue(Id64.isValidId64(definitionModelId1));
+    assert.equal(definitionPartitionId1, definitionModelId1);
   }
 
   public static updateDb(sourceDb: IModelDb): void {
@@ -1124,6 +1148,17 @@ export class ExtensiveTestScenario {
     assert.isTrue(Id64.isValidId64(physicalObjectId5));
     sourceDb.elements.deleteElement(physicalObjectId5);
     assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(sourceDb, "PhysicalObject5"));
+
+    // delete DefinitionModel1
+    const definitionModelId1 = IModelTestUtils.queryByUserLabel(sourceDb, "DefinitionPartition1");
+    assert.isTrue(Id64.isValidId64(definitionModelId1));
+    sourceDb.models.deleteModel(definitionModelId1);
+
+    // delete DefinitionPartition1
+    const definitionPartitionId1 = IModelTestUtils.queryByUserLabel(sourceDb, "DefinitionPartition1");
+    assert.isTrue(Id64.isValidId64(definitionPartitionId1));
+    sourceDb.elements.deleteElement(definitionPartitionId1);
+    assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(sourceDb, "DefinitionPartition1"));
 
     // Insert PhysicalObject7
     const physicalObjectProps5: PhysicalElementProps = {
@@ -1263,6 +1298,7 @@ export class ExtensiveTestScenario {
       assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject3"));
       assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject5"));
       assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(iModelDb, "PhysicalObject6"));
+      assert.equal(Id64.invalid, IModelTestUtils.queryByUserLabel(iModelDb, "DefinitionPartition1"));
       assert.throws(() => iModelDb.relationships.getInstanceProps(DrawingGraphicRepresentsElement.classFullName, { sourceId: drawingGraphicId2, targetId: physicalObjectId1 }));
       assert.isUndefined(iModelDb.elements.queryElementIdByCode(new Code({ spec: informationRecordCodeSpec.id, scope: informationModelId, value: "InformationRecord3" })));
     }
