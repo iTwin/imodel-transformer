@@ -472,20 +472,22 @@ export class IModelTransformer extends IModelExportHandler {
     },
   ): ExternalSourceAspectProps {
     const provenanceDb = args.isReverseSynchronization ? args.sourceDb : args.targetDb;
-    const aspectIdentifier = args.isReverseSynchronization ? sourceRelInstanceId : targetRelInstanceId;
+    const aspectIdentifier = args.isReverseSynchronization ? targetRelInstanceId : sourceRelInstanceId;
+    const provenanceRelInstanceId = args.isReverseSynchronization ? sourceRelInstanceId : targetRelInstanceId;
+
     const elementId = provenanceDb.withPreparedStatement(
-      "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
-      (stmt) => {
-        stmt.bindId(1, aspectIdentifier);
-        assert(stmt.step() === DbResult.BE_SQLITE_ROW);
+        "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
+        (stmt) => {
+          stmt.bindId(1, provenanceRelInstanceId);
+          nodeAssert(stmt.step() === DbResult.BE_SQLITE_ROW);
           return stmt.getValue(0).getId();
-      },
-    );
+        },
+      );
 
     const jsonProperties
       = args.forceOldRelationshipProvenanceMethod
       ? { targetRelInstanceId }
-      : { provenanceRelInstanceId: aspectIdentifier };
+      : { provenanceRelInstanceId };
 
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
@@ -495,6 +497,7 @@ export class IModelTransformer extends IModelExportHandler {
       kind: ExternalSourceAspect.Kind.Relationship,
       jsonProperties: JSON.stringify(jsonProperties),
     };
+
     return aspectProps;
   }
 
@@ -536,9 +539,8 @@ export class IModelTransformer extends IModelExportHandler {
         isReverseSynchronization: !!this._options.isReverseSynchronization,
         targetScopeElementId: this.targetScopeElementId,
         forceOldRelationshipProvenanceMethod: this._forceOldRelationshipProvenanceMethod,
-
       }
-    )
+    );
   }
 
   /** NOTE: the json properties must be converted to string before insertion */
