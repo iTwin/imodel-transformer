@@ -2466,7 +2466,7 @@ describe("IModelTransformer", () => {
         </Target>
       </ECRelationshipClass>
     </ECSchema>
-  `;
+    `;
     await sourceDb.importSchemaStrings([customSchema]);
     const sourceCategoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.blue.toJSON() });
     const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "PhysicalModel");
@@ -2517,8 +2517,8 @@ describe("IModelTransformer", () => {
   });
 
   it("should remap textures in target iModel", async function () {
-    const inItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
-    if (inItjs4x)
+    const atleastInItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
+    if (!atleastInItjs4x)
       this.skip();
 
     // create source iModel
@@ -2606,6 +2606,37 @@ describe("IModelTransformer", () => {
     transformer.dispose();
     sourceDb.close();
     transformer.targetDb.close();
+  });
+
+  it.only("handle same name dynamic schemas", async function () {
+    const makeDynamicSchema = (version: string) => `<?xml version="1.0" encoding="UTF-8"?>
+        <ECSchema schemaName="Dynamic" alias="d1" version="${version}" displayLabel="dyn" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+            <ECCustomAttributes>
+                <DynamicSchema xmlns="CoreCustomAttributes.01.00.03"/>
+            </ECCustomAttributes>
+        </ECSchema>
+    `;
+
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas-Source.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DynSchemaSource" } });
+    await sourceDb.importSchemaStrings([makeDynamicSchema("01.07.00")]);
+    sourceDb.saveChanges();
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas-Target.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "DynSchemasTarget" } });
+    await targetDb.importSchemaStrings([makeDynamicSchema("01.05.02")]);
+    targetDb.saveChanges();
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    // expect this to not reject, adding chai as promised makes the error less readable
+    await transformer.processSchemas();
+
+    expect(targetDb.querySchemaVersion("Dynamic")).to.equal("1.7.0");
+
+    // clean up
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
   });
 
   /** unskip to generate a javascript CPU profile on just the processAll portion of an iModel */
