@@ -1,5 +1,5 @@
 import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
-import { DbResult, Id64String, OpenMode } from "@itwin/core-bentley";
+import { DbResult, Id64String, Logger, OpenMode } from "@itwin/core-bentley";
 import { Code } from "@itwin/core-common";
 import assert = require("assert");
 import { IModelTransformer } from "./IModelTransformer";
@@ -53,9 +53,10 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
     const masterPath = args.master.pathName;
-    args.master.performCheckpoint();
+    const reopenMaster = makeDbReopener(args.master);
+    args.master.close(); // prevent busy
     args.branch.withSqliteStatement(
-      `ATTACH DATABASE '${masterPath}' AS master`,
+      `ATTACH DATABASE 'file://${masterPath}?mode=ro' AS master`,
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
     );
     args.branch.withSqliteStatement(`
@@ -67,18 +68,25 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       )`,
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
     );
-    //args.branch.nativeDb.updateElement
-    //args.branch.clearCaches(); // statements write lock attached db
+    args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
+    args.branch.saveChanges();
     args.branch.withSqliteStatement(
       `DETACH DATABASE master`,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
+      (s) => {
+        const res = s.step();
+        if (res !== DbResult.BE_SQLITE_DONE)
+          Logger.logTrace(
+            "initializeBranchProvenance",
+            `Error detaching db (we will close anyway): ${args.branch.nativeDb.getLastError()}`
+          );
+        // this is the case until native side changes
+        assert(res === DbResult.BE_SQLITE_ERROR);
+      }
     );
     args.branch.performCheckpoint();
 
-    const reopenMaster = makeDbReopener(args.master);
     const reopenBranch = makeDbReopener(args.branch);
     // close dbs because element cache could be invalid
-    args.master.close();
     args.branch.close();
     [args.master, args.branch] = await Promise.all([reopenMaster(), reopenBranch()]);
   }

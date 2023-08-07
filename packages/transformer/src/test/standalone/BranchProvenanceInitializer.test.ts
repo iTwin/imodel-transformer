@@ -22,15 +22,11 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
     [[true, true, "keep-reopened-db"], [0, 0]],
   ]);
 
-  let index = 0;
   // FIXME: don't use a separate iModel for each loop iteration, just add more element pairs
   // to the one iModel. That will be much faster
-  // for (const sourceHasFedguid of [true, false]) {
-    // for (const targetHasFedguid of [true, false]) {
-      // for (const createFedGuidsForMaster of ["keep-reopened-db", false] as const) {
-  for (const sourceHasFedguid of [false]) {
-    for (const targetHasFedguid of [false]) {
-      for (const createFedGuidsForMaster of ["keep-reopened-db"] as const) {
+  for (const sourceHasFedguid of [true, false]) {
+    for (const targetHasFedguid of [true, false]) {
+      for (const createFedGuidsForMaster of ["keep-reopened-db", false] as const) {
         it(`branch provenance init with ${[
           sourceHasFedguid && "relSourceHasFedGuid",
           targetHasFedguid && "relTargetHasFedGuid",
@@ -50,12 +46,12 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             const sourcePath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", sourceFileName);
             if (fs.existsSync(sourcePath))
               fs.unlinkSync(sourcePath);
-          
+
             const generatedIModel = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: sourceFileName }});
-          
+
             const physModelId = PhysicalModel.insert(generatedIModel, IModelDb.rootSubjectId, "physical model");
             const categoryId = SpatialCategory.insert(generatedIModel, IModelDb.dictionaryId, "spatial category", {});
-          
+
             const baseProps = {
               classFullName: PhysicalObject.classFullName,
               category: categoryId,
@@ -66,23 +62,23 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
               },
               model: physModelId,
             };
-            
+
             const sourceFedGuid = sourceHasFedguid ? undefined : Guid.empty;
             const sourceElem = new PhysicalObject({
               ...baseProps,
               code: Code.createEmpty(),
-              federationGuid: sourceFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
+              federationGuid: sourceFedGuid,
             }, generatedIModel).insert();
-          
+
             const targetFedGuid = targetHasFedguid ? undefined : Guid.empty;
             const targetElem = new PhysicalObject({
               ...baseProps,
               code: Code.createEmpty(),
-              federationGuid: targetFedGuid, // Guid.empty = 00000000-0000-0000-0000-000000000000
+              federationGuid: targetFedGuid,
             }, generatedIModel).insert();
-          
+
             generatedIModel.saveChanges();
-          
+
             const rel = new ElementGroupsMembers({
               classFullName: ElementGroupsMembers.classFullName,
               sourceId: sourceElem,
@@ -119,12 +115,6 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
               masterUrl: "https://example.com/mytest",
             };
 
-            const transformerBranchInitResult = await classicalTransformerBranchInit({
-              ...baseInitProvenanceArgs,
-              master: transformerMasterDb,
-              branch: transformerForkDb,
-            });
-
             const initProvenanceArgs: ProvenanceInitArgs = {
               ...baseInitProvenanceArgs,
               master: noTransformerMasterDb,
@@ -136,6 +126,13 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             noTransformerForkDb = initProvenanceArgs.branch as StandaloneDb;
 
             noTransformerForkDb.saveChanges();
+
+            const transformerBranchInitResult = await classicalTransformerBranchInit({
+              ...baseInitProvenanceArgs,
+              master: transformerMasterDb,
+              branch: transformerForkDb,
+            });
+            transformerForkDb.saveChanges();
 
             const sourceNumAspects = noTransformerForkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length;
             const targetNumAspects = noTransformerForkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length;
