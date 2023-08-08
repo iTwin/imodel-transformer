@@ -397,11 +397,17 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
-    nodeAssert(this.sourceDb.changeset.index && this.targetDb.changeset.index, "database has no changeset index");
-    this._startingChangesetIndices = {
-      target: this.targetDb.changeset.index,
-      source: this.sourceDb.changeset.index,
-    };
+
+    if (this.sourceDb.isBriefcase && this.targetDb.isBriefcase) {
+      nodeAssert(
+        this.sourceDb.changeset.index !== undefined && this.targetDb.changeset.index !== undefined,
+        "database has no changeset index"
+      );
+      this._startingChangesetIndices = {
+        target: this.targetDb.changeset.index,
+        source: this.sourceDb.changeset.index,
+      };
+    }
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
@@ -2443,7 +2449,8 @@ export class IModelTransformer extends IModelExportHandler {
    * data loss in future branch operations
    * @param accessToken A valid access token string
    * @param startChangesetId Include changes from this changeset up through and including the current changeset.
-   * If this parameter is not provided, then just the current changeset will be exported.
+   * @note if no startChangesetId or startChangeset option is provided, the next unsynchronized changeset
+   * will automatically be determined and used
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   public async processChanges(options: ProcessChangesOptions): Promise<void>;
@@ -2455,19 +2462,22 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
   public async processChanges(optionsOrAccessToken: AccessToken | ProcessChangesOptions, startChangesetId?: string): Promise<void> {
     this._isSynchronization = true;
+    // FIXME: we used to validateScopeProvenance... does initing it cover that?
+    this.initScopeProvenance();
+
     const args: ProcessChangesOptions =
       typeof optionsOrAccessToken === "string"
       ? {
           accessToken: optionsOrAccessToken,
           startChangeset: startChangesetId
             ? { id: startChangesetId }
-            : this.sourceDb.changeset,
+            : { index: this._synchronizationVersion.index + 1 },
         }
         : optionsOrAccessToken
     ;
+
     this.logSettings();
-    // FIXME: we used to validateScopeProvenance... does initing it cover that?
-    this.initScopeProvenance();
+
     await this.initialize(args);
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(args));
