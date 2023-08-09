@@ -338,7 +338,14 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
+    this._initialSourceCodeValueBehavior = this.sourceDb.codeValueBehavior;
+    this._initialTargetCodeValueBehavior = this.targetDb.codeValueBehavior;
+    this.sourceDb.codeValueBehavior("exact");
+    this.targetDb.codeValueBehavior("exact");
   }
+
+  private _initialSourceCodeValueBehavior: "exact" | "trim-unicode-whitespace";
+  private _initialTargetCodeValueBehavior: "exact" | "trim-unicode-whitespace";
 
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
@@ -895,7 +902,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
     // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
     if (!Id64.isValidId64(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
-      // respond the same way to undefined code value as the @see Code class, but don't use that class because is trims
+      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
       // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
       targetElementProps.code.value = targetElementProps.code.value ?? "";
       targetElementId = this.targetDb.elements.queryElementIdByCode(targetElementProps.code as Required<CodeProps>);
@@ -1121,6 +1128,8 @@ export class IModelTransformer extends IModelExportHandler {
         partiallyCommittedElem.forceComplete();
       }
     }
+    this.sourceDb.codeValueBehavior = _initialSourceCodeValueBehavior;
+    this.targetDb.codeValueBehavior = _initialTargetCodeValueBehavior;
   }
 
   /** Imports all relationships that subclass from the specified base class.
