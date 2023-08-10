@@ -397,7 +397,17 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
-    this._startingTargetChangesetIndex = this.targetDb?.changeset.index;
+
+    if (this.sourceDb.isBriefcase && this.targetDb.isBriefcase) {
+      nodeAssert(
+        this.sourceDb.changeset.index !== undefined && this.targetDb.changeset.index !== undefined,
+        "database has no changeset index"
+      );
+      this._startingChangesetIndices = {
+        target: this.targetDb.changeset.index,
+        source: this.sourceDb.changeset.index,
+      };
+    }
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
@@ -553,7 +563,10 @@ export class IModelTransformer extends IModelExportHandler {
    * Index of the changeset that the transformer was at when the transformation begins (was constructed).
    * Used to determine at the end which changesets were part of a synchronization.
    */
-  private _startingTargetChangesetIndex: number | undefined = undefined;
+  private _startingChangesetIndices: {
+    target: number;
+    source: number;
+  } | undefined = undefined;
 
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined = undefined;
 
@@ -1702,9 +1715,9 @@ export class IModelTransformer extends IModelExportHandler {
     nodeAssert(this._targetScopeProvenanceProps);
 
     const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
+    const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
 
     if (this._isFirstSynchronization) {
-      const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
       this._targetScopeProvenanceProps.version = sourceVersion;
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion = targetVersion;
     } else if (this._options.isReverseSynchronization) {
@@ -1718,7 +1731,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (this._isSynchronization) {
       assert(
-        this.targetDb.changeset.index !== undefined && this._startingTargetChangesetIndex !== undefined,
+        this.targetDb.changeset.index !== undefined && this._startingChangesetIndices  !== undefined,
         "updateSynchronizationVersion was called without change history",
       );
 
@@ -1737,9 +1750,16 @@ export class IModelTransformer extends IModelExportHandler {
       // just marked this changeset as a synchronization to ignore, and the user can add other
       // stuff to it which would break future synchronizations
       // FIXME: force save for the user to prevent that
-      for (let i = this._startingTargetChangesetIndex + 1; i <= this.targetDb.changeset.index + 1; i++)
+      for (let i = this._startingChangesetIndices.target + 1; i <= this.targetDb.changeset.index + 1; i++)
         syncChangesetsToUpdate.push(i);
       syncChangesetsToClear.length = 0;
+
+      // if reverse sync then we may have received provenance changes which should be marked as sync changes
+      if (this._isReverseSynchronization) {
+        nodeAssert(this.sourceDb.changeset.index, "changeset didn't exist");
+        for (let i = this._startingChangesetIndices.source + 1; i <= this.sourceDb.changeset.index + 1; i++)
+          jsonProps.pendingReverseSyncChangesetIndices.push(i);
+      }
 
       Logger.logTrace(loggerCategory, `new pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`);
       Logger.logTrace(loggerCategory, `new pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`);
@@ -2145,7 +2165,6 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     const missingChangesets = startChangesetIndex > this._synchronizationVersion.index + 1;
-    // FIXME: add an option to ignore this check
     if (
       !this._options.ignoreMissingChangesetsInSynchronizations
       && startChangesetIndex !== this._synchronizationVersion.index + 1
@@ -2459,7 +2478,8 @@ export class IModelTransformer extends IModelExportHandler {
    * data loss in future branch operations
    * @param accessToken A valid access token string
    * @param startChangesetId Include changes from this changeset up through and including the current changeset.
-   * If this parameter is not provided, then just the current changeset will be exported.
+   * @note if no startChangesetId or startChangeset option is provided, the next unsynchronized changeset
+   * will automatically be determined and used
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   public async processChanges(options: ProcessChangesOptions): Promise<void>;
@@ -2471,19 +2491,22 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
   public async processChanges(optionsOrAccessToken: AccessToken | ProcessChangesOptions, startChangesetId?: string): Promise<void> {
     this._isSynchronization = true;
+    // FIXME: we used to validateScopeProvenance... does initing it cover that?
+    this.initScopeProvenance();
+
     const args: ProcessChangesOptions =
       typeof optionsOrAccessToken === "string"
       ? {
           accessToken: optionsOrAccessToken,
           startChangeset: startChangesetId
             ? { id: startChangesetId }
-            : this.sourceDb.changeset,
+            : { index: this._synchronizationVersion.index + 1 },
         }
         : optionsOrAccessToken
     ;
+
     this.logSettings();
-    // FIXME: we used to validateScopeProvenance... does initing it cover that?
-    this.initScopeProvenance();
+
     await this.initialize(args);
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(args));
