@@ -1720,7 +1720,6 @@ export class IModelTransformer extends IModelExportHandler {
       // just marked this changeset as a synchronization to ignore, and the user can add other
       // stuff to it which would break future synchronizations
       // FIXME: force save for the user to prevent that
-      // FIXME: what if this processChanges is empty? Is that possible? Maybe in a filtered transform...
       for (let i = this._startingChangesetIndices.target + 1; i <= this.targetDb.changeset.index + 1; i++)
         syncChangesetsToUpdate.push(i);
       syncChangesetsToClear.length = 0;
