@@ -231,13 +231,18 @@ export async function assertIdentityTransformation(
     findTargetAspectId: (id) => id,
   },
   {
+    allowPropChange,
     expectedElemsOnlyInSource = [],
+    expectedElemsOnlyInTarget = [],
     // by default ignore the classes that the transformer ignores, this default is wrong if the option
     // [IModelTransformerOptions.includeSourceProvenance]$(transformer) is set to true
     classesToIgnoreMissingEntitiesOfInTarget = [...IModelTransformer.provenanceElementClasses, ...IModelTransformer.provenanceElementAspectClasses],
     compareElemGeom = false,
   }: {
     expectedElemsOnlyInSource?: Partial<ElementProps>[];
+    expectedElemsOnlyInTarget?: Partial<ElementProps>[];
+    /** return undefined to use the default allowProps check that expects a transformation */
+    allowPropChange?: (sourceElem: Element, targetElem: Element, propName: string) => boolean | undefined;
     /** before checking elements that are only in the source are correct, filter out elements of these classes */
     classesToIgnoreMissingEntitiesOfInTarget?: typeof Entity[];
     compareElemGeom?: boolean;
@@ -275,7 +280,8 @@ export async function assertIdentityTransformation(
         // known cases for the prop expecting to have been changed by the transformation under normal circumstances
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
-        const propChangesAllowed = sourceElem.federationGuid === undefined || propName === "jsonProperties";
+        const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
+          ?? (sourceElem.federationGuid === undefined || propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
@@ -298,9 +304,10 @@ export async function assertIdentityTransformation(
         } else if (!propChangesAllowed) {
           // kept for conditional breakpoints
           const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
-          expect(targetElem.asAny[propName]).to.deep.advancedEqual(
-            sourceElem.asAny[propName]
-          );
+          expect(
+            targetElem.asAny[propName],
+            `${targetElem.id}[${propName}] didn't match ${sourceElem.id}[${propName}]`
+          ).to.deep.advancedEqual(sourceElem.asAny[propName]);
         }
       }
       const quickClone = (obj: any) => JSON.parse(JSON.stringify(obj));
@@ -402,27 +409,28 @@ export async function assertIdentityTransformation(
       .filter(([_inTarget, inSource]) => inSource === undefined)
       .map(([inTarget]) => [inTarget.id, inTarget])
   );
-  const notIgnoredElementsOnlyInSourceAsInvariant = [
-    ...onlyInSourceElements.values(),
-  ]
-    .filter(
-      (elem) =>
-        !classesToIgnoreMissingEntitiesOfInTarget.some(
-          (cls) => elem instanceof cls
-        )
-    )
-    .map((elem) => {
-      const rawProps = { ...elem } as Partial<Mutable<Element>>;
-      delete rawProps.iModel;
-      delete rawProps.id;
-      delete rawProps.isInstanceOfEntity;
-      return rawProps;
-    });
 
-  expect(notIgnoredElementsOnlyInSourceAsInvariant).to.deep.equal(
-    expectedElemsOnlyInSource
-  );
-  expect(onlyInTargetElements).to.have.length(0);
+  const makeElemsInvariant = (elems: Partial<Element>[]) =>
+    elems
+      .filter(
+        (elem) =>
+          !classesToIgnoreMissingEntitiesOfInTarget.some(
+            (cls) => elem instanceof cls
+          )
+      )
+      .map((elem) => {
+        const rawProps = { ...elem } as Partial<Mutable<Element>>;
+        delete rawProps.iModel;
+        delete rawProps.id;
+        delete rawProps.isInstanceOfEntity;
+        return rawProps;
+      });
+
+  const elementsOnlyInSourceAsInvariant = makeElemsInvariant([...onlyInSourceElements.values()]);
+  const elementsOnlyInTargetAsInvariant = makeElemsInvariant([...onlyInTargetElements.values()]);
+
+  expect(elementsOnlyInSourceAsInvariant).to.deep.equal(expectedElemsOnlyInSource);
+  expect(elementsOnlyInTargetAsInvariant).to.deep.equal(expectedElemsOnlyInTarget);
 
   const sourceToTargetModelsMap = new Map<Model, Model | undefined>();
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();

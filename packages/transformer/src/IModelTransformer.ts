@@ -470,6 +470,47 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
+  public static initRelationshipProvenanceOptions(
+    sourceRelInstanceId: Id64String,
+    targetRelInstanceId: Id64String,
+    args: {
+      sourceDb: IModelDb;
+      targetDb: IModelDb;
+      isReverseSynchronization: boolean;
+      targetScopeElementId: Id64String;
+      forceOldRelationshipProvenanceMethod: boolean;
+    },
+  ): ExternalSourceAspectProps {
+    const provenanceDb = args.isReverseSynchronization ? args.sourceDb : args.targetDb;
+    const aspectIdentifier = args.isReverseSynchronization ? targetRelInstanceId : sourceRelInstanceId;
+    const provenanceRelInstanceId = args.isReverseSynchronization ? sourceRelInstanceId : targetRelInstanceId;
+
+    const elementId = provenanceDb.withPreparedStatement(
+        "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
+        (stmt) => {
+          stmt.bindId(1, provenanceRelInstanceId);
+          nodeAssert(stmt.step() === DbResult.BE_SQLITE_ROW);
+          return stmt.getValue(0).getId();
+        },
+      );
+
+    const jsonProperties
+      = args.forceOldRelationshipProvenanceMethod
+      ? { targetRelInstanceId }
+      : { provenanceRelInstanceId };
+
+    const aspectProps: ExternalSourceAspectProps = {
+      classFullName: ExternalSourceAspect.classFullName,
+      element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
+      scope: { id: args.targetScopeElementId },
+      identifier: aspectIdentifier,
+      kind: ExternalSourceAspect.Kind.Relationship,
+      jsonProperties: JSON.stringify(jsonProperties),
+    };
+
+    return aspectProps;
+  }
+
   // FIXME: add test using this
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
@@ -499,34 +540,17 @@ export class IModelTransformer extends IModelExportHandler {
    * The ECInstanceId of the relationship in the target iModel will be stored in the JsonProperties of the ExternalSourceAspect.
    */
   private initRelationshipProvenance(sourceRelationship: Relationship, targetRelInstanceId: Id64String): ExternalSourceAspectProps {
-    const elementId = this._options.isReverseSynchronization
-      ? sourceRelationship.sourceId
-      : this.targetDb.withPreparedStatement(
-          "SELECT SourceECInstanceId FROM Bis.ElementRefersToElements WHERE ECInstanceId=?",
-          (stmt) => {
-            stmt.bindId(1, targetRelInstanceId);
-            nodeAssert(stmt.step() === DbResult.BE_SQLITE_ROW);
-            return stmt.getValue(0).getId();
-          },
-        );
-    const aspectIdentifier = this._options.isReverseSynchronization ? targetRelInstanceId : sourceRelationship.id;
-    const jsonProperties
-      = this._forceOldRelationshipProvenanceMethod
-      ? { targetRelInstanceId }
-      : { provenanceRelInstanceId: this._isReverseSynchronization
-          ? sourceRelationship.id
-          : targetRelInstanceId,
-        };
-
-    const aspectProps: ExternalSourceAspectProps = {
-      classFullName: ExternalSourceAspect.classFullName,
-      element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
-      scope: { id: this.targetScopeElementId },
-      identifier: aspectIdentifier,
-      kind: ExternalSourceAspect.Kind.Relationship,
-      jsonProperties: JSON.stringify(jsonProperties),
-    };
-    return aspectProps;
+    return IModelTransformer.initRelationshipProvenanceOptions(
+      sourceRelationship.id,
+      targetRelInstanceId,
+      {
+        sourceDb: this.sourceDb,
+        targetDb: this.targetDb,
+        isReverseSynchronization: !!this._options.isReverseSynchronization,
+        targetScopeElementId: this.targetScopeElementId,
+        forceOldRelationshipProvenanceMethod: this._forceOldRelationshipProvenanceMethod,
+      }
+    );
   }
 
   /** NOTE: the json properties must be converted to string before insertion */
@@ -1676,10 +1700,16 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** called at the end ([[finalizeTransformation]]) of a transformation,
    * updates the target scope element to say that transformation up through the
-   * source's changeset has been performed.
+   * source's changeset has been performed. Also stores all changesets that occurred
+   * during the transformation as "pending synchronization changeset indices"
+   *
+   * You generally should not call this function yourself and use [[processChanges]] instead.
+   * It is public for unsupported use cases of custom synchronization transforms.
+   * @note if you are not running processChanges in this transformation, this will fail
+   * without setting the `force` option to `true`
    */
-  private _updateSynchronizationVersion() {
-    if (this._sourceChangeDataState !== "has-changes" && !this._isFirstSynchronization)
+  public updateSynchronizationVersion({ force = false } = {}) {
+    if (!force && (this._sourceChangeDataState !== "has-changes" && !this._isFirstSynchronization))
       return;
 
     nodeAssert(this._targetScopeProvenanceProps);
@@ -1701,8 +1731,8 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (this._isSynchronization) {
       assert(
-        this.targetDb.changeset.index !== undefined && this._startingChangesetIndices !== undefined,
-        "_updateSynchronizationVersion was called without change history",
+        this.targetDb.changeset.index !== undefined && this._startingChangesetIndices  !== undefined,
+        "updateSynchronizationVersion was called without change history",
       );
 
       const jsonProps = this._targetScopeProvenanceProps.jsonProperties;
@@ -1743,7 +1773,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: is this necessary when manually using lowlevel transform APIs?
   private finalizeTransformation() {
-    this._updateSynchronizationVersion();
+    this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
       Logger.logWarning(
