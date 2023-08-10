@@ -1687,10 +1687,16 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** called at the end ([[finalizeTransformation]]) of a transformation,
    * updates the target scope element to say that transformation up through the
-   * source's changeset has been performed.
+   * source's changeset has been performed. Also stores all changesets that occurred
+   * during the transformation as "pending synchronization changeset indices"
+   *
+   * You generally should not call this function yourself and use [[processChanges]] instead.
+   * It is public for unsupported use cases of custom synchronization transforms.
+   * @note if you are not running processChanges in this transformation, this will fail
+   * without setting the `force` option to `true`
    */
-  private _updateSynchronizationVersion() {
-    if (this._sourceChangeDataState !== "has-changes" && !this._isFirstSynchronization)
+  public updateSynchronizationVersion({ force = false } = {}) {
+    if (!force && (this._sourceChangeDataState !== "has-changes" && !this._isFirstSynchronization))
       return;
 
     nodeAssert(this._targetScopeProvenanceProps);
