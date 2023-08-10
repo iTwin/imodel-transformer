@@ -1603,15 +1603,15 @@ describe("IModelTransformerHub", () => {
     const timeline: Timeline = [
       { master: { 1:1 } },
       { master: { 2:2 } },
-      { master: { 2:3 } },
+      { master: { 3:1 } },
       { branch: { branch: "master" } },
-      { branch: { 1:2, 2:1 } },
+      { branch: { 1:2, 4:1 } },
       // eslint-disable-next-line @typescript-eslint/no-shadow
       { assert({ master, branch }) {
         expect(master.db.changeset.index).to.equal(3);
         expect(branch.db.changeset.index).to.equal(2);
         expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(0);
-        expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(8);
+        expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(9);
 
         const scopeProvenanceCandidates = branch.db.elements
           .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
@@ -1636,7 +1636,7 @@ describe("IModelTransformerHub", () => {
         expect(branch.db.changeset.index).to.equal(3);
         expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(0);
         // added because the root was modified
-        expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(9);
+        expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(11);
 
         const scopeProvenanceCandidates = branch.db.elements
           .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
@@ -1651,6 +1651,13 @@ describe("IModelTransformerHub", () => {
           pendingSyncChangesetIndices: [4],
         });
         expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;2$/);
+      }},
+      { branch: { sync: ["master"] } },
+      { branch: { 5:1 } },
+      { master: { sync: ["branch"] } },
+      { assert({ master, branch }) {
+        expect(master.state).to.deep.equal({ 1:2, 2:2, 3:1, 4:1, 5:1 });
+        expect(branch.state).to.deep.equal({ 1:2, 2:2, 3:1, 4:1, 5:1 });
       }},
     ];
 
