@@ -21,7 +21,7 @@
     "@itwin/core-quantity": "3.6.0 - 4.0.999",
     "@itwin/imodel-transformer": "workspace:*",
     "@itwin/ecschema-metadata": "3.6.0 - 4.0.999",
-    "@itwin/imodels-access-backend": "^2.2.1",
+    "@itwin/imodels-access-backend": "2.3.0",
     "@itwin/imodels-client-authoring": "2.3.0",
     "@itwin/node-cli-authorization": "~0.9.0",
     "@itwin/perf-tools": "3.7.2",

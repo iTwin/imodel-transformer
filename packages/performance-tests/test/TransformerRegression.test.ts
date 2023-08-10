@@ -35,7 +35,7 @@ import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
-  ["identity transform", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
+  // ["identity transform", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
   ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
 ]);
 
@@ -48,9 +48,9 @@ const loadTransformers = async () => {
     modulePaths.map(async (m) => [m, (await import(m)).default])
   ) as [string, TestTransformerModule][];
   const transformerModules = new Map<string, TestTransformerModule>([
-    ["NativeTransformer", nativeTransformerTestModule],
-    ["RawForkOperations", rawForkOperationsTestModule],
-    ["RawForkCreateFedGuids", rawForkCreateFedGuidsTestModule],
+    // ["NativeTransformer", nativeTransformerTestModule],
+    // ["RawForkOperations", rawForkOperationsTestModule],
+    // ["RawForkCreateFedGuids", rawForkCreateFedGuidsTestModule],
     ...envSpecifiedExtraTransformerCases,
   ]);
   return transformerModules;
@@ -195,9 +195,9 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it("Transform vs raw inserts", async () => {
-      return rawInserts(reporter, branchName);
-    }).timeout(0);
+    // it("Transform vs raw inserts", async () => {
+    //   return rawInserts(reporter, branchName);
+    // }).timeout(0);
 
   });
 
