@@ -210,6 +210,7 @@ export type Timeline = Record<number, {
 export interface TestContextOpts {
   iTwinId: string;
   accessToken: string;
+  transformerOpts?: IModelTransformOptions;
 }
 
 /**
@@ -219,7 +220,7 @@ export interface TestContextOpts {
  * updated only in the target are hard to track. You can assert it yourself with @see assertElemState in
  * an assert step for your timeline
  */
-export async function runTimeline(timeline: Timeline, { iTwinId, accessToken }: TestContextOpts) {
+export async function runTimeline(timeline: Timeline, { iTwinId, accessToken, transformerOpts }: TestContextOpts) {
   const trackedIModels = new Map<string, TimelineIModelState>();
   const masterOfBranch = new Map<string, string>();
 

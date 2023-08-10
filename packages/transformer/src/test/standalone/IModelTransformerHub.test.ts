@@ -1598,5 +1598,40 @@ describe("IModelTransformerHub", () => {
     await tearDown();
     sinon.restore();
   });
+
+  it("should skip provenance changesets to branch during reverse sync", async () => {
+    const timeline: Timeline = {
+      0: { master: { 1:1 } },
+      1: { branch: { branch: "master" } },
+      2: { branch: { 1:2, 2:1 } },
+      3: { branch: { 3:3 } },
+    };
+
+    const { trackedIModels, timelineStates, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+
+    const master = trackedIModels.get("master")!;
+    const branch = trackedIModels.get("branch")!;
+    const branchAt2Changeset = timelineStates.get(1)?.changesets.branch;
+    assert(branchAt2Changeset?.index);
+    const branchAt2 = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: branch.id, asOf: { first: true } });
+    await branchAt2.pullChanges({ toIndex: branchAt2Changeset.index, accessToken });
+
+    const syncer = new IModelTransformer(branchAt2, master.db, {
+      isReverseSynchronization: true,
+    });
+    const queryChangeset = sinon.spy(HubMock, "queryChangeset");
+    await syncer.processChanges({ accessToken, startChangeset: branchAt2Changeset });
+    expect(queryChangeset.alwaysCalledWith({
+      accessToken,
+      iModelId: branch.id,
+      changeset: {
+        id: branchAt2Changeset.id,
+      },
+    })).to.be.true;
+
+    syncer.dispose();
+    await tearDown();
+    sinon.restore();
+  });
 });
 
