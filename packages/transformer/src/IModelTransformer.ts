@@ -1719,7 +1719,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._isSynchronization) {
       assert(
         this.targetDb.changeset.index !== undefined && this._startingTargetChangesetIndex !== undefined,
-        "_updateSynchronizationVersion was called without change history",
+        "updateSynchronizationVersion was called without change history",
       );
 
       const jsonProps = this._targetScopeProvenanceProps.jsonProperties;
@@ -1753,7 +1753,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: is this necessary when manually using lowlevel transform APIs?
   private finalizeTransformation() {
-    this._updateSynchronizationVersion();
+    this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
       Logger.logWarning(
