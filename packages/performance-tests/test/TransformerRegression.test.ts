@@ -105,26 +105,34 @@ const setupTestData = async () => {
       scope: process.env.OIDC_SCOPES,
     });
 
+  console.log("Before signIn");
   await authClient.signIn();
+  console.log("After signIn");
 
   const hostConfig = new IModelHostConfiguration();
   hostConfig.authorizationClient = authClient;
   const hubClient = new IModelsClient({ api: { baseUrl: `https://${process.env.IMJS_URL_PREFIX}api.bentley.com/imodels` } });
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
+  console.log("Before startup");
   await IModelHost.startup(hostConfig);
+  console.log("After startup");
 
   return preFetchAsyncIterator(getTestIModels(filterIModels));
 };
 
 async function runRegressionTests() {
+  console.log("Running regression test func");
   const testIModels = await setupTestData();
+  console.log("After setupTestData");
   const transformerModules = await loadTransformers();
+  console.log("After loadTransformers");
   const reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
   const branchName = await getBranchName();
 
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
+      console.log("Running test case");
       let sourceDb: BriefcaseDb;
       let reportInfo: ReporterInfo;
       let sourceFileName: string;
@@ -176,10 +184,12 @@ async function runRegressionTests() {
         });
 
         testCasesMap.forEach(async ({testCase, functionNameToValidate}, key) => {
+          console.log("Running test case");
           transformerModules.forEach((transformerModule: TestTransformerModule, moduleName: string) => {
             const moduleFunc = transformerModule[functionNameToValidate as keyof TestTransformerModule];
             if (moduleFunc) {
               it(`${key} on ${moduleName}`, async () => {
+                console.log("Running test");
                 const addReport = (testName: string, iModelName: string, valDescription: string, value: number) => {
                   reporter.addEntry(testName, iModelName, valDescription, value, reportInfo);
                 };
