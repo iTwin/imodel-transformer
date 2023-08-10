@@ -1656,8 +1656,11 @@ describe("IModelTransformerHub", () => {
       { branch: { 5:1 } },
       { master: { sync: ["branch"] } },
       { assert({ master, branch }) {
-        expect(master.state).to.deep.equal({ 1:2, 2:2, 3:1, 4:1, 5:1 });
-        expect(branch.state).to.deep.equal({ 1:2, 2:2, 3:1, 4:1, 5:1 });
+        const expectedState = { 1:2, 2:2, 3:1, 4:1, 5:1 };
+        expect(master.state).to.deep.equal(expectedState);
+        expect(branch.state).to.deep.equal(expectedState);
+        assertElemState(master.db, expectedState);
+        assertElemState(branch.db, expectedState);
       }},
     ];
 
