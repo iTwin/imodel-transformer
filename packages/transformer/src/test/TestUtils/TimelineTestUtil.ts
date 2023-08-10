@@ -12,7 +12,7 @@ import {
 
 import { ChangesetIdWithIndex, Code, ElementProps, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelTransformer } from "../../transformer";
+import { IModelTransformOptions, IModelTransformer } from "../../transformer";
 import { HubWrappers, IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
@@ -305,7 +305,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken, tr
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
-        const provenanceInserter = new IModelTransformer(master.db, branchDb, { wasSourceIModelCopiedToTarget: true });
+        const provenanceInserter = new IModelTransformer(master.db, branchDb, { ...transformerOpts, wasSourceIModelCopiedToTarget: true });
         await provenanceInserter.processAll();
         provenanceInserter.dispose();
         await saveAndPushChanges(accessToken, branchDb, "initialized branch provenance");
@@ -347,7 +347,7 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken, tr
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
 
-        const syncer = new IModelTransformer(source.db, target.db, { isReverseSynchronization: !isForwardSync });
+        const syncer = new IModelTransformer(source.db, target.db, { ...transformerOpts, isReverseSynchronization: !isForwardSync });
         try {
           await syncer.processChanges({
             accessToken,
@@ -376,6 +376,8 @@ export async function runTimeline(timeline: Timeline, { iTwinId, accessToken, tr
 
         target.state = getIModelState(target.db); // update the tracking state
 
+        if (!isForwardSync)
+          await saveAndPushChanges(accessToken, source.db, stateMsg);
         await saveAndPushChanges(accessToken, target.db, stateMsg);
       } else {
         const alreadySeenIModel = trackedIModels.get(iModelName)!;

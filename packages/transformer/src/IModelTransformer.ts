@@ -1729,7 +1729,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (this._isReverseSynchronization) {
         nodeAssert(this.sourceDb.changeset.index, "changeset didn't exist");
         for (let i = this._startingChangesetIndices.source + 1; i <= this.sourceDb.changeset.index + 1; i++)
-          jsonProps.pendingSyncChangesetIndices.push(i);
+          jsonProps.pendingReverseSyncChangesetIndices.push(i);
       }
 
       Logger.logTrace(loggerCategory, `new pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`);
