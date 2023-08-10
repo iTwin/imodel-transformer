@@ -2239,8 +2239,8 @@ describe("IModelTransformer", () => {
     for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
       // some versions of itwin.js do not have a path for the transformer to preserve bad codes
       //const inNonPreservingItjsVersion = Semver.satisfies(coreBackendPkgJson.version, ">= 4.0.0 && <= 4.1.1");
-      const inNonPreservingItjsVersion = false;
-      const expected = inNonPreservingItjsVersion ? initialVal : `${initialVal}\xa0`;
+      const inPreservingItjsVersion = true;
+      const expected = inPreservingItjsVersion ? `${initialVal}\xa0` : initialVal;
       getCodeValRawSqlite(targetDb, { initialVal, expected, expectedMatchCount });
       getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });
     }
