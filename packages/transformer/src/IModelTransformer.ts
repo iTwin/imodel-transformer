@@ -853,7 +853,10 @@ export class IModelTransformer extends IModelExportHandler {
    * Index of the changeset that the transformer was at when the transformation begins (was constructed).
    * Used to determine at the end which changesets were part of a synchronization.
    */
-  private _startingTargetChangesetIndex: number | undefined = undefined;
+  private _startingChangesetIndices: {
+    target: number;
+    source: number;
+  } | undefined = undefined;
 
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined = undefined;
 
