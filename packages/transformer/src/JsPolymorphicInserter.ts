@@ -9,9 +9,9 @@ import * as assert from "assert";
  */
 function createPolymorphicEntityInsertQueryMap(db: IModelDb): Map<string, string> {
   const classFullNameAndProps = db.withStatement(`
-    SELECT c.Id, p.Name
+    SELECT c.ECInstanceId, p.Name
     FROM ECDbMeta.ECClassDef c
-    JOIN ECDbMeta.ECPropertyDef p ON c.ECInstanceId=p.ClassId
+    JOIN ECDbMeta.ECPropertyDef p ON c.ECInstanceId=p.Class.Id
   `, (s) => {
     const result = new Map<string, string[]>();
 
@@ -36,7 +36,7 @@ function createPolymorphicEntityInsertQueryMap(db: IModelDb): Map<string, string
       INSERT INTO ${classFullName}
       (${properties.join(",")})
       VALUES
-      (${properties.map((p) => `?1->'$.${p}'`).join(",")})
+      (${properties.map((p) => `JSON_EXTRACT(:x, '$.${p}')`).join(",")})
     `);
   }
 
@@ -57,7 +57,7 @@ function batchDataByClass(data: RawPolymorphicRow[]) {
   return result;
 }
 
-interface RawPolymorphicRow {
+export interface RawPolymorphicRow {
   parsed: EntityProps;
   jsonString: string;
 }
@@ -65,11 +65,16 @@ interface RawPolymorphicRow {
 /**
  * Insert data into the db regardless of class. This "emulates" an actual polymorphic insert
  * feature, which does not (yet) exist in ecdb
+ * @param data - if is a map, must be keyed on classFullName in each row
  */
-export function doEmulatedPolymorphicEntityInsert(db: IModelDb, data: RawPolymorphicRow[]) {
+export function doEmulatedPolymorphicEntityInsert(
+  db: IModelDb,
+  /** if is a map, must be presorted */
+  data: RawPolymorphicRow[] | Map<string, RawPolymorphicRow[]>,
+) {
   const queryMap  = createPolymorphicEntityInsertQueryMap(db);
 
-  const perClassInsertData = batchDataByClass(data);
+  const perClassInsertData = data instanceof Map ? data : batchDataByClass(data);
 
   for (const [classFullName, query] of queryMap) {
     const classInsertData = perClassInsertData.get(classFullName);
@@ -83,4 +88,28 @@ export function doEmulatedPolymorphicEntityInsert(db: IModelDb, data: RawPolymor
       });
     }
   }
+}
+
+export function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb) {
+  const queryMap = createPolymorphicEntityInsertQueryMap(target);
+
+  source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
+
+  source.withPreparedStatement(`
+    SELECT $, ECClassId
+    FROM bis.Element
+    -- is sorting this slow? probably... prevents invalidating the stmt cache tho...
+    ORDER BY ECInstanceId ASC, ECClassId
+  `, (sourceStmt) => {
+    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
+      const jsonString = sourceStmt.getValue(0).getString();
+      const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
+      const query = queryMap.get(classFullName);
+      assert(query, `couldn't find query for class '${classFullName}`);
+      target.withPreparedStatement(query, (targetStmt) => {
+        targetStmt.bindString('x', jsonString);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+    }
+  });
 }

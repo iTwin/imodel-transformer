@@ -37,6 +37,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
+import { rawEmulatedPolymorphicInsertTransform } from "../../JsPolymorphicInserter";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformer");
@@ -2623,6 +2624,25 @@ describe("IModelTransformer", () => {
       sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
     });
     transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it.only("should compare performance of emulated polymorphic insert", async function () {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation.bim");
+    const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
+
+    await runWithCpuProfiler(() => {
+      rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
+    }, {
+      profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
+      timestamp: true,
+      sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
+    });
+
+    //transformer.dispose();
     sourceDb.close();
     targetDb.close();
   });
