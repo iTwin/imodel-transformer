@@ -9,7 +9,7 @@ import * as path from "path";
 import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
-  CategorySelector, DisplayStyle3d, DocumentListModel, Drawing, DrawingCategory, DrawingGraphic, DrawingModel, ECSqlStatement, Element,
+  CategorySelector, DisplayStyle3d, DocumentListModel, Drawing, DrawingCategory, DrawingGraphic, DrawingModel, ECDb, ECDbOpenMode, ECSqlStatement, Element,
   ElementMultiAspect, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementRefersToElements,
   ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
   InformationRecordModel, InformationRecordPartition, LinkElement, Model, ModelSelector, OrthographicViewDefinition,
@@ -2642,7 +2642,6 @@ describe("IModelTransformer", () => {
       sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
     });
 
-    //transformer.dispose();
     sourceDb.close();
     targetDb.close();
   });

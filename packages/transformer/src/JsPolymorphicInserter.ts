@@ -1,4 +1,4 @@
-import { IModelDb } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult } from "@itwin/core-bentley";
 import { EntityProps } from "@itwin/core-common";
 import * as assert from "assert";
@@ -95,10 +95,14 @@ export function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: 
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
+  const writeableTarget = new ECDb();
+  writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
+  target.close();
+
   source.withPreparedStatement(`
     SELECT $, ECClassId
     FROM bis.Element
-    -- is sorting this slow? probably... prevents invalidating the stmt cache tho...
+    -- is sorting this slow (index?)... prevents thrashing the stmt cache tho...
     ORDER BY ECInstanceId ASC, ECClassId
   `, (sourceStmt) => {
     while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
@@ -106,10 +110,12 @@ export function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: 
       const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
       const query = queryMap.get(classFullName);
       assert(query, `couldn't find query for class '${classFullName}`);
-      target.withPreparedStatement(query, (targetStmt) => {
-        targetStmt.bindString('x', jsonString);
+      writeableTarget.withPreparedStatement(query, (targetStmt) => {
+        targetStmt.bindString("x", jsonString);
         assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
       });
     }
   });
+
+  writeableTarget.dispose();
 }
