@@ -2634,8 +2634,8 @@ describe("IModelTransformer", () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
 
-    await runWithCpuProfiler(() => {
-      rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
+    await runWithCpuProfiler(async () => {
+      await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
     }, {
       profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
       timestamp: true,
