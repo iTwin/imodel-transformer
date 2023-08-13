@@ -58,24 +58,27 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
   // sqlite cast doesn't understand hexadecimal strings so can't use this
   // FIXME: custom sql function will be wayyyy better than this
   // ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`SELECT
-  const readNavPropFromJson = (p: PropInfo) => `(
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -1, 1)) << 0) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -2, 1)) << 4) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -3, 1)) << 8) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -4, 1)) << 12) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -5, 1)) << 16) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -6, 1)) << 20) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -7, 1)) << 24) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -8, 1)) << 28) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -9, 1)) << 32) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -10, 1)) << 36) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -11, 1)) << 40) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -12, 1)) << 44) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -13, 1)) << 48) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -14, 1)) << 52) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -15, 1)) << 56) |
-    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -16, 1)) << 60)
-  )`;
+  const readHexFromJson = (p: PropInfo) => {
+    const navProp = p.type === PropertyType.Navigation;
+    return `(
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -1, 1)) << 0) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -2, 1)) << 4) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -3, 1)) << 8) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -4, 1)) << 12) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -5, 1)) << 16) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -6, 1)) << 20) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -7, 1)) << 24) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -8, 1)) << 28) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -9, 1)) << 32) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -10, 1)) << 36) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -11, 1)) << 40) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -12, 1)) << 44) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -13, 1)) << 48) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -14, 1)) << 52) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -15, 1)) << 56) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -16, 1)) << 60)
+    )`;
+  };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
@@ -84,12 +87,18 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
         UPDATE ${classFullName}
         SET ${
           properties
-            .filter((p) => !p.isReadOnly && p.type === PropertyType.Navigation)
-            .map((p) => `${p.name}.Id = (SELECT '${injectionString} ${escapeForSqlStr(readNavPropFromJson(p))}')
-            `)
+            .filter((p) => !p.isReadOnly && p.type === PropertyType.Navigation || p.name === "CodeValue")
+            .map((p) =>
+              p.type === PropertyType.Navigation
+              ? `${p.name}.Id = (SELECT '${injectionString} ${escapeForSqlStr(readHexFromJson(p))}')`
+              // is CodeValue if not nav prop
+              : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
+            )
             .join(",\n  ")
         }
-      WHERE ECInstanceId=(SELECT '${injectionString} ${escapeForSqlStr("'$.ECInstanceId'")}')
+      WHERE ECInstanceId=(SELECT '${injectionString} ${escapeForSqlStr(readHexFromJson(
+        { name: "ECInstanceId", type: PropertyType.Long, isReadOnly: false })
+      )}')
       ` : `
         INSERT INTO ${classFullName}
         (${properties
@@ -199,6 +208,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     )
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
+  writeableTarget.withPreparedSqliteStatement(`
+    INSERT INTO temp.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
+  `, (targetStmt) => {
+    assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+  });
+
   // FIXME: this doesn't work... using a workaround of setting all references to 0x1
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = true;
@@ -234,7 +249,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     return JSON.stringify(parsed);
   }
 
-  const sourcePolymorphicSelect = `
+  const sourceElemSelect = `
     SELECT $, ECClassId, ECInstanceId
     FROM bis.Element
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
@@ -245,7 +260,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   // first pass, update everything with trivial references (0x1 and null codes)
-  source.withPreparedStatement(sourcePolymorphicSelect, (sourceStmt) => {
+  source.withPreparedStatement(sourceElemSelect, (sourceStmt) => {
     while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
       const jsonString = sourceStmt.getValue(0).getString();
       const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
@@ -274,7 +289,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   });
 
   // second pass, update now that everything has been inserted
-  source.withPreparedStatement(sourcePolymorphicSelect, (sourceStmt) => {
+  source.withPreparedStatement(sourceElemSelect, (sourceStmt) => {
     while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
       const jsonString = sourceStmt.getValue(0).getString();
       const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
@@ -291,10 +306,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
           new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
           (_, p1) => `(SELECT TargetId
             FROM temp.element_remap
-            WHERE SourceId=JSON_EXTRACT(:x_col1, ${unescapeSqlStr(p1)})
+            WHERE SourceId=${unescapeSqlStr(p1)}
            )`
         );
       });
+
+      console.log("hacked", hackedRemapUpdateSql);
+      console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
 
       try {
         writeableTarget.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
@@ -317,7 +335,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         //console.log("SPEC", writeableTarget.withStatement(`SELECT * FROM bis.CodeSpec WHERE ECInstanceId=${JSON.parse(transformed).CodeSpec?.Id ?? 0}`, s=>[...s]));
         //console.log("PARENT", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).Parent?.Id ?? 0}`, s=>[...s]));
         //console.log("MODEL", writeableTarget.withStatement(`SELECT * FROM bis.Model WHERE ECInstanceId=${JSON.parse(transformed).Model?.Id ?? 0}`, s=>[...s]));
-        console.log("query:", updateQuery);
         console.log("native sql:", hackedRemapUpdateSql);
         throw err;
       }
@@ -336,9 +353,11 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   //console.log(writeableTarget.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
   //console.log(source.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
-  //console.log(writeableTarget.withSqliteStatement(`SELECT * FROM temp.element_remap`, s=>[...s]));
+  console.log(writeableTarget.withSqliteStatement(`SELECT * FROM temp.element_remap`, s=>[...s]));
 
+  const targetPath = writeableTarget.nativeDb.getFilePath();
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
   writeableTarget.dispose();
+  require("fs").copyFileSync(targetPath, "/tmp/out.db");
 }
