@@ -1,6 +1,6 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64String } from "@itwin/core-bentley";
-import { EntityProps } from "@itwin/core-common";
+import { DbRequestKind, EntityProps } from "@itwin/core-common";
 import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
@@ -202,6 +202,26 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     PRAGMA defer_foreign_keys_pragma = true;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
+  // FIXME: reinstate triggers after by caching them from sqlite_master
+  const triggers = writeableTarget.withPreparedSqliteStatement(`
+    SELECT name, sql FROM sqlite_master
+    WHERE type='trigger'
+  `, (s) => {
+    const result = new Map<string, string>();
+    while(s.step() === DbResult.BE_SQLITE_ROW) {
+      const triggerName = s.getValue(0).getString();
+      const sql = s.getValue(1).getString();
+      result.set(triggerName, sql);
+    }
+    return result;
+  });
+
+  for (const [trigger] of triggers) {
+    writeableTarget.withSqliteStatement(`
+      DROP TRIGGER ${trigger}
+    `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  }
+
   // remove (unique constraint) violations
   // NOTE: most (FK constraint) violation removal is done by using the !update (default)
   // option in @see createPolymorphicEntityInsertQueryMap
@@ -265,6 +285,10 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = false;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+  for (const [, triggerSql] of triggers) {
+    writeableTarget.withSqliteStatement(triggerSql, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  }
 
   writeableTarget.saveChanges();
   writeableTarget.dispose();
