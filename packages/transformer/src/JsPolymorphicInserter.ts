@@ -1,6 +1,6 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64String } from "@itwin/core-bentley";
-import { DbRequestKind, EntityProps } from "@itwin/core-common";
+import { EntityProps } from "@itwin/core-common";
 import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
@@ -8,6 +8,7 @@ import { IModelTransformer } from "./IModelTransformer";
 interface PropInfo {
   name: string;
   type: PropertyType;
+  isReadOnly: boolean;
 }
 
 /**
@@ -40,7 +41,7 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
         // if (testExcludedProps.has(prop.name))
         //   continue;
 
-        classProps.push({ name: prop.name, type: prop.propertyType });
+        classProps.push({ name: prop.name, type: prop.propertyType, isReadOnly: prop.isReadOnly });
       }
 
       classFullNameAndProps.set(ecclass.fullName, classProps);
@@ -78,6 +79,7 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
         UPDATE ${classFullName}
         SET ${
           properties
+            .filter((p) => !p.isReadOnly)
             .map((p) => `${
                 p.type === PropertyType.Navigation ? `${p.name}.Id` : p.name
               } = ${
@@ -86,8 +88,13 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
                   : `JSON_EXTRACT(:x, '$.${p.name}')`
               }`)
             .join(",\n  ")
-        }`
-      : `
+        }
+      WHERE ECInstanceId=(
+        SELECT TargetId
+        FROM temp.element_remap
+        WHERE SourceId=JSON_EXTRACT(:x, '$.ECInstanceId')
+      )
+      ` : `
         INSERT INTO ${classFullName}
         (${properties
           .map((p) =>
@@ -232,7 +239,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     return JSON.stringify(parsed);
   }
 
-  source.withPreparedStatement(`
+  const sourcePolymorphicSelect = `
     SELECT $, ECClassId, ECInstanceId
     FROM bis.Element
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
@@ -240,42 +247,66 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
     ORDER BY ECInstanceId ASC
-  `, (sourceStmt) => {
+  `;
+
+  // first pass, update everything with trivial references (0x1 and null codes)
+  source.withPreparedStatement(sourcePolymorphicSelect, (sourceStmt) => {
     while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
       const jsonString = sourceStmt.getValue(0).getString();
       const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
       const sourceId = sourceStmt.getValue(2).getId();
 
-      const query = insertQueryMap.get(classFullName);
-      assert(query, `couldn't find query for class '${classFullName}`);
+      const insertQuery = insertQueryMap.get(classFullName);
+      assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
       const transformed = unviolate(jsonString);
 
-      let nativeSql;
+      writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+        targetStmt.bindString("x", transformed);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+      writeableTarget.withSqliteStatement(`
+        INSERT INTO temp.element_remap
+        SELECT ?, Val FROM be_Local WHERE Name='bis_elementidsequence'
+      `, (targetStmt) => {
+        targetStmt.bindId(1, sourceId);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+    }
+  });
 
+  // second pass, update now that everything has been inserted
+  source.withPreparedStatement(sourcePolymorphicSelect, (sourceStmt) => {
+    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
+      const jsonString = sourceStmt.getValue(0).getString();
+      const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
+      const sourceId = sourceStmt.getValue(2).getId();
+
+      const updateQuery = updateQueryMap.get(classFullName);
+      assert(updateQuery, `couldn't find update query for class '${classFullName}`);
+
+      let nativeSql!: string;
       try {
-        // must insert things in id order... maybe need two passes?
-        writeableTarget.withPreparedStatement(query, (targetStmt) => {
+        writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
           nativeSql = targetStmt.getNativeSql();
-          targetStmt.bindString("x", transformed);
-          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-        });
-        writeableTarget.withSqliteStatement(`
-          INSERT INTO temp.element_remap
-          SELECT ?, Val FROM be_Local WHERE Name='bis_elementidsequence'
-        `, (targetStmt) => {
-          targetStmt.bindId(1, sourceId);
+          targetStmt.bindString("x", jsonString);
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
       } catch (err) {
         console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
         console.log("ERROR", writeableTarget.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(JSON.parse(transformed), undefined, " "));
+
+        const targetPath = writeableTarget.nativeDb.getFilePath();
+        writeableTarget.saveChanges();
+        writeableTarget.closeDb();
+        require("fs").copyFileSync(targetPath, "/tmp/out.db");
+
+        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         //console.log("SCOPE", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).CodeScope?.Id ?? 0}`, s=>[...s]));
         //console.log("SPEC", writeableTarget.withStatement(`SELECT * FROM bis.CodeSpec WHERE ECInstanceId=${JSON.parse(transformed).CodeSpec?.Id ?? 0}`, s=>[...s]));
         //console.log("PARENT", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).Parent?.Id ?? 0}`, s=>[...s]));
         //console.log("MODEL", writeableTarget.withStatement(`SELECT * FROM bis.Model WHERE ECInstanceId=${JSON.parse(transformed).Model?.Id ?? 0}`, s=>[...s]));
-        console.log("query:", query);
+        console.log("query:", updateQuery);
         console.log("native sql:", nativeSql);
         throw err;
       }
@@ -286,6 +317,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     PRAGMA defer_foreign_keys_pragma = false;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
+  // FIXME: this is a hack! need to recalculate entire spatial index after this... probably better
+  // to just modify the native end to allow writes?
   for (const [, triggerSql] of triggers) {
     writeableTarget.withSqliteStatement(triggerSql, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
