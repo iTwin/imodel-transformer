@@ -152,23 +152,36 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
-  const classIdMap = sourceToTargetClassIds(source, target);
-
   const writeableTarget = new ECDb();
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
   target.close();
 
+  // FIXME: I think federation guid needs to be blobbified
   // TODO: do this in a sqlite function that executes javascript (possibly from a path)
   function transformJson(jsonString: string): string {
     const json = JSON.parse(jsonString);
     const sourceClassId = json.ECClassId;
-    json.ECClassId = classIdMap.get(sourceClassId);
+    //json.ECClassId = classIdMap.get(sourceClassId);
     assert(json.ECClassId, `couldn't remap class with id: ${sourceClassId}`);
     return JSON.stringify(json);
   }
 
+  // FIXME
+  writeableTarget.withPreparedSqliteStatement(`
+    CREATE TEMP TABLE temp.element_remap(
+      SourceId INTEGER PRIMARY KEY, -- create index
+      TargetId INTEGER
+    )
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+  // FIXME: this doesn't work... using a workaround of setting all references to 0x1
+  writeableTarget.withPreparedSqliteStatement(`
+    PRAGMA defer_foreign_keys_pragma = true;
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+
   source.withPreparedStatement(`
-    SELECT $, ECClassId
+    SELECT $, ECClassId, ECInstanceId
     FROM bis.Element
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
     -- FIXME: would be much faster to temporarily disable FK constraints
@@ -179,6 +192,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
       const jsonString = sourceStmt.getValue(0).getString();
       const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
+      const sourceId = sourceStmt.getValue(2).getId();
 
       const query = queryMap.get(classFullName);
       assert(query, `couldn't find query for class '${classFullName}`);
@@ -194,17 +208,36 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
           targetStmt.bindString("x", transformed);
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
+        writeableTarget.withSqliteStatement(`
+          INSERT INTO temp.element_remap
+          SELECT ?, Val FROM be_Local WHERE Name='bis_elementidsequence'
+        `, (targetStmt) => {
+          targetStmt.bindId(1, sourceId);
+          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+        });
       } catch (err) {
         console.log("ERROR", writeableTarget.nativeDb.getLastError());
-        console.log("query:", query);
-        console.log("original:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+
+        writeableTarget.saveChanges();
+        require("fs").copyFileSync(writeableTarget.nativeDb.getFilePath(), "/tmp/out.db");
+
+        console.log("SCOPE", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE CodeScope.Id=${JSON.parse(transformed).CodeScope.Id}`, s=>[...s]));
+        console.log("SPEC", writeableTarget.withStatement(`SELECT * FROM bis.CodeSpec WHERE ECInstanceId=${JSON.parse(transformed).CodeSpec.Id}`, s=>[...s]));
+        console.log("PARENT", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).Parent.Id}`, s=>[...s]));
+        console.log("MODEL", writeableTarget.withStatement(`SELECT * FROM bis.Model WHERE ECInstanceId=${JSON.parse(transformed).Model.Id}`, s=>[...s]));
+        // console.log("query:", query);
+        // console.log("original:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("transformed:", JSON.stringify(JSON.parse(transformed), undefined, " "));
-        console.log("native sql:", nativeSql);
-        console.log();
+        // console.log("native sql:", nativeSql);
         throw err;
       }
     }
   });
 
+  writeableTarget.withPreparedSqliteStatement(`
+    PRAGMA defer_foreign_keys_pragma = false;
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+  writeableTarget.saveChanges();
   writeableTarget.dispose();
 }
