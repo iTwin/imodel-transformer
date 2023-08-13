@@ -3,6 +3,9 @@ import { DbResult, Id64String } from "@itwin/core-bentley";
 import { EntityProps } from "@itwin/core-common";
 import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
+import * as os from "os";
+import * as fs from "fs";
+import * as path from "path";
 import { IModelTransformer } from "./IModelTransformer";
 
 interface PropInfo {
@@ -91,7 +94,7 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
         }
       WHERE ECInstanceId=(
         SELECT TargetId
-        FROM temp.element_remap
+        FROM tt.ElemRemap
         WHERE SourceId=JSON_EXTRACT(:x, '$.ECInstanceId')
       )
       ` : `
@@ -196,13 +199,21 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
   target.close();
 
-  // FIXME
-  writeableTarget.withPreparedSqliteStatement(`
-    CREATE TEMP TABLE temp.element_remap(
-      SourceId INTEGER PRIMARY KEY, -- create index
-      TargetId INTEGER
-    )
-  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  // HACK: no easy access to temp tables so add a temp ecclass...
+  // FIXME: use a temp sqlite tablespace instead, possibly by modifying the native sql generated
+  // during preparation of ecsql
+  const tempSchemaPath = path.join(os.tmpdir(), `temp_${Math.random()}.ecschema.xml`);
+  await fs.promises.writeFile(tempSchemaPath,
+    `<?xml version="1.0" encoding="UTF-8"?>
+      <ECSchema schemaName="temp_test" alias="tt" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+        <ECEntityClass typeName="ElemRemap">
+          <ECProperty propertyName="SourceId" typeName="long" extendedTypeName="Id" />
+          <ECProperty propertyName="TargetId" typeName="long" extendedTypeName="Id" />
+        </ECEntityClass>
+      </ECSchema>`
+  );
+
+  writeableTarget.importSchema(tempSchemaPath);
 
   // FIXME: this doesn't work... using a workaround of setting all references to 0x1
   writeableTarget.withPreparedSqliteStatement(`
@@ -261,15 +272,19 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
       const transformed = unviolate(jsonString);
 
-      writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+      const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
         targetStmt.bindString("x", transformed);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+        const result = targetStmt.stepForInsert();
+        assert(result.status === DbResult.BE_SQLITE_DONE);
+        assert(result.id);
+        return result.id;
       });
-      writeableTarget.withSqliteStatement(`
-        INSERT INTO temp.element_remap
-        SELECT ?, Val FROM be_Local WHERE Name='bis_elementidsequence'
+
+      writeableTarget.withPreparedStatement(`
+        INSERT INTO tt.ElemRemap VALUES(?,?)
       `, (targetStmt) => {
         targetStmt.bindId(1, sourceId);
+        targetStmt.bindId(2, targetId);
         assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
       });
     }
