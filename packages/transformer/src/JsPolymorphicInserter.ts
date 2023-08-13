@@ -287,9 +287,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       // HACK: create hybrid sqlite/ecsql query
       const hackedRemapUpdateSql = writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
         const nativeSql = targetStmt.getNativeSql();
-        console.log(nativeSql);
         return nativeSql.replace(
-          new RegExp(`\\(SELECT '${injectionString} (.*('')*)'\\)`, "g"),
+          new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
           (_, p1) => `(SELECT TargetId
             FROM temp.element_remap
             WHERE SourceId=JSON_EXTRACT(:x_col1, ${unescapeSqlStr(p1)})
@@ -335,10 +334,11 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     writeableTarget.withSqliteStatement(triggerSql, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  console.log(writeableTarget.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
-  console.log(source.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
-  console.log(writeableTarget.withSqliteStatement(`SELECT * FROM temp.element_remap`, s=>[...s]));
+  //console.log(writeableTarget.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
+  //console.log(source.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
+  //console.log(writeableTarget.withSqliteStatement(`SELECT * FROM temp.element_remap`, s=>[...s]));
 
   writeableTarget.saveChanges();
+  writeableTarget.closeDb();
   writeableTarget.dispose();
 }
