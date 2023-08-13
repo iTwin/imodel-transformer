@@ -108,9 +108,11 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
             )
             .join(",\n  ")
         }
-      WHERE ECInstanceId=(SELECT '${injectionString} ${escapeForSqlStr(readHexFromJson(
-        { name: "ECInstanceId", type: PropertyType.Long, isReadOnly: false })
-      )}')
+      WHERE ECInstanceId=${injectExpr(`(
+        SELECT TargetId
+        FROM temp.element_remap
+        WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", type: PropertyType.Long, isReadOnly: false })}
+      )`)}
       ` : `
         INSERT INTO ${classFullName}
         (${properties
@@ -380,14 +382,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         );
       });
 
-      console.log("hacked", hackedRemapUpdateSql);
+      console.log("hacked full", hackedRemapUpdateSql.replace(/:x\b/g, `'${jsonString}'`));
       console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
 
       try {
         writeableTarget.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
+          // can't use named bindings in raw sqlite statement apparently
           targetStmt.bindString(1, jsonString);
-          // this doesn't seem to work?
-          // targetStmt.bindString("x", jsonString);
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
       } catch (err) {
