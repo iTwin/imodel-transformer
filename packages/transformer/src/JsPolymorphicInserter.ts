@@ -11,6 +11,7 @@ interface PropInfo {
   isReadOnly: boolean;
 }
 
+// some high entropy string
 const injectionString = "SomeHighEntropyString_1243yu1";
 const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr(s)}')`;
 
@@ -93,7 +94,7 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
               p.type === PropertyType.Navigation && p.name === "CodeSpec"
               ? `${p.name}.Id = ${injectExpr(`(
                 SELECT TargetId
-                FROM temp.element_remap
+                FROM temp.codespec_remap
                 WHERE SourceId=${readHexFromJson(p)}
               )`)}`
               : p.type === PropertyType.Navigation && p.name
@@ -144,7 +145,6 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
     queryMap.set(classFullName, query);
     /* eslint-enable @typescript-eslint/indent */
   }
-
 
   return queryMap;
 }
@@ -198,7 +198,7 @@ function sourceToTargetClassIds(source: IModelDb, target: IModelDb) {
   return result;
 }
 
-export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb) {
+export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb): Promise<Map<Id64String, Id64String>> {
   const schemaExporter = new IModelTransformer(source, target);
   await schemaExporter.processSchemas();
   schemaExporter.dispose();
@@ -214,8 +214,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   writeableTarget.withPreparedSqliteStatement(`
     CREATE TEMP TABLE temp.element_remap(
-      SourceId INTEGER PRIMARY KEY, -- do we need an index?
-      TargetId INTEGER
+      SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
+      TargetId INTEGER NOT NULL
     )
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
@@ -224,6 +224,14 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `, (targetStmt) => {
     assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
   });
+
+  // FIXME: immediately remap standard shared codespec names
+  writeableTarget.withPreparedSqliteStatement(`
+    CREATE TEMP TABLE temp.codespec_remap(
+      SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
+      TargetId INTEGER NOT NULL
+    )
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
   // FIXME: this doesn't work... using a workaround of setting all references to 0x1
   writeableTarget.withPreparedSqliteStatement(`
@@ -249,6 +257,59 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       DROP TRIGGER ${trigger}
     `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
+
+  // tranform code specs
+  const sourceCodeSpecSelect = `
+    SELECT ECInstanceId, Name, JsonProperties
+    FROM bis.CodeSpec
+  `;
+
+  source.withPreparedStatement(sourceCodeSpecSelect, (sourceStmt) => {
+    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
+      const sourceId = sourceStmt.getValue(0).getId();
+      const name = sourceStmt.getValue(1).getString();
+      const jsonProps = sourceStmt.getValue(2).getString();
+
+      // FIXME: use upsert but it doesn't work :/
+      let targetId: Id64String;
+      try {
+        targetId = writeableTarget.withPreparedStatement(`
+          INSERT INTO bis.CodeSpec VALUES(?,?)
+          -- ON CONFLICT (name) DO NOTHING
+        `, (targetStmt) => {
+          targetStmt.bindString(1, name);
+          targetStmt.bindString(2, jsonProps);
+          const result = targetStmt.stepForInsert();
+          if (result.status !== DbResult.BE_SQLITE_DONE || !result.id) {
+            const err = new Error(`Expected BE_SQLITE_DONE but got ${result.status}`);
+            (err as any).result = result;
+            throw err;
+          }
+          return result.id;
+        });
+      } catch (err: any) {
+        if (err?.result?.status !== DbResult.BE_SQLITE_CONSTRAINT_UNIQUE)
+          throw err;
+
+        targetId = writeableTarget.withPreparedStatement(
+          "SELECT ECInstanceId FROM bis.CodeSpec WHERE Name=?",
+          (targetStmt) => {
+            targetStmt.bindString(1, name);
+            assert(targetStmt.step() === DbResult.BE_SQLITE_ROW);
+            return targetStmt.getValue(0).getId();
+          }
+        );
+      }
+
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO temp.codespec_remap VALUES(?,?)
+      `, (targetStmt) => {
+        targetStmt.bindId(1, sourceId);
+        targetStmt.bindId(2, targetId);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+    }
+  });
 
   // remove (unique constraint) violations
   // NOTE: most (FK constraint) violation removal is done by using the !update (default)
@@ -359,13 +420,35 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     writeableTarget.withSqliteStatement(triggerSql, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  //console.log(writeableTarget.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
-  //console.log(source.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
-  console.log(writeableTarget.withSqliteStatement(`SELECT * FROM temp.element_remap`, s=>[...s]));
+  // TODO: make optional
+  const elemRemaps = new Map<string, string>();
+  writeableTarget.withSqliteStatement(
+    `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM temp.element_remap`,
+    (s) => {
+      while (s.step() === DbResult.BE_SQLITE_ROW) {
+        elemRemaps.set(s.getValue(0).getString(), s.getValue(1).getString());
+      }
+    }
+  );
+
+  const codeSpecRemaps = new Map<string, string>();
+  writeableTarget.withSqliteStatement(
+    `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM temp.codespec_remap`,
+    (s) => {
+      while (s.step() === DbResult.BE_SQLITE_ROW) {
+        codeSpecRemaps.set(s.getValue(0).getString(), s.getValue(1).getString());
+      }
+    }
+  );
+
+  console.log("ELEM REMAPS:", elemRemaps);
+  console.log("CODESPEC REMAPS:", codeSpecRemaps);
 
   const targetPath = writeableTarget.nativeDb.getFilePath();
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
   writeableTarget.dispose();
   require("fs").copyFileSync(targetPath, "/tmp/out.db");
+
+  return elemRemaps;
 }

@@ -2640,13 +2640,17 @@ describe("IModelTransformer", () => {
     targetDb.performCheckpoint();
     fs.copyFileSync(targetDb.pathName, "/tmp/out.db");
 
+    let _remaps: Map<Id64String, Id64String>;
     await runWithCpuProfiler(async () => {
-      await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
+      _remaps = await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
     }, {
       profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
       timestamp: true,
       sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
     });
+
+    // FIXME: do this
+    //await assertIdentityTransformation(sourceDb, targetDb, remappings);
 
     sourceDb.close();
     targetDb.close();
