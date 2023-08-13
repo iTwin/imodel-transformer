@@ -272,7 +272,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const name = sourceStmt.getValue(1).getString();
       const jsonProps = sourceStmt.getValue(2).getString();
 
-      // FIXME: use upsert but it doesn't work :/
+      // FIXME: use upsert but it doesn't seem to work :/
       let targetId: Id64String;
       try {
         targetId = writeableTarget.withPreparedStatement(`
@@ -288,7 +288,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
             throw err;
           }
           return result.id;
-        });
+        }, false);
       } catch (err: any) {
         if (err?.result?.status !== DbResult.BE_SQLITE_CONSTRAINT_UNIQUE)
           throw err;
@@ -382,9 +382,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         );
       });
 
-      console.log("hacked full", hackedRemapUpdateSql.replace(/:x\b/g, `'${jsonString}'`));
-      console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
-
       try {
         writeableTarget.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
           // can't use named bindings in raw sqlite statement apparently
@@ -394,17 +391,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       } catch (err) {
         console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
         console.log("ERROR", writeableTarget.nativeDb.getLastError());
-
-        const targetPath = writeableTarget.nativeDb.getFilePath();
-        writeableTarget.saveChanges();
-        writeableTarget.closeDb();
-        require("fs").copyFileSync(targetPath, "/tmp/out.db");
-
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
-        //console.log("SCOPE", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).CodeScope?.Id ?? 0}`, s=>[...s]));
-        //console.log("SPEC", writeableTarget.withStatement(`SELECT * FROM bis.CodeSpec WHERE ECInstanceId=${JSON.parse(transformed).CodeSpec?.Id ?? 0}`, s=>[...s]));
-        //console.log("PARENT", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).Parent?.Id ?? 0}`, s=>[...s]));
-        //console.log("MODEL", writeableTarget.withStatement(`SELECT * FROM bis.Model WHERE ECInstanceId=${JSON.parse(transformed).Model?.Id ?? 0}`, s=>[...s]));
         console.log("native sql:", hackedRemapUpdateSql);
         throw err;
       }
@@ -421,7 +408,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     writeableTarget.withSqliteStatement(triggerSql, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  // TODO: make optional
+  // TODO: make collecting/returning this optional
   const elemRemaps = new Map<string, string>();
   writeableTarget.withSqliteStatement(
     `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM temp.element_remap`,
@@ -442,14 +429,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   );
 
-  console.log("ELEM REMAPS:", elemRemaps);
-  console.log("CODESPEC REMAPS:", codeSpecRemaps);
-
-  const targetPath = writeableTarget.nativeDb.getFilePath();
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
   writeableTarget.dispose();
-  require("fs").copyFileSync(targetPath, "/tmp/out.db");
 
   return elemRemaps;
 }
