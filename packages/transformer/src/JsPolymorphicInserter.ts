@@ -74,36 +74,13 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
 
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
-    const updatePairs
-      = update && properties
-        .filter((p) => !p.isReadOnly)
-        .map((p) =>
-            p.type === PropertyType.Navigation
-            ? [[`${p.name}.Id`],
-               [readNavPropFromJson(p)]]
-            : p.type === PropertyType.Point2d
-            ? [[`${p.name}.x`, `${p.name}.y`],
-               [`JSON_EXTRACT(:x, '$.${p.name}.x')`,
-                `JSON_EXTRACT(:x, '$.${p.name}.y')`]]
-            : p.type === PropertyType.Point3d
-            ? [[`${p.name}.x`, `${p.name}.y`, `${p.name}.z`],
-               [`JSON_EXTRACT(:x, '$.${p.name}.x')`,
-                `JSON_EXTRACT(:x, '$.${p.name}.y')`,
-                `JSON_EXTRACT(:x, '$.${p.name}.z')`]]
-            : [[p.name],
-               [`JSON_EXTRACT(:x, '$.${p.name}')`]]
-          );
-
-    // FIXME: horrible casting and names
-    const updateFields = update && (updatePairs as string[][][]).map((u) => u[0]).flat();
-    const updateValues = update && (updatePairs as string[][][]).map((u) => u[1]).flat();
-
-    const query = update && updateFields && updateValues
+    const query = update
       ? `
         UPDATE ${classFullName}
         SET ${
-          updateFields
-            .map((_, i) => `${updateFields[i]} = ${updateValues[i]}`)
+          properties
+            .filter((p) => !p.isReadOnly && p.type === PropertyType.Navigation)
+            .map((p) => `${p.name}.Id = ${readNavPropFromJson(p)}`)
             .join(",\n  ")
         }
       WHERE ECInstanceId=(SELECT 'SomeHighEntropyString_1243yu1')
