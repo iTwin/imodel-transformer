@@ -11,7 +11,8 @@ interface PropInfo {
   isReadOnly: boolean;
 }
 
-const injectionString = 'SomeHighEntropyString_1243yu1';
+const injectionString = "SomeHighEntropyString_1243yu1";
+const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr(s)}')`;
 
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
@@ -89,8 +90,18 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
           properties
             .filter((p) => !p.isReadOnly && p.type === PropertyType.Navigation || p.name === "CodeValue")
             .map((p) =>
-              p.type === PropertyType.Navigation
-              ? `${p.name}.Id = (SELECT '${injectionString} ${escapeForSqlStr(readHexFromJson(p))}')`
+              p.type === PropertyType.Navigation && p.name === "CodeSpec"
+              ? `${p.name}.Id = ${injectExpr(`(
+                SELECT TargetId
+                FROM temp.element_remap
+                WHERE SourceId=${readHexFromJson(p)}
+              )`)}`
+              : p.type === PropertyType.Navigation && p.name
+              ? `${p.name}.Id = ${injectExpr(`(
+                SELECT TargetId
+                FROM temp.element_remap
+                WHERE SourceId=${readHexFromJson(p)}
+              )`)}`
               // is CodeValue if not nav prop
               : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
             )
@@ -304,10 +315,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         const nativeSql = targetStmt.getNativeSql();
         return nativeSql.replace(
           new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-          (_, p1) => `(SELECT TargetId
-            FROM temp.element_remap
-            WHERE SourceId=${unescapeSqlStr(p1)}
-           )`
+          (_, p1) => unescapeSqlStr(p1),
         );
       });
 
