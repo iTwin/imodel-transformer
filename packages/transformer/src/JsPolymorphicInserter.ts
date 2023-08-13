@@ -1,9 +1,9 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64String } from "@itwin/core-bentley";
 import { EntityProps } from "@itwin/core-common";
-import { Property, PropertyType, Schema, SchemaLoader } from "@itwin/ecschema-metadata";
+import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
-import { ExportSchemaResult, IModelExportHandler, IModelExporter } from "./IModelExporter";
+import { IModelTransformer } from "./IModelTransformer";
 
 interface PropInfo {
   name: string;
@@ -93,6 +93,10 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
           .map((p) =>
             p.type === PropertyType.Navigation
             ? `${p.name}.Id`
+            : p.type === PropertyType.Point2d
+            ? `${p.name}.x, ${p.name}.y`
+            : p.type === PropertyType.Point3d
+            ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
             // : p.type === PropertyType.DateTime
             // ? `${p.name}.Id`
             : p.name
@@ -104,6 +108,10 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
           .map((p) =>
             p.type === PropertyType.Navigation
             ? "0x1"
+            : p.type === PropertyType.Point2d
+            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+            : p.type === PropertyType.Point3d
+            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
             : `JSON_EXTRACT(:x, '$.${p.name}')`
           )
           .join(",\n  ")
@@ -168,19 +176,14 @@ function sourceToTargetClassIds(source: IModelDb, target: IModelDb) {
 }
 
 export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb) {
-  const queryMap = await createPolymorphicEntityInsertQueryMap(target);
+  const schemaExporter = new IModelTransformer(source, target);
+  await schemaExporter.processSchemas();
+  schemaExporter.dispose();
+
+  const insertQueryMap = await createPolymorphicEntityInsertQueryMap(target);
+  const updateQueryMap = await createPolymorphicEntityInsertQueryMap(target, true);
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
-
-  const importSchemaHandler = new (class extends IModelExportHandler {
-    public override async onExportSchema(schema: Schema): Promise<ExportSchemaResult> {
-      await super.onExportSchema();
-    }
-  })
-
-  const schemaExporter = new IModelExporter(source);
-  schemaExporter.registerHandler(importSchemaHandler);
-  await schemaExporter.exportSchemas();
 
   const writeableTarget = new ECDb();
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
@@ -199,6 +202,16 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     PRAGMA defer_foreign_keys_pragma = true;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
+  // remove (unique constraint) violations
+  // NOTE: most (FK constraint) violation removal is done by using the !update (default)
+  // option in @see createPolymorphicEntityInsertQueryMap
+  function unviolate(jsonString: string): string {
+    const parsed = JSON.parse(jsonString);
+    parsed._CodeValue = parsed.CodeValue; // for debugging
+    delete parsed.CodeValue;
+    return JSON.stringify(parsed);
+  }
+
   source.withPreparedStatement(`
     SELECT $, ECClassId, ECInstanceId
     FROM bis.Element
@@ -213,10 +226,10 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
       const sourceId = sourceStmt.getValue(2).getId();
 
-      const query = queryMap.get(classFullName);
+      const query = insertQueryMap.get(classFullName);
       assert(query, `couldn't find query for class '${classFullName}`);
 
-      const transformed = jsonString;
+      const transformed = unviolate(jsonString);
 
       let nativeSql;
 
@@ -235,16 +248,15 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
       } catch (err) {
+        console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
         console.log("ERROR", writeableTarget.nativeDb.getLastError());
-
-        console.log("SCOPE", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE CodeScope.Id=${JSON.parse(transformed).CodeScope.Id}`, s=>[...s]));
-        console.log("SPEC", writeableTarget.withStatement(`SELECT * FROM bis.CodeSpec WHERE ECInstanceId=${JSON.parse(transformed).CodeSpec.Id}`, s=>[...s]));
-        console.log("PARENT", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).Parent.Id}`, s=>[...s]));
-        console.log("MODEL", writeableTarget.withStatement(`SELECT * FROM bis.Model WHERE ECInstanceId=${JSON.parse(transformed).Model.Id}`, s=>[...s]));
-        // console.log("query:", query);
-        // console.log("original:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("transformed:", JSON.stringify(JSON.parse(transformed), undefined, " "));
-        // console.log("native sql:", nativeSql);
+        //console.log("SCOPE", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).CodeScope?.Id ?? 0}`, s=>[...s]));
+        //console.log("SPEC", writeableTarget.withStatement(`SELECT * FROM bis.CodeSpec WHERE ECInstanceId=${JSON.parse(transformed).CodeSpec?.Id ?? 0}`, s=>[...s]));
+        //console.log("PARENT", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).Parent?.Id ?? 0}`, s=>[...s]));
+        //console.log("MODEL", writeableTarget.withStatement(`SELECT * FROM bis.Model WHERE ECInstanceId=${JSON.parse(transformed).Model?.Id ?? 0}`, s=>[...s]));
+        console.log("query:", query);
+        console.log("native sql:", nativeSql);
         throw err;
       }
     }

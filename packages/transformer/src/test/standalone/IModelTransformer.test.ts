@@ -2634,6 +2634,9 @@ describe("IModelTransformer", () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
 
+    sourceDb.performCheckpoint();
+    fs.copyFileSync(targetDb.pathName, "/tmp/in.db");
+
     targetDb.performCheckpoint();
     fs.copyFileSync(targetDb.pathName, "/tmp/out.db");
 
