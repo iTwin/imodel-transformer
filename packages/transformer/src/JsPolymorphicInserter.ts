@@ -11,6 +11,11 @@ interface PropInfo {
   isReadOnly: boolean;
 }
 
+const injectionString = 'SomeHighEntropyString_1243yu1';
+
+const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
+const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
+
 /**
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
@@ -80,10 +85,11 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
         SET ${
           properties
             .filter((p) => !p.isReadOnly && p.type === PropertyType.Navigation)
-            .map((p) => `${p.name}.Id = ${readNavPropFromJson(p)}`)
+            .map((p) => `${p.name}.Id = (SELECT '${injectionString} ${escapeForSqlStr(readNavPropFromJson(p))}')
+            `)
             .join(",\n  ")
         }
-      WHERE ECInstanceId=(SELECT 'SomeHighEntropyString_1243yu1')
+      WHERE ECInstanceId=(SELECT '${injectionString} ${escapeForSqlStr("'$.ECInstanceId'")}')
       ` : `
         INSERT INTO ${classFullName}
         (${properties
@@ -277,14 +283,18 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const updateQuery = updateQueryMap.get(classFullName);
       assert(updateQuery, `couldn't find update query for class '${classFullName}`);
 
+      // FIXME: move into updateQueryMap as a callback
       // HACK: create hybrid sqlite/ecsql query
       const hackedRemapUpdateSql = writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
         const nativeSql = targetStmt.getNativeSql();
-        return nativeSql.replace(/\(SELECT 'SomeHighEntropyString_1243yu1'\)/g, `(
-          SELECT TargetId
-          FROM temp.element_remap
-          WHERE SourceId=JSON_EXTRACT(:x_col1, '$.ECInstanceId')
-        )`);
+        console.log(nativeSql);
+        return nativeSql.replace(
+          new RegExp(`\\(SELECT '${injectionString} (.*('')*)'\\)`, "g"),
+          (_, p1) => `(SELECT TargetId
+            FROM temp.element_remap
+            WHERE SourceId=JSON_EXTRACT(:x_col1, ${unescapeSqlStr(p1)})
+           )`
+        );
       });
 
       try {
@@ -324,6 +334,10 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   for (const [, triggerSql] of triggers) {
     writeableTarget.withSqliteStatement(triggerSql, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
+
+  console.log(writeableTarget.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
+  console.log(source.withStatement(`SELECT * FROM bis.Element`, s=>[...s]));
+  console.log(writeableTarget.withSqliteStatement(`SELECT * FROM temp.element_remap`, s=>[...s]));
 
   writeableTarget.saveChanges();
   writeableTarget.dispose();
