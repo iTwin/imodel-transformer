@@ -1,8 +1,9 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64String } from "@itwin/core-bentley";
 import { EntityProps } from "@itwin/core-common";
-import { Property, PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
+import { Property, PropertyType, Schema, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
+import { ExportSchemaResult, IModelExportHandler, IModelExporter } from "./IModelExporter";
 
 interface PropInfo {
   name: string;
@@ -170,6 +171,16 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const queryMap = await createPolymorphicEntityInsertQueryMap(target);
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
+
+  const importSchemaHandler = new (class extends IModelExportHandler {
+    public override async onExportSchema(schema: Schema): Promise<ExportSchemaResult> {
+      await super.onExportSchema();
+    }
+  })
+
+  const schemaExporter = new IModelExporter(source);
+  schemaExporter.registerHandler(importSchemaHandler);
+  await schemaExporter.exportSchemas();
 
   const writeableTarget = new ECDb();
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
