@@ -1,5 +1,5 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
-import { DbResult } from "@itwin/core-bentley";
+import { DbResult, Id64String } from "@itwin/core-bentley";
 import { EntityProps } from "@itwin/core-common";
 import { Property, PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -66,7 +66,27 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb): Promise<Map<
       (${properties
         .map((p) =>
           p.type === PropertyType.Navigation
-          ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`
+          // sqlite cast doesn't understand hexadecimal strings so can't use this
+          // FIXME: custom sql function will be wayyyy better than this
+          // ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`SELECT
+          ? `(
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -1, 1)) << 0) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -2, 1)) << 4) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -3, 1)) << 8) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -4, 1)) << 12) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -5, 1)) << 16) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -6, 1)) << 20) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -7, 1)) << 24) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -8, 1)) << 28) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -9, 1)) << 32) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -10, 1)) << 36) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -11, 1)) << 40) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -12, 1)) << 44) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -13, 1)) << 48) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -14, 1)) << 52) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -15, 1)) << 56) |
+          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -16, 1)) << 60)
+          )`
           : `JSON_EXTRACT(:x, '$.${p.name}')`
         )
         .join(",\n  ")
@@ -97,32 +117,34 @@ export interface RawPolymorphicRow {
   jsonString: string;
 }
 
-/**
- * Insert data into the db regardless of class. This "emulates" an actual polymorphic insert
- * feature, which does not (yet) exist in ecdb
- * @param data - if is a map, must be keyed on classFullName in each row
- */
-async function doEmulatedPolymorphicEntityInsert(
-  db: IModelDb,
-  /** if is a map, must be presorted */
-  data: RawPolymorphicRow[] | Map<string, RawPolymorphicRow[]>,
-) {
-  const queryMap = await createPolymorphicEntityInsertQueryMap(db);
-
-  const perClassInsertData = data instanceof Map ? data : batchDataByClass(data);
-
-  for (const [classFullName, query] of queryMap) {
-    const classInsertData = perClassInsertData.get(classFullName);
-    assert(classInsertData);
-    // FIXME: this assumes we can't do a single-class polymorphic select... should check, that would
-    // be much much faster
-    for (const { jsonString } of classInsertData) {
-      db.withPreparedStatement(query, (s) => {
-        s.bindString(1, jsonString);
-        assert(s.step() === DbResult.BE_SQLITE_DONE);
-      });
+// FIXME: replace entirely with ec_classname and ec_classid builtin functions
+function sourceToTargetClassIds(source: IModelDb, target: IModelDb) {
+  const makeClassNameToIdMap = (db: IModelDb) => db.withPreparedStatement(
+    "SELECT ECInstanceId FROM ECDbMeta.ECClassDef",
+    (stmt) => {
+      const result = new Map<string, Id64String>();
+      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const classId = stmt.getValue(0).getId();
+        const classFullName = stmt.getValue(0).getClassNameForClassId();
+        result.set(classFullName, classId);
+      }
+      return result;
     }
+  );
+  // FIXME: use attached target
+  const sourceClassNameToId = makeClassNameToIdMap(source);
+  const targetClassNameToId = makeClassNameToIdMap(target);
+
+  const result = new Map<Id64String, Id64String>();
+
+  for (const [classFullName, sourceClassId] of sourceClassNameToId) {
+    const targetClassId = targetClassNameToId.get(classFullName);
+    if (targetClassId === undefined)
+      continue;
+    result.set(sourceClassId, targetClassId);
   }
+
+  return result;
 }
 
 export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb) {
@@ -130,17 +152,28 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
+  const classIdMap = sourceToTargetClassIds(source, target);
+
   const writeableTarget = new ECDb();
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
   target.close();
 
+  // TODO: do this in a sqlite function that executes javascript (possibly from a path)
+  function transformJson(jsonString: string): string {
+    const json = JSON.parse(jsonString);
+    const sourceClassId = json.ECClassId;
+    json.ECClassId = classIdMap.get(sourceClassId);
+    assert(json.ECClassId, `couldn't remap class with id: ${sourceClassId}`);
+    return JSON.stringify(json);
+  }
+
   source.withPreparedStatement(`
     SELECT $, ECClassId
     FROM bis.Element
-    -- is sorting this slow (index?)... prevents thrashing the stmt cache tho...
-    -- would be much faster to temporarily disable FK constraints
-    -- ORDER BY ECClassId, ECInstanceId ASC
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
+    -- FIXME: would be much faster to temporarily disable FK constraints
+    -- FIXME: ordering by class *might* be faster due to less cache busting
+    -- ORDER BY ECClassId, ECInstanceId ASC
     ORDER BY ECInstanceId ASC
   `, (sourceStmt) => {
     while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
@@ -150,15 +183,26 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const query = queryMap.get(classFullName);
       assert(query, `couldn't find query for class '${classFullName}`);
 
-      // must insert things in id order... maybe need two passes?
-      console.log(query);
-      console.log(JSON.stringify(JSON.parse(jsonString), undefined, " "));
-      console.log();
+      const transformed = transformJson(jsonString);
 
-      writeableTarget.withPreparedStatement(query, (targetStmt) => {
-        targetStmt.bindString("x", jsonString);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
+      let nativeSql;
+
+      try {
+        // must insert things in id order... maybe need two passes?
+        writeableTarget.withPreparedStatement(query, (targetStmt) => {
+          nativeSql = targetStmt.getNativeSql();
+          targetStmt.bindString("x", transformed);
+          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+        });
+      } catch (err) {
+        console.log("ERROR", writeableTarget.nativeDb.getLastError());
+        console.log("query:", query);
+        console.log("original:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("transformed:", JSON.stringify(JSON.parse(transformed), undefined, " "));
+        console.log("native sql:", nativeSql);
+        console.log();
+        throw err;
+      }
     }
   });
 
