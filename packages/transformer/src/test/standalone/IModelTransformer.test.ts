@@ -2634,11 +2634,10 @@ describe("IModelTransformer", () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
 
-    sourceDb.performCheckpoint();
-    fs.copyFileSync(targetDb.pathName, "/tmp/in.db");
+    sourceDb.saveChanges();
 
-    targetDb.performCheckpoint();
-    fs.copyFileSync(targetDb.pathName, "/tmp/out.db");
+    const sourcePath = sourceDb.pathName;
+    const targetPath = targetDb.pathName;
 
     let _remaps: Map<Id64String, Id64String>;
     await runWithCpuProfiler(async () => {
@@ -2651,8 +2650,9 @@ describe("IModelTransformer", () => {
 
     // FIXME: do this
     //await assertIdentityTransformation(sourceDb, targetDb, remappings);
-
     sourceDb.close();
     targetDb.close();
+    fs.copyFileSync(sourcePath, "/tmp/in.db");
+    fs.copyFileSync(targetPath, "/tmp/out.db");
   });
 });
