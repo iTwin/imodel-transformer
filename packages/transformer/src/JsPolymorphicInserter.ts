@@ -13,7 +13,7 @@ interface PropInfo {
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
-async function createPolymorphicEntityInsertQueryMap(db: IModelDb): Promise<Map<string, string>> {
+async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = false): Promise<Map<string, string>> {
   const schemaNames = db.withPreparedStatement(
     "SELECT Name FROM ECDbMeta.ECSchemaDef",
     (stmt) => {
@@ -48,52 +48,71 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb): Promise<Map<
 
   const queryMap = new Map<string, string>();
 
+  // sqlite cast doesn't understand hexadecimal strings so can't use this
+  // FIXME: custom sql function will be wayyyy better than this
+  // ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`SELECT
+  const readNavPropFromJson = (p: PropInfo) => `(
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -1, 1)) << 0) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -2, 1)) << 4) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -3, 1)) << 8) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -4, 1)) << 12) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -5, 1)) << 16) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -6, 1)) << 20) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -7, 1)) << 24) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -8, 1)) << 28) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -9, 1)) << 32) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -10, 1)) << 36) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -11, 1)) << 40) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -12, 1)) << 44) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -13, 1)) << 48) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -14, 1)) << 52) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -15, 1)) << 56) |
+    (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -16, 1)) << 60)
+  )`;
+
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
-    queryMap.set(classFullName, `
-      INSERT INTO ${classFullName}
-      (${properties
-        .map((p) =>
-          p.type === PropertyType.Navigation
-          ? `${p.name}.Id`
-          // : p.type === PropertyType.DateTime
-          // ? `${p.name}.Id`
-          : p.name
-        )
-        .join(",\n  ")
-      })
-      VALUES
-      (${properties
-        .map((p) =>
-          p.type === PropertyType.Navigation
-          // sqlite cast doesn't understand hexadecimal strings so can't use this
-          // FIXME: custom sql function will be wayyyy better than this
-          // ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`SELECT
-          ? `(
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -1, 1)) << 0) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -2, 1)) << 4) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -3, 1)) << 8) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -4, 1)) << 12) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -5, 1)) << 16) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -6, 1)) << 20) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -7, 1)) << 24) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -8, 1)) << 28) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -9, 1)) << 32) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -10, 1)) << 36) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -11, 1)) << 40) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -12, 1)) << 44) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -13, 1)) << 48) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -14, 1)) << 52) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -15, 1)) << 56) |
-          (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}.Id')), -16, 1)) << 60)
-          )`
-          : `JSON_EXTRACT(:x, '$.${p.name}')`
-        )
-        .join(",\n  ")
-      })
-    `);
+    const query = update
+      ? `
+        UPDATE ${classFullName}
+        SET ${
+          properties
+            .map((p) => `${
+                p.type === PropertyType.Navigation ? `${p.name}.Id` : p.name
+              } = ${
+                p.type === PropertyType.Navigation
+                  ? readNavPropFromJson(p)
+                  : `JSON_EXTRACT(:x, '$.${p.name}')`
+              }`)
+            .join(",\n  ")
+        }`
+      : `
+        INSERT INTO ${classFullName}
+        (${properties
+          .map((p) =>
+            p.type === PropertyType.Navigation
+            ? `${p.name}.Id`
+            // : p.type === PropertyType.DateTime
+            // ? `${p.name}.Id`
+            : p.name
+          )
+          .join(",\n  ")
+        })
+        VALUES
+        (${properties
+          .map((p) =>
+            p.type === PropertyType.Navigation
+            ? "0x1"
+            : `JSON_EXTRACT(:x, '$.${p.name}')`
+          )
+          .join(",\n  ")
+        })
+      `;
+
+    queryMap.set(classFullName, query);
     /* eslint-enable @typescript-eslint/indent */
   }
+
 
   return queryMap;
 }
@@ -156,16 +175,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
   target.close();
 
-  // FIXME: I think federation guid needs to be blobbified
-  // TODO: do this in a sqlite function that executes javascript (possibly from a path)
-  function transformJson(jsonString: string): string {
-    const json = JSON.parse(jsonString);
-    const sourceClassId = json.ECClassId;
-    //json.ECClassId = classIdMap.get(sourceClassId);
-    assert(json.ECClassId, `couldn't remap class with id: ${sourceClassId}`);
-    return JSON.stringify(json);
-  }
-
   // FIXME
   writeableTarget.withPreparedSqliteStatement(`
     CREATE TEMP TABLE temp.element_remap(
@@ -178,7 +187,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = true;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-
 
   source.withPreparedStatement(`
     SELECT $, ECClassId, ECInstanceId
@@ -197,7 +205,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const query = queryMap.get(classFullName);
       assert(query, `couldn't find query for class '${classFullName}`);
 
-      const transformed = transformJson(jsonString);
+      const transformed = jsonString;
 
       let nativeSql;
 
@@ -217,9 +225,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         });
       } catch (err) {
         console.log("ERROR", writeableTarget.nativeDb.getLastError());
-
-        writeableTarget.saveChanges();
-        require("fs").copyFileSync(writeableTarget.nativeDb.getFilePath(), "/tmp/out.db");
 
         console.log("SCOPE", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE CodeScope.Id=${JSON.parse(transformed).CodeScope.Id}`, s=>[...s]));
         console.log("SPEC", writeableTarget.withStatement(`SELECT * FROM bis.CodeSpec WHERE ECInstanceId=${JSON.parse(transformed).CodeSpec.Id}`, s=>[...s]));
