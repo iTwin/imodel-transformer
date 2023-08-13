@@ -3,9 +3,6 @@ import { DbResult, Id64String } from "@itwin/core-bentley";
 import { EntityProps } from "@itwin/core-common";
 import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
-import * as os from "os";
-import * as fs from "fs";
-import * as path from "path";
 import { IModelTransformer } from "./IModelTransformer";
 
 interface PropInfo {
@@ -77,26 +74,39 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
 
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
-    const query = update
+    const updatePairs
+      = update && properties
+        .filter((p) => !p.isReadOnly)
+        .map((p) =>
+            p.type === PropertyType.Navigation
+            ? [[`${p.name}.Id`],
+               [readNavPropFromJson(p)]]
+            : p.type === PropertyType.Point2d
+            ? [[`${p.name}.x`, `${p.name}.y`],
+               [`JSON_EXTRACT(:x, '$.${p.name}.x')`,
+                `JSON_EXTRACT(:x, '$.${p.name}.y')`]]
+            : p.type === PropertyType.Point3d
+            ? [[`${p.name}.x`, `${p.name}.y`, `${p.name}.z`],
+               [`JSON_EXTRACT(:x, '$.${p.name}.x')`,
+                `JSON_EXTRACT(:x, '$.${p.name}.y')`,
+                `JSON_EXTRACT(:x, '$.${p.name}.z')`]]
+            : [[p.name],
+               [`JSON_EXTRACT(:x, '$.${p.name}')`]]
+          );
+
+    // FIXME: horrible casting and names
+    const updateFields = update && (updatePairs as string[][][]).map((u) => u[0]).flat();
+    const updateValues = update && (updatePairs as string[][][]).map((u) => u[1]).flat();
+
+    const query = update && updateFields && updateValues
       ? `
         UPDATE ${classFullName}
         SET ${
-          properties
-            .filter((p) => !p.isReadOnly)
-            .map((p) => `${
-                p.type === PropertyType.Navigation ? `${p.name}.Id` : p.name
-              } = ${
-                p.type === PropertyType.Navigation
-                  ? readNavPropFromJson(p)
-                  : `JSON_EXTRACT(:x, '$.${p.name}')`
-              }`)
+          updateFields
+            .map((_, i) => `${updateFields[i]} = ${updateValues[i]}`)
             .join(",\n  ")
         }
-      WHERE ECInstanceId=(
-        SELECT TargetId
-        FROM tt.ElemRemap
-        WHERE SourceId=JSON_EXTRACT(:x, '$.ECInstanceId')
-      )
+      WHERE ECInstanceId=(SELECT 'SomeHighEntropyString_1243yu1')
       ` : `
         INSERT INTO ${classFullName}
         (${properties
@@ -199,21 +209,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
   target.close();
 
-  // HACK: no easy access to temp tables so add a temp ecclass...
-  // FIXME: use a temp sqlite tablespace instead, possibly by modifying the native sql generated
-  // during preparation of ecsql
-  const tempSchemaPath = path.join(os.tmpdir(), `temp_${Math.random()}.ecschema.xml`);
-  await fs.promises.writeFile(tempSchemaPath,
-    `<?xml version="1.0" encoding="UTF-8"?>
-      <ECSchema schemaName="temp_test" alias="tt" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
-        <ECEntityClass typeName="ElemRemap">
-          <ECProperty propertyName="SourceId" typeName="long" extendedTypeName="Id" />
-          <ECProperty propertyName="TargetId" typeName="long" extendedTypeName="Id" />
-        </ECEntityClass>
-      </ECSchema>`
-  );
-
-  writeableTarget.importSchema(tempSchemaPath);
+  writeableTarget.withPreparedSqliteStatement(`
+    CREATE TEMP TABLE temp.element_remap(
+      SourceId INTEGER PRIMARY KEY, -- do we need an index?
+      TargetId INTEGER
+    )
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
   // FIXME: this doesn't work... using a workaround of setting all references to 0x1
   writeableTarget.withPreparedSqliteStatement(`
@@ -275,13 +276,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
         targetStmt.bindString("x", transformed);
         const result = targetStmt.stepForInsert();
-        assert(result.status === DbResult.BE_SQLITE_DONE);
-        assert(result.id);
+        assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
         return result.id;
       });
 
-      writeableTarget.withPreparedStatement(`
-        INSERT INTO tt.ElemRemap VALUES(?,?)
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO temp.element_remap VALUES(?,?)
       `, (targetStmt) => {
         targetStmt.bindId(1, sourceId);
         targetStmt.bindId(2, targetId);
@@ -300,11 +300,21 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const updateQuery = updateQueryMap.get(classFullName);
       assert(updateQuery, `couldn't find update query for class '${classFullName}`);
 
-      let nativeSql!: string;
+      // HACK: create hybrid sqlite/ecsql query
+      const hackedRemapUpdateSql = writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
+        const nativeSql = targetStmt.getNativeSql();
+        return nativeSql.replace(/\(SELECT 'SomeHighEntropyString_1243yu1'\)/g, `(
+          SELECT TargetId
+          FROM temp.element_remap
+          WHERE SourceId=JSON_EXTRACT(:x_col1, '$.ECInstanceId')
+        )`);
+      });
+
       try {
-        writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
-          nativeSql = targetStmt.getNativeSql();
-          targetStmt.bindString("x", jsonString);
+        writeableTarget.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
+          targetStmt.bindString(1, jsonString);
+          // this doesn't seem to work?
+          // targetStmt.bindString("x", jsonString);
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
       } catch (err) {
@@ -322,7 +332,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         //console.log("PARENT", writeableTarget.withStatement(`SELECT * FROM bis.Element WHERE ECInstanceId=${JSON.parse(transformed).Parent?.Id ?? 0}`, s=>[...s]));
         //console.log("MODEL", writeableTarget.withStatement(`SELECT * FROM bis.Model WHERE ECInstanceId=${JSON.parse(transformed).Model?.Id ?? 0}`, s=>[...s]));
         console.log("query:", updateQuery);
-        console.log("native sql:", nativeSql);
+        console.log("native sql:", hackedRemapUpdateSql);
         throw err;
       }
     }
