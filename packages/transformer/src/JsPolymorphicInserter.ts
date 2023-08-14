@@ -22,7 +22,7 @@ const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
-async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert" | "update" = "insert"): Promise<Map<string, string>> {
+async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert-norefs" | "insert" | "update"): Promise<Map<string, string>> {
   const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
@@ -81,7 +81,8 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert
 
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
-    const query = type === "update"
+    const query
+      = type === "update"
       ? `
         UPDATE ${classFullName}
         SET ${
@@ -109,11 +110,13 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert
         SELECT TargetId
         FROM temp.element_remap
         WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", type: PropertyType.Long, isReadOnly: false })}
-      )`)}
-      ` : `
+      )`)}`
+      : type === "insert-norefs"
+      ? `
         INSERT INTO ${classFullName}
         (${properties
           .map((p) =>
+            // FIXME: note that dynamic structs are completely unhandled
             p.type === PropertyType.Navigation
             ? `${p.name}.Id`
             : p.type === PropertyType.Point2d
@@ -139,10 +142,51 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert
           )
           .join(",\n  ")
         })
-      `;
+      `
+      : `
+        INSERT INTO ${classFullName}
+        (${properties
+          .map((p) =>
+            // FIXME: note that dynamic structs are completely unhandled
+            p.type === PropertyType.Navigation
+            ? `${p.name}.Id, ${p.name}.RelECClassId`
+            : p.type === PropertyType.Point2d
+            ? `${p.name}.x, ${p.name}.y`
+            : p.type === PropertyType.Point3d
+            ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
+            // : p.type === PropertyType.DateTime
+            // ? `${p.name}.Id`
+            : p.name
+          )
+          .join(",\n  ")
+        })
+        VALUES
+        (${properties
+          .map((p) =>
+            p.type === PropertyType.Navigation
+            // FIXME: need to use ECReferenceCache to get reference type of this prop
+            ? `${injectExpr(`(
+              SELECT TargetId
+              FROM temp.element_remap
+              WHERE SourceId=${readHexFromJson(p)}
+            )`)}, ${injectExpr(`(
+              SELECT c.Id
+              FROM source.ec_Class c
+              JOIN source.ec_Schema s ON s.Id=c.SchemaId
+              WHERE Name=${readHexFromJson(p)}
+            )`)}`
+            : p.type === PropertyType.Point2d
+            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+            : p.type === PropertyType.Point3d
+            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
+            : `JSON_EXTRACT(:x, '$.${p.name}')`
+          )
+          .join(",\n  ")
+        })
+      `
+    ;
 
     queryMap.set(classFullName, query);
-    queryMap.set(classFullName.replace(/\./, ":"), query);
     /* eslint-enable @typescript-eslint/indent */
   }
 
@@ -171,7 +215,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   await schemaExporter.processSchemas();
   schemaExporter.dispose();
 
-  const insertQueryMap = await createPolymorphicEntityInsertQueryMap(target, "insert");
+  const insertQueryMap = await createPolymorphicEntityInsertQueryMap(target, "insert-norefs");
   const updateQueryMap = await createPolymorphicEntityInsertQueryMap(target, "update");
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
@@ -283,7 +327,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   const sourceElemSelect = `
-    SELECT $, ec_classname(ECClassId), ECInstanceId
+    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
     FROM bis.Element
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
     -- FIXME: would be much faster to temporarily disable FK constraints
@@ -355,45 +399,42 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   }
 
-  /*
   const sourceAspectSelect = `
-    SELECT $, ec_classname(ECClassId), ECInstanceId
+    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
     FROM bis.ElementAspect
   `;
 
-  source.withPreparedStatement(sourceAspectSelect, (sourceStmt) => {
-    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const jsonString = sourceStmt.getValue(0).getString();
-      const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
-      const sourceId = sourceStmt.getValue(2).getId();
+  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { usePrimaryConn: true });
+  while (await aspectReader.step()) {
+    const jsonString = aspectReader.current[0];
+    const classFullName = aspectReader.current[1];
+    const sourceId = aspectReader.current[2];
 
-      const insertQuery = insertQueryMap.get(classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
-      try {
-        const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
-          targetStmt.bindString("x", jsonString);
-          const result = targetStmt.stepForInsert();
-          assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
-          return result.id;
-        });
+    const insertQuery = insertQueryMap.get(classFullName);
+    assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+    try {
+      const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+        targetStmt.bindString("x", jsonString);
+        const result = targetStmt.stepForInsert();
+        assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
+        return result.id;
+      });
 
-        writeableTarget.withPreparedSqliteStatement(`
-          INSERT INTO temp.aspect_remap VALUES(?,?)
-        `, (targetStmt) => {
-          targetStmt.bindId(1, sourceId);
-          targetStmt.bindId(2, targetId);
-          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-        });
-      } catch (err) {
-        console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
-        console.log("ERROR", writeableTarget.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
-        console.log("native sql:", hackedRemapUpdateSql);
-        throw err;
-      }
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO temp.aspect_remap VALUES(?,?)
+      `, (targetStmt) => {
+        targetStmt.bindId(1, sourceId);
+        targetStmt.bindId(2, targetId);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+    } catch (err) {
+      console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
+      console.log("ERROR", writeableTarget.nativeDb.getLastError());
+      console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+      console.log("native sql:", insertQuery);
+      throw err;
     }
-  });
-  */
+  }
 
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = false;
