@@ -11,7 +11,7 @@ interface PropInfo {
 }
 
 // some high entropy string
-const injectionString = "SomeHighEntropyString_1243yu1";
+const injectionString = "Inject_1243yu1";
 const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr(s)}')`;
 
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
@@ -103,13 +103,14 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       SET ${
         updateProps
           .map((p) =>
+            // FIXME: use ECReferenceCache to get type of ref instead of checking name
             p.type === PropertyType.Navigation && p.name === "CodeSpec"
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
               FROM temp.codespec_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}`
-            : p.type === PropertyType.Navigation && p.name
+            : p.type === PropertyType.Navigation
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
               FROM temp.element_remap
@@ -164,7 +165,10 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
 
     const insertQuery = `
       INSERT INTO ${classFullName}
-      (${properties
+      -- FIXME: getting SQLITE_MISMATCH... something weird going on in native
+      (
+        ECInstanceId,
+        ${properties
         .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
           p.type === PropertyType.Navigation
@@ -173,14 +177,18 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           ? `${p.name}.x, ${p.name}.y`
           : p.type === PropertyType.Point3d
           ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
-          // : p.type === PropertyType.DateTime
-          // ? `${p.name}.Id`
           : p.name
         )
         .join(",\n  ")
       })
-      VALUES
-      (${properties
+      VALUES (
+      ${injectExpr(`(
+        -- FIXME: don't I need to increment this?
+        SELECT Val + 1
+        FROM be_Local
+        WHERE Name='bis_instanceidsequence'
+      )`)},
+      ${properties
         .map((p) =>
           p.type === PropertyType.Navigation
           // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
@@ -205,6 +213,8 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
         .join(",\n  ")
       })
     `;
+    /* eslint-enable @typescript-eslint/indent */
+
     /* eslint-enable @typescript-eslint/indent */
 
     function populate(ecdb: ECDb, jsonString: string) {
@@ -254,6 +264,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("ecsql:", insertQuery);
         console.log("native sql:", hackedRemapInsertSql);
         throw err;
       }
@@ -335,7 +346,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  // NOTE: this might just not work due to source being "busy"
   writeableTarget.withSqliteStatement(`
     ATTACH DATABASE 'file://${source.pathName}?mode=ro' AS source
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
@@ -548,6 +558,14 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       findTargetCodeSpecId: (id: Id64String) => codeSpecRemaps.get(id) ?? Id64.invalid,
     };
   }
+
+  writeableTarget.clearStatementCache(); // so we can detach attached db
+
+  // FIXME: detach... was not able to do this last time I tried on latest itwin.js,
+  // due to some kind of write-lock on the readonly-open db
+  writeableTarget.withSqliteStatement(`
+    DETACH source
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
