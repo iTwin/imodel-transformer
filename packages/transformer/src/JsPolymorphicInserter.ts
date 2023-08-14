@@ -23,15 +23,12 @@ const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
 async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert" | "update" = "insert"): Promise<Map<string, string>> {
-  const schemaNames = db.withPreparedStatement(
-    "SELECT Name FROM ECDbMeta.ECSchemaDef",
-    (stmt) => {
-      const result: string[] = [];
-      while (stmt.step() === DbResult.BE_SQLITE_ROW)
-        result.push(stmt.getValue(0).getString());
-      return result;
-    }
-  );
+  const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef");
+
+  const schemaNames: string[] = [];
+  while (await schemaNamesReader.step()) {
+    schemaNames.push(schemaNamesReader.current[0]);
+  }
 
   const schemaLoader = new SchemaLoader((name: string) => db.getSchemaProps(name));
   const classFullNameAndProps = new Map<string, PropInfo[]>();
@@ -151,55 +148,6 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert
   return queryMap;
 }
 
-function batchDataByClass(data: RawPolymorphicRow[]) {
-  const result = new Map<string, RawPolymorphicRow[]>();
-  for (const row of data) {
-    let subrows = result.get(row.parsed.classFullName);
-    if (subrows === undefined) {
-      subrows = [];
-      result.set(row.parsed.classFullName, subrows);
-    }
-    subrows.push(row);
-  }
-
-  return result;
-}
-
-export interface RawPolymorphicRow {
-  parsed: EntityProps;
-  jsonString: string;
-}
-
-// FIXME: replace entirely with ec_classname and ec_classid builtin functions
-function sourceToTargetClassIds(source: IModelDb, target: IModelDb) {
-  const makeClassNameToIdMap = (db: IModelDb) => db.withPreparedStatement(
-    "SELECT ECInstanceId FROM ECDbMeta.ECClassDef",
-    (stmt) => {
-      const result = new Map<string, Id64String>();
-      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-        const classId = stmt.getValue(0).getId();
-        const classFullName = stmt.getValue(0).getClassNameForClassId();
-        result.set(classFullName, classId);
-      }
-      return result;
-    }
-  );
-  // FIXME: use attached target
-  const sourceClassNameToId = makeClassNameToIdMap(source);
-  const targetClassNameToId = makeClassNameToIdMap(target);
-
-  const result = new Map<Id64String, Id64String>();
-
-  for (const [classFullName, sourceClassId] of sourceClassNameToId) {
-    const targetClassId = targetClassNameToId.get(classFullName);
-    if (targetClassId === undefined)
-      continue;
-    result.set(sourceClassId, targetClassId);
-  }
-
-  return result;
-}
-
 // FIXME: consolidate with assertIdentityTransform test, and maybe hide this return type
 export interface Remapper {
   findTargetElementId(s: Id64String): Id64String;
@@ -207,7 +155,7 @@ export interface Remapper {
   findTargetAspectId(s: Id64String): Id64String;
 }
 
-/** @alpha official docs */
+/** @alpha FIXME: official docs */
 export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb, options?: {
   returnRemapper?: false;
 }): Promise<undefined>;
@@ -409,12 +357,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   });
 
+  /*
   const sourceAspectSelect = `
     SELECT $, ECClassId, ECInstanceId
     FROM bis.ElementAspect
   `;
 
-  // first pass, update everything with trivial references (0x1 and null codes)
   source.withPreparedStatement(sourceAspectSelect, (sourceStmt) => {
     while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
       const jsonString = sourceStmt.getValue(0).getString();
@@ -423,25 +371,31 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
       const insertQuery = insertQueryMap.get(classFullName);
       assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+      try {
+        const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+          targetStmt.bindString("x", jsonString);
+          const result = targetStmt.stepForInsert();
+          assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
+          return result.id;
+        });
 
-      const transformed = unviolate(jsonString);
-
-      const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
-        targetStmt.bindString("x", transformed);
-        const result = targetStmt.stepForInsert();
-        assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
-        return result.id;
-      });
-
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.element_remap VALUES(?,?)
-      `, (targetStmt) => {
-        targetStmt.bindId(1, sourceId);
-        targetStmt.bindId(2, targetId);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
+        writeableTarget.withPreparedSqliteStatement(`
+          INSERT INTO temp.aspect_remap VALUES(?,?)
+        `, (targetStmt) => {
+          targetStmt.bindId(1, sourceId);
+          targetStmt.bindId(2, targetId);
+          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+        });
+      } catch (err) {
+        console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
+        console.log("ERROR", writeableTarget.nativeDb.getLastError());
+        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("native sql:", hackedRemapUpdateSql);
+        throw err;
+      }
     }
   });
+  */
 
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = false;
