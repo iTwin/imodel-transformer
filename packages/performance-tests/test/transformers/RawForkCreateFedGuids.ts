@@ -1,15 +1,15 @@
-import { initializeBranchProvenance } from "@itwin/imodel-transformer";
+import * as fs from "fs";
+import { IModelDb, StandaloneDb } from "@itwin/core-backend";
 import { TestTransformerModule, TransformRunner } from "../TestTransformerModule";
 import { initOutputFile } from "../TestUtils";
-import * as fs from "fs";
+import { initializeBranchProvenance } from "@itwin/imodel-transformer";
 import { setToStandalone } from "../iModelUtils";
 import path from "path";
-import { StandaloneDb } from "@itwin/core-backend";
 
 const outputDir = path.join(__dirname, ".output");
 
 const rawForkCreateFedGuidsTestModule: TestTransformerModule = {
-  async createForkInitTransform(sourceDb, targetDb): Promise<TransformRunner> {
+  async createForkInitTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<TransformRunner> {
     return {
       async run() {
         const sourceCopy = initOutputFile(`RawForkCreateFedGuids-${sourceDb.name}-target.bim`, outputDir);
