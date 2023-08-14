@@ -21,7 +21,7 @@ const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 interface PolymorphicEntityQueries {
   /** inserts without preserving references, must be updated */
   populate: Map<string, (db: ECDb, jsonString: string) => Id64String>;
-  insert: Map<string, (db: ECDb, jsonString: string) => Id64String>;
+  insert: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => Id64String>;
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
   update: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => void>;
 }
@@ -220,17 +220,42 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       }
     }
 
-    function insert(ecdb: ECDb, jsonString: string) {
-      return ecdb.withPreparedStatement(insertQuery, (targetStmt) => {
-        targetStmt.bindString("x", jsonString);
-        const stepRes = targetStmt.stepForInsert();
-        assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
-        return stepRes.id;
+    function insert(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }) {
+      // HACK: create hybrid sqlite/ecsql query
+      const hackedRemapInsertSql = ecdb.withPreparedStatement(updateQuery, (targetStmt) => {
+        const nativeSql = targetStmt.getNativeSql();
+        return nativeSql.replace(
+          new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
+          (_, p1) => unescapeSqlStr(p1),
+        );
       });
+
+      try {
+        ecdb.withPreparedSqliteStatement(hackedRemapInsertSql, (targetStmt) => {
+          // can't use named bindings in raw sqlite statement apparently
+          targetStmt.bindString(1, jsonString);
+          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+        });
+
+        // FIXME: get id better?
+        return ecdb.withPreparedSqliteStatement(`
+          SELECT Val
+          FROM be_Local
+          WHERE Name='bis_elementidsequence'
+        `, (s) => {
+          assert(s.step() === DbResult.BE_SQLITE_ROW);
+          return s.getValue(0).getId();
+        });
+      } catch (err) {
+        console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
+        console.log("ERROR", ecdb.nativeDb.getLastError());
+        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("native sql:", hackedRemapInsertSql);
+        throw err;
+      }
     }
 
     function update(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }) {
-      // FIXME: move into queryMap.update as a callback
       // HACK: create hybrid sqlite/ecsql query
       const hackedRemapUpdateSql = ecdb.withPreparedStatement(updateQuery, (targetStmt) => {
         const nativeSql = targetStmt.getNativeSql();
@@ -445,25 +470,15 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    let nativeSql: string | undefined;
-    try {
-      const targetId = insertQuery(writeableTarget, jsonString);
+    const targetId = insertQuery(writeableTarget, jsonString);
 
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.aspect_remap VALUES(?,?)
-      `, (targetStmt) => {
-        targetStmt.bindId(1, sourceId);
-        targetStmt.bindId(2, targetId);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
-    } catch (err) {
-      console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
-      console.log("ERROR", writeableTarget.nativeDb.getLastError());
-      console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
-      console.log("ecsql:", insertQuery);
-      console.log("native:", nativeSql);
-      throw err;
-    }
+    writeableTarget.withPreparedSqliteStatement(`
+      INSERT INTO temp.aspect_remap VALUES(?,?)
+    `, (targetStmt) => {
+      targetStmt.bindId(1, sourceId);
+      targetStmt.bindId(2, targetId);
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+    });
   }
 
   writeableTarget.withPreparedSqliteStatement(`
