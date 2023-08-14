@@ -291,7 +291,9 @@ export async function assertIdentityTransformation(
             return stmt.getValue(0).getId() ?? Id64.invalid;
           });
           const mappedRelationTargetInTargetId = (propName === "codeSpec" ? remapCodeSpec : remapElem)(relationTargetInSourceId);
-          expect(relationTargetInTargetId).to.equal(
+          expect(relationTargetInTargetId,
+            `wrong navProp target: targetInSrc=${relationTargetInSourceId}, targetInTarget=${relationTargetInTargetId}, targetInSrcRemap=${mappedRelationTargetInTargetId}`
+          ).to.equal(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {

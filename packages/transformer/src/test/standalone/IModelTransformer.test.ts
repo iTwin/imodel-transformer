@@ -37,7 +37,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
-import { rawEmulatedPolymorphicInsertTransform } from "../../JsPolymorphicInserter";
+import { Remapper, rawEmulatedPolymorphicInsertTransform } from "../../JsPolymorphicInserter";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformer");
@@ -2639,9 +2639,9 @@ describe("IModelTransformer", () => {
     const sourcePath = sourceDb.pathName;
     const targetPath = targetDb.pathName;
 
-    let remapper;
+    let remapper: Remapper | undefined;
     await runWithCpuProfiler(async () => {
-      remapper = await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
+      remapper = await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb, { returnRemapper: true });
     }, {
       profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
       timestamp: true,
@@ -2651,7 +2651,7 @@ describe("IModelTransformer", () => {
     targetDb = SnapshotDb.openFile(targetDbFile);
 
     // FIXME: do this
-    //await assertIdentityTransformation(sourceDb, targetDb, remapper);
+    await assertIdentityTransformation(sourceDb, targetDb, remapper);
     sourceDb.close();
     targetDb.close();
     fs.copyFileSync(sourcePath, "/tmp/in.db");
