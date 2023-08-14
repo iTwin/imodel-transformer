@@ -23,7 +23,7 @@ const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
 async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert" | "update" = "insert"): Promise<Map<string, string>> {
-  const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef");
+  const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
   while (await schemaNamesReader.step()) {
@@ -142,6 +142,7 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert
       `;
 
     queryMap.set(classFullName, query);
+    queryMap.set(classFullName.replace(/\./, ":"), query);
     /* eslint-enable @typescript-eslint/indent */
   }
 
@@ -225,52 +226,51 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     FROM bis.CodeSpec
   `;
 
-  source.withPreparedStatement(sourceCodeSpecSelect, (sourceStmt) => {
-    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const sourceId = sourceStmt.getValue(0).getId();
-      const name = sourceStmt.getValue(1).getString();
-      const jsonProps = sourceStmt.getValue(2).getString();
+  const sourceCodeSpecReader = source.createQueryReader(sourceCodeSpecSelect, undefined, { usePrimaryConn: true });
+  while (await sourceCodeSpecReader.step()) {
+    const sourceId = sourceCodeSpecReader.current[0];
+    const name = sourceCodeSpecReader.current[1];
+    const jsonProps = sourceCodeSpecReader.current[2];
 
-      // FIXME: use upsert but it doesn't seem to work :/
-      let targetId: Id64String;
-      try {
-        targetId = writeableTarget.withPreparedStatement(`
-          INSERT INTO bis.CodeSpec VALUES(?,?)
-          -- ON CONFLICT (name) DO NOTHING
-        `, (targetStmt) => {
-          targetStmt.bindString(1, name);
-          targetStmt.bindString(2, jsonProps);
-          const result = targetStmt.stepForInsert();
-          if (result.status !== DbResult.BE_SQLITE_DONE || !result.id) {
-            const err = new Error(`Expected BE_SQLITE_DONE but got ${result.status}`);
-            (err as any).result = result;
-            throw err;
-          }
-          return result.id;
-        }, false);
-      } catch (err: any) {
-        if (err?.result?.status !== DbResult.BE_SQLITE_CONSTRAINT_UNIQUE)
-          throw err;
-
-        targetId = writeableTarget.withPreparedStatement(
-          "SELECT ECInstanceId FROM bis.CodeSpec WHERE Name=?",
-          (targetStmt) => {
-            targetStmt.bindString(1, name);
-            assert(targetStmt.step() === DbResult.BE_SQLITE_ROW);
-            return targetStmt.getValue(0).getId();
-          }
-        );
-      }
-
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.codespec_remap VALUES(?,?)
+    // FIXME: use upsert but it doesn't seem to work :/
+    let targetId: Id64String;
+    try {
+      targetId = writeableTarget.withPreparedStatement(`
+        INSERT INTO bis.CodeSpec VALUES(?,?)
+        -- ON CONFLICT (name) DO NOTHING
       `, (targetStmt) => {
-        targetStmt.bindId(1, sourceId);
-        targetStmt.bindId(2, targetId);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
+        targetStmt.bindString(1, name);
+        targetStmt.bindString(2, jsonProps);
+        const result = targetStmt.stepForInsert();
+        if (result.status !== DbResult.BE_SQLITE_DONE || !result.id) {
+          const err = new Error(`Expected BE_SQLITE_DONE but got ${result.status}`);
+          (err as any).result = result;
+          throw err;
+        }
+        return result.id;
+      }, false);
+    } catch (err: any) {
+      if (err?.result?.status !== DbResult.BE_SQLITE_CONSTRAINT_UNIQUE)
+        throw err;
+
+      targetId = writeableTarget.withPreparedStatement(
+        "SELECT ECInstanceId FROM bis.CodeSpec WHERE Name=?",
+        (targetStmt) => {
+          targetStmt.bindString(1, name);
+          assert(targetStmt.step() === DbResult.BE_SQLITE_ROW);
+          return targetStmt.getValue(0).getId();
+        }
+      );
     }
-  });
+
+    writeableTarget.withPreparedSqliteStatement(`
+      INSERT INTO temp.codespec_remap VALUES(?,?)
+    `, (targetStmt) => {
+      targetStmt.bindId(1, sourceId);
+      targetStmt.bindId(2, targetId);
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+    });
+  }
 
   // remove (unique constraint) violations
   // NOTE: most (FK constraint) violation removal is done by using the !update (default)
@@ -283,7 +283,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   const sourceElemSelect = `
-    SELECT $, ECClassId, ECInstanceId
+    SELECT $, ec_classname(ECClassId), ECInstanceId
     FROM bis.Element
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
     -- FIXME: would be much faster to temporarily disable FK constraints
@@ -293,73 +293,71 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   // first pass, update everything with trivial references (0x1 and null codes)
-  source.withPreparedStatement(sourceElemSelect, (sourceStmt) => {
-    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const jsonString = sourceStmt.getValue(0).getString();
-      const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
-      const sourceId = sourceStmt.getValue(2).getId();
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true });
+  while (await sourceElemFirstPassReader.step()) {
+    const jsonString = sourceElemFirstPassReader.current[0];
+    const classFullName = sourceElemFirstPassReader.current[1];
+    const sourceId = sourceElemFirstPassReader.current[2];
 
-      const insertQuery = insertQueryMap.get(classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+    const insertQuery = insertQueryMap.get(classFullName);
+    assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
 
-      const transformed = unviolate(jsonString);
+    const transformed = unviolate(jsonString);
 
-      const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
-        targetStmt.bindString("x", transformed);
-        const result = targetStmt.stepForInsert();
-        assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
-        return result.id;
-      });
+    const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+      targetStmt.bindString("x", transformed);
+      const result = targetStmt.stepForInsert();
+      assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
+      return result.id;
+    });
 
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.element_remap VALUES(?,?)
-      `, (targetStmt) => {
-        targetStmt.bindId(1, sourceId);
-        targetStmt.bindId(2, targetId);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
-    }
-  });
+    writeableTarget.withPreparedSqliteStatement(`
+      INSERT INTO temp.element_remap VALUES(?,?)
+    `, (targetStmt) => {
+      targetStmt.bindId(1, sourceId);
+      targetStmt.bindId(2, targetId);
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+    });
+  }
 
   // second pass, update now that everything has been inserted
-  source.withPreparedStatement(sourceElemSelect, (sourceStmt) => {
-    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const jsonString = sourceStmt.getValue(0).getString();
-      const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
-      const sourceId = sourceStmt.getValue(2).getId();
+  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true });
+  while (await sourceElemSecondPassReader.step()) {
+    const jsonString = sourceElemSecondPassReader.current[0];
+    const classFullName = sourceElemSecondPassReader.current[1];
+    const sourceId = sourceElemSecondPassReader.current[2];
 
-      const updateQuery = updateQueryMap.get(classFullName);
-      assert(updateQuery, `couldn't find update query for class '${classFullName}`);
+    const updateQuery = updateQueryMap.get(classFullName);
+    assert(updateQuery, `couldn't find update query for class '${classFullName}`);
 
-      // FIXME: move into updateQueryMap as a callback
-      // HACK: create hybrid sqlite/ecsql query
-      const hackedRemapUpdateSql = writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
-        const nativeSql = targetStmt.getNativeSql();
-        return nativeSql.replace(
-          new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-          (_, p1) => unescapeSqlStr(p1),
-        );
+    // FIXME: move into updateQueryMap as a callback
+    // HACK: create hybrid sqlite/ecsql query
+    const hackedRemapUpdateSql = writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
+      const nativeSql = targetStmt.getNativeSql();
+      return nativeSql.replace(
+        new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
+        (_, p1) => unescapeSqlStr(p1),
+      );
+    });
+
+    try {
+      writeableTarget.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
+        // can't use named bindings in raw sqlite statement apparently
+        targetStmt.bindString(1, jsonString);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
       });
-
-      try {
-        writeableTarget.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
-          // can't use named bindings in raw sqlite statement apparently
-          targetStmt.bindString(1, jsonString);
-          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-        });
-      } catch (err) {
-        console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
-        console.log("ERROR", writeableTarget.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
-        console.log("native sql:", hackedRemapUpdateSql);
-        throw err;
-      }
+    } catch (err) {
+      console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
+      console.log("ERROR", writeableTarget.nativeDb.getLastError());
+      console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+      console.log("native sql:", hackedRemapUpdateSql);
+      throw err;
     }
-  });
+  }
 
   /*
   const sourceAspectSelect = `
-    SELECT $, ECClassId, ECInstanceId
+    SELECT $, ec_classname(ECClassId), ECInstanceId
     FROM bis.ElementAspect
   `;
 

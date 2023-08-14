@@ -2632,7 +2632,7 @@ describe("IModelTransformer", () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation.bim");
     const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");
-    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
+    let targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
 
     sourceDb.saveChanges();
 
@@ -2647,6 +2647,8 @@ describe("IModelTransformer", () => {
       timestamp: true,
       sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
     });
+
+    targetDb = SnapshotDb.openFile(targetDbFile);
 
     // FIXME: do this
     //await assertIdentityTransformation(sourceDb, targetDb, remapper);
