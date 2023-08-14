@@ -403,22 +403,20 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  // tranform code specs
+  // transform code specs
   const sourceCodeSpecSelect = `
-    SELECT ECInstanceId, Name, JsonProperties
-    FROM bis.CodeSpec
+    SELECT Id, Name, JsonProperties
+    FROM source.bis_CodeSpec
+    WHERE Name NOT IN (SELECT Name FROM main.bis_CodeSpec)
   `;
 
-  const sourceCodeSpecReader = source.createQueryReader(sourceCodeSpecSelect, undefined, { usePrimaryConn: true });
-  while (await sourceCodeSpecReader.step()) {
-    const sourceId = sourceCodeSpecReader.current[0];
-    const name = sourceCodeSpecReader.current[1];
-    const jsonProps = sourceCodeSpecReader.current[2];
+  writeableTarget.withSqliteStatement(sourceCodeSpecSelect, (stmt) => {
+    while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+      const sourceId = stmt.getValue(0).getId();
+      const name = stmt.getValue(1).getString();
+      const jsonProps = stmt.getValue(2).getString();
 
-    // FIXME: use upsert but it doesn't seem to work :/
-    let targetId: Id64String;
-    try {
-      targetId = writeableTarget.withPreparedStatement(`
+      const targetId = writeableTarget.withPreparedStatement(`
         INSERT INTO bis.CodeSpec VALUES(?,?)
         -- ON CONFLICT (name) DO NOTHING
       `, (targetStmt) => {
@@ -432,28 +430,17 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         }
         return result.id;
       }, false);
-    } catch (err: any) {
-      if (err?.result?.status !== DbResult.BE_SQLITE_CONSTRAINT_UNIQUE)
-        throw err;
+      console.log(sourceId, name, jsonProps, targetId);
 
-      targetId = writeableTarget.withPreparedStatement(
-        "SELECT ECInstanceId FROM bis.CodeSpec WHERE Name=?",
-        (targetStmt) => {
-          targetStmt.bindString(1, name);
-          assert(targetStmt.step() === DbResult.BE_SQLITE_ROW);
-          return targetStmt.getValue(0).getId();
-        }
-      );
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO temp.codespec_remap VALUES(?,?)
+      `, (targetStmt) => {
+        targetStmt.bindId(1, sourceId);
+        targetStmt.bindId(2, targetId);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
     }
-
-    writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO temp.codespec_remap VALUES(?,?)
-    `, (targetStmt) => {
-      targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, targetId);
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-    });
-  }
+  });
 
   const sourceElemSelect = `
     SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
