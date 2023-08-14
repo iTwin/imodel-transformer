@@ -1,6 +1,6 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
-import { ECClass, Property, PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
+import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
 
@@ -20,6 +20,12 @@ interface PolymorphicEntityQueries {
   update: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => void>;
 }
 
+interface PropInfo {
+  name: Property["name"];
+  propertyType: Property["propertyType"];
+  isReadOnly?: Property["isReadOnly"];
+}
+
 /**
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
@@ -33,12 +39,26 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
   }
 
   const schemaLoader = new SchemaLoader((name: string) => db.getSchemaProps(name));
-  const classFullNameAndProps = new Map<string, Property[]>();
+  const classFullNameAndProps = new Map<string, PropInfo[]>();
 
   for (const schemaName of schemaNames) {
     const schema = schemaLoader.getSchema(schemaName);
     for (const ecclass of schema.getClasses()) {
-      classFullNameAndProps.set(ecclass.fullName, await ecclass.getProperties());
+      const classProps: PropInfo[] = [...await ecclass.getProperties()];
+      classFullNameAndProps.set(ecclass.fullName, classProps);
+
+      if (ecclass instanceof RelationshipClass) {
+        classProps.push({
+          name: "SourceECInstanceId",
+          propertyType: PropertyType.Long,
+        });
+        classProps.push({
+          name: "TargetECInstanceId",
+          propertyType: PropertyType.Long,
+        });
+      }
+
+      classFullNameAndProps.set(ecclass.fullName, classProps);
     }
   }
 
@@ -51,7 +71,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
   // sqlite cast doesn't understand hexadecimal strings so can't use this
   // FIXME: custom sql function will be wayyyy better than this
   // ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`SELECT
-  const readHexFromJson = (p: Pick<Property, "name" | "propertyType">, accessStr?: string) => {
+  const readHexFromJson = (p: Pick<PropInfo, "name" | "propertyType">, accessStr?: string) => {
     const navProp = p.propertyType === PropertyType.Navigation;
     return `(
       (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -1, 1)) << 0) |
@@ -98,6 +118,13 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
               FROM temp.element_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}`
+            // FIXME: use ecreferencetypes cache to determine which remap table to use
+            : p.propertyType === PropertyType.Long
+            ? `${p.name} = ${injectExpr(`(
+              SELECT TargetId
+              FROM temp.element_remap
+              WHERE SourceId=${readHexFromJson(p)}
+            )`)}`
             // is CodeValue if not nav prop
             : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
           )
@@ -133,7 +160,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           // FIXME: check for exact schema of CodeValue prop
           p.name === "CodeValue"
           ? "NULL"
-          : p.propertyType === PropertyType.Navigation
+          : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
           ? "0x1"
           : p.propertyType === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
@@ -189,6 +216,13 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
               JOIN main.ec_Class tc ON tc.Name=sc.Name
               WHERE sc.Id=${readHexFromJson(p, `${p.name}.RelECClassId`)}
             )`)}`
+          // FIXME: use ecreferencetypes cache to determine which remap table to use
+          : p.propertyType === PropertyType.Long
+          ? injectExpr(`(
+            SELECT TargetId
+            FROM temp.element_remap
+            WHERE SourceId=${readHexFromJson(p)}
+          )`)
           : p.propertyType === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
           : p.propertyType === PropertyType.Point3d
@@ -549,11 +583,10 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   writeableTarget.clearStatementCache(); // so we can detach attached db
 
-  // FIXME: detach... was not able to do this last time I tried on latest itwin.js,
-  // due to some kind of write-lock on the readonly-open db
-  writeableTarget.withSqliteStatement(`
-    DETACH source
-  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  // FIXME: detach... readonly attached db gets write-locked for some reason
+  // writeableTarget.withSqliteStatement(`
+  //   DETACH source
+  // `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
