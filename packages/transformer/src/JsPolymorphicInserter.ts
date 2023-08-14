@@ -18,11 +18,19 @@ const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 
+/** each key is a map of entity class names to its query for that key's type */
+interface PolymorphicEntityQueries {
+  /** inserts without preserving references, must be updated */
+  populate: Map<string, string>;
+  insert: Map<string, string>;
+  update: Map<string, string>;
+}
+
 /**
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
-async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert-norefs" | "insert" | "update"): Promise<Map<string, string>> {
+async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<PolymorphicEntityQueries> {
   const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
@@ -52,145 +60,152 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert
     }
   }
 
-  const queryMap = new Map<string, string>();
+  const result = {
+    insert: new Map<string, string>(),
+    populate: new Map<string, string>(),
+    update: new Map<string, string>(),
+  };
 
   // sqlite cast doesn't understand hexadecimal strings so can't use this
   // FIXME: custom sql function will be wayyyy better than this
   // ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`SELECT
-  const readHexFromJson = (p: PropInfo) => {
+  const readHexFromJson = (p: PropInfo, accessStr?: string) => {
     const navProp = p.type === PropertyType.Navigation;
     return `(
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -1, 1)) << 0) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -2, 1)) << 4) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -3, 1)) << 8) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -4, 1)) << 12) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -5, 1)) << 16) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -6, 1)) << 20) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -7, 1)) << 24) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -8, 1)) << 28) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -9, 1)) << 32) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -10, 1)) << 36) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -11, 1)) << 40) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -12, 1)) << 44) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -13, 1)) << 48) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -14, 1)) << 52) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -15, 1)) << 56) |
-      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${p.name}${navProp ? ".Id" : ""}')), -16, 1)) << 60)
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -1, 1)) << 0) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -2, 1)) << 4) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -3, 1)) << 8) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -4, 1)) << 12) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -5, 1)) << 16) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -6, 1)) << 20) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -7, 1)) << 24) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -8, 1)) << 28) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -9, 1)) << 32) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -10, 1)) << 36) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -11, 1)) << 40) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -12, 1)) << 44) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -13, 1)) << 48) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -14, 1)) << 52) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -15, 1)) << 56) |
+      (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -16, 1)) << 60)
     )`;
   };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
-    const query
-      = type === "update"
-      ? `
-        UPDATE ${classFullName}
-        SET ${
-          properties
-            .filter((p) => !p.isReadOnly && p.type === PropertyType.Navigation || p.name === "CodeValue")
-            .map((p) =>
-              p.type === PropertyType.Navigation && p.name === "CodeSpec"
-              ? `${p.name}.Id = ${injectExpr(`(
-                SELECT TargetId
-                FROM temp.codespec_remap
-                WHERE SourceId=${readHexFromJson(p)}
-              )`)}`
-              : p.type === PropertyType.Navigation && p.name
-              ? `${p.name}.Id = ${injectExpr(`(
-                SELECT TargetId
-                FROM temp.element_remap
-                WHERE SourceId=${readHexFromJson(p)}
-              )`)}`
-              // is CodeValue if not nav prop
-              : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
-            )
-            .join(",\n  ")
-        }
+    const updateQuery = `
+      UPDATE ${classFullName}
+      SET ${
+        properties
+          .filter((p) => !p.isReadOnly && p.type === PropertyType.Navigation || p.name === "CodeValue")
+          .map((p) =>
+            p.type === PropertyType.Navigation && p.name === "CodeSpec"
+            ? `${p.name}.Id = ${injectExpr(`(
+              SELECT TargetId
+              FROM temp.codespec_remap
+              WHERE SourceId=${readHexFromJson(p)}
+            )`)}`
+            : p.type === PropertyType.Navigation && p.name
+            ? `${p.name}.Id = ${injectExpr(`(
+              SELECT TargetId
+              FROM temp.element_remap
+              WHERE SourceId=${readHexFromJson(p)}
+            )`)}`
+            // is CodeValue if not nav prop
+            : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
+          )
+          .join(",\n  ")
+      }
       WHERE ECInstanceId=${injectExpr(`(
         SELECT TargetId
         FROM temp.element_remap
         WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", type: PropertyType.Long, isReadOnly: false })}
-      )`)}`
-      : type === "insert-norefs"
-      ? `
-        INSERT INTO ${classFullName}
-        (${properties
-          .map((p) =>
-            // FIXME: note that dynamic structs are completely unhandled
-            p.type === PropertyType.Navigation
-            ? `${p.name}.Id`
-            : p.type === PropertyType.Point2d
-            ? `${p.name}.x, ${p.name}.y`
-            : p.type === PropertyType.Point3d
-            ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
-            // : p.type === PropertyType.DateTime
-            // ? `${p.name}.Id`
-            : p.name
-          )
-          .join(",\n  ")
-        })
-        VALUES
-        (${properties
-          .map((p) =>
-            p.type === PropertyType.Navigation
-            ? "0x1"
-            : p.type === PropertyType.Point2d
-            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-            : p.type === PropertyType.Point3d
-            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
-            : `JSON_EXTRACT(:x, '$.${p.name}')`
-          )
-          .join(",\n  ")
-        })
-      `
-      : `
-        INSERT INTO ${classFullName}
-        (${properties
-          .map((p) =>
-            // FIXME: note that dynamic structs are completely unhandled
-            p.type === PropertyType.Navigation
-            ? `${p.name}.Id, ${p.name}.RelECClassId`
-            : p.type === PropertyType.Point2d
-            ? `${p.name}.x, ${p.name}.y`
-            : p.type === PropertyType.Point3d
-            ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
-            // : p.type === PropertyType.DateTime
-            // ? `${p.name}.Id`
-            : p.name
-          )
-          .join(",\n  ")
-        })
-        VALUES
-        (${properties
-          .map((p) =>
-            p.type === PropertyType.Navigation
-            // FIXME: need to use ECReferenceCache to get reference type of this prop
-            ? `${injectExpr(`(
+      )`)}
+    `;
+
+    const populateQuery = `
+      INSERT INTO ${classFullName}
+      (${properties
+        .map((p) =>
+          // FIXME: note that dynamic structs are completely unhandled
+          p.type === PropertyType.Navigation
+          ? `${p.name}.Id`
+          : p.type === PropertyType.Point2d
+          ? `${p.name}.x, ${p.name}.y`
+          : p.type === PropertyType.Point3d
+          ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
+          // : p.type === PropertyType.DateTime
+          // ? `${p.name}.Id`
+          : p.name
+        )
+        .join(",\n  ")
+      })
+      VALUES
+      (${properties
+        .map((p) =>
+          p.type === PropertyType.Navigation
+          ? "0x1"
+          : p.type === PropertyType.Point2d
+          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+          : p.type === PropertyType.Point3d
+          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
+          : `JSON_EXTRACT(:x, '$.${p.name}')`
+        )
+        .join(",\n  ")
+      })
+    `;
+
+    const insertQuery = `
+      INSERT INTO ${classFullName}
+      (${properties
+        .map((p) =>
+          // FIXME: note that dynamic structs are completely unhandled
+          p.type === PropertyType.Navigation
+          ? `${p.name}.Id, ${p.name}.RelECClassId`
+          : p.type === PropertyType.Point2d
+          ? `${p.name}.x, ${p.name}.y`
+          : p.type === PropertyType.Point3d
+          ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
+          // : p.type === PropertyType.DateTime
+          // ? `${p.name}.Id`
+          : p.name
+        )
+        .join(",\n  ")
+      })
+      VALUES
+      (${properties
+        .map((p) =>
+          p.type === PropertyType.Navigation
+          // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
+          ? `${injectExpr(`(
               SELECT TargetId
               FROM temp.element_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}, ${injectExpr(`(
-              SELECT c.Id
-              FROM source.ec_Class c
-              JOIN source.ec_Schema s ON s.Id=c.SchemaId
-              WHERE Name=${readHexFromJson(p)}
+              SELECT tc.Id
+              FROM source.ec_Class sc
+              JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
+              JOIN main.ec_Schema ts ON ts.Name=ss.Name
+              JOIN main.ec_Class tc ON tc.Name=sc.Name
+              WHERE sc.Id=${readHexFromJson(p, "RelECClassId")}
             )`)}`
-            : p.type === PropertyType.Point2d
-            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-            : p.type === PropertyType.Point3d
-            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
-            : `JSON_EXTRACT(:x, '$.${p.name}')`
-          )
-          .join(",\n  ")
-        })
-      `
-    ;
-
-    queryMap.set(classFullName, query);
+          : p.type === PropertyType.Point2d
+          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+          : p.type === PropertyType.Point3d
+          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
+          : `JSON_EXTRACT(:x, '$.${p.name}')`
+        )
+        .join(",\n  ")
+      })
+    `;
     /* eslint-enable @typescript-eslint/indent */
+
+    result.insert.set(classFullName, insertQuery);
+    result.populate.set(classFullName, populateQuery);
+    result.update.set(classFullName, updateQuery);
   }
 
-  return queryMap;
+  return result;
 }
 
 // FIXME: consolidate with assertIdentityTransform test, and maybe hide this return type
@@ -215,8 +230,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   await schemaExporter.processSchemas();
   schemaExporter.dispose();
 
-  const insertQueryMap = await createPolymorphicEntityInsertQueryMap(target, "insert-norefs");
-  const updateQueryMap = await createPolymorphicEntityInsertQueryMap(target, "update");
+  // like insert but doesn't do references
+  // FIXME: return all three queries instead of loading schemas
+  const queryMap = await createPolymorphicEntityQueryMap(target);
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
@@ -343,7 +359,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const classFullName = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
 
-    const insertQuery = insertQueryMap.get(classFullName);
+    const insertQuery = queryMap.populate.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
 
     const transformed = unviolate(jsonString);
@@ -371,10 +387,10 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const classFullName = sourceElemSecondPassReader.current[1];
     const sourceId = sourceElemSecondPassReader.current[2];
 
-    const updateQuery = updateQueryMap.get(classFullName);
+    const updateQuery = queryMap.update.get(classFullName);
     assert(updateQuery, `couldn't find update query for class '${classFullName}`);
 
-    // FIXME: move into updateQueryMap as a callback
+    // FIXME: move into queryMap.update as a callback
     // HACK: create hybrid sqlite/ecsql query
     const hackedRemapUpdateSql = writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
       const nativeSql = targetStmt.getNativeSql();
@@ -410,10 +426,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const classFullName = aspectReader.current[1];
     const sourceId = aspectReader.current[2];
 
-    const insertQuery = insertQueryMap.get(classFullName);
+    const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+
+    let nativeSql: string | undefined;
     try {
       const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+        nativeSql = targetStmt.getNativeSql();
         targetStmt.bindString("x", jsonString);
         const result = targetStmt.stepForInsert();
         assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
@@ -431,7 +450,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
       console.log("ERROR", writeableTarget.nativeDb.getLastError());
       console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
-      console.log("native sql:", insertQuery);
+      console.log("ecsql:", insertQuery);
+      console.log("native:", nativeSql);
       throw err;
     }
   }
