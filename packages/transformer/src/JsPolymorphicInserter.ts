@@ -1,14 +1,8 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
-import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
+import { ECClass, Property, PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
-
-interface PropInfo {
-  name: string;
-  type: PropertyType;
-  isReadOnly: boolean;
-}
 
 // some high entropy string
 const injectionString = "Inject_1243yu1";
@@ -39,24 +33,12 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
   }
 
   const schemaLoader = new SchemaLoader((name: string) => db.getSchemaProps(name));
-  const classFullNameAndProps = new Map<string, PropInfo[]>();
+  const classFullNameAndProps = new Map<string, Property[]>();
 
   for (const schemaName of schemaNames) {
     const schema = schemaLoader.getSchema(schemaName);
     for (const ecclass of schema.getClasses()) {
-      const classProps: PropInfo[] = [];
-
-      // const testExcludedProps = new Set(["LastMod"]);
-
-      for (const prop of await ecclass.getProperties()) {
-        // FIXME: exceptions should be replaced with transformations
-        // if (testExcludedProps.has(prop.name))
-        //   continue;
-
-        classProps.push({ name: prop.name, type: prop.propertyType, isReadOnly: prop.isReadOnly });
-      }
-
-      classFullNameAndProps.set(ecclass.fullName, classProps);
+      classFullNameAndProps.set(ecclass.fullName, await ecclass.getProperties());
     }
   }
 
@@ -69,8 +51,8 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
   // sqlite cast doesn't understand hexadecimal strings so can't use this
   // FIXME: custom sql function will be wayyyy better than this
   // ? `CAST(JSON_EXTRACT(:x, '$.${p.name}.Id') AS INTEGER)`SELECT
-  const readHexFromJson = (p: PropInfo, accessStr?: string) => {
-    const navProp = p.type === PropertyType.Navigation;
+  const readHexFromJson = (p: Pick<Property, "name" | "propertyType">, accessStr?: string) => {
+    const navProp = p.propertyType === PropertyType.Navigation;
     return `(
       (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -1, 1)) << 0) |
       (instr('123456789abcdef', substr('0000000000000000' || lower(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), -2, 1)) << 4) |
@@ -95,7 +77,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
     /* eslint-disable @typescript-eslint/indent */
     const updateProps = properties
       .filter((p) => !p.isReadOnly
-        && p.type === PropertyType.Navigation
+        && p.propertyType === PropertyType.Navigation
         || p.name === "CodeValue");
 
     const updateQuery = updateProps.length === 0 ? "" : `
@@ -104,13 +86,13 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
         updateProps
           .map((p) =>
             // FIXME: use ECReferenceCache to get type of ref instead of checking name
-            p.type === PropertyType.Navigation && p.name === "CodeSpec"
+            p.propertyType === PropertyType.Navigation && p.name === "CodeSpec"
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
               FROM temp.codespec_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}`
-            : p.type === PropertyType.Navigation
+            : p.propertyType === PropertyType.Navigation
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
               FROM temp.element_remap
@@ -124,7 +106,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       WHERE ECInstanceId=${injectExpr(`(
         SELECT TargetId
         FROM temp.element_remap
-        WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", type: PropertyType.Long, isReadOnly: false })}
+        WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", propertyType: PropertyType.Long })}
       )`)}
     `;
 
@@ -133,11 +115,11 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       (${properties
         .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
-          p.type === PropertyType.Navigation
+          p.propertyType === PropertyType.Navigation
           ? `${p.name}.Id`
-          : p.type === PropertyType.Point2d
+          : p.propertyType === PropertyType.Point2d
           ? `${p.name}.x, ${p.name}.y`
-          : p.type === PropertyType.Point3d
+          : p.propertyType === PropertyType.Point3d
           ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
           // : p.type === PropertyType.DateTime
           // ? `${p.name}.Id`
@@ -151,11 +133,11 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           // FIXME: check for exact schema of CodeValue prop
           p.name === "CodeValue"
           ? "NULL"
-          : p.type === PropertyType.Navigation
+          : p.propertyType === PropertyType.Navigation
           ? "0x1"
-          : p.type === PropertyType.Point2d
+          : p.propertyType === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-          : p.type === PropertyType.Point3d
+          : p.propertyType === PropertyType.Point3d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
           : `JSON_EXTRACT(:x, '$.${p.name}')`
         )
@@ -169,15 +151,15 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       (
         ${
           [
-            { name: "ECInstanceId", type: PropertyType.Long },
+            { name: "ECInstanceId", propertyType: PropertyType.Long },
             ...properties,
           ].map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
-          p.type === PropertyType.Navigation
+          p.propertyType === PropertyType.Navigation
           ? `${p.name}.Id, ${p.name}.RelECClassId`
-          : p.type === PropertyType.Point2d
+          : p.propertyType === PropertyType.Point2d
           ? `${p.name}.x, ${p.name}.y`
-          : p.type === PropertyType.Point3d
+          : p.propertyType === PropertyType.Point3d
           ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
           : p.name
         )
@@ -193,7 +175,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       ${properties.length > 0 ? "," : "" /* FIXME: join instead */}
       ${properties
         .map((p) =>
-          p.type === PropertyType.Navigation
+          p.propertyType === PropertyType.Navigation
           // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
           ? `${injectExpr(`(
               SELECT TargetId
@@ -207,9 +189,9 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
               JOIN main.ec_Class tc ON tc.Name=sc.Name
               WHERE sc.Id=${readHexFromJson(p, `${p.name}.RelECClassId`)}
             )`)}`
-          : p.type === PropertyType.Point2d
+          : p.propertyType === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-          : p.type === PropertyType.Point3d
+          : p.propertyType === PropertyType.Point3d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
           : `JSON_EXTRACT(:x, '$.${p.name}')`
         )
@@ -238,16 +220,19 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
     }
 
     function insert(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }) {
-      // HACK: create hybrid sqlite/ecsql query
-      const hackedRemapInsertSql = ecdb.withPreparedStatement(insertQuery, (targetStmt) => {
-        const nativeSql = targetStmt.getNativeSql();
-        return nativeSql.replace(
-          new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-          (_, p1) => unescapeSqlStr(p1),
-        );
-      });
-
+      // NEXT FIXME: doesn't work on some relationships, need to explicitly know if it's a rel
+      // class and then always add source/target to INSERT
+      let hackedRemapInsertSql;
       try {
+        // HACK: create hybrid sqlite/ecsql query
+        hackedRemapInsertSql = ecdb.withPreparedStatement(insertQuery, (targetStmt) => {
+          const nativeSql = targetStmt.getNativeSql();
+          return nativeSql.replace(
+            new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
+            (_, p1) => unescapeSqlStr(p1),
+          );
+        });
+
         ecdb.withPreparedSqliteStatement(hackedRemapInsertSql, (targetStmt) => {
           // can't use named bindings in raw sqlite statement apparently
           targetStmt.bindString(1, jsonString);
