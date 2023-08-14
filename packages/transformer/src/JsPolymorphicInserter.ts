@@ -1,5 +1,5 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
-import { DbResult, Id64String } from "@itwin/core-bentley";
+import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { EntityProps } from "@itwin/core-common";
 import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -22,7 +22,7 @@ const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
-async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = false): Promise<Map<string, string>> {
+async function createPolymorphicEntityInsertQueryMap(db: IModelDb, type: "insert" | "update" = "insert"): Promise<Map<string, string>> {
   const schemaNames = db.withPreparedStatement(
     "SELECT Name FROM ECDbMeta.ECSchemaDef",
     (stmt) => {
@@ -84,7 +84,7 @@ async function createPolymorphicEntityInsertQueryMap(db: IModelDb, update = fals
 
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
-    const query = update
+    const query = type === "update"
       ? `
         UPDATE ${classFullName}
         SET ${
@@ -200,13 +200,30 @@ function sourceToTargetClassIds(source: IModelDb, target: IModelDb) {
   return result;
 }
 
-export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb): Promise<Map<Id64String, Id64String>> {
+// FIXME: consolidate with assertIdentityTransform test, and maybe hide this return type
+export interface Remapper {
+  findTargetElementId(s: Id64String): Id64String;
+  findTargetCodeSpecId(s: Id64String): Id64String;
+  findTargetAspectId(s: Id64String): Id64String;
+}
+
+/** @alpha official docs */
+export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb, options?: {
+  returnRemapper?: false;
+}): Promise<undefined>;
+/** @internal */
+export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb, options?: {
+  returnRemapper: true;
+}): Promise<Remapper>;
+export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb, {
+  returnRemapper = false,
+} = {}): Promise<undefined | Remapper> {
   const schemaExporter = new IModelTransformer(source, target);
   await schemaExporter.processSchemas();
   schemaExporter.dispose();
 
-  const insertQueryMap = await createPolymorphicEntityInsertQueryMap(target);
-  const updateQueryMap = await createPolymorphicEntityInsertQueryMap(target, true);
+  const insertQueryMap = await createPolymorphicEntityInsertQueryMap(target, "insert");
+  const updateQueryMap = await createPolymorphicEntityInsertQueryMap(target, "update");
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
@@ -214,26 +231,20 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
   target.close();
 
-  writeableTarget.withPreparedSqliteStatement(`
-    CREATE TEMP TABLE temp.element_remap(
-      SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
-      TargetId INTEGER NOT NULL
-    )
-  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  for (const type of ["element", "codespec", "aspect"]) {
+    writeableTarget.withSqliteStatement(`
+      CREATE TEMP TABLE temp.${type}_remap(
+        SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
+        TargetId INTEGER NOT NULL
+      )
+    `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  }
 
   writeableTarget.withPreparedSqliteStatement(`
     INSERT INTO temp.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
   `, (targetStmt) => {
     assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
   });
-
-  // FIXME: immediately remap standard shared codespec names
-  writeableTarget.withPreparedSqliteStatement(`
-    CREATE TEMP TABLE temp.codespec_remap(
-      SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
-      TargetId INTEGER NOT NULL
-    )
-  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
   // FIXME: this doesn't work... using a workaround of setting all references to 0x1
   writeableTarget.withPreparedSqliteStatement(`
@@ -398,6 +409,40 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   });
 
+  const sourceAspectSelect = `
+    SELECT $, ECClassId, ECInstanceId
+    FROM bis.ElementAspect
+  `;
+
+  // first pass, update everything with trivial references (0x1 and null codes)
+  source.withPreparedStatement(sourceAspectSelect, (sourceStmt) => {
+    while (sourceStmt.step() === DbResult.BE_SQLITE_ROW) {
+      const jsonString = sourceStmt.getValue(0).getString();
+      const classFullName = sourceStmt.getValue(1).getClassNameForClassId();
+      const sourceId = sourceStmt.getValue(2).getId();
+
+      const insertQuery = insertQueryMap.get(classFullName);
+      assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+
+      const transformed = unviolate(jsonString);
+
+      const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+        targetStmt.bindString("x", transformed);
+        const result = targetStmt.stepForInsert();
+        assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
+        return result.id;
+      });
+
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO temp.element_remap VALUES(?,?)
+      `, (targetStmt) => {
+        targetStmt.bindId(1, sourceId);
+        targetStmt.bindId(2, targetId);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+    }
+  });
+
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = false;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
@@ -409,29 +454,34 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   // TODO: make collecting/returning this optional
-  const elemRemaps = new Map<string, string>();
-  writeableTarget.withSqliteStatement(
-    `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM temp.element_remap`,
-    (s) => {
-      while (s.step() === DbResult.BE_SQLITE_ROW) {
-        elemRemaps.set(s.getValue(0).getString(), s.getValue(1).getString());
-      }
-    }
-  );
+  let remapper: Remapper | undefined;
 
-  const codeSpecRemaps = new Map<string, string>();
-  writeableTarget.withSqliteStatement(
-    `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM temp.codespec_remap`,
-    (s) => {
-      while (s.step() === DbResult.BE_SQLITE_ROW) {
-        codeSpecRemaps.set(s.getValue(0).getString(), s.getValue(1).getString());
-      }
-    }
-  );
+  if (returnRemapper) {
+    const [elemRemaps, codeSpecRemaps, aspectRemaps] = ["codespec", "element", "aspect"].map((type) => {
+      const remaps = new Map<string, string>();
+
+      writeableTarget.withSqliteStatement(
+        `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM temp.${type}_remap`,
+        (s) => {
+          while (s.step() === DbResult.BE_SQLITE_ROW) {
+            remaps.set(s.getValue(0).getString(), s.getValue(1).getString());
+          }
+        }
+      );
+
+      return remaps;
+    });
+
+    remapper = {
+      findTargetElementId: (id: Id64String) => elemRemaps.get(id) ?? Id64.invalid,
+      findTargetAspectId: (id: Id64String) => aspectRemaps.get(id) ?? Id64.invalid,
+      findTargetCodeSpecId: (id: Id64String) => codeSpecRemaps.get(id) ?? Id64.invalid,
+    };
+  }
 
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
   writeableTarget.dispose();
 
-  return elemRemaps;
+  return remapper;
 }

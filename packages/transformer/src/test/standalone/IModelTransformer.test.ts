@@ -2639,9 +2639,9 @@ describe("IModelTransformer", () => {
     const sourcePath = sourceDb.pathName;
     const targetPath = targetDb.pathName;
 
-    let _remaps: Map<Id64String, Id64String>;
+    let remapper;
     await runWithCpuProfiler(async () => {
-      _remaps = await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
+      remapper = await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
     }, {
       profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
       timestamp: true,
@@ -2649,7 +2649,7 @@ describe("IModelTransformer", () => {
     });
 
     // FIXME: do this
-    //await assertIdentityTransformation(sourceDb, targetDb, remappings);
+    await assertIdentityTransformation(sourceDb, targetDb, remapper);
     sourceDb.close();
     targetDb.close();
     fs.copyFileSync(sourcePath, "/tmp/in.db");
