@@ -106,16 +106,10 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
         updateProps
           .map((p) =>
             // FIXME: use ECReferenceCache to get type of ref instead of checking name
-            p.propertyType === PropertyType.Navigation && p.name === "CodeSpec"
+            p.propertyType === PropertyType.Navigation
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
-              FROM temp.codespec_remap
-              WHERE SourceId=${readHexFromJson(p)}
-            )`)}`
-            : p.propertyType === PropertyType.Navigation
-            ? `${p.name}.Id = ${injectExpr(`(
-              SELECT TargetId
-              FROM temp.element_remap
+              FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}`
             // FIXME: use ecreferencetypes cache to determine which remap table to use
@@ -206,7 +200,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
           ? `${injectExpr(`(
               SELECT TargetId
-              FROM temp.element_remap
+              FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}, ${injectExpr(`(
               SELECT tc.Id
@@ -547,7 +541,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   let remapper: Remapper | undefined;
 
   if (returnRemapper) {
-    const [elemRemaps, codeSpecRemaps, aspectRemaps] = ["codespec", "element", "aspect"].map((type) => {
+    const [elemRemaps, codeSpecRemaps, aspectRemaps] = ["element", "codespec", "aspect"].map((type) => {
       const remaps = new Map<string, string>();
 
       writeableTarget.withSqliteStatement(
