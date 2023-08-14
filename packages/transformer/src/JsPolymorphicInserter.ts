@@ -1,6 +1,5 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
-import { EntityProps } from "@itwin/core-common";
 import { PropertyType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
@@ -23,7 +22,8 @@ interface PolymorphicEntityQueries {
   /** inserts without preserving references, must be updated */
   populate: Map<string, (db: ECDb, jsonString: string) => Id64String>;
   insert: Map<string, (db: ECDb, jsonString: string) => Id64String>;
-  update: Map<string, (db: ECDb, jsonString: string) => void>;
+  /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
+  update: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => void>;
 }
 
 /**
@@ -221,7 +221,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       });
     }
 
-    function update(ecdb: ECDb, jsonString: string) {
+    function update(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }) {
       // FIXME: move into queryMap.update as a callback
       // HACK: create hybrid sqlite/ecsql query
       const hackedRemapUpdateSql = ecdb.withPreparedStatement(updateQuery, (targetStmt) => {
@@ -239,8 +239,8 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
       } catch (err) {
-        console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
-        console.log("ERROR", writeableTarget.nativeDb.getLastError());
+        console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
+        console.log("ERROR", ecdb.nativeDb.getLastError());
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("native sql:", hackedRemapUpdateSql);
         throw err;
@@ -399,14 +399,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const populateQuery = queryMap.populate.get(classFullName);
     assert(populateQuery, `couldn't find insert query for class '${classFullName}'`);
 
-    const transformed = jsonString;
-
-    const targetId = writeableTarget.withPreparedStatement(populateQuery, (targetStmt) => {
-      targetStmt.bindString("x", transformed);
-      const result = targetStmt.stepForInsert();
-      assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
-      return result.id;
-    });
+    const targetId = populateQuery(writeableTarget, jsonString);
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO temp.element_remap VALUES(?,?)
@@ -427,29 +420,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const updateQuery = queryMap.update.get(classFullName);
     assert(updateQuery, `couldn't find update query for class '${classFullName}`);
 
-    // FIXME: move into queryMap.update as a callback
-    // HACK: create hybrid sqlite/ecsql query
-    const hackedRemapUpdateSql = writeableTarget.withPreparedStatement(updateQuery, (targetStmt) => {
-      const nativeSql = targetStmt.getNativeSql();
-      return nativeSql.replace(
-        new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-        (_, p1) => unescapeSqlStr(p1),
-      );
-    });
-
-    try {
-      writeableTarget.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
-        // can't use named bindings in raw sqlite statement apparently
-        targetStmt.bindString(1, jsonString);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
-    } catch (err) {
-      console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
-      console.log("ERROR", writeableTarget.nativeDb.getLastError());
-      console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
-      console.log("native sql:", hackedRemapUpdateSql);
-      throw err;
-    }
+    updateQuery(writeableTarget, jsonString, { id: sourceId, db: source });
   }
 
   const sourceAspectSelect = `
@@ -468,13 +439,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     let nativeSql: string | undefined;
     try {
-      const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
-        nativeSql = targetStmt.getNativeSql();
-        targetStmt.bindString("x", jsonString);
-        const result = targetStmt.stepForInsert();
-        assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
-        return result.id;
-      });
+      const targetId = insertQuery(writeableTarget, jsonString);
 
       writeableTarget.withPreparedSqliteStatement(`
         INSERT INTO temp.aspect_remap VALUES(?,?)
