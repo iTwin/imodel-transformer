@@ -239,7 +239,6 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           return stepRes.id;
         });
       } catch (err) {
-        //console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
         console.log("json:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("ecsql:", populateQuery);
@@ -354,6 +353,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   target.close();
 
   for (const type of ["element", "codespec", "aspect"]) {
+    // FIXME: compress this table into "runs"
     writeableTarget.withSqliteStatement(`
       CREATE TEMP TABLE temp.${type}_remap(
         SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
@@ -438,7 +438,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   });
 
   const sourceElemSelect = `
-    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
+    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId, FederationGuid
     FROM bis.Element
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
     -- FIXME: would be much faster to temporarily disable FK constraints
@@ -448,11 +448,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   // first pass, update everything with trivial references (0x1 and null codes)
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true });
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true, abbreviateBlobs: false });
   while (await sourceElemFirstPassReader.step()) {
     const jsonString = sourceElemFirstPassReader.current[0];
     const classFullName = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
+    const federationGuid = sourceElemFirstPassReader.current[3];
 
     const populateQuery = queryMap.populate.get(classFullName);
     assert(populateQuery, `couldn't find insert query for class '${classFullName}'`);
@@ -519,8 +520,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
-
-    console.log(sourceId, classFullName, jsonString);
 
     insertQuery(writeableTarget, jsonString, { id: sourceId, db: source });
   }
