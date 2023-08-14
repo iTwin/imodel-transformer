@@ -2607,7 +2607,7 @@ describe("IModelTransformer", () => {
   });
 
   /** unskip to generate a javascript CPU profile on just the processAll portion of an iModel */
-  it.only("should profile an IModel transformation", async function () {
+  it.skip("should profile an IModel transformation", async function () {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation.bim");
     const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");

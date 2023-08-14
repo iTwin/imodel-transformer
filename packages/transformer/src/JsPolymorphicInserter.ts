@@ -145,7 +145,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
         .map((p) =>
           // FIXME: check for exact schema of CodeValue prop
           p.name === "CodeValue"
-          ? "''"
+          ? "NULL"
           : p.type === PropertyType.Navigation
           ? "0x1"
           : p.type === PropertyType.Point2d
@@ -204,12 +204,20 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
     /* eslint-enable @typescript-eslint/indent */
 
     function populate(ecdb: ECDb, jsonString: string) {
-      return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
-        targetStmt.bindString("x", jsonString);
-        const stepRes = targetStmt.stepForInsert();
-        assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
-        return stepRes.id;
-      });
+      try {
+        return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
+          targetStmt.bindString("x", jsonString);
+          const stepRes = targetStmt.stepForInsert();
+          assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
+          return stepRes.id;
+        });
+      } catch (err) {
+        //console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
+        console.log("ERROR", ecdb.nativeDb.getLastError());
+        console.log("json:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("ecsql:", populateQuery);
+        throw err;
+      }
     }
 
     function insert(ecdb: ECDb, jsonString: string) {
