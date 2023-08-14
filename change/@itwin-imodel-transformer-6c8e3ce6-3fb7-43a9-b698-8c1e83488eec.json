@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Upgraded packages versions",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "Kyrylo.Volotovskyi@bentley.com",
+  "dependentChangeType": "patch"
+}
