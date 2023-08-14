@@ -156,6 +156,8 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           ? "NULL"
           : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
           ? "0x1"
+          // FIXME: need a sqlite extension for base64 decoding of binary...
+          // : p.propertyType === PropertyType.Binary
           : p.propertyType === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
           : p.propertyType === PropertyType.Point3d
@@ -453,7 +455,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const jsonString = sourceElemFirstPassReader.current[0];
     const classFullName = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
-    const federationGuid = sourceElemFirstPassReader.current[3];
+    //const federationGuid = sourceElemFirstPassReader.current[3];
 
     const populateQuery = queryMap.populate.get(classFullName);
     assert(populateQuery, `couldn't find insert query for class '${classFullName}'`);
