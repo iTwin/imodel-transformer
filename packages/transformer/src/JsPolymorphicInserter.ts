@@ -167,9 +167,11 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       INSERT INTO ${classFullName}
       -- FIXME: getting SQLITE_MISMATCH... something weird going on in native
       (
-        ECInstanceId,
-        ${properties
-        .map((p) =>
+        ${
+          [
+            { name: "ECInstanceId", type: PropertyType.Long },
+            ...properties,
+          ].map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
           p.type === PropertyType.Navigation
           ? `${p.name}.Id, ${p.name}.RelECClassId`
@@ -187,7 +189,8 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
         SELECT Val + 1
         FROM be_Local
         WHERE Name='bis_instanceidsequence'
-      )`)},
+      )`)}
+      ${properties.length > 0 ? "," : "" /* FIXME: join instead */}
       ${properties
         .map((p) =>
           p.type === PropertyType.Navigation
@@ -202,7 +205,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
               JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
               JOIN main.ec_Schema ts ON ts.Name=ss.Name
               JOIN main.ec_Class tc ON tc.Name=sc.Name
-              WHERE sc.Id=${readHexFromJson(p, "RelECClassId")}
+              WHERE sc.Id=${readHexFromJson(p, `${p.name}.RelECClassId`)}
             )`)}`
           : p.type === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
