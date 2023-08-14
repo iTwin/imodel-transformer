@@ -405,32 +405,33 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   // transform code specs
   const sourceCodeSpecSelect = `
-    SELECT Id, Name, JsonProperties
-    FROM source.bis_CodeSpec
-    WHERE Name NOT IN (SELECT Name FROM main.bis_CodeSpec)
+    SELECT s.Id, t.Id, s.Name, s.JsonProperties
+    FROM source.bis_CodeSpec s
+    LEFT JOIN main.bis_CodeSpec t ON s.Name=t.Name
   `;
 
   writeableTarget.withSqliteStatement(sourceCodeSpecSelect, (stmt) => {
     while (stmt.step() === DbResult.BE_SQLITE_ROW) {
       const sourceId = stmt.getValue(0).getId();
-      const name = stmt.getValue(1).getString();
-      const jsonProps = stmt.getValue(2).getString();
+      let targetId = stmt.getValue(1).getId();
+      const name = stmt.getValue(2).getString();
+      const jsonProps = stmt.getValue(3).getString();
 
-      const targetId = writeableTarget.withPreparedStatement(`
-        INSERT INTO bis.CodeSpec VALUES(?,?)
-        -- ON CONFLICT (name) DO NOTHING
-      `, (targetStmt) => {
-        targetStmt.bindString(1, name);
-        targetStmt.bindString(2, jsonProps);
-        const result = targetStmt.stepForInsert();
-        if (result.status !== DbResult.BE_SQLITE_DONE || !result.id) {
-          const err = new Error(`Expected BE_SQLITE_DONE but got ${result.status}`);
-          (err as any).result = result;
-          throw err;
-        }
-        return result.id;
-      }, false);
-      console.log(sourceId, name, jsonProps, targetId);
+      if (!targetId) {
+        targetId = writeableTarget.withPreparedStatement(`
+          INSERT INTO bis.CodeSpec VALUES(?,?)
+        `, (targetStmt) => {
+          targetStmt.bindString(1, name);
+          targetStmt.bindString(2, jsonProps);
+          const result = targetStmt.stepForInsert();
+          if (result.status !== DbResult.BE_SQLITE_DONE || !result.id) {
+            const err = new Error(`Expected BE_SQLITE_DONE but got ${result.status}`);
+            (err as any).result = result;
+            throw err;
+          }
+          return result.id;
+        }, false);
+      }
 
       writeableTarget.withPreparedSqliteStatement(`
         INSERT INTO temp.codespec_remap VALUES(?,?)
