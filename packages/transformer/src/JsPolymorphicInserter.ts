@@ -21,9 +21,9 @@ const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 /** each key is a map of entity class names to its query for that key's type */
 interface PolymorphicEntityQueries {
   /** inserts without preserving references, must be updated */
-  populate: Map<string, string>;
-  insert: Map<string, string>;
-  update: Map<string, string>;
+  populate: Map<string, (db: ECDb, jsonString: string) => Id64String>;
+  insert: Map<string, (db: ECDb, jsonString: string) => Id64String>;
+  update: Map<string, (db: ECDb, jsonString: string) => void>;
 }
 
 /**
@@ -60,10 +60,10 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
     }
   }
 
-  const result = {
-    insert: new Map<string, string>(),
-    populate: new Map<string, string>(),
-    update: new Map<string, string>(),
+  const result: PolymorphicEntityQueries = {
+    insert: new Map(),
+    populate: new Map(),
+    update: new Map(),
   };
 
   // sqlite cast doesn't understand hexadecimal strings so can't use this
@@ -143,7 +143,10 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       VALUES
       (${properties
         .map((p) =>
-          p.type === PropertyType.Navigation
+          // FIXME: check for exact schema of CodeValue prop
+          p.name === "CodeValue"
+          ? "''"
+          : p.type === PropertyType.Navigation
           ? "0x1"
           : p.type === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
@@ -200,9 +203,53 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
     `;
     /* eslint-enable @typescript-eslint/indent */
 
-    result.insert.set(classFullName, insertQuery);
-    result.populate.set(classFullName, populateQuery);
-    result.update.set(classFullName, updateQuery);
+    function populate(ecdb: ECDb, jsonString: string) {
+      return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
+        targetStmt.bindString("x", jsonString);
+        const stepRes = targetStmt.stepForInsert();
+        assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
+        return stepRes.id;
+      });
+    }
+
+    function insert(ecdb: ECDb, jsonString: string) {
+      return ecdb.withPreparedStatement(insertQuery, (targetStmt) => {
+        targetStmt.bindString("x", jsonString);
+        const stepRes = targetStmt.stepForInsert();
+        assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
+        return stepRes.id;
+      });
+    }
+
+    function update(ecdb: ECDb, jsonString: string) {
+      // FIXME: move into queryMap.update as a callback
+      // HACK: create hybrid sqlite/ecsql query
+      const hackedRemapUpdateSql = ecdb.withPreparedStatement(updateQuery, (targetStmt) => {
+        const nativeSql = targetStmt.getNativeSql();
+        return nativeSql.replace(
+          new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
+          (_, p1) => unescapeSqlStr(p1),
+        );
+      });
+
+      try {
+        ecdb.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
+          // can't use named bindings in raw sqlite statement apparently
+          targetStmt.bindString(1, jsonString);
+          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+        });
+      } catch (err) {
+        console.log("SOURCE", source.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${sourceId}`, s=>[...s]));
+        console.log("ERROR", writeableTarget.nativeDb.getLastError());
+        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("native sql:", hackedRemapUpdateSql);
+        throw err;
+      }
+    }
+
+    result.insert.set(classFullName, insert);
+    result.populate.set(classFullName, populate);
+    result.update.set(classFullName, update);
   }
 
   return result;
@@ -332,16 +379,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     });
   }
 
-  // remove (unique constraint) violations
-  // NOTE: most (FK constraint) violation removal is done by using the !update (default)
-  // option in @see createPolymorphicEntityInsertQueryMap
-  function unviolate(jsonString: string): string {
-    const parsed = JSON.parse(jsonString);
-    parsed._CodeValue = parsed.CodeValue; // for debugging
-    delete parsed.CodeValue;
-    return JSON.stringify(parsed);
-  }
-
   const sourceElemSelect = `
     SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
     FROM bis.Element
@@ -359,12 +396,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const classFullName = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
 
-    const insertQuery = queryMap.populate.get(classFullName);
-    assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
+    const populateQuery = queryMap.populate.get(classFullName);
+    assert(populateQuery, `couldn't find insert query for class '${classFullName}'`);
 
-    const transformed = unviolate(jsonString);
+    const transformed = jsonString;
 
-    const targetId = writeableTarget.withPreparedStatement(insertQuery, (targetStmt) => {
+    const targetId = writeableTarget.withPreparedStatement(populateQuery, (targetStmt) => {
       targetStmt.bindString("x", transformed);
       const result = targetStmt.stepForInsert();
       assert(result.status === DbResult.BE_SQLITE_DONE && result.id);
