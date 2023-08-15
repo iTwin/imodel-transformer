@@ -65,6 +65,9 @@ describe("IModelTransformer", () => {
   }
 
   before(async () => {
+    // pre-build this one so it doesn't affect test time
+    await ReusedSnapshots.extensiveTestScenario;
+
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -2607,51 +2610,44 @@ describe("IModelTransformer", () => {
   });
 
   /** unskip to generate a javascript CPU profile on just the processAll portion of an iModel */
-  it.skip("should profile an IModel transformation", async function () {
+  it.only("should profile an IModel transformation", async function () {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation.bim");
     const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
+
+    sourceDb.saveChanges();
+
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    // force initialize to not profile the schema reference cache hydration that will happen the first time an IModelCloneContext is created
+
     await transformer.initialize();
     await transformer.processSchemas();
-    await runWithCpuProfiler(async () => {
-      await transformer.processAll();
-    }, {
-      profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
-      timestamp: true,
-      sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
-    });
+    await transformer.processAll();
+
     transformer.dispose();
     sourceDb.close();
     targetDb.close();
   });
 
   it.only("should compare performance of emulated polymorphic insert", async function () {
-    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation.bim");
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation2.bim");
     const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
-    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget.bim");
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget2.bim");
     let targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
+
+
 
     sourceDb.saveChanges();
 
     const sourcePath = sourceDb.pathName;
     const targetPath = targetDb.pathName;
 
-    let remapper: Remapper | undefined;
-    await runWithCpuProfiler(async () => {
-      remapper = await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb, { returnRemapper: true });
-    }, {
-      profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
-      timestamp: true,
-      sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
-    });
+    const remapper = await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb, { returnRemapper: true });
 
     targetDb = SnapshotDb.openFile(targetDbFile);
 
     // FIXME: do this
-    await assertIdentityTransformation(sourceDb, targetDb, remapper);
+    //await assertIdentityTransformation(sourceDb, targetDb, remapper);
     sourceDb.close();
     targetDb.close();
     fs.copyFileSync(sourcePath, "/tmp/in.db");

@@ -1059,6 +1059,19 @@ export class ExtensiveTestScenario {
     const physicalObjectId6 = sourceDb.elements.insertElement(physicalObjectProps6);
     assert.isTrue(Id64.isValidId64(physicalObjectId6));
 
+    // Insert a lot more
+    for (let i = 0; i < 100_000; ++i) {
+      const physicalObjectPropsX: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: physicalModelId,
+        category: spatialCategoryId,
+        code: Code.createEmpty(),
+        userLabel: `PhysicalObject${i}`,
+        // FIXME: note no geometry
+      };
+      sourceDb.elements.insertElement(physicalObjectPropsX);
+    }
+
     // Insert DefinitionPartition1
     const definitionPartitionProps1: InformationPartitionElementProps = {
       classFullName: DefinitionPartition.classFullName,
