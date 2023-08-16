@@ -367,14 +367,14 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const geomRemapDbName = "file:geomRemap?cache=shared&mode=memory";
   const geomRemapTable = new ECDb();
   (geomRemapTable as any)._nativeDb = targetContextDb.nativeDb.setGeomRemapContextDb(
-    geomRemapDbName, "font_remap", "elem_remap"
+    geomRemapDbName, "font_remap", "element_remap"
   );
 
   writeableTarget.withSqliteStatement(`
     ATTACH DATABASE '${geomRemapDbName}' AS remaps
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
-  for (const name of ["elem_remap", "codespec_remap", "aspect_remap", "font_remap"]) {
+  for (const name of ["element_remap", "codespec_remap", "aspect_remap", "font_remap"]) {
     // FIXME: compress this table into "runs"
     writeableTarget.withSqliteStatement(`
       CREATE TABLE remaps.${name} (
@@ -387,11 +387,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.withSqliteStatement(`
     ATTACH DATABASE 'file://${source.pathName}?mode=ro' AS source
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-
-  console.log(writeableTarget.withPreparedSqliteStatement(`
-    INSERT INTO remaps.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
-  `, (targetStmt) => [...targetStmt]));
-
 
   writeableTarget.withPreparedSqliteStatement(`
     INSERT INTO remaps.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
