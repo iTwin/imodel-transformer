@@ -101,14 +101,14 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
             p.propertyType === PropertyType.Navigation
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
-              FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
+              FROM remaps.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}`
             // FIXME: use ecreferencetypes cache to determine which remap table to use
             : p.propertyType === PropertyType.Long
             ? `${p.name} = ${injectExpr(`(
               SELECT TargetId
-              FROM temp.element_remap
+              FROM remaps.element_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}`
             // is CodeValue if not nav prop
@@ -118,7 +118,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
       }
       WHERE ECInstanceId=${injectExpr(`(
         SELECT TargetId
-        FROM temp.element_remap
+        FROM remaps.element_remap
         WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", propertyType: PropertyType.Long })}
       )`)}
     `;
@@ -199,7 +199,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
           // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
           ? `${injectExpr(`(
               SELECT TargetId
-              FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
+              FROM remaps.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}, ${injectExpr(`(
               SELECT tc.Id
@@ -213,7 +213,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
           : p.propertyType === PropertyType.Long
           ? injectExpr(`(
             SELECT TargetId
-            FROM temp.element_remap
+            FROM remaps.element_remap
             WHERE SourceId=${readHexFromJson(p)}
           )`)
           : p.propertyType === PropertyType.Point2d
@@ -364,36 +364,37 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const targetContextDb = SnapshotDb.openFile(target.pathName);
   target.close();
 
+  const geomRemapDbName = "file:geomRemap?cache=shared&mode=memory";
   const geomRemapTable = new ECDb();
-  (geomRemapTable as any)._nativeDb = targetContextDb.nativeDb.setGeomRemapContextDb(":memory:", "temp.font_remap", "temp.elem_remap");
-  // geomRemapTable.openDb(":memory:", ECDbOpenMode.ReadWrite);
+  (geomRemapTable as any)._nativeDb = targetContextDb.nativeDb.setGeomRemapContextDb(
+    geomRemapDbName, "font_remap", "elem_remap"
+  );
 
-  for (const name of ["font_remap", "elem_remap"]) {
+  writeableTarget.withSqliteStatement(`
+    ATTACH DATABASE '${geomRemapDbName}' AS remaps
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+  for (const name of ["elem_remap", "codespec_remap", "aspect_remap", "font_remap"]) {
     // FIXME: compress this table into "runs"
-    geomRemapTable.withSqliteStatement(`
-      CREATE TEMP TABLE temp.${name}(
+    writeableTarget.withSqliteStatement(`
+      CREATE TABLE remaps.${name} (
         SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
         TargetId INTEGER NOT NULL
       )
     `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  for (const type of ["element", "codespec", "aspect", "font"]) {
-    // FIXME: compress this table into "runs"
-    writeableTarget.withSqliteStatement(`
-      CREATE TEMP TABLE temp.${type}_remap(
-        SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
-        TargetId INTEGER NOT NULL
-      )
-    `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-  }
-
   writeableTarget.withSqliteStatement(`
     ATTACH DATABASE 'file://${source.pathName}?mode=ro' AS source
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
+  console.log(writeableTarget.withPreparedSqliteStatement(`
+    INSERT INTO remaps.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
+  `, (targetStmt) => [...targetStmt]));
+
+
   writeableTarget.withPreparedSqliteStatement(`
-    INSERT INTO temp.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
+    INSERT INTO remaps.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
   `, (targetStmt) => {
     assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
   });
@@ -454,7 +455,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       }
 
       writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.codespec_remap VALUES(?,?)
+        INSERT INTO remaps.codespec_remap VALUES(?,?)
       `, (targetStmt) => {
         targetStmt.bindId(1, sourceId);
         targetStmt.bindId(2, targetId);
@@ -493,27 +494,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const targetId = populateQuery(writeableTarget, jsonString, { federationGuid });
 
     writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO temp.element_remap VALUES(?,?)
+      INSERT INTO remaps.element_remap VALUES(?,?)
     `, (targetStmt) => {
       targetStmt.bindId(1, sourceId);
       targetStmt.bindId(2, targetId);
       assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
     });
   }
-
-  // FIXME: possible DB_BUSY error
-  // FIXME: remove need to use a separate db with copy
-  geomRemapTable.withSqliteStatement(`
-    ATTACH DATABASE 'file://${writeableTarget.nativeDb.getFilePath()}?mode=ro' AS target
-  `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-
-  for (const name of ["font_remap", "elem_remap"]) {
-    geomRemapTable.withSqliteStatement(`
-      INSERT INTO ${name}
-      SELECT * FROM target.${name}
-    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-  }
-  geomRemapTable.saveChanges();
 
   // second pass, update now that everything has been inserted
   const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true });
@@ -545,7 +532,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const targetId = insertQuery(writeableTarget, jsonString, { id: sourceId, db: source });
 
     writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO temp.aspect_remap VALUES(?,?)
+      INSERT INTO remaps.aspect_remap VALUES(?,?)
     `, (targetStmt) => {
       targetStmt.bindId(1, sourceId);
       targetStmt.bindId(2, targetId);
@@ -590,7 +577,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const remaps = new Map<string, string>();
 
       writeableTarget.withSqliteStatement(
-        `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM temp.${type}_remap`,
+        `SELECT format('0x%x', SourceId), format('0x%x', TargetId) FROM remaps.${type}_remap`,
         (s) => {
           while (s.step() === DbResult.BE_SQLITE_ROW) {
             remaps.set(s.getValue(0).getString(), s.getValue(1).getString());
