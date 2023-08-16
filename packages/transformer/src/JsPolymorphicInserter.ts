@@ -464,7 +464,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   });
 
   const sourceElemSelect = `
-    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId, FederationGuid
+    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId, CAST(FederationGuid AS Binary)
     FROM bis.Element
     WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
     -- FIXME: would be much faster to temporarily disable FK constraints
