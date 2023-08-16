@@ -39,7 +39,6 @@ export default async function identityTransformer(context: TestCaseContext) {
     throw err;
   } finally {
     addReport(
-      "identity transform (provenance)",
       sourceDb.name,
       "time elapsed (seconds)",
       timer?.elapsedSeconds ?? -1,
