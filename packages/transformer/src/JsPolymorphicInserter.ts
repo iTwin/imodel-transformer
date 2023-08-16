@@ -1,4 +1,4 @@
-import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, SnapshotDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -361,11 +361,24 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   const writeableTarget = new ECDb();
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
+  const targetContextDb = SnapshotDb.openFile(target.pathName);
   target.close();
 
-  const geomRemapTable = target.nativeDb.setGeomRemapContextDb(":memory:", "font_remap", "elem_remap");
+  const geomRemapTable = new ECDb();
+  (geomRemapTable as any)._nativeDb = targetContextDb.nativeDb.setGeomRemapContextDb(":memory:", "temp.font_remap", "temp.elem_remap");
+  // geomRemapTable.openDb(":memory:", ECDbOpenMode.ReadWrite);
 
-  for (const type of ["element", "codespec", "aspect"]) {
+  for (const name of ["font_remap", "elem_remap"]) {
+    // FIXME: compress this table into "runs"
+    geomRemapTable.withSqliteStatement(`
+      CREATE TEMP TABLE temp.${name}(
+        SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
+        TargetId INTEGER NOT NULL
+      )
+    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  }
+
+  for (const type of ["element", "codespec", "aspect", "font"]) {
     // FIXME: compress this table into "runs"
     writeableTarget.withSqliteStatement(`
       CREATE TEMP TABLE temp.${type}_remap(
@@ -488,6 +501,20 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     });
   }
 
+  // FIXME: possible DB_BUSY error
+  // FIXME: remove need to use a separate db with copy
+  geomRemapTable.withSqliteStatement(`
+    ATTACH DATABASE 'file://${writeableTarget.nativeDb.getFilePath()}?mode=ro' AS target
+  `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+  for (const name of ["font_remap", "elem_remap"]) {
+    geomRemapTable.withSqliteStatement(`
+      INSERT INTO ${name}
+      SELECT * FROM target.${name}
+    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  }
+  geomRemapTable.saveChanges();
+
   // second pass, update now that everything has been inserted
   const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true });
   while (await sourceElemSecondPassReader.step()) {
@@ -591,6 +618,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
   writeableTarget.dispose();
+  geomRemapTable.clearStatementCache(); // so we can detach attached db
+  geomRemapTable.closeDb();
 
   return remapper;
 }
