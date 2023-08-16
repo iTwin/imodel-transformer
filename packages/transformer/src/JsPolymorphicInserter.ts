@@ -1,4 +1,4 @@
-import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -11,10 +11,15 @@ const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 
+type SupportedBindings = "bindId" | "bindBlob" | "bindInteger" | "bindString";
+type Bindings = Partial<Record<string, SupportedBindings>>;
+
 /** each key is a map of entity class names to its query for that key's type */
-interface PolymorphicEntityQueries {
+interface PolymorphicEntityQueries<
+  PopulateExtraBindings extends Bindings,
+> {
   /** inserts without preserving references, must be updated */
-  populate: Map<string, (db: ECDb, jsonString: string) => Id64String>;
+  populate: Map<string, (db: ECDb, jsonString: string, extraBindings?: Record<keyof PopulateExtraBindings, any>) => Id64String>;
   insert: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => Id64String>;
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
   update: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => void>;
@@ -30,7 +35,14 @@ interface PropInfo {
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
-async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<PolymorphicEntityQueries> {
+async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bindings>(
+  db: IModelDb,
+  options: {
+    extraBindings?: {
+      populate?: PopulateExtraBindings;
+    };
+  } = {}
+): Promise<PolymorphicEntityQueries<PopulateExtraBindings>> {
   const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
@@ -62,7 +74,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
     }
   }
 
-  const result: PolymorphicEntityQueries = {
+  const result: PolymorphicEntityQueries<PopulateExtraBindings> = {
     insert: new Map(),
     populate: new Map(),
     update: new Map(),
@@ -111,6 +123,8 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
       )`)}
     `;
 
+    const populateBindings = Object.keys(options.extraBindings?.populate ?? {});
+
     const populateQuery = `
       INSERT INTO ${classFullName}
       (${properties
@@ -126,6 +140,7 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           // ? `${p.name}.Id`
           : p.name
         )
+        .concat(populateBindings)
         .join(",\n  ")
       })
       VALUES
@@ -144,6 +159,8 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
           : `JSON_EXTRACT(:x, '$.${p.name}')`
         )
+        // FIXME: use the names from the values of the binding object
+        .concat(populateBindings.map((name) => `:b_${name}`))
         .join(",\n  ")
       })
     `;
@@ -212,10 +229,14 @@ async function createPolymorphicEntityQueryMap(db: IModelDb): Promise<Polymorphi
 
     /* eslint-enable @typescript-eslint/indent */
 
-    function populate(ecdb: ECDb, jsonString: string) {
+    function populate(ecdb: ECDb, jsonString: string, bindingValues: Bindings = {}) {
       try {
         return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
           targetStmt.bindString("x", jsonString);
+          for (const [name, type] of Object.entries(options.extraBindings?.populate ?? {})) {
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+            targetStmt[type as SupportedBindings](`b_${name}`, bindingValues[name]!);
+          }
           const stepRes = targetStmt.stepForInsert();
           assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
           return stepRes.id;
@@ -326,13 +347,23 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   // like insert but doesn't do references
   // FIXME: return all three queries instead of loading schemas
-  const queryMap = await createPolymorphicEntityQueryMap(target);
+  const queryMap = await createPolymorphicEntityQueryMap(
+    target,
+    {
+      extraBindings:
+      {
+        populate: { federationGuid: "bindBlob" },
+      },
+    },
+  );
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
   const writeableTarget = new ECDb();
   writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
   target.close();
+
+  const geomRemapTable = target.nativeDb.setGeomRemapContextDb(":memory:", "font_remap", "elem_remap");
 
   for (const type of ["element", "codespec", "aspect"]) {
     // FIXME: compress this table into "runs"
@@ -430,17 +461,23 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   // first pass, update everything with trivial references (0x1 and null codes)
+  // FIXME: technically could do it all in one pass if we preserve distances between rows and
+  // just offset all references by the count of rows in the source...
+  //
+  // Might be useful to still do two passes though in a filter-heavy transform... we can always
+  // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
+  // in the IDs and redo it?
   const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true, abbreviateBlobs: false });
   while (await sourceElemFirstPassReader.step()) {
     const jsonString = sourceElemFirstPassReader.current[0];
     const classFullName = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
-    //const federationGuid = sourceElemFirstPassReader.current[3];
+    const federationGuid = sourceElemFirstPassReader.current[3];
 
     const populateQuery = queryMap.populate.get(classFullName);
     assert(populateQuery, `couldn't find insert query for class '${classFullName}'`);
 
-    const targetId = populateQuery(writeableTarget, jsonString);
+    const targetId = populateQuery(writeableTarget, jsonString, { federationGuid });
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO temp.element_remap VALUES(?,?)
