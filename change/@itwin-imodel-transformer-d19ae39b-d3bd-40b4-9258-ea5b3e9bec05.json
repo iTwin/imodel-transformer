@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Added a fix for \"Missing id\" and \"ForeignKey constraint\" errors while using onDeleteModel",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "deividas.davidavicius@bentley.com",
+  "dependentChangeType": "patch"
+}

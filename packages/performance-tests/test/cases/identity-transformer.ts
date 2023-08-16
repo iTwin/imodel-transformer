@@ -6,62 +6,44 @@
  * Tests where we perform "identity" transforms, that is just rebuilding an entire identical iModel (minus IDs)
  * through the transformation process.
  */
-import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { BriefcaseDb, Element, Relationship, SnapshotDb } from "@itwin/core-backend";
+import * as path from "path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
-import { IModelTransformer } from "@itwin/imodel-transformer";
+import { SnapshotDb } from "@itwin/core-backend";
+import { TestCaseContext } from "./TestCaseContext";
 import { initOutputFile, timed } from "../TestUtils";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");
 
-export default async function identityTransformer(sourceDb: BriefcaseDb, addReport: (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => void) {
-
+export default async function identityTransformer(context: TestCaseContext) {
+  const { sourceDb, transformerModule, addReport } = context;
   const targetPath = initOutputFile(`identity-${sourceDb.iModelId}-target.bim`, outputDir);
-  const targetDb = SnapshotDb.createEmpty(targetPath, {rootSubject: {name: sourceDb.name}});
-  class ProgressTransformer extends IModelTransformer {
-    private _count = 0;
-    private _increment() {
-      this._count++;
-      if (this._count % 1000 === 0)
-        Logger.logInfo(loggerCategory, `exported ${this._count} entities`);
-    }
-    public override onExportElement(sourceElement: Element): void {
-      this._increment();
-      return super.onExportElement(sourceElement);
-    }
-    public override onExportRelationship(sourceRelationship: Relationship): void {
-      this._increment();
-      return super.onExportRelationship(sourceRelationship);
-    }
+  const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: sourceDb.name } });
+  let timer: StopWatch | undefined;
+  if (!transformerModule.createIdentityTransform){
+    throw Error("The createIdentityTransform method does not exist on the module.");
   }
-  const transformer = new ProgressTransformer(sourceDb, targetDb);
-  let schemaProcessingTimer: StopWatch | undefined;
-  let entityProcessingTimer: StopWatch | undefined;
+  const transformer = await transformerModule.createIdentityTransform(sourceDb, targetDb);
   try {
-    [schemaProcessingTimer] = await timed(async () => {
-      await transformer.processSchemas();
+    [timer] = await timed(async () => {
+      await transformer.run();
     });
-    Logger.logInfo(loggerCategory, `schema processing time: ${schemaProcessingTimer.elapsedSeconds}`);
-    [entityProcessingTimer] = await timed(async () => {
-      await transformer.processAll();
-    });
-    Logger.logInfo(loggerCategory, `entity processing time: ${entityProcessingTimer.elapsedSeconds}`);
+    Logger.logInfo(loggerCategory, `schema processing time: ${timer.elapsedSeconds}`);
   } catch (err: any) {
     Logger.logInfo(loggerCategory, `An error was encountered: ${err.message}`);
     const schemaDumpDir = fs.mkdtempSync(path.join(os.tmpdir(), "identity-test-schemas-dump-"));
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
+    throw err;
   } finally {
     addReport(
       "identity transform (provenance)",
       sourceDb.name,
       "time elapsed (seconds)",
-      entityProcessingTimer?.elapsedSeconds ?? -1,
+      timer?.elapsedSeconds ?? -1,
     );
     targetDb.close();
-    transformer.dispose();
   }
 }
