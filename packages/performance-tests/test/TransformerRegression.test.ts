@@ -175,13 +175,13 @@ async function runRegressionTests() {
           sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
 
-        testCasesMap.forEach(async ({testCase, functionNameToValidate}, key) => {
+        [...testCasesMap].forEach(async ([testCaseName, {testCase, functionNameToValidate}], key) => {
           transformerModules.forEach((transformerModule: TestTransformerModule, moduleName: string) => {
             const moduleFunc = transformerModule[functionNameToValidate as keyof TestTransformerModule];
             if (moduleFunc) {
               it(`${key} on ${moduleName}`, async () => {
                 const addReport = (testName: string, iModelName: string, valDescription: string, value: number) => {
-                  reporter.addEntry(testName, iModelName, valDescription, value, reportInfo);
+                  reporter.addEntry(`${testCaseName} ${moduleName} ${testName}`, iModelName, valDescription, value, reportInfo);
                 };
                 await testCase({ sourceDb, transformerModule, addReport });
                 // eslint-disable-next-line no-console
