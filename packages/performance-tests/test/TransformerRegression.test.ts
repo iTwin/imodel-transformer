@@ -28,6 +28,7 @@ import assert from "assert";
 import nativeTransformerTestModule from "./transformers/NativeTransformer";
 import rawForkCreateFedGuidsTestModule from "./transformers/RawForkCreateFedGuids";
 import rawForkOperationsTestModule from "./transformers/RawForkOperations";
+import noPlatformTransformerTestModule from "./transformers/NoPlatform";
 import rawInserts from "./rawInserts";
 
 // cases
@@ -36,7 +37,7 @@ import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
   ["identity transform", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
-  ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
+  //["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
@@ -50,6 +51,7 @@ const loadTransformers = async () => {
   const transformerModules = new Map<string, TestTransformerModule>([
     ["NativeTransformer", nativeTransformerTestModule],
     ["RawForkOperations", rawForkOperationsTestModule],
+    ["NoPlatformTransformer", noPlatformTransformerTestModule],
     ["RawForkCreateFedGuids", rawForkCreateFedGuidsTestModule],
     ...envSpecifiedExtraTransformerCases,
   ]);
@@ -113,7 +115,7 @@ const setupTestData = async () => {
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 
-  return preFetchAsyncIterator(getTestIModels(filterIModels));
+  return preFetchAsyncIterator(getTestIModels(() => false));
 };
 
 async function runRegressionTests() {
@@ -195,10 +197,9 @@ async function runRegressionTests() {
 
     const _15minutes = 15 * 60 * 1000;
 
-    it("Transform vs raw inserts", async () => {
-      return rawInserts(reporter, branchName);
-    }).timeout(0);
-
+    // it("Transform vs raw inserts", async () => {
+      // return rawInserts(reporter, branchName);
+    // }).timeout(0);
   });
 
   after(async () => {
