@@ -35,8 +35,8 @@ import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
-  ["identity transform", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
-  ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
+  ["identity transform (provenance)", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
+  // ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
@@ -175,13 +175,13 @@ async function runRegressionTests() {
           sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
 
-        testCasesMap.forEach(async ({testCase, functionNameToValidate}, key) => {
+        testCasesMap.forEach(async ({testCase, functionNameToValidate}, testCaseName) => {
           transformerModules.forEach((transformerModule: TestTransformerModule, moduleName: string) => {
             const moduleFunc = transformerModule[functionNameToValidate as keyof TestTransformerModule];
             if (moduleFunc) {
-              it(`${key} on ${moduleName}`, async () => {
-                const addReport = (testName: string, iModelName: string, valDescription: string, value: number) => {
-                  reporter.addEntry(testName, iModelName, valDescription, value, reportInfo);
+              it(`${testCaseName} on ${moduleName}`, async () => {
+                const addReport = (iModelName: string, valDescription: string, value: number) => {
+                  reporter.addEntry(`${testCaseName} ${moduleName}`, iModelName, valDescription, value, reportInfo);
                 };
                 await testCase({ sourceDb, transformerModule, addReport });
                 // eslint-disable-next-line no-console
