@@ -36,7 +36,7 @@ import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
   ["identity transform (provenance)", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
-  // ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
+  ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
