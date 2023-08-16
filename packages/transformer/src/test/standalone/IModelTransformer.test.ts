@@ -2647,7 +2647,7 @@ describe("IModelTransformer", () => {
     targetDb = SnapshotDb.openFile(targetDbFile);
 
     // FIXME: do this
-    //await assertIdentityTransformation(sourceDb, targetDb, remapper);
+    await assertIdentityTransformation(sourceDb, targetDb, remapper);
     sourceDb.close();
     targetDb.close();
     fs.copyFileSync(sourcePath, "/tmp/in.db");

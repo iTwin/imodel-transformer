@@ -111,6 +111,8 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
               FROM remaps.element_remap
               WHERE SourceId=${readHexFromJson(p)}
             )`)}`
+            //: p.propertyType === PropertyType.IGeometry
+            //? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
             // is CodeValue if not nav prop
             : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
           )
@@ -128,6 +130,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
     const populateQuery = `
       INSERT INTO ${classFullName}
       (${properties
+        .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
         .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
           p.propertyType === PropertyType.Navigation
@@ -145,6 +148,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
       })
       VALUES
       (${properties
+        .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
         .map((p) =>
           // FIXME: check for exact schema of CodeValue prop
           p.name === "CodeValue"
@@ -352,7 +356,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     {
       extraBindings:
       {
-        populate: { federationGuid: "bindBlob" },
+        populate: { FederationGuid: "bindBlob" },
       },
     },
   );
@@ -486,7 +490,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const populateQuery = queryMap.populate.get(classFullName);
     assert(populateQuery, `couldn't find insert query for class '${classFullName}'`);
 
-    const targetId = populateQuery(writeableTarget, jsonString, { federationGuid });
+    const targetId = populateQuery(writeableTarget, jsonString, { FederationGuid: federationGuid });
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO remaps.element_remap VALUES(?,?)
