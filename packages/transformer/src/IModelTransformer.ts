@@ -342,8 +342,8 @@ export class IModelTransformer extends IModelExportHandler {
     // this internal is guaranteed stable for just transformer usage
     /* eslint-disable @itwin/no-internal */
     if ("codeValueBehavior" in this.sourceDb as any) {
-      (this.sourceDb.codeValueBehavior as any) = "exact";
-      (this.targetDb.codeValueBehavior as any) = "exact";
+      (this.sourceDb as any).codeValueBehavior = "exact";
+      (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
   }
@@ -1132,8 +1132,8 @@ export class IModelTransformer extends IModelExportHandler {
     // this internal is guaranteed stable for just transformer usage
     /* eslint-disable @itwin/no-internal */
     if ("codeValueBehavior" in this.sourceDb as any) {
-      (this.sourceDb.codeValueBehavior as any) = "trim-unicode-whitespace";
-      (this.targetDb.codeValueBehavior as any) = "trim-unicode-whitespace";
+      (this.sourceDb as any).codeValueBehavior = "trim-unicode-whitespace";
+      (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
     }
     /* eslint-enable @itwin/no-internal */
   }
