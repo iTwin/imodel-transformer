@@ -22,7 +22,7 @@ import * as TestUtils from "../TestUtils";
 import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, BriefcaseIdValue, Code, CodeScopeSpec, CodeSpec, ColorDef, CreateIModelProps, DefinitionElementProps, ElementAspectProps, ElementProps,
-  ExternalSourceAspectProps, ImageSourceFormat, IModel, IModelError, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps,
+  ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
 } from "@itwin/core-common";
 import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
@@ -1033,19 +1033,19 @@ describe("IModelTransformer", () => {
     const categoryId = DrawingCategory.insert(sourceDb, IModel.dictionaryId, "DrawingCategory", { color: ColorDef.green.toJSON() });
 
     // we make drawingGraphic2 in drawingModel2 first
-    const drawingGraphic2Id = new DrawingGraphic({
+    const drawingGraphic2Id = sourceDb.elements.insertElement({
       classFullName: DrawingGraphic.classFullName,
       model: drawingModel2Id,
       code: new Code({ spec: modelCodeSpec, scope: drawingModel2Id, value: "drawing graphic 2" }),
       category: categoryId,
-    }, sourceDb).insert();
+    } as GeometricElement2dProps);
 
-    const _drawingGraphic1Id = new DrawingGraphic({
+    const _drawingGraphic1Id = sourceDb.elements.insertElement({
       classFullName: DrawingGraphic.classFullName,
       model: drawingModel1Id,
       code: new Code({ spec: relatedCodeSpecId, scope: drawingGraphic2Id, value: "drawing graphic 1" }),
       category: categoryId,
-    }, sourceDb).insert();
+    } as GeometricElement2dProps);
 
     sourceDb.saveChanges();
 
@@ -1184,7 +1184,7 @@ describe("IModelTransformer", () => {
 
     // these link table relationships (ElementRefersToElements > PartitionOriginatesFromRepository) are examples of non-element entities
     const physicalPartitions = new Array(3).fill(null).map((_, index) =>
-      new PhysicalPartition({
+      sourceDb.elements.insertElement({
         classFullName: PhysicalPartition.classFullName,
         model: IModelDb.rootSubjectId,
         parent: {
@@ -1192,26 +1192,23 @@ describe("IModelTransformer", () => {
           relClassName: ElementOwnsChildElements.classFullName,
         },
         code: PhysicalPartition.createCode(sourceDb, IModelDb.rootSubjectId, `physical-partition-${index}`),
-      }, sourceDb),
-    ).map((partition) => {
-      const partitionId = partition.insert();
-      const model = new PhysicalModel({
-        classFullName: PhysicalPartition.classFullName,
+      } as InformationPartitionElementProps)
+    ).map((partitionId) => {
+      const modelId = sourceDb.models.insertModel({
+        classFullName: PhysicalModel.classFullName,
         modeledElement: { id: partitionId },
-      }, sourceDb);
-      const modelId = model.insert();
+      } as ModelProps);
       return { modelId, partitionId }; // these are the same id because of submodeling
     });
 
     const linksIds = new Array(2).fill(null).map((_, index) => {
-      const link = new RepositoryLink({
+      const linkId = sourceDb.elements.insertElement({
         classFullName: RepositoryLink.classFullName,
         code: RepositoryLink.createCode(sourceDb, IModelDb.rootSubjectId, `repo-link-${index}`),
         model: IModelDb.rootSubjectId,
         repositoryGuid: `2fd0e5ed-a4d7-40cd-be8a-57552f5736b${index}`, // random, doesn't matter, works for up to 10 of course
         format: "my-format",
-      }, sourceDb);
-      const linkId = link.insert();
+      } as RepositoryLinkProps);
       return linkId;
     });
 

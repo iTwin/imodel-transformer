@@ -5,7 +5,7 @@
 
 import { Element, ElementRefersToElements, GeometryPart, GraphicalElement3dRepresentsElement, IModelJsFs, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
-import { Code, GeometryStreamBuilder, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, GeometryPartProps, GeometryStreamBuilder, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
@@ -36,18 +36,14 @@ describe("IModelExporter", () => {
     const builder = new GeometryStreamBuilder();
     builder.appendBRepData(createBRepDataProps(Point3d.create(5, 10, 0), YawPitchRollAngles.createDegrees(45, 0, 0)));
 
-    const geomPart = new GeometryPart({
+    const geomPartId = sourceDb.elements.insertElement({
       classFullName: GeometryPart.classFullName,
       model: IModel.dictionaryId,
       code: Code.createEmpty(),
       geom: builder.geometryStream,
-    }, sourceDb);
+    } as GeometryPartProps);
 
-    assert(geomPart.geom?.[0]?.brep?.data !== undefined);
-
-    const geomPartId = geomPart.insert();
     assert(Id64.isValidId64(geomPartId));
-
     const geomPartInSource = sourceDb.elements.getElement<GeometryPart>({ id: geomPartId, wantGeometry: true, wantBRepData: true }, GeometryPart);
     assert(geomPartInSource.geom?.[1]?.brep?.data !== undefined);
 
