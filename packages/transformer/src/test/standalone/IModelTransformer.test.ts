@@ -2237,10 +2237,9 @@ describe("IModelTransformer", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      // some versions of itwin.js do not have a path for the transformer to preserve bad codes
-      //const inNonPreservingItjsVersion = Semver.satisfies(coreBackendPkgJson.version, ">= 4.0.0 && <= 4.1.1");
-      const inPreservingItjsVersion = true;
-      const expected = inPreservingItjsVersion ? `${initialVal}\xa0` : initialVal;
+      // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
+      const inNonPreservingItjsVersion = Semver.satisfies(coreBackendPkgJson.version, ">= 4.0.0 && <= 4.1.0");
+      const expected = inNonPreservingItjsVersion ? initialVal : `${initialVal}\xa0`;
       getCodeValRawSqlite(targetDb, { initialVal, expected, expectedMatchCount });
       getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });
     }
