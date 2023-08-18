@@ -338,8 +338,14 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
-    this.sourceDb.nativeDb.setCodeValueBehavior("exact");
-    this.targetDb.nativeDb.setCodeValueBehavior("exact");
+
+    // this internal is guaranteed stable for just transformer usage
+    /* eslint-disable @itwin/no-internal */
+    if ("codeValueBehavior" in this.sourceDb) {
+      this.sourceDb.codeValueBehavior = "exact";
+      this.targetDb.codeValueBehavior = "exact";
+    }
+    /* eslint-enable @itwin/no-internal */
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
@@ -1123,8 +1129,13 @@ export class IModelTransformer extends IModelExportHandler {
         partiallyCommittedElem.forceComplete();
       }
     }
-    this.sourceDb.nativeDb.setCodeValueBehavior("trim-unicode-whitespace");
-    this.targetDb.nativeDb.setCodeValueBehavior("trim-unicode-whitespace");
+    // this internal is guaranteed stable for just transformer usage
+    /* eslint-disable @itwin/no-internal */
+    if ("codeValueBehavior" in this.sourceDb) {
+      this.sourceDb.codeValueBehavior = "trim-unicode-whitespace";
+      this.targetDb.codeValueBehavior = "trim-unicode-whitespace";
+    }
+    /* eslint-enable @itwin/no-internal */
   }
 
   /** Imports all relationships that subclass from the specified base class.
