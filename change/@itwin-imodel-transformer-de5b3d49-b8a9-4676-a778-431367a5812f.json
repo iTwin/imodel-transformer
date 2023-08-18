@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "bump dependencies to allow all itwin.js 4.x",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "patch"
-}
