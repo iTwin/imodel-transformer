@@ -22,8 +22,8 @@ importers:
 
   packages/performance-scripts:
     specifiers:
-      '@itwin/build-tools': 3.6.0 - 4.0.999
-      '@itwin/core-backend': 3.6.0 - 4.0.999
+      '@itwin/build-tools': ^3.6.0 || ^4.0.0
+      '@itwin/core-backend': ^3.6.0 || ^4.0.0
       '@types/node': ^18.11.5
       typescript: ^5.0.2
     devDependencies:
@@ -34,14 +34,14 @@ importers:
 
   packages/performance-tests:
     specifiers:
-      '@itwin/build-tools': 3.6.0 - 4.0.999
-      '@itwin/core-backend': 3.6.0 - 4.0.999
-      '@itwin/core-bentley': 3.6.0 - 4.0.999
-      '@itwin/core-common': 3.6.0 - 4.0.999
-      '@itwin/core-geometry': 3.6.0 - 4.0.999
-      '@itwin/core-quantity': 3.6.0 - 4.0.999
-      '@itwin/ecschema-metadata': 3.6.0 - 4.0.999
-      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
+      '@itwin/build-tools': ^3.6.0 || ^4.0.0
+      '@itwin/core-backend': ^3.6.0 || ^4.0.0
+      '@itwin/core-bentley': ^3.6.0 || ^4.0.0
+      '@itwin/core-common': ^3.6.0 || ^4.0.0
+      '@itwin/core-geometry': ^3.6.0 || ^4.0.0
+      '@itwin/core-quantity': ^3.6.0 || ^4.0.0
+      '@itwin/ecschema-metadata': ^3.6.0 || ^4.0.0
+      '@itwin/eslint-plugin': ^3.6.0 || ^4.0.0
       '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.2.1
       '@itwin/imodels-client-authoring': 2.3.0
@@ -100,11 +100,11 @@ importers:
   packages/test-app:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 3.6.0 - 4.0.999
-      '@itwin/core-bentley': 3.6.0 - 4.0.999
-      '@itwin/core-common': 3.6.0 - 4.0.999
-      '@itwin/core-geometry': 3.6.0 - 4.0.999
-      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
+      '@itwin/core-backend': ^3.6.0 || ^4.0.0
+      '@itwin/core-bentley': ^3.6.0 || ^4.0.0
+      '@itwin/core-common': ^3.6.0 || ^4.0.0
+      '@itwin/core-geometry': ^3.6.0 || ^4.0.0
+      '@itwin/eslint-plugin': ^3.6.0 || ^4.0.0
       '@itwin/imodel-transformer': workspace:*
       '@itwin/imodels-access-backend': ^2.2.1
       '@itwin/imodels-client-authoring': 2.3.0
@@ -157,13 +157,13 @@ importers:
   packages/transformer:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 3.6.0 - 4.0.999
-      '@itwin/core-bentley': 3.6.0 - 4.0.999
-      '@itwin/core-common': 3.6.0 - 4.0.999
-      '@itwin/core-geometry': 3.6.0 - 4.0.999
-      '@itwin/core-quantity': 3.6.0 - 4.0.999
-      '@itwin/ecschema-metadata': 3.6.0 - 4.0.999
-      '@itwin/eslint-plugin': 3.6.0 - 4.0.999
+      '@itwin/core-backend': ^3.6.0 || ^4.0.0
+      '@itwin/core-bentley': ^3.6.0 || ^4.0.0
+      '@itwin/core-common': ^3.6.0 || ^4.0.0
+      '@itwin/core-geometry': ^3.6.0 || ^4.0.0
+      '@itwin/core-quantity': ^3.6.0 || ^4.0.0
+      '@itwin/ecschema-metadata': ^3.6.0 || ^4.0.0
+      '@itwin/eslint-plugin': ^3.6.0 || ^4.0.0
       '@types/chai': 4.3.1
       '@types/chai-as-promised': ^7.1.5
       '@types/mocha': ^8.2.3
