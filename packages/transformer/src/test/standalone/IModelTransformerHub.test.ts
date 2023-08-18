@@ -14,7 +14,7 @@ import {
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, DefinitionElementProps, ElementProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, DefinitionElementProps, ElementProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -810,7 +810,7 @@ describe("IModelTransformerHub", () => {
             const categorySelectorId = CategorySelector.insert(db, IModelDb.dictionaryId, "categorySelector", []);
             displayStyle = DisplayStyle3d.create(db, IModelDb.dictionaryId, "displayStyle");
             const displayStyleId = displayStyle.insert();
-            spatialViewDef = new SpatialViewDefinition({
+            db.elements.insertElement({
               classFullName: SpatialViewDefinition.classFullName,
               model: IModelDb.dictionaryId,
               code: Code.createEmpty().toJSON(),
@@ -826,8 +826,7 @@ describe("IModelTransformerHub", () => {
               displayStyleId,
               categorySelectorId,
               modelSelectorId,
-            }, db);
-            spatialViewDef.insert();
+            } as SpatialViewDefinitionProps);
           },
         },
       },
