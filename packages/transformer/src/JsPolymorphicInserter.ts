@@ -90,8 +90,8 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
     const updateProps = properties
-      .filter((p) => !p.isReadOnly
-        && p.propertyType === PropertyType.Navigation
+      .filter((p) => //!p.isReadOnly &&
+        p.propertyType === PropertyType.Navigation
         || p.name === "CodeValue");
 
     const updateQuery = updateProps.length === 0 ? "" : `
@@ -196,12 +196,12 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
       })
       VALUES (
       ${
+        // could try incrementing from this (emulating briefcase behavior)
         //SELECT Val + 1
         //FROM be_Local
         //WHERE Name='bis_instanceidsequence'
-        // FIXME: this only works with empty targets
         injectExpr(`
-          /* FIXME: this obviously only works with empty dbs */
+          /* FIXME: this obviously only works with empty targets */
           HexToId(JSON_EXTRACT(:x, '$.ECInstanceId'))
         `)}
       ${properties.length > 0 ? "," : "" /* FIXME: join instead */}
@@ -281,7 +281,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
 
-        // FIXME: get id better?
+        // FIXME: get id better? also is this even updated every push? or is it "briefcase local"?
         return ecdb.withPreparedSqliteStatement(`
           SELECT Val
           FROM be_Local
@@ -312,11 +312,6 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
         );
       });
 
-      if (!(globalThis as any)._xxx && jsonString.includes('"ECClassId":"0x135"')) {
-        (globalThis as any)._xxx = true;
-        console.log(classFullName, updateQuery, hackedRemapUpdateSql);
-      }
-
       try {
         ecdb.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
           // can't use named bindings in raw sqlite statement apparently
@@ -324,8 +319,17 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
           assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
         });
       } catch (err) {
+        const elemId = JSON.parse(jsonString).ECInstanceId;
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
+        console.log("REMAPS");
+        ecdb.withSqliteStatement(
+          "SELECT format('0x%x->0x%x', SourceId, TargetId) FROM remaps.element_remap",
+          (s) => {
+            while (s.step() === DbResult.BE_SQLITE_ROW)
+              console.log(s.getValue(0).getString());
+          }
+        );
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("native sql:", hackedRemapUpdateSql);
         throw err;
@@ -400,22 +404,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       )
     `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
-    writeableTarget.withSqliteStatement(`
-      CREATE TABLE mike_remaps_${name} (
-        SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
-        TargetId INTEGER NOT NULL
-      )
-    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-
     // always remap 0 to 0
     writeableTarget.withSqliteStatement(`
       INSERT INTO remaps.${name} VALUES(0,0)
-    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-
-    // FIXME: remove
-    // always remap 0 to 0
-    writeableTarget.withSqliteStatement(`
-      INSERT INTO mike_remaps_${name} VALUES(0,0)
     `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
@@ -425,13 +416,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   writeableTarget.withPreparedSqliteStatement(`
     INSERT INTO remaps.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
-  `, (targetStmt) => {
-    assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-  });
-
-  // FIXME: remove
-  writeableTarget.withPreparedSqliteStatement(`
-    INSERT INTO mike_remaps_element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
   `, (targetStmt) => {
     assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
   });
@@ -498,26 +482,18 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         targetStmt.bindId(2, targetId);
         assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
       });
-
-      // FIXME: remove
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO mike_remaps_codespec_remap VALUES(?,?)
-      `, (targetStmt) => {
-        targetStmt.bindId(1, sourceId);
-        targetStmt.bindId(2, targetId);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
     }
   });
 
   const sourceElemSelect = `
-    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId, CAST(FederationGuid AS Binary)
-    FROM bis.Element
-    WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10) 
-    -- FIXME: would be much faster to temporarily disable FK constraints
+    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId, CAST(e.FederationGuid AS Binary),
+           m.$, ec_classname(m.ECClassId, 's.c')
+    FROM bis.Element e
+    JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
+    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
-    ORDER BY ECInstanceId ASC
+    ORDER BY e.ECInstanceId ASC
   `;
 
   // first pass, update everything with trivial references (0 and null codes)
@@ -529,27 +505,28 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // in the IDs and redo it?
   const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true, abbreviateBlobs: false });
   while (await sourceElemFirstPassReader.step()) {
-    const jsonString = sourceElemFirstPassReader.current[0];
-    const classFullName = sourceElemFirstPassReader.current[1];
+    const elemJson = sourceElemFirstPassReader.current[0];
+    const elemClass = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
     const federationGuid = sourceElemFirstPassReader.current[3];
 
-    const populateQuery = queryMap.populate.get(classFullName);
-    assert(populateQuery, `couldn't find insert query for class '${classFullName}'`);
+    const modelJson = sourceElemFirstPassReader.current[4];
+    const modelClass = sourceElemFirstPassReader.current[5];
 
-    const targetId = populateQuery(writeableTarget, jsonString, { FederationGuid: federationGuid });
+    const elemPopulateQuery = queryMap.populate.get(elemClass);
+    assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
+
+    const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
+
+    const modelInsertQuery = queryMap.insert.get(modelClass);
+    assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+
+    // FIXME: maybe better way to do this?
+    const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
+    modelInsertQuery(writeableTarget, modelJsonWithTargetId);
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO remaps.element_remap VALUES(?,?)
-    `, (targetStmt) => {
-      targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, targetId);
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-    });
-
-    // FIXME: remove
-    writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO mike_remaps_element_remap VALUES(?,?)
     `, (targetStmt) => {
       targetStmt.bindId(1, sourceId);
       targetStmt.bindId(2, targetId);
@@ -588,16 +565,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO remaps.aspect_remap VALUES(?,?)
-    `, (targetStmt) => {
-      // HACK: returned id is broken with sql_mismatch so just reusing source id
-      targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, sourceId);
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-    });
-
-    // FIXME: remove
-    writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO mike_remaps_aspect_remap VALUES(?,?)
     `, (targetStmt) => {
       // HACK: returned id is broken with sql_mismatch so just reusing source id
       targetStmt.bindId(1, sourceId);
