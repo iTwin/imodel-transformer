@@ -8,6 +8,16 @@ import { IModelTransformer } from "./IModelTransformer";
 const injectionString = "Inject_1243yu1";
 const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr(s)}')`;
 
+const getInjectedSqlite = (query: string, db: ECDb) => {
+  return db.withPreparedStatement(query, (stmt) => {
+    const nativeSql = stmt.getNativeSql();
+    return nativeSql.replace(
+      new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
+      (_, p1) => unescapeSqlStr(p1),
+    );
+  });
+};
+
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 
@@ -90,9 +100,10 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
   for (const [classFullName, properties] of classFullNameAndProps) {
     /* eslint-disable @typescript-eslint/indent */
     const updateProps = properties
-      .filter((p) => //!p.isReadOnly &&
+      .filter((p) =>
         p.propertyType === PropertyType.Navigation
-        || p.name === "CodeValue");
+        || p.name === "CodeValue" // FIXME: check correct CodeValue property
+        || p.propertyType === PropertyType.Long);
 
     const updateQuery = updateProps.length === 0 ? "" : `
       UPDATE ${classFullName}
@@ -267,21 +278,17 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
       let hackedRemapInsertSql;
       try {
         // HACK: create hybrid sqlite/ecsql query
-        hackedRemapInsertSql = ecdb.withPreparedStatement(insertQuery, (targetStmt) => {
-          const nativeSql = targetStmt.getNativeSql();
-          return nativeSql.replace(
-            new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-            (_, p1) => unescapeSqlStr(p1),
-          );
-        });
+        hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
 
-        ecdb.withPreparedSqliteStatement(hackedRemapInsertSql, (targetStmt) => {
-          // can't use named bindings in raw sqlite statement apparently
-          targetStmt.bindString(1, jsonString);
-          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-        });
+        for (const sql of hackedRemapInsertSql.split(";")) {
+          ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
+            // can't use named bindings in raw sqlite statement apparently
+            targetStmt.bindString(1, jsonString);
+            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+          });
+        }
 
-        // FIXME: get id better? also is this even updated every push? or is it "briefcase local"?
+        // FIXME: this doesn't work at all I believe, need to emulate how platform does it
         return ecdb.withPreparedSqliteStatement(`
           SELECT Val
           FROM be_Local
@@ -304,20 +311,16 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
       // HACK: create hybrid sqlite/ecsql query
       if (updateQuery === "") return; // ignore empty updates
 
-      const hackedRemapUpdateSql = ecdb.withPreparedStatement(updateQuery, (targetStmt) => {
-        const nativeSql = targetStmt.getNativeSql();
-        return nativeSql.replace(
-          new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-          (_, p1) => unescapeSqlStr(p1),
-        );
-      });
+      const hackedRemapUpdateSql = getInjectedSqlite(updateQuery, ecdb);
 
       try {
-        ecdb.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
-          // can't use named bindings in raw sqlite statement apparently
-          targetStmt.bindString(1, jsonString);
-          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-        });
+        for (const sql of hackedRemapUpdateSql.split(";")) {
+          ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
+            // can't use named bindings in raw sqlite statement apparently
+            targetStmt.bindString(1, jsonString);
+            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+          });
+        }
       } catch (err) {
         const elemId = JSON.parse(jsonString).ECInstanceId;
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
@@ -380,10 +383,11 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
-  const writeableTarget = new ECDb();
-  writeableTarget.openDb(target.pathName, ECDbOpenMode.ReadWrite);
-  const targetContextDb = SnapshotDb.openFile(target.pathName);
+  const targetPath = target.pathName;
   target.close();
+  const writeableTarget = new ECDb();
+  writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
+  const targetContextDb = SnapshotDb.openFile(targetPath);
 
   const geomRemapDbName = "file:geomRemap?cache=shared&mode=memory";
   const geomRemapTable = new ECDb();
@@ -516,6 +520,11 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
 
     const modelJson = sourceElemFirstPassReader.current[4];
+    if (sourceId === "0x31") {
+      console.log(`inserted ${sourceId} for ${targetId}, model was: ${modelJson}`);
+      console.log(elemJson);
+    }
+
     if (modelJson) {
       const modelClass = sourceElemFirstPassReader.current[5];
       const modelInsertQuery = queryMap.insert.get(modelClass);
@@ -628,19 +637,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       findTargetCodeSpecId: (id: Id64String) => codeSpecRemaps.get(id) ?? Id64.invalid,
     };
   }
-
-  console.log(source.withStatement(`
-    SELECT $ FROM bis.Element
-    WHERE ECInstanceId=0x31
-    ECSQLOPTIONS enable_experimental_features
-  `, (s) => [...s]));
-
-  console.log(writeableTarget.withStatement(`
-    SELECT $ FROM bis.Element
-    WHERE ECInstanceId=0x44
-    ECSQLOPTIONS enable_experimental_features
-  `, (s) => [...s]));
-
 
   // FIXME: detach... readonly attached db gets write-locked for some reason
   // writeableTarget.withSqliteStatement(`
