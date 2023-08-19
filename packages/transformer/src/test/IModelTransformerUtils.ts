@@ -299,7 +299,9 @@ export async function assertIdentityTransformation(
         } else if (!propChangesAllowed) {
           // kept for conditional breakpoints
           const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
-          expect(targetElem.asAny[propName]).to.deep.advancedEqual(
+          expect((targetElem as any)[propName],
+            `${sourceElemId}->${targetElemId} wrong prop '${propName}'`
+          ).to.deep.advancedEqual(
             sourceElem.asAny[propName]
           );
         }
