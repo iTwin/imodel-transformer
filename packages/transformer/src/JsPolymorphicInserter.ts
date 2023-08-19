@@ -489,7 +489,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId, CAST(e.FederationGuid AS Binary),
            m.$, ec_classname(m.ECClassId, 's.c')
     FROM bis.Element e
-    JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
+    LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
@@ -510,20 +510,21 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const sourceId = sourceElemFirstPassReader.current[2];
     const federationGuid = sourceElemFirstPassReader.current[3];
 
-    const modelJson = sourceElemFirstPassReader.current[4];
-    const modelClass = sourceElemFirstPassReader.current[5];
-
     const elemPopulateQuery = queryMap.populate.get(elemClass);
     assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
 
     const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
 
-    const modelInsertQuery = queryMap.insert.get(modelClass);
-    assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+    const modelJson = sourceElemFirstPassReader.current[4];
+    if (modelJson) {
+      const modelClass = sourceElemFirstPassReader.current[5];
+      const modelInsertQuery = queryMap.insert.get(modelClass);
+      assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
 
-    // FIXME: maybe better way to do this?
-    const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
-    modelInsertQuery(writeableTarget, modelJsonWithTargetId);
+      // HACK: edit packaged json without parsing
+      const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
+      modelInsertQuery(writeableTarget, modelJsonWithTargetId);
+    }
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO remaps.element_remap VALUES(?,?)
