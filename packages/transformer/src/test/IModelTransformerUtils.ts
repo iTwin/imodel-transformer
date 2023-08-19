@@ -292,7 +292,7 @@ export async function assertIdentityTransformation(
           });
           const mappedRelationTargetInTargetId = (propName === "codeSpec" ? remapCodeSpec : remapElem)(relationTargetInSourceId);
           expect(relationTargetInTargetId,
-            `wrong navProp '${propName}' target: targetInSrc=${relationTargetInSourceId}, targetInTarget=${relationTargetInTargetId}, targetInSrcRemap=${mappedRelationTargetInTargetId}`
+            `${sourceElemId}->${targetElemId} wrong navProp '${propName}' target: targetInSrc=${relationTargetInSourceId}, targetInTarget=${relationTargetInTargetId}, targetInSrcRemap=${mappedRelationTargetInTargetId}`
           ).to.equal(
             mappedRelationTargetInTargetId
           );

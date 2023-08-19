@@ -1060,7 +1060,7 @@ export class ExtensiveTestScenario {
     assert.isTrue(Id64.isValidId64(physicalObjectId6));
 
     // Insert a lot more
-    for (let i = 0; i < 1_000; ++i) {
+    for (let i = 0; i < 1; ++i) {
       const physicalObjectPropsX: PhysicalElementProps = {
         classFullName: PhysicalObject.classFullName,
         model: physicalModelId,

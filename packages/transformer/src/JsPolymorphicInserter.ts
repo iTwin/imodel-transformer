@@ -80,8 +80,10 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
     update: new Map(),
   };
 
-  const readHexFromJson = (p: Pick<PropInfo, "name" | "propertyType">, accessStr?: string) => {
+  const readHexFromJson = (p: Pick<PropInfo, "name" | "propertyType">, empty = "0", accessStr?: string) => {
     const navProp = p.propertyType === PropertyType.Navigation;
+    if (empty)
+      return `coalesce(HexToId(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), ${empty})`;
     return `HexToId(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}'))`;
   };
 
@@ -102,14 +104,17 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
               FROM remaps.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
-              WHERE SourceId=${readHexFromJson(p)}
+              WHERE SourceId=${readHexFromJson(p,
+                // FIXME: only unconstrained columns need 0, so need to inspect constraints
+                p.name === "Parent" || p.name === "TypeDefinition" ? "NULL" : "0"
+              )}
             )`)}`
             // FIXME: use ecreferencetypes cache to determine which remap table to use
             : p.propertyType === PropertyType.Long
             ? `${p.name} = ${injectExpr(`(
               SELECT TargetId
               FROM remaps.element_remap
-              WHERE SourceId=${readHexFromJson(p)}
+              WHERE SourceId=${readHexFromJson(p, "0")}
             )`)}`
             //: p.propertyType === PropertyType.IGeometry
             //? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
@@ -121,7 +126,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
       WHERE ECInstanceId=${injectExpr(`(
         SELECT TargetId
         FROM remaps.element_remap
-        WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", propertyType: PropertyType.Long })}
+        WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", propertyType: PropertyType.Long }, "0")}
       )`)}
     `;
 
@@ -190,12 +195,15 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
         .join(",\n  ")
       })
       VALUES (
-      ${injectExpr(`(
-        -- FIXME: don't I need to increment this?
-        SELECT Val + 1
-        FROM be_Local
-        WHERE Name='bis_instanceidsequence'
-      )`)}
+      ${
+        //SELECT Val + 1
+        //FROM be_Local
+        //WHERE Name='bis_instanceidsequence'
+        // FIXME: this only works with empty targets
+        injectExpr(`
+          /* FIXME: this obviously only works with empty dbs */
+          HexToId(JSON_EXTRACT(:x, '$.ECInstanceId'))
+        `)}
       ${properties.length > 0 ? "," : "" /* FIXME: join instead */}
       ${properties
         .map((p) =>
@@ -211,7 +219,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
               JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
               JOIN main.ec_Schema ts ON ts.Name=ss.Name
               JOIN main.ec_Class tc ON tc.Name=sc.Name
-              WHERE sc.Id=${readHexFromJson(p, `${p.name}.RelECClassId`)}
+              WHERE sc.Id=${readHexFromJson(p, undefined, `${p.name}.RelECClassId`)}
             )`)}`
           // FIXME: use ecreferencetypes cache to determine which remap table to use
           : p.propertyType === PropertyType.Long
@@ -304,6 +312,11 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
         );
       });
 
+      if (!(globalThis as any)._xxx && jsonString.includes('"ECClassId":"0x135"')) {
+        (globalThis as any)._xxx = true;
+        console.log(classFullName, updateQuery, hackedRemapUpdateSql);
+      }
+
       try {
         ecdb.withPreparedSqliteStatement(hackedRemapUpdateSql, (targetStmt) => {
           // can't use named bindings in raw sqlite statement apparently
@@ -386,6 +399,24 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         TargetId INTEGER NOT NULL
       )
     `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+    writeableTarget.withSqliteStatement(`
+      CREATE TABLE mike_remaps_${name} (
+        SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
+        TargetId INTEGER NOT NULL
+      )
+    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+    // always remap 0 to 0
+    writeableTarget.withSqliteStatement(`
+      INSERT INTO remaps.${name} VALUES(0,0)
+    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+
+    // FIXME: remove
+    // always remap 0 to 0
+    writeableTarget.withSqliteStatement(`
+      INSERT INTO mike_remaps_${name} VALUES(0,0)
+    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
   writeableTarget.withSqliteStatement(`
@@ -398,7 +429,14 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
   });
 
-  // FIXME: this doesn't work... using a workaround of setting all references to 0x1
+  // FIXME: remove
+  writeableTarget.withPreparedSqliteStatement(`
+    INSERT INTO mike_remaps_element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
+  `, (targetStmt) => {
+    assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+  });
+
+  // FIXME: this doesn't work... using a workaround of setting all references to 0x0
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = true;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
@@ -460,6 +498,15 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         targetStmt.bindId(2, targetId);
         assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
       });
+
+      // FIXME: remove
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO mike_remaps_codespec_remap VALUES(?,?)
+      `, (targetStmt) => {
+        targetStmt.bindId(1, sourceId);
+        targetStmt.bindId(2, targetId);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
     }
   });
 
@@ -473,7 +520,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     ORDER BY ECInstanceId ASC
   `;
 
-  // first pass, update everything with trivial references (0x1 and null codes)
+  // first pass, update everything with trivial references (0 and null codes)
   // FIXME: technically could do it all in one pass if we preserve distances between rows and
   // just offset all references by the count of rows in the source...
   //
@@ -494,6 +541,15 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO remaps.element_remap VALUES(?,?)
+    `, (targetStmt) => {
+      targetStmt.bindId(1, sourceId);
+      targetStmt.bindId(2, targetId);
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+    });
+
+    // FIXME: remove
+    writeableTarget.withPreparedSqliteStatement(`
+      INSERT INTO mike_remaps_element_remap VALUES(?,?)
     `, (targetStmt) => {
       targetStmt.bindId(1, sourceId);
       targetStmt.bindId(2, targetId);
@@ -533,8 +589,19 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO remaps.aspect_remap VALUES(?,?)
     `, (targetStmt) => {
+      // HACK: returned id is broken with sql_mismatch so just reusing source id
       targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, targetId);
+      targetStmt.bindId(2, sourceId);
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+    });
+
+    // FIXME: remove
+    writeableTarget.withPreparedSqliteStatement(`
+      INSERT INTO mike_remaps_aspect_remap VALUES(?,?)
+    `, (targetStmt) => {
+      // HACK: returned id is broken with sql_mismatch so just reusing source id
+      targetStmt.bindId(1, sourceId);
+      targetStmt.bindId(2, sourceId);
       assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
     });
   }
@@ -594,17 +661,35 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     };
   }
 
-  writeableTarget.clearStatementCache(); // so we can detach attached db
+  console.log(source.withStatement(`
+    SELECT $ FROM bis.Element
+    WHERE ECInstanceId=0x31
+    ECSQLOPTIONS enable_experimental_features
+  `, (s) => [...s]));
+
+  console.log(writeableTarget.withStatement(`
+    SELECT $ FROM bis.Element
+    WHERE ECInstanceId=0x44
+    ECSQLOPTIONS enable_experimental_features
+  `, (s) => [...s]));
+
 
   // FIXME: detach... readonly attached db gets write-locked for some reason
   // writeableTarget.withSqliteStatement(`
   //   DETACH source
   // `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
+  geomRemapTable.clearStatementCache(); // so we can detach attached db
+
+  // FIXME: detach... readonly attached db gets write-locked for some reason
+  writeableTarget.withSqliteStatement(`
+    DETACH remaps
+  `, (s) => assert(s.step() === DbResult.BE_SQLITE_ERROR));
+
+
+  writeableTarget.clearStatementCache(); // so we can detach attached db
   writeableTarget.saveChanges();
   writeableTarget.closeDb();
-  writeableTarget.dispose();
-  geomRemapTable.clearStatementCache(); // so we can detach attached db
   geomRemapTable.closeDb();
 
   return remapper;
