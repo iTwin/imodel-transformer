@@ -16,8 +16,27 @@ import { ChangesetIndexOrId, CodeSpec, FontProps, IModel, IModelError } from "@i
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type { InitFromExternalSourceAspectsArgs } from "./IModelTransformer";
+import { ElementAspectsHandler, ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
+import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
+import { DetachedExportElementAspectsStrategy } from "./DetachedExportElementAspectsStrategy";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
+
+/**
+ * ElementAspect export strategies supported by [[IModelExporter]]
+ * @beta
+ */
+export enum ElementAspectExportStrategy {
+  /**
+   * ElementAspect export strategy where aspects are exported with their elements.
+   */
+  WithElement = "withElement",
+  /**
+   * ElementAspect export strategy where aspects are exported separately from their elements.
+   * @beta
+   */
+  Detached = "detached"
+}
 
 /**
  * @beta
@@ -220,24 +239,52 @@ export class IModelExporter {
   private _excludedElementCategoryIds = new Set<Id64String>();
   /** The set of classes of Elements that will be excluded (polymorphically) from transformation to the target iModel. */
   private _excludedElementClasses = new Set<typeof Element>();
-  /** The set of classes of ElementAspects that will be excluded (polymorphically) from transformation to the target iModel. */
-  private _excludedElementAspectClasses = new Set<typeof ElementAspect>();
-  /** The set of classFullNames for ElementAspects that will be excluded from transformation to the target iModel. */
-  private _excludedElementAspectClassFullNames = new Set<string>();
   /** The set of classes of Relationships that will be excluded (polymorphically) from transformation to the target iModel. */
   private _excludedRelationshipClasses = new Set<typeof Relationship>();
+
+  /** Strategy for how ElementAspects are exported */
+  private _exportElementAspectsStrategy: ExportElementAspectsStrategy<ElementAspectsHandler>;
 
   /** Construct a new IModelExporter
    * @param sourceDb The source IModelDb
    * @see registerHandler
    */
-  public constructor(sourceDb: IModelDb) {
+  public constructor(sourceDb: IModelDb, elementAspectsStrategy: ElementAspectExportStrategy = ElementAspectExportStrategy.WithElement) {
     this.sourceDb = sourceDb;
+    this._exportElementAspectsStrategy = this.createExportElementAspectsStrategy(sourceDb, elementAspectsStrategy);
+  }
+
+  private createExportElementAspectsStrategy(sourceDb: IModelDb, elementAspectsStrategy: ElementAspectExportStrategy): ExportElementAspectsStrategy<ElementAspectsHandler> {
+    switch(elementAspectsStrategy) {
+      case ElementAspectExportStrategy.WithElement:
+        return new ExportElementAspectsWithElementsStrategy(sourceDb, {
+          trackProgress: () => this.trackProgress(),
+          onExportElementMultiAspects: (multiAspects) => this.handler.onExportElementMultiAspects(multiAspects),
+          onExportElementUniqueAspect: (uniqueAspect, isUpdate) => this.handler.onExportElementUniqueAspect(uniqueAspect, isUpdate),
+          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect)
+        });
+      case ElementAspectExportStrategy.Detached:
+        return new DetachedExportElementAspectsStrategy(sourceDb, {
+          trackProgress: () => this.trackProgress(),
+          onExportElementMultiAspects: (multiAspects) => this.handler.onExportElementMultiAspects(multiAspects),
+          onExportElementUniqueAspect: (uniqueAspect, isUpdate) => this.handler.onExportElementUniqueAspect(uniqueAspect, isUpdate),
+          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect)
+        });
+      default:
+        throw new Error("Unknown ElementAspect exporting strategy");
+    }
   }
 
   /** Register the handler that will be called by IModelExporter. */
   public registerHandler(handler: IModelExportHandler): void {
     this._handler = handler;
+  }
+
+  /** Sets ExportElementAspectsStrategy that will be used when exporting ElementAspects.
+   * This method allows to change strategy after IModelExporter was already created.
+   */
+  public setExportElementAspectsStrategy(elementAspectsStrategy: ElementAspectExportStrategy): void {
+    this._exportElementAspectsStrategy = this.createExportElementAspectsStrategy(this.sourceDb, elementAspectsStrategy);
   }
 
   /** Add a rule to exclude a CodeSpec */
@@ -262,8 +309,7 @@ export class IModelExporter {
 
   /** Add a rule to exclude all ElementAspects of a specified class. */
   public excludeElementAspectClass(classFullName: string): void {
-    this._excludedElementAspectClassFullNames.add(classFullName); // allows non-polymorphic exclusion before query
-    this._excludedElementAspectClasses.add(this.sourceDb.getJsClass<typeof ElementAspect>(classFullName)); // allows polymorphic exclusion after query/load
+    this._exportElementAspectsStrategy.excludeElementAspectClass(classFullName);
   }
 
   /** Add a rule to exclude all Relationships of a specified class. */
@@ -315,6 +361,7 @@ export class IModelExporter {
           : this.sourceDb.changeset,
         iModel: this.sourceDb,
       });
+    this._exportElementAspectsStrategy.setAspectChanges(this._sourceDbChanges?.aspect);
 
     await this.exportCodeSpecs();
     await this.exportFonts();
@@ -651,7 +698,7 @@ export class IModelExporter {
       await this.handler.preExportElement(element);
       this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
-      await this.exportElementAspects(elementId);
+      await this._exportElementAspectsStrategy.exportElementAspects(elementId);
       return this.exportChildElements(elementId);
     } else {
       this.handler.onSkipElement(element.id);
@@ -675,42 +722,10 @@ export class IModelExporter {
     }
   }
 
-  /** Returns `true` if the specified ElementAspect should be exported or `false` if if should be excluded. */
-  private shouldExportElementAspect(aspect: ElementAspect): boolean {
-    for (const excludedElementAspectClass of this._excludedElementAspectClasses) {
-      if (aspect instanceof excludedElementAspectClass) {
-        Logger.logInfo(loggerCategory, `Excluded ElementAspect by class: ${aspect.classFullName}`);
-        return false;
-      }
-    }
-    // ElementAspect has passed standard exclusion rules, now give handler a chance to accept/reject
-    return this.handler.shouldExportElementAspect(aspect);
-  }
-
-  /** Export ElementAspects from the specified element from the source iModel. */
-  private async exportElementAspects(elementId: Id64String): Promise<void> {
-    const _uniqueAspects = await Promise.all(this.sourceDb.elements
-      ._queryAspects(elementId, ElementUniqueAspect.classFullName, this._excludedElementAspectClassFullNames)
-      .filter((a) => this.shouldExportElementAspect(a))
-      .map(async (uniqueAspect: ElementUniqueAspect) => {
-        const isInsertChange = this._sourceDbChanges?.aspect.insertIds.has(uniqueAspect.id) ?? false;
-        const isUpdateChange = this._sourceDbChanges?.aspect.updateIds.has(uniqueAspect.id) ?? false;
-        const doExport = this._sourceDbChanges === undefined || isInsertChange || isUpdateChange;
-        if (doExport) {
-          const isKnownUpdate = this._sourceDbChanges ? isUpdateChange : undefined;
-          this.handler.onExportElementUniqueAspect(uniqueAspect, isKnownUpdate);
-          await this.trackProgress();
-        }
-      }));
-
-    const multiAspects = this.sourceDb.elements
-      ._queryAspects(elementId, ElementMultiAspect.classFullName, this._excludedElementAspectClassFullNames)
-      .filter((a) => this.shouldExportElementAspect(a));
-
-    if (multiAspects.length > 0) {
-      this.handler.onExportElementMultiAspects(multiAspects);
-      return this.trackProgress();
-    }
+  /** Exports all aspects present in the iModel.
+   */
+  public async exportAllAspects(): Promise<void> {
+    return this._exportElementAspectsStrategy.exportAllElementAspects();
   }
 
   /** Exports all relationships that subclass from the specified base class.
@@ -808,8 +823,7 @@ export class IModelExporter {
     this._excludedElementIds = CompressedId64Set.decompressSet(state.excludedElementIds),
     this._excludedElementCategoryIds = CompressedId64Set.decompressSet(state.excludedElementCategoryIds),
     this._excludedElementClasses = new Set(state.excludedElementClassNames.map((c) => this.sourceDb.getJsClass(c)));
-    this._excludedElementAspectClassFullNames = new Set(state.excludedElementAspectClassFullNames);
-    this._excludedElementAspectClasses = new Set(state.excludedElementAspectClassFullNames.map((c) => this.sourceDb.getJsClass(c)));
+    this._exportElementAspectsStrategy.loadExcludedElementAspectClasses(state.excludedElementAspectClassFullNames);
     this._excludedRelationshipClasses = new Set(state.excludedRelationshipClassNames.map((c) => this.sourceDb.getJsClass(c)));
     this.loadAdditionalStateJson(state.additionalState);
   }
@@ -832,7 +846,7 @@ export class IModelExporter {
       excludedElementIds: CompressedId64Set.compressSet(this._excludedElementIds),
       excludedElementCategoryIds: CompressedId64Set.compressSet(this._excludedElementCategoryIds),
       excludedElementClassNames: Array.from(this._excludedElementClasses, (cls) => cls.classFullName),
-      excludedElementAspectClassFullNames: [...this._excludedElementAspectClassFullNames],
+      excludedElementAspectClassFullNames: [...this._exportElementAspectsStrategy.getExcludedElementAspectClasses()],
       excludedRelationshipClassNames: Array.from(this._excludedRelationshipClasses, (cls) => cls.classFullName),
       additionalState: this.getAdditionalStateJson(),
     };

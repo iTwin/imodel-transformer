@@ -25,7 +25,7 @@ import {
   ExternalSourceAspectProps, ImageSourceFormat, IModel, IModelError, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps,
 } from "@itwin/core-common";
 import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
+import { ElementAspectExportStrategy, IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -2513,6 +2513,57 @@ describe("IModelTransformer", () => {
       while(DbResult.BE_SQLITE_ROW === statement.step()) {
         assert(statement.getValue(0).isNull);
       }
+    });
+  });
+
+  it("should transform all aspects when detachedAspectProcessing is turned on", async () => {
+    // arrange
+    // prepare source
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessing.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DetachedAspectProcessing" } });
+    const elements = [
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2")
+    ];
+
+    // 10 aspects in total (5 per element)
+    elements.forEach(element => {
+      for (let i = 0; i < 5; ++i) {
+        const aspectProps: ExternalSourceAspectProps = {
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(element),
+          identifier: `${i}`,
+          kind: "Element",
+          scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" }
+        };
+  
+        sourceDb.elements.insertAspect(aspectProps);
+      }
+    });
+
+    sourceDb.saveChanges();
+
+    // create target iModel
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessing-Target.bim");
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "DetachedAspectProcessing-Target" } });
+
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      elementAspectExportStrategy: ElementAspectExportStrategy.Detached,
+      includeSourceProvenance: true
+    });
+
+    // act
+    await transformer.processAll();
+    targetDb.saveChanges();
+
+    // assert
+    const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
+    elementIds.forEach(elementId => {
+      if (elementId === IModel.rootSubjectId) {
+        return;
+      }
+      const aspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
+      expect(aspects.length).to.be.equal(6); // +1 because provenance aspect was added
     });
   });
 

@@ -7,16 +7,16 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, DefinitionContainer, DefinitionModel, DefinitionPartition, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, DefinitionContainer, DefinitionModel, DefinitionPartition, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
   PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject, SubjectOwnsPartitionElements,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, DefinitionElementProps, ElementProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, DefinitionElementProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
+import { ElementAspectExportStrategy, IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
   CountingIModelImporter, HubWrappers, IModelToTextFileExporter, IModelTransformerTestUtils, TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
@@ -57,34 +57,31 @@ describe("IModelTransformerHub", () => {
   });
   after(() => HubMock.shutdown());
 
+  const createPopulatedIModelHubIModel = async (iModelName: string, prepareIModel: (iModel: SnapshotDb) => Promise<void>): Promise<string> => {
+    // Create and push seed of IModel
+    const seedFileName = path.join(outputDir, `${iModelName}.bim`);
+    if (IModelJsFs.existsSync(seedFileName))
+      IModelJsFs.removeSync(seedFileName);
+
+    const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: iModelName } });
+    assert.isTrue(IModelJsFs.existsSync(seedFileName));
+    await prepareIModel(seedDb);
+    seedDb.saveChanges();
+    seedDb.close();
+
+    const iModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: iModelName, description: "source", version0: seedFileName, noLocks: true });
+    return iModelId;
+  }
+
   it("Transform source iModel to target iModel", async () => {
-    // Create and push seed of source IModel
-    const sourceIModelName = "TransformerSource";
-    const sourceSeedFileName = path.join(outputDir, `${sourceIModelName}.bim`);
-    if (IModelJsFs.existsSync(sourceSeedFileName))
-      IModelJsFs.removeSync(sourceSeedFileName);
+    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", async (sourceSeedDb) => {
+      await TestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
+    });
 
-    const sourceSeedDb = SnapshotDb.createEmpty(sourceSeedFileName, { rootSubject: { name: "TransformerSource" } });
-    assert.isTrue(IModelJsFs.existsSync(sourceSeedFileName));
-    await TestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
-    sourceSeedDb.saveChanges();
-    sourceSeedDb.close();
-
-    const sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: sourceIModelName, description: "source", version0: sourceSeedFileName, noLocks: true });
-
-    // Create and push seed of target IModel
-    const targetIModelName = "TransformerTarget";
-    const targetSeedFileName = path.join(outputDir, `${targetIModelName}.bim`);
-    if (IModelJsFs.existsSync(targetSeedFileName)) {
-      IModelJsFs.removeSync(targetSeedFileName);
-    }
-    const targetSeedDb = SnapshotDb.createEmpty(targetSeedFileName, { rootSubject: { name: "TransformerTarget" } });
-    assert.isTrue(IModelJsFs.existsSync(targetSeedFileName));
-    await TransformerExtensiveTestScenario.prepareTargetDb(targetSeedDb);
-    assert.isTrue(targetSeedDb.codeSpecs.hasName("TargetCodeSpec")); // inserted by prepareTargetDb
-    targetSeedDb.saveChanges();
-    targetSeedDb.close();
-    const targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: targetIModelName, description: "target", version0: targetSeedFileName, noLocks: true });
+    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget", async (targetSeedDb) => {
+      await TransformerExtensiveTestScenario.prepareTargetDb(targetSeedDb);
+      assert.isTrue(targetSeedDb.codeSpecs.hasName("TargetCodeSpec")); // inserted by prepareTargetDb
+    });
 
     try {
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
@@ -795,6 +792,72 @@ describe("IModelTransformerHub", () => {
     syncer.dispose();
     await tearDown();
     sinon.restore();
+  });
+
+  it.only("should update aspects when processing changes and detachedAspectProcessing is turned on", async () => {
+    let elementIds: Id64String[] = [];
+    let aspectIds: Id64String[] = [];
+    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", (sourceSeedDb) => {
+      elementIds = [
+        Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject1"),
+        Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject2")
+      ];
+
+      // 10 aspects in total (5 per element)
+      elementIds.forEach(element => {
+        for (let i = 0; i < 5; ++i) {
+          const aspectProps: ExternalSourceAspectProps = {
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(element),
+            identifier: `${i}`,
+            kind: "Document",
+            scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" }
+          };
+
+          const aspectId = sourceSeedDb.elements.insertAspect(aspectProps);
+          aspectIds.push(aspectId); // saving for later deletion
+        }
+      });
+
+      return Promise.resolve();
+    });
+
+    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget", async () => { return Promise.resolve() });
+
+    try {
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+
+      const firstTransformer = new IModelTransformer(sourceDb, targetDb, {
+        elementAspectExportStrategy: ElementAspectExportStrategy.Detached,
+        includeSourceProvenance: true
+      });
+
+      // run first transformation
+      await firstTransformer.processChanges({ accessToken });
+      await saveAndPushChanges(targetDb, "First transformation");
+
+      aspectIds.forEach(aspectId => {
+        sourceDb.elements.deleteAspect(aspectId);
+      });
+      
+      await saveAndPushChanges(sourceDb, "Update source");
+
+
+      await firstTransformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
+      await saveAndPushChanges(targetDb, "Second transformation");
+      
+      const targetElementIds = targetDb.queryEntityIds({ from: Subject.classFullName, where: "EcInstanceId != ?", bindings: [IModel.rootSubjectId] });
+      targetElementIds.forEach(elementId => {
+        const aspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+        expect(aspects.length).to.be.equal(1); // +1 because provenance aspect was added
+        const aspectAddedAfterFirstTransformation = aspects.find(aspect => aspect.identifier === "aspectAddedAfterFirstTransformation");
+        expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
+      });
+    } finally {
+      await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+      await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+    }
   });
 
   // will fix in separate PR, tracked here: https://github.com/iTwin/imodel-transformer/issues/27
