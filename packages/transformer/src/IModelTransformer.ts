@@ -346,6 +346,14 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
+
+    // this internal is guaranteed stable for just transformer usage
+    /* eslint-disable @itwin/no-internal */
+    if ("codeValueBehavior" in this.sourceDb as any) {
+      (this.sourceDb as any).codeValueBehavior = "exact";
+      (this.targetDb as any).codeValueBehavior = "exact";
+    }
+    /* eslint-enable @itwin/no-internal */
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
@@ -903,7 +911,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
     // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
     if (!Id64.isValidId64(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
-      // respond the same way to undefined code value as the @see Code class, but don't use that class because is trims
+      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
       // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
       targetElementProps.code.value = targetElementProps.code.value ?? "";
       targetElementId = this.targetDb.elements.queryElementIdByCode(targetElementProps.code as Required<CodeProps>);
@@ -1129,6 +1137,13 @@ export class IModelTransformer extends IModelExportHandler {
         partiallyCommittedElem.forceComplete();
       }
     }
+    // this internal is guaranteed stable for just transformer usage
+    /* eslint-disable @itwin/no-internal */
+    if ("codeValueBehavior" in this.sourceDb as any) {
+      (this.sourceDb as any).codeValueBehavior = "trim-unicode-whitespace";
+      (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
+    }
+    /* eslint-enable @itwin/no-internal */
   }
 
   /** Imports all relationships that subclass from the specified base class.

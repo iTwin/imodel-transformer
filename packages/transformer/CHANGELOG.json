@@ -2,6 +2,27 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Fri, 18 Aug 2023 23:12:28 GMT",
+      "tag": "@itwin/imodel-transformer_v0.3.2",
+      "version": "0.3.2",
+      "comments": {
+        "patch": [
+          {
+            "author": "deividas.davidavicius@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "8cda406d158b46f57acfc97d7f4be03a4143414f",
+            "comment": "Added a fix for \"Missing id\" and \"ForeignKey constraint\" errors while using onDeleteModel"
+          },
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "8cda406d158b46f57acfc97d7f4be03a4143414f",
+            "comment": "bump dependencies to allow all itwin.js 4.x"
+          }
+        ]
+      }
+    },
+    {
       "date": "Thu, 27 Jul 2023 13:07:39 GMT",
       "tag": "@itwin/imodel-transformer_v0.3.1",
       "version": "0.3.1",

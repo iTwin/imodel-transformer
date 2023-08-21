@@ -22,7 +22,7 @@ import * as TestUtils from "../TestUtils";
 import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, BriefcaseIdValue, Code, CodeScopeSpec, CodeSpec, ColorDef, CreateIModelProps, DefinitionElementProps, ElementAspectProps, ElementProps,
-  ExternalSourceAspectProps, ImageSourceFormat, IModel, IModelError, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps,
+  ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
 } from "@itwin/core-common";
 import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import { ElementAspectExportStrategy, IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
@@ -1033,19 +1033,19 @@ describe("IModelTransformer", () => {
     const categoryId = DrawingCategory.insert(sourceDb, IModel.dictionaryId, "DrawingCategory", { color: ColorDef.green.toJSON() });
 
     // we make drawingGraphic2 in drawingModel2 first
-    const drawingGraphic2Id = new DrawingGraphic({
+    const drawingGraphic2Id = sourceDb.elements.insertElement({
       classFullName: DrawingGraphic.classFullName,
       model: drawingModel2Id,
       code: new Code({ spec: modelCodeSpec, scope: drawingModel2Id, value: "drawing graphic 2" }),
       category: categoryId,
-    }, sourceDb).insert();
+    } as GeometricElement2dProps);
 
-    const _drawingGraphic1Id = new DrawingGraphic({
+    const _drawingGraphic1Id = sourceDb.elements.insertElement({
       classFullName: DrawingGraphic.classFullName,
       model: drawingModel1Id,
       code: new Code({ spec: relatedCodeSpecId, scope: drawingGraphic2Id, value: "drawing graphic 1" }),
       category: categoryId,
-    }, sourceDb).insert();
+    } as GeometricElement2dProps);
 
     sourceDb.saveChanges();
 
@@ -1184,7 +1184,7 @@ describe("IModelTransformer", () => {
 
     // these link table relationships (ElementRefersToElements > PartitionOriginatesFromRepository) are examples of non-element entities
     const physicalPartitions = new Array(3).fill(null).map((_, index) =>
-      new PhysicalPartition({
+      sourceDb.elements.insertElement({
         classFullName: PhysicalPartition.classFullName,
         model: IModelDb.rootSubjectId,
         parent: {
@@ -1192,26 +1192,23 @@ describe("IModelTransformer", () => {
           relClassName: ElementOwnsChildElements.classFullName,
         },
         code: PhysicalPartition.createCode(sourceDb, IModelDb.rootSubjectId, `physical-partition-${index}`),
-      }, sourceDb),
-    ).map((partition) => {
-      const partitionId = partition.insert();
-      const model = new PhysicalModel({
-        classFullName: PhysicalPartition.classFullName,
+      } as InformationPartitionElementProps)
+    ).map((partitionId) => {
+      const modelId = sourceDb.models.insertModel({
+        classFullName: PhysicalModel.classFullName,
         modeledElement: { id: partitionId },
-      }, sourceDb);
-      const modelId = model.insert();
+      } as ModelProps);
       return { modelId, partitionId }; // these are the same id because of submodeling
     });
 
     const linksIds = new Array(2).fill(null).map((_, index) => {
-      const link = new RepositoryLink({
+      const linkId = sourceDb.elements.insertElement({
         classFullName: RepositoryLink.classFullName,
         code: RepositoryLink.createCode(sourceDb, IModelDb.rootSubjectId, `repo-link-${index}`),
         model: IModelDb.rootSubjectId,
         repositoryGuid: `2fd0e5ed-a4d7-40cd-be8a-57552f5736b${index}`, // random, doesn't matter, works for up to 10 of course
         format: "my-format",
-      }, sourceDb);
-      const linkId = link.insert();
+      } as RepositoryLinkProps);
       return linkId;
     });
 
@@ -2175,38 +2172,38 @@ describe("IModelTransformer", () => {
     for (const label of ["SpatialCategory", "PhysicalModel", "PhysicalObject"])
       addNonBreakingSpaceToCodeValue(sourceDb, label);
 
-    const getCodeValRawSqlite = (db: IModelDb, initialCodeValue: string, expected: string, expectedRows: number) => {
+    const getCodeValRawSqlite = (db: IModelDb, args: { initialVal: string, expected: string, expectedMatchCount: number}) => {
       db.withSqliteStatement(
-        `SELECT CodeValue FROM bis_Element WHERE CodeValue LIKE'${initialCodeValue}%'`,
+        `SELECT CodeValue FROM bis_Element WHERE CodeValue LIKE '${args.initialVal}%'`,
         (stmt) => {
           let rows = 0;
           for (const { codeValue } of stmt) {
             rows++;
-            expect(codeValue).to.equal(expected);
+            expect(codeValue).to.equal(args.expected);
           }
-          expect(rows).to.equal(expectedRows);
+          expect(rows).to.equal(args.expectedMatchCount);
         }
       );
     };
 
-    const getCodeValEcSql = (db: IModelDb, initialCodeValue: string, expected: string, expectedRows: number) => {
+    const getCodeValEcSql = (db: IModelDb, args: { initialVal: string, expected: string, expectedMatchCount: number }) => {
       db.withStatement(
-        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE'${initialCodeValue}%'`,
+        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
         (stmt) => {
           let rows = 0;
           for (const { codeValue } of stmt) {
             rows++;
-            expect(codeValue).to.equal(expected);
+            expect(codeValue).to.equal(args.expected);
           }
-          expect(rows).to.equal(expectedRows);
+          expect(rows).to.equal(args.expectedMatchCount);
         }
       );
     };
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
-    for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      getCodeValRawSqlite(sourceDb, label, `${label}\xa0`, count);
-      getCodeValEcSql(sourceDb, label, `${label}\xa0`, count);
+    for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
+      getCodeValRawSqlite(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
+      getCodeValEcSql(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
     }
 
     sourceDb.saveChanges();
@@ -2214,9 +2211,9 @@ describe("IModelTransformer", () => {
     sourceDb = SnapshotDb.openFile(sourceDbFile);
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
-    for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      getCodeValRawSqlite(sourceDb, label, `${label}\xa0`, count);
-      getCodeValEcSql(sourceDb, label, `${label}\xa0`, count);
+    for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
+      getCodeValRawSqlite(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
+      getCodeValEcSql(sourceDb, { initialVal, expected: `${initialVal}\xa0`, expectedMatchCount });
     }
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "CoreNewSchemaRefTarget.bim");
@@ -2236,13 +2233,12 @@ describe("IModelTransformer", () => {
     expect(targetDb.elements.getElement(physObjectInTargetId).code.value).to.equal("PhysicalObject");
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
-    for (const [label, count] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
-      // itwin.js 4.x will also trim the code value of utf-8 spaces in the native layer
-      const inItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
-      // eslint-disable-next-line
-      console.log("inItjs4x", coreBackendPkgJson);
-      getCodeValRawSqlite(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
-      getCodeValEcSql(targetDb, label, inItjs4x ? label : `${label}\xa0`, count);
+    for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
+      // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
+      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(coreBackendPkgJson.version, "^3.0.0 || ^4.1.1");
+      const expected = inITwinJsVersionWithExactCodeFeature ? `${initialVal}\xa0` : initialVal;
+      getCodeValRawSqlite(targetDb, { initialVal, expected, expectedMatchCount });
+      getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });
     }
 
     transformer.dispose();
@@ -2466,7 +2462,7 @@ describe("IModelTransformer", () => {
         </Target>
       </ECRelationshipClass>
     </ECSchema>
-  `;
+    `;
     await sourceDb.importSchemaStrings([customSchema]);
     const sourceCategoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.blue.toJSON() });
     const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "PhysicalModel");
@@ -2567,8 +2563,11 @@ describe("IModelTransformer", () => {
     });
   });
 
-  // FIXME: unskip, fixed in iTwin.js native addon 4.0.0, (@bentley/imodeljs-native@4.0.0)
-  it.skip("should remap textures in target iModel", async () => {
+  it("should remap textures in target iModel", async function () {
+    const atleastInItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
+    if (!atleastInItjs4x)
+      this.skip();
+
     // create source iModel
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "Transform3d-Source.bim");
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "Transform3d-Source" } });
@@ -2654,6 +2653,37 @@ describe("IModelTransformer", () => {
     transformer.dispose();
     sourceDb.close();
     transformer.targetDb.close();
+  });
+
+  it("handle same name dynamic schemas", async function () {
+    const makeDynamicSchema = (version: string) => `<?xml version="1.0" encoding="UTF-8"?>
+        <ECSchema schemaName="Dynamic" alias="d1" version="${version}" displayLabel="dyn" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+            <ECCustomAttributes>
+                <DynamicSchema xmlns="CoreCustomAttributes.01.00.03"/>
+            </ECCustomAttributes>
+        </ECSchema>
+    `;
+
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas-Source.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DynSchemaSource" } });
+    await sourceDb.importSchemaStrings([makeDynamicSchema("01.07.00")]);
+    sourceDb.saveChanges();
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas-Target.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "DynSchemasTarget" } });
+    await targetDb.importSchemaStrings([makeDynamicSchema("01.05.02")]);
+    targetDb.saveChanges();
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    // expect this to not reject, adding chai as promised makes the error less readable
+    await transformer.processSchemas();
+
+    expect(targetDb.querySchemaVersion("Dynamic")).to.equal("1.7.0");
+
+    // clean up
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
   });
 
   /** unskip to generate a javascript CPU profile on just the processAll portion of an iModel */
