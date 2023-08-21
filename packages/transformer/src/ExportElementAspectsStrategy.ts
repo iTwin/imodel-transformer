@@ -30,7 +30,7 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
   protected _excludedElementAspectClassFullNames = new Set<string>();
 
   protected sourceDb: IModelDb;
-  
+
   protected aspectChanges: ChangedInstanceOps | undefined;
 
   protected handler: T;
@@ -57,7 +57,7 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
   public setAspectChanges(aspectChanges?: ChangedInstanceOps) {
     this.aspectChanges = aspectChanges;
   }
-  
+
   public getExcludedElementAspectClasses(): Set<string> {
     return this._excludedElementAspectClassFullNames;
   }

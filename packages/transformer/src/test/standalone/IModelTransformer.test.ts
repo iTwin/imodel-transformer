@@ -2523,20 +2523,20 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DetachedAspectProcessing" } });
     const elements = [
       Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
-      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2")
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
     ];
 
     // 10 aspects in total (5 per element)
-    elements.forEach(element => {
+    elements.forEach((element) => {
       for (let i = 0; i < 5; ++i) {
         const aspectProps: ExternalSourceAspectProps = {
           classFullName: ExternalSourceAspect.classFullName,
           element: new ElementOwnsExternalSourceAspects(element),
           identifier: `${i}`,
           kind: "Element",
-          scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" }
+          scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" },
         };
-  
+
         sourceDb.elements.insertAspect(aspectProps);
       }
     });
@@ -2549,7 +2549,7 @@ describe("IModelTransformer", () => {
 
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       elementAspectExportStrategy: ElementAspectExportStrategy.Detached,
-      includeSourceProvenance: true
+      includeSourceProvenance: true,
     });
 
     // act
@@ -2558,7 +2558,7 @@ describe("IModelTransformer", () => {
 
     // assert
     const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
-    elementIds.forEach(elementId => {
+    elementIds.forEach((elementId) => {
       if (elementId === IModel.rootSubjectId) {
         return;
       }

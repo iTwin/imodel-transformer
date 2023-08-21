@@ -69,9 +69,9 @@ describe("IModelTransformerHub", () => {
     seedDb.saveChanges();
     seedDb.close();
 
-    const iModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: iModelName, description: "source", version0: seedFileName, noLocks: true });
+    const iModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName, description: "source", version0: seedFileName, noLocks: true });
     return iModelId;
-  }
+  };
 
   it("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", async (sourceSeedDb) => {
@@ -794,24 +794,24 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
-  it.only("should update aspects when processing changes and detachedAspectProcessing is turned on", async () => {
+  it("should update aspects when processing changes and detachedAspectProcessing is turned on", async () => {
     let elementIds: Id64String[] = [];
-    let aspectIds: Id64String[] = [];
-    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", (sourceSeedDb) => {
+    const aspectIds: Id64String[] = [];
+    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", async (sourceSeedDb) => {
       elementIds = [
         Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject1"),
-        Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject2")
+        Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject2"),
       ];
 
       // 10 aspects in total (5 per element)
-      elementIds.forEach(element => {
+      elementIds.forEach((element) => {
         for (let i = 0; i < 5; ++i) {
           const aspectProps: ExternalSourceAspectProps = {
             classFullName: ExternalSourceAspect.classFullName,
             element: new ElementOwnsExternalSourceAspects(element),
             identifier: `${i}`,
             kind: "Document",
-            scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" }
+            scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" },
           };
 
           const aspectId = sourceSeedDb.elements.insertAspect(aspectProps);
@@ -822,36 +822,35 @@ describe("IModelTransformerHub", () => {
       return Promise.resolve();
     });
 
-    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget", async () => { return Promise.resolve() });
+    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget", async () => Promise.resolve());
 
     try {
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
       const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
 
-      const firstTransformer = new IModelTransformer(sourceDb, targetDb, {
+      const transformer = new IModelTransformer(sourceDb, targetDb, {
         elementAspectExportStrategy: ElementAspectExportStrategy.Detached,
-        includeSourceProvenance: true
+        includeSourceProvenance: true,
       });
 
       // run first transformation
-      await firstTransformer.processChanges({ accessToken });
+      await transformer.processChanges({ accessToken });
       await saveAndPushChanges(targetDb, "First transformation");
 
-      aspectIds.forEach(aspectId => {
+      aspectIds.forEach((aspectId) => {
         sourceDb.elements.deleteAspect(aspectId);
       });
-      
+
       await saveAndPushChanges(sourceDb, "Update source");
 
-
-      await firstTransformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
+      await transformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
       await saveAndPushChanges(targetDb, "Second transformation");
-      
+
       const targetElementIds = targetDb.queryEntityIds({ from: Subject.classFullName, where: "EcInstanceId != ?", bindings: [IModel.rootSubjectId] });
-      targetElementIds.forEach(elementId => {
+      targetElementIds.forEach((elementId) => {
         const aspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
         expect(aspects.length).to.be.equal(1); // +1 because provenance aspect was added
-        const aspectAddedAfterFirstTransformation = aspects.find(aspect => aspect.identifier === "aspectAddedAfterFirstTransformation");
+        const aspectAddedAfterFirstTransformation = aspects.find((aspect) => aspect.identifier === "aspectAddedAfterFirstTransformation");
         expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
       });
     } finally {

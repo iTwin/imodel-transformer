@@ -258,17 +258,17 @@ export class IModelExporter {
     switch(elementAspectsStrategy) {
       case ElementAspectExportStrategy.WithElement:
         return new ExportElementAspectsWithElementsStrategy(sourceDb, {
-          trackProgress: () => this.trackProgress(),
+          trackProgress: async () => this.trackProgress(),
           onExportElementMultiAspects: (multiAspects) => this.handler.onExportElementMultiAspects(multiAspects),
           onExportElementUniqueAspect: (uniqueAspect, isUpdate) => this.handler.onExportElementUniqueAspect(uniqueAspect, isUpdate),
-          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect)
+          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect),
         });
       case ElementAspectExportStrategy.Detached:
         return new DetachedExportElementAspectsStrategy(sourceDb, {
-          trackProgress: () => this.trackProgress(),
+          trackProgress: async () => this.trackProgress(),
           onExportElementMultiAspects: (multiAspects) => this.handler.onExportElementMultiAspects(multiAspects),
           onExportElementUniqueAspect: (uniqueAspect, isUpdate) => this.handler.onExportElementUniqueAspect(uniqueAspect, isUpdate),
-          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect)
+          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect),
         });
       default:
         throw new Error("Unknown ElementAspect exporting strategy");

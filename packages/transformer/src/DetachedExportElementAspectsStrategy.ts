@@ -73,11 +73,11 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
 
   private async *queryAspects<T extends ElementAspect>(baseElementAspectClassFullName: string) {
     const aspectClassNameIdMap = new Map<string, Id64String>();
-    
+
     const getAspectClassesSql = `SELECT DISTINCT ECClassId as classId, (ec_classname(ECClassId)) as className FROM ${baseElementAspectClassFullName}`;
-    const queryReader = this.sourceDb.createQueryReader(getAspectClassesSql);
-    const asyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(queryReader);
-    for await (const rowProxy of asyncQueryReader) {
+    const aspectClassesQueryReader = this.sourceDb.createQueryReader(getAspectClassesSql);
+    const aspectClassesAsyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(aspectClassesQueryReader);
+    for await (const rowProxy of aspectClassesAsyncQueryReader) {
       const row = rowProxy.toRow();
       aspectClassNameIdMap.set(row.className, row.classId);
     }
@@ -87,10 +87,10 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
         continue;
 
       const getAspectPropsSql = `SELECT * FROM ${className} WHERE ECClassId = :classId ORDER BY Element.Id`;
-      const queryReader = this.sourceDb.createQueryReader(getAspectPropsSql, new QueryBinder().bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
-      const asyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(queryReader);
+      const aspectQueryReader = this.sourceDb.createQueryReader(getAspectPropsSql, new QueryBinder().bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
+      const aspectAsyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(aspectQueryReader);
       let firstDone = false;
-      for await (const rowProxy of asyncQueryReader) {
+      for await (const rowProxy of aspectAsyncQueryReader) {
         const row = rowProxy.toRow();
         const aspectProps: ElementAspectProps = { ...row, classFullName: row.className.replace(".", ":"), className: undefined }; // add in property required by EntityProps
         if (!firstDone) {

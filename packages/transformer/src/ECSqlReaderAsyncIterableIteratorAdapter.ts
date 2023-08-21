@@ -12,19 +12,19 @@ import { ECSqlReader, QueryRowProxy } from "@itwin/core-common";
  */
 export class ECSqlReaderAsyncIterableIteratorAdapter implements AsyncIterableIterator<QueryRowProxy> {
 
-    public constructor(private ecSqlReader: ECSqlReader) {}
+  public constructor(private _ecSqlReader: ECSqlReader) { }
 
-    [Symbol.asyncIterator](): AsyncIterableIterator<QueryRowProxy> {
-        return this;
-    }
-    
-    public async next(): Promise<IteratorResult<QueryRowProxy, any>> {
-        const done = !(await this.ecSqlReader.step());
-        return {
-            done,
-            value: this.ecSqlReader.current
-        };
-    }
+  public [Symbol.asyncIterator](): AsyncIterableIterator<QueryRowProxy> {
+    return this;
+  }
+
+  public async next(): Promise<IteratorResult<QueryRowProxy, any>> {
+    const done = !(await this._ecSqlReader.step());
+    return {
+      done,
+      value: this._ecSqlReader.current,
+    };
+  }
 }
 
 /**
@@ -32,9 +32,9 @@ export class ECSqlReaderAsyncIterableIteratorAdapter implements AsyncIterableIte
  * @param ecSqlReader ECSqlReader isntance from itwin 3.x or 4.x version
  */
 export function ensureECSqlReaderIsAsyncIterableIterator(ecSqlReader: ECSqlReader & AsyncIterableIterator<QueryRowProxy> | Omit<ECSqlReader, keyof AsyncIterableIterator<QueryRowProxy>>): AsyncIterableIterator<QueryRowProxy> {
-    if (Symbol.asyncIterator in ecSqlReader) { // using itwin 4.x
-        return ecSqlReader;
-    } else { // using itwin 3.x
-        return new ECSqlReaderAsyncIterableIteratorAdapter(ecSqlReader as ECSqlReader);
-    }
+  if (Symbol.asyncIterator in ecSqlReader) { // using itwin 4.x
+    return ecSqlReader;
+  } else { // using itwin 3.x
+    return new ECSqlReaderAsyncIterableIteratorAdapter(ecSqlReader as ECSqlReader);
+  }
 }

@@ -150,7 +150,7 @@ export interface IModelTransformOptions {
   optimizeGeometry?: OptimizeGeometryOptions;
 
   /** If defined, sets ElementAspect exporting strategy in the [[IModelExporter]].
-   * 
+   *
    * @default ElementAspectExportStrategy.WithElement
    * @beta
    */

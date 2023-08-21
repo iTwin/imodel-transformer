@@ -48,5 +48,5 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
     }
   }
 
-  public exportAllElementAspects(): Promise<void> { return Promise.resolve(); }
+  public async exportAllElementAspects(): Promise<void> { return Promise.resolve(); }
 }
