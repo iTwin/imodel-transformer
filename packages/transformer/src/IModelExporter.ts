@@ -698,7 +698,7 @@ export class IModelExporter {
       await this.handler.preExportElement(element);
       this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
-      await this._exportElementAspectsStrategy.exportElementAspects(elementId);
+      await this._exportElementAspectsStrategy.exportElementAspectsForElement(elementId);
       return this.exportChildElements(elementId);
     } else {
       this.handler.onSkipElement(element.id);

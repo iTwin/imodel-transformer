@@ -30,6 +30,7 @@ export class ECSqlReaderAsyncIterableIteratorAdapter implements AsyncIterableIte
 /**
  * Wraps ECSqlReader with ECSqlReaderAsyncIterableIteratorAdapter if it's needed.
  * @param ecSqlReader ECSqlReader isntance from itwin 3.x or 4.x version
+ * @internal
  */
 export function ensureECSqlReaderIsAsyncIterableIterator(ecSqlReader: ECSqlReader & AsyncIterableIterator<QueryRowProxy> | Omit<ECSqlReader, keyof AsyncIterableIterator<QueryRowProxy>>): AsyncIterableIterator<QueryRowProxy> {
   if (Symbol.asyncIterator in ecSqlReader) { // using itwin 4.x

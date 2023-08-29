@@ -19,7 +19,6 @@ import {
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { BigMap } from "./BigMap";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 

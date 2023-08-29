@@ -23,7 +23,7 @@ export interface ElementAspectsWithElementsHandler extends ElementAspectsHandler
  * @internal
  */
 export class ExportElementAspectsWithElementsStrategy extends ExportElementAspectsStrategy<ElementAspectsWithElementsHandler> {
-  public async exportElementAspects(elementId: Id64String): Promise<void> {
+  public override async exportElementAspectsForElement(elementId: Id64String): Promise<void> {
     const _uniqueAspects = await Promise.all(this.sourceDb.elements
       ._queryAspects(elementId, ElementUniqueAspect.classFullName, this._excludedElementAspectClassFullNames)
       .filter((a) => this.shouldExportElementAspect(a))
@@ -47,6 +47,4 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
       return this.handler.trackProgress();
     }
   }
-
-  public async exportAllElementAspects(): Promise<void> { return Promise.resolve(); }
 }

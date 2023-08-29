@@ -40,8 +40,8 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
     this.handler = handler;
   }
 
-  public abstract exportElementAspectsForElement(elementId: Id64String): Promise<void>;
-  public abstract exportAllElementAspects(): Promise<void>;
+  public async exportElementAspectsForElement(_elementId: Id64String): Promise<void> { }
+  public async exportAllElementAspects(): Promise<void> { }
 
   protected shouldExportElementAspect(aspect: ElementAspect): boolean {
     for (const excludedElementAspectClass of this._excludedElementAspectClasses) {

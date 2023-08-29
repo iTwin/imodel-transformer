@@ -74,7 +74,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
   private async *queryAspects<T extends ElementAspect>(baseElementAspectClassFullName: string) {
     const aspectClassNameIdMap = new Map<string, Id64String>();
 
-    const getAspectClassesSql = `SELECT DISTINCT ECClassId as classId, (ec_classname(ECClassId)) as className FROM ${baseElementAspectClassFullName}`;
+    const getAspectClassesSql = `SELECT DISTINCT ECClassId as classId, (ec_classname(ECClassId, 's.c')) as className FROM ${baseElementAspectClassFullName}`;
     const aspectClassesQueryReader = this.sourceDb.createQueryReader(getAspectClassesSql);
     const aspectClassesAsyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(aspectClassesQueryReader);
     for await (const rowProxy of aspectClassesAsyncQueryReader) {
@@ -96,13 +96,11 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
         if (!firstDone) {
           firstDone = true;
         }
-        (aspectProps as any).className = undefined; // clear property from SELECT * that we don't want in the final instance
+        delete (aspectProps as any).className; // clear property from SELECT * that we don't want in the final instance
         const aspectEntity = this.sourceDb.constructEntity<T>(aspectProps);
 
         yield aspectEntity;
       }
     }
   }
-
-  public async exportElementAspects(_elementId: Id64String): Promise<void> { return Promise.resolve(); }
 }
