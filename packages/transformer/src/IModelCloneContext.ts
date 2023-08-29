@@ -29,7 +29,7 @@ const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 export class IModelCloneContext extends IModelElementCloneContext {
 
   private _refTypesCache = new ECReferenceTypesCache();
-  private _aspectRemapTable = new BigMap<Id64String>();
+  private _aspectRemapTable = new Map<Id64String, Id64String>();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
