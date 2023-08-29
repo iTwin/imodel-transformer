@@ -21,7 +21,7 @@ export interface DetachedElementAspectsHandler extends ElementAspectsHandler {
 
 /**
  * Detached ElementAspect export strategy for [[IModelExporter]].
- * This strategy exports all ElementAspects separately from the Elements that thei are connected with.
+ * This strategy exports all ElementAspects separately from the Elements that own them.
  * @internal
  */
 export class DetachedExportElementAspectsStrategy extends ExportElementAspectsStrategy<DetachedElementAspectsHandler> {
