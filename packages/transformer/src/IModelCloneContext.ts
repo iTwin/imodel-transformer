@@ -56,9 +56,9 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Returns `true` if this context is for transforming between 2 iModels and `false` if it for transforming within the same iModel. */
   public get targetIsSource(): boolean { return this.sourceDb === this.targetDb; }
 
-  private _aspectRemapTable = new Map<Id64String, Id64String>();
-  private _elementRemapTable = new Map<Id64String, Promise<Id64String>>([["0x1", Promise.resolve("0x1")]]);
-  private _codeSpecRemapTable = new Map<Id64String, Promise<Id64String>>();
+  private _aspectRemapTable = new Map<Id64String, Id64String>([[Id64.invalid, Id64.invalid]]);
+  private _elementRemapTable = new Map<Id64String, Id64String>([[Id64.invalid, Id64.invalid], ["0x1", "0x1"]]);
+  private _codeSpecRemapTable = new Map<Id64String, Id64String>([[Id64.invalid, Id64.invalid]]);
 
   private _elementClassRemapTable = new Map<typeof Entity, typeof Entity>();
 
@@ -70,7 +70,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   public remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void {
     const sourceCodeSpec = this.sourceDb.codeSpecs.getByName(sourceCodeSpecName);
     const targetCodeSpec = this.targetDb.codeSpecs.getByName(targetCodeSpecName);
-    this._codeSpecRemapTable.set(sourceCodeSpec.id, Promise.resolve(targetCodeSpec.id));
+    this._codeSpecRemapTable.set(sourceCodeSpec.id, targetCodeSpec.id);
   }
 
   /** Add a rule that remaps the specified source class to the specified target class. */
@@ -82,8 +82,8 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   }
 
   /** Add a rule that remaps the specified source Element to the specified target Element. */
-  public remapElement(sourceId: Id64String, targetId: Id64String | Promise<Id64String>): void {
-    this._elementRemapTable.set(sourceId, Promise.resolve(targetId));
+  public remapElement(sourceId: Id64String, targetId: Id64String): void {
+    this._elementRemapTable.set(sourceId, targetId);
   }
 
   /** Remove a rule that remaps the specified source Element. */
@@ -94,21 +94,15 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Look up a target CodeSpecId from the source CodeSpecId.
    * @returns the target CodeSpecId or [Id64.invalid]($bentley) if a mapping not found.
    */
-  public async findTargetCodeSpecId(sourceId: Id64String): Promise<Id64String> {
-    if (Id64.invalid === sourceId) {
-      return Promise.resolve(Id64.invalid);
-    }
-    return this._codeSpecRemapTable.get(sourceId) ?? Promise.resolve(Id64.invalid);
+  public findTargetCodeSpecId(sourceId: Id64String): Id64String {
+    return this._codeSpecRemapTable.get(sourceId) ?? Id64.invalid;
   }
 
   /** Look up a target ElementId from the source ElementId.
    * @returns the target ElementId or [Id64.invalid]($bentley) if a mapping not found.
    */
-  public findTargetElementId(sourceElementId: Id64String): Promise<Id64String> {
-    if (Id64.invalid === sourceElementId) {
-      return Promise.resolve(Id64.invalid);
-    }
-    return this._elementRemapTable.get(sourceElementId) ?? Promise.resolve(Id64.invalid);
+  public findTargetElementId(sourceElementId: Id64String): Id64String {
+    return this._elementRemapTable.get(sourceElementId) ?? Id64.invalid;
   }
 
   /** Add a rule that remaps the specified source ElementAspect to the specified target ElementAspect. */
@@ -131,12 +125,12 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Look up a target [[EntityReference]] from a source [[EntityReference]]
    * @returns the target CodeSpecId or a [EntityReference]($bentley) containing [Id64.invalid]($bentley) if a mapping is not found.
    */
-  public async findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference> {
+  public findTargetEntityId(sourceEntityId: EntityReference): EntityReference {
     const [type, rawId] = EntityReferences.split(sourceEntityId);
     if (Id64.isValid(rawId)) {
       switch (type) {
         case ConcreteEntityTypes.Model: {
-          const targetId = `m${await this.findTargetElementId(rawId)}` as const;
+          const targetId = `m${this.findTargetElementId(rawId)}` as const;
           return targetId;
           // Check if the model exists, `findTargetElementId` may have worked because the element exists when the model doesn't.
           // That can occur in the transformer since a submodeled element is imported before its submodel.
@@ -147,7 +141,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           */
         }
         case ConcreteEntityTypes.Element:
-          return `e${await this.findTargetElementId(rawId)}`;
+          return `e${this.findTargetElementId(rawId)}`;
         case ConcreteEntityTypes.ElementAspect:
           return `a${this.findTargetAspectId(rawId)}`;
         case ConcreteEntityTypes.Relationship: {
@@ -199,10 +193,10 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           // just in case prevent recursion
           if (relInSource.sourceId === sourceEntityId || relInSource.targetId === sourceEntityId)
             throw Error("link table relationship end was resolved to itself. This should be impossible");
-          const relInTarget = await Promise.all([
-            this.findTargetEntityId(relInSource.sourceId),
-            this.findTargetEntityId(relInSource.targetId),
-          ]).then(([sourceId, targetId]) => ({ sourceId, targetId }));
+          const relInTarget = {
+            sourceId: this.findTargetEntityId(relInSource.sourceId),
+            targetId: this.findTargetEntityId(relInSource.targetId),
+          };
           // return a null
           if (Id64.isInvalid(relInTarget.sourceId) || Id64.isInvalid(relInTarget.targetId))
             break;
@@ -225,7 +219,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           return `r${relInTargetId}`;
         }
         case ConcreteEntityTypes.CodeSpec: {
-          return `c${await this.findTargetCodeSpecId(rawId)}`;
+          return `c${this.findTargetCodeSpecId(rawId)}`;
         }
       }
     }
@@ -235,11 +229,11 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public cloneElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps> {
-    return this._cloneEntity(sourceElementAspect) as Promise<ElementAspectProps>;
+  public cloneElementAspect(sourceElementAspect: ElementAspect): ElementAspectProps {
+    return this._cloneEntity(sourceElementAspect);
   }
 
-  private async _cloneEntity<
+  private _cloneEntity<
     EntitySubType extends Entity = Entity,
     EntityPropsSubType extends EntityProps = EntityProps,
   >(
@@ -255,7 +249,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
       getSource(source: EntitySubType): EntityReference,
       setTarget(target: EntityPropsSubType, e: EntityReference): void
     }> = {},
-  ): Promise<EntityPropsSubType> {
+  ): EntityPropsSubType {
     const targetEntityProps = sourceEntity.toJSON() as EntityPropsSubType;
 
     if (this.targetIsSource)
@@ -265,11 +259,11 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
     // TODO: it's possible since we do this so much that it will be faster to use `new Function` to inline the remappin
     // code for each element class (profile first to see how long this takes)
-    sourceEntity.forEachProperty((propertyName, propertyMetaData) => propProcessingPromises.push((async () => {
+    sourceEntity.forEachProperty((propertyName, propertyMetaData) => {
       if (propertyName in customNavPropHandlers) {
         const { getSource, setTarget } = customNavPropHandlers[propertyName as keyof typeof customNavPropHandlers];
         // we know for know specialHandledProps are only on elements, that may change
-        setTarget(targetEntityProps, await this.findTargetEntityId(getSource(sourceEntity)));
+        setTarget(targetEntityProps, this.findTargetEntityId(getSource(sourceEntity)));
       } else if (propertyMetaData.isNavigation) {
         const sourceNavProp: RelatedElementProps | undefined = (sourceEntity as any)[propertyName];
         const sourceNavId = typeof sourceNavProp === "string" ? sourceNavProp : sourceNavProp?.id;
@@ -280,17 +274,15 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
             propertyName
           );
           assert(navPropRefType !== undefined, `nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`);
-          const targetEntityReference = await this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavId, navPropRefType));
+          const targetEntityReference = this.findTargetEntityId(EntityReferences.fromEntityType(sourceNavId, navPropRefType));
           const targetEntityId = EntityReferences.toId64(targetEntityReference);
           // spread the property in case toJSON did not deep-clone
           (targetEntityProps as any)[propertyName] = typeof sourceNavProp === "string" ? targetEntityId : { ...(targetEntityProps as any)[propertyName], id: targetEntityId };
         }
       } else if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
-        (targetEntityProps as any)[propertyName] = await this.findTargetElementId((sourceEntity as any)[propertyName]);
+        (targetEntityProps as any)[propertyName] = this.findTargetElementId((sourceEntity as any)[propertyName]);
       }
-    })()));
-
-    await Promise.all(propProcessingPromises);
+    });
 
     return targetEntityProps;
   }
@@ -298,7 +290,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public async cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): Promise<ElementProps> {
+  public cloneElement(sourceElement: Element, cloneOptions?: IModelJsNative.CloneElementOptions): ElementProps {
     const specialHandledProps = {
       codeSpec: {
         getSource: (source: Element): EntityReference => `c${source.code.spec}`,
@@ -328,7 +320,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     };
 
     // Clone
-    const targetElemProps = await this._cloneEntity<Element, ElementProps>(sourceElement, specialHandledProps);
+    const targetElemProps = this._cloneEntity<Element, ElementProps>(sourceElement, specialHandledProps);
 
     targetElemProps.code = { ...targetElemProps.code, value: targetElemProps.code.value };
     delete (targetElemProps.code as any)._value;
@@ -414,7 +406,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
       // FIXME: awaiting because we know this is replaced with a promise return value when using a MultiProcess importer
       : this.targetDb.codeSpecs.insert(CodeSpec.create(undefined as any, sourceCodeSpec.name, sourceCodeSpec.scopeType, sourceCodeSpec.scopeReq));
 
-    this._codeSpecRemapTable.set(sourceCodeSpecId, Promise.resolve(targetId));
+    this._codeSpecRemapTable.set(sourceCodeSpecId, targetId);
   }
 
 

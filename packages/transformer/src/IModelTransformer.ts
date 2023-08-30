@@ -17,15 +17,16 @@ import { Point3d, Transform } from "@itwin/core-geometry";
 import {
   ChangeSummaryManager,
   ChannelRootAspect, ConcreteEntity, DefinitionElement, DefinitionModel, DefinitionPartition, ECSchemaXmlContext, ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementOwnsExternalSourceAspects,
-  ElementRefersToElements, ElementUniqueAspect, Entity, EntityReferences, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
+  ElementRefersToElements, ElementUniqueAspect, Entity, ExternalSource, ExternalSourceAspect, ExternalSourceAttachment,
   FolderLink, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, InformationPartitionElement, KnownLocations, Model,
   RecipeDefinitionElement, Relationship, RelationshipProps, Schema, SQLiteDb, Subject, SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
-  ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
+  ChangeOpCode, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps,
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
+import { EntityReference, EntityReferences, EntityReferenceSet } from "./EntityReference";
 import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";

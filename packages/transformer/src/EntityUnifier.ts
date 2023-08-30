@@ -8,8 +8,9 @@
  * for entity-generic operations in the transformer
  */
 import * as assert from "assert";
-import { ConcreteEntityTypes, DbResult,  EntityReference, IModelError } from "@itwin/core-common";
-import { ConcreteEntity, ConcreteEntityProps, Element, ElementAspect, EntityReferences, IModelDb, Relationship } from "@itwin/core-backend";
+import { DbResult,  IModelError } from "@itwin/core-common";
+import { ConcreteEntity, ConcreteEntityProps, ConcreteEntityTypes, EntityReference, EntityReferences } from "./EntityReference";
+import { Element, ElementAspect, IModelDb, Relationship } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
 
 /** @internal */

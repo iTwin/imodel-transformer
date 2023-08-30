@@ -6,7 +6,6 @@
 import {
   ECSqlStatement,
   ElementRefersToElements,
-  EntityReferences,
   GraphicalElement3dRepresentsElement,
   IModelJsFs,
   PhysicalModel,
@@ -17,12 +16,12 @@ import {
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
-  ConcreteEntityTypes,
   IModel,
   PhysicalElementProps,
   RelationshipProps,
   SubCategoryAppearance,
 } from "@itwin/core-common";
+import { ConcreteEntityTypes, EntityReferences } from "../../EntityReference";
 import { expect } from "chai";
 import * as path from "path";
 import {

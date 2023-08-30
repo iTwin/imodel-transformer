@@ -7,8 +7,9 @@
  */
 
 import { DbResult, TupleKeyedMap } from "@itwin/core-bentley";
-import { ConcreteEntityTypes, IModelError, RelTypeInfo } from "@itwin/core-common";
+import { IModelError } from "@itwin/core-common";
 import { ECClass, Mixin, RelationshipClass, RelationshipConstraint, Schema, SchemaKey, SchemaLoader, StrengthDirection } from "@itwin/ecschema-metadata";
+import { ConcreteEntityTypes, RelTypeInfo } from "./EntityReference";
 import * as assert from "assert";
 import { IModelDb } from "@itwin/core-backend";
 
