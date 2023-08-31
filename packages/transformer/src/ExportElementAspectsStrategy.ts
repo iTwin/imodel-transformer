@@ -71,10 +71,6 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
     this.aspectChanges = aspectChanges;
   }
 
-  // public getExcludedElementAspectClasses(): Set<string> {
-  //   return this._excludedElementAspectClassFullNames;
-  // }
-
   public loadExcludedElementAspectClasses(excludedElementAspectClassFullNames: string[]): void {
     (this.excludedElementAspectClassFullNames as any) = new Set(excludedElementAspectClassFullNames);
     this._excludedElementAspectClasses = new Set(excludedElementAspectClassFullNames.map((c) => this.sourceDb.getJsClass(c)));
