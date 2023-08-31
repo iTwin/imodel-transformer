@@ -18,25 +18,8 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type { InitFromExternalSourceAspectsArgs } from "./IModelTransformer";
 import { ElementAspectsHandler, ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
 import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
-import { DetachedExportElementAspectsStrategy } from "./DetachedExportElementAspectsStrategy";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
-
-/**
- * ElementAspect export strategies supported by [[IModelExporter]]
- * @beta
- */
-export enum ElementAspectExportStrategy {
-  /**
-   * ElementAspect export strategy where aspects are exported with their elements.
-   */
-  WithElement = "withElement",
-  /**
-   * ElementAspect export strategy where aspects are exported separately from their elements.
-   * @beta
-   */
-  Detached = "detached"
-}
 
 /**
  * @beta
@@ -249,42 +232,15 @@ export class IModelExporter {
    * @param sourceDb The source IModelDb
    * @see registerHandler
    */
-  public constructor(sourceDb: IModelDb, elementAspectsStrategy: ElementAspectExportStrategy = ElementAspectExportStrategy.WithElement) {
+  public constructor(sourceDb: IModelDb, elementAspectsStrategy: ExportElementAspectsStrategy<ElementAspectsHandler> = new ExportElementAspectsWithElementsStrategy(sourceDb)) {
     this.sourceDb = sourceDb;
-    this._exportElementAspectsStrategy = this.createExportElementAspectsStrategy(sourceDb, elementAspectsStrategy);
-  }
-
-  private createExportElementAspectsStrategy(sourceDb: IModelDb, elementAspectsStrategy: ElementAspectExportStrategy): ExportElementAspectsStrategy<ElementAspectsHandler> {
-    switch(elementAspectsStrategy) {
-      case ElementAspectExportStrategy.WithElement:
-        return new ExportElementAspectsWithElementsStrategy(sourceDb, {
-          trackProgress: async () => this.trackProgress(),
-          onExportElementMultiAspects: (multiAspects) => this.handler.onExportElementMultiAspects(multiAspects),
-          onExportElementUniqueAspect: (uniqueAspect, isUpdate) => this.handler.onExportElementUniqueAspect(uniqueAspect, isUpdate),
-          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect),
-        });
-      case ElementAspectExportStrategy.Detached:
-        return new DetachedExportElementAspectsStrategy(sourceDb, {
-          trackProgress: async () => this.trackProgress(),
-          onExportElementMultiAspects: (multiAspects) => this.handler.onExportElementMultiAspects(multiAspects),
-          onExportElementUniqueAspect: (uniqueAspect, isUpdate) => this.handler.onExportElementUniqueAspect(uniqueAspect, isUpdate),
-          shouldExportElementAspect: (aspect: ElementAspect) => this.handler.shouldExportElementAspect(aspect),
-        });
-      default:
-        throw new Error("Unknown ElementAspect exporting strategy");
-    }
+    this._exportElementAspectsStrategy = elementAspectsStrategy;
+    this._exportElementAspectsStrategy.registerHandler(() => this.handler, async () => this.trackProgress());
   }
 
   /** Register the handler that will be called by IModelExporter. */
   public registerHandler(handler: IModelExportHandler): void {
     this._handler = handler;
-  }
-
-  /** Sets ExportElementAspectsStrategy that will be used when exporting ElementAspects.
-   * This method allows to change strategy after IModelExporter was already created.
-   */
-  public setExportElementAspectsStrategy(elementAspectsStrategy: ElementAspectExportStrategy): void {
-    this._exportElementAspectsStrategy = this.createExportElementAspectsStrategy(this.sourceDb, elementAspectsStrategy);
   }
 
   /** Add a rule to exclude a CodeSpec */

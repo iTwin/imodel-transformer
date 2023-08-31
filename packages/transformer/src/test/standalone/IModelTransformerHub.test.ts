@@ -16,7 +16,7 @@ import * as TestUtils from "../TestUtils";
 import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, ColorDef, DefinitionElementProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { ElementAspectExportStrategy, IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
+import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
   CountingIModelImporter, HubWrappers, IModelToTextFileExporter, IModelTransformerTestUtils, TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
@@ -27,6 +27,7 @@ import { IModelTestUtils } from "../TestUtils";
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
 import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 const { count } = IModelTestUtils;
 
@@ -828,8 +829,8 @@ describe("IModelTransformerHub", () => {
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
       const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
 
-      const transformer = new IModelTransformer(sourceDb, targetDb, {
-        elementAspectExportStrategy: ElementAspectExportStrategy.Detached,
+      const exporter = new IModelExporter(sourceDb, new DetachedExportElementAspectsStrategy(sourceDb));
+      const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
       });
 

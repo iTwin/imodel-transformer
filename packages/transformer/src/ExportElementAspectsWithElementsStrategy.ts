@@ -6,6 +6,7 @@
 import { ElementMultiAspect, ElementUniqueAspect } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
 import { ElementAspectsHandler, ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
+import { IModelExportHandler } from "./IModelExporter";
 
 /**
  * Handler for [[ExportElementAspectsWithElementsStrategy]]
@@ -14,7 +15,6 @@ import { ElementAspectsHandler, ExportElementAspectsStrategy } from "./ExportEle
 export interface ElementAspectsWithElementsHandler extends ElementAspectsHandler {
   onExportElementUniqueAspect(uniqueAspect: ElementUniqueAspect, isUpdate?: boolean | undefined): void;
   onExportElementMultiAspects(multiAspects: ElementMultiAspect[]): void;
-  trackProgress(): Promise<void>;
 }
 
 /**
@@ -23,6 +23,13 @@ export interface ElementAspectsWithElementsHandler extends ElementAspectsHandler
  * @internal
  */
 export class ExportElementAspectsWithElementsStrategy extends ExportElementAspectsStrategy<ElementAspectsWithElementsHandler> {
+  public override registerHandler(handler: () => IModelExportHandler, trackProgress: () => Promise<void>) {
+    super.registerHandler(handler, trackProgress);
+
+    this.handler.onExportElementUniqueAspect = (uniqueAspect, isUpdate) => handler().onExportElementUniqueAspect(uniqueAspect, isUpdate);
+    this.handler.onExportElementMultiAspects = (multiAspects) => handler().onExportElementMultiAspects(multiAspects);
+  }
+
   public override async exportElementAspectsForElement(elementId: Id64String): Promise<void> {
     const _uniqueAspects = await Promise.all(this.sourceDb.elements
       ._queryAspects(elementId, ElementUniqueAspect.classFullName, this._excludedElementAspectClassFullNames)

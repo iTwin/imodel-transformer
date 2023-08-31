@@ -25,7 +25,7 @@ import {
   ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
 } from "@itwin/core-common";
 import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
-import { ElementAspectExportStrategy, IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
+import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -37,6 +37,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
+import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformer");
@@ -2543,8 +2544,8 @@ describe("IModelTransformer", () => {
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessing-Target.bim");
     const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "DetachedAspectProcessing-Target" } });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
-      elementAspectExportStrategy: ElementAspectExportStrategy.Detached,
+    const exporter = new IModelExporter(sourceDb, new DetachedExportElementAspectsStrategy(sourceDb));
+    const transformer = new IModelTransformer(exporter, targetDb, {
       includeSourceProvenance: true,
     });
 

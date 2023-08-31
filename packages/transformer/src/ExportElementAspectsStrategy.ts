@@ -6,7 +6,7 @@
 import { ElementAspect, IModelDb } from "@itwin/core-backend";
 import { Id64String, Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { ChangedInstanceOps } from "./IModelExporter";
+import { ChangedInstanceOps, IModelExportHandler } from "./IModelExporter";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -16,6 +16,7 @@ const loggerCategory = TransformerLoggerCategory.IModelExporter;
  */
 export interface ElementAspectsHandler {
   shouldExportElementAspect(aspect: ElementAspect): boolean;
+  trackProgress: () => Promise<void>;
 }
 
 /**
@@ -33,11 +34,16 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
 
   protected aspectChanges: ChangedInstanceOps | undefined;
 
-  protected handler: T;
+  private _handler: T | undefined = undefined;
+  protected get handler(): T {
+    if (!this._handler) {
+      throw new Error("Registered handler getter didn't return handler");
+    }
+    return this._handler;
+  }
 
-  public constructor(sourceDb: IModelDb, handler: T) {
+  public constructor(sourceDb: IModelDb) {
     this.sourceDb = sourceDb;
-    this.handler = handler;
   }
 
   public async exportElementAspectsForElement(_elementId: Id64String): Promise<void> { }
@@ -52,6 +58,13 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
     }
     // ElementAspect has passed standard exclusion rules, now give handler a chance to accept/reject
     return this.handler.shouldExportElementAspect(aspect);
+  }
+
+  public registerHandler(handler: () => IModelExportHandler, trackProgress: () => Promise<void>) {
+    this._handler = {
+      shouldExportElementAspect: (aspect: ElementAspect) => handler().shouldExportElementAspect(aspect),
+      trackProgress,
+    } as T; // casting here since we only assign partial T here and subclasses will have to assign the rest of properties
   }
 
   public setAspectChanges(aspectChanges?: ChangedInstanceOps) {

@@ -8,6 +8,7 @@ import { Id64String } from "@itwin/core-bentley";
 import { ElementAspectsHandler, ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
 import { ElementAspectProps, QueryBinder, QueryRowFormat } from "@itwin/core-common";
+import { IModelExportHandler } from "./IModelExporter";
 
 /**
  * Handler for [[DetachedExportElementAspectsStrategy]]
@@ -16,7 +17,6 @@ import { ElementAspectProps, QueryBinder, QueryRowFormat } from "@itwin/core-com
 export interface DetachedElementAspectsHandler extends ElementAspectsHandler {
   onExportElementUniqueAspect(uniqueAspect: ElementUniqueAspect, isUpdate?: boolean | undefined): void;
   onExportElementMultiAspects(multiAspects: ElementMultiAspect[]): void;
-  trackProgress(): Promise<void>;
 }
 
 /**
@@ -25,7 +25,14 @@ export interface DetachedElementAspectsHandler extends ElementAspectsHandler {
  * @internal
  */
 export class DetachedExportElementAspectsStrategy extends ExportElementAspectsStrategy<DetachedElementAspectsHandler> {
-  public async exportAllElementAspects(): Promise<void> {
+  public override registerHandler(handler: () => IModelExportHandler, trackProgress: () => Promise<void>) {
+    super.registerHandler(handler, trackProgress);
+
+    this.handler.onExportElementUniqueAspect = (uniqueAspect, isUpdate) => handler().onExportElementUniqueAspect(uniqueAspect, isUpdate);
+    this.handler.onExportElementMultiAspects = (multiAspects) => handler().onExportElementMultiAspects(multiAspects);
+  }
+
+  public override async exportAllElementAspects(): Promise<void> {
     await this.exportAspectsLoop<ElementUniqueAspect>(ElementUniqueAspect.classFullName, async (uniqueAspect) => {
       const isInsertChange = this.aspectChanges?.insertIds.has(uniqueAspect.id) ?? false;
       const isUpdateChange = this.aspectChanges?.updateIds.has(uniqueAspect.id) ?? false;

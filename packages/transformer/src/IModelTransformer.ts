@@ -26,7 +26,7 @@ import {
   ExternalSourceAspectProps, FontProps, GeometricElement2dProps, GeometricElement3dProps, IModel, IModelError, ModelProps,
   Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement,
 } from "@itwin/core-common";
-import { ElementAspectExportStrategy, ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
+import { ExportChangesOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
@@ -148,13 +148,6 @@ export interface IModelTransformOptions {
    * @beta
    */
   optimizeGeometry?: OptimizeGeometryOptions;
-
-  /** If defined, sets ElementAspect exporting strategy in the [[IModelExporter]].
-   *
-   * @default ElementAspectExportStrategy.WithElement
-   * @beta
-   */
-  elementAspectExportStrategy?: ElementAspectExportStrategy;
 }
 
 /**
@@ -316,7 +309,6 @@ export class IModelTransformer extends IModelExportHandler {
     }
     this.sourceDb = this.exporter.sourceDb;
     this.exporter.registerHandler(this);
-    this.exporter.setExportElementAspectsStrategy(this._options.elementAspectExportStrategy ?? ElementAspectExportStrategy.WithElement);
     this.exporter.wantGeometry = options?.loadSourceGeometry ?? false; // optimization to not load source GeometryStreams by default
     if (!this._options.includeSourceProvenance) { // clone provenance from the source iModel into the target iModel?
       IModelTransformer.provenanceElementClasses.forEach((cls) => this.exporter.excludeElementClass(cls.classFullName));
