@@ -81,8 +81,9 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
   private async *queryAspects<T extends ElementAspect>(baseElementAspectClassFullName: string) {
     const aspectClassNameIdMap = new Map<string, Id64String>();
 
-    const getAspectClassesSql = `SELECT DISTINCT ECClassId as classId, (ec_classname(ECClassId, 's.c')) as className FROM ${baseElementAspectClassFullName}`;
-    const aspectClassesQueryReader = this.sourceDb.createQueryReader(getAspectClassesSql);
+    const optimizesAspectClassesSql = "SELECT c.ECInstanceId as classId, (ec_className(c.ECInstanceId, 's.c')) as className FROM ECDbMeta.ClassHasAllBaseClasses r JOIN ECDbMeta.ECClassDef c ON c.ECInstanceId = r.SourceECInstanceId WHERE r.TargetECInstanceId = ec_classId(:baseClassName)";
+    // const getAspectClassesSql = `SELECT DISTINCT ECClassId as classId, (ec_classname(ECClassId, 's.c')) as className FROM ${baseElementAspectClassFullName}`;
+    const aspectClassesQueryReader = this.sourceDb.createQueryReader(optimizesAspectClassesSql, new QueryBinder().bindString("baseClassName", baseElementAspectClassFullName));
     const aspectClassesAsyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(aspectClassesQueryReader);
     for await (const rowProxy of aspectClassesAsyncQueryReader) {
       const row = rowProxy.toRow();
@@ -90,7 +91,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
     }
 
     for (const [className, classId] of aspectClassNameIdMap) {
-      if(this._excludedElementAspectClassFullNames.has(className))
+      if(this.excludedElementAspectClassFullNames.has(className))
         continue;
 
       const getAspectPropsSql = `SELECT * FROM ${className} WHERE ECClassId = :classId ORDER BY Element.Id`;

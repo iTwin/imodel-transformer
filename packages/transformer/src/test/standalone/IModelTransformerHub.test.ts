@@ -838,20 +838,26 @@ describe("IModelTransformerHub", () => {
       await transformer.processChanges({ accessToken });
       await saveAndPushChanges(targetDb, "First transformation");
 
-      aspectIds.forEach((aspectId) => {
-        sourceDb.elements.deleteAspect(aspectId);
-      });
+      const addedAspectProps: ExternalSourceAspectProps = {
+        classFullName: ExternalSourceAspect.classFullName,
+        element: new ElementOwnsExternalSourceAspects(elementIds[0]),
+        identifier: `aspectAddedAfterFirstTransformation`,
+        kind: "Document",
+        scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" },
+      };
+      sourceDb.elements.insertAspect(addedAspectProps);
 
       await saveAndPushChanges(sourceDb, "Update source");
 
       await transformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
       await saveAndPushChanges(targetDb, "Second transformation");
 
-      const targetElementIds = targetDb.queryEntityIds({ from: Subject.classFullName, where: "EcInstanceId != ?", bindings: [IModel.rootSubjectId] });
+      const targetElementIds = targetDb.queryEntityIds({ from: Subject.classFullName, where: "Parent.Id != ?", bindings: [IModel.rootSubjectId] });
       targetElementIds.forEach((elementId) => {
-        const aspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
-        expect(aspects.length).to.be.equal(1); // +1 because provenance aspect was added
-        const aspectAddedAfterFirstTransformation = aspects.find((aspect) => aspect.identifier === "aspectAddedAfterFirstTransformation");
+        const targetAspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+        const sourceAspects = sourceDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+        expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
+        const aspectAddedAfterFirstTransformation = targetAspects.find((aspect) => aspect.identifier === "aspectAddedAfterFirstTransformation");
         expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
       });
     } finally {

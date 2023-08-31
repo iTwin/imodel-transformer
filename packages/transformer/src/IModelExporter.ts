@@ -802,7 +802,7 @@ export class IModelExporter {
       excludedElementIds: CompressedId64Set.compressSet(this._excludedElementIds),
       excludedElementCategoryIds: CompressedId64Set.compressSet(this._excludedElementCategoryIds),
       excludedElementClassNames: Array.from(this._excludedElementClasses, (cls) => cls.classFullName),
-      excludedElementAspectClassFullNames: [...this._exportElementAspectsStrategy.getExcludedElementAspectClasses()],
+      excludedElementAspectClassFullNames: [...this._exportElementAspectsStrategy.excludedElementAspectClassFullNames],
       excludedRelationshipClassNames: Array.from(this._excludedRelationshipClasses, (cls) => cls.classFullName),
       additionalState: this.getAdditionalStateJson(),
     };

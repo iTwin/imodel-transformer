@@ -32,7 +32,7 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
 
   public override async exportElementAspectsForElement(elementId: Id64String): Promise<void> {
     const _uniqueAspects = await Promise.all(this.sourceDb.elements
-      ._queryAspects(elementId, ElementUniqueAspect.classFullName, this._excludedElementAspectClassFullNames)
+      ._queryAspects(elementId, ElementUniqueAspect.classFullName, this.excludedElementAspectClassFullNames)
       .filter((a) => this.shouldExportElementAspect(a))
       .map(async (uniqueAspect: ElementUniqueAspect) => {
         const isInsertChange = this.aspectChanges?.insertIds.has(uniqueAspect.id) ?? false;
@@ -46,7 +46,7 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
       }));
 
     const multiAspects = this.sourceDb.elements
-      ._queryAspects(elementId, ElementMultiAspect.classFullName, this._excludedElementAspectClassFullNames)
+      ._queryAspects(elementId, ElementMultiAspect.classFullName, this.excludedElementAspectClassFullNames)
       .filter((a) => this.shouldExportElementAspect(a));
 
     if (multiAspects.length > 0) {

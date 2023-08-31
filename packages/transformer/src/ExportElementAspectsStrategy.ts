@@ -28,7 +28,7 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
   /** The set of classes of ElementAspects that will be excluded (polymorphically) from transformation to the target iModel. */
   protected _excludedElementAspectClasses = new Set<typeof ElementAspect>();
   /** The set of classFullNames for ElementAspects that will be excluded from transformation to the target iModel. */
-  protected _excludedElementAspectClassFullNames = new Set<string>();
+  public readonly excludedElementAspectClassFullNames = new Set<string>();
 
   protected sourceDb: IModelDb;
 
@@ -71,17 +71,17 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
     this.aspectChanges = aspectChanges;
   }
 
-  public getExcludedElementAspectClasses(): Set<string> {
-    return this._excludedElementAspectClassFullNames;
-  }
+  // public getExcludedElementAspectClasses(): Set<string> {
+  //   return this._excludedElementAspectClassFullNames;
+  // }
 
   public loadExcludedElementAspectClasses(excludedElementAspectClassFullNames: string[]): void {
-    this._excludedElementAspectClassFullNames = new Set(excludedElementAspectClassFullNames);
+    (this.excludedElementAspectClassFullNames as any) = new Set(excludedElementAspectClassFullNames);
     this._excludedElementAspectClasses = new Set(excludedElementAspectClassFullNames.map((c) => this.sourceDb.getJsClass(c)));
   }
 
   public excludeElementAspectClass(classFullName: string): void {
-    this._excludedElementAspectClassFullNames.add(classFullName); // allows non-polymorphic exclusion before query
+    this.excludedElementAspectClassFullNames.add(classFullName); // allows non-polymorphic exclusion before query
     this._excludedElementAspectClasses.add(this.sourceDb.getJsClass<typeof ElementAspect>(classFullName)); // allows polymorphic exclusion after query/load
   }
 }

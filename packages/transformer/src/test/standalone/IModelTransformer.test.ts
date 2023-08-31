@@ -2559,8 +2559,9 @@ describe("IModelTransformer", () => {
       if (elementId === IModel.rootSubjectId) {
         return;
       }
-      const aspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
-      expect(aspects.length).to.be.equal(6); // +1 because provenance aspect was added
+      const targetAspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
+      const sourceAspects = sourceDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
+      expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
     });
   });
 
