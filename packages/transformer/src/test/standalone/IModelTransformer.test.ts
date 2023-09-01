@@ -5,6 +5,7 @@
 
 import { assert, expect } from "chai";
 import * as fs from "fs";
+import * as child_process from "child_process";
 import * as path from "path";
 import * as Semver from "semver";
 import * as sinon from "sinon";
@@ -2628,6 +2629,41 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
 
     expect(targetDb.querySchemaVersion("Dynamic")).to.equal("1.7.0");
+
+    // clean up
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it.only("prunes unnecessary geometry parts", async function () {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts.bim");
+    const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts-Target.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "PruneGeomParts" } });
+    targetDb.saveChanges();
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    // expect this to not reject, adding chai as promised makes the error less readable
+    await transformer.processSchemas();
+    const targetModelId = PhysicalModel.insert(targetDb, IModel.rootSubjectId, "Physical");
+
+    const sourceElemId = sourceDb.queryEntityIds({from: "bis.PhysicalElement", limit: 1})[Symbol.iterator]().next().value;
+    expect(sourceElemId).not.to.be.undefined;
+    expect(sourceElemId).not.to.equal(Id64.invalid);
+    const sourceElem = sourceDb.elements.getElement(sourceElemId);
+
+    transformer.context.remapElement(sourceElem.model, targetModelId);
+    await transformer.processElement(sourceElemId);
+
+    function printSize(p: string) {
+      // eslint-disable-next-line
+      console.log(`Size of ${p}\n`, child_process.execSync(`du -h ${p}`, {encoding: "utf-8"}));
+    }
+
+    printSize(sourceDbFile);
+    printSize(targetDbFile);
 
     // clean up
     transformer.dispose();
