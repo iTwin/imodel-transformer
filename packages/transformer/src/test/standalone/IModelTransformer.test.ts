@@ -2658,35 +2658,40 @@ describe("IModelTransformer", () => {
     return geometryStreamBuilder.geometryStream;
   }
 
-  it.only("prunes unnecessary geometry parts", async function () {
+  it.only("processAll prunes unnecessary geometry parts", async function () {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts.bim");
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "PruneGeomPartsSrc" } });
 
     const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "Physical");
     const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.green.toJSON() });
-    const [geometryPart1Id, geometryPart2Id] = [1, 2].map((i) => {
+
+    const [physObj1, physObj2] = [1, 2].map((i) => {
       const geometryPartProps: GeometryPartProps = {
         classFullName: GeometryPart.classFullName,
         model: IModelDb.dictionaryId,
         code: GeometryPart.createCode(sourceDb, IModelDb.dictionaryId, `GeometryPart${i}`),
         geom: createBigGeomPart(),
       };
-      return sourceDb.elements.insertElement(geometryPartProps);
-    });
 
-    const physicalObject1Props: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: sourceModelId,
-      category: categoryId,
-      code: Code.createEmpty(),
-      userLabel: "PhysicalObject1",
-      geom: createBoxWithGeomParts(geometryPart1Id),
-      placement: {
-        origin: Point3d.create(1, 1, 1),
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    const physicalObject1Id = sourceDb.elements.insertElement(physicalObject1Props);
+      const geomPartId = sourceDb.elements.insertElement(geometryPartProps);
+
+      const physObjProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: sourceModelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        userLabel: "PhysicalObject1",
+        geom: createBoxWithGeomParts(geomPartId),
+        placement: {
+          origin: Point3d.create(1, 1, 1),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+
+      const physObjId = sourceDb.elements.insertElement(physObjProps);
+
+      return { geomPartId, id: physObjId };
+    });
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts-Target.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "PruneGeomParts" } });
@@ -2697,10 +2702,11 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     const targetModelId = PhysicalModel.insert(targetDb, IModel.rootSubjectId, "Physical");
 
-    const physicalObject1 = sourceDb.elements.getElement(physicalObject1Id);
+    const physObj1Elem = sourceDb.elements.getElement(physObj1.id);
 
-    transformer.context.remapElement(physicalObject1.model, targetModelId);
-    await transformer.processElement(physicalObject1Id);
+    transformer.context.remapElement(physObj1Elem.model, targetModelId);
+    transformer.shouldExportElement = (elem) => elem.id !== physObj2.id;
+    await transformer.processAll();
 
     function printSize(p: string) {
       // eslint-disable-next-line
@@ -2710,6 +2716,8 @@ describe("IModelTransformer", () => {
     printSize(sourceDbFile);
     printSize(targetDbFile);
 
+    assert(Id64.isValidId64(transformer.context.findTargetElementId(physObj1.id)));
+    assert(!Id64.isValidId64(transformer.context.findTargetElementId(physObj2.id)));
     expect(count(sourceDb, GeometryPart.classFullName)).to.equal(2);
     expect(count(targetDb, GeometryPart.classFullName)).to.equal(1);
 
