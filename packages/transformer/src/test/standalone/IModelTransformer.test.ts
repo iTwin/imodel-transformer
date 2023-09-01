@@ -2697,7 +2697,7 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "PruneGeomParts" } });
     targetDb.saveChanges();
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const transformer = new IModelTransformer(sourceDb, targetDb, { cleanupUnusedGeometryParts: true });
     // expect this to not reject, adding chai as promised makes the error less readable
     await transformer.processSchemas();
     const targetModelId = PhysicalModel.insert(targetDb, IModel.rootSubjectId, "Physical");

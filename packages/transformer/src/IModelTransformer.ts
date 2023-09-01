@@ -31,6 +31,7 @@ import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityKey, EntityMap } from "./EntityMap";
+import { cleanupUnusedGeometryParts } from "./CleanupUnusedGeometryParts";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 
@@ -148,6 +149,12 @@ export interface IModelTransformOptions {
    * @beta
    */
   optimizeGeometry?: OptimizeGeometryOptions;
+
+  /** internal option, will definitely be replaced with a more complete API
+   * remove unused geometry parts during `finalizeTransformation`
+   * @internal
+   */
+  cleanupUnusedGeometryParts?: boolean;
 }
 
 /**
@@ -1129,6 +1136,16 @@ export class IModelTransformer extends IModelExportHandler {
         partiallyCommittedElem.forceComplete();
       }
     }
+
+    if (this._options.cleanupUnusedGeometryParts)
+      // FIXME: move to importer
+      cleanupUnusedGeometryParts(this.targetDb);
+
+    if (this._options.optimizeGeometry)
+      this.importer.optimizeGeometry(this._options.optimizeGeometry);
+
+    this.importer.computeProjectExtents();
+
     // this internal is guaranteed stable for just transformer usage
     /* eslint-disable @itwin/no-internal */
     if ("codeValueBehavior" in this.sourceDb as any) {
@@ -1450,10 +1467,6 @@ export class IModelTransformer extends IModelExportHandler {
       await this.detectRelationshipDeletes();
     }
 
-    if (this._options.optimizeGeometry)
-      this.importer.optimizeGeometry(this._options.optimizeGeometry);
-
-    this.importer.computeProjectExtents();
     this.finalizeTransformation();
   }
 
@@ -1685,10 +1698,6 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportChanges(options);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
-    if (this._options.optimizeGeometry)
-      this.importer.optimizeGeometry(this._options.optimizeGeometry);
-
-    this.importer.computeProjectExtents();
     this.finalizeTransformation();
   }
 }
