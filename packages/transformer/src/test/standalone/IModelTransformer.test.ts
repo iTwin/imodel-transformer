@@ -2658,7 +2658,7 @@ describe("IModelTransformer", () => {
     return geometryStreamBuilder.geometryStream;
   }
 
-  it.only("processAll prunes unnecessary geometry parts", async function () {
+  it("processAll prunes unnecessary geometry parts", async function () {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts.bim");
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "PruneGeomPartsSrc" } });
 
