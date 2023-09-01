@@ -12,7 +12,7 @@ import * as sinon from "sinon";
 import {
   CategorySelector, DisplayStyle3d, DocumentListModel, Drawing, DrawingCategory, DrawingGraphic, DrawingModel, ECSqlStatement, Element,
   ElementMultiAspect, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementRefersToElements,
-  ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
+  ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, GeometryPart, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
   InformationRecordModel, InformationRecordPartition, LinkElement, Model, ModelSelector, OrthographicViewDefinition,
   PhysicalModel, PhysicalObject, PhysicalPartition, PhysicalType, Relationship, RenderMaterialElement, RepositoryLink, Schema, SnapshotDb, SpatialCategory, StandaloneDb,
   SubCategory, Subject, Texture,
@@ -23,9 +23,9 @@ import * as TestUtils from "../TestUtils";
 import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, BriefcaseIdValue, Code, CodeScopeSpec, CodeSpec, ColorDef, CreateIModelProps, DefinitionElementProps, ElementAspectProps, ElementProps,
-  ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
+  ExternalSourceAspectProps, GeometricElement2dProps, GeometryPartProps, GeometryStreamBuilder, GeometryStreamProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
 } from "@itwin/core-common";
-import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
+import { Box, Point3d, Range3d, StandardViewIndex, Transform, Vector3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
 import {
   AspectTrackingImporter,
@@ -2636,9 +2636,57 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
+  function createBigGeomPart(): GeometryStreamProps {
+    const geometryStreamBuilder = new GeometryStreamBuilder();
+    for (let i = 1; i < 2_00; ++i) {
+      geometryStreamBuilder.appendGeometry(Box.createDgnBox(
+        Point3d.createZero(), Vector3d.unitX(), Vector3d.unitY(), new Point3d(0, 0, i),
+        i, i, i, i, true,
+      )!);
+    }
+    return geometryStreamBuilder.geometryStream;
+  }
+
+  function createBoxWithGeomParts(geometryPartId: Id64String): GeometryStreamProps {
+    const geometryStreamBuilder = new GeometryStreamBuilder();
+    geometryStreamBuilder.appendGeometry(Box.createDgnBox(
+      Point3d.createZero(), Vector3d.unitX(), Vector3d.unitY(), new Point3d(0, 0, 0),
+      0, 0, 0, 0, true,
+    )!);
+    geometryStreamBuilder.appendGeometryPart3d(geometryPartId);
+    geometryStreamBuilder.appendGeometryPart3d(geometryPartId);
+    return geometryStreamBuilder.geometryStream;
+  }
+
   it.only("prunes unnecessary geometry parts", async function () {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts.bim");
-    const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "PruneGeomPartsSrc" } });
+
+    const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "Physical");
+    const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.green.toJSON() });
+    const [geometryPart1Id, geometryPart2Id] = [1, 2].map((i) => {
+      const geometryPartProps: GeometryPartProps = {
+        classFullName: GeometryPart.classFullName,
+        model: IModelDb.dictionaryId,
+        code: GeometryPart.createCode(sourceDb, IModelDb.dictionaryId, `GeometryPart${i}`),
+        geom: createBigGeomPart(),
+      };
+      return sourceDb.elements.insertElement(geometryPartProps);
+    });
+
+    const physicalObject1Props: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: sourceModelId,
+      category: categoryId,
+      code: Code.createEmpty(),
+      userLabel: "PhysicalObject1",
+      geom: createBoxWithGeomParts(geometryPart1Id),
+      placement: {
+        origin: Point3d.create(1, 1, 1),
+        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+      },
+    };
+    const physicalObject1Id = sourceDb.elements.insertElement(physicalObject1Props);
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts-Target.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "PruneGeomParts" } });
@@ -2649,13 +2697,10 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     const targetModelId = PhysicalModel.insert(targetDb, IModel.rootSubjectId, "Physical");
 
-    const sourceElemId = sourceDb.queryEntityIds({from: "bis.PhysicalElement", limit: 1})[Symbol.iterator]().next().value;
-    expect(sourceElemId).not.to.be.undefined;
-    expect(sourceElemId).not.to.equal(Id64.invalid);
-    const sourceElem = sourceDb.elements.getElement(sourceElemId);
+    const physicalObject1 = sourceDb.elements.getElement(physicalObject1Id);
 
-    transformer.context.remapElement(sourceElem.model, targetModelId);
-    await transformer.processElement(sourceElemId);
+    transformer.context.remapElement(physicalObject1.model, targetModelId);
+    await transformer.processElement(physicalObject1Id);
 
     function printSize(p: string) {
       // eslint-disable-next-line
@@ -2664,6 +2709,9 @@ describe("IModelTransformer", () => {
 
     printSize(sourceDbFile);
     printSize(targetDbFile);
+
+    expect(count(sourceDb, GeometryPart.classFullName)).to.equal(2);
+    expect(count(targetDb, GeometryPart.classFullName)).to.equal(1);
 
     // clean up
     transformer.dispose();
