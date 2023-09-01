@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "add primitive geometry cleanup routine",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "mike.belousov@bentley.com",
+  "dependentChangeType": "patch"
+}
