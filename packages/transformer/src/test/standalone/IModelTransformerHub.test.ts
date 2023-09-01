@@ -58,7 +58,7 @@ describe("IModelTransformerHub", () => {
   });
   after(() => HubMock.shutdown());
 
-  const createPopulatedIModelHubIModel = async (iModelName: string, prepareIModel: (iModel: SnapshotDb) => Promise<void>): Promise<string> => {
+  const createPopulatedIModelHubIModel = async (iModelName: string, prepareIModel?: (iModel: SnapshotDb) => void | Promise<void>): Promise<string> => {
     // Create and push seed of IModel
     const seedFileName = path.join(outputDir, `${iModelName}.bim`);
     if (IModelJsFs.existsSync(seedFileName))
@@ -66,7 +66,7 @@ describe("IModelTransformerHub", () => {
 
     const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: iModelName } });
     assert.isTrue(IModelJsFs.existsSync(seedFileName));
-    await prepareIModel(seedDb);
+    await prepareIModel?.(seedDb);
     seedDb.saveChanges();
     seedDb.close();
 
@@ -798,7 +798,7 @@ describe("IModelTransformerHub", () => {
   it("should update aspects when processing changes and detachedAspectProcessing is turned on", async () => {
     let elementIds: Id64String[] = [];
     const aspectIds: Id64String[] = [];
-    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", async (sourceSeedDb) => {
+    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", (sourceSeedDb) => {
       elementIds = [
         Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject1"),
         Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject2"),
@@ -819,11 +819,9 @@ describe("IModelTransformerHub", () => {
           aspectIds.push(aspectId); // saving for later deletion
         }
       });
-
-      return Promise.resolve();
     });
 
-    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget", async () => Promise.resolve());
+    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget");
 
     try {
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
