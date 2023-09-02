@@ -291,13 +291,17 @@ export async function assertIdentityTransformation(
             return stmt.getValue(0).getId() ?? Id64.invalid;
           });
           const mappedRelationTargetInTargetId = (propName === "codeSpec" ? remapCodeSpec : remapElem)(relationTargetInSourceId);
-          expect(relationTargetInTargetId).to.equal(
+          expect(relationTargetInTargetId,
+            `${sourceElemId}->${targetElemId} wrong navProp '${propName}' target: targetInSrc=${relationTargetInSourceId}, targetInTarget=${relationTargetInTargetId}, targetInSrcRemap=${mappedRelationTargetInTargetId}`
+          ).to.equal(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
           // kept for conditional breakpoints
           const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
-          expect(targetElem.asAny[propName]).to.deep.advancedEqual(
+          expect((targetElem as any)[propName],
+            `${sourceElemId}->${targetElemId} wrong prop '${propName}'`
+          ).to.deep.advancedEqual(
             sourceElem.asAny[propName]
           );
         }
