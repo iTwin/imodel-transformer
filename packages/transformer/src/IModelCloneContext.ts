@@ -75,10 +75,15 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
   /** Add a rule that remaps the specified source class to the specified target class. */
   public remapElementClass(sourceClassFullName: string, targetClassFullName: string): void {
-    // NOTE: should probably also map class ids
-    const sourceClass = ClassRegistry.getClass(sourceClassFullName, this.sourceDb);
-    const targetClass = ClassRegistry.getClass(targetClassFullName, this.targetDb);
-    this._elementClassRemapTable.set(sourceClass, targetClass);
+    try {
+      const sourceClass = this.sourceDb.getJsClass(sourceClassFullName);
+      const targetClass = this.targetDb.getJsClass(targetClassFullName);
+      this._elementClassRemapTable.set(sourceClass, targetClass);
+    } catch (err: any) {
+      // FIXME: core can't generate class for relationship entities in this case apparently
+      if (!/has no superclass$/.test(err.message))
+        throw err;
+    }
   }
 
   /** Add a rule that remaps the specified source Element to the specified target Element. */
@@ -246,16 +251,14 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
      */
     customNavPropHandlers: Record<string, {
       /** from an entity get an entity reference */
-      getSource(source: EntitySubType): EntityReference,
-      setTarget(target: EntityPropsSubType, e: EntityReference): void
+      getSource(source: EntitySubType): EntityReference;
+      setTarget(target: EntityPropsSubType, e: EntityReference): void;
     }> = {},
   ): EntityPropsSubType {
     const targetEntityProps = sourceEntity.toJSON() as EntityPropsSubType;
 
     if (this.targetIsSource)
       return targetEntityProps;
-
-    const propProcessingPromises: Promise<void>[] = [];
 
     // TODO: it's possible since we do this so much that it will be faster to use `new Function` to inline the remappin
     // code for each element class (profile first to see how long this takes)
@@ -335,6 +338,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
           const geomBinary = stmt.getValue(0).getBlob();
           assert(stmt.step() === DbResult.BE_SQLITE_DONE);
           (targetElemProps as any)["geomBinary"] = geomBinary;
+
         });
       }
       if (sourceElement instanceof GeometryPart) {
