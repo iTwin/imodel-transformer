@@ -37,7 +37,7 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
   private _handler: T | undefined = undefined;
   protected get handler(): T {
     if (!this._handler) {
-      throw new Error("Registered handler getter didn't return handler");
+      throw new Error("No handler registered, be sure to call 'registerHandler'");
     }
     return this._handler;
   }
