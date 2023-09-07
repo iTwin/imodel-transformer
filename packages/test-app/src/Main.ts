@@ -133,6 +133,7 @@ void (async () => {
           type: "boolean",
           default: false,
         },
+
         combinePhysicalModels: {
           desc: "Combine all source PhysicalModels into a single PhysicalModel in the target iModel",
           type: "boolean",
@@ -187,6 +188,11 @@ void (async () => {
           desc: "sets danglingReferencesBehavior in the transformer options",
           default: "reject" as const,
           choices: ["reject", "ignore"] as const,
+        },
+        cleanupUnusedGeometryParts: {
+          desc: "cleans up unused geometry parts after the transformation is finished",
+          type: "boolean",
+          default: false,
         },
       })
       .parseSync();
