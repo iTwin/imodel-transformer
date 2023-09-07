@@ -14,7 +14,7 @@ import {
   ElementMultiAspect, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementRefersToElements,
   ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, GeometryPart, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
   InformationRecordModel, InformationRecordPartition, LinkElement, Model, ModelSelector, OrthographicViewDefinition,
-  PhysicalModel, PhysicalObject, PhysicalPartition, PhysicalType, Relationship, RenderMaterialElement, RepositoryLink, Schema, SnapshotDb, SpatialCategory, StandaloneDb,
+  PhysicalModel, PhysicalObject, PhysicalPartition, PhysicalType, Relationship, RenderMaterialElement, RepositoryLink, SQLiteDb, Schema, SnapshotDb, SpatialCategory, StandaloneDb,
   SubCategory, Subject, Texture,
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
@@ -2636,12 +2636,12 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  function createBigGeomPart(): GeometryStreamProps {
+  function createBigGeomPart(offset = 0): GeometryStreamProps {
     const geometryStreamBuilder = new GeometryStreamBuilder();
-    for (let i = 1; i < 2_00; ++i) {
+    for (let i = 1; i < 100_000; ++i) {
       geometryStreamBuilder.appendGeometry(Box.createDgnBox(
-        Point3d.createZero(), Vector3d.unitX(), Vector3d.unitY(), new Point3d(0, 0, i),
-        i, i, i, i, true,
+        Point3d.createZero(), Vector3d.unitX(), Vector3d.unitY(), new Point3d(0, 0, i + offset),
+        i + offset, i + offset, i + offset, i + offset, true,
       )!);
     }
     return geometryStreamBuilder.geometryStream;
@@ -2670,7 +2670,7 @@ describe("IModelTransformer", () => {
         classFullName: GeometryPart.classFullName,
         model: IModelDb.dictionaryId,
         code: GeometryPart.createCode(sourceDb, IModelDb.dictionaryId, `GeometryPart${i}`),
-        geom: createBigGeomPart(),
+        geom: createBigGeomPart(i),
       };
 
       const geomPartId = sourceDb.elements.insertElement(geometryPartProps);
@@ -2693,8 +2693,10 @@ describe("IModelTransformer", () => {
       return { geomPartId, id: physObjId };
     });
 
+    sourceDb.saveChanges();
+
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts-Target.bim");
-    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "PruneGeomParts" } });
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "PruneGeomParts" } });
     targetDb.saveChanges();
 
     const transformer = new IModelTransformer(sourceDb, targetDb, { cleanupUnusedGeometryParts: true });
@@ -2708,6 +2710,16 @@ describe("IModelTransformer", () => {
     transformer.shouldExportElement = (elem) => elem.id !== physObj2.id;
     await transformer.processAll();
 
+    targetDb.saveChanges();
+
+    assert(Id64.isValidId64(transformer.context.findTargetElementId(physObj1.id)));
+    assert(!Id64.isValidId64(transformer.context.findTargetElementId(physObj2.id)));
+    expect(count(sourceDb, GeometryPart.classFullName)).to.equal(2);
+    expect(count(targetDb, GeometryPart.classFullName)).to.equal(1);
+
+    targetDb.nativeDb.vacuum();
+    targetDb.saveChanges();
+
     function printSize(p: string) {
       // eslint-disable-next-line
       console.log(`Size of ${p}\n`, child_process.execSync(`du -h ${p}`, {encoding: "utf-8"}));
@@ -2715,11 +2727,6 @@ describe("IModelTransformer", () => {
 
     printSize(sourceDbFile);
     printSize(targetDbFile);
-
-    assert(Id64.isValidId64(transformer.context.findTargetElementId(physObj1.id)));
-    assert(!Id64.isValidId64(transformer.context.findTargetElementId(physObj2.id)));
-    expect(count(sourceDb, GeometryPart.classFullName)).to.equal(2);
-    expect(count(targetDb, GeometryPart.classFullName)).to.equal(1);
 
     // clean up
     transformer.dispose();

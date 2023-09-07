@@ -8,12 +8,23 @@ import { ElementGeometry } from "@itwin/core-common";
  * @internal
  */
 export function cleanupUnusedGeometryParts(db: IModelDb) {
+  const unusedGeomPartIds = queryUnusedGeomParts(db);
+
+  db.elements.deleteDefinitionElements([...unusedGeomPartIds]);
+}
+
+/**
+ * queryEntityIds maxes out at 10K, we may need everything during this temporary solution
+ * since geometry parts may reference each other
+ */
+function queryUnusedGeomParts(db: IModelDb) {
   const usedGeomParts = new Set<Id64String>();
 
   const allGeomElemIdsQuery = `
     SELECT ECInstanceId
     FROM bis.GeometricElement
   `;
+
   db.withPreparedStatement(allGeomElemIdsQuery, (geomElemIdStmt) => {
     while (geomElemIdStmt.step() === DbResult.BE_SQLITE_ROW) {
       const geomElemId = geomElemIdStmt.getValue(0).getId();
@@ -31,9 +42,20 @@ export function cleanupUnusedGeometryParts(db: IModelDb) {
     }
   });
 
-  // NOTE: maybe (negligbly?) faster to do custom query with `NOT InVirtualSet()`
-  const unusedGeomPartIds = db.queryEntityIds({ from: "bis.GeometryPart" });
-  for (const usedGeomPartId of usedGeomParts)
-    unusedGeomPartIds.delete(usedGeomPartId);
-  db.elements.deleteDefinitionElements([...unusedGeomPartIds]);
+  const unusedGeomPartIds = db.withPreparedStatement(`
+      SELECT ECInstanceId
+      FROM bis.GeometryPart
+      WHERE NOT InVirtualSet(?, ECInstanceId)
+    `,
+  (stmt) => {
+    const ids = new Set<Id64String>();
+    stmt.bindIdSet(1, [...usedGeomParts]);
+    while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+      const id = stmt.getValue(0).getId();
+      ids.add(id);
+    }
+    return ids;
+  });
+
+  return unusedGeomPartIds;
 }
