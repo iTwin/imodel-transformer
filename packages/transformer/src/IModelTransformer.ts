@@ -1241,6 +1241,8 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   public override shouldExportElementAspect(aspect: ElementAspect) {
+    // This override is needed to ensure that aspects are not exported if their element is not exported.
+    // This is needed in case DetachedExportElementAspectsStrategy is used.
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
   }
 

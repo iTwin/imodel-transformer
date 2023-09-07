@@ -226,16 +226,20 @@ export class IModelExporter {
   private _excludedRelationshipClasses = new Set<typeof Relationship>();
 
   /** Strategy for how ElementAspects are exported */
-  private _exportElementAspectsStrategy: ExportElementAspectsStrategy<ElementAspectsHandler>;
+  private _exportElementAspectsStrategy: ExportElementAspectsStrategy;
 
   /** Construct a new IModelExporter
    * @param sourceDb The source IModelDb
    * @see registerHandler
    */
-  public constructor(sourceDb: IModelDb, elementAspectsStrategy: ExportElementAspectsStrategy<ElementAspectsHandler> = new ExportElementAspectsWithElementsStrategy(sourceDb)) {
+  public constructor(sourceDb: IModelDb, elementAspectsStrategy: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy = ExportElementAspectsWithElementsStrategy) {
     this.sourceDb = sourceDb;
-    this._exportElementAspectsStrategy = elementAspectsStrategy;
-    this._exportElementAspectsStrategy.registerHandler(() => this.handler, async () => this.trackProgress());
+    this._exportElementAspectsStrategy = new elementAspectsStrategy(this.sourceDb, {
+      onExportElementMultiAspects: (aspects) => this.handler.onExportElementMultiAspects(aspects),
+      onExportElementUniqueAspect: (aspect, isUpdate) => this.handler.onExportElementUniqueAspect(aspect, isUpdate),
+      shouldExportElementAspect: (aspect) => this.handler.shouldExportElementAspect(aspect),
+      trackProgress: async () => this.trackProgress(),
+    });
   }
 
   /** Register the handler that will be called by IModelExporter. */

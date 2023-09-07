@@ -5,33 +5,19 @@
 
 import { ElementAspect, ElementMultiAspect, ElementUniqueAspect } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
-import { ElementAspectsHandler, ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
+import { ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
 import { ElementAspectProps, QueryBinder, QueryRowFormat } from "@itwin/core-common";
-import { IModelExportHandler } from "./IModelExporter";
-
-/**
- * Handler for [[DetachedExportElementAspectsStrategy]]
- * @internal
- */
-export interface DetachedElementAspectsHandler extends ElementAspectsHandler {
-  onExportElementUniqueAspect(uniqueAspect: ElementUniqueAspect, isUpdate?: boolean | undefined): void;
-  onExportElementMultiAspects(multiAspects: ElementMultiAspect[]): void;
-}
 
 /**
  * Detached ElementAspect export strategy for [[IModelExporter]].
  * This strategy exports all ElementAspects separately from the Elements that own them.
+ *
+ * @note Since aspects are exported separately from elements that own them, this strategy will export aspects of filtered out elements by default and
+ * this needs to be handled by ElementAspectHandler
  * @internal
  */
-export class DetachedExportElementAspectsStrategy extends ExportElementAspectsStrategy<DetachedElementAspectsHandler> {
-  public override registerHandler(handler: () => IModelExportHandler, trackProgress: () => Promise<void>) {
-    super.registerHandler(handler, trackProgress);
-
-    this.handler.onExportElementUniqueAspect = (uniqueAspect, isUpdate) => handler().onExportElementUniqueAspect(uniqueAspect, isUpdate);
-    this.handler.onExportElementMultiAspects = (multiAspects) => handler().onExportElementMultiAspects(multiAspects);
-  }
-
+export class DetachedExportElementAspectsStrategy extends ExportElementAspectsStrategy {
   public override async exportAllElementAspects(): Promise<void> {
     await this.exportAspectsLoop<ElementUniqueAspect>(ElementUniqueAspect.classFullName, async (uniqueAspect) => {
       const isInsertChange = this.aspectChanges?.insertIds.has(uniqueAspect.id) ?? false;
@@ -114,5 +100,9 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
         yield aspectEntity;
       }
     }
+  }
+
+  public override async exportElementAspectsForElement(_elementId: string): Promise<void> {
+    // All aspects are exported separately from their elements and don't need to be exported when element is exported.
   }
 }

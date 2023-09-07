@@ -3,10 +3,10 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { ElementAspect, IModelDb } from "@itwin/core-backend";
+import { ElementAspect, ElementMultiAspect, ElementUniqueAspect, IModelDb } from "@itwin/core-backend";
 import { Id64String, Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { ChangedInstanceOps, IModelExportHandler } from "./IModelExporter";
+import { ChangedInstanceOps } from "./IModelExporter";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -16,6 +16,8 @@ const loggerCategory = TransformerLoggerCategory.IModelExporter;
  */
 export interface ElementAspectsHandler {
   shouldExportElementAspect(aspect: ElementAspect): boolean;
+  onExportElementUniqueAspect(uniqueAspect: ElementUniqueAspect, isUpdate?: boolean | undefined): void;
+  onExportElementMultiAspects(multiAspects: ElementMultiAspect[]): void;
   trackProgress: () => Promise<void>;
 }
 
@@ -24,7 +26,7 @@ export interface ElementAspectsHandler {
  * ElementAspect filtering.
  * @internal
  */
-export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandler> {
+export abstract class ExportElementAspectsStrategy {
   /** The set of classes of ElementAspects that will be excluded (polymorphically) from transformation to the target iModel. */
   protected _excludedElementAspectClasses = new Set<typeof ElementAspect>();
   /** The set of classFullNames for ElementAspects that will be excluded from transformation to the target iModel. */
@@ -34,20 +36,15 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
 
   protected aspectChanges: ChangedInstanceOps | undefined;
 
-  private _handler: T | undefined = undefined;
-  protected get handler(): T {
-    if (!this._handler) {
-      throw new Error("No handler registered, be sure to call 'registerHandler'");
-    }
-    return this._handler;
-  }
+  protected handler: ElementAspectsHandler;
 
-  public constructor(sourceDb: IModelDb) {
+  public constructor(sourceDb: IModelDb, handler: ElementAspectsHandler) {
     this.sourceDb = sourceDb;
+    this.handler = handler;
   }
 
-  public async exportElementAspectsForElement(_elementId: Id64String): Promise<void> { }
-  public async exportAllElementAspects(): Promise<void> { }
+  public abstract exportElementAspectsForElement(_elementId: Id64String): Promise<void>;
+  public abstract exportAllElementAspects(): Promise<void>;
 
   protected shouldExportElementAspect(aspect: ElementAspect): boolean {
     for (const excludedElementAspectClass of this._excludedElementAspectClasses) {
@@ -58,13 +55,6 @@ export abstract class ExportElementAspectsStrategy<T extends ElementAspectsHandl
     }
     // ElementAspect has passed standard exclusion rules, now give handler a chance to accept/reject
     return this.handler.shouldExportElementAspect(aspect);
-  }
-
-  public registerHandler(handler: () => IModelExportHandler, trackProgress: () => Promise<void>) {
-    this._handler = {
-      shouldExportElementAspect: (aspect: ElementAspect) => handler().shouldExportElementAspect(aspect),
-      trackProgress,
-    } as T; // casting here since we only assign partial T here and subclasses will have to assign the rest of properties
   }
 
   public setAspectChanges(aspectChanges?: ChangedInstanceOps) {

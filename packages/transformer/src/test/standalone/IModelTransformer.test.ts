@@ -2544,7 +2544,7 @@ describe("IModelTransformer", () => {
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessing-Target.bim");
     const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "DetachedAspectProcessing-Target" } });
 
-    const exporter = new IModelExporter(sourceDb, new DetachedExportElementAspectsStrategy(sourceDb));
+    const exporter = new IModelExporter(sourceDb, DetachedExportElementAspectsStrategy);
     const transformer = new IModelTransformer(exporter, targetDb, {
       includeSourceProvenance: true,
     });

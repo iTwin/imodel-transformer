@@ -827,7 +827,7 @@ describe("IModelTransformerHub", () => {
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
       const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
 
-      const exporter = new IModelExporter(sourceDb, new DetachedExportElementAspectsStrategy(sourceDb));
+      const exporter = new IModelExporter(sourceDb, DetachedExportElementAspectsStrategy);
       const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
       });
