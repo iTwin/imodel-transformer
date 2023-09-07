@@ -5,15 +5,16 @@
 
 import { assert, expect } from "chai";
 import * as fs from "fs";
+import * as child_process from "child_process";
 import * as path from "path";
 import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
   CategorySelector, DisplayStyle3d, DocumentListModel, Drawing, DrawingCategory, DrawingGraphic, DrawingModel, ECSqlStatement, Element,
   ElementMultiAspect, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementRefersToElements,
-  ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
+  ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, GeometryPart, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
   InformationRecordModel, InformationRecordPartition, LinkElement, Model, ModelSelector, OrthographicViewDefinition,
-  PhysicalModel, PhysicalObject, PhysicalPartition, PhysicalType, Relationship, RenderMaterialElement, RepositoryLink, Schema, SnapshotDb, SpatialCategory, StandaloneDb,
+  PhysicalModel, PhysicalObject, PhysicalPartition, PhysicalType, Relationship, RenderMaterialElement, RepositoryLink, SQLiteDb, Schema, SnapshotDb, SpatialCategory, StandaloneDb,
   SubCategory, Subject, Texture,
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
@@ -22,9 +23,9 @@ import * as TestUtils from "../TestUtils";
 import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, BriefcaseIdValue, Code, CodeScopeSpec, CodeSpec, ColorDef, CreateIModelProps, DefinitionElementProps, ElementAspectProps, ElementProps,
-  ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
+  ExternalSourceAspectProps, GeometricElement2dProps, GeometryPartProps, GeometryStreamBuilder, GeometryStreamProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
 } from "@itwin/core-common";
-import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
+import { Box, Point3d, Range3d, StandardViewIndex, Transform, Vector3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
 import {
   AspectTrackingImporter,
@@ -2628,6 +2629,104 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
 
     expect(targetDb.querySchemaVersion("Dynamic")).to.equal("1.7.0");
+
+    // clean up
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  function createBigGeomPart(offset = 0): GeometryStreamProps {
+    const geometryStreamBuilder = new GeometryStreamBuilder();
+    for (let i = 1; i < 100_000; ++i) {
+      geometryStreamBuilder.appendGeometry(Box.createDgnBox(
+        Point3d.createZero(), Vector3d.unitX(), Vector3d.unitY(), new Point3d(0, 0, i + offset),
+        i + offset, i + offset, i + offset, i + offset, true,
+      )!);
+    }
+    return geometryStreamBuilder.geometryStream;
+  }
+
+  function createBoxWithGeomParts(geometryPartId: Id64String): GeometryStreamProps {
+    const geometryStreamBuilder = new GeometryStreamBuilder();
+    geometryStreamBuilder.appendGeometry(Box.createDgnBox(
+      Point3d.createZero(), Vector3d.unitX(), Vector3d.unitY(), new Point3d(0, 0, 0),
+      0, 0, 0, 0, true,
+    )!);
+    geometryStreamBuilder.appendGeometryPart3d(geometryPartId);
+    geometryStreamBuilder.appendGeometryPart3d(geometryPartId);
+    return geometryStreamBuilder.geometryStream;
+  }
+
+  it("processAll prunes unnecessary geometry parts", async function () {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "PruneGeomPartsSrc" } });
+
+    const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, "Physical");
+    const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", { color: ColorDef.green.toJSON() });
+
+    const [physObj1, physObj2] = [1, 2].map((i) => {
+      const geometryPartProps: GeometryPartProps = {
+        classFullName: GeometryPart.classFullName,
+        model: IModelDb.dictionaryId,
+        code: GeometryPart.createCode(sourceDb, IModelDb.dictionaryId, `GeometryPart${i}`),
+        geom: createBigGeomPart(i),
+      };
+
+      const geomPartId = sourceDb.elements.insertElement(geometryPartProps);
+
+      const physObjProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: sourceModelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        userLabel: "PhysicalObject1",
+        geom: createBoxWithGeomParts(geomPartId),
+        placement: {
+          origin: Point3d.create(1, 1, 1),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+
+      const physObjId = sourceDb.elements.insertElement(physObjProps);
+
+      return { geomPartId, id: physObjId };
+    });
+
+    sourceDb.saveChanges();
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "PruneGeomParts-Target.bim");
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "PruneGeomParts" } });
+    targetDb.saveChanges();
+
+    const transformer = new IModelTransformer(sourceDb, targetDb, { cleanupUnusedGeometryParts: true });
+    // expect this to not reject, adding chai as promised makes the error less readable
+    await transformer.processSchemas();
+    const targetModelId = PhysicalModel.insert(targetDb, IModel.rootSubjectId, "Physical");
+
+    const physObj1Elem = sourceDb.elements.getElement(physObj1.id);
+
+    transformer.context.remapElement(physObj1Elem.model, targetModelId);
+    transformer.shouldExportElement = (elem) => elem.id !== physObj2.id;
+    await transformer.processAll();
+
+    targetDb.saveChanges();
+
+    assert(Id64.isValidId64(transformer.context.findTargetElementId(physObj1.id)));
+    assert(!Id64.isValidId64(transformer.context.findTargetElementId(physObj2.id)));
+    expect(count(sourceDb, GeometryPart.classFullName)).to.equal(2);
+    expect(count(targetDb, GeometryPart.classFullName)).to.equal(1);
+
+    targetDb.nativeDb.vacuum();
+    targetDb.saveChanges();
+
+    function printSize(p: string) {
+      // eslint-disable-next-line
+      console.log(`Size of ${p}\n`, child_process.execSync(`du -h ${p}`, {encoding: "utf-8"}));
+    }
+
+    printSize(sourceDbFile);
+    printSize(targetDbFile);
 
     // clean up
     transformer.dispose();
