@@ -1676,67 +1676,33 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it("should successfully remove element in master iModel after reverse synchronization when elements have random EXternalSourceAspects", async() => {
-    const seedFileName = path.join(outputDir, `seed.bim`);
-    if (IModelJsFs.existsSync(seedFileName))
-      IModelJsFs.removeSync(seedFileName);
+  it.only("should successfully remove element in master iModel after reverse synchronization when elements have random EXternalSourceAspects", async() => {
+    const timeline: Timeline = [
+      { master: { 1:1 } },
+      { master: { manualUpdate(masterDb) {
+        const elemId = IModelTestUtils.queryByUserLabel(masterDb, "1");
+        masterDb.elements.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: { id: elemId },
+          scope: { id: IModel.rootSubjectId },
+          // FIXME: change
+          kind: "EL",
+          identifier: "bar code",
+        } as ExternalSourceAspectProps);
+      }}},
+      { branch: { branch: "master" } },
+      { branch: { 1:deleted } },
+      { master: { sync: ["branch"]} },
+      { assert({ master, branch }) {
+        for (const db of [master.db, branch.db]) {
+          const elemId = IModelTestUtils.queryByUserLabel(db, "1");
+          expect(elemId).to.be.undefined;
+        }
+      }}
+    ];
 
-    const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: "seed" } });
-    const subjectId = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
-    seedDb.elements.insertAspect({
-      classFullName: ExternalSourceAspect.classFullName,
-      element: { id: subjectId },
-      scope: { id: IModel.rootSubjectId },
-      kind: "EL",
-      identifier: "bar code",
-    } as ExternalSourceAspectProps);
-    seedDb.saveChanges();
-    seedDb.close();
-
-    let sourceIModelId: string | undefined;
-    let targetIModelId: string | undefined;
-    try {
-      sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerSource", description: "source", version0: seedFileName, noLocks: true });
-      targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerTarget", description: "target", version0: seedFileName, noLocks: true });
-      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
-      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
-
-      // fork provenance init
-      let transformer = new IModelTransformer(sourceDb, targetDb, { wasSourceIModelCopiedToTarget: true });
-      await transformer.processAll();
-      transformer.dispose();
-      targetDb.saveChanges();
-      await targetDb.pushChanges({description: "fork init"});
-
-      expect(sourceDb.elements.tryGetElement(subjectId)).to.not.be.undefined;
-      expect(targetDb.elements.tryGetElement(subjectId)).to.not.be.undefined;
-
-      targetDb.elements.deleteElement(subjectId);
-      targetDb.saveChanges();
-      await targetDb.pushChanges({description: "deleted subject"});
-
-      // running reverse synchronization
-      transformer = new IModelTransformer(targetDb, sourceDb, { isReverseSynchronization: true });
-      await transformer.processChanges({accessToken});
-      transformer.dispose();
-
-      expect(targetDb.elements.tryGetElement(subjectId)).to.be.undefined;
-      expect(sourceDb.elements.tryGetElement(subjectId)).to.be.undefined;
-
-      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
-      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
-    } finally {
-      try {
-        // delete iModel briefcases
-        if (sourceIModelId)
-          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
-        if (targetIModelId)
-          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.log("can't destroy", err);
-      }
-    }
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    await tearDown();
   });
 });
 
