@@ -1675,5 +1675,35 @@ describe("IModelTransformerHub", () => {
 
     await tearDown();
   });
+
+  it("should successfully remove element in master iModel after reverse synchronization when elements have random ExternalSourceAspects", async() => {
+    const timeline: Timeline = [
+      { master: { 1:1 } },
+      { master: { manualUpdate(masterDb) {
+        const elemId = IModelTestUtils.queryByUserLabel(masterDb, "1");
+        masterDb.elements.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: { id: elemId },
+          scope: { id: IModel.dictionaryId },
+          // FIXME: change
+          kind: "Element",
+          identifier: "bar code",
+        } as ExternalSourceAspectProps);
+      }}},
+      { branch: { branch: "master" } },
+      { branch: { 1:deleted } },
+      { master: { sync: ["branch"]} },
+      { assert({ master, branch }) {
+        for (const imodel of [branch, master]) {
+          const elemId = IModelTestUtils.queryByUserLabel(imodel.db, "1");
+          const name = imodel.id === master.id ? "master" : "branch";
+          expect(elemId, `db ${name} did not delete ${elemId}`).to.equal(Id64.invalid);
+        }
+      }}
+    ];
+
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    await tearDown();
+  });
 });
 
