@@ -851,26 +851,6 @@ export class IModelTransformer extends IModelExportHandler {
     // this won't have to be a conditional part of the query, and we can always have it by attaching
     const queryCanAccessProvenance = this.sourceDb === this.provenanceDb;
 
-    for (const changeSummaryId of this._changeSummaryIds) {
-      this.sourceDb.withPreparedStatement(`
-        SELECT 
-          CASE WHEN esa.Scope.Id = :targetScopeElement THEN esa.Identifier ELSE NULL END AS Identifier1A
-        FROM ecchange.change.InstanceChange ic
-          LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
-            ON ic.ChangedInstance.Id=ec.ECInstanceId
-        LEFT JOIN bis.ExternalSourceAspect.Changes(:changeSummaryId, 'BeforeDelete') esac
-          ON ec.ECInstanceId=esac.Element.Id
-      `, (stmt) => {
-        stmt.bindId("targetScopeElement", "0x1");
-        stmt.bindId("changeSummaryId", changeSummaryId);
-        const iter = stmt[Symbol.iterator]();
-        let val: IteratorResult<any>;
-        while (val = iter.next()) {
-          console.log(val);
-        }
-      });
-    }
-
     const deletedEntitySql = `
       SELECT
         1 AS IsElemNotRel,
@@ -889,9 +869,7 @@ export class IModelTransformer extends IModelExportHandler {
           ) AS Identifier1
         */
         , CASE WHEN esa.Scope.Id = :targetScopeElement THEN esa.Identifier ELSE NULL END AS Identifier1A
-        , CASE WHEN esac.Scope.Id = :targetScopeElement THEN esac.Identifier ELSE NULL END AS Identifier1B
-        -- , IIF(esa.Scope.Id = :targetScopeElement, esa.Identifier, NULL) AS Identifier1A
-        -- , IIF(esac.Scope.Id = :targetScopeElement, esac.Identifier, NULL) AS Identifier1B
+        , CASE WHEN  esa.Scope.Id = 1 /*:targetScopeElement*/ THEN esac.Identifier ELSE NULL END AS Identifier1B
         , NULL AS Identifier2A
         , NULL AS Identifier2B
         ` : ""}

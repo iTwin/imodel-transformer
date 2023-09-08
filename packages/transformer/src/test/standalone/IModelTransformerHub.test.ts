@@ -1676,7 +1676,7 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it.only("should successfully remove element in master iModel after reverse synchronization when elements have random EXternalSourceAspects", async() => {
+  it.only("should successfully remove element in master iModel after reverse synchronization when elements have random ExternalSourceAspects", async() => {
     const timeline: Timeline = [
       { master: { 1:1 } },
       { master: { manualUpdate(masterDb) {
