@@ -684,7 +684,7 @@ export class IModelExporter {
 
   /** Exports all aspects present in the iModel.
    */
-  public async exportAllAspects(): Promise<void> {
+  private async exportAllAspects(): Promise<void> {
     return this._exportElementAspectsStrategy.exportAllElementAspects();
   }
 
