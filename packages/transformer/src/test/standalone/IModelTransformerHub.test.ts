@@ -1684,11 +1684,11 @@ describe("IModelTransformerHub", () => {
     const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: "seed" } });
     const subjectId = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
     seedDb.elements.insertAspect({
-        classFullName: ExternalSourceAspect.classFullName,
-        element: { id: subjectId },
-        scope: { id: IModel.rootSubjectId },
-        kind: "EL",
-        identifier: "bar code",
+      classFullName: ExternalSourceAspect.classFullName,
+      element: { id: subjectId },
+      scope: { id: IModel.rootSubjectId },
+      kind: "EL",
+      identifier: "bar code",
     } as ExternalSourceAspectProps);
     seedDb.saveChanges();
     seedDb.close();
@@ -1725,18 +1725,18 @@ describe("IModelTransformerHub", () => {
 
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
-  } finally {
-    try {
-      // delete iModel briefcases
-      if (sourceIModelId)
-        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
-      if (targetIModelId)
-        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.log("can't destroy", err);
+    } finally {
+      try {
+        // delete iModel briefcases
+        if (sourceIModelId)
+          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+        if (targetIModelId)
+          await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
     }
-  }
   });
 });
 
