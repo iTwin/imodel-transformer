@@ -1675,5 +1675,68 @@ describe("IModelTransformerHub", () => {
 
     await tearDown();
   });
+
+  it("should successfully remove element in master iModel after reverse synchronization when elements have random EXternalSourceAspects", async() => {
+    const seedFileName = path.join(outputDir, `seed.bim`);
+    if (IModelJsFs.existsSync(seedFileName))
+      IModelJsFs.removeSync(seedFileName);
+
+    const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: "seed" } });
+    const subjectId = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
+    seedDb.elements.insertAspect({
+        classFullName: ExternalSourceAspect.classFullName,
+        element: { id: subjectId },
+        scope: { id: IModel.rootSubjectId },
+        kind: "EL",
+        identifier: "bar code",
+    } as ExternalSourceAspectProps);
+    seedDb.saveChanges();
+    seedDb.close();
+
+    let sourceIModelId: string | undefined;
+    let targetIModelId: string | undefined;
+    try {
+      sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerSource", description: "source", version0: seedFileName, noLocks: true });
+      targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: "TransformerTarget", description: "target", version0: seedFileName, noLocks: true });
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+
+      // fork provenance init
+      let transformer = new IModelTransformer(sourceDb, targetDb, { wasSourceIModelCopiedToTarget: true });
+      await transformer.processAll();
+      transformer.dispose();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({description: "fork init"});
+
+      expect(sourceDb.elements.tryGetElement(subjectId)).to.not.be.undefined;
+      expect(targetDb.elements.tryGetElement(subjectId)).to.not.be.undefined;
+
+      targetDb.elements.deleteElement(subjectId);
+      targetDb.saveChanges();
+      await targetDb.pushChanges({description: "deleted subject"});
+
+      // running reverse synchronization
+      transformer = new IModelTransformer(targetDb, sourceDb, { isReverseSynchronization: true });
+      await transformer.processChanges({accessToken});
+      transformer.dispose();
+
+      expect(targetDb.elements.tryGetElement(subjectId)).to.be.undefined;
+      expect(sourceDb.elements.tryGetElement(subjectId)).to.be.undefined;
+
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+  } finally {
+    try {
+      // delete iModel briefcases
+      if (sourceIModelId)
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+      if (targetIModelId)
+        await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.log("can't destroy", err);
+    }
+  }
+  });
 });
 
