@@ -861,8 +861,17 @@ export class IModelTransformer extends IModelExportHandler {
         NULL AS FedGuid2,
         ic.ChangedInstance.ClassId AS ClassId
         ${queryCanAccessProvenance ? `
-        , coalesce(esa.Identifier, esac.Identifier) AS Identifier1
-        , NULL AS Identifier2
+        /*
+        -- can't coalesce these due to a bug, so do it in JS work
+        , coalesce(
+            IIF(esa.Scope.Id=:targetScopeElement, esa.Identifier, NULL),
+            IIF(esac.Scope.Id=:targetScopeElement, esac.Identifier, NULL)
+          ) AS Identifier1
+        */
+        , IIF(esa.Scope.Id=:targetScopeElement, esa.Identifier, NULL) AS Identifier1A
+        , IIF(esac.Scope.Id=:targetScopeElement, esac.Identifier, NULL) AS Identifier1B
+        , NULL AS Identifier2A
+        , NULL AS Identifier2B
         ` : ""}
       FROM ecchange.change.InstanceChange ic
         LEFT JOIN bis.Element.Changes(:changeSummaryId, 'BeforeDelete') ec
@@ -877,13 +886,6 @@ export class IModelTransformer extends IModelExportHandler {
       WHERE ic.OpCode=:opDelete
         AND ic.Summary.Id=:changeSummaryId
         AND ic.ChangedInstance.ClassId IS (BisCore.Element)
-        ${queryCanAccessProvenance ? `
-          AND (esa.Scope.Id=:targetScopeElement OR esa.Scope.Id IS NULL)
-          AND (esa.Kind='Element' OR esa.Kind IS NULL)
-          AND (esac.Scope.Id=:targetScopeElement OR esac.Scope.Id IS NULL)
-          AND (esac.Kind='Element' OR esac.Kind IS NULL)
-          ` : ""
-        }
 
       UNION ALL
 
@@ -896,8 +898,10 @@ export class IModelTransformer extends IModelExportHandler {
         coalesce(te.FederationGuid, tec.FederationGuid) AS FedGuid2,
         ic.ChangedInstance.ClassId AS ClassId
         ${queryCanAccessProvenance ? `
-        , coalesce(sesa.Identifier, sesac.Identifier) AS Identifier1
-        , coalesce(tesa.Identifier, tesac.Identifier) AS Identifier2
+        , sesa.Identifier AS Identifier1A
+        , sesac.Identifier AS Identifier1B
+        , tesa.Identifier AS Identifier2A
+        , tesac.Identifier AS Identifier2B
         ` : ""}
       FROM ecchange.change.InstanceChange ic
         LEFT JOIN bis.ElementRefersToElements.Changes(:changeSummaryId, 'BeforeDelete') ertec
@@ -953,13 +957,18 @@ export class IModelTransformer extends IModelExportHandler {
           if (isElemNotRel) {
             const sourceElemFedGuid = stmt.getValue(4).getGuid();
             // "Identifier" is a string, so null value returns '' which doesn't work with ??, and I don't like ||
-            let identifierValue: ECSqlValue;
+            let identifierValue: ECSqlValue | undefined;
+
+            // identifier must be coalesced in JS due to an ESCQL bug, so there are multiple columns
+            if (queryCanAccessProvenance)  {
+              identifierValue = stmt.getValue(7);
+              if (identifierValue.isNull) identifierValue = stmt.getValue(8);
+            }
 
             // TODO: if I could attach the second db, will probably be much faster to get target id
             // as part of the whole query rather than with _queryElemIdByFedGuid
             const targetId =
-              (queryCanAccessProvenance
-                && (identifierValue = stmt.getValue(7))
+              (queryCanAccessProvenance && identifierValue
                 && !identifierValue.isNull
                 && identifierValue.getString())
               // maybe batching these queries would perform better but we should
@@ -987,15 +996,22 @@ export class IModelTransformer extends IModelExportHandler {
           } else { // is deleted relationship
             const classFullName = stmt.getValue(6).getClassNameForClassId();
             const [sourceIdInTarget, targetIdInTarget] = [
-              { guidColumn: 4, identifierColumn: 7, isTarget: false },
-              { guidColumn: 5, identifierColumn: 8, isTarget: true },
-            ].map(({ guidColumn, identifierColumn }) => {
+              // identifier must be coalesced in JS due to an ESCQL bug, so there are multiple columns
+              { guidColumn: 4, identifierColumns: { a: 7, b: 8 }, isTarget: false },
+              { guidColumn: 5, identifierColumns: { a: 9, b: 10 }, isTarget: true },
+            ].map(({ guidColumn, identifierColumns }) => {
               const fedGuid = stmt.getValue(guidColumn).getGuid();
-              let identifierValue: ECSqlValue;
+              let identifierValue: ECSqlValue | undefined;
+
+              // identifier must be coalesced in JS due to an ESCQL bug, so there are multiple columns
+              if (queryCanAccessProvenance)  {
+                identifierValue = stmt.getValue(identifierColumns.a);
+                if (identifierValue.isNull) identifierValue = stmt.getValue(identifierColumns.b);
+              }
+
               return (
-                (queryCanAccessProvenance
+                (queryCanAccessProvenance && identifierValue
                   // FIXME: this is really far from idiomatic, try to undo that
-                  && (identifierValue = stmt.getValue(identifierColumn))
                   && !identifierValue.isNull
                   && identifierValue.getString())
                 // maybe batching these queries would perform better but we should
