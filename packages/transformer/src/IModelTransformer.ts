@@ -868,8 +868,9 @@ export class IModelTransformer extends IModelExportHandler {
             IIF(esac.Scope.Id=:targetScopeElement, esac.Identifier, NULL)
           ) AS Identifier1
         */
-        , CASE WHEN esa.Scope.Id = :targetScopeElement THEN esa.Identifier ELSE NULL END AS Identifier1A
-        , CASE WHEN  esa.Scope.Id = 1 /*:targetScopeElement*/ THEN esac.Identifier ELSE NULL END AS Identifier1B
+        , CASE WHEN esa.Scope.Id = ${this.targetScopeElementId} THEN esa.Identifier ELSE NULL END AS Identifier1A
+        -- FIXME: using :targetScopeElement parameter in this second potential identifier breaks ecsql
+        , CASE WHEN esac.Scope.Id = ${this.targetScopeElementId} THEN esac.Identifier ELSE NULL END AS Identifier1B
         , NULL AS Identifier2A
         , NULL AS Identifier2B
         ` : ""}
