@@ -1240,6 +1240,12 @@ export class IModelTransformer extends IModelExportHandler {
     return targetRelationshipProps;
   }
 
+  public override shouldExportElementAspect(aspect: ElementAspect) {
+    // This override is needed to ensure that aspects are not exported if their element is not exported.
+    // This is needed in case DetachedExportElementAspectsStrategy is used.
+    return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
+  }
+
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElementAspect]] and then [IModelImporter.importElementUniqueAspect]($transformer) to update the target iModel.
    */
@@ -1443,6 +1449,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
     await this.exporter.exportModelContents(IModel.repositoryModelId, Element.classFullName, true); // after the Subject hierarchy, process the other elements of the RepositoryModel
     await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
     await this.exporter.exportRelationships(ElementRefersToElements.classFullName);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
     if (this.shouldDetectDeletes()) {
@@ -1684,6 +1691,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize(options);
     await this.exporter.exportChanges(options);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
+    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
 
     if (this._options.optimizeGeometry)
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
