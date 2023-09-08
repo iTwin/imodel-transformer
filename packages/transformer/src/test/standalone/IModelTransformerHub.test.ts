@@ -1694,9 +1694,10 @@ describe("IModelTransformerHub", () => {
       { branch: { 1:deleted } },
       { master: { sync: ["branch"]} },
       { assert({ master, branch }) {
-        for (const db of [branch.db, master.db]) {
-          const elemId = IModelTestUtils.queryByUserLabel(db, "1");
-          expect(elemId, `db ${db.name} did not delete ${elemId}`).to.be.undefined;
+        for (const imodel of [branch, master]) {
+          const elemId = IModelTestUtils.queryByUserLabel(imodel.db, "1");
+          const name = imodel.id === master.id ? "master" : "branch";
+          expect(elemId, `db ${name} did not delete ${elemId}`).to.equal(Id64.invalid);
         }
       }}
     ];
