@@ -1684,9 +1684,9 @@ describe("IModelTransformerHub", () => {
         masterDb.elements.insertAspect({
           classFullName: ExternalSourceAspect.classFullName,
           element: { id: elemId },
-          scope: { id: IModel.rootSubjectId },
+          scope: { id: IModel.dictionaryId },
           // FIXME: change
-          kind: "EL",
+          kind: "Element",
           identifier: "bar code",
         } as ExternalSourceAspectProps);
       }}},
@@ -1694,9 +1694,9 @@ describe("IModelTransformerHub", () => {
       { branch: { 1:deleted } },
       { master: { sync: ["branch"]} },
       { assert({ master, branch }) {
-        for (const db of [master.db, branch.db]) {
+        for (const db of [branch.db, master.db]) {
           const elemId = IModelTestUtils.queryByUserLabel(db, "1");
-          expect(elemId).to.be.undefined;
+          expect(elemId, `db ${db.name} did not delete ${elemId}`).to.be.undefined;
         }
       }}
     ];
