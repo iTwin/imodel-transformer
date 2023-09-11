@@ -1,7 +1,0 @@
-{
-  "type": "minor",
-  "comment": "Add detached ElementAspect exporting",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "Mindaugas.Dirgincius@bentley.com",
-  "dependentChangeType": "patch"
-}

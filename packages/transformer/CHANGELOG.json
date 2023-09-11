@@ -2,6 +2,21 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Mon, 11 Sep 2023 12:37:44 GMT",
+      "tag": "@itwin/imodel-transformer_v0.4.0",
+      "version": "0.4.0",
+      "comments": {
+        "minor": [
+          {
+            "author": "Mindaugas.Dirgincius@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "4c404f3980ec7f4e6a3f3a0b746701e4c6f77d92",
+            "comment": "Add detached ElementAspect exporting"
+          }
+        ]
+      }
+    },
+    {
       "date": "Fri, 18 Aug 2023 23:12:28 GMT",
       "tag": "@itwin/imodel-transformer_v0.3.2",
       "version": "0.3.2",
