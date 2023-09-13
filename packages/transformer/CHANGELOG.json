@@ -2,6 +2,65 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Mon, 11 Sep 2023 12:37:44 GMT",
+      "tag": "@itwin/imodel-transformer_v0.4.0",
+      "version": "0.4.0",
+      "comments": {
+        "minor": [
+          {
+            "author": "Mindaugas.Dirgincius@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "4c404f3980ec7f4e6a3f3a0b746701e4c6f77d92",
+            "comment": "Add detached ElementAspect exporting"
+          }
+        ]
+      }
+    },
+    {
+      "date": "Fri, 18 Aug 2023 23:12:28 GMT",
+      "tag": "@itwin/imodel-transformer_v0.3.2",
+      "version": "0.3.2",
+      "comments": {
+        "patch": [
+          {
+            "author": "deividas.davidavicius@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "8cda406d158b46f57acfc97d7f4be03a4143414f",
+            "comment": "Added a fix for \"Missing id\" and \"ForeignKey constraint\" errors while using onDeleteModel"
+          },
+          {
+            "author": "mike.belousov@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "8cda406d158b46f57acfc97d7f4be03a4143414f",
+            "comment": "bump dependencies to allow all itwin.js 4.x"
+          }
+        ]
+      }
+    },
+    {
+      "date": "Thu, 27 Jul 2023 13:07:39 GMT",
+      "tag": "@itwin/imodel-transformer_v0.3.1",
+      "version": "0.3.1",
+      "comments": {
+        "patch": [
+          {
+            "author": "51540204+simsta6@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "88fd8d15b82bc45e962eedd6fe16323498aa732f",
+            "comment": "Changed shouldDetectDeletes from private to protected"
+          }
+        ],
+        "none": [
+          {
+            "author": "ben-polinsky@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "88fd8d15b82bc45e962eedd6fe16323498aa732f",
+            "comment": "fix ElementGeometryBuilderParams core package link"
+          }
+        ]
+      }
+    },
+    {
       "date": "Tue, 11 Jul 2023 18:59:25 GMT",
       "tag": "@itwin/imodel-transformer_v0.3.0",
       "version": "0.3.0",

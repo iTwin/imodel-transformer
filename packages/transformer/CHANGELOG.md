@@ -1,8 +1,33 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 11 Jul 2023 18:59:25 GMT and should not be manually modified.
+This log was last generated on Mon, 11 Sep 2023 12:37:44 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.4.0
+
+Mon, 11 Sep 2023 12:37:44 GMT
+
+### Minor changes
+
+- Add detached ElementAspect exporting ([commit](https://github.com/iTwin/transformer/commit/4c404f3980ec7f4e6a3f3a0b746701e4c6f77d92))
+
+## 0.3.2
+
+Fri, 18 Aug 2023 23:12:28 GMT
+
+### Patches
+
+- Added a fix for "Missing id" and "ForeignKey constraint" errors while using onDeleteModel ([commit](https://github.com/iTwin/transformer/commit/8cda406d158b46f57acfc97d7f4be03a4143414f))
+- bump dependencies to allow all itwin.js 4.x ([commit](https://github.com/iTwin/transformer/commit/8cda406d158b46f57acfc97d7f4be03a4143414f))
+
+## 0.3.1
+
+Thu, 27 Jul 2023 13:07:39 GMT
+
+### Patches
+
+- Changed shouldDetectDeletes from private to protected ([commit](https://github.com/iTwin/transformer/commit/88fd8d15b82bc45e962eedd6fe16323498aa732f))
 
 ## 0.3.0
 

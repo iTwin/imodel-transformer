@@ -408,6 +408,14 @@ export class IModelTransformer extends IModelExportHandler {
         source: this.sourceDb.changeset.index,
       };
     }
+
+    // this internal is guaranteed stable for just transformer usage
+    /* eslint-disable @itwin/no-internal */
+    if ("codeValueBehavior" in this.sourceDb as any) {
+      (this.sourceDb as any).codeValueBehavior = "exact";
+      (this.targetDb as any).codeValueBehavior = "exact";
+    }
+    /* eslint-enable @itwin/no-internal */
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
@@ -1180,7 +1188,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Returns `true` if *brute force* delete detections should be run.
    * @note Not relevant for processChanges when change history is known.
    */
-  private shouldDetectDeletes(): boolean {
+  protected shouldDetectDeletes(): boolean {
     // FIXME: all synchronizations should mark this as false
     if (this._isFirstSynchronization)
       return false; // not necessary the first time since there are no deletes to detect
@@ -1533,8 +1541,8 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-    if (!Id64.isValid(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
-      // respond the same way to undefined code value as the @see Code class, but don't use that class because is trims
+    if (!Id64.isValidId64(targetElementId) && Id64.isValidId64(targetElementProps.code.scope)) {
+      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
       // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
       targetElementProps.code.value = targetElementProps.code.value ?? "";
       const maybeTargetElementId = this.targetDb.elements.queryElementIdByCode(targetElementProps.code as Required<CodeProps>);
@@ -1635,8 +1643,51 @@ export class IModelTransformer extends IModelExportHandler {
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceEntities]] will find and remap the deleted element making this operation valid
     const targetModelId: Id64String = this.context.findTargetElementId(sourceModelId);
-    if (Id64.isValidId64(targetModelId)) {
+
+    if (!Id64.isValidId64(targetModelId))
+      return;
+
+    if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
+      const isDefinitionPartition = this.targetDb.withPreparedStatement(`
+        SELECT 1
+        FROM bis.DefinitionPartition
+        WHERE ECInstanceId=?
+      `, (stmt) => {
+        stmt.bindId(1, targetModelId);
+        const val: DbResult = stmt.step();
+        switch (val) {
+          case DbResult.BE_SQLITE_ROW: return true;
+          case DbResult.BE_SQLITE_DONE: return false;
+          default: assert(false, `unexpected db result: '${stmt}'`);
+        }
+      });
+      if (isDefinitionPartition) {
+        // Skipping model deletion because model's partition will also be deleted.
+        // It expects that model will be present and will fail if it's missing.
+        // Model will be deleted when its partition will be deleted.
+        return;
+      }
+    }
+
+    try {
       this.importer.deleteModel(targetModelId);
+    } catch (error) {
+      const isDeletionProhibitedErr = error instanceof IModelError && (error.errorNumber === IModelStatus.DeletionProhibited || error.errorNumber === IModelStatus.ForeignKeyConstraint);
+      if (!isDeletionProhibitedErr)
+        throw error;
+
+      // Transformer tries to delete models before it deletes elements. Definition models cannot be deleted unless all of their modeled elements are deleted first.
+      // In case a definition model needs to be deleted we need to skip it for now and register its modeled partition for deletion.
+      // The `OnDeleteElement` calls `DeleteElementTree` Which deletes the model together with its partition after deleting all of the modeled elements.
+      this.scheduleModeledPartitionDeletion(sourceModelId);
+    }
+  }
+
+  /** Schedule modeled partition deletion */
+  private scheduleModeledPartitionDeletion(sourceModelId: Id64String): void {
+    const deletedElements = this.exporter.sourceDbChanges?.element.deleteIds as Set<Id64String>;
+    if (!deletedElements.has(sourceModelId)) {
+      deletedElements.add(sourceModelId);
     }
   }
 
@@ -1812,6 +1863,14 @@ export class IModelTransformer extends IModelExportHandler {
       if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
         ChangeSummaryManager.detachChangeCache(this.sourceDb);
     }
+
+    // this internal is guaranteed stable for just transformer usage
+    /* eslint-disable @itwin/no-internal */
+    if ("codeValueBehavior" in this.sourceDb as any) {
+      (this.sourceDb as any).codeValueBehavior = "trim-unicode-whitespace";
+      (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
+    }
+    /* eslint-enable @itwin/no-internal */
   }
 
   /** Imports all relationships that subclass from the specified base class.
@@ -1943,6 +2002,12 @@ export class IModelTransformer extends IModelExportHandler {
       }
     });
     return targetRelationshipProps;
+  }
+
+  public override shouldExportElementAspect(aspect: ElementAspect) {
+    // This override is needed to ensure that aspects are not exported if their element is not exported.
+    // This is needed in case DetachedExportElementAspectsStrategy is used.
+    return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
   }
 
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
@@ -2233,6 +2298,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
     await this.exporter.exportModelContents(IModel.repositoryModelId, Element.classFullName, true); // after the Subject hierarchy, process the other elements of the RepositoryModel
     await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
     await this.exporter.exportRelationships(ElementRefersToElements.classFullName);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
     if (this.shouldDetectDeletes()) {
@@ -2528,6 +2594,7 @@ export class IModelTransformer extends IModelExportHandler {
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(args));
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
+    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
 
     if (this._options.optimizeGeometry)
       this.importer.optimizeGeometry(this._options.optimizeGeometry);

@@ -1,6 +1,6 @@
-import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
+import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
 import { DbResult, Id64String, Logger, OpenMode } from "@itwin/core-bentley";
-import { Code } from "@itwin/core-common";
+import { Code, ExternalSourceProps, RepositoryLinkProps } from "@itwin/core-common";
 import assert = require("assert");
 import { IModelTransformer } from "./IModelTransformer";
 
@@ -92,7 +92,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterRepoLinkId = new RepositoryLink({
+  const masterRepoLinkId = args.branch.elements.insertElement({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(args.branch, IModelDb.repositoryModelId, "example-code-value"),
     model: IModelDb.repositoryModelId,
@@ -100,9 +100,9 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
     format: "iModel",
     repositoryGuid: args.master.iModelId,
     description: args.masterDescription,
-  }, args.branch).insert();
+  } as RepositoryLinkProps);
 
-  const masterExternalSourceId = new ExternalSource({
+  const masterExternalSourceId = args.branch.elements.insertElement({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
@@ -111,7 +111,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
     connectorName: require("../../package.json").name,
     connectorVersion: require("../../package.json").version,
     /* eslint-enable @typescript-eslint/no-var-requires */
-  }, args.branch).insert();
+  } as ExternalSourceProps);
 
   const fedGuidLessElemsSql = `
     SELECT ECInstanceId AS id

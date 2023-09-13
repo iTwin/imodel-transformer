@@ -9,34 +9,52 @@
  */
 
 import "./setup";
-import assert from "assert";
-import * as path from "path";
 import * as fs from "fs";
+import * as path from "path";
+import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { BriefcaseDb, IModelHost, IModelHostConfiguration } from "@itwin/core-backend";
 import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
-import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { getTestIModels } from "./TestContext";
-import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
-import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
-import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
-import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
+import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { Reporter } from "@itwin/perf-tools";
-import rawInserts from "./rawInserts";
-import { getBranchName } from "./GitUtils";
 import { ReporterInfo } from "./ReporterUtils";
+import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
+import { TestTransformerModule } from "./TestTransformerModule";
+import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { filterIModels, initOutputFile, preFetchAsyncIterator } from "./TestUtils";
+import { getBranchName } from "./GitUtils";
+import { getTestIModels } from "./TestContext";
+import assert from "assert";
+import nativeTransformerTestModule from "./transformers/NativeTransformer";
+import rawForkCreateFedGuidsTestModule from "./transformers/RawForkCreateFedGuids";
+import rawForkOperationsTestModule from "./transformers/RawForkOperations";
+import rawInserts from "./rawInserts";
 
 // cases
 import identityTransformer from "./cases/identity-transformer";
 import prepareFork from "./cases/prepare-fork";
 
 const testCasesMap = new Map([
-  ["identity transform", identityTransformer],
-  ["prepare-fork", prepareFork],
+  ["identity transform (provenance)", { testCase: identityTransformer, functionNameToValidate: "createIdentityTransform" }],
+  ["prepare-fork", { testCase: prepareFork, functionNameToValidate: "createForkInitTransform" }],
 ]);
 
 const loggerCategory = "Transformer Performance Regression Tests";
 const outputDir = path.join(__dirname, ".output");
+
+const loadTransformers = async () => {
+  const modulePaths = process.env.EXTRA_TRANSFORMERS?.split(",").map((name) => name.trim()).filter(Boolean) ?? [];
+  const envSpecifiedExtraTransformerCases = await Promise.all(
+    modulePaths.map(async (m) => [m, (await import(m)).default])
+  ) as [string, TestTransformerModule][];
+  const transformerModules = new Map<string, TestTransformerModule>([
+    ["NativeTransformer", nativeTransformerTestModule],
+    ["RawForkOperations", rawForkOperationsTestModule],
+    ["RawForkCreateFedGuids", rawForkCreateFedGuidsTestModule],
+    ...envSpecifiedExtraTransformerCases,
+  ]);
+  return transformerModules;
+};
 
 const setupTestData = async () => {
   const logLevel = process.env.LOG_LEVEL ? Number(process.env.LOG_LEVEL) : LogLevel.Error;
@@ -51,10 +69,10 @@ const setupTestData = async () => {
 
   let usrEmail;
   let usrPass;
-  if(process.env.V2_CHECKPOINT_USER_NAME){
+  if (process.env.V2_CHECKPOINT_USER_NAME) {
     usrEmail = process.env.V2_CHECKPOINT_USER_NAME;
     usrPass = process.env.V2_CHECKPOINT_USER_PASSWORD;
-  } else if(process.env.V1_CHECKPOINT_USER_NAME){
+  } else if (process.env.V1_CHECKPOINT_USER_NAME) {
     usrEmail = process.env.V1_CHECKPOINT_USER_NAME;
     usrPass = process.env.V1_CHECKPOINT_USER_PASSWORD;
   } else {
@@ -89,7 +107,7 @@ const setupTestData = async () => {
 
   await authClient.signIn();
 
-  const hostConfig  = new IModelHostConfiguration();
+  const hostConfig = new IModelHostConfiguration();
   hostConfig.authorizationClient = authClient;
   const hubClient = new IModelsClient({ api: { baseUrl: `https://${process.env.IMJS_URL_PREFIX}api.bentley.com/imodels` } });
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
@@ -100,9 +118,10 @@ const setupTestData = async () => {
 
 async function runRegressionTests() {
   const testIModels = await setupTestData();
+  const transformerModules = await loadTransformers();
   const reporter = new Reporter();
   const reportPath = initOutputFile("report.csv", outputDir);
-  const branchName =  await getBranchName();
+  const branchName = await getBranchName();
 
   describe("Transformer Regression Tests", function () {
     testIModels.forEach(async (iModel) => {
@@ -132,7 +151,7 @@ async function runRegressionTests() {
             }
           );
           Logger.logInfo(loggerCategory, `Federation Guid Saturation '${fedGuidSaturation}'`);
-          const toGb = (bytes: number) => `${(bytes / 1024 **3).toFixed(2)}Gb`;
+          const toGb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(2)}Gb`;
           const sizeInGb = toGb(fs.statSync(sourceDb.pathName).size);
           Logger.logInfo(loggerCategory, `loaded (${sizeInGb})'`);
           reportInfo = {
@@ -156,13 +175,20 @@ async function runRegressionTests() {
           sourceDb.close(); // closing to ensure connection cache reusage doesn't affect results
         });
 
-        testCasesMap.forEach(async (testCase, key) => {
-          it(key, async () => {
-            await testCase(sourceDb,
-              (...smallReportSubset: [testName: string, iModelName: string, valDescription: string, value: number]) => {
-                reporter.addEntry( ...smallReportSubset, reportInfo );
-              });
-          }).timeout(0);
+        testCasesMap.forEach(async ({testCase, functionNameToValidate}, testCaseName) => {
+          transformerModules.forEach((transformerModule: TestTransformerModule, moduleName: string) => {
+            const moduleFunc = transformerModule[functionNameToValidate as keyof TestTransformerModule];
+            if (moduleFunc) {
+              it(`${testCaseName} on ${moduleName}`, async () => {
+                const addReport = (iModelName: string, valDescription: string, value: number) => {
+                  reporter.addEntry(`${testCaseName} ${moduleName}`, iModelName, valDescription, value, reportInfo);
+                };
+                await testCase({ sourceDb, transformerModule, addReport });
+                // eslint-disable-next-line no-console
+                console.log("Finished the test");
+              }).timeout(0);
+            }
+          });
         });
       });
     });

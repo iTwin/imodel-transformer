@@ -7,14 +7,14 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import * as semver from "semver";
 import {
-  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementRefersToElements,
+  BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, DefinitionContainer, DefinitionModel, DefinitionPartition, deleteElementTree, DisplayStyle3d, ECSqlStatement, Element, ElementGroupsMembers, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
   PhysicalObject, PhysicalPartition, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject, SubjectOwnsPartitionElements, SubjectOwnsSubjects,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, ElementAspectProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, PhysicalElementProps, Placement3d, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, DefinitionElementProps, ElementAspectProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -27,6 +27,7 @@ import { IModelTestUtils } from "../TestUtils";
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
 import { assertElemState, deleted, populateTimelineSeed, runTimeline, Timeline, TimelineIModelState } from "../TestUtils/TimelineTestUtil";
+import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 const { count } = IModelTestUtils;
 
@@ -57,34 +58,31 @@ describe("IModelTransformerHub", () => {
   });
   after(() => HubMock.shutdown());
 
+  const createPopulatedIModelHubIModel = async (iModelName: string, prepareIModel?: (iModel: SnapshotDb) => void | Promise<void>): Promise<string> => {
+    // Create and push seed of IModel
+    const seedFileName = path.join(outputDir, `${iModelName}.bim`);
+    if (IModelJsFs.existsSync(seedFileName))
+      IModelJsFs.removeSync(seedFileName);
+
+    const seedDb = SnapshotDb.createEmpty(seedFileName, { rootSubject: { name: iModelName } });
+    assert.isTrue(IModelJsFs.existsSync(seedFileName));
+    await prepareIModel?.(seedDb);
+    seedDb.saveChanges();
+    seedDb.close();
+
+    const iModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName, description: "source", version0: seedFileName, noLocks: true });
+    return iModelId;
+  };
+
   it("Transform source iModel to target iModel", async () => {
-    // Create and push seed of source IModel
-    const sourceIModelName = "TransformerSource";
-    const sourceSeedFileName = path.join(outputDir, `${sourceIModelName}.bim`);
-    if (IModelJsFs.existsSync(sourceSeedFileName))
-      IModelJsFs.removeSync(sourceSeedFileName);
+    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", async (sourceSeedDb) => {
+      await TestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
+    });
 
-    const sourceSeedDb = SnapshotDb.createEmpty(sourceSeedFileName, { rootSubject: { name: "TransformerSource" } });
-    assert.isTrue(IModelJsFs.existsSync(sourceSeedFileName));
-    await TestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
-    sourceSeedDb.saveChanges();
-    sourceSeedDb.close();
-
-    const sourceIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: sourceIModelName, description: "source", version0: sourceSeedFileName, noLocks: true });
-
-    // Create and push seed of target IModel
-    const targetIModelName = "TransformerTarget";
-    const targetSeedFileName = path.join(outputDir, `${targetIModelName}.bim`);
-    if (IModelJsFs.existsSync(targetSeedFileName)) {
-      IModelJsFs.removeSync(targetSeedFileName);
-    }
-    const targetSeedDb = SnapshotDb.createEmpty(targetSeedFileName, { rootSubject: { name: "TransformerTarget" } });
-    assert.isTrue(IModelJsFs.existsSync(targetSeedFileName));
-    await TransformerExtensiveTestScenario.prepareTargetDb(targetSeedDb);
-    assert.isTrue(targetSeedDb.codeSpecs.hasName("TargetCodeSpec")); // inserted by prepareTargetDb
-    targetSeedDb.saveChanges();
-    targetSeedDb.close();
-    const targetIModelId = await IModelHost.hubAccess.createNewIModel({ iTwinId, iModelName: targetIModelName, description: "target", version0: targetSeedFileName, noLocks: true });
+    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget", async (targetSeedDb) => {
+      await TransformerExtensiveTestScenario.prepareTargetDb(targetSeedDb);
+      assert.isTrue(targetSeedDb.codeSpecs.hasName("TargetCodeSpec")); // inserted by prepareTargetDb
+    });
 
     try {
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
@@ -217,11 +215,11 @@ describe("IModelTransformerHub", () => {
         // expect some deletes from updateDb
         assert.isAtLeast(sourceDbChanges.element.deleteIds.size, 1);
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 1);
+        assert.equal(sourceDbChanges.model.deleteIds.size, 1);
         // don't expect other changes from updateDb
         assert.equal(sourceDbChanges.codeSpec.updateIds.size, 0);
         assert.equal(sourceDbChanges.codeSpec.deleteIds.size, 0);
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
-        assert.equal(sourceDbChanges.model.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
         await transformer.processChanges({ accessToken });
@@ -254,10 +252,10 @@ describe("IModelTransformerHub", () => {
         assert.isAtLeast(targetDbChanges.element.deleteIds.size, 1);
         assert.isAtLeast(targetDbChanges.aspect.deleteIds.size, 0);
         assert.equal(targetDbChanges.relationship.deleteIds.size, 1);
+        assert.equal(targetDbChanges.model.deleteIds.size, 1);
         // don't expect other changes from transforming the result of updateDb
         assert.equal(targetDbChanges.codeSpec.updateIds.size, 0);
         assert.equal(targetDbChanges.codeSpec.deleteIds.size, 0);
-        assert.equal(targetDbChanges.model.deleteIds.size, 0);
       }
 
       const sourceIModelChangeSets = await IModelHost.hubAccess.queryChangesets({ accessToken, iModelId: sourceIModelId });
@@ -1538,6 +1536,75 @@ describe("IModelTransformerHub", () => {
     }
   });
 
+  it("should update aspects when processing changes and detachedAspectProcessing is turned on", async () => {
+    let elementIds: Id64String[] = [];
+    const aspectIds: Id64String[] = [];
+    const sourceIModelId = await createPopulatedIModelHubIModel("TransformerSource", (sourceSeedDb) => {
+      elementIds = [
+        Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject1"),
+        Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject2"),
+      ];
+
+      // 10 aspects in total (5 per element)
+      elementIds.forEach((element) => {
+        for (let i = 0; i < 5; ++i) {
+          const aspectProps: ExternalSourceAspectProps = {
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(element),
+            identifier: `${i}`,
+            kind: "Document",
+            scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" },
+          };
+
+          const aspectId = sourceSeedDb.elements.insertAspect(aspectProps);
+          aspectIds.push(aspectId); // saving for later deletion
+        }
+      });
+    });
+
+    const targetIModelId = await createPopulatedIModelHubIModel("TransformerTarget");
+
+    try {
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: sourceIModelId });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+
+      const exporter = new IModelExporter(sourceDb, DetachedExportElementAspectsStrategy);
+      const transformer = new IModelTransformer(exporter, targetDb, {
+        includeSourceProvenance: true,
+      });
+
+      // run first transformation
+      await transformer.processChanges({ accessToken });
+      await saveAndPushChanges(targetDb, "First transformation");
+
+      const addedAspectProps: ExternalSourceAspectProps = {
+        classFullName: ExternalSourceAspect.classFullName,
+        element: new ElementOwnsExternalSourceAspects(elementIds[0]),
+        identifier: `aspectAddedAfterFirstTransformation`,
+        kind: "Document",
+        scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" },
+      };
+      sourceDb.elements.insertAspect(addedAspectProps);
+
+      await saveAndPushChanges(sourceDb, "Update source");
+
+      await transformer.processChanges({ accessToken, startChangeset: sourceDb.changeset });
+      await saveAndPushChanges(targetDb, "Second transformation");
+
+      const targetElementIds = targetDb.queryEntityIds({ from: Subject.classFullName, where: "Parent.Id != ?", bindings: [IModel.rootSubjectId] });
+      targetElementIds.forEach((elementId) => {
+        const targetAspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+        const sourceAspects = sourceDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+        expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
+        const aspectAddedAfterFirstTransformation = targetAspects.find((aspect) => aspect.identifier === "aspectAddedAfterFirstTransformation");
+        expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
+      });
+    } finally {
+      await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: sourceIModelId });
+      await IModelHost.hubAccess.deleteIModel({ iTwinId, iModelId: targetIModelId });
+    }
+  });
+
   // will fix in separate PR, tracked here: https://github.com/iTwin/imodel-transformer/issues/27
   it.skip("should delete definition elements when processing changes", async () => {
     let spatialViewDef: SpatialViewDefinition;
@@ -1551,7 +1618,7 @@ describe("IModelTransformerHub", () => {
             const categorySelectorId = CategorySelector.insert(db, IModelDb.dictionaryId, "categorySelector", []);
             displayStyle = DisplayStyle3d.create(db, IModelDb.dictionaryId, "displayStyle");
             const displayStyleId = displayStyle.insert();
-            spatialViewDef = new SpatialViewDefinition({
+            db.elements.insertElement({
               classFullName: SpatialViewDefinition.classFullName,
               model: IModelDb.dictionaryId,
               code: Code.createEmpty().toJSON(),
@@ -1567,8 +1634,7 @@ describe("IModelTransformerHub", () => {
               displayStyleId,
               categorySelectorId,
               modelSelectorId,
-            }, db);
-            spatialViewDef.insert();
+            } as SpatialViewDefinitionProps);
           },
         },
       },
@@ -1704,6 +1770,98 @@ describe("IModelTransformerHub", () => {
 
     const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
     await tearDown();
+  });
+
+  it("should delete definition elements and models when processing changes", async () => {
+    let definitionPartitionId1: string;
+    let definitionPartitionModelId1: string;
+    let definitionPartitionId2: string;
+    let definitionPartitionModelId2: string;
+    let definitionContainerId1: string;
+    let definitionContainerModelId1: string;
+
+    const timeline: Timeline = {
+      0: {
+        master: {
+          manualUpdate(db) {
+            const definitionPartitionProps: InformationPartitionElementProps = {
+              classFullName: DefinitionPartition.classFullName,
+              model: IModel.repositoryModelId,
+              parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+              code: Code.createEmpty(),
+            };
+            definitionPartitionId1 = db.elements.insertElement(definitionPartitionProps);
+            definitionPartitionId2 = db.elements.insertElement(definitionPartitionProps);
+
+            const definitionModelProps1: ModelProps = {
+              classFullName: DefinitionModel.classFullName,
+              modeledElement: { id: definitionPartitionId1 },
+              parentModel: IModel.repositoryModelId,
+            };
+            definitionPartitionModelId1 = db.models.insertModel(definitionModelProps1);
+
+            const definitionModelProps2: ModelProps = {
+              classFullName: DefinitionModel.classFullName,
+              modeledElement: { id: definitionPartitionId2 },
+              parentModel: IModel.repositoryModelId,
+            };
+            definitionPartitionModelId2 = db.models.insertModel(definitionModelProps2);
+
+            const definitionContainerProps1: DefinitionElementProps = {
+              classFullName: DefinitionContainer.classFullName,
+              model: definitionPartitionModelId1,
+              code: Code.createEmpty(),
+            };
+            definitionContainerId1 = db.elements.insertElement(definitionContainerProps1);
+
+            const definitionModelProps3: ModelProps = {
+              classFullName: DefinitionModel.classFullName,
+              modeledElement: { id: definitionContainerId1 },
+              parentModel: definitionPartitionModelId1,
+            };
+            definitionContainerModelId1 = db.models.insertModel(definitionModelProps3);
+          },
+        },
+      },
+      1: { branch: { branch: "master" } },
+      2: {
+        master: {
+          manualUpdate(db) {
+            db.models.deleteModel(definitionContainerModelId1);
+            db.models.deleteModel(definitionPartitionModelId1);
+          },
+        },
+      },
+      3: { branch: { sync: ["master", { since: 2 }] } },
+      4: {
+        master: {
+          manualUpdate(db) {
+            db.models.deleteModel(definitionPartitionModelId2);
+          },
+        },
+      },
+      5: { branch: { sync: ["master", { since: 4 }] } },
+    };
+
+    const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+
+    const master = trackedIModels.get("master")!;
+    const branch = trackedIModels.get("branch")!;
+
+    expect(master.db.models.tryGetModel(definitionContainerModelId1!)).to.be.undefined;
+    expect(master.db.elements.tryGetElement(definitionContainerId1!)).to.be.undefined;
+    expect(master.db.models.tryGetModel(definitionPartitionModelId1!)).to.be.undefined;
+    expect(master.db.elements.tryGetElement(definitionPartitionId2!)).to.not.be.undefined;
+    expect(master.db.models.tryGetModel(definitionPartitionModelId2!)).to.be.undefined;
+
+    expect(branch.db.models.tryGetModel(definitionContainerModelId1!)).to.be.undefined;
+    expect(branch.db.elements.tryGetElement(definitionContainerId1!)).to.be.undefined;
+    expect(branch.db.models.tryGetModel(definitionPartitionModelId1!)).to.be.undefined;
+    expect(branch.db.elements.tryGetElement(definitionPartitionId2!)).to.not.be.undefined;
+    expect(branch.db.models.tryGetModel(definitionPartitionModelId2!)).to.be.undefined;
+
+    await tearDown();
+    sinon.restore();
   });
 });
 
