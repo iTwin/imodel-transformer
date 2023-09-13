@@ -1832,7 +1832,7 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      3: { branch: { sync: ["master", { since: 2 }] } },
+      3: { branch: { sync: ["master"] } },
       4: {
         master: {
           manualUpdate(db) {
@@ -1840,7 +1840,7 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      5: { branch: { sync: ["master", { since: 4 }] } },
+      5: { branch: { sync: ["master"] } },
     };
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });

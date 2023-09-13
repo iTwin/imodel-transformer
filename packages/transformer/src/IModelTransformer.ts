@@ -839,7 +839,8 @@ export class IModelTransformer extends IModelExportHandler {
     this._deletedSourceRelationshipData = new Map();
 
     nodeAssert(this._changeSummaryIds, "change summaries should be initialized before we get here");
-    nodeAssert(this._changeSummaryIds.length > 0, "change summaries should have at least one");
+    if (this._changeSummaryIds.length === 0)
+      return;
 
     const alreadyImportedElementInserts = new Set<Id64String> ();
     const alreadyImportedModelInserts = new Set<Id64String> ();
