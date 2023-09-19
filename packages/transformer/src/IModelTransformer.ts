@@ -391,19 +391,22 @@ export class IModelTransformer extends IModelExportHandler {
     targetElementId: Id64String,
     args: {
       sourceDb: IModelDb;
+      targetDb: IModelDb;
       isReverseSynchronization: boolean;
       targetScopeElementId: Id64String;
     },
   ): ExternalSourceAspectProps {
     const elementId = args.isReverseSynchronization ? sourceElementId : targetElementId;
-    const aspectIdentifier = args.isReverseSynchronization ? targetElementId : sourceElementId;
+    const version = args.isReverseSynchronization
+      ? args.targetDb.elements.queryLastModifiedTime(targetElementId)
+      : args.sourceDb.elements.queryLastModifiedTime(sourceElementId);   const aspectIdentifier = args.isReverseSynchronization ? targetElementId : sourceElementId;
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
       scope: { id: args.targetScopeElementId },
       identifier: aspectIdentifier,
       kind: ExternalSourceAspect.Kind.Element,
-      version: args.sourceDb.elements.queryLastModifiedTime(sourceElementId),
+      version,
     };
     return aspectProps;
   }
@@ -417,6 +420,7 @@ export class IModelTransformer extends IModelExportHandler {
         isReverseSynchronization: !!this._options.isReverseSynchronization,
         targetScopeElementId: this.targetScopeElementId,
         sourceDb: this.sourceDb,
+        targetDb: this.targetDb,
       },
     );
   }
