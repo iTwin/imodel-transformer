@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "revert to original behavior of provenance ExternalSourceAspect version behavior",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "mike.belousov@bentley.com",
+  "dependentChangeType": "patch"
+}
