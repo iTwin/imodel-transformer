@@ -399,7 +399,8 @@ export class IModelTransformer extends IModelExportHandler {
     const elementId = args.isReverseSynchronization ? sourceElementId : targetElementId;
     const version = args.isReverseSynchronization
       ? args.targetDb.elements.queryLastModifiedTime(targetElementId)
-      : args.sourceDb.elements.queryLastModifiedTime(sourceElementId);   const aspectIdentifier = args.isReverseSynchronization ? targetElementId : sourceElementId;
+      : args.sourceDb.elements.queryLastModifiedTime(sourceElementId);
+    const aspectIdentifier = args.isReverseSynchronization ? targetElementId : sourceElementId;
     const aspectProps: ExternalSourceAspectProps = {
       classFullName: ExternalSourceAspect.classFullName,
       element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
