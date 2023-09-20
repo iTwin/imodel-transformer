@@ -1869,7 +1869,7 @@ describe("IModelTransformerHub", () => {
       { master: { 1:1 } },
       { branch: { branch: "master" } },
       { branch: { 1:2 } },
-      { master: { sync: ["branch", 1] } },
+      { master: { sync: ["branch"] } },
       { assert({ master, branch }) {
         const elem1InMaster = TestUtils.IModelTestUtils.queryByUserLabel(master.db, "1");
         expect(elem1InMaster).not.to.be.undefined;
@@ -1883,7 +1883,11 @@ describe("IModelTransformerHub", () => {
       }},
     ];
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      transformerOpts: { forceExternalSourceAspectProvenance: true }
+    });
 
     await tearDown();
     sinon.restore();
