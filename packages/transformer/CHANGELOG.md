@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Mon, 11 Sep 2023 12:37:44 GMT and should not be manually modified.
+This log was last generated on Wed, 20 Sep 2023 15:35:21 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.4.1
+
+Wed, 20 Sep 2023 15:35:21 GMT
+
+### Patches
+
+- revert to original behavior of provenance ExternalSourceAspect version behavior ([commit](https://github.com/iTwin/transformer/commit/46373c33920c763ba3eb866fc415e433aa0952e6))
 
 ## 0.4.0
 
