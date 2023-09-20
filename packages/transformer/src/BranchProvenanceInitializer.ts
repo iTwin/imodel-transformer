@@ -126,6 +126,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
       sourceDb: args.master,
+      targetDb: args.branch,
     });
     args.branch.elements.insertAspect(aspectProps);
   }
