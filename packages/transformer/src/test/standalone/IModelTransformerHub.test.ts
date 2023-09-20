@@ -1015,5 +1015,30 @@ describe("IModelTransformerHub", () => {
     await tearDown();
     sinon.restore();
   });
+
+  it("should use the lastMod of provenanceDb's element as the provenance aspect version", async () => {
+    const timeline: Timeline = [
+      { master: { 1:1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1:2 } },
+      { master: { sync: ["branch", 1] } },
+      { assert({ master, branch }) {
+        const elem1InMaster = TestUtils.IModelTestUtils.queryByUserLabel(master.db, "1");
+        expect(elem1InMaster).not.to.be.undefined;
+        const elem1InBranch = TestUtils.IModelTestUtils.queryByUserLabel(branch.db, "1");
+        expect(elem1InBranch).not.to.be.undefined;
+        const lastModInMaster = master.db.elements.queryLastModifiedTime(elem1InMaster);
+
+        const physElem1Esas = branch.db.elements.getAspects(elem1InBranch, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+        expect(physElem1Esas).to.have.lengthOf(1);
+        expect(physElem1Esas[0].version).to.equal(lastModInMaster);
+      }},
+    ];
+
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+
+    await tearDown();
+    sinon.restore();
+  });
 });
 
