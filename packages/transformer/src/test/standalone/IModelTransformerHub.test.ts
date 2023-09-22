@@ -4,17 +4,18 @@
 *--------------------------------------------------------------------------------------------*/
 
 import { assert, expect } from "chai";
+import * as fs from "fs";
 import * as path from "path";
 import * as semver from "semver";
 import {
   BisCoreSchema, BriefcaseDb, BriefcaseManager, CategorySelector, DefinitionContainer, DefinitionModel, DefinitionPartition, deleteElementTree, DisplayStyle3d, Element, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementRefersToElements,
   ExternalSourceAspect, GenericSchema, HubMock, IModelDb, IModelHost, IModelJsFs, IModelJsNative, ModelSelector, NativeLoggerCategory, PhysicalModel,
-  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, Subject, SubjectOwnsPartitionElements,
+  PhysicalObject, SnapshotDb, SpatialCategory, SpatialViewDefinition, SQLiteDb, Subject, SubjectOwnsPartitionElements,
 } from "@itwin/core-backend";
 
 import * as TestUtils from "../TestUtils";
-import { AccessToken, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, DefinitionElementProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
+import { AccessToken, DbResult, Guid, GuidString, Id64, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
+import { BriefcaseIdValue, ChangesetFileProps, Code, ColorDef, DefinitionElementProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -1039,6 +1040,114 @@ describe("IModelTransformerHub", () => {
 
     await tearDown();
     sinon.restore();
+  });
+
+  // unskip this and set the env vars "REMOTE_IMODEL_DIR" to a path and "FORK_CHANGSET_ID" to a
+  // changeset id, to locally test synchronizing an remote iModel to a fork
+  // You must have used some kind of imodel-downloader tool to have all changesets stored locally
+  it.only("should test transforming a remote iModel to local", async () => {
+    const forkChangesetId = process.env.FORK_CHANGESET_ID;
+    assert(forkChangesetId, "FORK_CHANGSET_ID env var not set");
+
+    const remoteIModelDir = process.env.REMOTE_IMODEL_DIR;
+    assert(remoteIModelDir, "This test requires the REMOTE_IMODEL_DIR env variable to be set");
+    assert(fs.existsSync(remoteIModelDir), "REMOTE_IMODEL_DIR points to a non existent path");
+    const dirContents = await fs.promises.readdir(remoteIModelDir);
+    assert(dirContents);
+
+    const seedFileName = dirContents.find((f) => f.endsWith(".bim"));
+    assert(seedFileName, "no seed file (.bim) in REMOTE_IMODEL_DIR");
+    const seedPath = path.join(remoteIModelDir, seedFileName);
+
+    const changesetsPath = path.join(remoteIModelDir, "changeSets");
+    assert(fs.existsSync(remoteIModelDir), "no changeSets directory in REMOTE_IMODEL_DIR");
+
+    const changesetsDataPath = path.join(remoteIModelDir, "changeSets.json");
+    const changesetsDataText = await fs.promises.readFile(changesetsDataPath, { encoding: "utf8" });
+    const changesetsData = JSON.parse(changesetsDataText) as ChangesetFileProps[];
+
+    let remoteITwinId!: string;
+
+    const seedRawDb = new SQLiteDb();
+    seedRawDb.withOpenDb({ dbName: seedPath }, () => {
+      remoteITwinId = seedRawDb.withSqliteStatement(
+        "SELECT Data FROM be_Prop WHERE Namespace='be_Db' AND Name='ProjectGuid'",
+        (stmt) => {
+          assert(stmt.step() === DbResult.BE_SQLITE_ROW, seedRawDb.nativeDb.getLastError());
+          return stmt.getValueGuid(0);
+        },
+      );
+    });
+    seedRawDb.closeDb();
+
+    let sourceIModelId: string | undefined;
+    let targetIModelId: string | undefined;
+    try {
+      sourceIModelId = await HubMock.createNewIModel({
+        iTwinId: remoteITwinId,
+        version0: seedPath,
+        iModelName: "remoteIModelMaster",
+      });
+
+      const modelHub = HubMock.findLocalHub(sourceIModelId);
+
+      changesetsData.forEach((changeset) => {
+        const pathname = path.resolve(changesetsPath, `${changeset.id}.cs`);
+        const briefcases = modelHub.getBriefcases();
+        const briefcaseExists = briefcases.some((b) => b.id === changeset.briefcaseId);
+        if (!briefcaseExists) {
+          const MAX_BRIEFCASES = Number(process.env.MAX_REMOTE_IMODEL_BRIEFCASES) || 1000;
+          for (let i = 0; i < MAX_BRIEFCASES; ++i) {
+            const newBriefcase = modelHub.acquireNewBriefcaseId("test");
+            if (newBriefcase >= changeset.briefcaseId)
+              break;
+          }
+        }
+        // NOTE: local download seems to be missing the "size" property
+        modelHub.addChangeset({ ...changeset, pathname });
+      });
+
+      // FIXME: technically don't need to open it at all, just download it
+      const forkPointDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId: remoteITwinId,
+        iModelId: sourceIModelId,
+        // FIXME: I want _exact_
+        asOf: { afterChangeSetId: forkChangesetId },
+        briefcaseId: BriefcaseIdValue.Unassigned,
+      });
+
+      targetIModelId = await IModelHost.hubAccess.createNewIModel({
+        iTwinId: remoteITwinId,
+        version0: forkPointDb.pathName,
+        iModelName: "amalgam-model",
+      });
+
+      forkPointDb.close();
+
+      const branchDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+
+      const forkInitializer = new IModelTransformer(forkPointDb, branchDb, { wasSourceIModelCopiedToTarget: true });
+      await forkInitializer.processAll();
+      forkInitializer.dispose();
+
+      const masterDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId: remoteITwinId,
+        iModelId: sourceIModelId,
+        briefcaseId: BriefcaseIdValue.Unassigned,
+      });
+
+      const forwardSyncer = new IModelTransformer(masterDb, branchDb);
+      forwardSyncer.processChanges({ accessToken, startChangeset: forkChangesetId });
+
+
+      masterDb.close();
+      branchDb.close();
+    } finally {
+      sourceIModelId && await IModelHost.hubAccess.deleteIModel({ iTwinId: remoteITwinId, iModelId: sourceIModelId });
+      targetIModelId && await IModelHost.hubAccess.deleteIModel({ iTwinId: remoteITwinId, iModelId: targetIModelId });
+    }
   });
 });
 
