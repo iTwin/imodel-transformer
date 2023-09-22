@@ -25,7 +25,7 @@ module.exports = {
   },
   overrides: [
     {
-      files: "",
+      files: "./src/test",
       rules: {
         "@itwin/no-internal": ["off"],
       },
