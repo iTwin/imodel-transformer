@@ -1042,12 +1042,12 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
-  // unskip this and set the env vars "REMOTE_IMODEL_DIR" to a path and "FORK_CHANGSET_ID" to a
+  // unskip this and set the env vars "REMOTE_IMODEL_DIR" to a path and "FORK_CHANGESET_ID" to a
   // changeset id, to locally test synchronizing an remote iModel to a fork
   // You must have used some kind of imodel-downloader tool to have all changesets stored locally
   it.only("should test transforming a remote iModel to local", async () => {
     const forkChangesetId = process.env.FORK_CHANGESET_ID;
-    assert(forkChangesetId, "FORK_CHANGSET_ID env var not set");
+    assert(forkChangesetId, "FORK_CHANGESET_ID env var not set");
 
     const remoteIModelDir = process.env.REMOTE_IMODEL_DIR;
     assert(remoteIModelDir, "This test requires the REMOTE_IMODEL_DIR env variable to be set");
@@ -1087,6 +1087,7 @@ describe("IModelTransformerHub", () => {
         iTwinId: remoteITwinId,
         version0: seedPath,
         iModelName: "remoteIModelMaster",
+        noLocks: true,
       });
 
       const modelHub = HubMock.findLocalHub(sourceIModelId);
@@ -1121,11 +1122,10 @@ describe("IModelTransformerHub", () => {
         iTwinId: remoteITwinId,
         version0: forkPointDb.pathName,
         iModelName: "amalgam-model",
+        noLocks: true,
       });
 
-      forkPointDb.close();
-
-      const branchDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetIModelId });
+      const branchDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId: remoteITwinId, iModelId: targetIModelId });
 
       const forkInitializer = new IModelTransformer(forkPointDb, branchDb, { wasSourceIModelCopiedToTarget: true });
       await forkInitializer.processAll();
@@ -1135,13 +1135,13 @@ describe("IModelTransformerHub", () => {
         accessToken,
         iTwinId: remoteITwinId,
         iModelId: sourceIModelId,
-        briefcaseId: BriefcaseIdValue.Unassigned,
+        //briefcaseId: BriefcaseIdValue.Unassigned,
       });
 
-      const forwardSyncer = new IModelTransformer(masterDb, branchDb);
-      forwardSyncer.processChanges({ accessToken, startChangeset: forkChangesetId });
+      const forwardSyncer = new IModelTransformer(masterDb, branchDb,);
+      await forwardSyncer.processChanges({ accessToken, startChangeset: { id: forkChangesetId } });
 
-
+      forkPointDb.close();
       masterDb.close();
       branchDb.close();
     } finally {
