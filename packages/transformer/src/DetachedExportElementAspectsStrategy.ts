@@ -84,7 +84,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       if(this.excludedElementAspectClassFullNames.has(className))
         continue;
 
-      const getAspectPropsSql = `SELECT * FROM ${className} WHERE ECClassId = :classId ORDER BY Element.Id`;
+      const getAspectPropsSql = `SELECT * FROM ${className.replace(/:(.+)/, ":[$1]")} WHERE ECClassId = :classId ORDER BY Element.Id`;
       const aspectQueryReader = this.sourceDb.createQueryReader(getAspectPropsSql, new QueryBinder().bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
       const aspectAsyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(aspectQueryReader);
       let firstDone = false;
