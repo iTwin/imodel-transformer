@@ -2637,7 +2637,7 @@ describe("IModelTransformer", () => {
       }
       const targetAspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
       const sourceAspects = sourceDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
-      expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
+      expect(targetAspects.length).to.be.equal(sourceAspects.length);
     });
   });
 
