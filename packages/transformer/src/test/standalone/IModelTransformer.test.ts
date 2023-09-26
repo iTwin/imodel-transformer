@@ -2565,7 +2565,7 @@ describe("IModelTransformer", () => {
     });
   });
 
-  it("should transform all aspects when detachedAspectProcessing is turned on and there is aspect class name with reserved SQLite keyword", async () => {
+  it("should transform all aspects when detachedAspectProcessing is turned on and schema name and aspect class name has SQLite reserved keyword", async () => {
     // arrange
     // prepare source
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessingWithReservedSQLiteKeyword.bim");
@@ -2575,7 +2575,7 @@ describe("IModelTransformer", () => {
       Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
     ];
     const customSchema = `<?xml version="1.0" encoding="UTF-8"?>
-    <ECSchema schemaName="CustomSchema" alias="cs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1" description="Custom schema to test aspect class which has SQLite reserved keyword as its name">
+    <ECSchema schemaName="SELECT" alias="cs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1" description="Custom schema to test aspect class which has SQLite reserved keyword as its name">
       <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
       <ECEntityClass typeName="JOIN" modifier="Sealed" description="Aspect class with SQLite reserved keyword">
         <BaseClass>bis:ElementMultiAspect</BaseClass>
@@ -2588,7 +2588,7 @@ describe("IModelTransformer", () => {
     elements.forEach((element) => {
       for (let i = 0; i < 5; ++i) {
         const aspectProps: ElementAspectProps = {
-          classFullName: "CustomSchema:JOIN",
+          classFullName: "SELECT:JOIN",
           element: new ElementOwnsMultiAspects(element),
         };
 
