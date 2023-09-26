@@ -65,7 +65,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
   }
 
   private async *queryAspects<T extends ElementAspect>(baseElementAspectClassFullName: string) {
-    const aspectClassNameIdMap = new Map<Id64String, { schemaName: string; className: string; }>();
+    const aspectClassNameIdMap = new Map<Id64String, { schemaName: string, className: string }>();
 
     const optimizesAspectClassesSql = `
       SELECT c.ECInstanceId as classId, (ec_className(c.ECInstanceId, 's')) as schemaName, (ec_className(c.ECInstanceId, 'c')) as className
