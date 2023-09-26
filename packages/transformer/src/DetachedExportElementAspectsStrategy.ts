@@ -65,10 +65,10 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
   }
 
   private async *queryAspects<T extends ElementAspect>(baseElementAspectClassFullName: string) {
-    const aspectClassNameIdMap = new Map<string, Id64String>();
+    const aspectClassNameIdMap = new Map<Id64String, { schemaName: string, className: string }>();
 
     const optimizesAspectClassesSql = `
-      SELECT c.ECInstanceId as classId, (ec_className(c.ECInstanceId, 's:c')) as className
+      SELECT c.ECInstanceId as classId, (ec_className(c.ECInstanceId, 's')) as schemaName, (ec_className(c.ECInstanceId, 'c')) as className
       FROM ECDbMeta.ClassHasAllBaseClasses r
       JOIN ECDbMeta.ECClassDef c ON c.ECInstanceId = r.SourceECInstanceId
       WHERE r.TargetECInstanceId = ec_classId(:baseClassName)
@@ -77,20 +77,21 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
     const aspectClassesAsyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(aspectClassesQueryReader);
     for await (const rowProxy of aspectClassesAsyncQueryReader) {
       const row = rowProxy.toRow();
-      aspectClassNameIdMap.set(row.className, row.classId);
+      aspectClassNameIdMap.set(row.classId, { schemaName: row.schemaName, className: row.className });
     }
 
-    for (const [className, classId] of aspectClassNameIdMap) {
-      if(this.excludedElementAspectClassFullNames.has(className))
+    for (const [classId, { schemaName, className }] of aspectClassNameIdMap) {
+      const classFullName = `${schemaName}:${className}`;
+      if(this.excludedElementAspectClassFullNames.has(classFullName))
         continue;
 
-      const getAspectPropsSql = `SELECT * FROM ${className} WHERE ECClassId = :classId ORDER BY Element.Id`;
+      const getAspectPropsSql = `SELECT * FROM [${schemaName}]:[${className}] WHERE ECClassId = :classId ORDER BY Element.Id`;
       const aspectQueryReader = this.sourceDb.createQueryReader(getAspectPropsSql, new QueryBinder().bindId("classId", classId), { rowFormat: QueryRowFormat.UseJsPropertyNames });
       const aspectAsyncQueryReader = ensureECSqlReaderIsAsyncIterableIterator(aspectQueryReader);
       let firstDone = false;
       for await (const rowProxy of aspectAsyncQueryReader) {
         const row = rowProxy.toRow();
-        const aspectProps: ElementAspectProps = { ...row, classFullName: className, className: undefined }; // add in property required by EntityProps
+        const aspectProps: ElementAspectProps = { ...row, classFullName, className: undefined }; // add in property required by EntityProps
         if (!firstDone) {
           firstDone = true;
         }

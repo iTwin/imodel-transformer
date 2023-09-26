@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Fix aspect queries when class name is reserved SQLite keyword",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "Mindaugas.Dirgincius@bentley.com",
+  "dependentChangeType": "patch"
+}
