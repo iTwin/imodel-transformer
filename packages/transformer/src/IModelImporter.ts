@@ -5,13 +5,13 @@
 /** @packageDocumentation
  * @module iModels
  */
-import { CompressedId64Set, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
+import { CompressedId64Set, DbResult, Guid, GuidString, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, Base64EncodedString, ElementAspectProps, ElementProps, EntityProps, IModel, IModelError, ModelProps, PrimitiveTypeCode,
   PropertyMetaData, RelatedElement, SubCategoryProps,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { ElementAspect, ElementMultiAspect, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
+import { ECSqlStatement, Element, ElementAspect, ElementMultiAspect, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
 import type { IModelTransformOptions } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
@@ -44,6 +44,11 @@ export interface IModelImportOptions {
    * @default false
    */
   simplifyElementGeometry?: boolean;
+  /** If 'true', try to handle duplicate code value changes by prefixing them with a guid value.
+   * Prefixes can be removed by calling [[IModelImporter.resolveDuplicateCodeValues]].
+   * @default false
+   */
+  handleElementCodeDuplicates?: boolean;
 }
 
 /** Base class for importing data into an iModel.
@@ -98,6 +103,26 @@ export class IModelImporter implements Required<IModelImportOptions> {
 
   private static _realityDataSourceLinkPartitionStaticId: Id64String = "0xe";
 
+  private _duplicateCodeValuePrefix?: GuidString;
+  /**
+   * A guid string that is used to prefix duplicate code values when performing element updates.
+   * The duplicate code value prefixing solves an issue when an element update fails because of a duplicate Element CodeValue in cases where
+   * the duplicate target element is set to be deleted in the future, or when elements are switching code values with one another and we need a temporary code value.
+   * To remove prefixes call [[IModelImporter.resolveDuplicateCodeValues]].
+   *
+   * @returns undefined if no duplicates were detected.
+   */
+  public get duplicateCodeValuePrefix(): GuidString | undefined {
+    return this._duplicateCodeValuePrefix;
+  }
+
+  public get handleElementCodeDuplicates(): boolean {
+    return this.options.handleElementCodeDuplicates;
+  }
+  public set handleElementCodeDuplicates(val: boolean) {
+    this.options.handleElementCodeDuplicates = val;
+  }
+
   /** The set of elements that should not be updated by this IModelImporter.
    * Defaults to the elements that are always present (even in an "empty" iModel) and therefore do not need to be updated
    * @note Adding an element to this set is typically necessary when remapping a source element to one that already exists in the target and already has the desired properties.
@@ -126,6 +151,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
       autoExtendProjectExtents: options?.autoExtendProjectExtents ?? true,
       preserveElementIdsForFiltering: options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
+      handleElementCodeDuplicates: options?.handleElementCodeDuplicates ?? false,
     };
   }
 
@@ -207,7 +233,14 @@ export class IModelImporter implements Required<IModelImportOptions> {
       }
     } else {
       if (undefined !== elementProps.id) {
-        this.onUpdateElement(elementProps);
+        try {
+          this.onUpdateElement(elementProps);
+        } catch(err) {
+          if (this.handleElementCodeDuplicates && (err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
+            this.prefixCode(elementProps);
+            this.onUpdateElement(elementProps);
+          }
+        }
       } else {
         this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
@@ -582,6 +615,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
     // TODO: fix upstream, looks like a bad case for the linter rule when casting away readonly for this generic
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     (this.doNotUpdateElementIds as Set<Id64String>) = CompressedId64Set.decompressSet(state.doNotUpdateElementIds);
+    this._duplicateCodeValuePrefix = state.duplicateCodeValuePrefix;
     this.loadAdditionalStateJson(state.additionalState);
   }
 
@@ -597,8 +631,35 @@ export class IModelImporter implements Required<IModelImportOptions> {
       options: this.options,
       targetDbId: this.targetDb.iModelId || this.targetDb.nativeDb.getFilePath(),
       doNotUpdateElementIds: CompressedId64Set.compressSet(this.doNotUpdateElementIds),
+      duplicateCodeValuePrefix: this._duplicateCodeValuePrefix,
       additionalState: this.getAdditionalStateJson(),
     };
+  }
+
+  public resolveDuplicateCodeValues(): void {
+    if (!this.handleElementCodeDuplicates || !this._duplicateCodeValuePrefix)
+      return;
+
+    this.targetDb.withPreparedStatement(`SELECT ECInstanceId FROM ${Element.classFullName} WHERE CodeValue LIKE '${this._duplicateCodeValuePrefix}%'`, (stmt: ECSqlStatement) => {
+      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const element = this.targetDb.elements.getElement(stmt.getValue(0).getId());
+        this.removeCodePrefix(element);
+        element.update();
+      }
+    });
+    this._duplicateCodeValuePrefix = undefined;
+  }
+
+  private prefixCode(elementProps: ElementProps){
+    if (!this._duplicateCodeValuePrefix)
+      this._duplicateCodeValuePrefix = Guid.createValue();
+    elementProps.code.value = `${this._duplicateCodeValuePrefix}${elementProps.code.value}`;
+  }
+
+  private removeCodePrefix(element: Element): void {
+    if(!this._duplicateCodeValuePrefix)
+      return;
+    element.code.value = element.code.value.substring(this._duplicateCodeValuePrefix.length);
   }
 }
 
@@ -615,6 +676,7 @@ export interface IModelImporterState {
   options: IModelImportOptions;
   targetDbId: string;
   doNotUpdateElementIds: CompressedId64Set;
+  duplicateCodeValuePrefix?: GuidString;
   additionalState?: any;
 }
 

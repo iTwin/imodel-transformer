@@ -1765,7 +1765,7 @@ describe("IModelTransformerHub", () => {
           const name = imodel.id === master.id ? "master" : "branch";
           expect(elemId, `db ${name} did not delete ${elemId}`).to.equal(Id64.invalid);
         }
-      }}
+      }},
     ];
 
     const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
@@ -1891,6 +1891,46 @@ describe("IModelTransformerHub", () => {
 
     await tearDown();
     sinon.restore();
+  });
+
+  it.only("should successfully process changes when codeValues are switched around between elements", async () => {
+    const timeline: Timeline = [
+      { master: { 1:1, 2:2, 3:3 } },
+      { branch: { branch: "master" } },
+      { master: { manualUpdate(masterDb) {
+        const elem1Id = IModelTestUtils.queryByCodeValue(masterDb, "1");
+        const elem2Id = IModelTestUtils.queryByCodeValue(masterDb, "2");
+        const elem3Id = IModelTestUtils.queryByCodeValue(masterDb, "3");
+        const elem1 = masterDb.elements.getElement(elem1Id);
+        const elem2 = masterDb.elements.getElement(elem2Id);
+        const elem3 = masterDb.elements.getElement(elem3Id);
+        elem1.code.value = "tempValue"; // need a temp value to avoid conflicts
+        elem1.update();
+        elem2.code.value = "1";
+        elem2.update();
+        elem3.code.value = "2";
+        elem3.update();
+        elem1.code.value = "3";
+        elem1.update();
+      }}},
+      { branch: { sync: ["master"]} },
+      { assert({ master, branch }) {
+        for (const iModel of [branch, master]) {
+          const elem1Id = IModelTestUtils.queryByCodeValue(iModel.db, "1");
+          const elem2Id = IModelTestUtils.queryByCodeValue(iModel.db, "2");
+          const elem3Id = IModelTestUtils.queryByCodeValue(iModel.db, "3");
+          const elem1 = iModel.db.elements.getElement(elem1Id);
+          const elem2 = iModel.db.elements.getElement(elem2Id);
+          const elem3 = iModel.db.elements.getElement(elem3Id);
+          expect(elem1.userLabel).to.equal("2");
+          expect(elem2.userLabel).to.equal("3");
+          expect(elem3.userLabel).to.equal("1");
+        }
+      }},
+    ];
+
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken, transformerOpts: { handleElementCodeDuplicates: true } });
+    await tearDown();
   });
 });
 

@@ -180,6 +180,14 @@ export interface IModelTransformOptions {
    * @default false
    */
   ignoreMissingChangesetsInSynchronizations?: boolean;
+
+  /**
+   * Prefix duplicate code values with a temporary guid value when performing an element update.
+   * The duplicate code value prefixing solves an issue when an element update fails because of a duplicate Element CodeValue in cases where
+   * the duplicate target element is set to be deleted in the future, or when elements are switching code values with one another and we need a temporary code value.
+   * These prefixes will be removed during [[finalizeTransformation]].
+   */
+  handleElementCodeDuplicates?: boolean;
 }
 
 /**
@@ -377,9 +385,10 @@ export class IModelTransformer extends IModelExportHandler {
     this.exporter.excludeElementAspectClass("BisCore:TextAnnotationData"); // This ElementAspect is auto-created by the BisCore:TextAnnotation2d/3d element handlers
     // initialize importer and targetDb
     if (target instanceof IModelDb) {
-      this.importer = new IModelImporter(target, { preserveElementIdsForFiltering: this._options.preserveElementIdsForFiltering });
+      this.importer = new IModelImporter(target, { preserveElementIdsForFiltering: this._options.preserveElementIdsForFiltering, handleElementCodeDuplicates: this._options.handleElementCodeDuplicates });
     } else {
       this.importer = target;
+      this.importer.handleElementCodeDuplicates = !!this._options.handleElementCodeDuplicates;
       /* eslint-disable deprecation/deprecation */
       if (Boolean(this._options.preserveElementIdsForFiltering) !== this.importer.preserveElementIdsForFiltering) {
         Logger.logWarning(
@@ -1847,6 +1856,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: is this necessary when manually using lowlevel transform APIs?
   private finalizeTransformation() {
+    this.importer.resolveConflictingCodeValues();
     this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
