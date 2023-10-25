@@ -5,13 +5,13 @@
 /** @packageDocumentation
  * @module iModels
  */
-import { CompressedId64Set, DbResult, Guid, GuidString, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
+import { CompressedId64Set, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, Base64EncodedString, ElementAspectProps, ElementProps, EntityProps, IModel, IModelError, ModelProps, PrimitiveTypeCode,
   PropertyMetaData, RelatedElement, SubCategoryProps,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { ECSqlStatement, Element, ElementAspect, ElementMultiAspect, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
+import { ElementAspect, ElementMultiAspect, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
 import type { IModelTransformOptions } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
@@ -44,8 +44,8 @@ export interface IModelImportOptions {
    * @default false
    */
   simplifyElementGeometry?: boolean;
-  /** If 'true', try to handle duplicate code value changes by prefixing them with a guid value.
-   * Prefixes can be removed by calling [[IModelImporter.resolveDuplicateCodeValues]].
+  /** If 'true', try to handle conflicting code value changes by using temporary NULL values.
+   * Code values can be resolved by calling [[IModelImporter.resolveDuplicateCodeValues]].
    * @default false
    */
   handleElementCodeDuplicates?: boolean;
@@ -103,17 +103,19 @@ export class IModelImporter implements Required<IModelImportOptions> {
 
   private static _realityDataSourceLinkPartitionStaticId: Id64String = "0xe";
 
-  private _duplicateCodeValuePrefix?: GuidString;
+  private _duplicateCodeValueMap?: Map<Id64String, string>;
+
   /**
-   * A guid string that is used to prefix duplicate code values when performing element updates.
-   * The duplicate code value prefixing solves an issue when an element update fails because of a duplicate Element CodeValue in cases where
-   * the duplicate target element is set to be deleted in the future, or when elements are switching code values with one another and we need a temporary code value.
-   * To remove prefixes call [[IModelImporter.resolveDuplicateCodeValues]].
+   * A map of conflicting element code values.
+   * In cases where updating an element's code value results in a codeValue conflict, the element's code value will instead be updated to 'NULL'.
+   * The actual codeValue will be stored in this ElementId->CodeValue map.
+   * This is needed cases where the duplicate target element is set to be deleted in the future, or when elements are switching code values with one another and we need a temporary code value.
+   * To resolve code values to their intended values call [[IModelImporter.resolveDuplicateCodeValues]].
    *
    * @returns undefined if no duplicates were detected.
    */
-  public get duplicateCodeValuePrefix(): GuidString | undefined {
-    return this._duplicateCodeValuePrefix;
+  public get duplicateCodeValueMap(): Map<Id64String, string> | undefined {
+    return this._duplicateCodeValueMap;
   }
 
   public get handleElementCodeDuplicates(): boolean {
@@ -237,7 +239,9 @@ export class IModelImporter implements Required<IModelImportOptions> {
           this.onUpdateElement(elementProps);
         } catch(err) {
           if (this.handleElementCodeDuplicates && (err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
-            this.prefixCode(elementProps);
+            assert(elementProps.code.value !== undefined, "NULL code values are always considered unique and cannot clash");
+            this.trackCodeValueDuplicate(elementProps.id, elementProps.code.value);
+            elementProps.code.value = undefined;
             this.onUpdateElement(elementProps);
           }
         }
@@ -615,7 +619,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
     // TODO: fix upstream, looks like a bad case for the linter rule when casting away readonly for this generic
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     (this.doNotUpdateElementIds as Set<Id64String>) = CompressedId64Set.decompressSet(state.doNotUpdateElementIds);
-    this._duplicateCodeValuePrefix = state.duplicateCodeValuePrefix;
+    this._duplicateCodeValueMap =  state.duplicateCodeValueMap ? new Map(Object.entries(state.duplicateCodeValueMap)) : undefined;
     this.loadAdditionalStateJson(state.additionalState);
   }
 
@@ -631,35 +635,27 @@ export class IModelImporter implements Required<IModelImportOptions> {
       options: this.options,
       targetDbId: this.targetDb.iModelId || this.targetDb.nativeDb.getFilePath(),
       doNotUpdateElementIds: CompressedId64Set.compressSet(this.doNotUpdateElementIds),
-      duplicateCodeValuePrefix: this._duplicateCodeValuePrefix,
+      duplicateCodeValueMap: this._duplicateCodeValueMap ? Object.fromEntries(this._duplicateCodeValueMap) : undefined,
       additionalState: this.getAdditionalStateJson(),
     };
   }
 
   public resolveDuplicateCodeValues(): void {
-    if (!this.handleElementCodeDuplicates || !this._duplicateCodeValuePrefix)
+    if (!this.handleElementCodeDuplicates || !this._duplicateCodeValueMap)
       return;
 
-    this.targetDb.withPreparedStatement(`SELECT ECInstanceId FROM ${Element.classFullName} WHERE CodeValue LIKE '${this._duplicateCodeValuePrefix}%'`, (stmt: ECSqlStatement) => {
-      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-        const element = this.targetDb.elements.getElement(stmt.getValue(0).getId());
-        this.removeCodePrefix(element);
-        element.update();
-      }
-    });
-    this._duplicateCodeValuePrefix = undefined;
+    for (const [elementId, codeValue] of this._duplicateCodeValueMap) {
+      const element = this.targetDb.elements.getElement(elementId);
+      element.code.value = codeValue;
+      element.update();
+    }
   }
 
-  private prefixCode(elementProps: ElementProps){
-    if (!this._duplicateCodeValuePrefix)
-      this._duplicateCodeValuePrefix = Guid.createValue();
-    elementProps.code.value = `${this._duplicateCodeValuePrefix}${elementProps.code.value}`;
-  }
+  private trackCodeValueDuplicate(targetElementId: Id64String, codeValue: string) {
+    if (!this._duplicateCodeValueMap)
+      this._duplicateCodeValueMap = new Map<Id64String, string> ();
 
-  private removeCodePrefix(element: Element): void {
-    if(!this._duplicateCodeValuePrefix)
-      return;
-    element.code.value = element.code.value.substring(this._duplicateCodeValuePrefix.length);
+    this._duplicateCodeValueMap.set(targetElementId, codeValue);
   }
 }
 
@@ -676,7 +672,7 @@ export interface IModelImporterState {
   options: IModelImportOptions;
   targetDbId: string;
   doNotUpdateElementIds: CompressedId64Set;
-  duplicateCodeValuePrefix?: GuidString;
+  duplicateCodeValueMap?: Record<Id64String, string>;
   additionalState?: any;
 }
 
