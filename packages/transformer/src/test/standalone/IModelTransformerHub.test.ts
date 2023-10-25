@@ -1893,7 +1893,7 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
-  it.only("should successfully process changes when codeValues are switched around between elements", async () => {
+  it("should successfully process changes when codeValues are switched around between elements", async () => {
     const timeline: Timeline = [
       { master: { 1:1, 2:2, 3:3 } },
       { branch: { branch: "master" } },

@@ -243,6 +243,8 @@ export class IModelImporter implements Required<IModelImportOptions> {
             this.trackCodeValueDuplicate(elementProps.id, elementProps.code.value);
             elementProps.code.value = undefined;
             this.onUpdateElement(elementProps);
+          } else {
+            throw err;
           }
         }
       } else {
