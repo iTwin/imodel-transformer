@@ -14,7 +14,7 @@ import {
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, DefinitionElementProps, ElementAspectProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, DefinitionElementProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -1932,5 +1932,40 @@ describe("IModelTransformerHub", () => {
     const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken, transformerOpts: { handleElementCodeDuplicates: true } });
     await tearDown();
   });
-});
 
+  it("should successfully process changes when Definition Elements' codeValues are switched around", async () => {
+    const timeline: Timeline = [
+      { master: { manualUpdate(masterDb) {
+        const categoryA = SpatialCategory.create(masterDb, IModel.dictionaryId, "A");
+        const categoryB = SpatialCategory.create(masterDb, IModel.dictionaryId, "B");
+        categoryA.userLabel = "A";
+        categoryB.userLabel = "B";
+        categoryA.insert();
+        categoryB.insert();
+      }}},
+      { branch: { branch: "master" } },
+      { master: { manualUpdate(masterDb) {
+        const categoryA = masterDb.elements.getElement(SpatialCategory.createCode(masterDb, IModel.dictionaryId, "A"));
+        const categoryB = masterDb.elements.getElement(SpatialCategory.createCode(masterDb, IModel.dictionaryId, "B"));
+        categoryA.code.value = "temp";
+        categoryA.update();
+        categoryB.code.value = "A";
+        categoryB.update();
+        categoryA.code.value = "B";
+        categoryA.update();
+      }}},
+      { branch: { sync: ["master"]} },
+      { assert({ master, branch }) {
+        for (const iModel of [branch, master]) {
+          const categoryA = iModel.db.elements.getElement(SpatialCategory.createCode(iModel.db, IModel.dictionaryId, "A"));
+          const categoryB = iModel.db.elements.getElement(SpatialCategory.createCode(iModel.db, IModel.dictionaryId, "B"));
+          expect(categoryA.userLabel).to.equal("B");
+          expect(categoryB.userLabel).to.equal("A");
+        }
+      }},
+    ];
+
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken, transformerOpts: { handleElementCodeDuplicates: true } });
+    await tearDown();
+  });
+});

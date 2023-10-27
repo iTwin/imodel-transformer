@@ -1856,7 +1856,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   // FIXME: is this necessary when manually using lowlevel transform APIs?
   private finalizeTransformation() {
-    this.importer.resolveConflictingCodeValues();
+    this.importer.resolveDuplicateCodeValues();
     this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
