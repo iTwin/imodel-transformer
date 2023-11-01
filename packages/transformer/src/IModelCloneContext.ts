@@ -260,7 +260,9 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     // toJSON performs a shallow clone, but we mutate deep fields of code, which may be referenced later
     // REPORTME: core should do a full JSON copy, other object fields are also not properly cloned
     if (sourceEntity instanceof Element) {
-      (targetEntityProps as unknown as ElementProps).code = { ...sourceEntity.code };
+      const targetElementProps = targetEntityProps as any as ElementProps;
+      targetElementProps.code = { ...targetElementProps.code, value: targetElementProps.code.value };
+      delete (targetElementProps.code as any)._value;
     }
 
     if (this.targetIsSource)
@@ -329,9 +331,6 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
 
     // Clone
     const targetElemProps = this._cloneEntity<Element, ElementProps>(sourceElement, specialHandledProps);
-
-    targetElemProps.code = { ...targetElemProps.code, value: targetElemProps.code.value };
-    delete (targetElemProps.code as any)._value;
 
     // attach geometry
     if (cloneOptions?.binaryGeometry) {
