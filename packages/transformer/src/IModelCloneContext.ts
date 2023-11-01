@@ -251,11 +251,17 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
      */
     customNavPropHandlers: Record<string, {
       /** from an entity get an entity reference */
-      getSource(source: EntitySubType): EntityReference;
-      setTarget(target: EntityPropsSubType, e: EntityReference): void;
+      getSource(this: void, source: EntitySubType): EntityReference;
+      setTarget(this: void, target: EntityPropsSubType, e: EntityReference): void;
     }> = {},
   ): EntityPropsSubType {
     const targetEntityProps = sourceEntity.toJSON() as EntityPropsSubType;
+
+    // toJSON performs a shallow clone, but we mutate deep fields of code, which may be referenced later
+    // REPORTME: core should do a full JSON copy, other object fields are also not properly cloned
+    if (sourceEntity instanceof Element) {
+      (targetEntityProps as unknown as ElementProps).code = { ...sourceEntity.code };
+    }
 
     if (this.targetIsSource)
       return targetEntityProps;
@@ -264,7 +270,7 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
     // code for each element class (profile first to see how long this takes)
     sourceEntity.forEachProperty((propertyName, propertyMetaData) => {
       if (propertyName in customNavPropHandlers) {
-        const { getSource, setTarget } = customNavPropHandlers[propertyName as keyof typeof customNavPropHandlers];
+        const { getSource, setTarget } = customNavPropHandlers[propertyName];
         // we know for know specialHandledProps are only on elements, that may change
         setTarget(targetEntityProps, this.findTargetEntityId(getSource(sourceEntity)));
       } else if (propertyMetaData.isNavigation) {
@@ -303,7 +309,6 @@ export class IModelCloneContext implements Omit<IModelElementCloneContext, "rema
         getSource: (source: Element): EntityReference => `e${source.code.scope}`,
         setTarget: (target: ElementProps, e: EntityReference) => target.code.scope = EntityReferences.toId64(e),
       },
-
       modelSelector: {
         getSource: (source: SpatialViewDefinition): EntityReference => `e${source.modelSelectorId}`,
         setTarget: (target: SpatialViewDefinitionProps, e: EntityReference) => target.modelSelectorId = EntityReferences.toId64(e),
