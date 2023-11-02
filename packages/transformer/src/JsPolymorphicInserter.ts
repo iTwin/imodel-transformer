@@ -1,4 +1,4 @@
-import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, SnapshotDb } from "@itwin/core-backend";
+import { BindParameter, ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, SnapshotDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -187,7 +187,10 @@ async function createPolymorphicEntityQueryMap<
         .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
         .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
-          p.propertyType === PropertyType.Navigation
+          // FIXME: don't just check name! do a qualified property check!
+          p.name === "CodeSpec" || p.name === "CodeScope"
+          ? p.name
+          : p.propertyType === PropertyType.Navigation
           ? `${p.name}.Id`
           : p.propertyType === PropertyType.Point2d
           ? `${p.name}.x, ${p.name}.y`
@@ -207,6 +210,8 @@ async function createPolymorphicEntityQueryMap<
           // FIXME: check for exact schema of CodeValue prop
           p.name === "CodeValue"
           ? "NULL"
+          : p.propertyType === PropertyType.DateTime
+          ? `Julianday(JSON_EXTRACT(:x, '$.${p.name}'))`
           : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
           ? "0x1"
           // FIXME: need a sqlite extension for base64 decoding of binary...
@@ -368,8 +373,8 @@ async function createPolymorphicEntityQueryMap<
             targetStmt.bindString(1, jsonString);
 
             for (const [name, type] of Object.entries(options.extraBindings?.update ?? {})) {
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-              targetStmt[type as SupportedBindings](`b_${name}`, bindingValues[name]!);
+              // FIXME: why do I get never for this...
+              (targetStmt[type as SupportedBindings] as any)(`b_${name}`, bindingValues[name]!);
             }
 
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
@@ -583,12 +588,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const elemPopulateQuery = queryMap.populate.get(elemClass);
     assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
 
-    const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
-
-    if (sourceId === "0x31") {
-      console.log(`inserted ${sourceId} for ${targetId}, model was: ${modelJson}`);
+    if (sourceId === "0x1c") {
+      console.log(`inserted ${sourceId} for targetId, model was: ${modelJson}`);
       console.log(elemJson);
     }
+
+    const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
 
     if (modelJson) {
       const modelInsertQuery = queryMap.insert.get(modelClass);
