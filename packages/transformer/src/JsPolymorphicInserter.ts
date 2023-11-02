@@ -123,7 +123,6 @@ async function createPolymorphicEntityQueryMap<
   };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
-
     const updateBindings = Object.entries(options.extraBindings?.update ?? {});
 
     /* eslint-disable @typescript-eslint/indent */
@@ -291,7 +290,11 @@ async function createPolymorphicEntityQueryMap<
 
     /* eslint-enable @typescript-eslint/indent */
 
-    function populate(ecdb: ECDb, jsonString: string, bindingValues: Bindings = {}) {
+    function populate(
+      ecdb: ECDb,
+      jsonString: string,
+      bindingValues: Partial<Record<keyof PopulateExtraBindings, any>> = {},
+    ) {
       try {
         return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
           targetStmt.bindString("x", jsonString);
@@ -346,10 +349,16 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    function update(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }, bindingValues: Bindings = {}) {
-      // HACK: create hybrid sqlite/ecsql query
-      if (updateQuery === "") return; // ignore empty updates
+    function update(
+      ecdb: ECDb,
+      jsonString: string,
+      source?: { id: string, db: IModelDb },
+      bindingValues: Partial<Record<keyof UpdateExtraBindings, any>> = {},
+    ) {
+      if (updateQuery === "")
+        return; // ignore empty updates
 
+      // HACK: create hybrid sqlite/ecsql query
       const hackedRemapUpdateSql = getInjectedSqlite(updateQuery, ecdb);
 
       try {
@@ -367,7 +376,7 @@ async function createPolymorphicEntityQueryMap<
           });
         }
       } catch (err) {
-        const elemId = JSON.parse(jsonString).ECInstanceId;
+        const _elemId = JSON.parse(jsonString).ECInstanceId;
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
         console.log("REMAPS");
@@ -535,15 +544,20 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   });
 
-  const sourceElemSelect = `
+  const sourceElemSelect = (needGeometry = false) => `
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId, CAST(e.FederationGuid AS Binary),
-           m.$, ec_classname(m.ECClassId, 's.c'), coalesce(g3d.GeometryStream, g2d.GeometryStream)
+           m.$, ec_classname(m.ECClassId, 's.c')
+    ${needGeometry ? `
+          , coalesce(g3d.GeometryStream, g2d.GeometryStream)
+    ` : ""}
     FROM bis.Element e
     -- FIXME: is it faster to use the new $->Blah syntax?
     LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
+    ${needGeometry ? `
     LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
     LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
     LEFT JOIN bis.GeometryPart gp ON e.ECInstanceId=gp.ECInstanceId
+    ` : ""}
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
@@ -557,7 +571,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // Might be useful to still do two passes though in a filter-heavy transform... we can always
   // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
   // in the IDs and redo it?
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true, abbreviateBlobs: false });
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect(), undefined, { usePrimaryConn: true, abbreviateBlobs: false });
   while (await sourceElemFirstPassReader.step()) {
     const elemJson = sourceElemFirstPassReader.current[0];
     const elemClass = sourceElemFirstPassReader.current[1];
@@ -595,7 +609,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   // second pass, update now that everything has been inserted
-  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect, undefined, { usePrimaryConn: true });
+  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true), undefined, { usePrimaryConn: true });
   while (await sourceElemSecondPassReader.step()) {
     const jsonString = sourceElemSecondPassReader.current[0];
     const classFullName = sourceElemSecondPassReader.current[1];
