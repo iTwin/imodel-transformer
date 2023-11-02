@@ -4,6 +4,8 @@ import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
 
+/* eslint-disable no-console */
+
 // some high entropy string
 const injectionString = "Inject_1243yu1";
 const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr(s)}')`;
@@ -344,7 +346,7 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    function update(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }) {
+    function update(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }, bindingValues: Bindings = {}) {
       // HACK: create hybrid sqlite/ecsql query
       if (updateQuery === "") return; // ignore empty updates
 
@@ -355,6 +357,12 @@ async function createPolymorphicEntityQueryMap<
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
             // can't use named bindings in raw sqlite statement apparently
             targetStmt.bindString(1, jsonString);
+
+            for (const [name, type] of Object.entries(options.extraBindings?.update ?? {})) {
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+              targetStmt[type as SupportedBindings](`b_${name}`, bindingValues[name]!);
+            }
+
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
           });
         }
@@ -411,9 +419,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const queryMap = await createPolymorphicEntityQueryMap(
     target,
     {
-      extraBindings:
-      {
+      extraBindings: {
         populate: { FederationGuid: "bindBlob" },
+        update: { GeometryStream: "bindBlob" },
       },
     },
   );
@@ -529,9 +537,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   const sourceElemSelect = `
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId, CAST(e.FederationGuid AS Binary),
-           m.$, ec_classname(m.ECClassId, 's.c')
+           m.$, ec_classname(m.ECClassId, 's.c'), coalesce(g3d.GeometryStream, g2d.GeometryStream)
     FROM bis.Element e
+    -- FIXME: is it faster to use the new $->Blah syntax?
     LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
+    LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
+    LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
+    LEFT JOIN bis.GeometryPart gp ON e.ECInstanceId=gp.ECInstanceId
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
@@ -551,20 +563,20 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const elemClass = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
     const federationGuid = sourceElemFirstPassReader.current[3];
+    const modelJson = sourceElemFirstPassReader.current[4];
+    const modelClass = sourceElemFirstPassReader.current[5];
 
     const elemPopulateQuery = queryMap.populate.get(elemClass);
     assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
 
     const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
 
-    const modelJson = sourceElemFirstPassReader.current[4];
     if (sourceId === "0x31") {
       console.log(`inserted ${sourceId} for ${targetId}, model was: ${modelJson}`);
       console.log(elemJson);
     }
 
     if (modelJson) {
-      const modelClass = sourceElemFirstPassReader.current[5];
       const modelInsertQuery = queryMap.insert.get(modelClass);
       assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
 
@@ -588,11 +600,17 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const jsonString = sourceElemSecondPassReader.current[0];
     const classFullName = sourceElemSecondPassReader.current[1];
     const sourceId = sourceElemSecondPassReader.current[2];
+    const geometryStream = sourceElemFirstPassReader.current[6];
 
     const updateQuery = queryMap.update.get(classFullName);
     assert(updateQuery, `couldn't find update query for class '${classFullName}`);
 
-    updateQuery(writeableTarget, jsonString, { id: sourceId, db: source });
+    updateQuery(
+      writeableTarget,
+      jsonString,
+      { id: sourceId, db: source },
+      { GeometryStream: geometryStream },
+    );
   }
 
   const sourceAspectSelect = `
