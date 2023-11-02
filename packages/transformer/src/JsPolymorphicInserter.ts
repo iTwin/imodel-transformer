@@ -22,17 +22,36 @@ const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 
 type SupportedBindings = "bindId" | "bindBlob" | "bindInteger" | "bindString";
+
+const supportedBindingToPropertyTypeMap: Record<SupportedBindings, PropertyType> = {
+  bindId: PropertyType.Navigation,
+  // FIXME: what about geometry?
+  bindBlob: PropertyType.Binary,
+  bindInteger: PropertyType.Integer,
+  bindString: PropertyType.String,
+};
+
 type Bindings = Partial<Record<string, SupportedBindings>>;
 
 /** each key is a map of entity class names to its query for that key's type */
 interface PolymorphicEntityQueries<
   PopulateExtraBindings extends Bindings,
+  UpdateExtraBindings extends Bindings,
 > {
   /** inserts without preserving references, must be updated */
-  populate: Map<string, (db: ECDb, jsonString: string, extraBindings?: Record<keyof PopulateExtraBindings, any>) => Id64String>;
+  populate: Map<string, (
+    db: ECDb,
+    jsonString: string,
+    extraBindings?: Record<keyof PopulateExtraBindings, any>
+  ) => Id64String>;
   insert: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => Id64String>;
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
-  update: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => void>;
+  update: Map<string, (
+    db: ECDb,
+    jsonString: string,
+    source?: { id: Id64String, db: IModelDb },
+    extraBindings?: Record<keyof UpdateExtraBindings, any>
+  ) => void>;
 }
 
 interface PropInfo {
@@ -45,14 +64,18 @@ interface PropInfo {
  * Create a polymorphic insert query for a given db,
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
-async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bindings>(
+async function createPolymorphicEntityQueryMap<
+  PopulateExtraBindings extends Bindings,
+  UpdateExtraBindings extends Bindings
+>(
   db: IModelDb,
   options: {
     extraBindings?: {
       populate?: PopulateExtraBindings;
+      update?: UpdateExtraBindings;
     };
   } = {}
-): Promise<PolymorphicEntityQueries<PopulateExtraBindings>> {
+): Promise<PolymorphicEntityQueries<PopulateExtraBindings, UpdateExtraBindings>> {
   const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
@@ -84,7 +107,7 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
     }
   }
 
-  const result: PolymorphicEntityQueries<PopulateExtraBindings> = {
+  const result: PolymorphicEntityQueries<PopulateExtraBindings, UpdateExtraBindings> = {
     insert: new Map(),
     populate: new Map(),
     update: new Map(),
@@ -98,20 +121,32 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
   };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
+
+    const updateBindings = Object.entries(options.extraBindings?.update ?? {});
+
     /* eslint-disable @typescript-eslint/indent */
     const updateProps = properties
       .filter((p) =>
         p.propertyType === PropertyType.Navigation
         || p.name === "CodeValue" // FIXME: check correct CodeValue property
-        || p.propertyType === PropertyType.Long);
+        || p.propertyType === PropertyType.Long)
+      .map((p) => ({ ...p, isExtraBinding: false }))
+      .concat(updateBindings.map(([name, data]) => ({
+        name,
+        isReadOnly: false,
+        propertyType: data ? supportedBindingToPropertyTypeMap[data] : PropertyType.Integer,
+        isExtraBinding: true,
+      })));
 
     const updateQuery = updateProps.length === 0 ? "" : `
       UPDATE ${classFullName}
       SET ${
         updateProps
           .map((p) =>
+            p.isExtraBinding
+            ? `${p.name} = :b_${p.name}`
             // FIXME: use ECReferenceCache to get type of ref instead of checking name
-            p.propertyType === PropertyType.Navigation
+            : p.propertyType === PropertyType.Navigation
             ? `${p.name}.Id = ${injectExpr(`(
               SELECT TargetId
               FROM remaps.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
@@ -127,8 +162,10 @@ async function createPolymorphicEntityQueryMap<PopulateExtraBindings extends Bin
               FROM remaps.element_remap
               WHERE SourceId=${readHexFromJson(p, "0")}
             )`)}`
-            //: p.propertyType === PropertyType.IGeometry
-            //? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+
+            : p.propertyType === PropertyType.Binary
+            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+
             // is CodeValue if not nav prop
             : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
           )
@@ -389,6 +426,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
   const targetContextDb = SnapshotDb.openFile(targetPath);
 
+  // FIXME: why can't I just use a temporary table now?
   const geomRemapDbName = "file:geomRemap?cache=shared&mode=memory";
   const geomRemapTable = new ECDb();
   (geomRemapTable as any)._nativeDb = targetContextDb.nativeDb.setGeomRemapContextDb(
