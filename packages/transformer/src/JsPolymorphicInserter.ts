@@ -187,18 +187,15 @@ async function createPolymorphicEntityQueryMap<
         .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
         .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
-          // FIXME: don't just check name! do a qualified property check!
-          p.name === "CodeSpec" || p.name === "CodeScope"
-          ? p.name
-          : p.propertyType === PropertyType.Navigation
-          ? `${p.name}.Id`
+          p.propertyType === PropertyType.Navigation
+          ? `[${p.name}].[Id]`
           : p.propertyType === PropertyType.Point2d
-          ? `${p.name}.x, ${p.name}.y`
+          ? `[${p.name}].x, [${p.name}].y`
           : p.propertyType === PropertyType.Point3d
-          ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
+          ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
           // : p.type === PropertyType.DateTime
           // ? `${p.name}.Id`
-          : p.name
+          : `[${p.name}]`
         )
         .concat(populateBindings)
         .join(",\n  ")
@@ -207,11 +204,11 @@ async function createPolymorphicEntityQueryMap<
       (${properties
         .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
         .map((p) =>
-          // FIXME: check for exact schema of CodeValue prop
+          // FIXME: do qualified check for exact schema of CodeValue prop
           p.name === "CodeValue"
           ? "NULL"
           : p.propertyType === PropertyType.DateTime
-          ? `Julianday(JSON_EXTRACT(:x, '$.${p.name}'))`
+          ? `JSON_EXTRACT(:x, '$.${p.name}')`
           : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
           ? "0x1"
           // FIXME: need a sqlite extension for base64 decoding of binary...
@@ -315,6 +312,7 @@ async function createPolymorphicEntityQueryMap<
         console.log("ERROR", ecdb.nativeDb.getLastError());
         console.log("json:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("ecsql:", populateQuery);
+        debugger;
         throw err;
       }
     }
