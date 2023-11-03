@@ -39,7 +39,12 @@ const supportedBindingToPropertyTypeMap: Record<SupportedBindings, PropertyType>
   bindString: PropertyType.String,
 };
 
-type Bindings = Partial<Record<string, SupportedBindings>>;
+interface Bindings {
+  [k: string]: {
+    type?: SupportedBindings;
+    expr?: (binding: string) => string;
+  } | undefined;
+}
 
 /** each key is a map of entity class names to its query for that key's type */
 interface PolymorphicEntityQueries<
@@ -135,8 +140,15 @@ async function createPolymorphicEntityQueryMap<
       // FIXME: n^2
       .filter(([name]) => properties.find((p) => p.name === name));
 
+    const defaultExpr = (binding: string) => binding;
+
+    interface UpdateProp extends PropInfo {
+      isExtraBinding?: boolean;
+      expr: (binding: string) => string;
+    }
+
     /* eslint-disable @typescript-eslint/indent */
-    const updateProps = (properties as (PropInfo & { isExtraBinding?: boolean })[])
+    const updateProps = (properties as UpdateProp[])
       .filter((p) =>
         (p.propertyType === PropertyType.Navigation
           || p.name === "CodeValue" // FIXME: check correct CodeValue property
@@ -146,8 +158,9 @@ async function createPolymorphicEntityQueryMap<
       .concat(updateBindings.map(([name, data]) => ({
         name,
         isReadOnly: false,
-        propertyType: data ? supportedBindingToPropertyTypeMap[data] : PropertyType.Integer,
+        propertyType: data?.type ? supportedBindingToPropertyTypeMap[data.type] : PropertyType.Integer,
         isExtraBinding: true,
+        expr: data?.expr ?? defaultExpr,
       })));
 
     const updateQuery = updateProps.length === 0 ? "" : `
@@ -156,7 +169,7 @@ async function createPolymorphicEntityQueryMap<
         updateProps
           .map((p) =>
             p.isExtraBinding
-            ? `[${p.name}] = :b_${p.name}`
+            ? `[${p.name}] = ${p.expr(`b_${p.name}`)}`
             // FIXME: use ECReferenceCache to get type of ref instead of checking name
             : p.propertyType === PropertyType.Navigation
             ? `[${p.name}].Id = ${injectExpr(`(
@@ -312,10 +325,10 @@ async function createPolymorphicEntityQueryMap<
       try {
         return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
           targetStmt.bindString("x", jsonString);
-          for (const [name, type] of populateBindings) {
+          for (const [name, data] of populateBindings) {
             const bindingValue = bindingValues[name];
             if (bindingValue)
-              targetStmt[type as SupportedBindings](`b_${name}`, bindingValue);
+              targetStmt[data?.type ?? "bindInteger"](`b_${name}`, bindingValue);
           }
           const stepRes = targetStmt.stepForInsert();
           assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
@@ -340,8 +353,7 @@ async function createPolymorphicEntityQueryMap<
 
         for (const sql of hackedRemapInsertSql.split(";")) {
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
-            // can't use named bindings in raw sqlite statement apparently
-            targetStmt.bindString(1, jsonString);
+            targetStmt.bindString(":x", jsonString);
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
           });
         }
@@ -383,14 +395,14 @@ async function createPolymorphicEntityQueryMap<
             targetStmt.bindString(":x", jsonString);
             // FIXME: note that sometimes x_col1 is also defined...
 
-            for (const [name, type] of updateBindings) {
+            for (const [name, data] of updateBindings) {
               // FIXME: why do I get a never type for this...
               // FIXME: in raw sqlite must append _col1
               const param = `:b_${name}_col1`;
               // HACK: work around bad param detection
               const bindingValue = bindingValues[name];
               if (bindingValue && sql.includes(param)) {
-                (targetStmt[type as SupportedBindings] as any)(param, bindingValue);
+                (targetStmt[data?.type ?? "bindInteger"] as any)(param, bindingValue);
               }
             }
 
@@ -451,8 +463,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     target,
     {
       extraBindings: {
-        populate: { FederationGuid: "bindBlob" },
-        update: { GeometryStream: "bindBlob" },
+        populate: { FederationGuid: { type: "bindBlob" } },
+        update: {
+          GeometryStream: {
+            type: "bindBlob",
+            expr: (b) => `RemapGeom(${b}, 'temp.font_remap', 'temp.element_remap')`,
+          },
+        },
       },
     },
   );
@@ -463,7 +480,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   target.close();
   const writeableTarget = new ECDb();
   writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
-  const targetContextDb = SnapshotDb.openFile(targetPath);
 
   for (const name of ["element_remap", "codespec_remap", "aspect_remap", "font_remap"]) {
     // FIXME: compress this table into "runs"
@@ -559,7 +575,11 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId, CAST(e.FederationGuid AS Binary),
            m.$, ec_classname(m.ECClassId, 's.c')
     ${needGeometry ? `
-          , coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream)
+          , coalesce(
+              g3d.GeometryStream,
+              g2d.GeometryStream,
+              gp.GeometryStream
+            )
     ` : ""}
     FROM bis.Element e
     -- FIXME: is it faster to use the new $->Blah syntax?
