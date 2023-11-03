@@ -150,8 +150,6 @@ async function createPolymorphicEntityQueryMap<
         isExtraBinding: true,
       })));
 
-    console.log(updateProps);
-
     const updateQuery = updateProps.length === 0 ? "" : `
       UPDATE ${classFullName}
       SET ${
@@ -193,9 +191,9 @@ async function createPolymorphicEntityQueryMap<
       )`)}
     `;
 
-    const populateBindings = Object.keys(options.extraBindings?.populate ?? {})
+    const populateBindings = Object.entries(options.extraBindings?.populate ?? {})
       // FIXME: n^2
-      .filter(([name]) => properties.find((p) => p.name === name));
+      .filter(([name]) => properties.some((p) => p.name === name));
 
     const populateQuery = `
       INSERT INTO ${classFullName}
@@ -211,7 +209,7 @@ async function createPolymorphicEntityQueryMap<
           ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
           : `[${p.name}]`
         )
-        .concat(populateBindings)
+        .concat(populateBindings.map(([name]) => name))
         .join(",\n  ")
       })
       VALUES
@@ -234,7 +232,7 @@ async function createPolymorphicEntityQueryMap<
           : `JSON_EXTRACT(:x, '$.${p.name}')`
         )
         // FIXME: use the names from the values of the binding object
-        .concat(populateBindings.map((name) => `:b_${name}`))
+        .concat(populateBindings.map(([name]) => `:b_${name}`))
         .join(",\n  ")
       })
     `;
