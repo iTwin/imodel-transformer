@@ -2635,8 +2635,6 @@ describe("IModelTransformer", () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget2.bim");
     let targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
 
-
-
     sourceDb.saveChanges();
 
     const sourcePath = sourceDb.pathName;

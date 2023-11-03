@@ -11,13 +11,19 @@ const injectionString = "Inject_1243yu1";
 const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr(s)}')`;
 
 const getInjectedSqlite = (query: string, db: ECDb) => {
-  return db.withPreparedStatement(query, (stmt) => {
-    const nativeSql = stmt.getNativeSql();
-    return nativeSql.replace(
-      new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-      (_, p1) => unescapeSqlStr(p1),
-    );
-  });
+  try {
+    return db.withPreparedStatement(query, (stmt) => {
+      const nativeSql = stmt.getNativeSql();
+      return nativeSql.replace(
+        new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
+        (_, p1) => unescapeSqlStr(p1),
+      );
+    });
+  } catch (err) {
+    console.log("query", query);
+    debugger;
+    throw err;
+  }
 };
 
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
@@ -44,6 +50,7 @@ interface PolymorphicEntityQueries<
   populate: Map<string, (
     db: ECDb,
     jsonString: string,
+    /** extra bindings are ignored if they do not exist in the class */
     extraBindings?: Record<keyof PopulateExtraBindings, any>
   ) => Id64String>;
   insert: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => Id64String>;
@@ -52,6 +59,7 @@ interface PolymorphicEntityQueries<
     db: ECDb,
     jsonString: string,
     source?: { id: Id64String, db: IModelDb },
+    /** extra bindings are ignored if they do not exist in the class */
     extraBindings?: Record<keyof UpdateExtraBindings, any>
   ) => void>;
 }
@@ -123,15 +131,18 @@ async function createPolymorphicEntityQueryMap<
   };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
-    const updateBindings = Object.entries(options.extraBindings?.update ?? {});
+    const updateBindings = Object.entries(options.extraBindings?.update ?? {})
+      // FIXME: n^2
+      .filter(([name]) => properties.find((p) => p.name === name));
 
     /* eslint-disable @typescript-eslint/indent */
-    const updateProps = properties
+    const updateProps = (properties as (PropInfo & { isExtraBinding?: boolean })[])
       .filter((p) =>
-        p.propertyType === PropertyType.Navigation
-        || p.name === "CodeValue" // FIXME: check correct CodeValue property
-        || p.propertyType === PropertyType.Long)
-      .map((p) => ({ ...p, isExtraBinding: false }))
+        (p.propertyType === PropertyType.Navigation
+          || p.name === "CodeValue" // FIXME: check correct CodeValue property
+          || p.propertyType === PropertyType.Long)
+        // FIXME: n^2
+        && !updateBindings.some(([name]) => name === p.name))
       .concat(updateBindings.map(([name, data]) => ({
         name,
         isReadOnly: false,
@@ -139,16 +150,18 @@ async function createPolymorphicEntityQueryMap<
         isExtraBinding: true,
       })));
 
+    console.log(updateProps);
+
     const updateQuery = updateProps.length === 0 ? "" : `
       UPDATE ${classFullName}
       SET ${
         updateProps
           .map((p) =>
             p.isExtraBinding
-            ? `${p.name} = :b_${p.name}`
+            ? `[${p.name}] = :b_${p.name}`
             // FIXME: use ECReferenceCache to get type of ref instead of checking name
             : p.propertyType === PropertyType.Navigation
-            ? `${p.name}.Id = ${injectExpr(`(
+            ? `[${p.name}].Id = ${injectExpr(`(
               SELECT TargetId
               FROM remaps.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
               WHERE SourceId=${readHexFromJson(p,
@@ -158,17 +171,18 @@ async function createPolymorphicEntityQueryMap<
             )`)}`
             // FIXME: use ecreferencetypes cache to determine which remap table to use
             : p.propertyType === PropertyType.Long
-            ? `${p.name} = ${injectExpr(`(
+            ? `[${p.name}] = ${injectExpr(`(
               SELECT TargetId
               FROM remaps.element_remap
               WHERE SourceId=${readHexFromJson(p, "0")}
             )`)}`
 
-            : p.propertyType === PropertyType.Binary
-            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+            // FIXME: how to handle this?
+            //: p.propertyType === PropertyType.Binary
+            //? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
 
             // is CodeValue if not nav prop
-            : `${p.name} = JSON_EXTRACT(:x, '$.CodeValue')`
+            : `[${p.name}] = JSON_EXTRACT(:x, '$.CodeValue')`
           )
           .join(",\n  ")
       }
@@ -179,7 +193,9 @@ async function createPolymorphicEntityQueryMap<
       )`)}
     `;
 
-    const populateBindings = Object.keys(options.extraBindings?.populate ?? {});
+    const populateBindings = Object.keys(options.extraBindings?.populate ?? {})
+      // FIXME: n^2
+      .filter(([name]) => properties.find((p) => p.name === name));
 
     const populateQuery = `
       INSERT INTO ${classFullName}
@@ -193,8 +209,6 @@ async function createPolymorphicEntityQueryMap<
           ? `[${p.name}].x, [${p.name}].y`
           : p.propertyType === PropertyType.Point3d
           ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
-          // : p.type === PropertyType.DateTime
-          // ? `${p.name}.Id`
           : `[${p.name}]`
         )
         .concat(populateBindings)
@@ -236,11 +250,11 @@ async function createPolymorphicEntityQueryMap<
           ].map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
           p.propertyType === PropertyType.Navigation
-          ? `${p.name}.Id, ${p.name}.RelECClassId`
+          ? `[${p.name}].Id, [${p.name}].RelECClassId`
           : p.propertyType === PropertyType.Point2d
-          ? `${p.name}.x, ${p.name}.y`
+          ? `[${p.name}].x, [${p.name}].y`
           : p.propertyType === PropertyType.Point3d
-          ? `${p.name}.x, ${p.name}.y, ${p.name}.z`
+          ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
           : p.name
         )
         .join(",\n  ")
@@ -300,9 +314,10 @@ async function createPolymorphicEntityQueryMap<
       try {
         return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
           targetStmt.bindString("x", jsonString);
-          for (const [name, type] of Object.entries(options.extraBindings?.populate ?? {})) {
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-            targetStmt[type as SupportedBindings](`b_${name}`, bindingValues[name]!);
+          for (const [name, type] of populateBindings) {
+            const bindingValue = bindingValues[name];
+            if (bindingValue)
+              targetStmt[type as SupportedBindings](`b_${name}`, bindingValue);
           }
           const stepRes = targetStmt.stepForInsert();
           assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
@@ -356,7 +371,7 @@ async function createPolymorphicEntityQueryMap<
       ecdb: ECDb,
       jsonString: string,
       source?: { id: string, db: IModelDb },
-      bindingValues: Partial<Record<keyof UpdateExtraBindings, any>> = {},
+      bindingValues: {[S in keyof UpdateExtraBindings]?: any} = {},
     ) {
       if (updateQuery === "")
         return; // ignore empty updates
@@ -367,15 +382,21 @@ async function createPolymorphicEntityQueryMap<
       try {
         for (const sql of hackedRemapUpdateSql.split(";")) {
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
-            // can't use named bindings in raw sqlite statement apparently
-            targetStmt.bindString(1, jsonString);
+            targetStmt.bindString(":x", jsonString);
+            // FIXME: note that sometimes x_col1 is also defined...
 
-            for (const [name, type] of Object.entries(options.extraBindings?.update ?? {})) {
-              // FIXME: why do I get never for this...
-              (targetStmt[type as SupportedBindings] as any)(`b_${name}`, bindingValues[name]!);
+            for (const [name, type] of updateBindings) {
+              // FIXME: why do I get a never type for this...
+              // FIXME: in raw sqlite must append _col1
+              const param = `:b_${name}_col1`;
+              // HACK: work around bad param detection
+              const bindingValue = bindingValues[name];
+              if (bindingValue && sql.includes(param)) {
+                (targetStmt[type as SupportedBindings] as any)(param, bindingValue);
+              }
             }
 
-            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
           });
         }
       } catch (err) {
@@ -551,7 +572,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId, CAST(e.FederationGuid AS Binary),
            m.$, ec_classname(m.ECClassId, 's.c')
     ${needGeometry ? `
-          , coalesce(g3d.GeometryStream, g2d.GeometryStream)
+          , coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream)
     ` : ""}
     FROM bis.Element e
     -- FIXME: is it faster to use the new $->Blah syntax?
@@ -559,7 +580,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     ${needGeometry ? `
     LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
     LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
-    LEFT JOIN bis.GeometryPart gp ON e.ECInstanceId=gp.ECInstanceId
+    LEFT JOIN bis.GeometryPart       gp ON e.ECInstanceId=gp.ECInstanceId
     ` : ""}
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
@@ -585,11 +606,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     const elemPopulateQuery = queryMap.populate.get(elemClass);
     assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
-
-    if (sourceId === "0x1c") {
-      console.log(`inserted ${sourceId} for targetId, model was: ${modelJson}`);
-      console.log(elemJson);
-    }
 
     const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
 
@@ -617,7 +633,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const jsonString = sourceElemSecondPassReader.current[0];
     const classFullName = sourceElemSecondPassReader.current[1];
     const sourceId = sourceElemSecondPassReader.current[2];
-    const geometryStream = sourceElemFirstPassReader.current[6];
+    const geometryStream = sourceElemSecondPassReader.current[6];
 
     const updateQuery = queryMap.update.get(classFullName);
     assert(updateQuery, `couldn't find update query for class '${classFullName}`);
