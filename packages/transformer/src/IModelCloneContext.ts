@@ -26,7 +26,6 @@ const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
  * @beta
  */
 export class IModelCloneContext extends IModelElementCloneContext {
-
   private _refTypesCache = new ECReferenceTypesCache();
   private _aspectRemapTable = new Map<Id64String, Id64String>();
 

@@ -1,4 +1,4 @@
-import { BindParameter, ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, SnapshotDb } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -462,8 +462,19 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 } = {}): Promise<undefined | Remapper> {
   // NOTE: initializing this transformer is expensive! it populates the ECReferenceCache for no reason
   const schemaExporter = new IModelTransformer(source, target);
+  const fontRemaps = new Map<number, number>();
+
+  schemaExporter.context.importFont = function (id) {
+    this.targetDb.clearFontMap(); // so it will be reloaded with new font info
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    const result = this["_nativeContext"].importFont(id);
+    fontRemaps.set(id, result);
+    return result;
+  };
+
+
+  await schemaExporter.processFonts();
   await schemaExporter.processSchemas();
-  schemaExporter.processFonts();
   schemaExporter.dispose();
 
   // FIXME: return all three queries instead of loading schemas
@@ -503,6 +514,17 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     writeableTarget.withSqliteStatement(`
       INSERT INTO temp.${name} VALUES(0,0)
     `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+  }
+
+  // fill already exported fonts
+  for (const [sourceId, targetId] of fontRemaps) {
+    writeableTarget.withPreparedSqliteStatement(`
+      INSERT INTO temp.font_remap VALUES(?,?)
+    `, (targetStmt) => {
+      targetStmt.bindId(1, Id64.fromUint32Pair(sourceId, 0));
+      targetStmt.bindId(2, Id64.fromUint32Pair(targetId, 0));
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+    });
   }
 
   writeableTarget.withSqliteStatement(`
