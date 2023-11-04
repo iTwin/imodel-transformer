@@ -417,6 +417,7 @@ async function createPolymorphicEntityQueryMap<
         const _elemId = JSON.parse(jsonString).ECInstanceId;
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
+        /*
         console.log("REMAPS");
         ecdb.withSqliteStatement(
           "SELECT format('0x%x->0x%x', SourceId, TargetId) FROM temp.element_remap",
@@ -425,6 +426,7 @@ async function createPolymorphicEntityQueryMap<
               console.log(s.getValue(0).getString());
           }
         );
+        */
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("native sql:", hackedRemapUpdateSql);
         debugger;
@@ -461,6 +463,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // NOTE: initializing this transformer is expensive! it populates the ECReferenceCache for no reason
   const schemaExporter = new IModelTransformer(source, target);
   await schemaExporter.processSchemas();
+  schemaExporter.processFonts();
   schemaExporter.dispose();
 
   // FIXME: return all three queries instead of loading schemas
@@ -482,6 +485,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
   const targetPath = target.pathName;
+  target.saveChanges();
   target.close();
   const writeableTarget = new ECDb();
   writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
