@@ -136,6 +136,9 @@ async function createPolymorphicEntityQueryMap<
   };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
+    const [schemaName, className] = classFullName.split(".");
+    const escapedClassFullName = `[${schemaName}].[${className}]`;
+
     const updateBindings = Object.entries(options.extraBindings?.update ?? {})
       // FIXME: n^2
       .filter(([name]) => properties.find((p) => p.name === name));
@@ -164,7 +167,7 @@ async function createPolymorphicEntityQueryMap<
       })));
 
     const updateQuery = updateProps.length === 0 ? "" : `
-      UPDATE ${classFullName}
+      UPDATE ${escapedClassFullName}
       SET ${
         updateProps
           .map((p) =>
@@ -209,7 +212,7 @@ async function createPolymorphicEntityQueryMap<
       .filter(([name]) => properties.some((p) => p.name === name));
 
     const populateQuery = `
-      INSERT INTO ${classFullName}
+      INSERT INTO ${escapedClassFullName}
       (${properties
         .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
         .map((p) =>
@@ -251,7 +254,7 @@ async function createPolymorphicEntityQueryMap<
     `;
 
     const insertQuery = `
-      INSERT INTO ${classFullName}
+      INSERT INTO ${escapedClassFullName}
       -- FIXME: getting SQLITE_MISMATCH... something weird going on in native
       (
         ${
@@ -373,6 +376,7 @@ async function createPolymorphicEntityQueryMap<
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("ecsql:", insertQuery);
         console.log("native sql:", hackedRemapInsertSql);
+        debugger;
         throw err;
       }
     }
@@ -423,6 +427,7 @@ async function createPolymorphicEntityQueryMap<
         );
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("native sql:", hackedRemapUpdateSql);
+        debugger;
         throw err;
       }
     }
@@ -453,6 +458,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb, {
   returnRemapper = false,
 } = {}): Promise<undefined | Remapper> {
+  // NOTE: initializing this transformer is expensive! it populates the ECReferenceCache for no reason
   const schemaExporter = new IModelTransformer(source, target);
   await schemaExporter.processSchemas();
   schemaExporter.dispose();
@@ -530,7 +536,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  // transform code specs
+  console.log("insert codespecs");
   const sourceCodeSpecSelect = `
     SELECT s.Id, t.Id, s.Name, s.JsonProperties
     FROM source.bis_CodeSpec s
@@ -594,12 +600,14 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     ORDER BY e.ECInstanceId ASC
   `;
 
+  const startTime = performance.now();
   let stmtsExeced = 0;
   const incrementStmtsExeced = () => {
     stmtsExeced += 1;
+    const elapsedMs = performance.now() - startTime;
     if (stmtsExeced % 1000 === 0)
-      console.log(`executed ${stmtsExeced} statements`);
-  }
+      console.log(`executed ${stmtsExeced} statements at ${elapsedMs/1000}s`);
+  };
 
   // first pass, update everything with trivial references (0 and null codes)
   // FIXME: technically could do it all in one pass if we preserve distances between rows and
@@ -608,6 +616,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // Might be useful to still do two passes though in a filter-heavy transform... we can always
   // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
   // in the IDs and redo it?
+  console.log("populate elements");
   const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect(), undefined, { usePrimaryConn: true, abbreviateBlobs: false });
   while (await sourceElemFirstPassReader.step()) {
     const elemJson = sourceElemFirstPassReader.current[0];
@@ -643,6 +652,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   // second pass, update now that everything has been inserted
+  console.log("hydrate elements");
   const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true), undefined, { usePrimaryConn: true });
   while (await sourceElemSecondPassReader.step()) {
     const jsonString = sourceElemSecondPassReader.current[0];
@@ -668,6 +678,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     FROM bis.ElementAspect
   `;
 
+  console.log("insert aspects");
   const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { usePrimaryConn: true });
   while (await aspectReader.step()) {
     const jsonString = aspectReader.current[0];
@@ -696,6 +707,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     FROM bis.ElementRefersToElements
   `;
 
+  console.log("insert ElementRefersToElements");
   const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { usePrimaryConn: true });
   while (await elemRefersReader.step()) {
     const jsonString = elemRefersReader.current[0];
