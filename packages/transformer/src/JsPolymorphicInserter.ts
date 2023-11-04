@@ -169,7 +169,7 @@ async function createPolymorphicEntityQueryMap<
         updateProps
           .map((p) =>
             p.isExtraBinding
-            ? `[${p.name}] = ${p.expr(`b_${p.name}`)}`
+            ? `[${p.name}] = ${p.expr(`:b_${p.name}`)}`
             // FIXME: use ECReferenceCache to get type of ref instead of checking name
             : p.propertyType === PropertyType.Navigation
             ? `[${p.name}].Id = ${injectExpr(`(
@@ -457,7 +457,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   await schemaExporter.processSchemas();
   schemaExporter.dispose();
 
-  // like insert but doesn't do references
   // FIXME: return all three queries instead of loading schemas
   const queryMap = await createPolymorphicEntityQueryMap(
     target,
@@ -467,7 +466,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         update: {
           GeometryStream: {
             type: "bindBlob",
-            expr: (b) => `RemapGeom(${b}, 'temp.font_remap', 'temp.element_remap')`,
+            expr: (b) => `CAST(RemapGeom(${b}, 'temp.font_remap', 'temp.element_remap') AS BINARY)`,
           },
         },
       },
@@ -595,6 +594,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     ORDER BY e.ECInstanceId ASC
   `;
 
+  let stmtsExeced = 0;
+  const incrementStmtsExeced = () => {
+    stmtsExeced += 1;
+    if (stmtsExeced % 1000 === 0)
+      console.log(`executed ${stmtsExeced} statements`);
+  }
+
   // first pass, update everything with trivial references (0 and null codes)
   // FIXME: technically could do it all in one pass if we preserve distances between rows and
   // just offset all references by the count of rows in the source...
@@ -632,6 +638,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       targetStmt.bindId(2, targetId);
       assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
     });
+
+    incrementStmtsExeced();
   }
 
   // second pass, update now that everything has been inserted
@@ -651,6 +659,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       { id: sourceId, db: source },
       { GeometryStream: geometryStream },
     );
+
+    incrementStmtsExeced();
   }
 
   const sourceAspectSelect = `
@@ -667,7 +677,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    const targetId = insertQuery(writeableTarget, jsonString, { id: sourceId, db: source });
+    const _targetId = insertQuery(writeableTarget, jsonString, { id: sourceId, db: source });
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO temp.aspect_remap VALUES(?,?)
@@ -677,6 +687,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       targetStmt.bindId(2, sourceId);
       assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
     });
+
+    incrementStmtsExeced();
   }
 
   const elemRefersSelect = `
@@ -694,6 +706,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
     insertQuery(writeableTarget, jsonString, { id: sourceId, db: source });
+
+    incrementStmtsExeced();
   }
 
   // FIXME: also do ElementDrivesElements

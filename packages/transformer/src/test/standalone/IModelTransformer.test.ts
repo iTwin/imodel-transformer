@@ -2630,12 +2630,10 @@ describe("IModelTransformer", () => {
   });
 
   it.only("should compare performance of emulated polymorphic insert", async function () {
-    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation2.bim");
-    const sourceDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, sourceDbFile);
+    //const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation2.bim");
+    const sourceDb = SnapshotDb.openFile("/home/mike/work/Juergen.Hofer.Bad.Normals.bim");
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget2.bim");
     let targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
-
-    sourceDb.saveChanges();
 
     const sourcePath = sourceDb.pathName;
     const targetPath = targetDb.pathName;
@@ -2644,7 +2642,6 @@ describe("IModelTransformer", () => {
 
     targetDb = SnapshotDb.openFile(targetDbFile);
 
-    // FIXME: do this
     await assertIdentityTransformation(sourceDb, targetDb, remapper);
     sourceDb.close();
     targetDb.close();
