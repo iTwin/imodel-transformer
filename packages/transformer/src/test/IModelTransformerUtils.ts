@@ -235,11 +235,14 @@ export async function assertIdentityTransformation(
     // [IModelTransformerOptions.includeSourceProvenance]$(transformer) is set to true
     classesToIgnoreMissingEntitiesOfInTarget = [...IModelTransformer.provenanceElementClasses, ...IModelTransformer.provenanceElementAspectClasses],
     compareElemGeom = false,
+    /** ignore default transformer mutations, such as deleting job properties */
+    ignoreDefaultTransformerMutations = false,
   }: {
     expectedElemsOnlyInSource?: Partial<ElementProps>[];
     /** before checking elements that are only in the source are correct, filter out elements of these classes */
     classesToIgnoreMissingEntitiesOfInTarget?: typeof Entity[];
     compareElemGeom?: boolean;
+    ignoreDefaultTransformerMutations?: boolean;
   } = {}
 ) {
   const [remapElem, remapCodeSpec, remapAspect]
@@ -309,59 +312,61 @@ export async function assertIdentityTransformation(
       const quickClone = (obj: any) => JSON.parse(JSON.stringify(obj));
       const expectedSourceElemJsonProps = quickClone(sourceElem.jsonProperties);
 
-      // START jsonProperties TRANSFORMATION EXCEPTIONS
-      // the transformer does not propagate source channels which are stored in Subject.jsonProperties.Subject.Job
-      if (sourceElem instanceof Subject) {
-        if (sourceElem.jsonProperties?.Subject?.Job) {
-          if (!expectedSourceElemJsonProps.Subject)
-            expectedSourceElemJsonProps.Subject = {};
-          expectedSourceElemJsonProps.Subject.Job = undefined;
+      if (!ignoreDefaultTransformerMutations) {
+        // the transformer does not propagate source channels which
+        // are stored in Subject.jsonProperties.Subject.Job
+        if (sourceElem instanceof Subject) {
+          if (sourceElem.jsonProperties?.Subject?.Job) {
+            if (!expectedSourceElemJsonProps.Subject)
+              expectedSourceElemJsonProps.Subject = {};
+            expectedSourceElemJsonProps.Subject.Job = undefined;
+          }
+        }
+        if (sourceElem instanceof DisplayStyle3d) {
+          const styles = expectedSourceElemJsonProps.styles as
+            | DisplayStyle3dSettingsProps
+            | undefined;
+          if (styles?.environment?.sky) {
+            const sky = styles.environment.sky;
+            if (!sky.image)
+              sky.image = { type: SkyBoxImageType.None } as SkyBoxImageProps;
+
+            const image = sky.image;
+            if (image?.texture === Id64.invalid)
+              (image.texture as string | undefined) = undefined;
+
+            if (image?.texture)
+              image.texture = remapElem(image.texture);
+
+            if (!sky.twoColor)
+              expectedSourceElemJsonProps.styles.environment.sky.twoColor = false;
+
+            if ((sky as any).file === "")
+              delete (sky as any).file;
+          }
+
+          const excludedElements = typeof styles?.excludedElements === "string"
+            ? CompressedId64Set.decompressArray(styles.excludedElements)
+            : styles?.excludedElements;
+
+          for (let i = 0; i < (styles?.excludedElements?.length ?? 0); ++i) {
+            const id = excludedElements![i];
+            excludedElements![i] = remapElem(id);
+          }
+
+          for (const ovr of styles?.subCategoryOvr ?? []) {
+            if (ovr.subCategory)
+              ovr.subCategory = remapElem(ovr.subCategory);
+          }
+        }
+
+        if (sourceElem instanceof SpatialViewDefinition) {
+          const viewProps = expectedSourceElemJsonProps.viewDetails as ViewDetails3dProps | undefined;
+          if (viewProps && viewProps.acs)
+            viewProps.acs = remapElem(viewProps.acs);
         }
       }
-      if (sourceElem instanceof DisplayStyle3d) {
-        const styles = expectedSourceElemJsonProps.styles as
-          | DisplayStyle3dSettingsProps
-          | undefined;
-        if (styles?.environment?.sky) {
-          const sky = styles.environment.sky;
-          if (!sky.image)
-            sky.image = { type: SkyBoxImageType.None } as SkyBoxImageProps;
 
-          const image = sky.image;
-          if (image?.texture === Id64.invalid)
-            (image.texture as string | undefined) = undefined;
-
-          if (image?.texture)
-            image.texture = remapElem(image.texture);
-
-          if (!sky.twoColor)
-            expectedSourceElemJsonProps.styles.environment.sky.twoColor = false;
-
-          if ((sky as any).file === "")
-            delete (sky as any).file;
-        }
-
-        const excludedElements = typeof styles?.excludedElements === "string"
-          ? CompressedId64Set.decompressArray(styles.excludedElements)
-          : styles?.excludedElements;
-
-        for (let i = 0; i < (styles?.excludedElements?.length ?? 0); ++i) {
-          const id = excludedElements![i];
-          excludedElements![i] = remapElem(id);
-        }
-
-        for (const ovr of styles?.subCategoryOvr ?? []) {
-          if (ovr.subCategory)
-            ovr.subCategory = remapElem(ovr.subCategory);
-        }
-      }
-
-      if (sourceElem instanceof SpatialViewDefinition) {
-        const viewProps = expectedSourceElemJsonProps.viewDetails as ViewDetails3dProps | undefined;
-        if (viewProps && viewProps.acs)
-          viewProps.acs = remapElem(viewProps.acs);
-      }
-      // END jsonProperties TRANSFORMATION EXCEPTIONS
       // kept for conditional breakpoints
       const _eq = TestUtils.advancedDeepEqual(
         expectedSourceElemJsonProps,
