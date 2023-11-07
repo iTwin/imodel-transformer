@@ -108,7 +108,6 @@ export class IModelImporter implements Required<IModelImportOptions> {
    * A guid string that is used to prefix duplicate code values when performing element updates.
    * The duplicate code value prefixing solves an issue when an element update fails because of a duplicate Element CodeValue in cases where
    * the duplicate target element is set to be deleted in the future, or when elements are switching code values with one another and we need a temporary code value.
-   * Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
    * To remove prefixes call [[IModelImporter.resolveDuplicateCodeValues]].
    *
    * @returns undefined if no duplicates were detected.
@@ -238,6 +237,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
           this.onUpdateElement(elementProps);
         } catch(err) {
           if (this.handleElementCodeDuplicates && (err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
+            // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
             this.prefixCode(elementProps);
             this.onUpdateElement(elementProps);
           } else {
