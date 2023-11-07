@@ -704,7 +704,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
   // in the IDs and redo it?
   console.log("populate elements");
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect(), undefined, { usePrimaryConn: true, abbreviateBlobs: false });
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect(), undefined, { abbreviateBlobs: false });
   while (await sourceElemFirstPassReader.step()) {
     const elemJson = sourceElemFirstPassReader.current[0];
     const elemClass = sourceElemFirstPassReader.current[1];
@@ -735,14 +735,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
     });
 
-    console.log(sourceId);
-    console.log(sourceElemFirstPassReader["_localOffset"]);
     incrementStmtsExeced();
   }
 
   // second pass, update now that everything has been inserted
   console.log("hydrate elements");
-  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true), undefined, { usePrimaryConn: true });
+  // FIXME: why query all these things we don't need?
+  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true));
   while (await sourceElemSecondPassReader.step()) {
     const jsonString = sourceElemSecondPassReader.current[0];
     const classFullName = sourceElemSecondPassReader.current[1];
@@ -768,7 +767,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert aspects");
-  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { usePrimaryConn: true });
+  const aspectReader = source.createQueryReader(sourceAspectSelect);
   while (await aspectReader.step()) {
     const jsonString = aspectReader.current[0];
     const classFullName = aspectReader.current[1];
@@ -797,7 +796,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert ElementRefersToElements");
-  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { usePrimaryConn: true });
+  const elemRefersReader = source.createQueryReader(elemRefersSelect);
   while (await elemRefersReader.step()) {
     const jsonString = elemRefersReader.current[0];
     const classFullName = elemRefersReader.current[1];
