@@ -46,7 +46,6 @@ export default async function prepareFork(context: TestCaseContext) {
     throw err;
   } finally {
     addReport(
-      "Prepare Fork",
       sourceDb.name,
       "time elapsed (seconds)",
       timer?.elapsedSeconds ?? -1,

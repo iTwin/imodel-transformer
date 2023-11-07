@@ -3,7 +3,7 @@
 * See LICENSE.md in the project root for license terms and full copyright notice.
 *--------------------------------------------------------------------------------------------*/
 
-import { Code } from "@itwin/core-common";
+import { Code, ExternalSourceProps, RepositoryLinkProps } from "@itwin/core-common";
 import { Element, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger } from "@itwin/core-bentley";
@@ -41,7 +41,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
   },
   async createForkInitTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<TransformRunner> {
     // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-    const masterLinkRepoId = new RepositoryLink({
+    const masterLinkRepoId = targetDb.elements.insertElement({
       classFullName: RepositoryLink.classFullName,
       code: RepositoryLink.createCode(targetDb, IModelDb.repositoryModelId, "test-imodel"),
       model: IModelDb.repositoryModelId,
@@ -49,9 +49,9 @@ const nativeTransformerTestModule: TestTransformerModule = {
       format: "iModel",
       repositoryGuid: sourceDb.iModelId,
       description: "master iModel repository",
-    }, targetDb).insert();
+    } as RepositoryLinkProps);
 
-    const masterExternalSourceId = new ExternalSource({
+    const masterExternalSourceId = targetDb.elements.insertElement({
       classFullName: ExternalSource.classFullName,
       model: IModelDb.rootSubjectId,
       code: Code.createEmpty(),
@@ -59,7 +59,8 @@ const nativeTransformerTestModule: TestTransformerModule = {
       connectorName: "iModel Transformer",
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       connectorVersion: require("@itwin/imodel-transformer/package.json").version,
-    }, targetDb).insert();
+    } as ExternalSourceProps);
+
     const transformer = new ProgressTransformer(sourceDb, targetDb, {
       // tells the transformer that we have a raw copy of a source and the target should receive
       // provenance from the source that is necessary for performing synchronizations in the future
