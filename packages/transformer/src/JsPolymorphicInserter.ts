@@ -305,10 +305,11 @@ async function createPolymorphicEntityQueryMap<
         // SELECT Val + 1
         // FROM be_Local
         // WHERE Name='bis_instanceidsequence'
-        injectExpr(`
-          /* FIXME: this obviously only works with empty targets */
-          HexToId(JSON_EXTRACT(:x, '$.ECInstanceId'))
-        `)
+        ":id"
+        // injectExpr(`
+        //   /* FIXME: this obviously only works with empty targets */
+        //   HexToId(JSON_EXTRACT(:x, '$.ECInstanceId'))
+        // `)
       }
       ${nonCompoundProperties.length > 0 ? "," : "" /* FIXME: join instead */}
       ${nonCompoundProperties
@@ -372,8 +373,8 @@ async function createPolymorphicEntityQueryMap<
     }
 
     let hackedRemapInsertSql: string | undefined;
-    let hackedRemapInsertSqls: { sql: string, needsJson: boolean, needsId: boolean }[] | undefined;
-    const idBinding = ":_ecdb_ecsqlparam_id_col1";
+    let hackedRemapInsertSqls: { sql: string, needsJson: boolean, needsId: boolean, needsEcId: boolean }[] | undefined;
+    const ecIdBinding = ":_ecdb_ecsqlparam_id_col1";
 
     function insert(ecdb: ECDb, id: string, jsonString: string, source?: { id: string, db: IModelDb }) {
       if (hackedRemapInsertSql === undefined) {
@@ -381,7 +382,8 @@ async function createPolymorphicEntityQueryMap<
         hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({
           sql,
           needsJson: sql.includes(":x"),
-          needsId: sql.includes(idBinding),
+          needsEcId: sql.includes(ecIdBinding),
+          needsId: sql.includes(":id"),
         }));
       }
 
@@ -390,14 +392,16 @@ async function createPolymorphicEntityQueryMap<
       try {
         // eslint-disable-next-line
         for (let i = 0; i < hackedRemapInsertSqls!.length; ++i) {
-          const { sql, needsJson, needsId } = hackedRemapInsertSqls![i];
+          const { sql, needsJson, needsId, needsEcId } = hackedRemapInsertSqls![i];
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
             // FIXME: should calculate this ahead of time... really should cache all
             // per-class statements
+            if (needsId)
+              targetStmt.bindId(":id_col1", id); // NOTE: ECSQL parameter mangling
             if (needsJson)
               targetStmt.bindString(":x", jsonString);
-            if (needsId)
-              targetStmt.bindId(idBinding, id);
+            if (needsEcId)
+              targetStmt.bindId(ecIdBinding, id);
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
           });
         }
@@ -579,7 +583,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
   });
 
-  // FIXME: this doesn't work... using a workaround of setting all references to 0x0
+  // FIXME: this doesn't work... (maybe should disable foreign keys entirely?)
+  // using a workaround of setting all references to 0x0
   writeableTarget.withPreparedSqliteStatement(`
     PRAGMA defer_foreign_keys_pragma = true;
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
