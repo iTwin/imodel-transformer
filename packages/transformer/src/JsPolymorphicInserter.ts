@@ -735,6 +735,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
     });
 
+    console.log(sourceId);
+    console.log(sourceElemFirstPassReader["_localOffset"]);
     incrementStmtsExeced();
   }
 
@@ -775,14 +777,14 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    const _targetId = insertQuery(writeableTarget, useInstanceId(), jsonString, { id: sourceId, db: source });
+    const targetId = insertQuery(writeableTarget, useInstanceId(), jsonString, { id: sourceId, db: source });
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO temp.aspect_remap VALUES(?,?)
     `, (targetStmt) => {
       // HACK: returned id is broken with sql_mismatch so just reusing source id
       targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, sourceId);
+      targetStmt.bindId(2, targetId);
       assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
     });
 
@@ -851,11 +853,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // writeableTarget.withSqliteStatement(`
   //   DETACH source
   // `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
-
-  // FIXME: detach... readonly attached db gets write-locked for some reason
-  writeableTarget.withSqliteStatement(`
-    DETACH remaps
-  `, (s) => assert(s.step() === DbResult.BE_SQLITE_ERROR));
 
   writeableTarget.clearStatementCache(); // so we can detach attached db
   writeableTarget.saveChanges();
