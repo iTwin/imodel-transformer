@@ -4,7 +4,7 @@ import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
 
-/* eslint-disable no-console */
+/* eslint-disable no-console, @itwin/no-internal */
 
 // some high entropy string
 const injectionString = "Inject_1243yu1";
@@ -12,7 +12,7 @@ const injectExpr = (s: string, type = "Integer") => `(CAST ((SELECT '${injection
 
 const getInjectedSqlite = (query: string, db: ECDb | IModelDb) => {
   try {
-    return db.withPreparedStatement(query, (stmt) => {
+    return db.withStatement(query, (stmt) => {
       const nativeSql = stmt.getNativeSql();
       return nativeSql.replace(
         new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
@@ -60,7 +60,8 @@ interface PolymorphicEntityQueries<
   ) => Id64String>;
   insert: Map<string, (
     db: ECDb,
-    id: number,
+    /** for now you must provide the id to insert on */
+    id: Id64String,
     jsonString: string,
     source?: { id: Id64String, db: IModelDb },
   ) => Id64String>;
@@ -258,6 +259,7 @@ async function createPolymorphicEntityQueryMap<
       })
     `;
 
+    // TODO FIXME: support this
     const nonCompoundProperties = properties
       .filter((p) => !(
            p.propertyType === PropertyType.Struct
@@ -369,23 +371,34 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    const hackedRemapInsertSql = getInjectedSqlite(insertQuery, db);
-    const hackedRemapInsertSqls = hackedRemapInsertSql.split(";");
+    let hackedRemapInsertSql: string | undefined;
+    let hackedRemapInsertSqls: { sql: string, needsJson: boolean, needsId: boolean }[] | undefined;
+    const idBinding = ":_ecdb_ecsqlparam_id_col1";
 
-    function insert(ecdb: ECDb, id: number, jsonString: string, source?: { id: string, db: IModelDb }) {
+    function insert(ecdb: ECDb, id: string, jsonString: string, source?: { id: string, db: IModelDb }) {
+      if (hackedRemapInsertSql === undefined) {
+        hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
+        hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({
+          sql,
+          needsJson: sql.includes(":x"),
+          needsId: sql.includes(idBinding),
+        }));
+      }
+
       // NEXT FIXME: doesn't work on some relationships, need to explicitly know if it's a rel
       // class and then always add source/target to INSERT
       try {
-        let insertedRow: string | undefined;
-        for (const sql of hackedRemapInsertSqls) {
+        // eslint-disable-next-line
+        for (let i = 0; i < hackedRemapInsertSqls!.length; ++i) {
+          const { sql, needsJson, needsId } = hackedRemapInsertSqls![i];
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
             // FIXME: should calculate this ahead of time... really should cache all
             // per-class statements
-            if (sql.includes(":x"))
+            if (needsJson)
               targetStmt.bindString(":x", jsonString);
+            if (needsId)
+              targetStmt.bindId(idBinding, id);
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-            if (insertedRow === undefined)
-              insertedRow = lastInserted;
           });
         }
 
@@ -401,8 +414,8 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    const hackedRemapUpdateSql = getInjectedSqlite(updateQuery, db);
-    const hackedRemapUpdateSqls = hackedRemapInsertSql.split(";");
+    let hackedRemapUpdateSql: string | undefined;
+    let hackedRemapUpdateSqls: { sql: string, needsJson: boolean }[] | undefined;
 
     function update(
       ecdb: ECDb,
@@ -413,8 +426,18 @@ async function createPolymorphicEntityQueryMap<
       if (updateQuery === "")
         return; // ignore empty updates
 
+      if (hackedRemapUpdateSql === undefined) {
+        hackedRemapUpdateSql = getInjectedSqlite(updateQuery, ecdb);
+        hackedRemapUpdateSqls = hackedRemapUpdateSql.split(";").map((sql) => ({
+          sql,
+          needsJson: sql.includes(":x"),
+        }));
+      }
+
       try {
-        for (const sql of hackedRemapUpdateSqls) {
+        // eslint-disable-next-line
+        for (let i = 0; i < hackedRemapUpdateSqls!.length; ++i) {
+          const { sql } = hackedRemapUpdateSqls![i];
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
             targetStmt.bindString(":x", jsonString);
             // FIXME: note that sometimes x_col1 is also defined...
@@ -491,7 +514,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     fontRemaps.set(id, result);
     return result;
   };
-
 
   await schemaExporter.processFonts();
   await schemaExporter.processSchemas();
@@ -655,18 +677,19 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       console.log(`executed ${stmtsExeced} statements at ${elapsedMs/1000}s`);
   };
 
-  let [_nextElemId, _nextInstanceId] = ["bis_elementidsequence", "bis_instanceidsequence"]
+  let [_nextElemId, _nextInstanceId] = ["bis_elementidsequence", "ec_instanceidsequence"]
     .map((seq) => writeableTarget.withSqliteStatement(`
       SELECT Val
       FROM be_Local
       WHERE Name='${seq}'
     `, (s) => {
-      assert(s.step() === DbResult.BE_SQLITE_ROW);
+      assert(s.step() === DbResult.BE_SQLITE_ROW, writeableTarget.nativeDb.getLastError());
       return parseInt(s.getValue(0).getId(), 16);
     }));
 
-  const useElemId = () => _nextElemId++;
-  const useInstanceId = () => _nextInstanceId++;
+  // FIXME: doesn't support high briefcase ids (> 2 << 13)!
+  const useElemId = () => `0x${(_nextElemId++).toString(16)}`;
+  const useInstanceId = () => `0x${(_nextInstanceId++).toString(16)}`;
 
   // first pass, update everything with trivial references (0 and null codes)
   // FIXME: technically could do it all in one pass if we preserve distances between rows and
@@ -696,7 +719,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
       // HACK: edit packaged json without parsing
       const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
-      modelInsertQuery(writeableTarget, modelJsonWithTargetId);
+      modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
     }
 
     writeableTarget.withPreparedSqliteStatement(`
@@ -747,7 +770,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    const _targetId = insertQuery(writeableTarget, jsonString, { id: sourceId, db: source });
+    const _targetId = insertQuery(writeableTarget, useInstanceId(), jsonString, { id: sourceId, db: source });
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO temp.aspect_remap VALUES(?,?)
@@ -776,7 +799,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    insertQuery(writeableTarget, jsonString, { id: sourceId, db: source });
+    insertQuery(writeableTarget, useInstanceId(), jsonString, { id: sourceId, db: source });
 
     incrementStmtsExeced();
   }
@@ -828,7 +851,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   writeableTarget.withSqliteStatement(`
     DETACH remaps
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_ERROR));
-
 
   writeableTarget.clearStatementCache(); // so we can detach attached db
   writeableTarget.saveChanges();
