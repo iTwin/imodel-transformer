@@ -8,9 +8,9 @@ import { IModelTransformer } from "./IModelTransformer";
 
 // some high entropy string
 const injectionString = "Inject_1243yu1";
-const injectExpr = (s: string) => `(SELECT '${injectionString} ${escapeForSqlStr(s)}')`;
+const injectExpr = (s: string, type = "Integer") => `(CAST ((SELECT '${injectionString} ${escapeForSqlStr(s)}') AS ${type}))`;
 
-const getInjectedSqlite = (query: string, db: ECDb) => {
+const getInjectedSqlite = (query: string, db: ECDb | IModelDb) => {
   try {
     return db.withPreparedStatement(query, (stmt) => {
       const nativeSql = stmt.getNativeSql();
@@ -58,7 +58,12 @@ interface PolymorphicEntityQueries<
     /** extra bindings are ignored if they do not exist in the class */
     extraBindings?: Record<keyof PopulateExtraBindings, any>
   ) => Id64String>;
-  insert: Map<string, (db: ECDb, jsonString: string, source?: { id: Id64String, db: IModelDb }) => Id64String>;
+  insert: Map<string, (
+    db: ECDb,
+    id: number,
+    jsonString: string,
+    source?: { id: Id64String, db: IModelDb },
+  ) => Id64String>;
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
   update: Map<string, (
     db: ECDb,
@@ -253,6 +258,24 @@ async function createPolymorphicEntityQueryMap<
       })
     `;
 
+    const nonCompoundProperties = properties
+      .filter((p) => !(
+           p.propertyType === PropertyType.Struct
+        || p.propertyType === PropertyType.Struct_Array
+        || p.propertyType === PropertyType.Binary_Array
+        || p.propertyType === PropertyType.Boolean_Array
+        || p.propertyType === PropertyType.DateTime_Array
+        || p.propertyType === PropertyType.Double_Array
+        || p.propertyType === PropertyType.Integer_Array
+        || p.propertyType === PropertyType.Integer_Enumeration_Array
+        || p.propertyType === PropertyType.Long_Array
+        || p.propertyType === PropertyType.Point2d_Array
+        || p.propertyType === PropertyType.Point3d_Array
+        || p.propertyType === PropertyType.String_Array
+        || p.propertyType === PropertyType.String_Enumeration_Array
+        || p.propertyType === PropertyType.IGeometry_Array
+      ));
+
     const insertQuery = `
       INSERT INTO ${escapedClassFullName}
       -- FIXME: getting SQLITE_MISMATCH... something weird going on in native
@@ -260,8 +283,9 @@ async function createPolymorphicEntityQueryMap<
         ${
           [
             { name: "ECInstanceId", propertyType: PropertyType.Long },
-            ...properties,
-          ].map((p) =>
+            ...nonCompoundProperties,
+          ]
+          .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
           p.propertyType === PropertyType.Navigation
           ? `[${p.name}].Id, [${p.name}].RelECClassId`
@@ -276,15 +300,16 @@ async function createPolymorphicEntityQueryMap<
       VALUES (
       ${
         // could try incrementing from this (emulating briefcase behavior)
-        //SELECT Val + 1
-        //FROM be_Local
-        //WHERE Name='bis_instanceidsequence'
+        // SELECT Val + 1
+        // FROM be_Local
+        // WHERE Name='bis_instanceidsequence'
         injectExpr(`
           /* FIXME: this obviously only works with empty targets */
           HexToId(JSON_EXTRACT(:x, '$.ECInstanceId'))
-        `)}
-      ${properties.length > 0 ? "," : "" /* FIXME: join instead */}
-      ${properties
+        `)
+      }
+      ${nonCompoundProperties.length > 0 ? "," : "" /* FIXME: join instead */}
+      ${nonCompoundProperties
         .map((p) =>
           p.propertyType === PropertyType.Navigation
           // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
@@ -318,8 +343,6 @@ async function createPolymorphicEntityQueryMap<
     `;
     /* eslint-enable @typescript-eslint/indent */
 
-    /* eslint-enable @typescript-eslint/indent */
-
     function populate(
       ecdb: ECDb,
       jsonString: string,
@@ -346,30 +369,27 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    function insert(ecdb: ECDb, jsonString: string, source?: { id: string, db: IModelDb }) {
+    const hackedRemapInsertSql = getInjectedSqlite(insertQuery, db);
+    const hackedRemapInsertSqls = hackedRemapInsertSql.split(";");
+
+    function insert(ecdb: ECDb, id: number, jsonString: string, source?: { id: string, db: IModelDb }) {
       // NEXT FIXME: doesn't work on some relationships, need to explicitly know if it's a rel
       // class and then always add source/target to INSERT
-      let hackedRemapInsertSql;
       try {
-        // HACK: create hybrid sqlite/ecsql query
-        hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
-
-        for (const sql of hackedRemapInsertSql.split(";")) {
+        let insertedRow: string | undefined;
+        for (const sql of hackedRemapInsertSqls) {
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
-            targetStmt.bindString(":x", jsonString);
+            // FIXME: should calculate this ahead of time... really should cache all
+            // per-class statements
+            if (sql.includes(":x"))
+              targetStmt.bindString(":x", jsonString);
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+            if (insertedRow === undefined)
+              insertedRow = lastInserted;
           });
         }
 
-        // FIXME: this doesn't work at all I believe, need to emulate how platform does it
-        return ecdb.withPreparedSqliteStatement(`
-          SELECT Val
-          FROM be_Local
-          WHERE Name='bis_elementidsequence'
-        `, (s) => {
-          assert(s.step() === DbResult.BE_SQLITE_ROW);
-          return s.getValue(0).getId();
-        });
+        return id;
       } catch (err) {
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
@@ -381,6 +401,9 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
+    const hackedRemapUpdateSql = getInjectedSqlite(updateQuery, db);
+    const hackedRemapUpdateSqls = hackedRemapInsertSql.split(";");
+
     function update(
       ecdb: ECDb,
       jsonString: string,
@@ -390,11 +413,8 @@ async function createPolymorphicEntityQueryMap<
       if (updateQuery === "")
         return; // ignore empty updates
 
-      // HACK: create hybrid sqlite/ecsql query
-      const hackedRemapUpdateSql = getInjectedSqlite(updateQuery, ecdb);
-
       try {
-        for (const sql of hackedRemapUpdateSql.split(";")) {
+        for (const sql of hackedRemapUpdateSqls) {
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
             targetStmt.bindString(":x", jsonString);
             // FIXME: note that sometimes x_col1 is also defined...
@@ -634,6 +654,19 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     if (stmtsExeced % 1000 === 0)
       console.log(`executed ${stmtsExeced} statements at ${elapsedMs/1000}s`);
   };
+
+  let [_nextElemId, _nextInstanceId] = ["bis_elementidsequence", "bis_instanceidsequence"]
+    .map((seq) => writeableTarget.withSqliteStatement(`
+      SELECT Val
+      FROM be_Local
+      WHERE Name='${seq}'
+    `, (s) => {
+      assert(s.step() === DbResult.BE_SQLITE_ROW);
+      return parseInt(s.getValue(0).getId(), 16);
+    }));
+
+  const useElemId = () => _nextElemId++;
+  const useInstanceId = () => _nextInstanceId++;
 
   // first pass, update everything with trivial references (0 and null codes)
   // FIXME: technically could do it all in one pass if we preserve distances between rows and
