@@ -453,7 +453,7 @@ export async function assertIdentityTransformation(
         expectedSourceModelJsonProps,
         targetModel.jsonProperties,
       );
-      expect(targetModel.jsonProperties).to.deep.advancedEqual(
+      expect(targetModel.jsonProperties, `jsonProps of ${sourceModelId}->${targetModelId} not equal`).to.deep.advancedEqual(
         expectedSourceModelJsonProps,
       );
     }

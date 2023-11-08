@@ -1,8 +1,13 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
-import { Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
+import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
+
+// NOTES:
+// missing things:
+// - arrays/struct properties
+// - non-geometry binary
 
 /* eslint-disable no-console, @itwin/no-internal */
 
@@ -78,6 +83,7 @@ interface PolymorphicEntityQueries<
 interface PropInfo {
   name: Property["name"];
   propertyType: Property["propertyType"];
+  extendedTypeName?: PrimitiveOrEnumPropertyBase["extendedTypeName"];
   isReadOnly?: Property["isReadOnly"];
 }
 
@@ -197,10 +203,6 @@ async function createPolymorphicEntityQueryMap<
               WHERE SourceId=${readHexFromJson(p, "0")}
             )`)}`
 
-            // FIXME: how to handle this?
-            //: p.propertyType === PropertyType.Binary
-            //? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-
             // is CodeValue if not nav prop
             : `[${p.name}] = JSON_EXTRACT(:x, '$.CodeValue')`
           )
@@ -246,7 +248,10 @@ async function createPolymorphicEntityQueryMap<
           : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
           ? "0x1"
           // FIXME: need a sqlite extension for base64 decoding of binary...
-          // : p.propertyType === PropertyType.Binary
+          : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
+          ? `Base64ToBlob(substr(JSON_EXTRACT(:x, '$.${p.name}'), 17))` // ignore encoding spec
+          //: p.propertyType === PropertyType.Binary && p.extendedTypeName === "BeGuid"
+          //? `Base64ToBlob(JSON_EXTRACT(:x, '$.${p.name}'))`
           : p.propertyType === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
           : p.propertyType === PropertyType.Point3d
@@ -373,7 +378,9 @@ async function createPolymorphicEntityQueryMap<
     }
 
     let hackedRemapInsertSql: string | undefined;
-    let hackedRemapInsertSqls: { sql: string, needsJson: boolean, needsId: boolean, needsEcId: boolean }[] | undefined;
+    let hackedRemapInsertSqls:
+      | { sql: string, needsJson: boolean, needsEcJson: boolean, needsId: boolean, needsEcId: boolean }[]
+      | undefined;
     const ecIdBinding = ":_ecdb_ecsqlparam_id_col1";
 
     function insert(ecdb: ECDb, id: string, jsonString: string, source?: { id: string, db: IModelDb }) {
@@ -381,9 +388,10 @@ async function createPolymorphicEntityQueryMap<
         hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
         hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({
           sql,
+          needsEcJson: sql.includes(":x_col1"), // FIXME: ECSQL parameter mangling
           needsJson: sql.includes(":x"),
-          needsEcId: sql.includes(ecIdBinding),
           needsId: sql.includes(":id"),
+          needsEcId: sql.includes(ecIdBinding),
         }));
       }
 
@@ -392,15 +400,17 @@ async function createPolymorphicEntityQueryMap<
       try {
         // eslint-disable-next-line
         for (let i = 0; i < hackedRemapInsertSqls!.length; ++i) {
-          const { sql, needsJson, needsId, needsEcId } = hackedRemapInsertSqls![i];
-          ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
+          const sqlInfo = hackedRemapInsertSqls![i];
+          ecdb.withPreparedSqliteStatement(sqlInfo.sql, (targetStmt) => {
             // FIXME: should calculate this ahead of time... really should cache all
             // per-class statements
-            if (needsId)
+            if (sqlInfo.needsId)
               targetStmt.bindId(":id_col1", id); // NOTE: ECSQL parameter mangling
-            if (needsJson)
+            if (sqlInfo.needsJson)
               targetStmt.bindString(":x", jsonString);
-            if (needsEcId)
+            if (sqlInfo.needsEcJson)
+              targetStmt.bindString(":x_col1", jsonString);
+            if (sqlInfo.needsEcId)
               targetStmt.bindId(ecIdBinding, id);
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
           });
@@ -671,6 +681,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
     ORDER BY e.ECInstanceId ASC
+    OPTIONS DO_NOT_TRUNCATE_BLOB /* FIXME: should read each one manually */
   `;
 
   const startTime = performance.now();
