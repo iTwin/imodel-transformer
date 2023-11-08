@@ -47,6 +47,11 @@ export async function runWithCpuProfiler<F extends () => any>(
       });
     });
   };
+
+  const source = process.env.PROFILE_SAMPLE_INTERVAL === undefined ? "default" : "from environment";
+  // eslint-disable-next-line no-console
+  console.log(`Using ${source} interval of ${sampleIntervalMicroSec} microseconds`);
+
   const session = new inspector.Session();
   session.connect();
   await invokeFunc(session, "Profiler.enable");
