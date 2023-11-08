@@ -142,9 +142,12 @@ async function createPolymorphicEntityQueryMap<
 
   const readHexFromJson = (p: Pick<PropInfo, "name" | "propertyType">, empty = "0", accessStr?: string) => {
     const navProp = p.propertyType === PropertyType.Navigation;
+    // NOTE: currently we know this is only used inside `injectExpr`, so it will avoid ecsql param mangling
+    // so premangle the parameter (add "_col1") so sqlite sees the parameters as the same... just in case
+    // the query optimizer likes that
     if (empty)
-      return `coalesce(HexToId(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), ${empty})`;
-    return `HexToId(JSON_EXTRACT(:x, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}'))`;
+      return `coalesce(HexToId(JSON_EXTRACT(:x_col1, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), ${empty})`;
+    return `HexToId(JSON_EXTRACT(:x_col1, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}'))`;
   };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
@@ -388,6 +391,7 @@ async function createPolymorphicEntityQueryMap<
         hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
         hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({
           sql,
+          // NOTE: consolidating these two parameter mangling could improve query performance
           needsEcJson: sql.includes(":x_col1"), // NOTE: ECSQL parameter mangling
           needsJson: /:x\b/.test(sql), // FIXME: why is this unmangled? is it in an injection?
           needsId: /:id_col1\b/.test(sql), // NOTE: ECSQL parameter mangling
@@ -406,7 +410,7 @@ async function createPolymorphicEntityQueryMap<
             // per-class statements
             if (sqlInfo.needsId)
               targetStmt.bindId(":id_col1", id); // NOTE: ECSQL parameter mangling
-            if (sqlInfo.needsJson)
+            if (sqlInfo.needsJson) // FIXME: remove, should never occur
               targetStmt.bindString(":x", jsonString);
             if (sqlInfo.needsEcJson)
               targetStmt.bindString(":x_col1", jsonString);
@@ -451,10 +455,10 @@ async function createPolymorphicEntityQueryMap<
       try {
         // eslint-disable-next-line
         for (let i = 0; i < hackedRemapUpdateSqls!.length; ++i) {
-          const { sql } = hackedRemapUpdateSqls![i];
+          const { sql, needsJson } = hackedRemapUpdateSqls![i];
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
-            targetStmt.bindString(":x", jsonString);
-            // FIXME: note that sometimes x_col1 is also defined...
+            if (needsJson)
+              targetStmt.bindString(":x_col1", jsonString);
 
             for (const [name, data] of updateBindings) {
               // FIXME: why do I get a never type for this...
