@@ -388,9 +388,9 @@ async function createPolymorphicEntityQueryMap<
         hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
         hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({
           sql,
-          needsEcJson: sql.includes(":x_col1"), // FIXME: ECSQL parameter mangling
-          needsJson: sql.includes(":x"),
-          needsId: sql.includes(":id"),
+          needsEcJson: sql.includes(":x_col1"), // NOTE: ECSQL parameter mangling
+          needsJson: /:x\b/.test(sql), // FIXME: why is this unmangled? is it in an injection?
+          needsId: /:id_col1\b/.test(sql), // NOTE: ECSQL parameter mangling
           needsEcId: sql.includes(ecIdBinding),
         }));
       }
