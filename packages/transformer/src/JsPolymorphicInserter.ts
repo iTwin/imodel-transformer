@@ -672,30 +672,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   });
 
-  const sourceElemSelect = (needGeometry = false) => `
-    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId, CAST(e.FederationGuid AS Binary),
-           m.$, ec_classname(m.ECClassId, 's.c')
-    ${needGeometry ? `
-          , coalesce(
-              g3d.GeometryStream,
-              g2d.GeometryStream,
-              gp.GeometryStream
-            )
-    ` : ""}
-    FROM bis.Element e
-    -- FIXME: is it faster to use the new $->Blah syntax?
-    LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
-    ${needGeometry ? `
-    LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
-    LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
-    LEFT JOIN bis.GeometryPart       gp ON e.ECInstanceId=gp.ECInstanceId
-    ` : ""}
-    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
-    -- FIXME: ordering by class *might* be faster due to less cache busting
-    -- ORDER BY ECClassId, ECInstanceId ASC
-    ORDER BY e.ECInstanceId ASC
-  `;
-
   const startTime = performance.now();
   let stmtsExeced = 0;
   const incrementStmtsExeced = () => {
@@ -719,6 +695,26 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const useElemId = () => `0x${(_nextElemId++).toString(16)}`;
   const useInstanceId = () => `0x${(_nextInstanceId++).toString(16)}`;
 
+  const sourceElemSelect = `
+    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId,
+           m.$, ec_classname(m.ECClassId, 's.c')
+    FROM bis.Element e
+    -- FIXME: is it faster to use the new $->Blah syntax?
+    LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
+    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    -- FIXME: ordering by class *might* be faster due to less cache busting
+    -- ORDER BY ECClassId, ECInstanceId ASC
+    ORDER BY e.ECInstanceId ASC
+  `;
+
+  const sourceFedGuidSelect = `
+    SELECT CAST(e.FederationGuid AS Binary)
+    FROM bis.Element e
+    -- NOTE: ORDER and WHERE must match the sourceElemSelect query above
+    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    ORDER BY e.ECInstanceId ASC
+  `;
+
   // first pass, update everything with trivial references (0 and null codes)
   // FIXME: technically could do it all in one pass if we preserve distances between rows and
   // just offset all references by the count of rows in the source...
@@ -727,14 +723,18 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
   // in the IDs and redo it?
   console.log("populate elements");
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect());
-  while (await sourceElemFirstPassReader.step()) {
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
+  const sourceElemFedGuidReader = source.createQueryReader(sourceFedGuidSelect);
+  while (await Promise.all([
+    sourceElemFirstPassReader.step(),
+    sourceElemFedGuidReader.step(),
+  ]).then(([a,b]) => (assert(a === b), a))) {
     const elemJson = sourceElemFirstPassReader.current[0] as string;
     const elemClass = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
-    const federationGuid = sourceElemFirstPassReader.current[3];
-    const modelJson = sourceElemFirstPassReader.current[4];
-    const modelClass = sourceElemFirstPassReader.current[5];
+    const modelJson = sourceElemFirstPassReader.current[3];
+    const modelClass = sourceElemFirstPassReader.current[4];
+    const federationGuid = sourceElemFedGuidReader.current[0];
 
     const elemPopulateQuery = queryMap.populate.get(elemClass);
     assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
@@ -791,15 +791,45 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     incrementStmtsExeced();
   }
 
+  const sourceElemForHydrate = `
+    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId
+    FROM bis.Element e
+    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    ORDER BY e.ECInstanceId ASC
+  `;
+
+  const sourceGeomForHydrate = `
+    SELECT CAST (coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream) AS Binary)
+    FROM bis.Element e
+    LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
+    LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
+    LEFT JOIN bis.GeometryPart       gp ON e.ECInstanceId=gp.ECInstanceId
+    -- NOTE: ORDER and WHERE must match the query above
+    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    ORDER BY e.ECInstanceId ASC
+  `;
+
+  // first pass, update everything with trivial references (0 and null codes)
+  // FIXME: technically could do it all in one pass if we preserve distances between rows and
+  // just offset all references by the count of rows in the source...
+  //
+  // Might be useful to still do two passes though in a filter-heavy transform... we can always
+  // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
+  // in the IDs and redo it?
+  console.log("populate elements");
+
   // second pass, update now that everything has been inserted
   console.log("hydrate elements");
-  // FIXME: why query all these things we don't need?
-  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true));
-  while (await sourceElemSecondPassReader.step()) {
+  const sourceElemSecondPassReader = source.createQueryReader(sourceElemForHydrate, undefined, { abbreviateBlobs: true });
+  const sourceElemGeomReader = source.createQueryReader(sourceGeomForHydrate);
+  while (await Promise.all([
+    sourceElemSecondPassReader.step(),
+    sourceElemGeomReader.step(),
+  ]).then(([a,b]) => (assert(a === b), a))) {
     const jsonString = sourceElemSecondPassReader.current[0];
     const classFullName = sourceElemSecondPassReader.current[1];
     const sourceId = sourceElemSecondPassReader.current[2];
-    const geometryStream = sourceElemSecondPassReader.current[6];
+    const geometryStream = sourceElemGeomReader.current[0];
 
     const updateQuery = queryMap.update.get(classFullName);
     assert(updateQuery, `couldn't find update query for class '${classFullName}`);
@@ -820,7 +850,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert aspects");
-  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { usePrimaryConn: true });
+  // FIXME: this slowly handles binary properties!
+  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: false });
   while (await aspectReader.step()) {
     const jsonString = aspectReader.current[0];
     const classFullName = aspectReader.current[1];
@@ -849,7 +880,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert ElementRefersToElements");
-  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { usePrimaryConn: true });
+  // FIXME: this slowly handles binary properties!
+  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: false });
   while (await elemRefersReader.step()) {
     const jsonString = elemRefersReader.current[0];
     const classFullName = elemRefersReader.current[1];
