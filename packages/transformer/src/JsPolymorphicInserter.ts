@@ -3,6 +3,7 @@ import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
+import { QueryBinder } from "@itwin/core-common";
 
 // NOTES:
 // missing things:
@@ -60,6 +61,7 @@ interface PolymorphicEntityQueries<
   populate: Map<string, (
     db: ECDb,
     jsonString: string,
+    binaryValues?: Record<string, Uint8Array>,
     /** extra bindings are ignored if they do not exist in the class */
     extraBindings?: Record<keyof PopulateExtraBindings, any>
   ) => Id64String>;
@@ -250,11 +252,10 @@ async function createPolymorphicEntityQueryMap<
           ? `JSON_EXTRACT(:x, '$.${p.name}')`
           : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
           ? "0x1"
-          // FIXME: need a sqlite extension for base64 decoding of binary...
-          : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
-          ? `Base64ToBlob(substr(JSON_EXTRACT(:x, '$.${p.name}'), 17))` // ignore encoding spec
-          //: p.propertyType === PropertyType.Binary && p.extendedTypeName === "BeGuid"
-          //? `Base64ToBlob(JSON_EXTRACT(:x, '$.${p.name}'))`
+          // : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
+          // ? `Base64ToBlob(substr(JSON_EXTRACT(:x, '$.${p.name}'), 17))` // ignore encoding spec
+          // : p.propertyType === PropertyType.Binary && p.extendedTypeName === "BeGuid"
+          // ? `Base64ToBlob(JSON_EXTRACT(:x, '$.${p.name}'))`
           : p.propertyType === PropertyType.Point2d
           ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
           : p.propertyType === PropertyType.Point3d
@@ -286,14 +287,17 @@ async function createPolymorphicEntityQueryMap<
         || p.propertyType === PropertyType.IGeometry_Array
       ));
 
+    const binaryProperties = nonCompoundProperties.filter(p => p.propertyType === PropertyType.Binary);
+    const nonBinaryProperties = nonCompoundProperties.filter(p => p.propertyType !== PropertyType.Binary);
+
     const insertQuery = `
       INSERT INTO ${escapedClassFullName}
-      -- FIXME: getting SQLITE_MISMATCH... something weird going on in native
       (
         ${
           [
             { name: "ECInstanceId", propertyType: PropertyType.Long },
-            ...nonCompoundProperties,
+            ...nonBinaryProperties,
+            ...binaryProperties,
           ]
           .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
@@ -303,60 +307,53 @@ async function createPolymorphicEntityQueryMap<
           ? `[${p.name}].x, [${p.name}].y`
           : p.propertyType === PropertyType.Point3d
           ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
-          : p.name
+          : `[${p.name}]`
         )
         .join(",\n  ")
       })
       VALUES (
-      ${
-        // could try incrementing from this (emulating briefcase behavior)
-        // SELECT Val + 1
-        // FROM be_Local
-        // WHERE Name='bis_instanceidsequence'
-        ":id"
-        // injectExpr(`
-        //   /* FIXME: this obviously only works with empty targets */
-        //   HexToId(JSON_EXTRACT(:x, '$.ECInstanceId'))
-        // `)
-      }
-      ${nonCompoundProperties.length > 0 ? "," : "" /* FIXME: join instead */}
-      ${nonCompoundProperties
-        .map((p) =>
-          p.propertyType === PropertyType.Navigation
-          // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
-          ? `${injectExpr(`(
-              SELECT TargetId
-              FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
-              WHERE SourceId=${readHexFromJson(p)}
-            )`)}, ${injectExpr(`(
-              SELECT tc.Id
-              FROM source.ec_Class sc
-              JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-              JOIN main.ec_Schema ts ON ts.Name=ss.Name
-              JOIN main.ec_Class tc ON tc.Name=sc.Name
-              WHERE sc.Id=${readHexFromJson(p, undefined, `${p.name}.RelECClassId`)}
-            )`)}`
-          // FIXME: use ecreferencetypes cache to determine which remap table to use
-          : p.propertyType === PropertyType.Long
-          ? injectExpr(`(
-            SELECT TargetId
-            FROM temp.element_remap
-            WHERE SourceId=${readHexFromJson(p)}
-          )`)
-          : p.propertyType === PropertyType.Point2d
-          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-          : p.propertyType === PropertyType.Point3d
-          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
-          : `JSON_EXTRACT(:x, '$.${p.name}')`
-        )
-        .join(",\n  ")
-      })
+        :id
+        ${[
+          ":id",
+          ...nonBinaryProperties
+            .map((p) =>
+              p.propertyType === PropertyType.Navigation
+              // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
+              ? `${injectExpr(`(
+                  SELECT TargetId
+                  FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
+                  WHERE SourceId=${readHexFromJson(p)}
+                )`)}, ${injectExpr(`(
+                  SELECT tc.Id
+                  FROM source.ec_Class sc
+                  JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
+                  JOIN main.ec_Schema ts ON ts.Name=ss.Name
+                  JOIN main.ec_Class tc ON tc.Name=sc.Name
+                  WHERE sc.Id=${readHexFromJson(p, undefined, `${p.name}.RelECClassId`)}
+                )`)}`
+              // FIXME: use ecreferencetypes cache to determine which remap table to use
+              : p.propertyType === PropertyType.Long
+              ? injectExpr(`(
+                SELECT TargetId
+                FROM temp.element_remap
+                WHERE SourceId=${readHexFromJson(p)}
+              )`)
+              : p.propertyType === PropertyType.Point2d
+              ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+              : p.propertyType === PropertyType.Point3d
+              ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
+              : `JSON_EXTRACT(:x, '$.${p.name}')`
+            ),
+          ...binaryProperties.map((p) => `:p_${p.name}`),
+        ].join(",\n")}
+      )
     `;
     /* eslint-enable @typescript-eslint/indent */
 
     function populate(
       ecdb: ECDb,
       jsonString: string,
+      binaryValues: Record<string, Uint8Array> = {},
       bindingValues: Partial<Record<keyof PopulateExtraBindings, any>> = {},
     ) {
       try {
@@ -366,6 +363,9 @@ async function createPolymorphicEntityQueryMap<
             const bindingValue = bindingValues[name];
             if (bindingValue)
               targetStmt[data?.type ?? "bindInteger"](`b_${name}`, bindingValue);
+          }
+          for (const [name, value] of Object.entries(binaryValues)) {
+            targetStmt.bindBlob(`p_${name}`, value);
           }
           const stepRes = targetStmt.stepForInsert();
           assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
@@ -448,7 +448,7 @@ async function createPolymorphicEntityQueryMap<
         hackedRemapUpdateSql = getInjectedSqlite(updateQuery, ecdb);
         hackedRemapUpdateSqls = hackedRemapUpdateSql.split(";").map((sql) => ({
           sql,
-          needsJson: sql.includes(":x"),
+          needsJson: sql.includes(":x_col1"),
         }));
       }
 
@@ -685,7 +685,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
     ORDER BY e.ECInstanceId ASC
-    OPTIONS DO_NOT_TRUNCATE_BLOB /* FIXME: should read each one manually */
   `;
 
   const startTime = performance.now();
@@ -721,24 +720,52 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   console.log("populate elements");
   const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect(), undefined, { abbreviateBlobs: false });
   while (await sourceElemFirstPassReader.step()) {
-    const elemJson = sourceElemFirstPassReader.current[0];
+    const elemJson = sourceElemFirstPassReader.current[0] as string;
     const elemClass = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
     const federationGuid = sourceElemFirstPassReader.current[3];
     const modelJson = sourceElemFirstPassReader.current[4];
     const modelClass = sourceElemFirstPassReader.current[5];
+    console.log(elemJson);
 
     const elemPopulateQuery = queryMap.populate.get(elemClass);
     assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
 
-    const targetId = elemPopulateQuery(writeableTarget, elemJson, { FederationGuid: federationGuid });
+    let binaryValues: Record<string, Uint8Array | undefined> = {};
+
+    for (const binaryValue of elemJson.matchAll(/"(?<propName>[^"]+)":"\{\\"bytes\\":(?<byteLen>\d+)\}"/g)) {
+      const propName = binaryValue.groups?.propName;
+      // const byteLen = binaryValue.groups?.byteLen ? parseInt(binaryValue.groups.byteLen, 10) : undefined;
+      // assert(byteLen && !Number.isNaN(byteLen), "invalid byte length parsed");
+      assert(propName);
+      binaryValues[propName] = undefined;
+    }
+
+    const binaryProps = Object.keys(binaryValues);
+
+    if (binaryProps) {
+      const sourceElemBinariesReader = source.createQueryReader(
+        `SELECT ${binaryProps} FROM ${elemClass} WHERE ECInstanceId=?`,
+        QueryBinder.from([sourceId])
+      );
+      await sourceElemBinariesReader.step();
+      binaryValues = sourceElemBinariesReader.current.toRow();
+    }
+
+    const targetId = elemPopulateQuery(
+      writeableTarget,
+      elemJson,
+      binaryValues as Record<string, Uint8Array>,
+      { FederationGuid: federationGuid }
+    );
 
     if (modelJson) {
       const modelInsertQuery = queryMap.insert.get(modelClass);
       assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
 
-      // HACK: edit packaged json without parsing
+      // HACK: edit packaged json without parsing (FIXME: I don't think this is necessary any longer)
       const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
+      // FIXME: not yet handling binary properties on these
       modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
     }
 
@@ -756,7 +783,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // second pass, update now that everything has been inserted
   console.log("hydrate elements");
   // FIXME: why query all these things we don't need?
-  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true));
+  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true), undefined, { abbreviateBlobs: true });
   while (await sourceElemSecondPassReader.step()) {
     const jsonString = sourceElemSecondPassReader.current[0];
     const classFullName = sourceElemSecondPassReader.current[1];
@@ -782,7 +809,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert aspects");
-  const aspectReader = source.createQueryReader(sourceAspectSelect);
+  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { usePrimaryConn: true });
   while (await aspectReader.step()) {
     const jsonString = aspectReader.current[0];
     const classFullName = aspectReader.current[1];
@@ -811,7 +838,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert ElementRefersToElements");
-  const elemRefersReader = source.createQueryReader(elemRefersSelect);
+  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { usePrimaryConn: true });
   while (await elemRefersReader.step()) {
     const jsonString = elemRefersReader.current[0];
     const classFullName = elemRefersReader.current[1];
