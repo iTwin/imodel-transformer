@@ -3,7 +3,6 @@ import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
-import { QueryBinder } from "@itwin/core-common";
 
 // NOTES:
 // missing things:
@@ -57,6 +56,10 @@ interface PolymorphicEntityQueries<
   PopulateExtraBindings extends Bindings,
   UpdateExtraBindings extends Bindings,
 > {
+  selectBinaries: Map<string, (
+    db: ECDb | IModelDb,
+    id: Id64String,
+  ) => Record<string, Uint8Array>>;
   /** inserts without preserving references, must be updated */
   populate: Map<string, (
     db: ECDb,
@@ -140,6 +143,7 @@ async function createPolymorphicEntityQueryMap<
     insert: new Map(),
     populate: new Map(),
     update: new Map(),
+    selectBinaries: new Map(),
   };
 
   const readHexFromJson = (p: Pick<PropInfo, "name" | "propertyType">, empty = "0", accessStr?: string) => {
@@ -504,9 +508,36 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
+    const selectedBinaryProps = binaryProperties.filter((p) => p.name !== "FederationGuid");
+
+    const selectBinariesQuery = `
+      SELECT ${selectedBinaryProps.map((p) => p.name)}
+      FROM ${escapedClassFullName}
+      WHERE ECInstanceId=?
+    `;
+
+    function selectBinaries(ecdb: ECDb | IModelDb, id: Id64String): Record<string, Uint8Array> {
+      if (selectedBinaryProps.length === 0)
+        return {};
+
+      return ecdb.withPreparedStatement(selectBinariesQuery, (stmt) => {
+        stmt.bindId(1, id);
+        assert(stmt.step() === DbResult.BE_SQLITE_ROW, ecdb.nativeDb.getLastError());
+        // FIXME: maybe this should be a map?
+        const row = {} as Record<string, Uint8Array>;
+        for (let i = 0; i < selectedBinaryProps.length; ++i) {
+          const binaryProperty = selectedBinaryProps[i];
+          row[binaryProperty.name] = stmt.getValue(i).getBlob();
+        }
+        assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
+        return row;
+      });
+    }
+
     result.insert.set(classFullName, insert);
     result.populate.set(classFullName, populate);
     result.update.set(classFullName, update);
+    result.selectBinaries.set(classFullName, selectBinaries);
   }
 
   return result;
@@ -736,35 +767,15 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
       const elemPopulateQuery = queryMap.populate.get(elemClass);
       assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
+      const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
+      assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-      let binaryValues: Record<string, Uint8Array | undefined> = {};
-
-      for (const binaryValue of elemJson.matchAll(/"(?<propName>[^"]+)":"\{\\"bytes\\":(?<byteLen>\d+)\}"/g)) {
-        const propName = binaryValue.groups?.propName;
-        // FIXME: we will handle geometry stream in the update, once the mapping is done
-        if (propName === "GeometryStream")
-          continue;
-        // const byteLen = binaryValue.groups?.byteLen ? parseInt(binaryValue.groups.byteLen, 10) : undefined;
-        // assert(byteLen && !Number.isNaN(byteLen), "invalid byte length parsed");
-        assert(propName);
-        binaryValues[propName] = undefined;
-      }
-
-      const binaryPropNames = Object.keys(binaryValues);
-
-      if (binaryPropNames.length > 0) {
-        const sourceElemBinariesReader = source.createQueryReader(
-          `SELECT ${binaryPropNames} FROM ${elemClass} WHERE ECInstanceId=?`,
-          QueryBinder.from([sourceId])
-        );
-        await sourceElemBinariesReader.step();
-        binaryValues = sourceElemBinariesReader.current.toRow();
-      }
+      const binaryValues = elemBinaryPropsQuery(source, sourceId);
 
       const targetId = elemPopulateQuery(
         writeableTarget,
         elemJson,
-        binaryValues as Record<string, Uint8Array>,
+        binaryValues,
         { FederationGuid: federationGuid }
       );
 
