@@ -224,50 +224,6 @@ async function createPolymorphicEntityQueryMap<
       // FIXME: n^2
       .filter(([name]) => properties.some((p) => p.name === name));
 
-    const populateQuery = `
-      INSERT INTO ${escapedClassFullName}
-      (${properties
-        .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
-        .map((p) =>
-          // FIXME: note that dynamic structs are completely unhandled
-          p.propertyType === PropertyType.Navigation
-          ? `[${p.name}].[Id]`
-          : p.propertyType === PropertyType.Point2d
-          ? `[${p.name}].x, [${p.name}].y`
-          : p.propertyType === PropertyType.Point3d
-          ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
-          : `[${p.name}]`
-        )
-        .concat(populateBindings.map(([name]) => name))
-        .join(",\n  ")
-      })
-      VALUES
-      (${properties
-        .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
-        .map((p) =>
-          // FIXME: do qualified check for exact schema of CodeValue prop
-          p.name === "CodeValue"
-          ? "NULL"
-          : p.propertyType === PropertyType.DateTime
-          ? `JSON_EXTRACT(:x, '$.${p.name}')`
-          : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
-          ? "0x1"
-          // : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
-          // ? `Base64ToBlob(substr(JSON_EXTRACT(:x, '$.${p.name}'), 17))` // ignore encoding spec
-          // : p.propertyType === PropertyType.Binary && p.extendedTypeName === "BeGuid"
-          // ? `Base64ToBlob(JSON_EXTRACT(:x, '$.${p.name}'))`
-          : p.propertyType === PropertyType.Point2d
-          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-          : p.propertyType === PropertyType.Point3d
-          ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
-          : `JSON_EXTRACT(:x, '$.${p.name}')`
-        )
-        // FIXME: use the names from the values of the binding object
-        .concat(populateBindings.map(([name]) => `:b_${name}`))
-        .join(",\n  ")
-      })
-    `;
-
     // TODO FIXME: support this
     const nonCompoundProperties = properties
       .filter((p) => !(
@@ -287,8 +243,62 @@ async function createPolymorphicEntityQueryMap<
         || p.propertyType === PropertyType.IGeometry_Array
       ));
 
-    const binaryProperties = nonCompoundProperties.filter(p => p.propertyType === PropertyType.Binary);
-    const nonBinaryProperties = nonCompoundProperties.filter(p => p.propertyType !== PropertyType.Binary);
+    // excludes currently unhandled prop types and GeometryStream which is separately bound
+    const binaryProperties = nonCompoundProperties
+      .filter((p) => p.propertyType === PropertyType.Binary
+                  && p.name !== "GeometryStream");
+    const nonBinaryProperties = nonCompoundProperties
+      .filter((p) => p.propertyType !== PropertyType.Binary);
+
+    const populateQuery = `
+      INSERT INTO ${escapedClassFullName}
+      (${[
+        ...nonBinaryProperties
+          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
+          .map((p) =>
+            // FIXME: note that dynamic structs are completely unhandled
+            p.propertyType === PropertyType.Navigation
+            ? `[${p.name}].[Id]`
+            : p.propertyType === PropertyType.Point2d
+            ? `[${p.name}].x, [${p.name}].y`
+            : p.propertyType === PropertyType.Point3d
+            ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
+            : `[${p.name}]`
+          ),
+        ...binaryProperties
+          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
+          .map((p) => `[${p.name}]`),
+        ...populateBindings.map(([name]) => name),
+      ].join(",\n  ")})
+      VALUES
+      (${[
+        ...nonBinaryProperties
+          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
+          .map((p) =>
+            // FIXME: do qualified check for exact schema of CodeValue prop
+            p.name === "CodeValue"
+            ? "NULL"
+            : p.propertyType === PropertyType.DateTime
+            ? `JSON_EXTRACT(:x, '$.${p.name}')`
+            : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
+            ? "0x1"
+            // : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
+            // ? `Base64ToBlob(substr(JSON_EXTRACT(:x, '$.${p.name}'), 17))` // ignore encoding spec
+            // : p.propertyType === PropertyType.Binary && p.extendedTypeName === "BeGuid"
+            // ? `Base64ToBlob(JSON_EXTRACT(:x, '$.${p.name}'))`
+            : p.propertyType === PropertyType.Point2d
+            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
+            : p.propertyType === PropertyType.Point3d
+            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
+            : `JSON_EXTRACT(:x, '$.${p.name}')`
+          ),
+        ...binaryProperties
+          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
+          .map((p) => `:p_${p.name}`),
+        // FIXME: use the names from the values of the binding object
+        ...populateBindings.map(([name]) => `:b_${name}`),
+      ].join(",\n  ")})
+    `;
 
     const insertQuery = `
       INSERT INTO ${escapedClassFullName}
@@ -312,7 +322,6 @@ async function createPolymorphicEntityQueryMap<
         .join(",\n  ")
       })
       VALUES (
-        :id
         ${[
           ":id",
           ...nonBinaryProperties
@@ -726,7 +735,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const federationGuid = sourceElemFirstPassReader.current[3];
     const modelJson = sourceElemFirstPassReader.current[4];
     const modelClass = sourceElemFirstPassReader.current[5];
-    console.log(elemJson);
 
     const elemPopulateQuery = queryMap.populate.get(elemClass);
     assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
@@ -735,17 +743,20 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     for (const binaryValue of elemJson.matchAll(/"(?<propName>[^"]+)":"\{\\"bytes\\":(?<byteLen>\d+)\}"/g)) {
       const propName = binaryValue.groups?.propName;
+      // FIXME: we will handle geometry stream in the update, once the mapping is done
+      if (propName === "GeometryStream")
+        continue;
       // const byteLen = binaryValue.groups?.byteLen ? parseInt(binaryValue.groups.byteLen, 10) : undefined;
       // assert(byteLen && !Number.isNaN(byteLen), "invalid byte length parsed");
       assert(propName);
       binaryValues[propName] = undefined;
     }
 
-    const binaryProps = Object.keys(binaryValues);
+    const binaryPropNames = Object.keys(binaryValues);
 
-    if (binaryProps) {
+    if (binaryPropNames.length > 0) {
       const sourceElemBinariesReader = source.createQueryReader(
-        `SELECT ${binaryProps} FROM ${elemClass} WHERE ECInstanceId=?`,
+        `SELECT ${binaryPropNames} FROM ${elemClass} WHERE ECInstanceId=?`,
         QueryBinder.from([sourceId])
       );
       await sourceElemBinariesReader.step();
