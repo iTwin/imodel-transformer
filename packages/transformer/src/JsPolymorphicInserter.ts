@@ -727,7 +727,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
   // in the IDs and redo it?
   console.log("populate elements");
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect(), undefined, { abbreviateBlobs: false });
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect());
   while (await sourceElemFirstPassReader.step()) {
     const elemJson = sourceElemFirstPassReader.current[0] as string;
     const elemClass = sourceElemFirstPassReader.current[1];
@@ -794,7 +794,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // second pass, update now that everything has been inserted
   console.log("hydrate elements");
   // FIXME: why query all these things we don't need?
-  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true), undefined, { abbreviateBlobs: true });
+  const sourceElemSecondPassReader = source.createQueryReader(sourceElemSelect(true));
   while (await sourceElemSecondPassReader.step()) {
     const jsonString = sourceElemSecondPassReader.current[0];
     const classFullName = sourceElemSecondPassReader.current[1];
