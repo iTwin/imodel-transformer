@@ -724,72 +724,71 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // in the IDs and redo it?
   console.log("populate elements");
   const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
-  const sourceElemFedGuidReader = source.createQueryReader(sourceFedGuidSelect);
-  while (await Promise.all([
-    sourceElemFirstPassReader.step(),
-    sourceElemFedGuidReader.step(),
-  ]).then(([a,b]) => (assert(a === b), a))) {
-    const elemJson = sourceElemFirstPassReader.current[0] as string;
-    const elemClass = sourceElemFirstPassReader.current[1];
-    const sourceId = sourceElemFirstPassReader.current[2];
-    const modelJson = sourceElemFirstPassReader.current[3];
-    const modelClass = sourceElemFirstPassReader.current[4];
-    const federationGuid = sourceElemFedGuidReader.current[0];
+  await source.withPreparedStatement(sourceFedGuidSelect, async (fedGuidStmt) => {
+    while (await sourceElemFirstPassReader.step()) {
+      const elemJson = sourceElemFirstPassReader.current[0] as string;
+      const elemClass = sourceElemFirstPassReader.current[1];
+      const sourceId = sourceElemFirstPassReader.current[2];
+      const modelJson = sourceElemFirstPassReader.current[3];
+      const modelClass = sourceElemFirstPassReader.current[4];
+      assert(fedGuidStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
+      const federationGuid = fedGuidStmt.getValue(0).getBlob();
 
-    const elemPopulateQuery = queryMap.populate.get(elemClass);
-    assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
+      const elemPopulateQuery = queryMap.populate.get(elemClass);
+      assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
 
-    let binaryValues: Record<string, Uint8Array | undefined> = {};
+      let binaryValues: Record<string, Uint8Array | undefined> = {};
 
-    for (const binaryValue of elemJson.matchAll(/"(?<propName>[^"]+)":"\{\\"bytes\\":(?<byteLen>\d+)\}"/g)) {
-      const propName = binaryValue.groups?.propName;
-      // FIXME: we will handle geometry stream in the update, once the mapping is done
-      if (propName === "GeometryStream")
-        continue;
-      // const byteLen = binaryValue.groups?.byteLen ? parseInt(binaryValue.groups.byteLen, 10) : undefined;
-      // assert(byteLen && !Number.isNaN(byteLen), "invalid byte length parsed");
-      assert(propName);
-      binaryValues[propName] = undefined;
-    }
+      for (const binaryValue of elemJson.matchAll(/"(?<propName>[^"]+)":"\{\\"bytes\\":(?<byteLen>\d+)\}"/g)) {
+        const propName = binaryValue.groups?.propName;
+        // FIXME: we will handle geometry stream in the update, once the mapping is done
+        if (propName === "GeometryStream")
+          continue;
+        // const byteLen = binaryValue.groups?.byteLen ? parseInt(binaryValue.groups.byteLen, 10) : undefined;
+        // assert(byteLen && !Number.isNaN(byteLen), "invalid byte length parsed");
+        assert(propName);
+        binaryValues[propName] = undefined;
+      }
 
-    const binaryPropNames = Object.keys(binaryValues);
+      const binaryPropNames = Object.keys(binaryValues);
 
-    if (binaryPropNames.length > 0) {
-      const sourceElemBinariesReader = source.createQueryReader(
-        `SELECT ${binaryPropNames} FROM ${elemClass} WHERE ECInstanceId=?`,
-        QueryBinder.from([sourceId])
+      if (binaryPropNames.length > 0) {
+        const sourceElemBinariesReader = source.createQueryReader(
+          `SELECT ${binaryPropNames} FROM ${elemClass} WHERE ECInstanceId=?`,
+          QueryBinder.from([sourceId])
+        );
+        await sourceElemBinariesReader.step();
+        binaryValues = sourceElemBinariesReader.current.toRow();
+      }
+
+      const targetId = elemPopulateQuery(
+        writeableTarget,
+        elemJson,
+        binaryValues as Record<string, Uint8Array>,
+        { FederationGuid: federationGuid }
       );
-      await sourceElemBinariesReader.step();
-      binaryValues = sourceElemBinariesReader.current.toRow();
+
+      if (modelJson) {
+        const modelInsertQuery = queryMap.insert.get(modelClass);
+        assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+
+        // HACK: edit packaged json without parsing (FIXME: I don't think this is necessary any longer)
+        const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
+        // FIXME: not yet handling binary properties on these
+        modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
+      }
+
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO temp.element_remap VALUES(?,?)
+      `, (targetStmt) => {
+        targetStmt.bindId(1, sourceId);
+        targetStmt.bindId(2, targetId);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+
+      incrementStmtsExeced();
     }
-
-    const targetId = elemPopulateQuery(
-      writeableTarget,
-      elemJson,
-      binaryValues as Record<string, Uint8Array>,
-      { FederationGuid: federationGuid }
-    );
-
-    if (modelJson) {
-      const modelInsertQuery = queryMap.insert.get(modelClass);
-      assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
-
-      // HACK: edit packaged json without parsing (FIXME: I don't think this is necessary any longer)
-      const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
-      // FIXME: not yet handling binary properties on these
-      modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
-    }
-
-    writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO temp.element_remap VALUES(?,?)
-    `, (targetStmt) => {
-      targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, targetId);
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-    });
-
-    incrementStmtsExeced();
-  }
+  });
 
   const sourceElemForHydrate = `
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId
@@ -821,28 +820,27 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // second pass, update now that everything has been inserted
   console.log("hydrate elements");
   const sourceElemSecondPassReader = source.createQueryReader(sourceElemForHydrate, undefined, { abbreviateBlobs: true });
-  const sourceElemGeomReader = source.createQueryReader(sourceGeomForHydrate);
-  while (await Promise.all([
-    sourceElemSecondPassReader.step(),
-    sourceElemGeomReader.step(),
-  ]).then(([a,b]) => (assert(a === b), a))) {
-    const jsonString = sourceElemSecondPassReader.current[0];
-    const classFullName = sourceElemSecondPassReader.current[1];
-    const sourceId = sourceElemSecondPassReader.current[2];
-    const geometryStream = sourceElemGeomReader.current[0];
+  await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
+    while (await sourceElemSecondPassReader.step()) {
+      const jsonString = sourceElemSecondPassReader.current[0];
+      const classFullName = sourceElemSecondPassReader.current[1];
+      const sourceId = sourceElemSecondPassReader.current[2];
+      assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
+      const geometryStream = geomStmt.getValue(0).getBlob();
 
-    const updateQuery = queryMap.update.get(classFullName);
-    assert(updateQuery, `couldn't find update query for class '${classFullName}`);
+      const updateQuery = queryMap.update.get(classFullName);
+      assert(updateQuery, `couldn't find update query for class '${classFullName}`);
 
-    updateQuery(
-      writeableTarget,
-      jsonString,
-      { id: sourceId, db: source },
-      { GeometryStream: geometryStream },
-    );
+      updateQuery(
+        writeableTarget,
+        jsonString,
+        { id: sourceId, db: source },
+        { GeometryStream: geometryStream },
+      );
 
-    incrementStmtsExeced();
-  }
+      incrementStmtsExeced();
+    }
+  });
 
   const sourceAspectSelect = `
     SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
