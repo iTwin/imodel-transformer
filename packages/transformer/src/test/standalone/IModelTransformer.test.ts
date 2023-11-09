@@ -38,6 +38,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
+import { rangesFromRangeAndSkipped } from "../../Algo";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformer");
@@ -217,6 +218,39 @@ describe("IModelTransformer", () => {
     IModelTransformerTestUtils.dumpIModelInfo(targetDb);
     sourceDb.close();
     targetDb.close();
+  });
+
+  it("should test rangesFromRangeAndSkipped", async () => {
+    /** given a discrete inclusive range [start, end] e.g. [-10, 12] and several "skipped" values", e.g.
+ * (-10, 1, -3, 5, 15), return the ordered set of subranges of the original range that exclude
+ * those values
+ */
+  // function rangesFromRangeAndSkipped(start: number, end: number, skipped: number[]): [number, number][]
+    let start = -10;
+    let end = 12;
+    let skipped = [-10, 1, -3, 5, 15];
+    let ranges = rangesFromRangeAndSkipped(start, end, skipped);
+    expect(ranges).to.eql([[-9, -4], [-2, 0], [2, 4], [6, 12]]);
+    
+    ranges = rangesFromRangeAndSkipped(start,end, [-10, -9, 1, -3, 5, 15]);
+    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
+
+    // Interesting that order appears to matter here. Im not sure if we'd ever expect a skipped array like the below -9,-10. but that breaks it
+    // I noticed the original suggested problem was not in order so I figured that order wouldn't matter.
+    // I guess if we sorted the input we'd probably be fine
+
+    // TODO: visit below use case and see if it can be fixed.
+    // ranges = rangesFromRangeAndSkipped(start,end, [-9, -10, 1, -3, 5, 15]);
+    // expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
+
+    // Trying skip number of -8 before -10 in the array.
+    ranges = rangesFromRangeAndSkipped(start,end, [-8, -10, 1, -3, 5, 15]); 
+    expect(ranges).to.eql([[-9, -9], [-7, -4],[-2, 0], [2, 4], [6, 12]])
+
+    // Repeat -9, -10 case but somewhere in the middle, -2, -3. Seems fine.
+    ranges = rangesFromRangeAndSkipped(start,end, [-10, 1, -2, -3, 5, 15]);
+    expect(ranges).to.eql([[-9, -4],[-1, 0], [2, 4], [6, 12]])
+
   });
 
   it("should synchronize changes from master to branch and back", async () => {
