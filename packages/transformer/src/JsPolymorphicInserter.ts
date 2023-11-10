@@ -374,9 +374,6 @@ async function createPolymorphicEntityQueryMap<
       try {
         return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
           targetStmt.bindString("x", jsonString);
-          console.log("POP", populateBindings);
-          console.log("BIN", binaryValues);
-          console.log("BIND", bindingValues);
           for (const [name, data] of populateBindings) {
             const bindingValue = bindingValues[name];
             if (bindingValue)
@@ -513,7 +510,7 @@ async function createPolymorphicEntityQueryMap<
 
     // NOTE: ignored fields are still queried
     const selectBinariesQuery = `
-      SELECT ${binaryProperties.map((p) => p.name)}
+      SELECT ${binaryProperties.map((p) => `CAST([${p.name}] AS BINARY)`)}
       FROM ${escapedClassFullName}
       WHERE ECInstanceId=?
     `;
@@ -525,14 +522,16 @@ async function createPolymorphicEntityQueryMap<
       return ecdb.withPreparedStatement(selectBinariesQuery, (stmt) => {
         stmt.bindId(1, id);
         assert(stmt.step() === DbResult.BE_SQLITE_ROW, ecdb.nativeDb.getLastError());
-        console.log(selectBinariesQuery);
-        console.log(binaryProperties, stmt.getRow());
         // FIXME: maybe this should be a map?
         const row = {} as Record<string, Uint8Array>;
         for (let i = 0; i < binaryProperties.length; ++i) {
           const prop = binaryProperties[i];
-          if (!ignore.has(prop.name))
-            row[prop.name] = stmt.getValue(i).getBlob();
+          // FIXME: ignore is unused, remove this condition
+          if (!ignore.has(prop.name)) {
+            const value = stmt.getValue(i);
+            if (!value.isNull)
+              row[prop.name] = value.getBlob();
+          }
         }
         assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
         return row;
