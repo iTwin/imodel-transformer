@@ -59,6 +59,7 @@ interface PolymorphicEntityQueries<
   selectBinaries: Map<string, (
     db: ECDb | IModelDb,
     id: Id64String,
+    ignore?: Set<string>,
   ) => Record<string, Uint8Array>>;
   /** inserts without preserving references, must be updated */
   populate: Map<string, (
@@ -373,6 +374,9 @@ async function createPolymorphicEntityQueryMap<
       try {
         return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
           targetStmt.bindString("x", jsonString);
+          console.log("POP", populateBindings);
+          console.log("BIN", binaryValues);
+          console.log("BIND", bindingValues);
           for (const [name, data] of populateBindings) {
             const bindingValue = bindingValues[name];
             if (bindingValue)
@@ -507,26 +511,28 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    const selectedBinaryProps = binaryProperties.filter((p) => p.name !== "FederationGuid");
-
+    // NOTE: ignored fields are still queried
     const selectBinariesQuery = `
-      SELECT ${selectedBinaryProps.map((p) => p.name)}
+      SELECT ${binaryProperties.map((p) => p.name)}
       FROM ${escapedClassFullName}
       WHERE ECInstanceId=?
     `;
 
-    function selectBinaries(ecdb: ECDb | IModelDb, id: Id64String): Record<string, Uint8Array> {
-      if (selectedBinaryProps.length === 0)
+    function selectBinaries(ecdb: ECDb | IModelDb, id: Id64String, ignore = new Set()): Record<string, Uint8Array> {
+      if (binaryProperties.length - ignore.size <= 0)
         return {};
 
       return ecdb.withPreparedStatement(selectBinariesQuery, (stmt) => {
         stmt.bindId(1, id);
         assert(stmt.step() === DbResult.BE_SQLITE_ROW, ecdb.nativeDb.getLastError());
+        console.log(selectBinariesQuery);
+        console.log(binaryProperties, stmt.getRow());
         // FIXME: maybe this should be a map?
         const row = {} as Record<string, Uint8Array>;
-        for (let i = 0; i < selectedBinaryProps.length; ++i) {
-          const binaryProperty = selectedBinaryProps[i];
-          row[binaryProperty.name] = stmt.getValue(i).getBlob();
+        for (let i = 0; i < binaryProperties.length; ++i) {
+          const prop = binaryProperties[i];
+          if (!ignore.has(prop.name))
+            row[prop.name] = stmt.getValue(i).getBlob();
         }
         assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
         return row;
@@ -581,7 +587,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     target,
     {
       extraBindings: {
-        populate: { FederationGuid: { type: "bindBlob" } },
         update: {
           GeometryStream: {
             type: "bindBlob",
@@ -737,14 +742,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     ORDER BY e.ECInstanceId ASC
   `;
 
-  const sourceFedGuidSelect = `
-    SELECT CAST(e.FederationGuid AS Binary)
-    FROM bis.Element e
-    -- NOTE: ORDER and WHERE must match the sourceElemSelect query above
-    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
-    ORDER BY e.ECInstanceId ASC
-  `;
-
   // first pass, update everything with trivial references (0 and null codes)
   // FIXME: technically could do it all in one pass if we preserve distances between rows and
   // just offset all references by the count of rows in the source...
@@ -754,51 +751,46 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // in the IDs and redo it?
   console.log("populate elements");
   const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
-  await source.withPreparedStatement(sourceFedGuidSelect, async (fedGuidStmt) => {
-    while (await sourceElemFirstPassReader.step()) {
-      const elemJson = sourceElemFirstPassReader.current[0] as string;
-      const elemClass = sourceElemFirstPassReader.current[1];
-      const sourceId = sourceElemFirstPassReader.current[2];
-      const modelJson = sourceElemFirstPassReader.current[3];
-      const modelClass = sourceElemFirstPassReader.current[4];
-      assert(fedGuidStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
-      const federationGuid = fedGuidStmt.getValue(0).getBlob();
+  while (await sourceElemFirstPassReader.step()) {
+    const elemJson = sourceElemFirstPassReader.current[0] as string;
+    const elemClass = sourceElemFirstPassReader.current[1];
+    const sourceId = sourceElemFirstPassReader.current[2];
+    const modelJson = sourceElemFirstPassReader.current[3];
+    const modelClass = sourceElemFirstPassReader.current[4];
 
-      const elemPopulateQuery = queryMap.populate.get(elemClass);
-      assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
-      const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
-      assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
+    const elemPopulateQuery = queryMap.populate.get(elemClass);
+    assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
+    const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
+    assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-      const binaryValues = elemBinaryPropsQuery(source, sourceId);
+    const binaryValues = elemBinaryPropsQuery(source, sourceId);
 
-      const targetId = elemPopulateQuery(
-        writeableTarget,
-        elemJson,
-        binaryValues,
-        { FederationGuid: federationGuid }
-      );
+    const targetId = elemPopulateQuery(
+      writeableTarget,
+      elemJson,
+      binaryValues,
+    );
 
-      if (modelJson) {
-        const modelInsertQuery = queryMap.insert.get(modelClass);
-        assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+    if (modelJson) {
+      const modelInsertQuery = queryMap.insert.get(modelClass);
+      assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
 
-        // HACK: edit packaged json without parsing (FIXME: I don't think this is necessary any longer)
-        const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
-        // FIXME: not yet handling binary properties on these
-        modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
-      }
-
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.element_remap VALUES(?,?)
-      `, (targetStmt) => {
-        targetStmt.bindId(1, sourceId);
-        targetStmt.bindId(2, targetId);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
-
-      incrementStmtsExeced();
+      // HACK: edit packaged json without parsing (FIXME: I don't think this is necessary any longer)
+      const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
+      // FIXME: not yet handling binary properties on these
+      modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
     }
-  });
+
+    writeableTarget.withPreparedSqliteStatement(`
+      INSERT INTO temp.element_remap VALUES(?,?)
+    `, (targetStmt) => {
+      targetStmt.bindId(1, sourceId);
+      targetStmt.bindId(2, targetId);
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+    });
+
+    incrementStmtsExeced();
+  }
 
   const sourceElemForHydrate = `
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId
