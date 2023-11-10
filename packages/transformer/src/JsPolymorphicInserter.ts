@@ -66,22 +66,23 @@ interface PolymorphicEntityQueries<
     jsonString: string,
     binaryValues?: Record<string, Uint8Array>,
     /** extra bindings are ignored if they do not exist in the class */
-    extraBindings?: Record<keyof PopulateExtraBindings, any>
+    extraBindings?: Record<keyof PopulateExtraBindings, any>,
   ) => Id64String>;
   insert: Map<string, (
     db: ECDb,
     /** for now you must provide the id to insert on */
     id: Id64String,
     jsonString: string,
+    binaryValues?: Record<string, Uint8Array>,
     source?: { id: Id64String, db: IModelDb },
   ) => Id64String>;
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
   update: Map<string, (
     db: ECDb,
     jsonString: string,
-    source?: { id: Id64String, db: IModelDb },
     /** extra bindings are ignored if they do not exist in the class */
-    extraBindings?: Record<keyof UpdateExtraBindings, any>
+    extraBindings?: Record<keyof UpdateExtraBindings, any>,
+    source?: { id: Id64String, db: IModelDb },
   ) => void>;
 }
 
@@ -160,6 +161,32 @@ async function createPolymorphicEntityQueryMap<
     const [schemaName, className] = classFullName.split(".");
     const escapedClassFullName = `[${schemaName}].[${className}]`;
 
+    // TODO FIXME: support this
+    const nonCompoundProperties = properties
+      .filter((p) => !(
+           p.propertyType === PropertyType.Struct
+        || p.propertyType === PropertyType.Struct_Array
+        || p.propertyType === PropertyType.Binary_Array
+        || p.propertyType === PropertyType.Boolean_Array
+        || p.propertyType === PropertyType.DateTime_Array
+        || p.propertyType === PropertyType.Double_Array
+        || p.propertyType === PropertyType.Integer_Array
+        || p.propertyType === PropertyType.Integer_Enumeration_Array
+        || p.propertyType === PropertyType.Long_Array
+        || p.propertyType === PropertyType.Point2d_Array
+        || p.propertyType === PropertyType.Point3d_Array
+        || p.propertyType === PropertyType.String_Array
+        || p.propertyType === PropertyType.String_Enumeration_Array
+        || p.propertyType === PropertyType.IGeometry_Array
+      ));
+
+    // excludes currently unhandled prop types and GeometryStream which is separately bound
+    const binaryProperties = nonCompoundProperties
+      .filter((p) => p.propertyType === PropertyType.Binary
+                  && p.name !== "GeometryStream");
+    const nonBinaryProperties = nonCompoundProperties
+      .filter((p) => p.propertyType !== PropertyType.Binary);
+
     const updateBindings = Object.entries(options.extraBindings?.update ?? {})
       // FIXME: n^2
       .filter(([name]) => properties.find((p) => p.name === name));
@@ -227,32 +254,6 @@ async function createPolymorphicEntityQueryMap<
     const populateBindings = Object.entries(options.extraBindings?.populate ?? {})
       // FIXME: n^2
       .filter(([name]) => properties.some((p) => p.name === name));
-
-    // TODO FIXME: support this
-    const nonCompoundProperties = properties
-      .filter((p) => !(
-           p.propertyType === PropertyType.Struct
-        || p.propertyType === PropertyType.Struct_Array
-        || p.propertyType === PropertyType.Binary_Array
-        || p.propertyType === PropertyType.Boolean_Array
-        || p.propertyType === PropertyType.DateTime_Array
-        || p.propertyType === PropertyType.Double_Array
-        || p.propertyType === PropertyType.Integer_Array
-        || p.propertyType === PropertyType.Integer_Enumeration_Array
-        || p.propertyType === PropertyType.Long_Array
-        || p.propertyType === PropertyType.Point2d_Array
-        || p.propertyType === PropertyType.Point3d_Array
-        || p.propertyType === PropertyType.String_Array
-        || p.propertyType === PropertyType.String_Enumeration_Array
-        || p.propertyType === PropertyType.IGeometry_Array
-      ));
-
-    // excludes currently unhandled prop types and GeometryStream which is separately bound
-    const binaryProperties = nonCompoundProperties
-      .filter((p) => p.propertyType === PropertyType.Binary
-                  && p.name !== "GeometryStream");
-    const nonBinaryProperties = nonCompoundProperties
-      .filter((p) => p.propertyType !== PropertyType.Binary);
 
     const populateQuery = `
       INSERT INTO ${escapedClassFullName}
@@ -399,7 +400,13 @@ async function createPolymorphicEntityQueryMap<
       | undefined;
     const ecIdBinding = ":_ecdb_ecsqlparam_id_col1";
 
-    function insert(ecdb: ECDb, id: string, jsonString: string, source?: { id: string, db: IModelDb }) {
+    function insert(
+      ecdb: ECDb,
+      id: string,
+      jsonString: string,
+      binaryValues: Record<string, Uint8Array> = {},
+      source?: { id: string, db: IModelDb }
+    ) {
       if (hackedRemapInsertSql === undefined) {
         hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
         hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({
@@ -429,6 +436,8 @@ async function createPolymorphicEntityQueryMap<
               targetStmt.bindString(":x_col1", jsonString);
             if (sqlInfo.needsEcId)
               targetStmt.bindId(ecIdBinding, id);
+            for (const [name, value] of Object.entries(binaryValues))
+              targetStmt.bindBlob(`:p_${name}_col1`, value); // NOTE: ECSQL param mangling
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
           });
         }
@@ -451,8 +460,8 @@ async function createPolymorphicEntityQueryMap<
     function update(
       ecdb: ECDb,
       jsonString: string,
-      source?: { id: string, db: IModelDb },
       bindingValues: {[S in keyof UpdateExtraBindings]?: any} = {},
+      source?: { id: string, db: IModelDb },
     ) {
       if (updateQuery === "")
         return; // ignore empty updates
@@ -491,16 +500,6 @@ async function createPolymorphicEntityQueryMap<
         const _elemId = JSON.parse(jsonString).ECInstanceId;
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
-        /*
-        console.log("REMAPS");
-        ecdb.withSqliteStatement(
-          "SELECT format('0x%x->0x%x', SourceId, TargetId) FROM temp.element_remap",
-          (s) => {
-            while (s.step() === DbResult.BE_SQLITE_ROW)
-              console.log(s.getValue(0).getString());
-          }
-        );
-        */
         console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
         console.log("native sql:", hackedRemapUpdateSql);
         debugger;
@@ -845,8 +844,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       updateQuery(
         writeableTarget,
         jsonString,
-        { id: sourceId, db: source },
         { GeometryStream: geometryStream },
+        { id: sourceId, db: source },
       );
 
       incrementStmtsExeced();
@@ -860,16 +859,20 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   console.log("insert aspects");
   // FIXME: this slowly handles binary properties!
-  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: false });
+  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
   while (await aspectReader.step()) {
     const jsonString = aspectReader.current[0];
     const classFullName = aspectReader.current[1];
     const sourceId = aspectReader.current[2];
 
+    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
+    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    const targetId = insertQuery(writeableTarget, useInstanceId(), jsonString, { id: sourceId, db: source });
+    const binaryValues = selectBinariesQuery(source, sourceId);
+
+    const targetId = insertQuery(writeableTarget, useInstanceId(), jsonString, binaryValues, { id: sourceId, db: source });
 
     writeableTarget.withPreparedSqliteStatement(`
       INSERT INTO temp.aspect_remap VALUES(?,?)
@@ -890,7 +893,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   console.log("insert ElementRefersToElements");
   // FIXME: this slowly handles binary properties!
-  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: false });
+  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
   while (await elemRefersReader.step()) {
     const jsonString = elemRefersReader.current[0];
     const classFullName = elemRefersReader.current[1];
@@ -899,7 +902,11 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    insertQuery(writeableTarget, useInstanceId(), jsonString, { id: sourceId, db: source });
+    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
+    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
+    const binaryValues = selectBinariesQuery(source, sourceId);
+
+    insertQuery(writeableTarget, useInstanceId(), jsonString, binaryValues, { id: sourceId, db: source });
 
     incrementStmtsExeced();
   }
