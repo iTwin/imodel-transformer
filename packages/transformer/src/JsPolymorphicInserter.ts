@@ -31,6 +31,12 @@ const getInjectedSqlite = (query: string, db: ECDb | IModelDb) => {
   }
 };
 
+const remapSql = (idExpr: string, remapType: "font" | "codespec" | "aspect" | "element") => `(
+  SELECT TargetId
+  FROM temp.${remapType}_remap
+  WHERE SourceId=(${idExpr})
+)`;
+
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 
@@ -224,22 +230,17 @@ async function createPolymorphicEntityQueryMap<
             ? `[${p.name}] = ${p.expr(`:b_${p.name}`)}`
             // FIXME: use ECReferenceCache to get type of ref instead of checking name
             : p.propertyType === PropertyType.Navigation
-            ? `[${p.name}].Id = ${injectExpr(`(
-              SELECT TargetId
-              FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
-              WHERE SourceId=${readHexFromJson(p,
-                // FIXME: only unconstrained columns need 0, so need to inspect constraints
-                p.name === "Parent" || p.name === "TypeDefinition" ? "NULL" : "0"
-              )}
-            )`)}`
+            ? `[${p.name}].Id = ${injectExpr(remapSql(
+                readHexFromJson(
+                  p,
+                  // FIXME: only unconstrained columns need 0, so need to inspect constraints
+                  p.name === "Parent" || p.name === "TypeDefinition" ? "NULL" : "0"
+                ),
+                p.name === "CodeSpec" ? "codespec" : "element"
+            ))}`
             // FIXME: use ecreferencetypes cache to determine which remap table to use
             : p.propertyType === PropertyType.Long
-            ? `[${p.name}] = ${injectExpr(`(
-              SELECT TargetId
-              FROM temp.element_remap
-              WHERE SourceId=${readHexFromJson(p, "0")}
-            )`)}`
-
+            ? `[${p.name}] = ${injectExpr(remapSql(readHexFromJson(p, "0"), "element"))}`
             // is CodeValue if not nav prop
             : `[${p.name}] = JSON_EXTRACT(:x, '$.CodeValue')`
           )
