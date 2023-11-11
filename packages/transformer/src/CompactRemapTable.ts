@@ -1,4 +1,4 @@
-import assert = require("node:assert");
+import assert from "node:assert";
 
 interface Run {
   from: number;
@@ -6,7 +6,7 @@ interface Run {
   length: number;
 }
 
-const enum RunField {
+enum RunField {
   from = 0,
   to = 1,
   length = 2,
@@ -26,21 +26,14 @@ interface IndexInfo {
  * and allow binary searching
  */
 export class CompactRemapTable {
-  // FIXME: why don't I just do a multi array approach instead?
-  /** an array of inlined @see Run objects, such that each object
-   * is three ordered numbers in the array */
-  private _array: number[] = [];
+  /** an array of inlined @see Run 'from's constituting Runs */
+  private _froms: number[] = [];
+  /** an array of inlined @see Run 'to's constituting Runs */
+  private _tos: number[] = [];
+  /** an array of inlined @see Run 'length'es constituting Runs */
+  private _lengths: number[] = [];
 
-  private get _size() { return this._array.length / 3; }
-  private _get(i: number, field: RunField): number {
-    return this._array[3 * i + field];
-  }
-  private _set(i: number, field: RunField, val: number): void {
-    this._array[3 * i + field] = val;
-  }
-  private _inc(i: number, field: RunField, val: number): void {
-    this._array[3 * i + field] += val;
-  }
+  private get _size() { return this._froms.length; }
 
   public remap(inFrom: number, inTo: number) {
     const info = this._getInfo(inFrom);
@@ -54,25 +47,29 @@ export class CompactRemapTable {
         return;
 
       // split the run
-      const from = this._array[3 * info.index];
-      const to = this._array[3 * info.index + 1];
-      const length = this._array[3 * info.index + 2];
+      const from = this._froms[info.index];
+      const to = this._tos[info.index];
+      const length = this._lengths[info.index];
 
       // is first element of run
       if (inFrom === from) {
         // move up old
-        this._array[3 * info.index + 0] += 1;
-        this._array[3 * info.index + 1] += 1;
-        this._array[3 * info.index + 2] -= 1;
+        this._froms[info.index] += 1;
+        this._tos[info.index] += 1;
+        this._lengths[info.index] -= 1;
         // insert new
-        this._array.splice(3 * info.index, 0, inFrom, inTo, 1);
+        this._froms.splice(info.index, 0, inFrom);
+        this._tos.splice(info.index, 0, inTo);
+        this._lengths.splice(info.index, 0, 1);
 
       // is last element of run
       } else if (inFrom === from + length - 1) {
         // shrink old
-        this._array[3 * info.index + 2] -= 1;
+        this._lengths[info.index] -= 1;
         // insert new
-        this._array.splice(3 * info.index + 1, 0, inFrom, inTo, 1);
+        this._froms.splice(info.index + 1, 0, inFrom);
+        this._tos.splice(info.index + 1, 0, inTo);
+        this._lengths.splice(info.index + 1, 0, 1);
 
       } else {
         // FIXME: do not do asserts in performance critical code
@@ -80,59 +77,57 @@ export class CompactRemapTable {
           assert(inFrom > from && inFrom < from + length);
         const splitDistance = inFrom - from;
         // cut off old
-        this._array[3 * info.index + 2] = splitDistance - 1;
+        this._lengths[info.index] = splitDistance - 1;
         // insert splitter and remainder
-        this._array.splice(
-          3 * info.index + 1, 0,
-          // splitter
-          inFrom, inTo, 1,
-          // remainder
-          from + splitDistance + 1, to + splitDistance, length - splitDistance,
-        );
+        this._froms.splice(info.index + 1, 0, inFrom, from + splitDistance + 1);
+        this._tos.splice(info.index + 1, 0, inTo, to + splitDistance);
+        this._lengths.splice(info.index + 1, 0, 1, length - splitDistance);
       }
     }
 
     const prevIndex = info.index - 1;
     const touchesLeft = prevIndex >= 0 && (() => {
-      const prevFrom = this._array[prevIndex];
-      const prevTo = this._array[prevIndex + 1];
-      const prevLength = this._array[prevIndex + 2];
+      const prevFrom = this._froms[prevIndex];
+      const prevTo = this._tos[prevIndex];
+      const prevLength = this._lengths[prevIndex];
       return inFrom === prevFrom + prevLength && inTo === prevTo + prevLength;
     })();
 
     const nextIndex = info.index + 1;
     const touchesRight = nextIndex < this._size && (() => {
-      const nextFrom = this._array[nextIndex];
-      const nextTo = this._array[nextIndex + 1];
+      const nextFrom = this._froms[nextIndex];
+      const nextTo = this._tos[nextIndex];
       return inFrom === nextFrom - 1 && inTo === nextTo - 1;
     })();
 
     if (info.place === "before") {
       if (touchesRight) {
-        this._array[3 * info.index + 0] -= 1;
-        this._array[3 * info.index + 1] -= 1;
-        this._array[3 * info.index + 2] += 1;
+        this._froms[info.index] -= 1;
+        this._tos[info.index] -= 1;
+        this._lengths[info.index] += 1;
 
       } else {
-        // FIXME: add a private _insert function
-        this._array.splice(3 * info.index, 0, inFrom, inTo, 1);
+        this._froms.splice(info.index, 0, inFrom);
+        this._tos.splice(info.index, 0, inTo);
+        this._lengths.splice(info.index, 0, 1);
       }
 
     } else /* if (info.place === "after") */ {
       if (touchesLeft) {
-        this._array[3 * info.index + 0] -= 1;
-        this._array[3 * info.index + 1] -= 1;
-        this._array[3 * info.index + 2] += 1;
+        this._lengths[info.index] += 1;
+
       } else {
-        this._array.splice(3 * info.index + 1, 0, inFrom, inTo, 1);
+        this._froms.splice(info.index + 1, 0, inFrom);
+        this._tos.splice(info.index + 1, 0, inTo);
+        this._lengths.splice(info.index + 1, 0, 1);
       }
     }
   }
 
   private _indexContains(index: number, inFrom: number): { target: number, hasTarget: boolean } {
-    const from = this._array[3 * index];
-    const to = this._array[3 * index + 1];
-    const length = this._array[3 * index + 2];
+    const from = this._froms[index];
+    const to = this._tos[index];
+    const length = this._lengths[index];
 
     const runOffset = inFrom - from;
 
@@ -156,16 +151,16 @@ export class CompactRemapTable {
     while (true) {
       const curr = left + Math.floor((right - left) / 2);
 
-      const from = this._array[3 * curr];
-      const length = this._array[3 * curr + 2];
+      const from = this._froms[curr];
+      const length = this._lengths[curr];
 
       console.log(inFrom, from, "|", left, curr, right);
 
       if (right <= left + 1) {
-        const leftFrom = this._array[3 * left];
-        const leftLength = this._array[3 * left + 2];
-        const rightFrom = this._array[3 * right];
-        const rightLength = this._array[3 * right + 2];
+        const leftFrom = this._froms[left];
+        const leftLength = this._lengths[left];
+        const rightFrom = this._froms[right];
+        const rightLength = this._lengths[right];
 
         if (process.env.DEBUG)
           console.log(leftFrom, leftLength, inFrom, rightFrom, rightLength);
@@ -218,8 +213,11 @@ export class CompactRemapTable {
 
   public clone(): CompactRemapTable {
     const cloned = new CompactRemapTable();
-    // eslint-disable-next-line @typescript-eslint/dot-notation
-    cloned["_array"] = this._array.slice();
+    /* eslint-disable-next-line @typescript-eslint/dot-notation */
+    cloned["_froms"] = this._froms.slice();
+    cloned["_tos"] = this._tos.slice();
+    cloned["_lengths"] = this._lengths.slice();
+    /* eslint-enable-next-line @typescript-eslint/dot-notation */
     return cloned;
   }
 }

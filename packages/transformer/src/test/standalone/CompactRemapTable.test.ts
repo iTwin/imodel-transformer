@@ -7,8 +7,6 @@ import { CompactRemapTable } from "../../CompactRemapTable";
 import { expect } from "chai";
 
 describe("CompactRemapTable", () => {
-  //HACK
-  const ogConsoleLog = console.log;
   const _immutableBaseTable = new CompactRemapTable();
   _immutableBaseTable.remap(3, 100);
   _immutableBaseTable.remap(5, 100);
@@ -16,8 +14,12 @@ describe("CompactRemapTable", () => {
   for (let i = 7; i < 7 + 50; ++i) {
     _immutableBaseTable.remap(i, i + 500);
   }
-  // eslint-disable-next-line @typescript-eslint/dot-notation
-  Object.freeze(_immutableBaseTable["_array"]);
+
+  /* eslint-disable-next-line @typescript-eslint/dot-notation */
+  Object.freeze(_immutableBaseTable["_lengths"]);
+  Object.freeze(_immutableBaseTable["_tos"]);
+  Object.freeze(_immutableBaseTable["_froms"]);
+  /* eslint-enable-next-line @typescript-eslint/dot-notation */
 
   let table!: CompactRemapTable;
 
