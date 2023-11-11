@@ -41,37 +41,89 @@ export class CompactRemapTable {
     if (process.env.DEBUG)
       console.log({ info });
 
+    const getTouchesLeft = () => {
+      const prevIndex = info.index - 1 + (info.place === "after" ? 1 : 0);
+      if (prevIndex < 0)
+        return { touches: false, prevIndex };
+      const prevFrom = this._froms[prevIndex];
+      const prevTo = this._tos[prevIndex];
+      const prevLength = this._lengths[prevIndex];
+      return {
+        touches: inFrom === prevFrom + prevLength && inTo === prevTo + prevLength,
+        prevIndex,
+      };
+    };
+
+    const getTouchesRight = () => {
+      const nextIndex = info.index + 1 + (info.place === "after" ? 1 : 0);
+      if (nextIndex >= this._size)
+        return { touches: false, nextIndex };
+      const nextFrom = this._froms[nextIndex];
+      const nextTo = this._tos[nextIndex];
+      return {
+        touches: inFrom === nextFrom - 1 && inTo === nextTo - 1,
+        nextIndex,
+      };
+    };
+
     // FIXME: must handle splitting existing ones!
     if (info.place === "in") {
       if (info.target === inTo)
         return;
 
-      // split the run
       const from = this._froms[info.index];
       const to = this._tos[info.index];
       const length = this._lengths[info.index];
 
+      // cases
+      // - extends run at beginning
+      // - extends run at end
+      // - splits run at beginning
+      // - splits run at end
+      // cross
+      // - merges left run
+      // - merges right run
+
       // is first element of run
       if (inFrom === from) {
-        // move up old
-        this._froms[info.index] += 1;
-        this._tos[info.index] += 1;
-        this._lengths[info.index] -= 1;
-        // insert new
-        this._froms.splice(info.index, 0, inFrom);
-        this._tos.splice(info.index, 0, inTo);
-        this._lengths.splice(info.index, 0, 1);
+        const touchesLeft = getTouchesLeft();
+        if (touchesLeft.touches) {
+          // merge
+          this._froms[info.index] += 1;
+          this._tos[info.index] += 1;
+          this._lengths[info.index] -= 1;
+
+          // delete next
+
+        } else {
+          // move up old
+          this._froms[info.index] += 1;
+          this._tos[info.index] += 1;
+          this._lengths[info.index] -= 1;
+          // insert new
+          this._froms.splice(info.index, 0, inFrom);
+          this._tos.splice(info.index, 0, inTo);
+          this._lengths.splice(info.index, 0, 1);
+        }
 
       // is last element of run
       } else if (inFrom === from + length - 1) {
-        // shrink old
-        this._lengths[info.index] -= 1;
-        // insert new
-        this._froms.splice(info.index + 1, 0, inFrom);
-        this._tos.splice(info.index + 1, 0, inTo);
-        this._lengths.splice(info.index + 1, 0, 1);
+        console.log("last elem");
+        if (getTouchesRight()) {
+          const next = 
+          this._lengths[info.index] -= 1;
+
+        } else {
+          // shrink old
+          this._lengths[info.index] -= 1;
+          // insert new
+          this._froms.splice(info.index + 1, 0, inFrom);
+          this._tos.splice(info.index + 1, 0, inTo);
+          this._lengths.splice(info.index + 1, 0, 1);
+        }
 
       } else {
+        console.log("in the middle");
         // FIXME: do not do asserts in performance critical code
         if (process.env.DEBUG)
           assert(inFrom > from && inFrom < from + length);
@@ -83,46 +135,35 @@ export class CompactRemapTable {
         this._tos.splice(info.index + 1, 0, inTo, to + splitDistance);
         this._lengths.splice(info.index + 1, 0, 1, length - splitDistance);
       }
+
+    } else {
+      if (info.place === "before") {
+        if (getTouchesRight().touches) {
+          this._froms[info.index] -= 1;
+          this._tos[info.index] -= 1;
+          this._lengths[info.index] += 1;
+
+        } else {
+          this._froms.splice(info.index, 0, inFrom);
+          this._tos.splice(info.index, 0, inTo);
+          this._lengths.splice(info.index, 0, 1);
+        }
+
+      } else /* if (info.place === "after") */ {
+        if (getTouchesLeft().touches) {
+          this._lengths[info.index] += 1;
+
+        } else {
+          this._froms.splice(info.index + 1, 0, inFrom);
+          this._tos.splice(info.index + 1, 0, inTo);
+          this._lengths.splice(info.index + 1, 0, 1);
+        }
+      }
     }
 
-    const prevIndex = info.index - 1 + (info.place === "after" ? 1 : 0);
-    const touchesLeft = prevIndex >= 0 && (() => {
-      const prevFrom = this._froms[prevIndex];
-      const prevTo = this._tos[prevIndex];
-      const prevLength = this._lengths[prevIndex];
-      console.log("TL", prevIndex, prevFrom, prevTo, prevLength);
-      return inFrom === prevFrom + prevLength && inTo === prevTo + prevLength;
-    })();
+    // recalculate ends
+    if (info.index) {
 
-    const nextIndex = info.index + 1 + (info.place === "after" ? 1 : 0);
-    const touchesRight = nextIndex < this._size && (() => {
-      const nextFrom = this._froms[nextIndex];
-      const nextTo = this._tos[nextIndex];
-      return inFrom === nextFrom - 1 && inTo === nextTo - 1;
-    })();
-
-    if (info.place === "before") {
-      if (touchesRight) {
-        this._froms[info.index] -= 1;
-        this._tos[info.index] -= 1;
-        this._lengths[info.index] += 1;
-
-      } else {
-        this._froms.splice(info.index, 0, inFrom);
-        this._tos.splice(info.index, 0, inTo);
-        this._lengths.splice(info.index, 0, 1);
-      }
-
-    } else /* if (info.place === "after") */ {
-      console.log("HAS AFTER", touchesLeft);
-      if (touchesLeft) {
-        this._lengths[info.index] += 1;
-
-      } else {
-        this._froms.splice(info.index + 1, 0, inFrom);
-        this._tos.splice(info.index + 1, 0, inTo);
-        this._lengths.splice(info.index + 1, 0, 1);
-      }
     }
   }
 
