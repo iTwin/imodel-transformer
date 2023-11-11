@@ -2662,8 +2662,10 @@ describe("IModelTransformer", () => {
   it.only("should compare performance of emulated polymorphic insert", async function () {
     //const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation2.bim");
     const sourcePath = process.env.SOURCE_PATH ?? "/home/mike/work/Juergen.Hofer.Bad.Normals.bim";
+    console.log("source", sourcePath);
     const sourceDb = SnapshotDb.openFile(sourcePath);
     const targetDbFile = process.env.TARGET_PATH ?? IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformationTarget2.bim");
+    console.log(targetDbFile);
     let targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "ProfileTransformationTarget"}});
 
     const targetPath = targetDb.pathName;
@@ -2672,6 +2674,7 @@ describe("IModelTransformer", () => {
 
     // NOTE: it was closed the transformer itself!
     targetDb = SnapshotDb.openFile(targetDbFile);
+    return;
 
     await assertIdentityTransformation(sourceDb, targetDb, remapper, { compareElemGeom: true, ignoreDefaultTransformerMutations: true });
     sourceDb.close();

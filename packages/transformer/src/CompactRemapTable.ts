@@ -7,8 +7,10 @@ interface Run {
 interface IndexInfo {
   index: number;
   place: "before" | "in" | "right-after" | "right-before" | "after";
-  /** if place is "in" and this is searched for by a source id, this is the target of the source */
-  target: number | undefined;
+  /** not valid unless @see hasTarget is true
+   * only exists when the operation could determine a target and succeeded */
+  target: number;
+  hasTarget: boolean;
 }
 
 /**
@@ -71,5 +73,12 @@ export class CompactRemapTable {
 
   public get(from: number): number | undefined {
     return this._getInfo(from).target;
+  }
+
+  public clone(): CompactRemapTable {
+    const cloned = new CompactRemapTable();
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    cloned["_array"] = [...this._array];
+    return cloned;
   }
 }
