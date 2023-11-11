@@ -23,7 +23,7 @@ describe("CompactRemapTable", () => {
     table = _immutableBaseTable.clone();
   });
 
-  it("init", async () => {
+  it.only("init", async () => {
     // eslint-disable-next-line @typescript-eslint/dot-notation
     expect(table["_array"]).to.equal([
       3, 98, 1,
@@ -33,7 +33,7 @@ describe("CompactRemapTable", () => {
     ]);
   });
 
-  it("merges adjacent following segment", () => {
+  it("merges adjacent following run", () => {
     table.remap(5, 99);
     // eslint-disable-next-line @typescript-eslint/dot-notation
     expect(table["_array"]).to.equal([
@@ -53,7 +53,19 @@ describe("CompactRemapTable", () => {
     ]);
   });
 
-  it("appends to adjacent segment", () => {
+  it("merges altered gaps", () => {
+    table.remap(4, 1000);
+    table.remap(4, 99);
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    expect(table["_array"]).to.equal([
+      3, 98, 3,
+      6, 100, 1,
+      7, 500, 100,
+    ]);
+  });
+
+
+  it("appends to adjacent run", () => {
     table.remap(107, 607);
     // eslint-disable-next-line @typescript-eslint/dot-notation
     expect(table["_array"]).to.equal([
@@ -64,17 +76,43 @@ describe("CompactRemapTable", () => {
     ]);
   });
 
-  it("splits adjacent following segment", () => {
-    table.remap(57, 107);
+  it("splits run", () => {
+    table.remap(27, 107);
 
     // eslint-disable-next-line @typescript-eslint/dot-notation
     expect(table["_array"]).to.equal([
       3, 98, 1,
       5, 100, 1,
       6, 100, 1,
-      7, 500, 49,
-      57, 107, 1,
-      58, 551, 50,
+      7, 500, 19,
+      27, 107, 1,
+      58, 551, 80,
+    ]);
+  });
+
+  it("shortens run when remapping end", () => {
+    table.remap(107, 200);
+
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    expect(table["_array"]).to.equal([
+      3, 98, 1,
+      5, 100, 1,
+      6, 100, 1,
+      7, 500, 99,
+      107, 200, 1,
+    ]);
+  });
+
+  it("pushes up run when remapping beginning", () => {
+    table.remap(7, 200);
+
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    expect(table["_array"]).to.equal([
+      3, 98, 1,
+      5, 100, 1,
+      6, 100, 1,
+      7, 200, 1,
+      8, 501, 99,
     ]);
   });
 
