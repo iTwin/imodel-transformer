@@ -7,6 +7,8 @@ import { CompactRemapTable } from "../../CompactRemapTable";
 import { expect } from "chai";
 
 describe("CompactRemapTable", () => {
+  //HACK
+  const ogConsoleLog = console.log;
   const _immutableBaseTable = new CompactRemapTable();
   _immutableBaseTable.remap(3, 100);
   _immutableBaseTable.remap(5, 100);
@@ -25,7 +27,7 @@ describe("CompactRemapTable", () => {
 
   it.only("init", async () => {
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 1,
       5, 100, 1,
       6, 100, 1,
@@ -36,7 +38,7 @@ describe("CompactRemapTable", () => {
   it("merges adjacent following run", () => {
     table.remap(5, 99);
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 1,
       5, 99, 2,
       7, 500, 100,
@@ -46,7 +48,7 @@ describe("CompactRemapTable", () => {
   it("merges filled gap", () => {
     table.remap(4, 99);
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 3,
       6, 100, 1,
       7, 500, 100,
@@ -57,7 +59,7 @@ describe("CompactRemapTable", () => {
     table.remap(4, 1000);
     table.remap(4, 99);
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 3,
       6, 100, 1,
       7, 500, 100,
@@ -68,7 +70,7 @@ describe("CompactRemapTable", () => {
   it("appends to adjacent run", () => {
     table.remap(107, 607);
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 1,
       5, 100, 1,
       6, 100, 1,
@@ -80,7 +82,7 @@ describe("CompactRemapTable", () => {
     table.remap(27, 107);
 
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 1,
       5, 100, 1,
       6, 100, 1,
@@ -94,7 +96,7 @@ describe("CompactRemapTable", () => {
     table.remap(107, 200);
 
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 1,
       5, 100, 1,
       6, 100, 1,
@@ -107,7 +109,7 @@ describe("CompactRemapTable", () => {
     table.remap(7, 200);
 
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       3, 98, 1,
       5, 100, 1,
       6, 100, 1,
@@ -120,7 +122,7 @@ describe("CompactRemapTable", () => {
     table.remap(0, 0);
 
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       0, 0, 1,
       3, 98, 1,
       5, 100, 1,
@@ -133,7 +135,7 @@ describe("CompactRemapTable", () => {
     table.remap(1000, 500);
 
     // eslint-disable-next-line @typescript-eslint/dot-notation
-    expect(table["_array"]).to.equal([
+    expect(table["_array"]).to.deep.equal([
       0, 0, 1,
       3, 98, 1,
       5, 100, 1,

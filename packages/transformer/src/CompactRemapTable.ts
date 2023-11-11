@@ -6,6 +6,12 @@ interface Run {
   length: number;
 }
 
+const enum RunField {
+  from = 0,
+  to = 1,
+  length = 2,
+}
+
 interface IndexInfo {
   index: number;
   place: "before" | "in" | "after";
@@ -20,11 +26,21 @@ interface IndexInfo {
  * and allow binary searching
  */
 export class CompactRemapTable {
+  // FIXME: why don't I just do a multi array approach instead?
   /** an array of inlined @see Run objects, such that each object
    * is three ordered numbers in the array */
   private _array: number[] = [];
 
   private get _size() { return this._array.length / 3; }
+  private _get(i: number, field: RunField): number {
+    return this._array[3 * i + field];
+  }
+  private _set(i: number, field: RunField, val: number): void {
+    this._array[3 * i + field] = val;
+  }
+  private _inc(i: number, field: RunField, val: number): void {
+    this._array[3 * i + field] += val;
+  }
 
   public remap(inFrom: number, inTo: number) {
     const info = this._getInfo(inFrom);
@@ -130,6 +146,10 @@ export class CompactRemapTable {
    * binary search for an id in the table
    */
   private _getInfo(inFrom: number): IndexInfo {
+    if (this._size === 0) {
+      return { hasTarget: false, target: 0, place: "before", index: 0 };
+    }
+
     let left = 0;
     let right = this._size - 1;
 
@@ -141,24 +161,36 @@ export class CompactRemapTable {
 
       console.log(inFrom, from, "|", left, curr, right);
 
-      if (right === left) {
-        const currMatch = this._indexContains(curr, inFrom);
-        if (currMatch.hasTarget) {
-          return {
-            hasTarget: currMatch.hasTarget, target: currMatch.target,
-            place: "in",
-            index: curr,
-          };
-        } else if (right === 0) {
-          return {
-            hasTarget: false, target: 0, place: "before", index: left,
-          };
-        } else if (left === this._size) {
-          return {
-            hasTarget: false, target: 0, place: "after", index: right,
-          };
+      if (right <= left + 1) {
+        const leftFrom = this._array[3 * left];
+        const leftLength = this._array[3 * left + 2];
+        const rightFrom = this._array[3 * right];
+        const rightLength = this._array[3 * right + 2];
+
+        if (process.env.DEBUG)
+          console.log(leftFrom, leftLength, inFrom, rightFrom, rightLength);
+
+        // before
+        if (inFrom < leftFrom) {
+          return { hasTarget: false, target: 0, place: "before", index: left };
+
+        // after
+        } else if (inFrom >= rightFrom + rightLength) {
+          return { hasTarget: false, target: 0, place: "after", index: right };
+
+        // in left
+        } else if (inFrom < leftFrom + leftLength) {
+          const match = this._indexContains(left, inFrom);
+          return { hasTarget: match.hasTarget, target: match.target, place: "in", index: left };
+
+        // in right
+        } else if (inFrom >= rightFrom) {
+          const match = this._indexContains(right, inFrom);
+          return { hasTarget: match.hasTarget, target: match.target, place: "in", index: right };
+
+        // in middle
         } else {
-          assert(false);
+          return { hasTarget: false, target: 0, place: "after", index: left };
         }
       }
 
