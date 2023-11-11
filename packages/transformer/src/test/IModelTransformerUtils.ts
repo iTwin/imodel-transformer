@@ -300,13 +300,17 @@ export async function assertIdentityTransformation(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
-          // kept for conditional breakpoints
-          const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
-          expect((targetElem as any)[propName],
-            `${sourceElemId}->${targetElemId} wrong prop '${propName}'`
-          ).to.deep.advancedEqual(
-            sourceElem.asAny[propName]
-          );
+          try {
+            expect((targetElem as any)[propName],
+              `${sourceElemId}->${targetElemId} wrong prop '${propName}'`
+            ).to.deep.advancedEqual(
+              sourceElem.asAny[propName]
+            );
+          } catch (err) {
+            console.log("source", sourceElem.toJSON());
+            console.log("target", targetElem.toJSON());
+            throw err;
+          }
         }
       }
       const quickClone = (obj: any) => JSON.parse(JSON.stringify(obj));
