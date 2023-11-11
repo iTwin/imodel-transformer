@@ -1,4 +1,4 @@
-import assert from "node:assert";
+import * as assert from "node:assert";
 
 interface Run {
   from: number;
@@ -85,15 +85,16 @@ export class CompactRemapTable {
       }
     }
 
-    const prevIndex = info.index - 1;
+    const prevIndex = info.index - 1 + (info.place === "after" ? 1 : 0);
     const touchesLeft = prevIndex >= 0 && (() => {
       const prevFrom = this._froms[prevIndex];
       const prevTo = this._tos[prevIndex];
       const prevLength = this._lengths[prevIndex];
+      console.log("TL", prevIndex, prevFrom, prevTo, prevLength);
       return inFrom === prevFrom + prevLength && inTo === prevTo + prevLength;
     })();
 
-    const nextIndex = info.index + 1;
+    const nextIndex = info.index + 1 + (info.place === "after" ? 1 : 0);
     const touchesRight = nextIndex < this._size && (() => {
       const nextFrom = this._froms[nextIndex];
       const nextTo = this._tos[nextIndex];
@@ -113,6 +114,7 @@ export class CompactRemapTable {
       }
 
     } else /* if (info.place === "after") */ {
+      console.log("HAS AFTER", touchesLeft);
       if (touchesLeft) {
         this._lengths[info.index] += 1;
 
@@ -145,6 +147,18 @@ export class CompactRemapTable {
       return { hasTarget: false, target: 0, place: "before", index: 0 };
     }
 
+    const firstFrom = this._froms[0];
+    const lastFrom = this._froms[this._froms.length - 1];
+    const lastLength = this._lengths[this._lengths.length - 1];
+
+    if (inFrom >= lastFrom + lastLength) {
+      return { hasTarget: false, target: 0, place: "after", index: this._size - 1 };
+    }
+
+    if (inFrom < firstFrom) {
+      return { hasTarget: false, target: 0, place: "before", index: 0 };
+    }
+
     let left = 0;
     let right = this._size - 1;
 
@@ -154,7 +168,8 @@ export class CompactRemapTable {
       const from = this._froms[curr];
       const length = this._lengths[curr];
 
-      console.log(inFrom, from, "|", left, curr, right);
+      if (process.env.DEBUG)
+        console.log(`${inFrom}: ${left} > ${curr}(${from}) < ${right}`);
 
       if (right <= left + 1) {
         const leftFrom = this._froms[left];
@@ -163,7 +178,7 @@ export class CompactRemapTable {
         const rightLength = this._lengths[right];
 
         if (process.env.DEBUG)
-          console.log(leftFrom, leftLength, inFrom, rightFrom, rightLength);
+          console.log(`${leftFrom}+${leftLength} > ${inFrom} < ${rightFrom}+${rightLength}`);
 
         // before
         if (inFrom < leftFrom) {
@@ -195,13 +210,11 @@ export class CompactRemapTable {
         left = curr + 1;
       } else {
         const currMatch = this._indexContains(curr, inFrom);
-        if (currMatch.hasTarget) {
-          return {
-            hasTarget: currMatch.hasTarget, target: currMatch.target,
-            place: "in",
-            index: curr,
-          };
-        }
+        return {
+          hasTarget: currMatch.hasTarget, target: currMatch.target,
+          place: "in",
+          index: curr,
+        };
       }
     }
   }
