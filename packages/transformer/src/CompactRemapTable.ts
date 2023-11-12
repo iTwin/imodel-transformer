@@ -25,45 +25,44 @@ export class CompactRemapTable {
 
   private get _size() { return this._froms.length; }
 
-  private _tryMergeLeft(index: number, inFrom: number, inTo: number) {
-    console.log("tryMergeLeft", index, inFrom, inTo);
+  private _tryMergeLeft(index: number, inFrom: number, inTo: number): boolean {
     const prevIndex = index - 1;
     if (prevIndex < 0)
-      return;
-    console.log("has prev", prevIndex);
+      return false;
+
     const prevFrom = this._froms[prevIndex];
     const prevTo = this._tos[prevIndex];
     const prevLength = this._lengths[prevIndex];
     const needsMerge = inFrom === prevFrom + prevLength && inTo === prevTo + prevLength;
     if (!needsMerge)
-      return;
-
-    console.log("needed merge");
+      return false;
 
     this._lengths[prevIndex] = prevLength + this._lengths[index];
     this._froms.splice(index, 1);
     this._tos.splice(index, 1);
     this._lengths.splice(index, 1);
+
+    return true;
   }
 
-  private _tryMergeRight(index: number, inFrom: number, inTo: number) {
-    console.log("tryMergeRight", index, inFrom, inTo);
+  private _tryMergeRight(index: number, inFrom: number, inTo: number): boolean {
     const nextIndex = index + 1;
     if (nextIndex >= this._size)
-      return;
-    console.log("has next", nextIndex);
+      return false;
+
     const nextFrom = this._froms[nextIndex];
     const nextTo = this._tos[nextIndex];
     const nextLength = this._lengths[nextIndex];
     const needsMerge = inFrom === nextFrom - 1 && inTo === nextTo - 1;
     if (!needsMerge)
-      return;
-    console.log("needed merge");
+      return false;
 
     this._lengths[index] = this._lengths[index] + nextLength;
     this._froms.splice(nextIndex, 1);
     this._tos.splice(nextIndex, 1);
     this._lengths.splice(nextIndex, 1);
+
+    return true;
   }
 
   public remap(inFrom: number, inTo: number) {
@@ -72,7 +71,6 @@ export class CompactRemapTable {
     if (process.env.DEBUG)
       console.log({ args: { inFrom, inTo }, info });
 
-    // FIXME: must handle splitting existing ones!
     if (info.inRun) {
       if (info.target === inTo)
         return;
@@ -88,8 +86,8 @@ export class CompactRemapTable {
       if (isOnlyElem) {
         this._froms[info.index] = inFrom;
         this._tos[info.index] = inTo;
-        this._tryMergeLeft(info.index, inFrom, inTo);
-        this._tryMergeRight(info.index, inFrom, inTo);
+        const mergedLeft = this._tryMergeLeft(info.index, inFrom, inTo);
+        this._tryMergeRight(info.index + (mergedLeft ? -1 : 0), inFrom, inTo);
 
       } else if (isFirstElem) {
         // move up old
@@ -121,19 +119,19 @@ export class CompactRemapTable {
           assert(inFrom > from && inFrom < from + length);
         const splitDistance = inFrom - from;
         // cut off old
-        this._lengths[info.index] = splitDistance - 1;
+        this._lengths[info.index] = splitDistance;
         // insert splitter and remainder
         this._froms.splice(info.index + 1, 0, inFrom, from + splitDistance + 1);
-        this._tos.splice(info.index + 1, 0, inTo, to + splitDistance);
-        this._lengths.splice(info.index + 1, 0, 1, length - splitDistance);
+        this._tos.splice(info.index + 1, 0, inTo, to + splitDistance + 1);
+        this._lengths.splice(info.index + 1, 0, 1, length - splitDistance - 1);
       }
 
     } else {
       this._froms.splice(info.index, 0, inFrom);
       this._tos.splice(info.index, 0, inTo);
       this._lengths.splice(info.index, 0, 1);
-      this._tryMergeLeft(info.index, inFrom, inTo);
-      this._tryMergeRight(info.index, inFrom, inTo);
+      const mergedLeft = this._tryMergeLeft(info.index, inFrom, inTo);
+      this._tryMergeRight(info.index + (mergedLeft ? -1 : 0), inFrom, inTo);
     }
 
     if (process.env.DEBUG)
@@ -158,7 +156,7 @@ export class CompactRemapTable {
    */
   private _getInfo(inFrom: number): IndexInfo {
     if (this._size === 0) {
-      return { hasTarget: false, target: 0, inRun: false, index: -1 };
+      return { hasTarget: false, target: 0, inRun: false, index: 0 };
     }
 
     const firstFrom = this._froms[0];
@@ -170,7 +168,7 @@ export class CompactRemapTable {
     }
 
     if (inFrom < firstFrom) {
-      return { hasTarget: false, target: 0, inRun: false, index: -1 };
+      return { hasTarget: false, target: 0, inRun: false, index: 0 };
     }
 
     let left = 0;
@@ -190,6 +188,7 @@ export class CompactRemapTable {
         const leftLength = this._lengths[left];
         const rightFrom = this._froms[right];
         const rightLength = this._lengths[right];
+          
 
         if (process.env.DEBUG)
           console.log(`${leftFrom}+${leftLength} > ${inFrom} < ${rightFrom}+${rightLength}`);

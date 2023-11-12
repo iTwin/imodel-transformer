@@ -40,7 +40,7 @@ describe.only("CompactRemapTable", () => {
     expect(table["_lengths"]).to.deep.equal([1, 2, 100]);
   });
 
-  it.only("merges filled gap", () => {
+  it("merges filled gap", () => {
     table.remap(4, 99);
     expect(table["_froms"]).to.deep.equal([3, 6, 7]);
     expect(table["_tos"]).to.deep.equal([98, 100, 500]);
@@ -56,22 +56,30 @@ describe.only("CompactRemapTable", () => {
   });
 
   it("appends to adjacent run", () => {
-    table.remap(107, 607);
+    table.remap(107, 600);
     expect(table["_froms"]).to.deep.equal([3, 5, 6, 7]);
     expect(table["_tos"]).to.deep.equal([98, 100, 100, 500]);
-    expect(table["_lengths"]).to.deep.equal([1, 1, 1, 100]);
+    expect(table["_lengths"]).to.deep.equal([1, 1, 1, 101]);
   });
 
   it("splits run", () => {
+    expect(table.get(26)).to.equal(500 + 26 - 7);
+    expect(table.get(28)).to.equal(500 + 28 - 7);
+    expect(table.get(106)).to.equal(500 + 106 - 7);
+    expect(table.get(107)).to.equal(undefined);
     table.remap(27, 107);
-    expect(table["_froms"]).to.deep.equal([3, 5, 6, 7, 27, 58]);
-    expect(table["_tos"]).to.deep.equal([98, 100, 100, 500, 107, 551]);
-    expect(table["_lengths"]).to.deep.equal([1, 1, 1, 19, 1, 80]);
+    expect(table.get(26)).to.equal(500 + 26 - 7);
+    expect(table.get(28)).to.equal(500 + 28 - 7);
+    expect(table.get(106)).to.equal(500 + 106 - 7);
+    expect(table.get(107)).to.equal(undefined);
+    expect(table["_froms"]).to.deep.equal([3, 5, 6, 7, 27, 28]);
+    expect(table["_tos"]).to.deep.equal([98, 100, 100, 500, 107, 521]);
+    expect(table["_lengths"]).to.deep.equal([1, 1, 1, 20, 1, 79]);
   });
 
   it("shortens run when remapping end", () => {
-    table.remap(107, 200);
-    expect(table["_froms"]).to.deep.equal([3, 5, 6, 7, 107]);
+    table.remap(106, 200);
+    expect(table["_froms"]).to.deep.equal([3, 5, 6, 7, 106]);
     expect(table["_tos"]).to.deep.equal([98, 100, 100, 500, 200]);
     expect(table["_lengths"]).to.deep.equal([1, 1, 1, 99, 1]);
   });
