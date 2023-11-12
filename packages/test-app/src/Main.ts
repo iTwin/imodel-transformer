@@ -10,6 +10,7 @@ import { ProjectsAccessClient } from "@itwin/projects-client";
 import { IModelDb, IModelHost, IModelJsFs, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
 import { BriefcaseIdValue, ChangesetId, ChangesetProps, IModelVersion } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { rawEmulatedPolymorphicInsertTransform } from "@itwin/imodel-transformer/lib/cjs/JsPolymorphicInserter";
 import { NamedVersion } from "@itwin/imodels-client-authoring";
 import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
@@ -33,6 +34,13 @@ void (async () => {
       )
       .strict()
       .options({
+        experimentalFastTransformer: {
+          alias: ["F"],
+          desc: "experimental fast transformer",
+          type: "boolean",
+          default: false,
+        },
+
         hub: {
           desc: "The iModelHub environment: prod | qa | dev",
           type: "string",
@@ -372,6 +380,8 @@ void (async () => {
         ].join("\n")
       );
       transformer.dispose();
+    } else if (args.experimentalFastTransformer) {
+      await rawEmulatedPolymorphicInsertTransform(sourceDb, targetDb);
     } else {
       await Transformer.transformAll(sourceDb, targetDb, transformerOptions);
     }
