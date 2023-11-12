@@ -1,5 +1,3 @@
-import * as assert from "node:assert";
-
 interface IndexInfo {
   /** if not in a run, this is the index where it would be if added */
   index: number;
@@ -68,9 +66,6 @@ export class CompactRemapTable {
   public remap(inFrom: number, inTo: number) {
     const info = this._getInfo(inFrom);
 
-    if (process.env.DEBUG)
-      console.log({ args: { inFrom, inTo }, info });
-
     if (info.inRun) {
       if (info.target === inTo)
         return;
@@ -114,9 +109,6 @@ export class CompactRemapTable {
 
       // in the middle of the run
       } else {
-        // FIXME: do not do asserts in performance critical code
-        if (process.env.DEBUG)
-          assert(inFrom > from && inFrom < from + length);
         const splitDistance = inFrom - from;
         // cut off old
         this._lengths[info.index] = splitDistance;
@@ -133,9 +125,6 @@ export class CompactRemapTable {
       const mergedLeft = this._tryMergeLeft(info.index, inFrom, inTo);
       this._tryMergeRight(info.index + (mergedLeft ? -1 : 0), inFrom, inTo);
     }
-
-    if (process.env.DEBUG)
-      console.log("remapped:", JSON.stringify(this));
   }
 
   private _indexContains(index: number, inFrom: number): { target: number, hasTarget: boolean } {
@@ -180,18 +169,12 @@ export class CompactRemapTable {
       const from = this._froms[curr];
       const length = this._lengths[curr];
 
-      if (process.env.DEBUG)
-        console.log(`${inFrom}: ${left} > ${curr}(${from}) < ${right}`);
-
       if (right <= left + 1) {
         const leftFrom = this._froms[left];
         const leftLength = this._lengths[left];
         const rightFrom = this._froms[right];
         const rightLength = this._lengths[right];
           
-
-        if (process.env.DEBUG)
-          console.log(`${leftFrom}+${leftLength} > ${inFrom} < ${rightFrom}+${rightLength}`);
 
         // before
         if (inFrom < leftFrom) {
