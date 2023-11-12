@@ -40,7 +40,7 @@ const getInjectedSqlite = (query: string, db: ECDb | IModelDb) => {
 const remapSql = (idExpr: string, remapType: "font" | "codespec" | "aspect" | "element") => `(
   SELECT TargetId + ((${idExpr}) - SourceId)
   FROM temp.${remapType}_remap
-  WHERE ${idExpr} BETWEEN SourceId AND SourceId + Length - SourceId
+  WHERE ${idExpr} BETWEEN SourceId AND SourceId + Length - 1
 )`;
 
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
