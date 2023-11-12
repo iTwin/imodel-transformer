@@ -8,7 +8,7 @@
 import { CompactRemapTable } from "../../CompactRemapTable";
 import { expect } from "chai";
 
-describe("CompactRemapTable", () => {
+describe.only("CompactRemapTable", () => {
   const _immutableBaseTable = new CompactRemapTable();
   _immutableBaseTable.remap(3, 98);
   _immutableBaseTable.remap(5, 100);
@@ -33,14 +33,14 @@ describe("CompactRemapTable", () => {
     expect(table["_lengths"]).to.deep.equal([1, 1, 1, 100]);
   });
 
-  it.only("merges adjacent following run", () => {
+  it("merges adjacent following run", () => {
     table.remap(5, 99);
     expect(table["_froms"]).to.deep.equal([3, 5, 7]);
     expect(table["_tos"]).to.deep.equal([98, 99, 500]);
     expect(table["_lengths"]).to.deep.equal([1, 2, 100]);
   });
 
-  it("merges filled gap", () => {
+  it.only("merges filled gap", () => {
     table.remap(4, 99);
     expect(table["_froms"]).to.deep.equal([3, 6, 7]);
     expect(table["_tos"]).to.deep.equal([98, 100, 500]);

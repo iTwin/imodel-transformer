@@ -1,20 +1,10 @@
 import * as assert from "node:assert";
 
-interface Run {
-  from: number;
-  to: number;
-  length: number;
-}
-
-enum RunField {
-  from = 0,
-  to = 1,
-  length = 2,
-}
-
 interface IndexInfo {
+  /** if not in a run, this is the index where it would be if added */
   index: number;
-  place: "before" | "in" | "after";
+  /** true if in a run, false if outside one */
+  inRun: boolean;
   hasTarget: boolean;
   /** not valid unless @see hasTarget is true
    * only exists when the operation could determine a target and succeeded */
@@ -35,39 +25,55 @@ export class CompactRemapTable {
 
   private get _size() { return this._froms.length; }
 
+  private _tryMergeLeft(index: number, inFrom: number, inTo: number) {
+    console.log("tryMergeLeft", index, inFrom, inTo);
+    const prevIndex = index - 1;
+    if (prevIndex < 0)
+      return;
+    console.log("has prev", prevIndex);
+    const prevFrom = this._froms[prevIndex];
+    const prevTo = this._tos[prevIndex];
+    const prevLength = this._lengths[prevIndex];
+    const needsMerge = inFrom === prevFrom + prevLength && inTo === prevTo + prevLength;
+    if (!needsMerge)
+      return;
+
+    console.log("needed merge");
+
+    this._lengths[prevIndex] = prevLength + this._lengths[index];
+    this._froms.splice(index, 1);
+    this._tos.splice(index, 1);
+    this._lengths.splice(index, 1);
+  }
+
+  private _tryMergeRight(index: number, inFrom: number, inTo: number) {
+    console.log("tryMergeRight", index, inFrom, inTo);
+    const nextIndex = index + 1;
+    if (nextIndex >= this._size)
+      return;
+    console.log("has next", nextIndex);
+    const nextFrom = this._froms[nextIndex];
+    const nextTo = this._tos[nextIndex];
+    const nextLength = this._lengths[nextIndex];
+    const needsMerge = inFrom === nextFrom - 1 && inTo === nextTo - 1;
+    if (!needsMerge)
+      return;
+    console.log("needed merge");
+
+    this._lengths[index] = this._lengths[index] + nextLength;
+    this._froms.splice(nextIndex, 1);
+    this._tos.splice(nextIndex, 1);
+    this._lengths.splice(nextIndex, 1);
+  }
+
   public remap(inFrom: number, inTo: number) {
     const info = this._getInfo(inFrom);
 
     if (process.env.DEBUG)
-      console.log({ info });
-
-    const getTouchesLeft = () => {
-      const prevIndex = info.index - 1 + (info.place === "after" ? 1 : 0);
-      if (prevIndex < 0)
-        return { touches: false, prevIndex };
-      const prevFrom = this._froms[prevIndex];
-      const prevTo = this._tos[prevIndex];
-      const prevLength = this._lengths[prevIndex];
-      return {
-        touches: inFrom === prevFrom + prevLength && inTo === prevTo + prevLength,
-        prevIndex,
-      };
-    };
-
-    const getTouchesRight = () => {
-      const nextIndex = info.index + 1 + (info.place === "after" ? 1 : 0);
-      if (nextIndex >= this._size)
-        return { touches: false, nextIndex };
-      const nextFrom = this._froms[nextIndex];
-      const nextTo = this._tos[nextIndex];
-      return {
-        touches: inFrom === nextFrom - 1 && inTo === nextTo - 1,
-        nextIndex,
-      };
-    };
+      console.log({ args: { inFrom, inTo }, info });
 
     // FIXME: must handle splitting existing ones!
-    if (info.place === "in") {
+    if (info.inRun) {
       if (info.target === inTo)
         return;
 
@@ -75,55 +81,41 @@ export class CompactRemapTable {
       const to = this._tos[info.index];
       const length = this._lengths[info.index];
 
-      // cases
-      // - extends run at beginning
-      // - extends run at end
-      // - splits run at beginning
-      // - splits run at end
-      // cross
-      // - merges left run
-      // - merges right run
+      const isFirstElem = inFrom === from;
+      const isLastElem = inFrom === from + length - 1;
+      const isOnlyElem = isFirstElem && isLastElem;
 
-      // is first element of run
-      if (inFrom === from) {
-        const touchesLeft = getTouchesLeft();
-        if (touchesLeft.touches) {
-          // merge
-          this._froms[info.index] += 1;
-          this._tos[info.index] += 1;
-          this._lengths[info.index] -= 1;
+      if (isOnlyElem) {
+        this._froms[info.index] = inFrom;
+        this._tos[info.index] = inTo;
+        this._tryMergeLeft(info.index, inFrom, inTo);
+        this._tryMergeRight(info.index, inFrom, inTo);
 
-          // delete next
-
-        } else {
-          // move up old
-          this._froms[info.index] += 1;
-          this._tos[info.index] += 1;
-          this._lengths[info.index] -= 1;
-          // insert new
-          this._froms.splice(info.index, 0, inFrom);
-          this._tos.splice(info.index, 0, inTo);
-          this._lengths.splice(info.index, 0, 1);
-        }
+      } else if (isFirstElem) {
+        // move up old
+        this._froms[info.index] += 1;
+        this._tos[info.index] += 1;
+        this._lengths[info.index] -= 1;
+        // insert new
+        this._froms.splice(info.index, 0, inFrom);
+        this._tos.splice(info.index, 0, inTo);
+        this._lengths.splice(info.index, 0, 1);
+        // merge left if necessary
+        this._tryMergeLeft(info.index, inFrom, inTo);
 
       // is last element of run
-      } else if (inFrom === from + length - 1) {
-        console.log("last elem");
-        if (getTouchesRight()) {
-          const next = 
-          this._lengths[info.index] -= 1;
+      } else if (isLastElem) {
+        // shrink old
+        this._lengths[info.index] -= 1;
+        // insert new
+        this._froms.splice(info.index + 1, 0, inFrom);
+        this._tos.splice(info.index + 1, 0, inTo);
+        this._lengths.splice(info.index + 1, 0, 1);
+        // merge right if necessary
+        this._tryMergeRight(info.index + 1, inFrom, inTo);
 
-        } else {
-          // shrink old
-          this._lengths[info.index] -= 1;
-          // insert new
-          this._froms.splice(info.index + 1, 0, inFrom);
-          this._tos.splice(info.index + 1, 0, inTo);
-          this._lengths.splice(info.index + 1, 0, 1);
-        }
-
+      // in the middle of the run
       } else {
-        console.log("in the middle");
         // FIXME: do not do asserts in performance critical code
         if (process.env.DEBUG)
           assert(inFrom > from && inFrom < from + length);
@@ -137,34 +129,15 @@ export class CompactRemapTable {
       }
 
     } else {
-      if (info.place === "before") {
-        if (getTouchesRight().touches) {
-          this._froms[info.index] -= 1;
-          this._tos[info.index] -= 1;
-          this._lengths[info.index] += 1;
-
-        } else {
-          this._froms.splice(info.index, 0, inFrom);
-          this._tos.splice(info.index, 0, inTo);
-          this._lengths.splice(info.index, 0, 1);
-        }
-
-      } else /* if (info.place === "after") */ {
-        if (getTouchesLeft().touches) {
-          this._lengths[info.index] += 1;
-
-        } else {
-          this._froms.splice(info.index + 1, 0, inFrom);
-          this._tos.splice(info.index + 1, 0, inTo);
-          this._lengths.splice(info.index + 1, 0, 1);
-        }
-      }
+      this._froms.splice(info.index, 0, inFrom);
+      this._tos.splice(info.index, 0, inTo);
+      this._lengths.splice(info.index, 0, 1);
+      this._tryMergeLeft(info.index, inFrom, inTo);
+      this._tryMergeRight(info.index, inFrom, inTo);
     }
 
-    // recalculate ends
-    if (info.index) {
-
-    }
+    if (process.env.DEBUG)
+      console.log("remapped:", JSON.stringify(this));
   }
 
   private _indexContains(index: number, inFrom: number): { target: number, hasTarget: boolean } {
@@ -185,7 +158,7 @@ export class CompactRemapTable {
    */
   private _getInfo(inFrom: number): IndexInfo {
     if (this._size === 0) {
-      return { hasTarget: false, target: 0, place: "before", index: 0 };
+      return { hasTarget: false, target: 0, inRun: false, index: -1 };
     }
 
     const firstFrom = this._froms[0];
@@ -193,11 +166,11 @@ export class CompactRemapTable {
     const lastLength = this._lengths[this._lengths.length - 1];
 
     if (inFrom >= lastFrom + lastLength) {
-      return { hasTarget: false, target: 0, place: "after", index: this._size - 1 };
+      return { hasTarget: false, target: 0, inRun: false, index: this._size };
     }
 
     if (inFrom < firstFrom) {
-      return { hasTarget: false, target: 0, place: "before", index: 0 };
+      return { hasTarget: false, target: 0, inRun: false, index: -1 };
     }
 
     let left = 0;
@@ -223,25 +196,25 @@ export class CompactRemapTable {
 
         // before
         if (inFrom < leftFrom) {
-          return { hasTarget: false, target: 0, place: "before", index: left };
+          return { hasTarget: false, target: 0, inRun: false, index: left - 1 };
 
         // after
         } else if (inFrom >= rightFrom + rightLength) {
-          return { hasTarget: false, target: 0, place: "after", index: right };
+          return { hasTarget: false, target: 0, inRun: false, index: right + 1 };
 
         // in left
         } else if (inFrom < leftFrom + leftLength) {
           const match = this._indexContains(left, inFrom);
-          return { hasTarget: match.hasTarget, target: match.target, place: "in", index: left };
+          return { hasTarget: match.hasTarget, target: match.target, inRun: true, index: left };
 
         // in right
         } else if (inFrom >= rightFrom) {
           const match = this._indexContains(right, inFrom);
-          return { hasTarget: match.hasTarget, target: match.target, place: "in", index: right };
+          return { hasTarget: match.hasTarget, target: match.target, inRun: true, index: right };
 
         // in middle
         } else {
-          return { hasTarget: false, target: 0, place: "after", index: left };
+          return { hasTarget: false, target: 0, inRun: false, index: left + 1 };
         }
       }
 
@@ -253,7 +226,7 @@ export class CompactRemapTable {
         const currMatch = this._indexContains(curr, inFrom);
         return {
           hasTarget: currMatch.hasTarget, target: currMatch.target,
-          place: "in",
+          inRun: true,
           index: curr,
         };
       }
@@ -267,11 +240,11 @@ export class CompactRemapTable {
 
   public clone(): CompactRemapTable {
     const cloned = new CompactRemapTable();
-    /* eslint-disable-next-line @typescript-eslint/dot-notation */
+    /* eslint-disable @typescript-eslint/dot-notation */
     cloned["_froms"] = this._froms.slice();
     cloned["_tos"] = this._tos.slice();
     cloned["_lengths"] = this._lengths.slice();
-    /* eslint-enable-next-line @typescript-eslint/dot-notation */
+    /* eslint-enable @typescript-eslint/dot-notation */
     return cloned;
   }
 }
