@@ -1,4 +1,4 @@
-import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -46,6 +46,63 @@ const remapSql = (idExpr: string, remapType: "font" | "codespec" | "aspect" | "e
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 
+/* eslint-disable */
+const propBindings = (p: PropInfo): string[] =>
+  p.propertyType === PropertyType.Point3d
+  ? [`n_${p.name}_x`, `n_${p.name}_y`, `n_${p.name}_z`]
+  : p.propertyType === PropertyType.Point2d
+  ? [`n_${p.name}_x`, `n_${p.name}_y`]
+  : [`n_${p.name}`]
+;
+/* eslint-enable */
+
+function stmtBindProperty(
+  stmt: ECSqlStatement,
+  prop: PropInfo | PrimitiveOrEnumPropertyBase,
+  val: any,
+) {
+  const bindings = propBindings(prop);
+  const binding = bindings[0];
+  if (val === undefined)
+    return;
+  if (prop.propertyType === PropertyType.Long/* && prop.extendedTypeName === "Id"*/)
+    return stmt.bindId(binding, val);
+  if (prop.propertyType === PropertyType.Binary && prop.extendedTypeName === "BeGuid")
+    return stmt.bindGuid(binding, val);
+  if (prop.propertyType === PropertyType.Binary)
+    return stmt.bindBlob(binding, val);
+  if (prop.propertyType === PropertyType.Integer)
+    return stmt.bindInteger(binding, val);
+  if (prop.propertyType === PropertyType.Integer_Enumeration)
+    return stmt.bindInteger(binding, val);
+  if (prop.propertyType === PropertyType.String)
+    return stmt.bindString(binding, val);
+  if (prop.propertyType === PropertyType.String_Enumeration)
+    return stmt.bindString(binding, val);
+  if (prop.propertyType === PropertyType.Double)
+    return stmt.bindDouble(binding, val);
+  if (prop.propertyType === PropertyType.Boolean)
+    return stmt.bindBoolean(binding, val);
+  if (prop.propertyType === PropertyType.DateTime)
+    return stmt.bindDateTime(binding, val);
+  if (prop.propertyType === PropertyType.Navigation)
+    return stmt.bindId(binding, val.Id);
+  if (prop.propertyType === PropertyType.Point2d) {
+    stmt.bindDouble(bindings[0], val.X);
+    stmt.bindDouble(bindings[1], val.Y);
+    return;
+  }
+  if (prop.propertyType === PropertyType.Point3d) {
+    stmt.bindDouble(bindings[0], val.X);
+    stmt.bindDouble(bindings[1], val.Y);
+    stmt.bindDouble(bindings[2], val.Z);
+    return;
+  }
+  if (prop.propertyType === PropertyType.IGeometry)
+    return stmt.bindBlob(binding, val.Id);
+  console.warn(`ignoring binding unsupported property with type: ${prop.propertyType} (${prop.name})`);
+}
+
 type SupportedBindings = "bindId" | "bindBlob" | "bindInteger" | "bindString";
 
 const supportedBindingToPropertyTypeMap: Record<SupportedBindings, PropertyType> = {
@@ -76,7 +133,7 @@ interface PolymorphicEntityQueries<
   /** inserts without preserving references, must be updated */
   populate: Map<string, (
     db: ECDb,
-    jsonString: string,
+    json: any,
     binaryValues?: Record<string, Uint8Array>,
     /** extra bindings are ignored if they do not exist in the class */
     extraBindings?: Record<keyof PopulateExtraBindings, any>,
@@ -85,14 +142,16 @@ interface PolymorphicEntityQueries<
     db: ECDb,
     /** for now you must provide the id to insert on */
     id: Id64String,
-    jsonString: string,
+    json: any,
+    jsonString: any, // FIXME: TEMP
     binaryValues?: Record<string, Uint8Array>,
     source?: { id: Id64String, db: IModelDb },
   ) => Id64String>;
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
   update: Map<string, (
     db: ECDb,
-    jsonString: string,
+    json: any,
+    jsonString: any, // FIXME: TEMP
     /** extra bindings are ignored if they do not exist in the class */
     extraBindings?: Record<keyof UpdateExtraBindings, any>,
     source?: { id: Id64String, db: IModelDb },
@@ -262,6 +321,13 @@ async function createPolymorphicEntityQueryMap<
       // FIXME: n^2
       .filter(([name]) => properties.some((p) => p.name === name));
 
+    const populateProperties = nonBinaryProperties
+      .filter(p =>
+        p.name !== "CodeValue"
+        && p.propertyType !== PropertyType.Navigation
+        && p.propertyType !== PropertyType.Long
+      );
+
     const populateQuery = `
       INSERT INTO ${escapedClassFullName}
       (${[
@@ -290,19 +356,9 @@ async function createPolymorphicEntityQueryMap<
             // FIXME: do qualified check for exact schema of CodeValue prop
             p.name === "CodeValue"
             ? "NULL"
-            : p.propertyType === PropertyType.DateTime
-            ? `JSON_EXTRACT(:x, '$.${p.name}')`
             : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
             ? "0x1"
-            // : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
-            // ? `Base64ToBlob(substr(JSON_EXTRACT(:x, '$.${p.name}'), 17))` // ignore encoding spec
-            // : p.propertyType === PropertyType.Binary && p.extendedTypeName === "BeGuid"
-            // ? `Base64ToBlob(JSON_EXTRACT(:x, '$.${p.name}'))`
-            : p.propertyType === PropertyType.Point2d
-            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
-            : p.propertyType === PropertyType.Point3d
-            ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
-            : `JSON_EXTRACT(:x, '$.${p.name}')`
+            : propBindings(p).map((b) => `:${b}`).join(",")
           ),
         ...binaryProperties
           .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
@@ -366,13 +422,15 @@ async function createPolymorphicEntityQueryMap<
 
     function populate(
       ecdb: ECDb,
-      jsonString: string,
+      json: any,
       binaryValues: Record<string, Uint8Array> = {},
       bindingValues: Partial<Record<keyof PopulateExtraBindings, any>> = {},
     ) {
       try {
         return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
-          targetStmt.bindString("x", jsonString);
+          for (const p of populateProperties) {
+            stmtBindProperty(targetStmt, p, json[p.name]);
+          }
           for (const [name, data] of populateBindings) {
             const bindingValue = bindingValues[name];
             if (bindingValue)
@@ -387,7 +445,7 @@ async function createPolymorphicEntityQueryMap<
         });
       } catch (err) {
         console.log("ERROR", ecdb.nativeDb.getLastError());
-        console.log("json:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("json:", JSON.stringify(json, undefined, " "));
         console.log("ecsql:", populateQuery);
         debugger;
         throw err;
@@ -403,7 +461,8 @@ async function createPolymorphicEntityQueryMap<
     function insert(
       ecdb: ECDb,
       id: string,
-      jsonString: string,
+      _jsonObj: any,
+      json: string,
       binaryValues: Record<string, Uint8Array> = {},
       source?: { id: string, db: IModelDb }
     ) {
@@ -431,9 +490,9 @@ async function createPolymorphicEntityQueryMap<
             if (sqlInfo.needsId)
               targetStmt.bindId(":id_col1", id); // NOTE: ECSQL parameter mangling
             if (sqlInfo.needsJson) // FIXME: remove, should never occur
-              targetStmt.bindString(":x", jsonString);
+              targetStmt.bindString(":x", json);
             if (sqlInfo.needsEcJson)
-              targetStmt.bindString(":x_col1", jsonString);
+              targetStmt.bindString(":x_col1", json);
             if (sqlInfo.needsEcId)
               targetStmt.bindId(ecIdBinding, id);
             for (const [name, value] of Object.entries(binaryValues))
@@ -446,7 +505,7 @@ async function createPolymorphicEntityQueryMap<
       } catch (err) {
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("transformed:", JSON.stringify(json, undefined, " "));
         console.log("ecsql:", insertQuery);
         console.log("native sql:", hackedRemapInsertSql);
         debugger;
@@ -459,7 +518,8 @@ async function createPolymorphicEntityQueryMap<
 
     function update(
       ecdb: ECDb,
-      jsonString: string,
+      _jsonObj: any,
+      json: any,
       bindingValues: {[S in keyof UpdateExtraBindings]?: any} = {},
       source?: { id: string, db: IModelDb },
     ) {
@@ -480,7 +540,7 @@ async function createPolymorphicEntityQueryMap<
           const { sql, needsJson } = hackedRemapUpdateSqls![i];
           ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
             if (needsJson)
-              targetStmt.bindString(":x_col1", jsonString);
+              targetStmt.bindString(":x_col1", json);
 
             for (const [name, data] of updateBindings) {
               // FIXME: why do I get a never type for this...
@@ -497,10 +557,10 @@ async function createPolymorphicEntityQueryMap<
           });
         }
       } catch (err) {
-        const _elemId = JSON.parse(jsonString).ECInstanceId;
+        const _elemId = json.ECInstanceId;
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(JSON.parse(jsonString), undefined, " "));
+        console.log("transformed:", JSON.stringify(json, undefined, " "));
         console.log("native sql:", hackedRemapUpdateSql);
         debugger;
         throw err;
@@ -743,10 +803,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   console.log("populate elements");
   const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
   while (await sourceElemFirstPassReader.step()) {
-    const elemJson = sourceElemFirstPassReader.current[0] as string;
+    const elemJsonString = sourceElemFirstPassReader.current[0] as string;
+    const elemJson = JSON.parse(elemJsonString);
     const elemClass = sourceElemFirstPassReader.current[1];
     const sourceId = sourceElemFirstPassReader.current[2];
-    const modelJson = sourceElemFirstPassReader.current[3];
+    const modelJsonString = sourceElemFirstPassReader.current[3];
+    const modelJson = modelJsonString !== undefined && JSON.parse(modelJsonString);
     const modelClass = sourceElemFirstPassReader.current[4];
 
     const elemPopulateQuery = queryMap.populate.get(elemClass);
@@ -766,10 +828,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const modelInsertQuery = queryMap.insert.get(modelClass);
       assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
 
-      // HACK: edit packaged json without parsing (FIXME: I don't think this is necessary any longer)
-      const modelJsonWithTargetId = modelJson.replace(/(?<="ECInstanceId":")[^"]+(?=")/, targetId);
       // FIXME: not yet handling binary properties on these
-      modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
+      modelInsertQuery(writeableTarget, targetId, modelJson, modelJsonString);
     }
 
     // FIXME: doesn't support briefcase ids > 2**13 - 1
@@ -816,6 +876,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
     while (await sourceElemSecondPassReader.step()) {
       const jsonString = sourceElemSecondPassReader.current[0];
+      const json = JSON.parse(jsonString);
       const classFullName = sourceElemSecondPassReader.current[1];
       const sourceId = sourceElemSecondPassReader.current[2];
       assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
@@ -826,6 +887,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
       updateQuery(
         writeableTarget,
+        json,
         jsonString,
         { GeometryStream: geometryStream },
         { id: sourceId, db: source },
@@ -845,6 +907,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
   while (await aspectReader.step()) {
     const jsonString = aspectReader.current[0];
+    const json = JSON.parse(jsonString);
     const classFullName = aspectReader.current[1];
     const sourceId = aspectReader.current[2];
 
@@ -855,7 +918,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     const binaryValues = selectBinariesQuery(source, sourceId);
 
-    const targetId = insertQuery(writeableTarget, useInstanceId(), jsonString, binaryValues, { id: sourceId, db: source });
+    const targetId = insertQuery(writeableTarget, useInstanceId(), json, jsonString, binaryValues, { id: sourceId, db: source });
 
     // FIXME: do we even need aspect remap tables anymore? I don't remember
     // FIXME: doesn't support briefcase ids > 2**13 - 1
@@ -874,6 +937,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
   while (await elemRefersReader.step()) {
     const jsonString = elemRefersReader.current[0];
+    const json = JSON.parse(jsonString);
     const classFullName = elemRefersReader.current[1];
     const sourceId = elemRefersReader.current[2];
 
@@ -884,7 +948,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
     const binaryValues = selectBinariesQuery(source, sourceId);
 
-    insertQuery(writeableTarget, useInstanceId(), jsonString, binaryValues, { id: sourceId, db: source });
+    insertQuery(writeableTarget, useInstanceId(), json, jsonString, binaryValues, { id: sourceId, db: source });
 
     incrementStmtsExeced();
   }
