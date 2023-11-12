@@ -252,11 +252,10 @@ async function createPolymorphicEntityQueryMap<
           )
           .join(",\n  ")
       }
-      WHERE ECInstanceId=${injectExpr(`(
-        SELECT TargetId
-        FROM temp.element_remap
-        WHERE SourceId=${readHexFromJson({ name: "ECInstanceId", propertyType: PropertyType.Long }, "0")}
-      )`)}
+      WHERE ECInstanceId=${injectExpr(remapSql(
+        readHexFromJson({ name: "ECInstanceId", propertyType: PropertyType.Long }, "0"),
+        "element",
+      ))}
     `;
 
     const populateBindings = Object.entries(options.extraBindings?.populate ?? {})
@@ -341,11 +340,8 @@ async function createPolymorphicEntityQueryMap<
             .map((p) =>
               p.propertyType === PropertyType.Navigation
               // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
-              ? `${injectExpr(`(
-                  SELECT TargetId
-                  FROM temp.${p.name === "CodeSpec" ? "codespec" : "element"}_remap
-                  WHERE SourceId=${readHexFromJson(p)}
-                )`)}, ${injectExpr(`(
+              ? `${injectExpr(remapSql(readHexFromJson(p), p.name === "CodeSpec" ? "codespec" : "element"))},
+                ${injectExpr(`(
                   SELECT tc.Id
                   FROM source.ec_Class sc
                   JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
@@ -355,11 +351,7 @@ async function createPolymorphicEntityQueryMap<
                 )`)}`
               // FIXME: use ecreferencetypes cache to determine which remap table to use
               : p.propertyType === PropertyType.Long
-              ? injectExpr(`(
-                SELECT TargetId
-                FROM temp.element_remap
-                WHERE SourceId=${readHexFromJson(p)}
-              )`)
+              ? injectExpr(remapSql(readHexFromJson(p), "element"))
               : p.propertyType === PropertyType.Point2d
               ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y')`
               : p.propertyType === PropertyType.Point3d
