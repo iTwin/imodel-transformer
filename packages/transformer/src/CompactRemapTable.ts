@@ -1,3 +1,9 @@
+export interface Run {
+  from: number;
+  to: number;
+  length: number;
+}
+
 interface IndexInfo {
   /** if not in a run, this is the index where it would be if added */
   index: number;
@@ -218,6 +224,12 @@ export class CompactRemapTable {
   public get(from: number): number | undefined {
     const info = this._getInfo(from);
     return info.hasTarget ? info.target : undefined;
+  }
+
+  public *runs() {
+    for (let i = 0; i < this._size; ++i) {
+      yield { from: this._froms[i], to: this._tos[i], length: this._lengths[i] };
+    }
   }
 
   public clone(): CompactRemapTable {

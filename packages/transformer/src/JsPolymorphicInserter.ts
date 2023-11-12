@@ -3,6 +3,7 @@ import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
+import { CompactRemapTable } from "./CompactRemapTable";
 
 // NOTES:
 // missing things:
@@ -31,10 +32,15 @@ const getInjectedSqlite = (query: string, db: ECDb | IModelDb) => {
   }
 };
 
+// FIXME: note that SQLite doesn't seem to have types/statistics that would let it consider using
+// an optimized binary search for our range query, so we should not do this via SQLite. Once we
+// get around to designing how we'll pass a JavaScript object to RemapGeom, then we can fix that.
+// That said, this should be pretty fast in our cases here regardless, since the table _should_
+// scale with briefcase count
 const remapSql = (idExpr: string, remapType: "font" | "codespec" | "aspect" | "element") => `(
-  SELECT TargetId
+  SELECT TargetId + ((${idExpr}) - SourceId)
   FROM temp.${remapType}_remap
-  WHERE SourceId=(${idExpr})
+  WHERE ${idExpr} BETWEEN SourceId AND SourceId + Length - SourceId
 )`;
 
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
@@ -440,7 +446,7 @@ async function createPolymorphicEntityQueryMap<
               targetStmt.bindId(ecIdBinding, id);
             for (const [name, value] of Object.entries(binaryValues))
               targetStmt.bindBlob(`:p_${name}_col1`, value); // NOTE: ECSQL param mangling
-            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
           });
         }
 
@@ -605,41 +611,39 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const writeableTarget = new ECDb();
   writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
 
-  for (const name of ["element_remap", "codespec_remap", "aspect_remap", "font_remap"]) {
+  const remapTables = {
+    element: new CompactRemapTable(),
+    aspect: new CompactRemapTable(),
+    codespec: new CompactRemapTable(),
+    font: new CompactRemapTable(),
+  };
+
+  for (const name of ["element", "codespec", "aspect", "font"] as const) {
     // FIXME: compress this table into "runs"
     writeableTarget.withSqliteStatement(`
-      CREATE TEMP TABLE ${name} (
-        SourceId INTEGER NOT NULL PRIMARY KEY, -- do we need an index?
-        TargetId INTEGER NOT NULL
+      CREATE TEMP TABLE ${name}_remap (
+        SourceId INTEGER NOT NULL PRIMARY KEY,
+        TargetId INTEGER NOT NULL,
+        Length INTEGER NOT NULL
       )
     `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
     // always remap 0 to 0
-    writeableTarget.withSqliteStatement(`
-      INSERT INTO temp.${name} VALUES(0,0)
-    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+    remapTables[name].remap(0, 0);
   }
 
   // fill already exported fonts
   for (const [sourceId, targetId] of fontRemaps) {
-    writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO temp.font_remap VALUES(?,?)
-    `, (targetStmt) => {
-      targetStmt.bindId(1, Id64.fromUint32Pair(sourceId, 0));
-      targetStmt.bindId(2, Id64.fromUint32Pair(targetId, 0));
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-    });
+    remapTables.font.remap(sourceId, targetId);
   }
 
   writeableTarget.withSqliteStatement(`
     ATTACH DATABASE 'file://${source.pathName}?mode=ro' AS source
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
-  writeableTarget.withPreparedSqliteStatement(`
-    INSERT INTO temp.element_remap VALUES(0x1,0x1), (0xe,0xe), (0x10, 0x10)
-  `, (targetStmt) => {
-    assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-  });
+  remapTables.element.remap(1, 1);
+  remapTables.element.remap(0xe, 0xe);
+  remapTables.element.remap(0x10, 0x10);
 
   // FIXME: this doesn't work... (maybe should disable foreign keys entirely?)
   // using a workaround of setting all references to 0x0
@@ -667,13 +671,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
   }
 
-  console.log("insert codespecs");
   const sourceCodeSpecSelect = `
     SELECT s.Id, t.Id, s.Name, s.JsonProperties
     FROM source.bis_CodeSpec s
     LEFT JOIN main.bis_CodeSpec t ON s.Name=t.Name
   `;
 
+  console.log("insert codespecs");
   writeableTarget.withSqliteStatement(sourceCodeSpecSelect, (stmt) => {
     while (stmt.step() === DbResult.BE_SQLITE_ROW) {
       const sourceId = stmt.getValue(0).getId();
@@ -697,13 +701,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         }, false);
       }
 
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.codespec_remap VALUES(?,?)
-      `, (targetStmt) => {
-        targetStmt.bindId(1, sourceId);
-        targetStmt.bindId(2, targetId);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
+      // FIXME: doesn't support briefcase ids > 2**13 - 1
+      remapTables.codespec.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
     }
   });
 
@@ -781,15 +780,24 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       modelInsertQuery(writeableTarget, targetId, modelJsonWithTargetId);
     }
 
-    writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO temp.element_remap VALUES(?,?)
-    `, (targetStmt) => {
-      targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, targetId);
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-    });
+    // FIXME: doesn't support briefcase ids > 2**13 - 1
+    remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
 
     incrementStmtsExeced();
+  }
+
+  for (const name of ["element", "codespec", "aspect", "font"] as const) {
+    console.log("RUNS", [...remapTables[name].runs()]);
+    for (const run of remapTables[name].runs()) {
+      writeableTarget.withPreparedSqliteStatement(`
+        INSERT INTO temp.${name}_remap VALUES(?,?,?)
+      `, (targetStmt) => {
+        targetStmt.bindInteger(1, run.from);
+        targetStmt.bindInteger(2, run.to);
+        targetStmt.bindInteger(3, run.length);
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+      });
+    }
   }
 
   const sourceElemForHydrate = `
@@ -810,16 +818,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     ORDER BY e.ECInstanceId ASC
   `;
 
-  // first pass, update everything with trivial references (0 and null codes)
-  // FIXME: technically could do it all in one pass if we preserve distances between rows and
-  // just offset all references by the count of rows in the source...
-  //
-  // Might be useful to still do two passes though in a filter-heavy transform... we can always
-  // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
-  // in the IDs and redo it?
-  console.log("populate elements");
-
-  // second pass, update now that everything has been inserted
+  // second pass, update now that remap tables have been created
   console.log("hydrate elements");
   const sourceElemSecondPassReader = source.createQueryReader(sourceElemForHydrate, undefined, { abbreviateBlobs: true });
   await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
@@ -866,14 +865,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     const targetId = insertQuery(writeableTarget, useInstanceId(), jsonString, binaryValues, { id: sourceId, db: source });
 
-    writeableTarget.withPreparedSqliteStatement(`
-      INSERT INTO temp.aspect_remap VALUES(?,?)
-    `, (targetStmt) => {
-      // HACK: returned id is broken with sql_mismatch so just reusing source id
-      targetStmt.bindId(1, sourceId);
-      targetStmt.bindId(2, targetId);
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-    });
+    // FIXME: do we even need aspect remap tables anymore? I don't remember
+    // FIXME: doesn't support briefcase ids > 2**13 - 1
+    remapTables.aspect.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
 
     incrementStmtsExeced();
   }
