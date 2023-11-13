@@ -206,7 +206,7 @@ class PartiallyCommittedEntity {
   }
 }
 
-interface TargetScopeProvenanceJsonProps {
+export interface TargetScopeProvenanceJsonProps {
   pendingReverseSyncChangesetIndices: number[];
   pendingSyncChangesetIndices: number[];
   reverseSyncVersion: string;
