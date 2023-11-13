@@ -206,6 +206,11 @@ class PartiallyCommittedEntity {
   }
 }
 
+/**
+ * Data type for persisting change version information within provenance Scope ExternalSourceAspect.
+ * Additionally, forward synchronization version is stored in Scope aspect's 'version' field.
+ * @beta
+ */
 export interface TargetScopeProvenanceJsonProps {
   pendingReverseSyncChangesetIndices: number[];
   pendingSyncChangesetIndices: number[];
