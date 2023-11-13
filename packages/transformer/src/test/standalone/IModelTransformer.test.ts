@@ -197,6 +197,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numElementsInserted, 1);
       assert.equal(targetImporter.numElementsUpdated, 33);
       // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
+      // use the new force old detect deletes behavior flag here
       //assert.equal(targetImporter.numElementsDeleted, 5);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 2);

@@ -484,6 +484,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
 
   /** Delete the specified Relationship from the target iModel. */
   protected onDeleteRelationship(relationshipProps: RelationshipProps): void {
+    // FIXME: pass only what the implementation of deleteInstance actually needs, e.g. { id: 5 } as RelationshipProps
     this.targetDb.relationships.deleteInstance(relationshipProps);
     Logger.logInfo(loggerCategory, `Deleted relationship ${this.formatRelationshipForLogger(relationshipProps)}`);
     this.trackProgress();
