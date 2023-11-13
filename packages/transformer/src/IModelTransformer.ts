@@ -624,7 +624,7 @@ export class IModelTransformer extends IModelExportHandler {
       jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
 
-    // FIXME: handle older transformed iModels which do NOT have the version
+    // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them. 
     // or reverseSyncVersion set correctly
     const externalSource = this.queryScopeExternalSource(aspectProps, { getJsonProperties: true }); // this query includes "identifier"
     aspectProps.id = externalSource.aspectId;

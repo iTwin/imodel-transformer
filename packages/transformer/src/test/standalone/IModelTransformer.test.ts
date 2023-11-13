@@ -207,7 +207,9 @@ describe("IModelTransformer", () => {
       //assert.equal(targetImporter.numRelationshipsDeleted, 0);
       targetDb.saveChanges();
       // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
-      TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, /* FIXME: */ false);
+      TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, /* FIXME: */ false); // Switch back to true once we have the old detect deltes behavior flag here. also enable force old provenance method.
+      // which is only used in in-imodel transformations. 
+      
       assert.equal(numTargetRelationships + targetImporter.numRelationshipsInserted - targetImporter.numRelationshipsDeleted, count(targetDb, ElementRefersToElements.classFullName));
       // FIXME: why?
       expect(count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")).to.equal(3);
@@ -239,9 +241,11 @@ describe("IModelTransformer", () => {
     // I noticed the original suggested problem was not in order so I figured that order wouldn't matter.
     // I guess if we sorted the input we'd probably be fine
 
-    // TODO: visit below use case and see if it can be fixed.
+    // TODO: visit below use case and see if it can be fixed. Mike says this should be fixed! FIXME
     // ranges = rangesFromRangeAndSkipped(start,end, [-9, -10, 1, -3, 5, 15]);
     // expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
+
+    // add 20 to everything and see if above still fails.
 
     // Trying skip number of -8 before -10 in the array.
     ranges = rangesFromRangeAndSkipped(start,end, [-8, -10, 1, -3, 5, 15]); 
