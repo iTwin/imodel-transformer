@@ -1998,15 +1998,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom transform behavior.
    */
   protected onTransformRelationship(sourceRelationship: Relationship): RelationshipProps {
-    const targetRelationshipProps: RelationshipProps = sourceRelationship.toJSON();
-    targetRelationshipProps.sourceId = this.context.findTargetElementId(sourceRelationship.sourceId);
-    targetRelationshipProps.targetId = this.context.findTargetElementId(sourceRelationship.targetId);
-    // TODO: move to cloneRelationship in IModelCloneContext
-    sourceRelationship.forEachProperty((propertyName: string, propertyMetaData: PropertyMetaData) => {
-      if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
-        (targetRelationshipProps as any)[propertyName] = this.context.findTargetElementId(sourceRelationship.asAny[propertyName]);
-      }
-    });
+    const targetRelationshipProps = this.context.cloneRelationship(sourceRelationship);
     return targetRelationshipProps;
   }
 

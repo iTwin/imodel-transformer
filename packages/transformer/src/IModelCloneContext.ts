@@ -11,10 +11,10 @@ import {
   Code,
   CodeScopeSpec,
   ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, IModel, IModelError,
-  PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps,
+  PrimitiveTypeCode, PropertyMetaData, RelatedElement, RelatedElementProps, RelationshipProps,
 } from "@itwin/core-common";
 import {
-  Element, ElementAspect, EntityReferences, IModelElementCloneContext, IModelJsNative, SQLiteDb,
+  Element, ElementAspect, EntityReferences, IModelElementCloneContext, IModelJsNative, Relationship, SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
@@ -205,6 +205,22 @@ export class IModelCloneContext extends IModelElementCloneContext {
       }
     });
     return targetElementAspectProps;
+  }
+
+  /** Clone the specified relationship into RelationshipProps for the target iModel.
+   * @internal
+   */
+  public cloneRelationship(sourceRelationship: Relationship): RelationshipProps {
+    const targetRelationshipProps: RelationshipProps = sourceRelationship.toJSON();
+    targetRelationshipProps.sourceId = this.findTargetElementId(sourceRelationship.sourceId);
+    targetRelationshipProps.targetId = this.findTargetElementId(sourceRelationship.targetId);
+
+    sourceRelationship.forEachProperty((propertyName: string, propertyMetaData: PropertyMetaData) => {
+      if ((PrimitiveTypeCode.Long === propertyMetaData.primitiveType) && ("Id" === propertyMetaData.extendedType)) {
+        (targetRelationshipProps as any)[propertyName] = this.findTargetElementId(sourceRelationship.asAny[propertyName]);
+      }
+    });
+    return targetRelationshipProps;
   }
 
   private static aspectRemapTableName = "AspectIdRemaps";
