@@ -1,0 +1,73 @@
+Info | imodel-transformer | sourceFile=/home/mike/work/bad-aspect-old.bim 
+Info | imodel-transformer | sourceDb=/home/mike/work/bad-aspect-old.bim 
+Info | imodel-transformer | targetDb=/tmp/out.bim 
+Info | imodel-transformer | numSourceElements=53856 
+Info | imodel-transformer | numSourceRelationships=1495 
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 62.28    0.480001           1    436268           pwrite64
+ 11.83    0.091172         370       246           fsync
+ 11.23    0.086550           1     60480           pread64
+  6.81    0.052504           1     28435     28250 readlink
+  1.62    0.012477           1      9487      4114 statx
+  1.46    0.011271           2      5171       543 futex
+  0.88    0.006759         164        41           unlink
+  0.75    0.005806           2      2434       291 openat
+  0.48    0.003694           5       680           munmap
+  0.43    0.003313           1      2150           close
+  0.40    0.003056           3       806           getdents64
+  0.34    0.002646           2      1076        14 fcntl
+  0.30    0.002289           1      1190           mmap
+  0.27    0.002049           1      1968           mprotect
+  0.23    0.001759           1      1539           read
+  0.19    0.001494           1       816        15 newfstatat
+  0.17    0.001273           2       549           faccessat2
+  0.11    0.000820          18        45           ftruncate
+  0.08    0.000610           2       218       156 access
+  0.03    0.000213           0       833           brk
+  0.03    0.000211           1       179           madvise
+  0.02    0.000188           1       100           lseek
+  0.01    0.000091           0       319           getpid
+  0.01    0.000087           1        63           rt_sigaction
+  0.01    0.000046           4        10           clone3
+  0.00    0.000035           2        15           capget
+  0.00    0.000032           2        15           getuid
+  0.00    0.000032           1        21           geteuid
+  0.00    0.000029           1        29           rt_sigprocmask
+  0.00    0.000028           1        15           getegid
+  0.00    0.000027           1        15           getgid
+  0.00    0.000021           1        21         7 ioctl
+  0.00    0.000020           1        15           fstat
+  0.00    0.000011           0        12           prlimit64
+  0.00    0.000009           0       125           write
+  0.00    0.000007           0        55           epoll_wait
+  0.00    0.000007           2         3           pipe2
+  0.00    0.000004           2         2           epoll_create1
+  0.00    0.000003           3         1           getcwd
+  0.00    0.000003           3         1           sysinfo
+  0.00    0.000002           1         2         2 statfs
+  0.00    0.000002           1         2           eventfd2
+  0.00    0.000002           0         3           getrandom
+  0.00    0.000001           0         2           uname
+  0.00    0.000001           1         1         1 pkey_alloc
+  0.00    0.000000           0        16           poll
+  0.00    0.000000           0         7         2 socket
+  0.00    0.000000           0         4         1 connect
+  0.00    0.000000           0         5           sendto
+  0.00    0.000000           0        25         5 recvfrom
+  0.00    0.000000           0         2           getsockname
+  0.00    0.000000           0         1           socketpair
+  0.00    0.000000           0         1           setsockopt
+  0.00    0.000000           0         1           getsockopt
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         1           mkdir
+  0.00    0.000000           0         2         1 rmdir
+  0.00    0.000000           0         2           getppid
+  0.00    0.000000           0         2         1 arch_prctl
+  0.00    0.000000           0         1           set_tid_address
+  0.00    0.000000           0         7         3 epoll_ctl
+  0.00    0.000000           0         1           set_robust_list
+  0.00    0.000000           0         1           dup3
+  0.00    0.000000           0         1           rseq
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.770655           1    555539     33406 total

@@ -1,0 +1,1173 @@
+Info | imodel-transformer | sourceFile=/home/mike/work/Juergen.Hofer.Bad.Normals.bim 
+insert codespecs
+populate elements
+executed 1000 statements at 0.5289836299419403s
+executed 2000 statements at 0.6049276230335235s
+executed 3000 statements at 0.7031106779575348s
+executed 4000 statements at 0.785501384973526s
+executed 5000 statements at 0.8652001910209656s
+executed 6000 statements at 0.9503794119358063s
+executed 7000 statements at 1.0334943170547486s
+executed 8000 statements at 1.1052610709667205s
+executed 9000 statements at 1.1836971049308778s
+executed 10000 statements at 1.2608563010692597s
+executed 11000 statements at 1.3512646930217742s
+executed 12000 statements at 1.4315316960811615s
+executed 13000 statements at 1.5004905459880828s
+executed 14000 statements at 1.9303668088912964s
+executed 15000 statements at 2.005030247926712s
+executed 16000 statements at 2.084879200935364s
+executed 17000 statements at 2.154639858007431s
+executed 18000 statements at 2.2290876140594484s
+executed 19000 statements at 2.298599684000015s
+executed 20000 statements at 2.3667641820907592s
+executed 21000 statements at 2.44130402302742s
+executed 22000 statements at 2.5095591950416565s
+executed 23000 statements at 2.5774878740310667s
+executed 24000 statements at 2.6545157079696655s
+executed 25000 statements at 2.7274175601005552s
+executed 26000 statements at 2.8040780720710754s
+executed 27000 statements at 2.872786807060242s
+executed 28000 statements at 2.9462301359176637s
+executed 29000 statements at 3.350698529005051s
+executed 30000 statements at 3.4246625521183014s
+executed 31000 statements at 3.5024856820106507s
+executed 32000 statements at 3.5726288499832153s
+executed 33000 statements at 3.6466121768951414s
+executed 34000 statements at 3.72555814909935s
+executed 35000 statements at 3.795479535102844s
+executed 36000 statements at 3.871688537120819s
+executed 37000 statements at 3.94255148601532s
+executed 38000 statements at 4.013941745996475s
+executed 39000 statements at 4.092034800052643s
+executed 40000 statements at 4.163833683013916s
+executed 41000 statements at 4.242962107896805s
+executed 42000 statements at 4.336056021928787s
+executed 43000 statements at 4.7381833319664s
+executed 44000 statements at 4.814665376901627s
+executed 45000 statements at 4.885312465906143s
+executed 46000 statements at 4.962447560071945s
+executed 47000 statements at 5.0322535619735715s
+executed 48000 statements at 5.101688946962357s
+executed 49000 statements at 5.1786359469890595s
+executed 50000 statements at 5.247163410902023s
+executed 51000 statements at 5.320031681060791s
+executed 52000 statements at 5.401833694934845s
+executed 53000 statements at 5.472864228010177s
+executed 54000 statements at 5.548959842920303s
+executed 55000 statements at 5.618477195978165s
+executed 56000 statements at 5.696603532075882s
+executed 57000 statements at 5.7743417060375215s
+executed 58000 statements at 6.1642472040653224s
+executed 59000 statements at 6.241070032119751s
+executed 60000 statements at 6.317591232061386s
+executed 61000 statements at 6.392118974924087s
+executed 62000 statements at 6.469615503072738s
+executed 63000 statements at 6.539962498903274s
+executed 64000 statements at 6.6159318819046025s
+executed 65000 statements at 6.689852673053742s
+executed 66000 statements at 6.762572880029678s
+executed 67000 statements at 6.841525376081466s
+executed 68000 statements at 6.912389966964722s
+executed 69000 statements at 6.983348390102386s
+executed 70000 statements at 7.061868040084839s
+executed 71000 statements at 7.133512599945068s
+executed 72000 statements at 7.524789824008941s
+executed 73000 statements at 7.606558460950851s
+executed 74000 statements at 7.691833470106125s
+executed 75000 statements at 7.768737062931061s
+executed 76000 statements at 7.844841408967972s
+executed 77000 statements at 7.928194437026978s
+executed 78000 statements at 8.003380316019058s
+executed 79000 statements at 8.089560425043105s
+executed 80000 statements at 8.174378655910491s
+executed 81000 statements at 8.248835839986802s
+executed 82000 statements at 8.331292316913604s
+executed 83000 statements at 8.40619135093689s
+executed 84000 statements at 8.486074310064316s
+executed 85000 statements at 8.57035749912262s
+executed 86000 statements at 8.979416059970855s
+executed 87000 statements at 9.057566884040833s
+executed 88000 statements at 9.127603360891342s
+executed 89000 statements at 9.197709161043168s
+executed 90000 statements at 9.274948146104812s
+executed 91000 statements at 9.34417849802971s
+executed 92000 statements at 9.434418071985245s
+executed 93000 statements at 9.504635015964508s
+executed 94000 statements at 9.573892424106598s
+executed 95000 statements at 9.650447963953019s
+executed 96000 statements at 9.723371798992156s
+executed 97000 statements at 9.792732017040253s
+executed 98000 statements at 9.869349129915237s
+executed 99000 statements at 9.937705056905747s
+executed 100000 statements at 10.33672261095047s
+executed 101000 statements at 10.423904024124145s
+executed 102000 statements at 10.501017429113388s
+executed 103000 statements at 10.570786077022552s
+executed 104000 statements at 10.641843483924866s
+executed 105000 statements at 10.721954981088638s
+executed 106000 statements at 10.792785608053208s
+executed 107000 statements at 10.863355315923691s
+executed 108000 statements at 10.938774163007736s
+executed 109000 statements at 11.007773902893067s
+executed 110000 statements at 11.084873750925064s
+executed 111000 statements at 11.154370637893678s
+executed 112000 statements at 11.226616092920302s
+executed 113000 statements at 11.302619601011276s
+executed 114000 statements at 11.372386251926422s
+executed 115000 statements at 11.781942717075347s
+executed 116000 statements at 11.86149046397209s
+executed 117000 statements at 11.93238464999199s
+executed 118000 statements at 12.017378729104996s
+executed 119000 statements at 12.089964370012284s
+executed 120000 statements at 12.210463187932968s
+executed 121000 statements at 12.292190884113312s
+executed 122000 statements at 12.373580768108368s
+executed 123000 statements at 12.464437778949737s
+executed 124000 statements at 12.544050487995147s
+executed 125000 statements at 12.62347678899765s
+executed 126000 statements at 12.71011422610283s
+executed 127000 statements at 12.788033603906632s
+executed 128000 statements at 12.881008328914643s
+executed 129000 statements at 13.308022260904313s
+executed 130000 statements at 13.398490217924119s
+executed 131000 statements at 13.483790677070617s
+executed 132000 statements at 13.56381333899498s
+executed 133000 statements at 13.650025327920913s
+executed 134000 statements at 13.731908931970596s
+executed 135000 statements at 13.812240638017654s
+executed 136000 statements at 13.899160046100617s
+executed 137000 statements at 13.978936939954759s
+executed 138000 statements at 14.060960191011429s
+executed 139000 statements at 14.135958122015s
+executed 140000 statements at 14.216317440986634s
+executed 141000 statements at 14.302374919891358s
+executed 142000 statements at 14.382531625986099s
+executed 143000 statements at 14.803218928098678s
+executed 144000 statements at 14.89012490105629s
+executed 145000 statements at 14.97318726491928s
+executed 146000 statements at 15.050942588090896s
+executed 147000 statements at 15.12829262304306s
+executed 148000 statements at 15.214934910058975s
+executed 149000 statements at 15.297182090044021s
+executed 150000 statements at 15.379048253059388s
+executed 151000 statements at 15.470038616895676s
+executed 152000 statements at 15.550768968105317s
+executed 153000 statements at 15.636917373895646s
+executed 154000 statements at 15.716315853118896s
+executed 155000 statements at 15.7958074259758s
+executed 156000 statements at 15.88271566104889s
+executed 157000 statements at 16.30697183609009s
+executed 158000 statements at 16.392460427999495s
+executed 159000 statements at 16.475024575948716s
+executed 160000 statements at 16.559577610015868s
+executed 161000 statements at 16.646614272117613s
+executed 162000 statements at 16.729692897081375s
+executed 163000 statements at 16.82014791202545s
+executed 164000 statements at 16.89980454492569s
+executed 165000 statements at 16.977944109916688s
+executed 166000 statements at 17.065192092895508s
+executed 167000 statements at 17.14853848695755s
+executed 168000 statements at 17.230534812927246s
+executed 169000 statements at 17.320439909934997s
+executed 170000 statements at 17.4029983420372s
+executed 171000 statements at 17.485906769037246s
+executed 172000 statements at 17.964931900024414s
+executed 173000 statements at 18.05059172010422s
+executed 174000 statements at 18.14613670897484s
+executed 175000 statements at 18.250856228113175s
+executed 176000 statements at 18.337101377010345s
+executed 177000 statements at 18.42640212702751s
+executed 178000 statements at 18.505838557958604s
+executed 179000 statements at 18.59086646103859s
+executed 180000 statements at 18.669272357940674s
+executed 181000 statements at 18.748897347927095s
+executed 182000 statements at 18.835406639099123s
+executed 183000 statements at 18.91914772105217s
+executed 184000 statements at 19.032973159074782s
+executed 185000 statements at 19.149358047008516s
+executed 186000 statements at 19.804950932979583s
+executed 187000 statements at 19.95432891511917s
+executed 188000 statements at 20.086965126991274s
+executed 189000 statements at 20.20726157808304s
+executed 190000 statements at 20.328934638023377s
+executed 191000 statements at 20.459035736083983s
+executed 192000 statements at 20.58224279999733s
+executed 193000 statements at 20.70825967502594s
+executed 194000 statements at 20.840255459070207s
+executed 195000 statements at 20.960034128904343s
+executed 196000 statements at 21.08513229894638s
+executed 197000 statements at 21.20224917292595s
+executed 198000 statements at 21.3201201980114s
+executed 199000 statements at 21.445574402093886s
+executed 200000 statements at 21.57575578212738s
+executed 201000 statements at 22.258013870954514s
+executed 202000 statements at 22.383088257074355s
+executed 203000 statements at 22.515247205018998s
+executed 204000 statements at 22.643406719923018s
+executed 205000 statements at 22.766819976091384s
+executed 206000 statements at 22.899665776968003s
+executed 207000 statements at 23.022412177085876s
+executed 208000 statements at 23.141897162914276s
+executed 209000 statements at 23.270817383050918s
+executed 210000 statements at 23.391407671928405s
+executed 211000 statements at 23.501710076093673s
+executed 212000 statements at 23.60135406899452s
+executed 213000 statements at 23.678512669086455s
+executed 214000 statements at 23.763842077970505s
+executed 215000 statements at 24.220210624933245s
+executed 216000 statements at 24.313377706050872s
+executed 217000 statements at 24.400368186950683s
+executed 218000 statements at 24.479580594062806s
+executed 219000 statements at 24.565774750947952s
+executed 220000 statements at 24.644627375125886s
+executed 221000 statements at 24.727386029958726s
+executed 222000 statements at 24.814216202020646s
+executed 223000 statements at 24.893450335025786s
+executed 224000 statements at 24.981376884937287s
+executed 225000 statements at 25.060503880023955s
+executed 226000 statements at 25.13828365492821s
+executed 227000 statements at 25.224757930040358s
+executed 228000 statements at 25.302137069940567s
+executed 229000 statements at 25.377856231927872s
+executed 230000 statements at 25.793156234025954s
+executed 231000 statements at 25.883473253965377s
+executed 232000 statements at 25.96670772099495s
+executed 233000 statements at 26.043258903980256s
+executed 234000 statements at 26.125070966005325s
+executed 235000 statements at 26.203607983112335s
+executed 236000 statements at 26.27876553297043s
+executed 237000 statements at 26.36268671798706s
+executed 238000 statements at 26.439635219097138s
+executed 239000 statements at 26.523067989110945s
+executed 240000 statements at 26.613749514102935s
+executed 241000 statements at 26.69379790496826s
+executed 242000 statements at 26.770783956050874s
+executed 243000 statements at 26.858724811077117s
+executed 244000 statements at 27.303677967071533s
+executed 245000 statements at 27.38737112402916s
+executed 246000 statements at 27.466479367017747s
+executed 247000 statements at 27.555032753944396s
+executed 248000 statements at 27.630061356067657s
+executed 249000 statements at 27.70893215703964s
+executed 250000 statements at 27.792314055919647s
+executed 251000 statements at 27.868986893892288s
+executed 252000 statements at 27.945762363910674s
+executed 253000 statements at 28.063796267986298s
+executed 254000 statements at 28.188418714046477s
+executed 255000 statements at 28.318170445919037s
+executed 256000 statements at 28.43872273993492s
+executed 257000 statements at 28.564086230039596s
+executed 258000 statements at 29.526460103988647s
+executed 259000 statements at 29.661774423122406s
+executed 260000 statements at 29.81919819712639s
+executed 261000 statements at 30.004866004943846s
+executed 262000 statements at 30.206811991930007s
+executed 263000 statements at 30.401711385965346s
+executed 264000 statements at 30.612191889047622s
+executed 265000 statements at 30.794846667051317s
+executed 266000 statements at 30.95582300710678s
+executed 267000 statements at 31.119567342042924s
+executed 268000 statements at 31.849876590967177s
+executed 269000 statements at 32.023135922908786s
+executed 270000 statements at 32.196459295988085s
+executed 271000 statements at 32.370501244068144s
+executed 272000 statements at 32.537389018058775s
+executed 273000 statements at 32.64499610900879s
+executed 274000 statements at 32.760441400051114s
+executed 275000 statements at 32.86453912496567s
+executed 276000 statements at 32.97513483405113s
+executed 277000 statements at 33.407327762126926s
+executed 278000 statements at 33.51858350801468s
+executed 279000 statements at 33.63154636693001s
+executed 280000 statements at 33.74311916589737s
+executed 281000 statements at 33.85696431589127s
+executed 282000 statements at 33.973126715898516s
+executed 283000 statements at 34.088342185020444s
+executed 284000 statements at 34.19756687498093s
+executed 285000 statements at 34.31318024802208s
+executed 286000 statements at 34.4210515460968s
+executed 287000 statements at 34.877764920949936s
+executed 288000 statements at 34.9891229429245s
+executed 289000 statements at 35.09182155609131s
+executed 290000 statements at 35.2167889111042s
+executed 291000 statements at 35.35101909995079s
+executed 292000 statements at 35.492475676059726s
+executed 293000 statements at 35.62561709189415s
+executed 294000 statements at 35.789702918052676s
+executed 295000 statements at 35.92302532410621s
+executed 296000 statements at 36.93995954990387s
+executed 297000 statements at 37.06126150012016s
+executed 298000 statements at 37.227157119035724s
+executed 299000 statements at 37.4039660089016s
+executed 300000 statements at 37.56511953306198s
+executed 301000 statements at 37.74368152308464s
+executed 302000 statements at 37.88209876108169s
+executed 303000 statements at 38.03587389612198s
+executed 304000 statements at 38.19197971701622s
+executed 305000 statements at 38.353158252954486s
+executed 306000 statements at 39.134699395895005s
+executed 307000 statements at 39.29041112589836s
+executed 308000 statements at 39.4474777610302s
+executed 309000 statements at 39.60638797307014s
+executed 310000 statements at 39.76579344511032s
+executed 311000 statements at 39.92278556895256s
+executed 312000 statements at 40.08487723112106s
+executed 313000 statements at 40.24060720491409s
+executed 314000 statements at 40.398572264909745s
+executed 315000 statements at 40.58235742712021s
+executed 316000 statements at 40.73008006095886s
+executed 317000 statements at 40.855654438018796s
+executed 318000 statements at 41.41973512005806s
+executed 319000 statements at 41.55747520494461s
+executed 320000 statements at 41.64517111492157s
+executed 321000 statements at 41.75049987101555s
+executed 322000 statements at 41.84572627902031s
+executed 323000 statements at 41.951632966041565s
+executed 324000 statements at 42.043448909044265s
+RUNS [
+  { from: 0, to: 0, length: 2 },
+  { from: 14, to: 14, length: 1 },
+  { from: 16, to: 16, length: 1 },
+  { from: 2199023255553, to: 37, length: 82 },
+  { from: 2199023255637, to: 119, length: 2 },
+  { from: 2199023255641, to: 121, length: 1 },
+  { from: 2199023255644, to: 122, length: 1 },
+  { from: 2199023255647, to: 123, length: 1 },
+  { from: 2199023255650, to: 124, length: 1 },
+  { from: 2199023255653, to: 125, length: 131 },
+  { from: 2199023255786, to: 256, length: 1 },
+  { from: 2199023255791, to: 257, length: 1 },
+  { from: 2199023255800, to: 258, length: 1907 },
+  { from: 2199023257709, to: 2165, length: 1 },
+  { from: 2199023257711, to: 2166, length: 1 },
+  { from: 2199023257721, to: 2167, length: 4591 },
+  { from: 2199023262318, to: 6758, length: 2 },
+  { from: 2199023262323, to: 6760, length: 52473 },
+  { from: 2199023314846, to: 59233, length: 1 },
+  { from: 2199023314857, to: 59234, length: 1 },
+  { from: 2199023314864, to: 59235, length: 1 },
+  { from: 2199023314907, to: 59236, length: 26 },
+  { from: 2199023314935, to: 59262, length: 4051 },
+  { from: 2199023318996, to: 63313, length: 12696 },
+  { from: 2199023331705, to: 76009, length: 56 },
+  { from: 2199023331768, to: 76065, length: 4041 },
+  { from: 2199023335814, to: 80106, length: 36 },
+  { from: 2199023335929, to: 80142, length: 23518 },
+  { from: 2199023360959, to: 103660, length: 2949 },
+  { from: 2199023364018, to: 106609, length: 6 },
+  { from: 2199023365804, to: 106615, length: 14 },
+  { from: 2199023365875, to: 106629, length: 841 },
+  { from: 2199023366833, to: 107470, length: 47 },
+  { from: 2199023366887, to: 107517, length: 10281 },
+  { from: 2199023377171, to: 117798, length: 10 },
+  { from: 2199023377189, to: 117808, length: 334 },
+  { from: 2199023377536, to: 118142, length: 1 },
+  { from: 2199023377554, to: 118143, length: 2653 },
+  { from: 2199023380262, to: 120796, length: 317 },
+  { from: 2199023380624, to: 121113, length: 1 },
+  { from: 2199023380637, to: 121114, length: 1 },
+  { from: 2199023380675, to: 121115, length: 2830 },
+  { from: 2199023383630, to: 123945, length: 14 },
+  { from: 2199023383652, to: 123959, length: 11 },
+  { from: 2199023383683, to: 123970, length: 1334 },
+  { from: 2199023385029, to: 125304, length: 48 },
+  { from: 2199023385086, to: 125352, length: 2 },
+  { from: 2199023385089, to: 125354, length: 19 },
+  { from: 2199023385109, to: 125373, length: 2625 },
+  { from: 2199023387809, to: 127998, length: 4051 },
+  { from: 2199023391876, to: 132049, length: 4041 },
+  { from: 2199023395920, to: 136090, length: 48 },
+  { from: 2199023395989, to: 136138, length: 6 },
+  { from: 2199023396122, to: 136144, length: 1 },
+  { from: 2199023397102, to: 136145, length: 14 },
+  { from: 2199023397217, to: 136159, length: 428 },
+  { from: 2199023397655, to: 136587, length: 1297 },
+  { from: 2199023398965, to: 137884, length: 10 },
+  { from: 2199023398978, to: 137894, length: 9 },
+  { from: 2199023398990, to: 137903, length: 25515 },
+  { from: 2199023433287, to: 163418, length: 740 },
+  { from: 2199023434098, to: 164158, length: 1322 },
+  { from: 2199023435439, to: 165480, length: 62 },
+  { from: 2199023435548, to: 165542, length: 1 },
+  { from: 2199023435550, to: 165543, length: 1526 },
+  { from: 2199023437116, to: 167069, length: 65 },
+  { from: 2199023437191, to: 167134, length: 20 },
+  { from: 2199023437235, to: 167154, length: 79290 },
+  { from: 2199023516633, to: 246444, length: 14 },
+  { from: 2199023516655, to: 246458, length: 11 },
+  { from: 2199023516689, to: 246469, length: 1334 },
+  { from: 2199023518027, to: 247803, length: 214 },
+  { from: 2199023518319, to: 248017, length: 3793 },
+  { from: 2199023522113, to: 251810, length: 37 },
+  { from: 2199023522157, to: 251847, length: 174 },
+  { from: 2199023522332, to: 252021, length: 1102 },
+  { from: 2199023523439, to: 253123, length: 48 },
+  { from: 2199023523496, to: 253171, length: 1880 },
+  { from: 2199023525549, to: 255051, length: 4831 },
+  { from: 2199023530668, to: 259882, length: 43393 },
+  { from: 2199023574086, to: 303275, length: 930 },
+  { from: 2199023575019, to: 304205, length: 97 },
+  { from: 2199023575127, to: 304302, length: 4490 },
+  { from: 2199023579618, to: 308792, length: 3 },
+  { from: 2199023579622, to: 308795, length: 122 },
+  { from: 2199023579745, to: 308917, length: 3 },
+  { from: 2199023579749, to: 308920, length: 11707 },
+  { from: 2199023591458, to: 320627, length: 3979 }
+]
+RUNS [ { from: 0, to: 0, length: 37 } ]
+RUNS [ { from: 0, to: 0, length: 1 } ]
+RUNS [ { from: 0, to: 0, length: 10 } ]
+hydrate elements
+executed 325000 statements at 42.66873589611053s
+executed 326000 statements at 43.165787066936495s
+executed 327000 statements at 43.655263132095335s
+executed 328000 statements at 44.25651942205429s
+executed 329000 statements at 44.735450279951095s
+executed 330000 statements at 45.29448830389976s
+executed 331000 statements at 46.51113166999817s
+executed 332000 statements at 50.38266346907616s
+executed 333000 statements at 50.90726970005036s
+executed 334000 statements at 51.35483346509933s
+executed 335000 statements at 51.7741487429142s
+executed 336000 statements at 52.179550024032594s
+executed 337000 statements at 52.572240039110184s
+executed 338000 statements at 52.97208984398842s
+executed 339000 statements at 53.64029862689972s
+executed 340000 statements at 54.08904431891441s
+executed 341000 statements at 54.4873495221138s
+executed 342000 statements at 54.88957755303383s
+executed 343000 statements at 55.38243458795547s
+executed 344000 statements at 56.01066586303711s
+executed 345000 statements at 56.62397342801094s
+executed 346000 statements at 57.248002520084384s
+executed 347000 statements at 57.86529542303085s
+executed 348000 statements at 58.47735929608345s
+executed 349000 statements at 59.08711349201202s
+executed 350000 statements at 59.70954984307289s
+executed 351000 statements at 60.317295443058015s
+executed 352000 statements at 60.94453540992737s
+executed 353000 statements at 62.087948337078096s
+executed 354000 statements at 62.696569880008695s
+executed 355000 statements at 63.40146167397499s
+executed 356000 statements at 64.06904214096069s
+executed 357000 statements at 64.52730027103424s
+executed 358000 statements at 64.9854314930439s
+executed 359000 statements at 65.37721855092049s
+executed 360000 statements at 65.78191702604293s
+executed 361000 statements at 66.19688313102722s
+executed 362000 statements at 66.58754700303078s
+executed 363000 statements at 66.987304874897s
+executed 364000 statements at 67.36566648006439s
+executed 365000 statements at 67.7536023170948s
+executed 366000 statements at 68.14937309002876s
+executed 367000 statements at 68.55631013703346s
+executed 368000 statements at 69.29464502191544s
+executed 369000 statements at 69.72215279603004s
+executed 370000 statements at 70.14357091999054s
+executed 371000 statements at 70.54358513903618s
+executed 372000 statements at 70.93058025693894s
+executed 373000 statements at 71.31182487010956s
+executed 374000 statements at 71.70774736595153s
+executed 375000 statements at 72.10599353003502s
+executed 376000 statements at 72.49140728592873s
+executed 377000 statements at 72.89412190794945s
+executed 378000 statements at 73.28690601110458s
+executed 379000 statements at 73.72327298593521s
+executed 380000 statements at 74.13002085304261s
+executed 381000 statements at 74.50919133710862s
+executed 382000 statements at 75.20190013289452s
+executed 383000 statements at 75.6709315969944s
+executed 384000 statements at 76.06077720308303s
+executed 385000 statements at 76.43347252011299s
+executed 386000 statements at 76.81828968691826s
+executed 387000 statements at 77.20232855510712s
+executed 388000 statements at 77.57617155909539s
+executed 389000 statements at 77.95357000398636s
+executed 390000 statements at 78.34119115900994s
+executed 391000 statements at 78.71302120399476s
+executed 392000 statements at 79.10729217910766s
+executed 393000 statements at 79.48109930491448s
+executed 394000 statements at 79.86958880496024s
+executed 395000 statements at 80.24805913209916s
+executed 396000 statements at 80.93088854789734s
+executed 397000 statements at 81.37186599493026s
+executed 398000 statements at 81.7622975358963s
+executed 399000 statements at 82.14447936296463s
+executed 400000 statements at 82.73158496308326s
+executed 401000 statements at 83.38634992694855s
+executed 402000 statements at 84.0182012310028s
+executed 403000 statements at 84.6592002439499s
+executed 404000 statements at 85.33487709403038s
+executed 405000 statements at 85.95257988595962s
+executed 406000 statements at 86.58553965592384s
+executed 407000 statements at 86.99754663991928s
+executed 408000 statements at 87.3974863820076s
+executed 409000 statements at 87.78032544589043s
+executed 410000 statements at 88.17333985590935s
+executed 411000 statements at 88.86056855297089s
+executed 412000 statements at 89.23567923212052s
+executed 413000 statements at 89.61527579402923s
+executed 414000 statements at 90.0265982120037s
+executed 415000 statements at 90.45714740204811s
+executed 416000 statements at 90.87861741805077s
+executed 417000 statements at 91.261896682024s
+executed 418000 statements at 91.68101948308944s
+executed 419000 statements at 92.12506866312027s
+executed 420000 statements at 92.53135713791848s
+executed 421000 statements at 92.91451982402802s
+executed 422000 statements at 93.30265402793884s
+executed 423000 statements at 93.68245802903175s
+executed 424000 statements at 94.07707912802697s
+executed 425000 statements at 94.7507152109146s
+executed 426000 statements at 95.13732936406136s
+executed 427000 statements at 95.50879398107529s
+executed 428000 statements at 95.90738550901413s
+executed 429000 statements at 96.29272777295112s
+executed 430000 statements at 96.68993731689453s
+executed 431000 statements at 97.1030817360878s
+executed 432000 statements at 97.54986791610717s
+executed 433000 statements at 97.9993568880558s
+executed 434000 statements at 98.38815358304977s
+executed 435000 statements at 98.76966995692253s
+executed 436000 statements at 99.16274371004104s
+executed 437000 statements at 99.55693564510345s
+executed 438000 statements at 99.94461484909057s
+executed 439000 statements at 100.44850196695327s
+executed 440000 statements at 101.57263807797432s
+executed 441000 statements at 102.20489901900291s
+executed 442000 statements at 102.86747435498238s
+executed 443000 statements at 103.62831285691261s
+executed 444000 statements at 104.2853979229927s
+executed 445000 statements at 104.822516685009s
+executed 446000 statements at 105.2259867811203s
+executed 447000 statements at 105.60593310689926s
+executed 448000 statements at 106.00734840202331s
+executed 449000 statements at 106.38407418990136s
+executed 450000 statements at 106.79415643000603s
+executed 451000 statements at 107.19444572305679s
+executed 452000 statements at 107.59197838711738s
+executed 453000 statements at 107.97584262800217s
+executed 454000 statements at 108.68363439512252s
+executed 455000 statements at 109.06818735790253s
+executed 456000 statements at 109.7113341729641s
+executed 457000 statements at 110.40591901803016s
+executed 458000 statements at 111.04844846391678s
+executed 459000 statements at 111.66939279103279s
+executed 460000 statements at 112.29547248196602s
+executed 461000 statements at 112.97513560199738s
+executed 462000 statements at 113.70082755708694s
+executed 463000 statements at 114.09478549098968s
+executed 464000 statements at 114.50037709093094s
+executed 465000 statements at 114.89541608405113s
+executed 466000 statements at 115.29232421803475s
+executed 467000 statements at 115.68493073797227s
+executed 468000 statements at 116.37199652910232s
+executed 469000 statements at 116.75233592891693s
+executed 470000 statements at 117.14293094611168s
+executed 471000 statements at 117.52855142593384s
+executed 472000 statements at 117.95001188492775s
+executed 473000 statements at 118.50562754797936s
+executed 474000 statements at 119.13982639503479s
+executed 475000 statements at 119.78919782710075s
+executed 476000 statements at 120.4212956469059s
+executed 477000 statements at 121.0816736869812s
+executed 478000 statements at 121.78971456599236s
+executed 479000 statements at 122.4358304591179s
+executed 480000 statements at 122.93246688008308s
+executed 481000 statements at 123.35546347689629s
+executed 482000 statements at 124.06509375s
+executed 483000 statements at 124.55233099102973s
+executed 484000 statements at 124.95325689005851s
+executed 485000 statements at 125.47780536794663s
+executed 486000 statements at 125.8929266090393s
+executed 487000 statements at 126.30455084204674s
+executed 488000 statements at 126.69578451609611s
+executed 489000 statements at 127.08021455812454s
+executed 490000 statements at 127.62950584197044s
+executed 491000 statements at 128.26899362111092s
+executed 492000 statements at 128.93896348309516s
+executed 493000 statements at 129.5853503329754s
+executed 494000 statements at 130.22970433092118s
+executed 495000 statements at 130.8661690199375s
+executed 496000 statements at 131.88678243112565s
+executed 497000 statements at 132.27502148199082s
+executed 498000 statements at 132.67319384908677s
+executed 499000 statements at 133.14667317199707s
+executed 500000 statements at 133.5627794830799s
+executed 501000 statements at 133.9874652349949s
+executed 502000 statements at 134.3877414329052s
+executed 503000 statements at 134.79154945898057s
+executed 504000 statements at 135.17439016795157s
+executed 505000 statements at 135.58941612792015s
+executed 506000 statements at 135.98650854611398s
+executed 507000 statements at 136.4635803129673s
+executed 508000 statements at 137.11054226112367s
+executed 509000 statements at 137.79930440497398s
+executed 510000 statements at 138.4986239039898s
+executed 511000 statements at 139.65730869197844s
+executed 512000 statements at 140.28719688510895s
+executed 513000 statements at 140.9331545639038s
+executed 514000 statements at 141.5812034471035s
+executed 515000 statements at 142.21632175898552s
+executed 516000 statements at 142.83314410710335s
+executed 517000 statements at 143.47034628105163s
+executed 518000 statements at 144.10796386790275s
+executed 519000 statements at 144.74203981208802s
+executed 520000 statements at 145.3521116681099s
+executed 521000 statements at 145.77001949095725s
+executed 522000 statements at 146.20605600500107s
+executed 523000 statements at 146.5877485690117s
+executed 524000 statements at 146.96857430100442s
+executed 525000 statements at 147.68006459593772s
+executed 526000 statements at 148.09470256209374s
+executed 527000 statements at 148.48222711896895s
+executed 528000 statements at 148.91966971993446s
+executed 529000 statements at 149.40864773702623s
+executed 530000 statements at 149.88546292209625s
+executed 531000 statements at 150.35579859399795s
+executed 532000 statements at 150.74220332193374s
+executed 533000 statements at 151.1288748230934s
+executed 534000 statements at 151.52086387991906s
+executed 535000 statements at 151.90173063993453s
+executed 536000 statements at 152.30284187197685s
+executed 537000 statements at 152.69543665909768s
+executed 538000 statements at 153.07768030095102s
+executed 539000 statements at 153.48311490702628s
+executed 540000 statements at 154.17244341492653s
+executed 541000 statements at 154.7460850379467s
+executed 542000 statements at 155.37150190401078s
+executed 543000 statements at 156.00725983595848s
+executed 544000 statements at 156.6413208360672s
+executed 545000 statements at 157.34624041891098s
+executed 546000 statements at 158.0129055469036s
+executed 547000 statements at 158.66131039810182s
+executed 548000 statements at 159.3089779469967s
+executed 549000 statements at 159.94024517989158s
+executed 550000 statements at 160.65988188910484s
+executed 551000 statements at 161.27829958891869s
+executed 552000 statements at 161.91123460102082s
+executed 553000 statements at 162.60204409503936s
+executed 554000 statements at 163.2301771430969s
+executed 555000 statements at 163.9643484339714s
+executed 556000 statements at 164.35507628011703s
+executed 557000 statements at 164.74225965690613s
+executed 558000 statements at 165.12218685793877s
+executed 559000 statements at 165.49947677302362s
+executed 560000 statements at 165.8861911818981s
+executed 561000 statements at 166.26769669008254s
+executed 562000 statements at 166.65327314805984s
+executed 563000 statements at 167.07081340909005s
+executed 564000 statements at 167.47669557499884s
+executed 565000 statements at 167.9090466361046s
+executed 566000 statements at 168.54079132699965s
+executed 567000 statements at 169.20112224602698s
+executed 568000 statements at 169.8592544031143s
+executed 569000 statements at 171.05684458112717s
+executed 570000 statements at 171.82350123500825s
+executed 571000 statements at 172.4475662639141s
+executed 572000 statements at 172.90296610307695s
+executed 573000 statements at 173.29526247501374s
+executed 574000 statements at 173.68964693307876s
+executed 575000 statements at 174.09403346610068s
+executed 576000 statements at 174.49591123604773s
+executed 577000 statements at 174.88771865701676s
+executed 578000 statements at 175.28006536102296s
+executed 579000 statements at 175.6850291750431s
+executed 580000 statements at 176.08946716594696s
+executed 581000 statements at 176.48645531797408s
+executed 582000 statements at 176.91710159707068s
+executed 583000 statements at 178.30643659496306s
+executed 584000 statements at 178.957777187109s
+executed 585000 statements at 182.90018429303169s
+executed 586000 statements at 183.60564244794847s
+executed 587000 statements at 184.28864624595641s
+executed 588000 statements at 184.95842933106422s
+executed 589000 statements at 185.58144415998458s
+executed 590000 statements at 189.83991384601592s
+executed 591000 statements at 197.5119505569935s
+executed 592000 statements at 199.13485553693772s
+executed 593000 statements at 200.36733023691178s
+executed 594000 statements at 201.1365426580906s
+executed 595000 statements at 201.9925694229603s
+executed 596000 statements at 202.80660470509528s
+executed 597000 statements at 203.6203042149544s
+executed 598000 statements at 204.784726238966s
+executed 599000 statements at 205.97056591010093s
+executed 600000 statements at 207.1667175490856s
+executed 601000 statements at 208.40557272911073s
+executed 602000 statements at 209.48416767406462s
+executed 603000 statements at 210.2357811009884s
+executed 604000 statements at 210.99562838101386s
+executed 605000 statements at 211.77377514600755s
+executed 606000 statements at 212.62345523810387s
+executed 607000 statements at 213.3626351969242s
+executed 608000 statements at 214.20530894112588s
+executed 609000 statements at 214.99656007504464s
+executed 610000 statements at 215.71156115198136s
+executed 611000 statements at 216.75594648599625s
+executed 612000 statements at 217.58692240500451s
+executed 613000 statements at 218.83278004789352s
+executed 614000 statements at 220.09632001495362s
+executed 615000 statements at 221.3844371011257s
+executed 616000 statements at 222.5631129310131s
+executed 617000 statements at 223.88170078206062s
+executed 618000 statements at 225.1241006040573s
+executed 619000 statements at 226.30224119997024s
+executed 620000 statements at 228.05922467803956s
+executed 621000 statements at 228.79565915012358s
+executed 622000 statements at 229.6916673569679s
+executed 623000 statements at 230.48142612791062s
+executed 624000 statements at 231.46381058812142s
+executed 625000 statements at 264.2060763030052s
+executed 626000 statements at 280.3171568040848s
+executed 627000 statements at 281.14533860111237s
+executed 628000 statements at 282.3032116599083s
+executed 629000 statements at 283.50930814909935s
+executed 630000 statements at 285.13821332406997s
+executed 631000 statements at 285.8115416510105s
+executed 632000 statements at 286.52578553390504s
+executed 633000 statements at 287.2976395230293s
+executed 634000 statements at 288.03285870194435s
+executed 635000 statements at 288.75395179700854s
+executed 636000 statements at 289.395493885994s
+executed 637000 statements at 290.27267540407183s
+executed 638000 statements at 291.3154970331192s
+executed 639000 statements at 292.44946302509305s
+executed 640000 statements at 293.52066601490975s
+executed 641000 statements at 294.2511884949207s
+executed 642000 statements at 294.733584939003s
+executed 643000 statements at 295.3839784090519s
+executed 644000 statements at 295.84136716198924s
+executed 645000 statements at 296.29613155698775s
+executed 646000 statements at 296.98407198405266s
+executed 647000 statements at 297.6714366719723s
+executed 648000 statements at 298.4260733110905s
+executed 649000 statements at 299.93046543693544s
+insert aspects
+executed 650000 statements at 300.8770836360455s
+executed 651000 statements at 300.9396391179562s
+executed 652000 statements at 300.98909250998497s
+executed 653000 statements at 301.03762091493604s
+executed 654000 statements at 301.0837980110645s
+executed 655000 statements at 301.12119386696816s
+executed 656000 statements at 301.1602349579334s
+executed 657000 statements at 301.200743227005s
+executed 658000 statements at 301.240259925127s
+executed 659000 statements at 301.2792462699413s
+executed 660000 statements at 301.3184763059616s
+executed 661000 statements at 301.3571706700325s
+executed 662000 statements at 301.396516849041s
+executed 663000 statements at 301.4365697929859s
+executed 664000 statements at 301.47578311896325s
+executed 665000 statements at 301.51973477697373s
+executed 666000 statements at 301.5662533299923s
+executed 667000 statements at 301.6131354930401s
+executed 668000 statements at 301.65983528590203s
+executed 669000 statements at 301.70514154005053s
+executed 670000 statements at 302.34797950291636s
+executed 671000 statements at 302.3979703769684s
+executed 672000 statements at 302.44799565792084s
+executed 673000 statements at 302.4955419199467s
+executed 674000 statements at 302.54226570010184s
+executed 675000 statements at 302.59168097805974s
+executed 676000 statements at 302.6392168879509s
+executed 677000 statements at 302.6870152239799s
+executed 678000 statements at 302.73432549095156s
+executed 679000 statements at 302.7831227989197s
+executed 680000 statements at 302.83688947296145s
+executed 681000 statements at 302.8973235080242s
+executed 682000 statements at 302.95046580910684s
+executed 683000 statements at 303.00405024290086s
+executed 684000 statements at 303.0582795898914s
+executed 685000 statements at 303.1114880731106s
+executed 686000 statements at 303.15627961993215s
+executed 687000 statements at 303.19016925096514s
+executed 688000 statements at 303.57789059591295s
+executed 689000 statements at 303.612464854002s
+executed 690000 statements at 303.6475564649105s
+executed 691000 statements at 303.68413426303863s
+executed 692000 statements at 303.7189588320255s
+executed 693000 statements at 303.75258036112785s
+executed 694000 statements at 303.7889312169552s
+executed 695000 statements at 303.82523935103416s
+executed 696000 statements at 303.8639411818981s
+executed 697000 statements at 303.899306814909s
+executed 698000 statements at 303.93458075499535s
+executed 699000 statements at 303.97056539607047s
+executed 700000 statements at 304.00211407995226s
+executed 701000 statements at 304.03413746404647s
+executed 702000 statements at 304.0660558860302s
+executed 703000 statements at 304.0974780409336s
+executed 704000 statements at 304.1292825739384s
+executed 705000 statements at 304.1615330410004s
+executed 706000 statements at 304.19655832099915s
+executed 707000 statements at 304.599526047945s
+executed 708000 statements at 304.63257933712003s
+executed 709000 statements at 304.6676955690384s
+executed 710000 statements at 304.70419013094903s
+executed 711000 statements at 304.7358026759625s
+executed 712000 statements at 304.76929657411574s
+executed 713000 statements at 304.80271801495553s
+executed 714000 statements at 304.8380930070877s
+executed 715000 statements at 304.8755529479981s
+executed 716000 statements at 304.91125523090363s
+executed 717000 statements at 304.9457853820324s
+executed 718000 statements at 304.98015171408656s
+executed 719000 statements at 305.0144477090836s
+executed 720000 statements at 305.0503928530216s
+executed 721000 statements at 305.0844590480328s
+executed 722000 statements at 305.11616890096667s
+executed 723000 statements at 305.15116011309624s
+executed 724000 statements at 305.1857075650692s
+executed 725000 statements at 305.5775116829872s
+executed 726000 statements at 305.61197279310227s
+executed 727000 statements at 305.64763642501833s
+executed 728000 statements at 305.68680414199827s
+executed 729000 statements at 305.7219250330925s
+executed 730000 statements at 305.7577704489231s
+executed 731000 statements at 305.79329449391366s
+executed 732000 statements at 305.82955253195763s
+executed 733000 statements at 305.86845041394236s
+executed 734000 statements at 305.90064747190473s
+executed 735000 statements at 305.93304919695856s
+executed 736000 statements at 305.96530866789817s
+executed 737000 statements at 305.9980493900776s
+executed 738000 statements at 306.02984179997446s
+executed 739000 statements at 306.06132930397985s
+executed 740000 statements at 306.0930133330822s
+executed 741000 statements at 306.1253812830448s
+executed 742000 statements at 306.15681395506857s
+executed 743000 statements at 306.188220195055s
+executed 744000 statements at 306.73555937600133s
+executed 745000 statements at 306.88928326296804s
+executed 746000 statements at 306.92421414089205s
+executed 747000 statements at 306.9581154088974s
+executed 748000 statements at 306.9907912249565s
+executed 749000 statements at 307.02544893598554s
+executed 750000 statements at 307.0601431410313s
+executed 751000 statements at 307.0948993179798s
+executed 752000 statements at 307.130023706913s
+executed 753000 statements at 307.16664860892297s
+executed 754000 statements at 307.2028407831192s
+executed 755000 statements at 307.23911154007914s
+executed 756000 statements at 307.27550658297537s
+executed 757000 statements at 307.31381725001336s
+executed 758000 statements at 307.34880547189715s
+executed 759000 statements at 307.38430220294s
+executed 760000 statements at 307.42085008502005s
+executed 761000 statements at 307.4583976960182s
+executed 762000 statements at 307.86862827706335s
+executed 763000 statements at 307.9082824990749s
+executed 764000 statements at 307.94517002105715s
+executed 765000 statements at 307.99243657493594s
+executed 766000 statements at 308.0326684179306s
+executed 767000 statements at 308.0666456360817s
+executed 768000 statements at 308.1011749639511s
+executed 769000 statements at 308.1364073960781s
+executed 770000 statements at 308.17210895204545s
+executed 771000 statements at 308.2085191450119s
+executed 772000 statements at 308.24160007309916s
+executed 773000 statements at 308.2745479359627s
+executed 774000 statements at 308.3069243030548s
+executed 775000 statements at 308.34004078006745s
+executed 776000 statements at 308.3733054249287s
+executed 777000 statements at 308.405467247963s
+executed 778000 statements at 308.4463597509861s
+executed 779000 statements at 308.4793237950802s
+executed 780000 statements at 308.5117215549946s
+executed 781000 statements at 308.9150020060539s
+executed 782000 statements at 308.9515894420147s
+executed 783000 statements at 308.98670535111427s
+executed 784000 statements at 309.02488749599456s
+executed 785000 statements at 309.05754748106006s
+executed 786000 statements at 309.090442857027s
+executed 787000 statements at 309.12569223308566s
+executed 788000 statements at 309.16153402400016s
+executed 789000 statements at 309.19652856111526s
+executed 790000 statements at 309.2317102940083s
+executed 791000 statements at 309.2672040989399s
+executed 792000 statements at 309.3027044939995s
+executed 793000 statements at 309.3373948690891s
+executed 794000 statements at 309.37273785090446s
+executed 795000 statements at 309.408194480896s
+executed 796000 statements at 309.4429476759434s
+executed 797000 statements at 309.47786698508264s
+executed 798000 statements at 309.51332698011396s
+executed 799000 statements at 309.9120522520542s
+executed 800000 statements at 309.9499657928944s
+executed 801000 statements at 309.9889542210102s
+executed 802000 statements at 310.0448321759701s
+executed 803000 statements at 310.1050079510212s
+executed 804000 statements at 310.1401312589645s
+executed 805000 statements at 310.2058984410763s
+executed 806000 statements at 310.2406172530651s
+executed 807000 statements at 310.2743020350933s
+executed 808000 statements at 310.309024971962s
+executed 809000 statements at 310.34716007709505s
+executed 810000 statements at 310.3862421491146s
+executed 811000 statements at 310.4245518519878s
+executed 812000 statements at 310.46349399089814s
+executed 813000 statements at 310.50199385404585s
+executed 814000 statements at 310.54044169807435s
+executed 815000 statements at 310.57903277397156s
+executed 816000 statements at 310.6184017970562s
+executed 817000 statements at 310.6545347790718s
+executed 818000 statements at 311.0747658009529s
+executed 819000 statements at 311.1109024760723s
+executed 820000 statements at 311.1497095899582s
+executed 821000 statements at 311.18397374105456s
+executed 822000 statements at 311.2180041589737s
+executed 823000 statements at 311.254985558033s
+executed 824000 statements at 311.2892816040516s
+executed 825000 statements at 311.32306374311446s
+executed 826000 statements at 311.3571205589771s
+executed 827000 statements at 311.3911176760197s
+executed 828000 statements at 311.4247979450226s
+executed 829000 statements at 311.4595807979107s
+executed 830000 statements at 311.4954656660557s
+executed 831000 statements at 311.530168446064s
+executed 832000 statements at 311.5642134640217s
+executed 833000 statements at 311.59885016703606s
+executed 834000 statements at 311.63310844397546s
+executed 835000 statements at 311.6676280150414s
+executed 836000 statements at 312.0782120161056s
+executed 837000 statements at 312.11235701990125s
+executed 838000 statements at 312.1483283469677s
+executed 839000 statements at 312.1878271169663s
+executed 840000 statements at 312.22270817494393s
+executed 841000 statements at 312.2583039150238s
+executed 842000 statements at 312.29356054496765s
+executed 843000 statements at 312.3276852929592s
+executed 844000 statements at 312.3657973151207s
+executed 845000 statements at 312.4012885479927s
+executed 846000 statements at 312.43782457494734s
+executed 847000 statements at 312.4733561999798s
+executed 848000 statements at 312.5082539539337s
+executed 849000 statements at 312.5442504789829s
+executed 850000 statements at 312.57973916196823s
+executed 851000 statements at 312.61686838507654s
+executed 852000 statements at 312.65377465200424s
+executed 853000 statements at 312.69084518098833s
+executed 854000 statements at 312.7277037370205s
+executed 855000 statements at 313.1634670379162s
+executed 856000 statements at 313.20454918909076s
+executed 857000 statements at 313.2467072749138s
+executed 858000 statements at 313.28506931209563s
+executed 859000 statements at 313.3229915039539s
+executed 860000 statements at 313.364825797081s
+executed 861000 statements at 313.4048718829155s
+executed 862000 statements at 313.4437880740166s
+executed 863000 statements at 313.4811578080654s
+executed 864000 statements at 313.52023087596893s
+executed 865000 statements at 313.5582706038952s
+executed 866000 statements at 313.5955115580559s
+executed 867000 statements at 313.634268034935s
+executed 868000 statements at 313.6731973440647s
+executed 869000 statements at 313.7113314421177s
+executed 870000 statements at 313.75086772990227s
+executed 871000 statements at 313.7887397940159s
+executed 872000 statements at 313.82695464611055s
+executed 873000 statements at 314.24556760191916s
+executed 874000 statements at 314.2807763679028s
+executed 875000 statements at 314.31948938393595s
+executed 876000 statements at 314.35661186504365s
+executed 877000 statements at 314.3923279960155s
+executed 878000 statements at 314.4286295258999s
+executed 879000 statements at 314.46703361296653s
+executed 880000 statements at 314.50539781308174s
+executed 881000 statements at 314.54587459492683s
+executed 882000 statements at 314.58447593307494s
+executed 883000 statements at 314.6216540150642s
+executed 884000 statements at 314.65880334591867s
+executed 885000 statements at 314.6973680140972s
+executed 886000 statements at 314.7371798639297s
+executed 887000 statements at 314.7750825340748s
+executed 888000 statements at 314.81381234502794s
+executed 889000 statements at 314.8518444108963s
+executed 890000 statements at 314.8905086920261s
+executed 891000 statements at 314.93008845710756s
+executed 892000 statements at 315.36265485310554s
+executed 893000 statements at 315.39904067611695s
+executed 894000 statements at 315.4361980109215s
+executed 895000 statements at 315.4711068470478s
+executed 896000 statements at 315.50663170289994s
+executed 897000 statements at 315.5480749208927s
+executed 898000 statements at 315.5870063779354s
+executed 899000 statements at 315.62609035992625s
+executed 900000 statements at 315.6638702061176s
+executed 901000 statements at 315.7018684360981s
+executed 902000 statements at 315.7394883160591s
+executed 903000 statements at 315.7772708771229s
+executed 904000 statements at 315.81542069911956s
+executed 905000 statements at 315.85326236891746s
+executed 906000 statements at 315.8910288069248s
+executed 907000 statements at 315.9267210071087s
+executed 908000 statements at 315.96122899889946s
+executed 909000 statements at 315.99787170410156s
+executed 910000 statements at 316.4248492810726s
+executed 911000 statements at 316.46000996589663s
+executed 912000 statements at 316.49860661697386s
+executed 913000 statements at 316.53812832212446s
+executed 914000 statements at 316.576982489109s
+executed 915000 statements at 316.6164078090191s
+executed 916000 statements at 316.6671804571152s
+executed 917000 statements at 316.7299865279198s
+executed 918000 statements at 316.7916690340042s
+executed 919000 statements at 316.8484933040142s
+executed 920000 statements at 316.90606825995445s
+executed 921000 statements at 316.9781547489166s
+executed 922000 statements at 317.03518808603286s
+executed 923000 statements at 317.09574078202246s
+executed 924000 statements at 317.15384603095055s
+executed 925000 statements at 317.2111897060871s
+executed 926000 statements at 317.27268048501014s
+executed 927000 statements at 317.33113560795783s
+executed 928000 statements at 318.0025748910904s
+executed 929000 statements at 318.0596422359943s
+executed 930000 statements at 318.1160330910683s
+executed 931000 statements at 318.17907936000825s
+executed 932000 statements at 318.23547474503516s
+executed 933000 statements at 318.29625972604754s
+executed 934000 statements at 318.3530390689373s
+executed 935000 statements at 318.4091415760517s
+executed 936000 statements at 318.4650369570255s
+executed 937000 statements at 318.52130792093277s
+executed 938000 statements at 318.5790526380539s
+executed 939000 statements at 318.6389286010265s
+executed 940000 statements at 318.69132403302194s
+executed 941000 statements at 318.74995072102547s
+executed 942000 statements at 318.8056102209091s
+executed 943000 statements at 318.8596538600922s
+executed 944000 statements at 318.9160296308994s
+executed 945000 statements at 318.984687484026s
+executed 946000 statements at 319.0442607290745s
+executed 947000 statements at 319.73286186408995s
+executed 948000 statements at 319.788248953104s
+executed 949000 statements at 319.8445708999634s
+executed 950000 statements at 319.9045658569336s
+executed 951000 statements at 319.9603598690033s
+executed 952000 statements at 320.02662338495253s
+executed 953000 statements at 320.08405970406534s
+executed 954000 statements at 320.1396009039879s
+executed 955000 statements at 320.20594708800314s
+executed 956000 statements at 320.269170787096s
+executed 957000 statements at 320.3317872869968s
+executed 958000 statements at 320.39492820811273s
+executed 959000 statements at 320.45792242908476s
+executed 960000 statements at 320.53457371497154s
+executed 961000 statements at 320.59259107899663s
+executed 962000 statements at 320.6532801659107s
+executed 963000 statements at 320.7200680038929s
+executed 964000 statements at 320.79247272706033s
+executed 965000 statements at 320.8613699901104s
+executed 966000 statements at 320.92275437998774s
+executed 967000 statements at 321.4185548639297s
+executed 968000 statements at 321.4576007909775s
+executed 969000 statements at 321.4991129300594s
+executed 970000 statements at 321.53886880803105s
+executed 971000 statements at 321.5784090590477s
+executed 972000 statements at 321.6294856441021s
+executed 973000 statements at 321.67281195092204s
+executed 974000 statements at 321.71481155109404s
+executed 975000 statements at 321.76496989798545s
+executed 976000 statements at 321.8025105550289s
+executed 977000 statements at 321.84145675611495s
+executed 978000 statements at 321.8832789800167s
+executed 979000 statements at 321.92592305111884s
+executed 980000 statements at 321.97547586297986s
+executed 981000 statements at 322.01735913300513s
+executed 982000 statements at 322.0604920260906s
+executed 983000 statements at 322.3478473939896s
+executed 984000 statements at 322.3874805500507s
+executed 985000 statements at 322.4266048369408s
+executed 986000 statements at 322.4669769899845s
+executed 987000 statements at 322.5184655389786s
+executed 988000 statements at 322.5704099919796s
+executed 989000 statements at 322.6183750181198s
+insert ElementRefersToElements
+executed 990000 statements at 322.8056547501087s
+executed 991000 statements at 322.8277864100933s
+executed 992000 statements at 322.8473758029938s
+executed 993000 statements at 322.86369760894775s
+executed 994000 statements at 322.88302877902987s
+executed 995000 statements at 322.89906018996237s
+executed 996000 statements at 322.918936300993s
+executed 997000 statements at 322.93783523392676s
+executed 998000 statements at 322.95829042696954s
+executed 999000 statements at 322.97581056809423s
+executed 1000000 statements at 322.99564101195335s
+executed 1001000 statements at 323.0265698070526s
+executed 1002000 statements at 323.05731880307195s
+executed 1003000 statements at 323.08549938702583s
+executed 1004000 statements at 323.12018486094473s
+Error removing func; stat=5, error=unable to delete/modify user-function due to active statements (BE_SQLITE_BUSY)% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+ 76.53   22.511610           2  10831894           pwrite64
+ 13.54    3.982685           2   1729392           pread64
+  4.54    1.334004         435      3063           epoll_wait
+  2.16    0.636049       24463        26           unlink
+  2.02    0.594672       27030        22           fsync
+  0.48    0.140443          10     13021      1708 futex
+  0.20    0.060131          54      1101           munmap
+  0.20    0.057706           1     37928     37743 readlink
+  0.15    0.045056           9      4708           mprotect
+  0.04    0.011306           2      4496           read
+  0.03    0.008709           0      9492      4114 statx
+  0.02    0.005746           2      2278           close
+  0.02    0.005559           1      4222           write
+  0.02    0.004540          44       103           madvise
+  0.01    0.004300           3      1306           mmap
+  0.01    0.003768           1      2561       291 openat
+  0.01    0.003352           3      1052           getdents64
+  0.01    0.001782           1      1045        25 newfstatat
+  0.00    0.001306           1       701           faccessat2
+  0.00    0.000554           1       544           getpid
+  0.00    0.000538           2       211       160 access
+  0.00    0.000210           1       180        14 fcntl
+  0.00    0.000180           0       486           brk
+  0.00    0.000147           1       128           lseek
+  0.00    0.000088           4        20           clone3
+  0.00    0.000075           1        49           rt_sigprocmask
+  0.00    0.000072           1        63           rt_sigaction
+  0.00    0.000054          13         4           ftruncate
+  0.00    0.000039           5         7         3 epoll_ctl
+  0.00    0.000017          17         1           mkdir
+  0.00    0.000013           0        21         7 ioctl
+  0.00    0.000009           0        15           fstat
+  0.00    0.000007           0        22           geteuid
+  0.00    0.000003           0        15           capget
+  0.00    0.000002           0        15           getgid
+  0.00    0.000001           0        15           getuid
+  0.00    0.000001           0        15           getegid
+  0.00    0.000001           0         3           getrandom
+  0.00    0.000000           0        15           poll
+  0.00    0.000000           0         3           sched_yield
+  0.00    0.000000           0         1           mremap
+  0.00    0.000000           0         7         2 socket
+  0.00    0.000000           0         4         1 connect
+  0.00    0.000000           0         5           sendto
+  0.00    0.000000           0        23         4 recvfrom
+  0.00    0.000000           0         2           getsockname
+  0.00    0.000000           0         1           socketpair
+  0.00    0.000000           0         1           setsockopt
+  0.00    0.000000           0         1           getsockopt
+  0.00    0.000000           0         1           execve
+  0.00    0.000000           0         2           uname
+  0.00    0.000000           0         1           getcwd
+  0.00    0.000000           0         2         1 rmdir
+  0.00    0.000000           0         1           sysinfo
+  0.00    0.000000           0         2           getppid
+  0.00    0.000000           0         2         2 statfs
+  0.00    0.000000           0         2         1 arch_prctl
+  0.00    0.000000           0         1           set_tid_address
+  0.00    0.000000           0         1           set_robust_list
+  0.00    0.000000           0         2           eventfd2
+  0.00    0.000000           0         2           epoll_create1
+  0.00    0.000000           0         1           dup3
+  0.00    0.000000           0         3           pipe2
+  0.00    0.000000           0        12           prlimit64
+  0.00    0.000000           0         1         1 pkey_alloc
+  0.00    0.000000           0         1           rseq
+------ ----------- ----------- --------- --------- ----------------
+100.00   29.414735           2  12650325     44077 total
