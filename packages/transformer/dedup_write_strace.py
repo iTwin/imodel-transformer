@@ -27,7 +27,7 @@ for i, line in enumerate(sys.stdin):
         # ignore the actual call since it contains varying pointers
         # stack.append(line) #ignore
 
-for s, count in stacks.items():
+for s, count in sorted(stacks.items(), key=lambda t: t[1]):
     print(f"found {count}")
     print(s)
 
