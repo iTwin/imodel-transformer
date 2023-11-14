@@ -618,25 +618,25 @@ export class IModelTransformer extends IModelExportHandler {
    * @note: empty string and -1 for changeset and index if it has never been transformed, or was transformed before federation guid update (pre 1.x).
    */
   protected get synchronizationVersion(): ChangesetIndexAndId {
-    if (this._cachedSynchronizationVersion) {
-      return this._cachedSynchronizationVersion;
-    }
+    if (this._cachedSynchronizationVersion === undefined) {
+      const provenanceScopeAspect = this.tryGetProvenanceScopeAspect();
+      if (!provenanceScopeAspect) {
+        return { index: -1, id: "" }; // first synchronization.
+      }
 
-    const provenanceScopeAspect = this.tryGetProvenanceScopeAspect();
-    if (!provenanceScopeAspect) {
-      return { index: -1, id: "" }; // first synchronization.
-    }
+      const version = this._options.isReverseSynchronization
+        ? (JSON.parse(provenanceScopeAspect.jsonProperties ?? "{}") as TargetScopeProvenanceJsonProps).reverseSyncVersion
+        : provenanceScopeAspect.version;
+      if (!version) {
+        return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
+      }
 
-    const version = this._options.isReverseSynchronization
-      ? (JSON.parse(provenanceScopeAspect.jsonProperties ?? "{}") as TargetScopeProvenanceJsonProps).reverseSyncVersion
-      : provenanceScopeAspect.version;
-    if (!version) {
-      return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
+      const [id, index] = version.split(";");
+      if (Number.isNaN(Number(index)))
+        throw new Error("Could not parse version data from scope aspect");
+      this._cachedSynchronizationVersion = { index: Number(index), id }; // synchronization version found and cached.
     }
-
-    const [id, index] = version.split(";");
-    this._cachedSynchronizationVersion = { index: Number(index), id };
-    return this._cachedSynchronizationVersion; // synchronization version found and cached.
+    return this._cachedSynchronizationVersion;
   }
 
   /**
@@ -651,8 +651,8 @@ export class IModelTransformer extends IModelExportHandler {
       AND Kind = :kind
       AND Element.Id = :elementId
       AND Identifier = :identifier
-    LIMIT 1
-  `;
+    LIMIT 1`;
+
     const scopeProvenanceAspectId = this.provenanceDb.withPreparedStatement(sql, (stmt) => {
       stmt.bindId("scopeId", IModel.rootSubjectId);
       stmt.bindString("kind", ExternalSourceAspect.Kind.Scope);
