@@ -663,6 +663,15 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const writeableTarget = new ECDb();
   writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
 
+  // use wal mode since only IModelDb uses that by default
+  writeableTarget.withSqliteStatement(`
+    PRAGMA journal_mode=WAL;
+  `, (s) => {
+    assert(s.step() === DbResult.BE_SQLITE_ROW);
+    assert.equal(s.getValue(0).getString(), "wal");
+    assert(s.step() === DbResult.BE_SQLITE_DONE);
+  });
+
   const remapTables = {
     element: new CompactRemapTable(),
     aspect: new CompactRemapTable(),
@@ -678,7 +687,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         TargetId INTEGER NOT NULL,
         Length INTEGER NOT NULL
       )
-    `, (s: any) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+    `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
     // always remap 0 to 0
     remapTables[name].remap(0, 0);
@@ -839,7 +848,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   for (const name of ["element", "codespec", "aspect", "font"] as const) {
-    console.log("RUNS", [...remapTables[name].runs()]);
     for (const run of remapTables[name].runs()) {
       writeableTarget.withPreparedSqliteStatement(`
         INSERT INTO temp.${name}_remap VALUES(?,?,?)
