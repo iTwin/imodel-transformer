@@ -260,7 +260,7 @@ describe("IModelTransformer", () => {
     ranges = rangesFromRangeAndSkipped(start,end, [-8, -10, 1, -3, 5, 15]); 
     expect(ranges).to.eql([[-9, -9], [-7, -4],[-2, 0], [2, 4], [6, 12]])
 
-    // Repeat -9, -10 case but somewhere in the middle, -2, -3. Seems fine.
+    // Repeat -9, -10 case but somewhere in the middle, -2, -3.
     ranges = rangesFromRangeAndSkipped(start,end, [-10, 1, -2, -3, 5, 15]);
     expect(ranges).to.eql([[-9, -4],[-1, 0], [2, 4], [6, 12]])
 
