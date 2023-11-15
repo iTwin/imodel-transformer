@@ -45,6 +45,9 @@ export function rangesFromRangeAndSkipped(start: number, end: number, skipped: n
     if (rangeIndex === -1)
       continue;
     const range = ranges[rangeIndex];
+    // If the range we find ourselves in is just a single point (range[0] === range[1]) then we most likely need to skip it (range[0] === skip)
+    if (range[0] === range[1] && skip === range[0])
+      ranges.splice(rangeIndex, 1);
     const leftRange = [range[0], skip - 1] as [number, number];
     const rightRange = [skip + 1, range[1]] as [number, number];
     if (validRange(leftRange) && validRange(rightRange))

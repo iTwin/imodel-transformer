@@ -232,21 +232,29 @@ describe("IModelTransformer", () => {
     let start = -10;
     let end = 12;
     let skipped = [-10, 1, -3, 5, 15];
+    // skip at beginning of range
     let ranges = rangesFromRangeAndSkipped(start, end, skipped);
     expect(ranges).to.eql([[-9, -4], [-2, 0], [2, 4], [6, 12]]);
     
+    // skip first 2 at beginning of range
     ranges = rangesFromRangeAndSkipped(start,end, [-10, -9, 1, -3, 5, 15]);
+    expect(ranges).to.eql([[-8, -4], [-2, 0], [2, 4], [6, 12]])
+
+    // skip first 2 at beginning of range but in reverse order 
+    ranges = rangesFromRangeAndSkipped(-10, -8, [-9, -10]);
+    expect(ranges).to.eql([[-8, -8]]);
+
+    // skip first 2 at beginning of range but in reverse order, more numbers
+    ranges = rangesFromRangeAndSkipped(start,end, [-9, -10, 1, -3, 5, 15]);
     expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
 
-    // Interesting that order appears to matter here. Im not sure if we'd ever expect a skipped array like the below -9,-10. but that breaks it
-    // I noticed the original suggested problem was not in order so I figured that order wouldn't matter.
-    // I guess if we sorted the input we'd probably be fine
+    // skip first 2 at beginning of range but move them to the end of the skipped array.
+    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15])
+    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
 
-    // TODO: visit below use case and see if it can be fixed. Mike says this should be fixed! FIXME
-    // ranges = rangesFromRangeAndSkipped(start,end, [-9, -10, 1, -3, 5, 15]);
-    // expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
-
-    // add 20 to everything and see if above still fails.
+    // skip first 2 at beginning of range but move them to middle and end of skipped array.
+    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15, -9, -10])
+    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
 
     // Trying skip number of -8 before -10 in the array.
     ranges = rangesFromRangeAndSkipped(start,end, [-8, -10, 1, -3, 5, 15]); 
@@ -255,6 +263,14 @@ describe("IModelTransformer", () => {
     // Repeat -9, -10 case but somewhere in the middle, -2, -3. Seems fine.
     ranges = rangesFromRangeAndSkipped(start,end, [-10, 1, -2, -3, 5, 15]);
     expect(ranges).to.eql([[-9, -4],[-1, 0], [2, 4], [6, 12]])
+
+    // skip last 2 at end of range with positive range
+    ranges = rangesFromRangeAndSkipped(8, 10, [9, 10]);
+    expect(ranges).to.eql([[8,8]]);
+
+    // skip last 2 at end of range with positive range reverse order
+    ranges = rangesFromRangeAndSkipped(8, 10, [10, 9]);
+    expect(ranges).to.eql([[8,8]]);
 
   });
 
