@@ -1,9 +1,9 @@
 import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
 import { DbResult, Id64String, Logger, OpenMode } from "@itwin/core-bentley";
 import { Code, ExternalSourceProps, RepositoryLinkProps } from "@itwin/core-common";
-import assert = require("assert");
+import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
-
+import { pathToFileURL } from "url";
 /**
  * @alpha
  */
@@ -50,14 +50,16 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
         WHERE FederationGuid IS NULL
           AND Id NOT IN (0x1, 0xe, 0x10) -- ignore special elems
       `,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
+      // eslint-disable-next-line @itwin/no-internal
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.nativeDb.getLastError()),
     );
     const masterPath = args.master.pathName;
     const reopenMaster = makeDbReopener(args.master);
     args.master.close(); // prevent busy
     args.branch.withSqliteStatement(
-      `ATTACH DATABASE 'file://${masterPath}?mode=ro' AS master`,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE),
+      `ATTACH DATABASE '${pathToFileURL(`${masterPath}`)}?mode=ro' AS master`,
+      // eslint-disable-next-line @itwin/no-internal
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.nativeDb.getLastError()),
     );
     args.branch.withSqliteStatement(`
       UPDATE main.bis_Element
@@ -66,7 +68,8 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
         FROM master.bis_Element m
         WHERE m.Id=main.bis_Element.Id
       )`,
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE)
+      // eslint-disable-next-line @itwin/no-internal
+      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.nativeDb.getLastError()),
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
     args.branch.saveChanges();
@@ -80,7 +83,8 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
             `Error detaching db (we will close anyway): ${args.branch.nativeDb.getLastError()}`
           );
         // this is the case until native side changes
-        assert(res === DbResult.BE_SQLITE_ERROR);
+        // eslint-disable-next-line @itwin/no-internal
+        assert(res === DbResult.BE_SQLITE_ERROR, args.branch.nativeDb.getLastError());
       }
     );
     args.branch.performCheckpoint();
