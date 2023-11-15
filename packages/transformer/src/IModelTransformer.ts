@@ -1834,6 +1834,8 @@ export class IModelTransformer extends IModelExportHandler {
       // FIXME: force save for the user to prevent that
       for (let i = this._startingChangesetIndices.target + 1; i <= this.targetDb.changeset.index + 1; i++)
         syncChangesetsToUpdate.push(i);
+      // FIXME: add test to synchronize an iModel that is not at the tip, since then clearning syncChangesets is
+      // probably wrong, and we should filter it instead
       syncChangesetsToClear.length = 0;
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
