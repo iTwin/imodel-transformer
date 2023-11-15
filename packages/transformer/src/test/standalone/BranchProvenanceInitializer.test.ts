@@ -7,6 +7,7 @@ import { IModelTransformer } from "../../IModelTransformer";
 import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
 import { expect } from "chai";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
+import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
   // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)
