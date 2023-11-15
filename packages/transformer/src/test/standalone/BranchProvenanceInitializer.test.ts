@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { ElementGroupsMembers, ExternalSource, ExternalSourceAspect, ExternalSourceIsInRepository, IModelDb, IModelHost, PhysicalModel, PhysicalObject, RepositoryLink, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
-import { ProvenanceInitArgs, ProvenanceInitResult, initializeBranchProvenance } from "../../BranchProvenanceInitializer";
-import { IModelTransformerTestUtils, assertIdentityTransformation } from "../IModelTransformerUtils";
+import { initializeBranchProvenance, ProvenanceInitArgs, ProvenanceInitResult } from "../../BranchProvenanceInitializer";
+import { assertIdentityTransformation, IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { BriefcaseIdValue, Code } from "@itwin/core-common";
 import { IModelTransformer } from "../../IModelTransformer";
 import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
@@ -195,6 +195,7 @@ async function classicalTransformerBranchInit(args: ProvenanceInitArgs): Promise
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
     repository: new ExternalSourceIsInRepository(masterLinkRepoId),
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     connectorName: require("../../../../package.json").name,
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     connectorVersion: require("../../../../package.json").version,

@@ -12,7 +12,7 @@ import { Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   AuxCoordSystem, AuxCoordSystem2d, CategorySelector, DefinitionModel, DisplayStyle3d, DrawingCategory, DrawingGraphicRepresentsElement,
-  ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementRefersToElements, ElementUniqueAspect, Entity, ExternalSourceAspect, FunctionalSchema,
+  ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementUniqueAspect, Entity, ExternalSourceAspect, FunctionalSchema,
   GeometricElement3d, GeometryPart, HubMock, IModelDb, IModelJsFs, InformationPartitionElement, InformationRecordModel, Model, ModelSelector,
   OrthographicViewDefinition, PhysicalElement, PhysicalModel, PhysicalObject, PhysicalPartition, Relationship, RelationshipProps,
   RenderMaterialElement, SnapshotDb, SpatialCategory, SpatialLocationModel, SpatialViewDefinition, SubCategory, Subject, Texture,
