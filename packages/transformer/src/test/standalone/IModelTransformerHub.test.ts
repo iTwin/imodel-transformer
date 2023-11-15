@@ -14,7 +14,7 @@ import {
 
 import * as TestUtils from "../TestUtils";
 import { AccessToken, DbResult, Guid, GuidString, Id64, Id64Array, Id64String, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, ColorDef, DefinitionElementProps, ElementAspectProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
+import { Code, ColorDef, DefinitionElementProps, ElementProps, ExternalSourceAspectProps, IModel, IModelVersion, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, SpatialViewDefinitionProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelExporter, IModelImporter, IModelTransformer, TransformerLoggerCategory } from "../../transformer";
 import {
@@ -1284,7 +1284,7 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
-  it("should reverse synchronize forked iModel when an element was updated", async() => {
+  it("should reverse synchronize forked iModel when an element was updated", async () => {
     const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("Master");
     const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
     assert.isTrue(Guid.isGuid(sourceIModelId));
@@ -1303,7 +1303,7 @@ describe("IModelTransformerHub", () => {
         model: modelId,
         category: categoryId,
         code: Code.createEmpty(),
-        userLabel: "Element1"
+        userLabel: "Element1",
       };
       const originalElementId = sourceDb.elements.insertElement(physicalElement);
 
@@ -1882,7 +1882,7 @@ describe("IModelTransformerHub", () => {
     const { tearDown } = await runTimeline(timeline, {
       iTwinId,
       accessToken,
-      transformerOpts: { forceExternalSourceAspectProvenance: true }
+      transformerOpts: { forceExternalSourceAspectProvenance: true },
     });
 
     await tearDown();

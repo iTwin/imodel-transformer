@@ -175,7 +175,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numRelationshipsInserted, 0);
       assert.equal(targetImporter.numRelationshipsUpdated, 0);
       assert.equal(targetImporter.numRelationshipsDeleted, 0);
-      //assert.equal(numTargetElements, count(targetDb, Element.classFullName), "Second import should not add elements");
+      // assert.equal(numTargetElements, count(targetDb, Element.classFullName), "Second import should not add elements");
       assert.equal(numTargetExternalSourceAspects, count(targetDb, ExternalSourceAspect.classFullName), "Second import should not add aspects");
       assert.equal(numTargetRelationships, count(targetDb, ElementRefersToElements.classFullName), "Second import should not add relationships");
       assert.equal(3, count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord"));
@@ -198,13 +198,13 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numElementsUpdated, 33);
       // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
       // use the new force old detect deletes behavior flag here
-      //assert.equal(targetImporter.numElementsDeleted, 5);
+      // assert.equal(targetImporter.numElementsDeleted, 5);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 2);
       assert.equal(targetImporter.numRelationshipsInserted, 2);
       assert.equal(targetImporter.numRelationshipsUpdated, 1);
       // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
-      //assert.equal(targetImporter.numRelationshipsDeleted, 0);
+      // assert.equal(targetImporter.numRelationshipsDeleted, 0);
       targetDb.saveChanges();
       // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
       TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, /* FIXME: */ false);

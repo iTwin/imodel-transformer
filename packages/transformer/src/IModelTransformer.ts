@@ -978,7 +978,8 @@ export class IModelTransformer extends IModelExportHandler {
             // identifier must be coalesced in JS due to an ESCQL bug, so there are multiple columns
             if (queryCanAccessProvenance)  {
               identifierValue = stmt.getValue(7);
-              if (identifierValue.isNull) identifierValue = stmt.getValue(8);
+              if (identifierValue.isNull)
+                identifierValue = stmt.getValue(8);
             }
 
             // TODO: if I could attach the second db, will probably be much faster to get target id
@@ -1022,7 +1023,8 @@ export class IModelTransformer extends IModelExportHandler {
               // identifier must be coalesced in JS due to an ESCQL bug, so there are multiple columns
               if (queryCanAccessProvenance)  {
                 identifierValue = stmt.getValue(identifierColumns.a);
-                if (identifierValue.isNull) identifierValue = stmt.getValue(identifierColumns.b);
+                if (identifierValue.isNull)
+                  identifierValue = stmt.getValue(identifierColumns.b);
               }
 
               return (
