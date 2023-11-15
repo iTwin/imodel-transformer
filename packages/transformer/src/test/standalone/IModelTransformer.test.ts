@@ -223,7 +223,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it("should test rangesFromRangeAndSkipped", async () => {
+  it.only("should test rangesFromRangeAndSkipped", async () => {
     /** given a discrete inclusive range [start, end] e.g. [-10, 12] and several "skipped" values", e.g.
  * (-10, 1, -3, 5, 15), return the ordered set of subranges of the original range that exclude
  * those values
@@ -272,6 +272,9 @@ describe("IModelTransformer", () => {
     ranges = rangesFromRangeAndSkipped(8, 10, [10, 9]);
     expect(ranges).to.eql([[8,8]]);
 
+    // make sure entire reversed order works too.
+    ranges = rangesFromRangeAndSkipped(start,end, [15, 5, 1, -3, -9, -10]);
+    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
   });
 
   it("should synchronize changes from master to branch and back", async () => {
