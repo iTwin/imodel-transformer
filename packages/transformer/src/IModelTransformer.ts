@@ -551,8 +551,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Create an ExternalSourceAspectProps in a standard way for a Relationship in an iModel --> iModel transformations.
    * The ExternalSourceAspect is meant to be owned by the Element in the target iModel that is the `sourceId` of transformed relationship.
-   * The `identifier` property of the ExternalSourceAspect will be the ECInstanceId of the relationship in the source iModel.
-   * The ECInstanceId of the relationship in the target iModel will be stored in the JsonProperties of the ExternalSourceAspect.
+   * The `identifier` property of the ExternalSourceAspect will be the ECInstanceId of the relationship in the source (meaning master) iModel.
+   * The ECInstanceId of the relationship in the target(meaning branch) iModel will be stored in the JsonProperties of the ExternalSourceAspect.
    */
   private initRelationshipProvenance(sourceRelationship: Relationship, targetRelInstanceId: Id64String): ExternalSourceAspectProps {
     return IModelTransformer.initRelationshipProvenanceOptions(
@@ -1955,7 +1955,14 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (deletedRelData.provenanceAspectId) {
-      this.provenanceDb.elements.deleteAspect(deletedRelData.provenanceAspectId);
+      try {
+        this.provenanceDb.elements.deleteAspect(deletedRelData.provenanceAspectId);
+      } catch (error: any) {
+        // This aspect may no longer exist if it was deleted at some other point during the transformation. This is fine.
+        if (error.errorNumber === IModelStatus.NotFound)
+          return;
+        throw error;
+      }
     }
   }
 
