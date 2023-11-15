@@ -3,7 +3,7 @@ import { DbResult, Id64String, Logger, OpenMode } from "@itwin/core-bentley";
 import { Code, ExternalSourceProps, RepositoryLinkProps } from "@itwin/core-common";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
-
+import { pathToFileURL } from "url";
 /**
  * @alpha
  */
@@ -57,7 +57,7 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
     const reopenMaster = makeDbReopener(args.master);
     args.master.close(); // prevent busy
     args.branch.withSqliteStatement(
-      `ATTACH DATABASE 'file://${masterPath}?mode=ro' AS master`,
+      `ATTACH DATABASE '${pathToFileURL(`${masterPath}`)}?mode=ro' AS master`,
       // eslint-disable-next-line @itwin/no-internal
       (s) => assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.nativeDb.getLastError()),
     );
