@@ -1287,7 +1287,7 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
-  it("should reverse synchronize forked iModel when an element was updated", async() => {
+  it("should reverse synchronize forked iModel when an element was updated", async () => {
     const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("Master");
     const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
     assert.isTrue(Guid.isGuid(sourceIModelId));
@@ -1306,7 +1306,7 @@ describe("IModelTransformerHub", () => {
         model: modelId,
         category: categoryId,
         code: Code.createEmpty(),
-        userLabel: "Element1"
+        userLabel: "Element1",
       };
       const originalElementId = sourceDb.elements.insertElement(physicalElement);
 
@@ -1742,7 +1742,7 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it("should successfully remove element in master iModel after reverse synchronization when elements have random ExternalSourceAspects", async() => {
+  it("should successfully remove element in master iModel after reverse synchronization when elements have random ExternalSourceAspects", async () => {
     const timeline: Timeline = [
       { master: { 1:1 } },
       { master: { manualUpdate(masterDb) {
@@ -1886,7 +1886,7 @@ describe("IModelTransformerHub", () => {
     const { tearDown } = await runTimeline(timeline, {
       iTwinId,
       accessToken,
-      transformerOpts: { forceExternalSourceAspectProvenance: true }
+      transformerOpts: { forceExternalSourceAspectProvenance: true },
     });
 
     await tearDown();
@@ -1929,7 +1929,7 @@ describe("IModelTransformerHub", () => {
       }},
     ];
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken, transformerOpts: { handleElementCodeDuplicates: true } });
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
     await tearDown();
   });
 
@@ -1965,7 +1965,7 @@ describe("IModelTransformerHub", () => {
       }},
     ];
 
-    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken, transformerOpts: { handleElementCodeDuplicates: true } });
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
     await tearDown();
   });
 });

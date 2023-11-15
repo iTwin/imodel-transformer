@@ -44,11 +44,6 @@ export interface IModelImportOptions {
    * @default false
    */
   simplifyElementGeometry?: boolean;
-  /** If 'true', try to handle conflicting code value changes by using temporary guid values.
-   * Code values can be resolved by calling [[IModelImporter.resolveDuplicateCodeValues]].
-   * @default false
-   */
-  handleElementCodeDuplicates?: boolean;
 }
 
 /** Base class for importing data into an iModel.
@@ -103,27 +98,14 @@ export class IModelImporter implements Required<IModelImportOptions> {
 
   private static _realityDataSourceLinkPartitionStaticId: Id64String = "0xe";
 
-  private _duplicateCodeValueMap?: Map<Id64String, string>;
-
   /**
    * A map of conflicting element code values.
    * In cases where updating an element's code value results in a codeValue conflict, the element's code value will instead be updated to a random guid.
    * The actual codeValue will be stored in this ElementId->CodeValue map.
    * This is needed in cases where the duplicate target element is set to be deleted in the future, or when elements are switching code values with one another and we need a temporary code value.
    * To resolve code values to their intended values call [[IModelImporter.resolveDuplicateCodeValues]].
-   *
-   * @returns undefined if no duplicates were detected.
    */
-  public get duplicateCodeValueMap(): Map<Id64String, string> | undefined {
-    return this._duplicateCodeValueMap;
-  }
-
-  public get handleElementCodeDuplicates(): boolean {
-    return this.options.handleElementCodeDuplicates;
-  }
-  public set handleElementCodeDuplicates(val: boolean) {
-    this.options.handleElementCodeDuplicates = val;
-  }
+  private _duplicateCodeValueMap: Map<Id64String, string>;
 
   /** The set of elements that should not be updated by this IModelImporter.
    * Defaults to the elements that are always present (even in an "empty" iModel) and therefore do not need to be updated
@@ -153,8 +135,8 @@ export class IModelImporter implements Required<IModelImportOptions> {
       autoExtendProjectExtents: options?.autoExtendProjectExtents ?? true,
       preserveElementIdsForFiltering: options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
-      handleElementCodeDuplicates: options?.handleElementCodeDuplicates ?? false,
     };
+    this._duplicateCodeValueMap = new Map<Id64String, string> ();
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
@@ -238,9 +220,9 @@ export class IModelImporter implements Required<IModelImportOptions> {
         try {
           this.onUpdateElement(elementProps);
         } catch(err) {
-          if (this.handleElementCodeDuplicates && (err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
+          if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
             assert(elementProps.code.value !== undefined, "NULL code values are always considered unique and cannot clash");
-            this.trackCodeValueDuplicate(elementProps.id, elementProps.code.value);
+            this._duplicateCodeValueMap.set(elementProps.id, elementProps.code.value);
             // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
             elementProps.code.value = Guid.createValue();
             this.onUpdateElement(elementProps);
@@ -622,7 +604,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
     // TODO: fix upstream, looks like a bad case for the linter rule when casting away readonly for this generic
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
     (this.doNotUpdateElementIds as Set<Id64String>) = CompressedId64Set.decompressSet(state.doNotUpdateElementIds);
-    this._duplicateCodeValueMap =  state.duplicateCodeValueMap ? new Map(Object.entries(state.duplicateCodeValueMap)) : undefined;
+    this._duplicateCodeValueMap = new Map(Object.entries(state.duplicateCodeValueMap));
     this.loadAdditionalStateJson(state.additionalState);
   }
 
@@ -638,15 +620,12 @@ export class IModelImporter implements Required<IModelImportOptions> {
       options: this.options,
       targetDbId: this.targetDb.iModelId || this.targetDb.nativeDb.getFilePath(),
       doNotUpdateElementIds: CompressedId64Set.compressSet(this.doNotUpdateElementIds),
-      duplicateCodeValueMap: this._duplicateCodeValueMap ? Object.fromEntries(this._duplicateCodeValueMap) : undefined,
+      duplicateCodeValueMap: Object.fromEntries(this._duplicateCodeValueMap),
       additionalState: this.getAdditionalStateJson(),
     };
   }
 
-  public resolveDuplicateCodeValues(): void {
-    if (!this.handleElementCodeDuplicates || !this._duplicateCodeValueMap)
-      return;
-
+  private resolveDuplicateCodeValues(): void {
     for (const [elementId, codeValue] of this._duplicateCodeValueMap) {
       const element = this.targetDb.elements.getElement(elementId);
       element.code.value = codeValue;
@@ -654,11 +633,14 @@ export class IModelImporter implements Required<IModelImportOptions> {
     }
   }
 
-  private trackCodeValueDuplicate(targetElementId: Id64String, codeValue: string) {
-    if (!this._duplicateCodeValueMap)
-      this._duplicateCodeValueMap = new Map<Id64String, string> ();
-
-    this._duplicateCodeValueMap.set(targetElementId, codeValue);
+  /**
+   * Needs to be called to perform necessary cleanup operations.
+   * By not calling `finalize` there is a risk that data imported into targetDb will not be as expected.
+   *
+   * @internal
+   */
+  public finalize(): void {
+    this.resolveDuplicateCodeValues();
   }
 }
 
@@ -675,7 +657,7 @@ export interface IModelImporterState {
   options: IModelImportOptions;
   targetDbId: string;
   doNotUpdateElementIds: CompressedId64Set;
-  duplicateCodeValueMap?: Record<Id64String, string>;
+  duplicateCodeValueMap: Record<Id64String, string>;
   additionalState?: any;
 }
 
