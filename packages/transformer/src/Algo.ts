@@ -19,27 +19,6 @@ export function rangesFromRangeAndSkipped(start: number, end: number, skipped: n
     throw RangeError(`invalid range: [${start}, ${end}]`);
 
   const ranges = [firstRange];
-
-  function findRangeContaining(pt: number, inRanges: [number, number][]): number {
-    let begin = 0;
-    let end = inRanges.length - 1;
-    while (end >= begin) {
-      // Instead of Math.floor we could use bitwise operators like ~~ to floor, which seems slightly faster. But I'm not sure of the full effect of that change.
-      const mid = begin + Math.floor((end - begin) / 2); 
-      const range = inRanges[mid];
-
-      if (pt >= range[0] && pt <= range[1])
-        return mid;
-
-      if (pt < range[0]) {
-        end = mid - 1;
-      } else {
-        begin = mid + 1;
-      }
-    }
-    return -1;
-  }
-
   for (const skip of skipped) {
     const rangeIndex = findRangeContaining(skip, ranges);
     if (rangeIndex === -1)
@@ -59,6 +38,26 @@ export function rangesFromRangeAndSkipped(start: number, end: number, skipped: n
   }
 
   return ranges;
+}
+
+function findRangeContaining(pt: number, inRanges: [number, number][]): number {
+  let begin = 0;
+  let end = inRanges.length - 1;
+  while (end >= begin) {
+    // Instead of Math.floor we could use bitwise operators like ~~ to floor, which seems slightly faster. But I'm not sure of the full effect of that change.
+    const mid = begin + Math.floor((end - begin) / 2);
+    const range = inRanges[mid];
+
+    if (pt >= range[0] && pt <= range[1])
+      return mid;
+
+    if (pt < range[0]) {
+      end = mid - 1;
+    } else {
+      begin = mid + 1;
+    }
+  }
+  return -1;
 }
 
 export function renderRanges(ranges: [number, number][]): number[] {

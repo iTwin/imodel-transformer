@@ -24,7 +24,7 @@ import {
 import {
   ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElementProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget,
+  Placement2d, Placement3d, RelatedElement, SourceAndTarget,
 } from "@itwin/core-common";
 import { ExportChangesOptions, ExporterInitOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
@@ -626,7 +626,7 @@ export class IModelTransformer extends IModelExportHandler {
       jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
 
-    // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them. 
+    // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them.
     // or reverseSyncVersion set correctly
     const externalSource = this.queryScopeExternalSource(aspectProps, { getJsonProperties: true }); // this query includes "identifier"
     aspectProps.id = externalSource.aspectId;

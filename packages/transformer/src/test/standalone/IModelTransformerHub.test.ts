@@ -1692,91 +1692,89 @@ describe("IModelTransformerHub", () => {
       id: "master-seed",
       state: masterSeedState,
     };
-  
+
     const expectedRelationships = [
       { sourceLabel: "40", targetLabel: "2", idInBranch: "not inserted yet", sourceFedGuid: true, targetFedGuid: true },
       { sourceLabel: "41", targetLabel: "42", idInBranch: "not inserted yet", sourceFedGuid: false, targetFedGuid: false },
     ];
-    
+
     let aspectId: Id64String | undefined;
-    
-      const timeline: Timeline = [
-        { master: { seed: masterSeed } },
-        { branch: { branch: "master" } },
-        {
-          branch: {
-            manualUpdate(db) {
-              expectedRelationships.map(
-                ({ sourceLabel, targetLabel }, i) => {
-                  const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
-                  const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
-                  assert(sourceId && targetId);
-                  const rel = ElementGroupsMembers.create(db, sourceId, targetId, 0);
-                  expectedRelationships[i].idInBranch = rel.insert();
-                }
-              );
-            },
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } },
+      { branch: { branch: "master" } },
+      {
+        branch: {
+          manualUpdate(db) {
+            expectedRelationships.map(
+              ({ sourceLabel, targetLabel }, i) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
+                assert(sourceId && targetId);
+                const rel = ElementGroupsMembers.create(db, sourceId, targetId, 0);
+                expectedRelationships[i].idInBranch = rel.insert();
+              }
+            );
           },
         },
-        { master: { sync: ["branch"] } }, // first master<-branch reverse sync
-        { 
-          assert({branch}) {
-            // expectedRelationships[1] has no fedguids, so expect to find an esa.
-            const sourceId = IModelTestUtils.queryByUserLabel(branch.db, expectedRelationships[1].sourceLabel); 
-            aspectId = branch.db.elements.getAspects(sourceId, ExternalSourceAspect.classFullName)[0].id;
-            assert(Id64.isValid(aspectId));
+      },
+      { master: { sync: ["branch"] } }, // first master<-branch reverse sync
+      {
+        assert({branch}) {
+          // expectedRelationships[1] has no fedguids, so expect to find an esa.
+          const sourceId = IModelTestUtils.queryByUserLabel(branch.db, expectedRelationships[1].sourceLabel);
+          aspectId = branch.db.elements.getAspects(sourceId, ExternalSourceAspect.classFullName)[0].id;
+          assert(Id64.isValid(aspectId));
+        },
+      },
+      {
+        master: {
+          manualUpdate(db) {
+            expectedRelationships.forEach(
+              ({ sourceLabel, targetLabel }) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
+                const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
+                assert(sourceId && targetId);
+                const rel = db.relationships.getInstance(
+                  ElementGroupsMembers.classFullName,
+                  { sourceId, targetId }
+                );
+                rel.delete();
+                db.elements.deleteElement(sourceId);
+                db.elements.deleteElement(targetId);
+              }
+            );
+          },
+        },
+      },
+      { branch: { sync: ["master"]}}, // first master->branch forward sync
+      {
+        assert({branch}) {
+          for (const rel of expectedRelationships) {
+            expect(branch.db.relationships.tryGetInstance(
+              ElementGroupsMembers.classFullName,
+              rel.idInBranch,
+            ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.be.undefined;
+            const sourceId = IModelTestUtils.queryByUserLabel(branch.db, rel.sourceLabel);
+            const targetId = IModelTestUtils.queryByUserLabel(branch.db, rel.targetLabel);
+            // Since we deleted both elements in the previous manualUpdate
+            assert(sourceId === "0" && targetId === "0", `SourceId is ${sourceId}, expected 0. TargetId is ${targetId}, expected 0.`);
+            expect(() => branch.db.relationships.tryGetInstance(
+              ElementGroupsMembers.classFullName,
+              { sourceId, targetId },
+            ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.throw; // TODO: This shouldn't throw but it does in core due to failing to bind ids of 0.
+
+            expect(() => branch.db.elements.getAspect(aspectId!)).to.throw("not found", `Expected aspectId: ${aspectId} to no longer be present in branch imodel.`);
           }
         },
-        {
-          master: {
-            manualUpdate(db) {
-              expectedRelationships.forEach(
-                ({ sourceLabel, targetLabel }) => {
-                  const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
-                  const targetId = IModelTestUtils.queryByUserLabel(db, targetLabel);
-                  assert(sourceId && targetId);
-                  const rel = db.relationships.getInstance(
-                    ElementGroupsMembers.classFullName,
-                    { sourceId, targetId }
-                  );
-                  rel.delete();
-                  db.elements.deleteElement(sourceId);
-                  db.elements.deleteElement(targetId);
-                }
-              );
-            },
-          },
-        },
-        { branch: { sync: ["master"]}}, // first master->branch forward sync
-        {
-          assert({branch}) {
-            for (const rel of expectedRelationships) {
-              expect(branch.db.relationships.tryGetInstance(
-                ElementGroupsMembers.classFullName,
-                rel.idInBranch,
-              ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.be.undefined;
-              const sourceId = IModelTestUtils.queryByUserLabel(branch.db, rel.sourceLabel);
-              const targetId = IModelTestUtils.queryByUserLabel(branch.db, rel.targetLabel);
-              // Since we deleted both elements in the previous manualUpdate
-              assert(sourceId === "0" && targetId === "0", `SourceId is ${sourceId}, expected 0. TargetId is ${targetId}, expected 0.`); 
-              expect(() => branch.db.relationships.tryGetInstance(
-                ElementGroupsMembers.classFullName,
-                { sourceId, targetId },
-              ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.throw; // TODO: This shouldn't throw but it does in core due to failing to bind ids of 0.
-  
-              expect(() => branch.db.elements.getAspect(aspectId!)).to.throw("not found", `Expected aspectId: ${aspectId} to no longer be present in branch imodel.`);
+      },
+    ];
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
 
-            }
-          },
-        },
-      ];
-      const { tearDown } = await runTimeline(timeline, {
-        iTwinId,
-        accessToken,
-      });
-
-      await tearDown();
-  })
+    await tearDown();
+  });
 
   it("should skip provenance changesets made to branch during reverse sync", async () => {
     const timeline: Timeline = [

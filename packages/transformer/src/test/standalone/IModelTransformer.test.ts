@@ -209,8 +209,8 @@ describe("IModelTransformer", () => {
       targetDb.saveChanges();
       // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
       TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, /* FIXME: */ false); // Switch back to true once we have the old detect deltes behavior flag here. also enable force old provenance method.
-      // which is only used in in-imodel transformations. 
-      
+      // which is only used in in-imodel transformations.
+
       assert.equal(numTargetRelationships + targetImporter.numRelationshipsInserted - targetImporter.numRelationshipsDeleted, count(targetDb, ElementRefersToElements.classFullName));
       // FIXME: why?
       expect(count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")).to.equal(3);
@@ -229,40 +229,40 @@ describe("IModelTransformer", () => {
  * those values
  */
   // function rangesFromRangeAndSkipped(start: number, end: number, skipped: number[]): [number, number][]
-    let start = -10;
-    let end = 12;
-    let skipped = [-10, 1, -3, 5, 15];
+    const start = -10;
+    const end = 12;
+    const skipped = [-10, 1, -3, 5, 15];
     // skip at beginning of range
     let ranges = rangesFromRangeAndSkipped(start, end, skipped);
     expect(ranges).to.eql([[-9, -4], [-2, 0], [2, 4], [6, 12]]);
-    
+
     // skip first 2 at beginning of range
     ranges = rangesFromRangeAndSkipped(start,end, [-10, -9, 1, -3, 5, 15]);
-    expect(ranges).to.eql([[-8, -4], [-2, 0], [2, 4], [6, 12]])
+    expect(ranges).to.eql([[-8, -4], [-2, 0], [2, 4], [6, 12]]);
 
-    // skip first 2 at beginning of range but in reverse order 
+    // skip first 2 at beginning of range but in reverse order
     ranges = rangesFromRangeAndSkipped(-10, -8, [-9, -10]);
     expect(ranges).to.eql([[-8, -8]]);
 
     // skip first 2 at beginning of range but in reverse order, more numbers
     ranges = rangesFromRangeAndSkipped(start,end, [-9, -10, 1, -3, 5, 15]);
-    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
+    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
 
     // skip first 2 at beginning of range but move them to the end of the skipped array.
-    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15])
-    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
+    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15]);
+    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
 
     // skip first 2 at beginning of range but move them to middle and end of skipped array.
-    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15, -9, -10])
-    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]])
+    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15, -9, -10]);
+    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
 
     // Trying skip number of -8 before -10 in the array.
-    ranges = rangesFromRangeAndSkipped(start,end, [-8, -10, 1, -3, 5, 15]); 
-    expect(ranges).to.eql([[-9, -9], [-7, -4],[-2, 0], [2, 4], [6, 12]])
+    ranges = rangesFromRangeAndSkipped(start,end, [-8, -10, 1, -3, 5, 15]);
+    expect(ranges).to.eql([[-9, -9], [-7, -4],[-2, 0], [2, 4], [6, 12]]);
 
     // Repeat -9, -10 case but somewhere in the middle, -2, -3.
     ranges = rangesFromRangeAndSkipped(start,end, [-10, 1, -2, -3, 5, 15]);
-    expect(ranges).to.eql([[-9, -4],[-1, 0], [2, 4], [6, 12]])
+    expect(ranges).to.eql([[-9, -4],[-1, 0], [2, 4], [6, 12]]);
 
     // skip last 2 at end of range with positive range
     ranges = rangesFromRangeAndSkipped(8, 10, [9, 10]);
