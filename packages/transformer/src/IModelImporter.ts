@@ -631,13 +631,14 @@ export class IModelImporter implements Required<IModelImportOptions> {
       element.code.value = codeValue;
       element.update();
     }
+    this._duplicateCodeValueMap.clear();
   }
 
   /**
    * Needs to be called to perform necessary cleanup operations.
    * By not calling `finalize` there is a risk that data imported into targetDb will not be as expected.
    *
-   * @internal
+   * @note No need to call this If using [[IModelTransformer]] as it automatically invokes this method.
    */
   public finalize(): void {
     this.resolveDuplicateCodeValues();
