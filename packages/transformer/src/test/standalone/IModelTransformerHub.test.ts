@@ -680,6 +680,7 @@ describe("IModelTransformerHub", () => {
     ];
 
     const { trackedIModels, tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    masterSeedDb.close();
 
     // create empty iModel meant to contain replayed master history
     const replayedIModelName = "Replayed";
@@ -1774,6 +1775,7 @@ describe("IModelTransformerHub", () => {
     });
 
     await tearDown();
+    masterSeedDb.close();
   });
 
   it("should skip provenance changesets made to branch during reverse sync", async () => {
