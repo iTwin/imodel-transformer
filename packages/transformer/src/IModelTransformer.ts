@@ -24,7 +24,7 @@ import {
 import {
   ChangeOpCode, ChangesetIndexAndId, Code, CodeProps, CodeSpec, ConcreteEntityTypes, ElementAspectProps, ElementProps, EntityReference, EntityReferenceSet,
   ExternalSourceAspectProps, FontProps, GeometricElementProps, IModel, IModelError, ModelProps,
-  Placement2d, Placement3d, RelatedElement, SourceAndTarget,
+  Placement2d, Placement3d, PrimitiveTypeCode, PropertyMetaData, RelatedElement, SourceAndTarget
 } from "@itwin/core-common";
 import { ExportChangesOptions, ExporterInitOptions, ExportSchemaResult, IModelExporter, IModelExporterState, IModelExportHandler } from "./IModelExporter";
 import { IModelImporter, IModelImporterState, OptimizeGeometryOptions } from "./IModelImporter";
