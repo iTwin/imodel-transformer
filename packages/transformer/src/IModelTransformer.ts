@@ -645,13 +645,13 @@ export class IModelTransformer extends IModelExportHandler {
    */
   protected tryGetProvenanceScopeAspect(): ExternalSourceAspect | undefined {
     const sql = `
-    SELECT ECInstanceId
-    FROM ${ExternalSourceAspect.classFullName}
-    WHERE Scope.Id = :scopeId
-      AND Kind = :kind
-      AND Element.Id = :elementId
-      AND Identifier = :identifier
-    LIMIT 1`;
+      SELECT ECInstanceId
+      FROM ${ExternalSourceAspect.classFullName}
+      WHERE Scope.Id = :scopeId
+        AND Kind = :kind
+        AND Element.Id = :elementId
+        AND Identifier = :identifier
+      LIMIT 1`;
 
     const scopeProvenanceAspectId = this.provenanceDb.withPreparedStatement(sql, (stmt) => {
       stmt.bindId("scopeId", IModel.rootSubjectId);
