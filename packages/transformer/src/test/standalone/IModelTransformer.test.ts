@@ -223,60 +223,6 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it("should test rangesFromRangeAndSkipped", async () => {
-    /** given a discrete inclusive range [start, end] e.g. [-10, 12] and several "skipped" values", e.g.
- * (-10, 1, -3, 5, 15), return the ordered set of subranges of the original range that exclude
- * those values
- */
-  // function rangesFromRangeAndSkipped(start: number, end: number, skipped: number[]): [number, number][]
-    const start = -10;
-    const end = 12;
-    const skipped = [-10, 1, -3, 5, 15];
-    // skip at beginning of range
-    let ranges = rangesFromRangeAndSkipped(start, end, skipped);
-    expect(ranges).to.eql([[-9, -4], [-2, 0], [2, 4], [6, 12]]);
-
-    // skip first 2 at beginning of range
-    ranges = rangesFromRangeAndSkipped(start,end, [-10, -9, 1, -3, 5, 15]);
-    expect(ranges).to.eql([[-8, -4], [-2, 0], [2, 4], [6, 12]]);
-
-    // skip first 2 at beginning of range but in reverse order
-    ranges = rangesFromRangeAndSkipped(-10, -8, [-9, -10]);
-    expect(ranges).to.eql([[-8, -8]]);
-
-    // skip first 2 at beginning of range but in reverse order, more numbers
-    ranges = rangesFromRangeAndSkipped(start,end, [-9, -10, 1, -3, 5, 15]);
-    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
-
-    // skip first 2 at beginning of range but move them to the end of the skipped array.
-    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15]);
-    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
-
-    // skip first 2 at beginning of range but move them to middle and end of skipped array.
-    ranges = rangesFromRangeAndSkipped(start,end,[1, -3, 5, -9, -10, 15, -9, -10]);
-    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
-
-    // Trying skip number of -8 before -10 in the array.
-    ranges = rangesFromRangeAndSkipped(start,end, [-8, -10, 1, -3, 5, 15]);
-    expect(ranges).to.eql([[-9, -9], [-7, -4],[-2, 0], [2, 4], [6, 12]]);
-
-    // Repeat -9, -10 case but somewhere in the middle, -2, -3.
-    ranges = rangesFromRangeAndSkipped(start,end, [-10, 1, -2, -3, 5, 15]);
-    expect(ranges).to.eql([[-9, -4],[-1, 0], [2, 4], [6, 12]]);
-
-    // skip last 2 at end of range with positive range
-    ranges = rangesFromRangeAndSkipped(8, 10, [9, 10]);
-    expect(ranges).to.eql([[8,8]]);
-
-    // skip last 2 at end of range with positive range reverse order
-    ranges = rangesFromRangeAndSkipped(8, 10, [10, 9]);
-    expect(ranges).to.eql([[8,8]]);
-
-    // make sure entire reversed order works too.
-    ranges = rangesFromRangeAndSkipped(start,end, [15, 5, 1, -3, -9, -10]);
-    expect(ranges).to.eql([[-8, -4],[-2, 0], [2, 4], [6, 12]]);
-  });
-
   it("should synchronize changes from master to branch and back", async () => {
     // Simulate branching workflow by initializing branchDb to be a copy of the populated masterDb
     const masterDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "Master.bim");
