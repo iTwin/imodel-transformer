@@ -1698,7 +1698,7 @@ describe("IModelTransformerHub", () => {
       { sourceLabel: "41", targetLabel: "42", idInBranch: "not inserted yet", sourceFedGuid: false, targetFedGuid: false },
     ];
 
-    let aspectId: Id64String | undefined;
+    let aspectIdForRelationship: Id64String | undefined;
     const timeline: Timeline = [
       { master: { seed: masterSeed } },
       { branch: { branch: "master" } },
@@ -1720,10 +1720,18 @@ describe("IModelTransformerHub", () => {
       { master: { sync: ["branch"] } }, // first master<-branch reverse sync
       {
         assert({branch}) {
-          // expectedRelationships[1] has no fedguids, so expect to find an esa.
+          // expectedRelationships[1] has no fedguids, so expect to find 2 esas. One for the relationship and one for the element's own provenance.
           const sourceId = IModelTestUtils.queryByUserLabel(branch.db, expectedRelationships[1].sourceLabel);
-          aspectId = branch.db.elements.getAspects(sourceId, ExternalSourceAspect.classFullName)[0].id;
-          assert(Id64.isValid(aspectId));
+          const aspects = branch.db.elements.getAspects(sourceId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+          assert(aspects.length === 2);
+          let foundElementEsa = false;
+          for (const aspect of aspects) {
+            if (aspect.kind === "Element")
+              foundElementEsa = true;
+            else if (aspect.kind === "Relationship")
+              aspectIdForRelationship = aspect.id;
+          }
+          assert(aspectIdForRelationship && Id64.isValid(aspectIdForRelationship) && foundElementEsa);
         },
       },
       {
@@ -1757,13 +1765,13 @@ describe("IModelTransformerHub", () => {
             const sourceId = IModelTestUtils.queryByUserLabel(branch.db, rel.sourceLabel);
             const targetId = IModelTestUtils.queryByUserLabel(branch.db, rel.targetLabel);
             // Since we deleted both elements in the previous manualUpdate
-            assert(Id64.isInvalid(sourceId) && Id64.isInvalid(targetId)), `SourceId is ${sourceId}, expected ${Id64.invalid}. TargetId is ${targetId}, expected ${Id64.invalid}.`);
+            assert(Id64.isInvalid(sourceId) && Id64.isInvalid(targetId), `SourceId is ${sourceId}, TargetId is ${targetId}. Expected both to be ${Id64.invalid}.`);
             expect(() => branch.db.relationships.tryGetInstance(
               ElementGroupsMembers.classFullName,
               { sourceId, targetId },
             ), `had ${rel.sourceLabel}->${rel.targetLabel}`).to.throw; // TODO: This shouldn't throw but it does in core due to failing to bind ids of 0.
 
-            expect(() => branch.db.elements.getAspect(aspectId!)).to.throw("not found", `Expected aspectId: ${aspectId} to no longer be present in branch imodel.`);
+            expect(() => branch.db.elements.getAspect(aspectIdForRelationship!)).to.throw("not found", `Expected aspectId: ${aspectIdForRelationship} to no longer be present in branch imodel.`);
           }
         },
       },
@@ -2007,4 +2015,3 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 });
-

@@ -153,7 +153,6 @@ export interface TimelineIModelElemStateDelta {
   [name: string]: TimelineElemDelta;
 }
 
-
 /** [name: string]: Becomes the userlabel / codevalue of a physical object in the iModel.
 * Note that since JS converts all keys to strings, passing keys as numbers is also allowed. They will be converted to strings.
 * TimelineElemState if it is a number sets a json property on the physicalobject to the number provided.
