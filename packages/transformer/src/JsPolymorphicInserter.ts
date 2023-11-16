@@ -149,7 +149,7 @@ interface PolymorphicEntityQueries<
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
   update: Map<string, (
     db: ECDb,
-    json: any,
+    json: any, // FIXME: for now must include the correct id
     jsonString: any, // FIXME: TEMP
     binaryValues?: Record<string, Uint8Array>,
     /** extra bindings are ignored if they do not exist in the class */
@@ -918,12 +918,18 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const json = JSON.parse(jsonString);
       const classFullName = sourceElemSecondPassReader.current[1];
       const sourceId = sourceElemSecondPassReader.current[2];
+      // FIXME: can't handle ~>2**53 ids (briefcase > 2**13)
+      const targetIdInt = remapTables.element.get(parseInt(sourceId, 16));
+      assert(targetIdInt !== undefined);
+      const targetId = `0x${targetIdInt.toString(16)}`;
       assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
       const geomStreamVal = geomStmt.getValue(0);
       const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
 
       const updateQuery = queryMap.update.get(classFullName);
       assert(updateQuery, `couldn't find update query for class '${classFullName}`);
+
+      json.ECInstanceId = targetId;
 
       updateQuery(
         writeableTarget,
