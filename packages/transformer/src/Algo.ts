@@ -44,7 +44,6 @@ function findRangeContaining(pt: number, inRanges: [number, number][]): number {
   let begin = 0;
   let end = inRanges.length - 1;
   while (end >= begin) {
-    // Instead of Math.floor we could use bitwise operators like ~~ to floor, which seems slightly faster. But I'm not sure of the full effect of that change.
     const mid = begin + Math.floor((end - begin) / 2);
     const range = inRanges[mid];
 
