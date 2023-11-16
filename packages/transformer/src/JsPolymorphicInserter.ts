@@ -1,4 +1,4 @@
-import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, IModelHost } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -375,7 +375,7 @@ async function createPolymorphicEntityQueryMap<
           [
             { name: "ECInstanceId", propertyType: PropertyType.Long },
             ...nonBinaryProperties,
-            ...binaryProperties,
+            //...binaryProperties, // FIXME: handled by blobIO
           ]
           .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
@@ -414,7 +414,7 @@ async function createPolymorphicEntityQueryMap<
               ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
               : `JSON_EXTRACT(:x, '$.${p.name}')`
             ),
-          ...binaryProperties.map((p) => `:p_${p.name}`),
+          //...binaryProperties.map((p) => `:p_${p.name}`), // FIXME: handled by blobio
         ].join(",\n")}
       )
     `;
@@ -495,10 +495,33 @@ async function createPolymorphicEntityQueryMap<
               targetStmt.bindString(":x_col1", json);
             if (sqlInfo.needsEcId)
               targetStmt.bindId(ecIdBinding, id);
-            for (const [name, value] of Object.entries(binaryValues))
-              targetStmt.bindBlob(`:p_${name}_col1`, value); // NOTE: ECSQL param mangling
+            // FIXME: remove since this is now handled by blobIO
+            //for (const [name, value] of Object.entries(binaryValues))
+              //targetStmt.bindBlob(`:p_${name}_col1`, value); // NOTE: ECSQL param mangling
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
           });
+        }
+
+        for (const [name, value] of Object.entries(binaryValues)) {
+          const blobIO = new IModelHost.platform.BlobIO();
+          try {
+            blobIO.openEc(ecdb.nativeDb, {
+              classFullName,
+              id,
+              propertyAccessString: name,
+              writeable: true,
+            });
+
+            blobIO.write({
+              blob: value.buffer,
+              offset: value.byteOffset,
+              numBytes: value.byteLength,
+            });
+          } catch (err) {
+            // FIXME: should better handle null blobs
+            if (!/cannot open value of type null/.test(ecdb.nativeDb.getLastError()))
+              throw err;
+          }
         }
 
         return id;
@@ -662,15 +685,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   target.close();
   const writeableTarget = new ECDb();
   writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
-
-  // use wal mode since only IModelDb uses that by default
-  writeableTarget.withSqliteStatement(`
-    PRAGMA journal_mode=WAL;
-  `, (s) => {
-    assert(s.step() === DbResult.BE_SQLITE_ROW);
-    assert.equal(s.getValue(0).getString(), "wal");
-    assert(s.step() === DbResult.BE_SQLITE_DONE);
-  });
 
   const remapTables = {
     element: new CompactRemapTable(),
@@ -1005,7 +1019,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
   writeableTarget.clearStatementCache(); // so we can detach attached db
+
   writeableTarget.saveChanges();
+
   writeableTarget.closeDb();
 
   return remapper;
