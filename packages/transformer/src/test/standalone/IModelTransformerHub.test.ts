@@ -638,7 +638,7 @@ describe("IModelTransformerHub", () => {
       {
         master: {
           manualUpdate(db) {
-            // FIXME: also delete an element and merge that
+            // FIXME: delete both a relationship and one of its source or target elements
             relationships.forEach(
               ({ sourceLabel, targetLabel }) => {
                 const sourceId = IModelTestUtils.queryByUserLabel(db, sourceLabel);
@@ -730,9 +730,6 @@ describe("IModelTransformerHub", () => {
         }
         return result;
       };
-
-      // FIXME: need to figure out how best to add the new restriction that transformers should not be
-      // reused across processChanges calls (or remove that restriction)
 
       // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
       const replayInitTransformer = makeReplayTransformer();
@@ -1751,7 +1748,6 @@ describe("IModelTransformerHub", () => {
           classFullName: ExternalSourceAspect.classFullName,
           element: { id: elemId },
           scope: { id: IModel.dictionaryId },
-          // FIXME: change
           kind: "Element",
           identifier: "bar code",
         } as ExternalSourceAspectProps);

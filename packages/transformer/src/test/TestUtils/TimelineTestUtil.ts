@@ -12,7 +12,7 @@ import {
 
 import { ChangesetIdWithIndex, Code, ElementProps, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelTransformOptions, IModelTransformer } from "../../transformer";
+import { IModelTransformer, IModelTransformOptions } from "../../transformer";
 import { HubWrappers, IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";

@@ -81,6 +81,7 @@ export interface IModelTransformOptions {
   wasSourceIModelCopiedToTarget?: boolean;
 
   // FIXME: deprecate this, we should now be able to detect it from the external source aspect data
+  // add property
   /** Flag that indicates that the current source and target iModels are now synchronizing in the reverse direction from a prior synchronization.
    * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
    * This means that the provenance on the (current) source is used instead.
@@ -162,7 +163,6 @@ export interface IModelTransformOptions {
    */
   forceExternalSourceAspectProvenance?: boolean;
 
-  // FIXME: test changecache reusage.
   /**
    * Do not detach the change cache that we build. Use this if you want to do multiple transformations to
    * the same iModels, to avoid the performance cost of reinitializing the change cache which can be
@@ -172,7 +172,6 @@ export interface IModelTransformOptions {
    */
   noDetachChangeCache?: boolean;
 
-  // FIXME: consider "deprecating"
   /**
    * Do not check that processChanges is called from the next changeset index.
    * This is an unsafe option (e.g. it can cause data loss in future branch operations)
@@ -269,7 +268,10 @@ export interface InitOptions {
  * Arguments for [[IModelTransformer.processChanges]]
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface ProcessChangesOptions extends ExportChangesOptions {}
+export interface ProcessChangesOptions extends ExportChangesOptions {
+  /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
+  saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>;
+}
 
 type ChangeDataState = "uninited" | "has-changes" | "no-changes" | "unconnected";
 
@@ -462,6 +464,7 @@ export class IModelTransformer extends IModelExportHandler {
     args: {
       sourceDb: IModelDb;
       targetDb: IModelDb;
+      // FIXME: deprecate isReverseSync option and instead detect from targetScopeElement provenance
       isReverseSynchronization: boolean;
       targetScopeElementId: Id64String;
     },
@@ -523,7 +526,7 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
-  // FIXME: add test using this
+  // FIXME: add test transforming using this, then switching to new transform method
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
    * It should (and now by default does) instead insert provenance pointing to the provenanceSource
@@ -533,12 +536,11 @@ export class IModelTransformer extends IModelExportHandler {
   private _forceOldRelationshipProvenanceMethod = false;
 
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
-  private initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
+  public initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps {
     return IModelTransformer.initElementProvenanceOptions(
       sourceElementId,
       targetElementId,
       {
-        // FIXME: deprecate isReverseSync option and instead detect from targetScopeElement provenance
         isReverseSynchronization: !!this._options.isReverseSynchronization,
         targetScopeElementId: this.targetScopeElementId,
         sourceDb: this.sourceDb,
@@ -959,7 +961,6 @@ export class IModelTransformer extends IModelExportHandler {
     `;
 
     for (const changeSummaryId of this._changeSummaryIds) {
-      // FIXME: test deletion in both forward and reverse sync
       this.sourceDb.withPreparedStatement(deletedEntitySql, (stmt) => {
         stmt.bindInteger("opDelete", ChangeOpCode.Delete);
         if (queryCanAccessProvenance)
@@ -977,7 +978,8 @@ export class IModelTransformer extends IModelExportHandler {
             // identifier must be coalesced in JS due to an ESCQL bug, so there are multiple columns
             if (queryCanAccessProvenance)  {
               identifierValue = stmt.getValue(7);
-              if (identifierValue.isNull) identifierValue = stmt.getValue(8);
+              if (identifierValue.isNull)
+                identifierValue = stmt.getValue(8);
             }
 
             // TODO: if I could attach the second db, will probably be much faster to get target id
@@ -989,7 +991,7 @@ export class IModelTransformer extends IModelExportHandler {
               // maybe batching these queries would perform better but we should
               // try to attach the second db and query both together anyway
               || (sourceElemFedGuid && this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid))
-              // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
+              // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
               || this._queryProvenanceForElement(instId);
 
             // since we are processing one changeset at a time, we can see local source deletes
@@ -1021,7 +1023,8 @@ export class IModelTransformer extends IModelExportHandler {
               // identifier must be coalesced in JS due to an ESCQL bug, so there are multiple columns
               if (queryCanAccessProvenance)  {
                 identifierValue = stmt.getValue(identifierColumns.a);
-                if (identifierValue.isNull) identifierValue = stmt.getValue(identifierColumns.b);
+                if (identifierValue.isNull)
+                  identifierValue = stmt.getValue(identifierColumns.b);
               }
 
               return (
@@ -1044,7 +1047,7 @@ export class IModelTransformer extends IModelExportHandler {
                 targetIdInTarget,
               });
             } else {
-              // FIXME: describe why it's safe to assume nothing has been deleted in provenanceDb
+              // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
               const relProvenance = this._queryProvenanceForRelationship(instId, {
                 classFullName,
                 sourceId: stmt.getValue(2).getId(),
@@ -1195,11 +1198,16 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Not relevant for processChanges when change history is known.
    */
   protected shouldDetectDeletes(): boolean {
-    // FIXME: all synchronizations should mark this as false
+    // FIXME: all synchronizations should mark this as false, but we can probably change this
+    // to just follow the new deprecated option
     if (this._isFirstSynchronization)
       return false; // not necessary the first time since there are no deletes to detect
 
     if (this._options.isReverseSynchronization)
+      return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
+
+    // FIXME: do any tests fail? if not, consider using @see _isSynchronization
+    if (this._isForwardSynchronization)
       return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
 
     return true;
@@ -1208,7 +1216,8 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * Detect Element deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against Elements
    * in the source iModel.
-   * @deprecated in 0.1.x. This method is only called during [[processAll]] when the option
+   * @deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
+   * This method is only called during [[processAll]] when the option
    * [[IModelTransformerOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
    * necessary when using [[processChanges]] since changeset information is sufficient.
    * @note you do not need to call this directly unless processing a subset of an iModel.
@@ -1224,7 +1233,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     nodeAssert(
       !this._options.isReverseSynchronization,
-      "synchronizations with processChagnes already detect element deletes, don't call detectElementDeletes"
+      "synchronizations with processChanges already detect element deletes, don't call detectElementDeletes"
     );
 
     this.provenanceDb.withPreparedStatement(sql, (stmt) => {
@@ -1279,7 +1288,7 @@ export class IModelTransformer extends IModelExportHandler {
     provenanceAspectId?: Id64String;
   }> = undefined;
 
-  // FIXME: this is a PoC, see if we minimize memory usage
+  // TODO: this is a PoC, see if we minimize memory usage
   private _cacheSourceChanges() {
     nodeAssert(this._changeSummaryIds && this._changeSummaryIds.length > 0, "should have changeset data by now");
     this._hasElementChangedCache = new Set();
@@ -1289,7 +1298,7 @@ export class IModelTransformer extends IModelExportHandler {
         ic.ChangedInstance.Id AS InstId
       FROM ecchange.change.InstanceChange ic
       JOIN iModelChange.Changeset imc ON ic.Summary.Id=imc.Summary.Id
-      -- FIXME: do relationship entities also need this cache optimization?
+      -- TODO: do relationship entities also need this cache optimization?
       WHERE ic.ChangedInstance.ClassId IS (BisCore.Element)
         AND InVirtualSet(:changeSummaryIds, ic.Summary.Id)
         -- ignore deleted, we take care of those in remapDeletedSourceEntities
@@ -1586,9 +1595,8 @@ export class IModelTransformer extends IModelExportHandler {
     // Other transformer subclasses must insert the appropriate aspect (as provided by a TBD API)
     // when splitting/joining elements
     // physical consolidation is an example of a 'joining' transform
-    // FIXME: document this externally!
-    // verify at finalization time that we don't lose provenance on new elements
-    // make public and improve `initElementProvenance` API for usage by consolidators
+    // FIXME: verify at finalization time that we don't lose provenance on new elements
+    // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
     if (!this._options.noProvenance) {
       let provenance: Parameters<typeof this.markLastProvenance>[0] | undefined
         = this._options.forceExternalSourceAspectProvenance || this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)
@@ -1826,6 +1834,8 @@ export class IModelTransformer extends IModelExportHandler {
       // FIXME: force save for the user to prevent that
       for (let i = this._startingChangesetIndices.target + 1; i <= this.targetDb.changeset.index + 1; i++)
         syncChangesetsToUpdate.push(i);
+      // FIXME: add test to synchronize an iModel that is not at the tip, since then clearning syncChangesets is
+      // probably wrong, and we should filter it instead
       syncChangesetsToClear.length = 0;
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
@@ -1845,12 +1855,13 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
-  // FIXME: is this necessary when manually using low level transform APIs?
+  // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private finalizeTransformation() {
     this.importer.finalize();
     this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
+      // FIXME: throw in this case if danglingReferenceBehavior === reject
       Logger.logWarning(
         loggerCategory,
         [
@@ -1865,7 +1876,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    // FIXME: make processAll have a try {} finally {} that cleans this up
+    // TODO: ignore if we remove change cache usage
     if (!this._options.noDetachChangeCache) {
       if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
         ChangeSummaryManager.detachChangeCache(this.sourceDb);
@@ -1937,7 +1948,7 @@ export class IModelTransformer extends IModelExportHandler {
       sourceId: deletedRelData.sourceIdInTarget,
       targetId: deletedRelData.targetIdInTarget,
     } as SourceAndTarget;
-    //
+
     // FIXME: make importer.deleteRelationship not need full props
     const targetRelationship = this.targetDb.relationships.tryGetInstance(
       deletedRelData.classFullName,
@@ -1956,7 +1967,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _yieldManager = new YieldManager();
 
   /** Detect Relationship deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against relationships in the source iModel.
-   * @deprecated
+   * @deprecated in 1.x. Don't use this anymore
    * @see processChanges
    * @note This method is called from [[processAll]] and is not needed by [[processChanges]], so it only needs to be called directly when processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
@@ -1978,8 +1989,9 @@ export class IModelTransformer extends IModelExportHandler {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const sourceRelInstanceId: Id64String = Id64.fromJSON(statement.getValue(1).getString());
         if (undefined === this.sourceDb.relationships.tryGetInstanceProps(ElementRefersToElements.classFullName, sourceRelInstanceId)) {
-          // FIXME: make sure matches new provenance-based method
-          // FIXME: use sql JSON_EXTRACT
+          // this function exists only to support some in-imodel transformations, which must
+          // use the old (external source aspect) provenance method anyway so we don't need to support
+          // new provenance
           const json: any = JSON.parse(statement.getValue(2).getString());
           if (undefined !== json.targetRelInstanceId) {
             const targetRelationship: Relationship = this.targetDb.relationships.getInstance(ElementRefersToElements.classFullName, json.targetRelInstanceId);
@@ -2308,6 +2320,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
     await this.exporter.exportRelationships(ElementRefersToElements.classFullName);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
+    // FIXME: add a deprecated option to force run these, don't otherwise
     if (this.shouldDetectDeletes()) {
       await this.detectElementDeletes();
       await this.detectRelationshipDeletes();
@@ -2560,7 +2573,6 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  // FIXME: force saveChanges after processChanges to prevent people accidentally lumping in other data
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
    * @note the transformer assumes that you saveChanges after processing changes. You should not
@@ -2581,7 +2593,6 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChanges(accessToken: AccessToken, startChangesetId?: string): Promise<void>;
   public async processChanges(optionsOrAccessToken: AccessToken | ProcessChangesOptions, startChangesetId?: string): Promise<void> {
     this._isSynchronization = true;
-    // FIXME: we used to validateScopeProvenance... does initing it cover that?
     this.initScopeProvenance();
 
     const args: ProcessChangesOptions =
@@ -2592,7 +2603,7 @@ export class IModelTransformer extends IModelExportHandler {
             ? { id: startChangesetId }
             : { index: this._synchronizationVersion.index + 1 },
         }
-        : optionsOrAccessToken
+      : optionsOrAccessToken
     ;
 
     this.logSettings();
@@ -2608,6 +2619,12 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.importer.computeProjectExtents();
     this.finalizeTransformation();
+
+    const defaultSaveTargetChanges = () => {
+      this.targetDb.saveChanges();
+    };
+
+    await (args.saveTargetChanges ?? defaultSaveTargetChanges)(this);
   }
 
   /** Changeset data must be initialized in order to build correct changeOptions.
@@ -2640,7 +2657,6 @@ export class IModelTransformer extends IModelExportHandler {
   }
 }
 
-// FIXME: update this... although resumption is broken regardless
 /** @internal the json part of a transformation's state */
 interface TransformationJsonState {
   transformerClass: string;
@@ -2720,7 +2736,7 @@ export class TemplateModelCloner extends IModelTransformer {
     // eslint-disable-next-line deprecation/deprecation
     const referenceIds = sourceElement.getReferenceConcreteIds();
     referenceIds.forEach((referenceId) => {
-      // FIXME: consider going through all definition elements at once and remapping them to themselves
+      // TODO: consider going through all definition elements at once and remapping them to themselves
       if (!EntityReferences.isValid(this.context.findTargetEntityId(referenceId))) {
         if (this.context.isBetweenIModels) {
           throw new IModelError(IModelStatus.BadRequest, `Remapping for source dependency ${referenceId} not found for target iModel`);
