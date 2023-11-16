@@ -644,27 +644,16 @@ export class IModelTransformer extends IModelExportHandler {
    * Provenance scope aspect is created and inserted into provenanceDb when [[initScopeProvenance]] is invoked.
    */
   protected tryGetProvenanceScopeAspect(): ExternalSourceAspect | undefined {
-    const sql = `
-      SELECT ECInstanceId
-      FROM ${ExternalSourceAspect.classFullName}
-      WHERE Scope.Id = :scopeId
-        AND Kind = :kind
-        AND Element.Id = :elementId
-        AND Identifier = :identifier
-      LIMIT 1`;
-
-    const scopeProvenanceAspectId = this.provenanceDb.withPreparedStatement(sql, (stmt) => {
-      stmt.bindId("scopeId", IModel.rootSubjectId);
-      stmt.bindString("kind", ExternalSourceAspect.Kind.Scope);
-      stmt.bindId("elementId", this.targetScopeElementId ?? IModel.rootSubjectId);
-      stmt.bindString("identifier", this.provenanceSourceDb.iModelId);
-      if (stmt.step() === DbResult.BE_SQLITE_ROW)
-        return stmt.getValue(0).getId();
-      return undefined;
+    const scopeProvenanceAspectId = this.queryScopeExternalSource({
+      classFullName: ExternalSourceAspect.classFullName,
+      scope: { id: IModel.rootSubjectId },
+      kind: ExternalSourceAspect.Kind.Scope,
+      element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
+      identifier: this.provenanceSourceDb.iModelId,
     });
 
-    return scopeProvenanceAspectId
-      ? this.provenanceDb.elements.getAspect(scopeProvenanceAspectId) as ExternalSourceAspect
+    return scopeProvenanceAspectId.aspectId
+      ? this.provenanceDb.elements.getAspect(scopeProvenanceAspectId.aspectId) as ExternalSourceAspect
       : undefined;
   }
 
