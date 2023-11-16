@@ -1663,7 +1663,7 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
-    const masterIModelName = "Master";
+    const masterIModelName = "MasterDeleteRelAndEnds";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
