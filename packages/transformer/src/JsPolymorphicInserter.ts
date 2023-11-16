@@ -128,7 +128,6 @@ interface PolymorphicEntityQueries<
   selectBinaries: Map<string, (
     db: ECDb | IModelDb,
     id: Id64String,
-    ignore?: Set<string>,
   ) => Record<string, Uint8Array>>;
   /** inserts without preserving references, must be updated */
   populate: Map<string, (
@@ -152,6 +151,7 @@ interface PolymorphicEntityQueries<
     db: ECDb,
     json: any,
     jsonString: any, // FIXME: TEMP
+    binaryValues?: Record<string, Uint8Array>,
     /** extra bindings are ignored if they do not exist in the class */
     extraBindings?: Record<keyof UpdateExtraBindings, any>,
     source?: { id: Id64String, db: IModelDb },
@@ -254,8 +254,8 @@ async function createPolymorphicEntityQueryMap<
 
     // excludes currently unhandled prop types and GeometryStream which is separately bound
     const binaryProperties = nonCompoundProperties
-      .filter((p) => p.propertyType === PropertyType.Binary
-                  && p.name !== "GeometryStream");
+      .filter((p) => p.propertyType === PropertyType.Binary)
+      .filter((p) => p.name !== "GeometryStream"); // FIXME: hack ignore geomstream for most stuff
     const nonBinaryProperties = nonCompoundProperties
       .filter((p) => p.propertyType !== PropertyType.Binary);
 
@@ -345,6 +345,9 @@ async function createPolymorphicEntityQueryMap<
           ),
         ...binaryProperties
           .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
+          // FIXME: cleanup
+          // geometry stream will be filled in by populate
+          .filter((p) => p.name !== "GeometryStream")
           .map((p) => `[${p.name}]`),
         ...populateBindings.map(([name]) => name),
       ].join(",\n  ")})
@@ -362,6 +365,9 @@ async function createPolymorphicEntityQueryMap<
           ),
         ...binaryProperties
           .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
+          // FIXME: cleanup
+          // geometry stream will be filled in by populate
+          .filter((p) => p.name !== "GeometryStream")
           .map((p) => `:p_${p.name}`),
         // FIXME: use the names from the values of the binding object
         ...populateBindings.map(([name]) => `:b_${name}`),
@@ -375,7 +381,6 @@ async function createPolymorphicEntityQueryMap<
           [
             { name: "ECInstanceId", propertyType: PropertyType.Long },
             ...nonBinaryProperties,
-            //...binaryProperties, // FIXME: handled by blobIO
           ]
           .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
@@ -414,7 +419,6 @@ async function createPolymorphicEntityQueryMap<
               ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
               : `JSON_EXTRACT(:x, '$.${p.name}')`
             ),
-          //...binaryProperties.map((p) => `:p_${p.name}`), // FIXME: handled by blobio
         ].join(",\n")}
       )
     `;
@@ -543,6 +547,7 @@ async function createPolymorphicEntityQueryMap<
       ecdb: ECDb,
       _jsonObj: any,
       json: any,
+      binaryValues: Record<string, Uint8Array> = {},
       bindingValues: {[S in keyof UpdateExtraBindings]?: any} = {},
       source?: { id: string, db: IModelDb },
     ) {
@@ -588,6 +593,32 @@ async function createPolymorphicEntityQueryMap<
         debugger;
         throw err;
       }
+
+      for (const [name, value] of Object.entries(binaryValues)) {
+        const blobIO = new IModelHost.platform.BlobIO();
+        try {
+          blobIO.openEc(ecdb.nativeDb, {
+            classFullName,
+            id: _jsonObj.ECInstanceId,
+            propertyAccessString: name,
+            writeable: true,
+          });
+
+          blobIO.write({
+            blob: value.buffer,
+            offset: value.byteOffset,
+            numBytes: value.byteLength,
+          });
+        } catch (err) {
+          // FIXME: should better handle null blobs
+          if (!/cannot open value of type null/.test(ecdb.nativeDb.getLastError())) {
+            console.log("last sqlite error", ecdb.nativeDb.getLastError());
+            console.log("json", _jsonObj);
+            debugger;
+            throw err;
+          }
+        }
+      }
     }
 
     // NOTE: ignored fields are still queried
@@ -597,8 +628,8 @@ async function createPolymorphicEntityQueryMap<
       WHERE ECInstanceId=?
     `;
 
-    function selectBinaries(ecdb: ECDb | IModelDb, id: Id64String, ignore = new Set()): Record<string, Uint8Array> {
-      if (binaryProperties.length - ignore.size <= 0)
+    function selectBinaries(ecdb: ECDb | IModelDb, id: Id64String): Record<string, Uint8Array> {
+      if (binaryProperties.length <= 0)
         return {};
 
       return ecdb.withPreparedStatement(selectBinariesQuery, (stmt) => {
@@ -609,11 +640,9 @@ async function createPolymorphicEntityQueryMap<
         for (let i = 0; i < binaryProperties.length; ++i) {
           const prop = binaryProperties[i];
           // FIXME: ignore is unused, remove this condition
-          if (!ignore.has(prop.name)) {
-            const value = stmt.getValue(i);
-            if (!value.isNull)
-              row[prop.name] = value.getBlob();
-          }
+          const value = stmt.getValue(i);
+          if (!value.isNull)
+            row[prop.name] = value.getBlob();
         }
         assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
         return row;
@@ -664,19 +693,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   schemaExporter.dispose();
 
   // FIXME: return all three queries instead of loading schemas
-  const queryMap = await createPolymorphicEntityQueryMap(
-    target,
-    {
-      extraBindings: {
-        update: {
-          GeometryStream: {
-            type: "bindBlob",
-            expr: (b) => `CAST(RemapGeom(${b}, 'temp.font_remap', 'temp.element_remap') AS BINARY)`,
-          },
-        },
-      },
-    },
-  );
+  const queryMap = await createPolymorphicEntityQueryMap(target);
 
   source.withPreparedStatement("PRAGMA experimental_features_enabled = true", (s) => assert(s.step() !== DbResult.BE_SQLITE_ERROR));
 
@@ -902,7 +919,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       const classFullName = sourceElemSecondPassReader.current[1];
       const sourceId = sourceElemSecondPassReader.current[2];
       assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
-      const geometryStream = geomStmt.getValue(0).getBlob();
+      const geomStreamVal = geomStmt.getValue(0);
+      const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
 
       const updateQuery = queryMap.update.get(classFullName);
       assert(updateQuery, `couldn't find update query for class '${classFullName}`);
@@ -911,7 +929,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         writeableTarget,
         json,
         jsonString,
-        { GeometryStream: geometryStream },
+        geomStream && { GeometryStream: geomStream },
+        {},
         { id: sourceId, db: source },
       );
 
