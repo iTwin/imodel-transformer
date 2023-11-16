@@ -507,7 +507,7 @@ describe("IModelTransformerHub", () => {
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
-    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (1,20,41,42)" });
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN ('1','20','41','42')" });
     for (const elemId of noFedGuidElemIds)
       masterSeedDb.withSqliteStatement(
         `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
@@ -1673,7 +1673,7 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
-    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN (41, 42)" });
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({ from: "Bis.Element", where: "UserLabel IN ('41', '42')" });
     for (const elemId of noFedGuidElemIds)
       masterSeedDb.withSqliteStatement(
         `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
@@ -1758,7 +1758,7 @@ describe("IModelTransformerHub", () => {
             const sourceId = IModelTestUtils.queryByUserLabel(branch.db, rel.sourceLabel);
             const targetId = IModelTestUtils.queryByUserLabel(branch.db, rel.targetLabel);
             // Since we deleted both elements in the previous manualUpdate
-            assert(sourceId === "0" && targetId === "0", `SourceId is ${sourceId}, expected 0. TargetId is ${targetId}, expected 0.`);
+            assert(Id64.isInvalid(sourceId) && Id64.isInvalid(targetId)), `SourceId is ${sourceId}, expected ${Id64.invalid}. TargetId is ${targetId}, expected ${Id64.invalid}.`);
             expect(() => branch.db.relationships.tryGetInstance(
               ElementGroupsMembers.classFullName,
               { sourceId, targetId },
