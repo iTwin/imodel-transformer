@@ -1747,7 +1747,7 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      { branch: { sync: ["master"]}}, // first master->branch forward sync
+      { branch: { sync: ["master"]}}, // master->branch forward sync
       {
         assert({branch}) {
           for (const rel of expectedRelationships) {
