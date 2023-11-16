@@ -552,7 +552,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Create an ExternalSourceAspectProps in a standard way for a Relationship in an iModel --> iModel transformations.
    * The ExternalSourceAspect is meant to be owned by the Element in the target iModel that is the `sourceId` of transformed relationship.
    * The `identifier` property of the ExternalSourceAspect will be the ECInstanceId of the relationship in the source (meaning master) iModel.
-   * The ECInstanceId of the relationship in the target(meaning branch) iModel will be stored in the JsonProperties of the ExternalSourceAspect.
+   * The ECInstanceId of the relationship in the branch iModel will be stored in the JsonProperties of the ExternalSourceAspect.
    */
   private initRelationshipProvenance(sourceRelationship: Relationship, targetRelInstanceId: Id64String): ExternalSourceAspectProps {
     return IModelTransformer.initRelationshipProvenanceOptions(
