@@ -262,7 +262,12 @@ export interface TargetScopeProvenanceJsonProps {
   reverseSyncVersion: string;
 }
 
-interface TargetScopeProvenanceJsonProps {
+/**
+ * Data type for persisting change version information within provenance Scope ExternalSourceAspect.
+ * Additionally, forward synchronization version is stored in Scope aspect's 'version' field.
+ * @beta
+ */
+export interface TargetScopeProvenanceJsonProps {
   pendingReverseSyncChangesetIndices: number[];
   pendingSyncChangesetIndices: number[];
   reverseSyncVersion: string;
@@ -861,8 +866,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** the changeset in the scoping element's source version found for this transformation
    * @note: the version depends on whether this is a reverse synchronization or not, as
-   * it is stored separately for both synchronization directions
-   * @note: empty string and -1 for changeset and index if it has never been transformed
+   * it is stored separately for both synchronization directions.
+   * @note: must call [[initScopeProvenance]] before using this property.
+   * @note: empty string and -1 for changeset and index if it has never been transformed or was transformed before federation guid update (pre 1.x).
    */
   private get _synchronizationVersion(): ChangesetIndexAndId {
     if (!this._cachedSynchronizationVersion) {
@@ -880,6 +886,51 @@ export class IModelTransformer extends IModelExportHandler {
       nodeAssert(!Number.isNaN(this._cachedSynchronizationVersion.index), "bad parse: invalid index in version");
     }
     return this._cachedSynchronizationVersion;
+  }
+
+  /** the changeset in the scoping element's source version found for this transformation
+   * @note: the version depends on whether this is a reverse synchronization or not, as
+   * it is stored separately for both synchronization directions.
+   * @note: empty string and -1 for changeset and index if it has never been transformed, or was transformed before federation guid update (pre 1.x).
+   */
+  protected get synchronizationVersion(): ChangesetIndexAndId {
+    if (this._cachedSynchronizationVersion === undefined) {
+      const provenanceScopeAspect = this.tryGetProvenanceScopeAspect();
+      if (!provenanceScopeAspect) {
+        return { index: -1, id: "" }; // first synchronization.
+      }
+
+      const version = this._options.isReverseSynchronization
+        ? (JSON.parse(provenanceScopeAspect.jsonProperties ?? "{}") as TargetScopeProvenanceJsonProps).reverseSyncVersion
+        : provenanceScopeAspect.version;
+      if (!version) {
+        return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
+      }
+
+      const [id, index] = version.split(";");
+      if (Number.isNaN(Number(index)))
+        throw new Error("Could not parse version data from scope aspect");
+      this._cachedSynchronizationVersion = { index: Number(index), id }; // synchronization version found and cached.
+    }
+    return this._cachedSynchronizationVersion;
+  }
+
+  /**
+   * @returns provenance scope aspect if it exists in the provenanceDb.
+   * Provenance scope aspect is created and inserted into provenanceDb when [[initScopeProvenance]] is invoked.
+   */
+  protected tryGetProvenanceScopeAspect(): ExternalSourceAspect | undefined {
+    const scopeProvenanceAspectId = this.queryScopeExternalSource({
+      classFullName: ExternalSourceAspect.classFullName,
+      scope: { id: IModel.rootSubjectId },
+      kind: ExternalSourceAspect.Kind.Scope,
+      element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
+      identifier: this.provenanceSourceDb.iModelId,
+    });
+
+    return scopeProvenanceAspectId.aspectId
+      ? this.provenanceDb.elements.getAspect(scopeProvenanceAspectId.aspectId) as ExternalSourceAspect
+      : undefined;
   }
 
   /**
