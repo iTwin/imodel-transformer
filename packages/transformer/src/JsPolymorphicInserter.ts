@@ -150,6 +150,7 @@ interface Bindings {
 /** each key is a map of entity class names to its query for that key's type */
 interface PolymorphicEntityQueries<
   PopulateExtraBindings extends Bindings,
+  InsertExtraBindings extends Bindings,
   UpdateExtraBindings extends Bindings,
 > {
   selectBinaries: Map<string, (
@@ -171,6 +172,7 @@ interface PolymorphicEntityQueries<
     json: any,
     jsonString: any, // FIXME: TEMP
     binaryValues?: Record<string, Uint8Array>,
+    extraBindings?: Record<keyof InsertExtraBindings, any>,
     source?: { id: Id64String, db: IModelDb },
   ) => Id64String>;
   /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
@@ -198,6 +200,7 @@ interface PropInfo {
  */
 async function createPolymorphicEntityQueryMap<
   PopulateExtraBindings extends Bindings,
+  InsertExtraBindings extends Bindings,
   UpdateExtraBindings extends Bindings
 >(
   db: IModelDb,
@@ -205,9 +208,10 @@ async function createPolymorphicEntityQueryMap<
     extraBindings?: {
       populate?: PopulateExtraBindings;
       update?: UpdateExtraBindings;
+      insert?: InsertExtraBindings;
     };
   } = {}
-): Promise<PolymorphicEntityQueries<PopulateExtraBindings, UpdateExtraBindings>> {
+): Promise<PolymorphicEntityQueries<PopulateExtraBindings, InsertExtraBindings, UpdateExtraBindings>> {
   const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
@@ -239,7 +243,7 @@ async function createPolymorphicEntityQueryMap<
     }
   }
 
-  const result: PolymorphicEntityQueries<PopulateExtraBindings, UpdateExtraBindings> = {
+  const result: PolymorphicEntityQueries<PopulateExtraBindings, InsertExtraBindings, UpdateExtraBindings> = {
     insert: new Map(),
     populate: new Map(),
     update: new Map(),
@@ -349,7 +353,7 @@ async function createPolymorphicEntityQueryMap<
       .filter(([name]) => properties.some((p) => p.name === name));
 
     const populateProperties = nonBinaryProperties
-      .filter(p =>
+      .filter((p) =>
         p.name !== "CodeValue"
         && p.propertyType !== PropertyType.Navigation
         && p.propertyType !== PropertyType.Long
@@ -398,14 +402,21 @@ async function createPolymorphicEntityQueryMap<
       ].join(",\n  ")})
     `;
 
+    const insertBindings = Object.entries(options.extraBindings?.insert ?? {})
+      // FIXME: n^2
+      .filter(([name]) => properties.some((p) => p.name === name));
+
     const insertQuery = `
       INSERT INTO ${escapedClassFullName}
       (
         ${
           [
             { name: "ECInstanceId", propertyType: PropertyType.Long },
-            ...nonBinaryProperties,
-            ...binaryProperties,
+            ...nonBinaryProperties
+              .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
+            ...binaryProperties
+              .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
+            ...insertBindings.map((name) => ({ name, propertyType: undefined })),
           ]
           .map((p) =>
           // FIXME: note that dynamic structs are completely unhandled
@@ -423,6 +434,7 @@ async function createPolymorphicEntityQueryMap<
         ${[
           ":id",
           ...nonBinaryProperties
+            .filter((p) => !(p.name in (options.extraBindings?.insert ?? {})))
             .map((p) =>
               p.propertyType === PropertyType.Navigation
               // FIXME: need to use ECReferenceCache to get type of reference, might not be an elem
@@ -444,7 +456,10 @@ async function createPolymorphicEntityQueryMap<
               ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
               : `JSON_EXTRACT(:x, '$.${p.name}')`
             ),
-          ...binaryProperties.map((p) => `zeroblob(:s_${p.name})`),
+          ...binaryProperties
+            .filter((p) => !(p.name in (options.extraBindings?.insert ?? {})))
+            .map((p) => `zeroblob(:s_${p.name})`),
+          ...insertBindings.map(([name]) => `:b_${name}`),
         ].join(",\n")}
       )
     `;
@@ -494,6 +509,7 @@ async function createPolymorphicEntityQueryMap<
       _jsonObj: any,
       json: string,
       binaryValues: Record<string, Uint8Array> = {},
+      bindingValues: {[S in keyof InsertExtraBindings]?: any} = {},
       source?: { id: string, db: IModelDb }
     ) {
       if (hackedRemapInsertSql === undefined) {
@@ -528,6 +544,13 @@ async function createPolymorphicEntityQueryMap<
 
             for (const [name, value] of Object.entries(binaryValues))
               targetStmt.bindInteger(`:s_${name}_col1`, value.byteLength); // NOTE: ECSQL param mangling
+
+            for (const [name, data] of populateBindings) {
+              const bindingValue = bindingValues[name];
+              // FIXME: why does typescript hate me
+              if (bindingValue)
+                (targetStmt as any)[data?.type ?? "bindInteger"](`b_${name}`, bindingValue);
+            }
 
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
           });
@@ -692,8 +715,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // FIXME: return all three queries instead of loading schemas
   const queryMap = await createPolymorphicEntityQueryMap(target, {
     extraBindings: {
-      update: {
+      insert: {
         GeometryStream: {
+          // it will be written with blob io...
           expr: (b) => `zeroblob(${b})`,
         },
       },
@@ -822,67 +846,39 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       return parseInt(s.getValue(0).getId(), 16);
     }));
 
+  // FIXME: can't handle float64 unsafe integers (e.g. >2**53 or briefcase id > 2**13)
+  const numIdToId64 = (id: number | undefined): Id64String =>
+    id === 0 || id === undefined ? "0" : `0x${id.toString(16)}`;
+  const id64ToNumId = (id: Id64String): number => parseInt(id, 16);
+
   // FIXME: doesn't support high briefcase ids (> 2 << 13)!
   const useElemId = () => `0x${(_nextElemId++).toString(16)}`;
   const useInstanceId = () => `0x${(_nextInstanceId++).toString(16)}`;
 
-  const sourceElemSelect = `
-    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId,
-           m.$, ec_classname(m.ECClassId, 's.c')
+  const sourceElemRemapSelect = `
+    SELECT e.ECInstanceId,
     FROM bis.Element e
-    -- FIXME: is it faster to use the new $->Blah syntax?
-    LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
-    -- FIXME: ordering by class *might* be faster due to less cache busting
-    -- ORDER BY ECClassId, ECInstanceId ASC
     ORDER BY e.ECInstanceId ASC
   `;
 
-  // first pass, update everything with trivial references (0 and null codes)
-  // FIXME: technically could do it all in one pass if we preserve distances between rows and
+  // first pass, populate the id map
+  // FIXME: technically could do it all in one pass if we assume everything will have the same id moved
   // just offset all references by the count of rows in the source...
   //
   // Might be useful to still do two passes though in a filter-heavy transform... we can always
   // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
   // in the IDs and redo it?
-  console.log("populate elements");
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
-  while (await sourceElemFirstPassReader.step()) {
-    const elemJsonString = sourceElemFirstPassReader.current[0] as string;
-    const elemJson = JSON.parse(elemJsonString);
-    const elemClass = sourceElemFirstPassReader.current[1];
-    const sourceId = sourceElemFirstPassReader.current[2];
-    const modelJsonString = sourceElemFirstPassReader.current[3];
-    const modelJson = modelJsonString !== undefined && JSON.parse(modelJsonString);
-    const modelClass = sourceElemFirstPassReader.current[4];
-
-    const elemPopulateQuery = queryMap.populate.get(elemClass);
-    assert(elemPopulateQuery, `couldn't find insert query for class '${elemClass}'`);
-    const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
-    assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
-
-    const binaryValues = elemBinaryPropsQuery(source, sourceId);
-
-    const targetId = elemPopulateQuery(
-      writeableTarget,
-      elemJson,
-      binaryValues,
-    );
-
-    if (modelJson) {
-      const modelInsertQuery = queryMap.insert.get(modelClass);
-      assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
-
-      // FIXME: not yet handling binary properties on these
-      modelInsertQuery(writeableTarget, targetId, modelJson, modelJsonString);
-    }
-
+  console.log("generate elements remap tables");
+  const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect, undefined, { abbreviateBlobs: true });
+  while (await sourceElemRemapPassReader.step()) {
+    const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
+    const targetId = useElemId();
     // FIXME: doesn't support briefcase ids > 2**13 - 1
     remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
-
-    incrementStmtsExeced();
   }
 
+  // give sqlite the tables
   for (const name of ["element", "codespec", "aspect", "font"] as const) {
     for (const run of remapTables[name].runs()) {
       writeableTarget.withPreparedSqliteStatement(`
@@ -896,15 +892,23 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   }
 
-  const sourceElemForHydrate = `
-    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId
+  const sourceElemSelect = `
+    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId,
+           m.$, ec_classname(m.ECClassId, 's.c')
     FROM bis.Element e
+    -- FIXME: is it faster to use the new $->Blah syntax?
+    LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    -- FIXME: ordering by class *might* be faster due to less cache busting
+    -- ORDER BY ECClassId, ECInstanceId ASC
     ORDER BY e.ECInstanceId ASC
   `;
 
   const sourceGeomForHydrate = `
-    SELECT CAST (coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream) AS Binary)
+    SELECT CAST (RemapGeom(
+        coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream),
+        'temp.font_remap', 'temp.element_remap'
+      ) AS Binary)
     FROM bis.Element e
     LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
     LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
@@ -913,37 +917,58 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     ORDER BY e.ECInstanceId ASC
   `;
-
-  // second pass, update now that remap tables have been created
-  console.log("hydrate elements");
-  const sourceElemSecondPassReader = source.createQueryReader(sourceElemForHydrate, undefined, { abbreviateBlobs: true });
+ 
+  // now insert everything now that we know ids
+  console.log("insert elements");
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
   await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
-    while (await sourceElemSecondPassReader.step()) {
-      const jsonString = sourceElemSecondPassReader.current[0];
-      const json = JSON.parse(jsonString);
-      const classFullName = sourceElemSecondPassReader.current[1];
-      const sourceId = sourceElemSecondPassReader.current[2];
-      // FIXME: can't handle ~>2**53 ids (briefcase > 2**13)
-      const targetIdInt = remapTables.element.get(parseInt(sourceId, 16));
-      assert(targetIdInt !== undefined);
-      const targetId = `0x${targetIdInt.toString(16)}`;
+    while (await sourceElemFirstPassReader.step()) {
       assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
       const geomStreamVal = geomStmt.getValue(0);
       const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
 
-      const updateQuery = queryMap.update.get(classFullName);
-      assert(updateQuery, `couldn't find update query for class '${classFullName}`);
+      const elemJsonString = sourceElemFirstPassReader.current[0] as string;
+      const elemJson = JSON.parse(elemJsonString);
+      const elemClass = sourceElemFirstPassReader.current[1];
+      const sourceId = sourceElemFirstPassReader.current[2];
+      const modelJsonString = sourceElemFirstPassReader.current[3];
+      const modelJson = modelJsonString !== undefined && JSON.parse(modelJsonString);
+      const modelClass = sourceElemFirstPassReader.current[4];
 
-      json.ECInstanceId = targetId;
+      const elemInsertQuery = queryMap.insert.get(elemClass);
+      assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
+      const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
+      assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-      updateQuery(
+      const binaryValues = elemBinaryPropsQuery(source, sourceId);
+
+      const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
+      elemJson.ECInstanceId = targetId;
+      modelJson.ECInstanceId = targetId;
+
+      elemInsertQuery(
         writeableTarget,
-        json,
-        jsonString,
-        geomStream && { GeometryStream: geomStream },
+        targetId,
+        elemJson,
+        elemJsonString,
+        {
+          ...binaryValues,
+          ...geomStream && { GeometryStream: geomStream },
+        },
         { GeometryStream: geomStream?.byteLength ?? 0 },
         { id: sourceId, db: source },
       );
+
+      if (modelJson) {
+        const modelInsertQuery = queryMap.insert.get(modelClass);
+        assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+
+        // FIXME: not yet handling binary properties on these
+        modelInsertQuery(writeableTarget, targetId, modelJson, modelJsonString);
+      }
+
+      // FIXME: doesn't support briefcase ids > 2**13 - 1
+      remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
 
       incrementStmtsExeced();
     }
@@ -955,7 +980,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert aspects");
-  // FIXME: this slowly handles binary properties!
   const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
   while (await aspectReader.step()) {
     const jsonString = aspectReader.current[0];
@@ -985,7 +1009,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert ElementRefersToElements");
-  // FIXME: this slowly handles binary properties!
   const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
   while (await elemRefersReader.step()) {
     const jsonString = elemRefersReader.current[0];
