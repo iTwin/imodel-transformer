@@ -8,7 +8,7 @@
 import { CompactRemapTable } from "../../CompactRemapTable";
 import { expect } from "chai";
 
-describe.only("CompactRemapTable", () => {
+describe("CompactRemapTable", () => {
   const _immutableBaseTable = new CompactRemapTable();
   _immutableBaseTable.remap(3, 98);
   _immutableBaseTable.remap(5, 100);
