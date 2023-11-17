@@ -1906,8 +1906,9 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
-  // FIXME<MIKE>: is this necessary when manually using lowlevel transform APIs? (document if so)
+  // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private finalizeTransformation() {
+    this.importer.finalize();
     this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
