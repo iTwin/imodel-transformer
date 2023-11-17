@@ -37,6 +37,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
+import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformer");
@@ -2509,6 +2510,116 @@ describe("IModelTransformer", () => {
       while(DbResult.BE_SQLITE_ROW === statement.step()) {
         assert(statement.getValue(0).isNull);
       }
+    });
+  });
+
+  it("should transform all aspects when detachedAspectProcessing is turned on", async () => {
+    // arrange
+    // prepare source
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessing.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DetachedAspectProcessing" } });
+    const elements = [
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
+    ];
+
+    // 10 aspects in total (5 per element)
+    elements.forEach((element) => {
+      for (let i = 0; i < 5; ++i) {
+        const aspectProps: ExternalSourceAspectProps = {
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(element),
+          identifier: `${i}`,
+          kind: "Element",
+          scope: { id: IModel.rootSubjectId, relClassName: "BisCore:ElementScopesExternalSourceIdentifier" },
+        };
+
+        sourceDb.elements.insertAspect(aspectProps);
+      }
+    });
+
+    sourceDb.saveChanges();
+
+    // create target iModel
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessing-Target.bim");
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "DetachedAspectProcessing-Target" } });
+
+    const exporter = new IModelExporter(sourceDb, DetachedExportElementAspectsStrategy);
+    const transformer = new IModelTransformer(exporter, targetDb, {
+      includeSourceProvenance: true,
+    });
+
+    // act
+    await transformer.processAll();
+    targetDb.saveChanges();
+
+    // assert
+    const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
+    elementIds.forEach((elementId) => {
+      if (elementId === IModel.rootSubjectId) {
+        return;
+      }
+      const targetAspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
+      const sourceAspects = sourceDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
+      expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
+    });
+  });
+
+  it("should transform all aspects when detachedAspectProcessing is turned on and schema name and aspect class name has SQLite reserved keyword", async () => {
+    // arrange
+    // prepare source
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessingWithReservedSQLiteKeyword.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DetachedAspectProcessingWithReservedSQLiteKeyword" } });
+    const elements = [
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
+    ];
+    const customSchema = `<?xml version="1.0" encoding="UTF-8"?>
+    <ECSchema schemaName="SELECT" alias="cs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1" description="Custom schema to test aspect class which has SQLite reserved keyword as its name">
+      <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+      <ECEntityClass typeName="JOIN" modifier="Sealed" description="Aspect class with SQLite reserved keyword">
+        <BaseClass>bis:ElementMultiAspect</BaseClass>
+      </ECEntityClass>
+    </ECSchema>
+    `;
+    await sourceDb.importSchemaStrings([customSchema]);
+
+    // 10 aspects in total (5 per element)
+    elements.forEach((element) => {
+      for (let i = 0; i < 5; ++i) {
+        const aspectProps: ElementAspectProps = {
+          classFullName: "SELECT:JOIN",
+          element: new ElementOwnsMultiAspects(element),
+        };
+
+        sourceDb.elements.insertAspect(aspectProps);
+      }
+    });
+
+    sourceDb.saveChanges();
+
+    // create target iModel
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DetachedAspectProcessingWithReservedSQLiteKeyword-Target.bim");
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, { rootSubject: { name: "DetachedAspectProcessingWithReservedSQLiteKeyword-Target" } });
+
+    const exporter = new IModelExporter(sourceDb, DetachedExportElementAspectsStrategy);
+    const transformer = new IModelTransformer(exporter, targetDb, {
+      includeSourceProvenance: true,
+    });
+
+    // act
+    await transformer.processAll();
+    targetDb.saveChanges();
+
+    // assert
+    const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
+    elementIds.forEach((elementId) => {
+      if (elementId === IModel.rootSubjectId) {
+        return;
+      }
+      const targetAspects = targetDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
+      const sourceAspects = sourceDb.elements.getAspects(elementId, ExternalSourceAspect.classFullName);
+      expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
     });
   });
 
