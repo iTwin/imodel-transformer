@@ -306,11 +306,12 @@ async function createPolymorphicEntityQueryMap<
         .join(",\n  ")
       })
       VALUES (
-        ${[
-          //":id", // FIXME: should we not use the json id?
-          ...insertProps.map((p) =>
+        ${insertProps.map((p) =>
             "expr" in p
             ? p.expr(`:b_${p.name}`)
+            // FIXME: should we not use the json id?
+            : p.name === "ECInstanceId"
+            ? ":id"
             : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
             ? `zeroblob(:s_${p.name})`
             : p.propertyType === PropertyType.Navigation
@@ -332,8 +333,8 @@ async function createPolymorphicEntityQueryMap<
             : p.propertyType === PropertyType.Point3d
             ? `JSON_EXTRACT(:x, '$.${p.name}.x'), JSON_EXTRACT(:x, '$.${p.name}.y'), JSON_EXTRACT(:x, '$.${p.name}.z')`
             : `JSON_EXTRACT(:x, '$.${p.name}')`
-          ),
-        ].join(",\n  ")}
+          )
+        .join(",\n  ")}
       )
     `;
     /* eslint-enable @typescript-eslint/indent */
