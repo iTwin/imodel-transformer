@@ -1020,6 +1020,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const json = JSON.parse(jsonString);
     const classFullName = aspectReader.current[1];
     const sourceId = aspectReader.current[2];
+    const targetId = useInstanceId();
+
+    json.ECInstanceId = targetId;
 
     const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
     assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
@@ -1027,8 +1030,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
     const binaryValues = selectBinariesQuery(source, sourceId);
-
-    const targetId = insertQuery(writeableTarget, useInstanceId(), json, jsonString, binaryValues, {}, { id: sourceId, db: source });
+    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
 
     // FIXME: do we even need aspect remap tables anymore? I don't remember
     // FIXME: doesn't support briefcase ids > 2**13 - 1
@@ -1049,6 +1051,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const json = JSON.parse(jsonString);
     const classFullName = elemRefersReader.current[1];
     const sourceId = elemRefersReader.current[2];
+    const targetId = useInstanceId();
+
+    json.ECInstanceId = targetId;
 
     const insertQuery = queryMap.insert.get(classFullName);
     assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
@@ -1057,7 +1062,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
     const binaryValues = selectBinariesQuery(source, sourceId);
 
-    insertQuery(writeableTarget, useInstanceId(), json, jsonString, binaryValues, {}, { id: sourceId, db: source });
+    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
 
     incrementStmtsExeced();
   }
