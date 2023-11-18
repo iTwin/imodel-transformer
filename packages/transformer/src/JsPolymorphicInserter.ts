@@ -2,6 +2,7 @@ import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, IModelHost, IModelJsNativ
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
+import * as url from "url";
 import { IModelTransformer } from "./IModelTransformer";
 import { CompactRemapTable } from "./CompactRemapTable";
 
@@ -36,7 +37,7 @@ const getInjectedSqlite = (query: string, db: ECDb | IModelDb) => {
 // an optimized binary search for our range query, so we should not do this via SQLite. Once we
 // get around to designing how we'll pass a JavaScript object to RemapGeom, then we can fix that.
 // That said, this should be pretty fast in our cases here regardless, since the table _should_
-// scale with briefcase count
+// scale with briefcase count well
 const remapSql = (idExpr: string, remapType: "font" | "codespec" | "aspect" | "element") => `(
   SELECT TargetId + ((${idExpr}) - SourceId)
   FROM temp.${remapType}_remap
@@ -764,14 +765,18 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   };
 
   for (const name of ["element", "codespec", "aspect", "font"] as const) {
-    // FIXME: compress this table into "runs"
-    writeableTarget.withSqliteStatement(`
-      CREATE TEMP TABLE ${name}_remap (
-        SourceId INTEGER NOT NULL PRIMARY KEY,
-        TargetId INTEGER NOT NULL,
-        Length INTEGER NOT NULL
-      )
-    `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+    // FIXME: don't do it in both connections ! currently due to blobio we need the
+    // remap table in both the source connection to use RemapGeom and the target
+    // connection for our remapping queries
+    for (const db of [source, writeableTarget]) {
+      db.withSqliteStatement(`
+        CREATE TEMP TABLE ${name}_remap (
+          SourceId INTEGER NOT NULL PRIMARY KEY,
+          TargetId INTEGER NOT NULL,
+          Length INTEGER NOT NULL
+        )
+      `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
+    }
 
     // always remap 0 to 0
     remapTables[name].remap(0, 0);
@@ -783,7 +788,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   writeableTarget.withSqliteStatement(`
-    ATTACH DATABASE 'file://${source.pathName}?mode=ro' AS source
+    ATTACH DATABASE '${url.pathToFileURL(source.pathName)}?mode=ro' AS source
   `, (s) => assert(s.step() === DbResult.BE_SQLITE_DONE));
 
   remapTables.element.remap(1, 1);
@@ -906,14 +911,16 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // give sqlite the tables
   for (const name of ["element", "codespec", "aspect", "font"] as const) {
     for (const run of remapTables[name].runs()) {
-      writeableTarget.withPreparedSqliteStatement(`
-        INSERT INTO temp.${name}_remap VALUES(?,?,?)
-      `, (targetStmt) => {
-        targetStmt.bindInteger(1, run.from);
-        targetStmt.bindInteger(2, run.to);
-        targetStmt.bindInteger(3, run.length);
-        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
-      });
+      for (const db of [source, writeableTarget]) {
+        db.withPreparedSqliteStatement(`
+          INSERT INTO temp.${name}_remap VALUES(?,?,?)
+        `, (targetStmt) => {
+          targetStmt.bindInteger(1, run.from);
+          targetStmt.bindInteger(2, run.to);
+          targetStmt.bindInteger(3, run.length);
+          assert(targetStmt.step() === DbResult.BE_SQLITE_DONE);
+        });
+      }
     }
   }
 
