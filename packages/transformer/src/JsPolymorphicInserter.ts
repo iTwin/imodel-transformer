@@ -150,22 +150,12 @@ interface Bindings {
 
 /** each key is a map of entity class names to its query for that key's type */
 interface PolymorphicEntityQueries<
-  PopulateExtraBindings extends Bindings,
   InsertExtraBindings extends Bindings,
-  UpdateExtraBindings extends Bindings,
 > {
   selectBinaries: Map<string, (
     db: ECDb | IModelDb,
     id: Id64String,
   ) => Record<string, Uint8Array>>;
-  /** inserts without preserving references, must be updated */
-  populate: Map<string, (
-    db: ECDb,
-    json: any,
-    binaryValues?: Record<string, Uint8Array>,
-    /** extra bindings are ignored if they do not exist in the class */
-    extraBindings?: Partial<Record<keyof PopulateExtraBindings, any>>,
-  ) => Id64String>;
   insert: Map<string, (
     db: ECDb,
     /** for now you must provide the id to insert on */
@@ -176,16 +166,6 @@ interface PolymorphicEntityQueries<
     extraBindings?: Partial<Record<keyof InsertExtraBindings, any>>,
     source?: { id: Id64String, db: IModelDb },
   ) => Id64String>;
-  /** FIXME: rename to hydrate? since it's not an update but hydrating populated rows... */
-  update: Map<string, (
-    db: ECDb,
-    json: any, // FIXME: for now must include the correct id
-    jsonString: any, // FIXME: TEMP
-    binaryValues?: Record<string, Uint8Array>,
-    /** extra bindings are ignored if they do not exist in the class */
-    extraBindings?: Partial<Record<keyof UpdateExtraBindings, any>>,
-    source?: { id: Id64String, db: IModelDb },
-  ) => void>;
 }
 
 interface PropInfo {
@@ -200,19 +180,15 @@ interface PropInfo {
  * by expanding its class hiearchy into a giant case statement and using JSON_Extract
  */
 async function createPolymorphicEntityQueryMap<
-  PopulateExtraBindings extends Bindings,
   InsertExtraBindings extends Bindings,
-  UpdateExtraBindings extends Bindings
 >(
   db: IModelDb,
   options: {
     extraBindings?: {
-      populate?: PopulateExtraBindings;
-      update?: UpdateExtraBindings;
       insert?: InsertExtraBindings;
     };
   } = {}
-): Promise<PolymorphicEntityQueries<PopulateExtraBindings, InsertExtraBindings, UpdateExtraBindings>> {
+): Promise<PolymorphicEntityQueries<InsertExtraBindings>> {
   const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
@@ -244,10 +220,8 @@ async function createPolymorphicEntityQueryMap<
     }
   }
 
-  const result: PolymorphicEntityQueries<PopulateExtraBindings, InsertExtraBindings, UpdateExtraBindings> = {
+  const result: PolymorphicEntityQueries<InsertExtraBindings> = {
     insert: new Map(),
-    populate: new Map(),
-    update: new Map(),
     selectBinaries: new Map(),
   };
 
@@ -268,7 +242,7 @@ async function createPolymorphicEntityQueryMap<
     // TODO FIXME: support this
     const nonCompoundProperties = properties
       .filter((p) => !(
-           p.propertyType === PropertyType.Struct
+        p.propertyType === PropertyType.Struct
         || p.propertyType === PropertyType.Struct_Array
         || p.propertyType === PropertyType.Binary_Array
         || p.propertyType === PropertyType.Boolean_Array
@@ -291,118 +265,7 @@ async function createPolymorphicEntityQueryMap<
     const nonBinaryProperties = nonCompoundProperties
       .filter((p) => !(p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"));
 
-    const updateBindings = Object.entries(options.extraBindings?.update ?? {})
-      // FIXME: n^2
-      .filter(([name]) => properties.find((p) => p.name === name));
-
     const defaultExpr = (binding: string) => binding;
-
-    // FIXME: remove populate/update queries
-    interface UpdateProp extends PropInfo {
-      isExtraBinding?: boolean;
-      expr: (binding: string) => string;
-    }
-
-    /* eslint-disable @typescript-eslint/indent */
-    const updateProps = (properties as UpdateProp[])
-      .filter((p) =>
-        (p.propertyType === PropertyType.Navigation
-          || p.name === "CodeValue" // FIXME: check correct CodeValue property
-          || p.propertyType === PropertyType.Long)
-        // FIXME: n^2
-        && !updateBindings.some(([name]) => name === p.name))
-      .concat(updateBindings.map(([name, data]) => ({
-        name,
-        isReadOnly: false,
-        propertyType: data?.type ? supportedBindingToPropertyTypeMap[data.type] : PropertyType.Integer,
-        isExtraBinding: true,
-        expr: data?.expr ?? defaultExpr,
-      })));
-
-    const updateQuery = updateProps.length === 0 ? "" : `
-      UPDATE ${escapedClassFullName}
-      SET ${
-        updateProps
-          .map((p) =>
-            p.isExtraBinding
-            ? `[${p.name}] = ${p.expr(`:b_${p.name}`)}`
-            // FIXME: use ECReferenceCache to get type of ref instead of checking name
-            : p.propertyType === PropertyType.Navigation
-            ? `[${p.name}].Id = ${injectExpr(remapSql(
-                readHexFromJson(
-                  p,
-                  // FIXME: only unconstrained columns need 0, so need to inspect constraints
-                  p.name === "Parent" || p.name === "TypeDefinition" ? "NULL" : "0"
-                ),
-                p.name === "CodeSpec" ? "codespec" : "element"
-            ))}`
-            // FIXME: use ecreferencetypes cache to determine which remap table to use
-            : p.propertyType === PropertyType.Long
-            ? `[${p.name}] = ${injectExpr(remapSql(readHexFromJson(p, "0"), "element"))}`
-            // is CodeValue if not nav prop
-            : `[${p.name}] = JSON_EXTRACT(:x, '$.CodeValue')`
-          )
-          .join(",\n  ")
-      }
-      WHERE ECInstanceId=${injectExpr(remapSql(
-        readHexFromJson({ name: "ECInstanceId", propertyType: PropertyType.Long }, "0"),
-        "element",
-      ))}
-    `;
-
-    const populateBindings = Object.entries(options.extraBindings?.populate ?? {})
-      // FIXME: n^2
-      .filter(([name]) => properties.some((p) => p.name === name));
-
-    const populateProperties = nonBinaryProperties
-      .filter((p) =>
-        p.name !== "CodeValue"
-        && p.propertyType !== PropertyType.Navigation
-        && p.propertyType !== PropertyType.Long
-      );
-
-    const populateQuery = `
-      INSERT INTO ${escapedClassFullName}
-      (${[
-        ...nonBinaryProperties
-          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
-          .map((p) =>
-            // FIXME: note that dynamic structs are completely unhandled
-            p.propertyType === PropertyType.Navigation
-            ? `[${p.name}].[Id]`
-            : p.propertyType === PropertyType.Point2d
-            ? `[${p.name}].x, [${p.name}].y`
-            : p.propertyType === PropertyType.Point3d
-            ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
-            : `[${p.name}]`
-          ),
-        ...binaryProperties
-          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
-          // FIXME: cleanup
-          // geometry stream will be filled in by populate
-          .filter((p) => p.name !== "GeometryStream")
-          .map((p) => `[${p.name}]`),
-        ...populateBindings.map(([name]) => name),
-      ].join(",\n  ")})
-      VALUES
-      (${[
-        ...nonBinaryProperties
-          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
-          .map((p) =>
-            // FIXME: do qualified check for exact schema of CodeValue prop
-            p.name === "CodeValue"
-            ? "NULL"
-            : p.propertyType === PropertyType.Navigation || p.propertyType === PropertyType.Long
-            ? "0x1"
-            : propBindings(p).map((b) => `:${b}`).join(",")
-          ),
-        ...binaryProperties
-          .filter((p) => !(p.name in (options.extraBindings?.populate ?? {})))
-          .map((p) => `zeroblob(:s_${p.name})`),
-        // FIXME: use the names from the values of the binding object
-        ...populateBindings.map(([name]) => `:b_${name}`),
-      ].join(",\n  ")})
-    `;
 
     type InsertProp = PropInfo | {
       name: string;
@@ -417,12 +280,13 @@ async function createPolymorphicEntityQueryMap<
       // FIXME: subtype of Id
       { name: "ECInstanceId", propertyType: PropertyType.Long },
       ...nonBinaryProperties
-          .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
+        .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
       ...binaryProperties
-          .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
+        .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
       ...insertBindings.map(([name, info]) => ({ expr: defaultExpr, ...info, name })),
     ];
 
+    /* eslint-disable @typescript-eslint/indent */
     const insertQuery = `
       INSERT INTO ${escapedClassFullName}
       (
@@ -443,7 +307,7 @@ async function createPolymorphicEntityQueryMap<
       })
       VALUES (
         ${[
-          //":id", // FIXME: should we use the provided id?
+          //":id", // FIXME: should we not use the json id?
           ...insertProps.map((p) =>
             "expr" in p
             ? p.expr(`:b_${p.name}`)
@@ -473,38 +337,6 @@ async function createPolymorphicEntityQueryMap<
       )
     `;
     /* eslint-enable @typescript-eslint/indent */
-
-    function populate(
-      ecdb: ECDb,
-      json: any,
-      binaryValues: Record<string, Uint8Array> = {},
-      bindingValues: Partial<Record<keyof PopulateExtraBindings, any>> = {},
-    ) {
-      try {
-        return ecdb.withPreparedStatement(populateQuery, (targetStmt) => {
-          for (const p of populateProperties) {
-            stmtBindProperty(targetStmt, p, json[p.name]);
-          }
-          for (const [name, data] of populateBindings) {
-            const bindingValue = bindingValues[name];
-            if (bindingValue)
-              targetStmt[data?.type ?? "bindInteger"](`b_${name}`, bindingValue);
-          }
-          for (const [name, value] of Object.entries(binaryValues)) {
-            targetStmt.bindInteger(`s_${name}`, value.byteLength);
-          }
-          const stepRes = targetStmt.stepForInsert();
-          assert(stepRes.status === DbResult.BE_SQLITE_DONE && stepRes.id);
-          return stepRes.id;
-        });
-      } catch (err) {
-        console.log("ERROR", ecdb.nativeDb.getLastError());
-        console.log("json:", JSON.stringify(json, undefined, " "));
-        console.log("ecsql:", populateQuery);
-        debugger;
-        throw err;
-      }
-    }
 
     let hackedRemapInsertSql: string | undefined;
     let hackedRemapInsertSqls: undefined | {
@@ -602,70 +434,6 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    let hackedRemapUpdateSql: string | undefined;
-    let hackedRemapUpdateSqls: { sql: string, needsJson: boolean }[] | undefined;
-
-    function update(
-      ecdb: ECDb,
-      _jsonObj: any,
-      json: any,
-      binaryValues: Record<string, Uint8Array> = {},
-      bindingValues: {[S in keyof UpdateExtraBindings]?: any} = {},
-      source?: { id: string, db: IModelDb },
-    ) {
-      if (updateQuery === "")
-        return; // ignore empty updates
-
-      if (hackedRemapUpdateSql === undefined) {
-        hackedRemapUpdateSql = getInjectedSqlite(updateQuery, ecdb);
-        hackedRemapUpdateSqls = hackedRemapUpdateSql.split(";").map((sql) => ({
-          sql,
-          needsJson: sql.includes(":x_col1"),
-        }));
-      }
-
-      try {
-        // eslint-disable-next-line
-        for (let i = 0; i < hackedRemapUpdateSqls!.length; ++i) {
-          const { sql, needsJson } = hackedRemapUpdateSqls![i];
-          ecdb.withPreparedSqliteStatement(sql, (targetStmt) => {
-            if (needsJson)
-              targetStmt.bindString(":x_col1", json);
-
-            for (const [name, data] of updateBindings) {
-              // FIXME: why do I get a never type for this...
-              // FIXME: in raw sqlite must append _col1
-              const param = `:b_${name}_col1`;
-              // HACK: work around bad param detection
-              const bindingValue = bindingValues[name];
-              if (bindingValue && sql.includes(param)) {
-                (targetStmt[data?.type ?? "bindInteger"] as any)(param, bindingValue);
-              }
-            }
-
-            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
-          });
-        }
-      } catch (err) {
-        const _elemId = json.ECInstanceId;
-        console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
-        console.log("ERROR", ecdb.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(json, undefined, " "));
-        console.log("native sql:", hackedRemapUpdateSql);
-        debugger;
-        throw err;
-      }
-
-      for (const [name, value] of Object.entries(binaryValues)) {
-        incrementalWriteBlob(ecdb.nativeDb, {
-          classFullName,
-          id: _jsonObj.ECInstanceId,
-          propertyAccessString: name,
-          writeable: true,
-        }, value);
-      }
-    }
-
     // NOTE: ignored fields are still queried
     const selectBinariesQuery = `
       SELECT ${binaryProperties.map((p) => `CAST([${p.name}] AS BINARY)`)}
@@ -695,8 +463,6 @@ async function createPolymorphicEntityQueryMap<
     }
 
     result.insert.set(classFullName, insert);
-    result.populate.set(classFullName, populate);
-    result.update.set(classFullName, update);
     result.selectBinaries.set(classFullName, selectBinaries);
   }
 
