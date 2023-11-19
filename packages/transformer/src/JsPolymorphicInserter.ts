@@ -831,29 +831,72 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert aspects");
-  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
-  while (await aspectReader.step()) {
-    const jsonString = aspectReader.current[0];
-    const json = JSON.parse(jsonString);
-    const classFullName = aspectReader.current[1];
-    const sourceId = aspectReader.current[2];
-    const targetId = useInstanceId();
+  {
+    const sourceAspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
 
-    json.ECInstanceId = targetId;
+    const queue: {
+      jsonString: string;
+      json: any;
+      classFullName: string;
+      sourceId: Id64String;
+      binaryValues: Record<string, Uint8Array>;
+      targetId: Id64String;
+    }[] = [];
 
-    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
-    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
-    const insertQuery = queryMap.insert.get(classFullName);
-    assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+    // read an element from the source if not done, and put it in the queue
+    async function produce() {
+      // do not overread, that can increase garbage collector pressure
+      if (queue.length > 1000)
+        return;
 
-    const binaryValues = selectBinariesQuery(source, sourceId);
-    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
+      const hadNext = await sourceAspectReader.step();
+      if (!hadNext)
+        return;
 
-    // FIXME: do we even need aspect remap tables anymore? I don't remember
-    // FIXME: doesn't support briefcase ids > 2**13 - 1
-    remapTables.aspect.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+      const jsonString = sourceAspectReader.current[0] as string;
+      const json = JSON.parse(jsonString);
+      const classFullName = sourceAspectReader.current[1];
+      const sourceId = sourceAspectReader.current[2];
 
-    incrementStmtsExeced();
+      const insertQuery = queryMap.insert.get(classFullName);
+      assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
+
+      const binaryPropsQuery = queryMap.selectBinaries.get(classFullName);
+      assert(binaryPropsQuery, `couldn't find select binary props query for class '${classFullName}'`);
+
+      const binaryValues = binaryPropsQuery(source, sourceId);
+
+      const targetId = useInstanceId();
+
+      queue.push({
+        jsonString, json, classFullName, sourceId, binaryValues, targetId,
+      });
+    }
+
+    async function consume() {
+      const e = queue.shift();
+      assert(e, "consumeElem called without available items in queue");
+
+      const insertQuery = queryMap.insert.get(e.classFullName);
+      assert(insertQuery, `couldn't find insert query for class '${e.classFullName}'`);
+
+      insertQuery(writeableTarget, e.targetId, e.json, e.jsonString, e.binaryValues, {}, { id: e.sourceId, db: source });
+
+      // FIXME: do we even need aspect remap tables anymore? I don't remember
+      // FIXME: doesn't support briefcase ids > 2**13 - 1
+      remapTables.aspect.remap(parseInt(e.sourceId, 16), parseInt(e.targetId, 16));
+
+      incrementStmtsExeced();
+    }
+
+    await produce();
+
+    while (queue.length > 0) {
+      await Promise.all([
+        consume(),
+        produce(),
+      ]);
+    }
   }
 
   const elemRefersSelect = `
