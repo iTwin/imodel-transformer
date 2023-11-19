@@ -1,5 +1,5 @@
 import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, IModelHost, IModelJsNative } from "@itwin/core-backend";
-import { DbResult, Id64, Id64String, YieldManager } from "@itwin/core-bentley";
+import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import * as url from "url";
@@ -667,14 +667,13 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
   // in the IDs and redo it?
   console.log("generate elements remap tables");
-  source.withPreparedStatement(sourceElemRemapSelect, (srcStmt) => {
-    while (srcStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const sourceId = srcStmt.getValue(0).getId();
-      const targetId = useElemId();
-      // FIXME: doesn't support briefcase ids > 2**13 - 1
-      remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
-    }
-  });
+  const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect, undefined, { abbreviateBlobs: true });
+  while (await sourceElemRemapPassReader.step()) {
+    const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
+    const targetId = useElemId();
+    // FIXME: doesn't support briefcase ids > 2**13 - 1
+    remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+  }
 
   // give sqlite the tables
   for (const name of ["element", "codespec", "aspect", "font"] as const) {
@@ -694,47 +693,52 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   const sourceElemSelect = `
     SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId,
-           m.$, ec_classname(m.ECClassId, 's.c'),
-           RemapGeom(
-             coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream),
-             'temp.font_remap', 'temp.element_remap'
-           )
+           m.$, ec_classname(m.ECClassId, 's.c')
     FROM bis.Element e
     -- FIXME: is it faster to use the new $->Blah syntax?
     LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
-    LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
-    LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
-    LEFT JOIN bis.GeometryPart       gp ON e.ECInstanceId=gp.ECInstanceId
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
     -- ORDER BY ECClassId, ECInstanceId ASC
     ORDER BY e.ECInstanceId ASC
   `;
 
-  const yieldManager = new YieldManager();
-
+  const sourceGeomForHydrate = `
+    SELECT CAST (RemapGeom(
+        coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream),
+        'temp.font_remap', 'temp.element_remap'
+      ) AS Binary)
+    FROM bis.Element e
+    LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
+    LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
+    LEFT JOIN bis.GeometryPart       gp ON e.ECInstanceId=gp.ECInstanceId
+    -- NOTE: ORDER and WHERE must match the query above
+    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    ORDER BY e.ECInstanceId ASC
+  `;
+ 
   // now insert everything now that we know ids
   console.log("insert elements");
-  await source.withPreparedStatement(sourceElemSelect, async (srcStmt) => {
-    while (srcStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const elemJsonVal = srcStmt.getValue(0);
-      const elemJsonString = elemJsonVal.isNull ? undefined : elemJsonVal.getString();
-      const elemJson = elemJsonString && JSON.parse(elemJsonString);
-      const elemClass = srcStmt.getValue(1).getString();
-      const sourceId = srcStmt.getValue(2).getId();
-      const modelJsonVal = srcStmt.getValue(3);
-      const modelJsonString = modelJsonVal.isNull ? undefined : modelJsonVal.getString();
-      const modelJson = modelJsonString && JSON.parse(modelJsonString);
-      const modelClass = srcStmt.getValue(4).getString();
-      const geomStreamVal = srcStmt.getValue(5);
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
+  await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
+    while (await sourceElemFirstPassReader.step()) {
+      assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
+      const geomStreamVal = geomStmt.getValue(0);
       const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
+
+      const elemJsonString = sourceElemFirstPassReader.current[0] as string;
+      const elemJson = JSON.parse(elemJsonString);
+      const elemClass = sourceElemFirstPassReader.current[1];
+      const sourceId = sourceElemFirstPassReader.current[2];
+      const modelJsonString = sourceElemFirstPassReader.current[3];
+      const modelJson = modelJsonString && JSON.parse(modelJsonString);
+      const modelClass = sourceElemFirstPassReader.current[4];
 
       const elemInsertQuery = queryMap.insert.get(elemClass);
       assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
       const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
       assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-      // FIXME: if we are now using withPreparedStatement, then we can merge this query into it
       const binaryValues = elemBinaryPropsQuery(source, sourceId);
 
       const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
@@ -768,7 +772,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
 
       incrementStmtsExeced();
-      await yieldManager.allowYield(); // NOTE: handle node.js not running native finalizers
     }
   });
 
@@ -778,33 +781,30 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert aspects");
-  await source.withPreparedStatement(sourceAspectSelect, async (srcStmt) => {
-    while (srcStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const jsonVal = srcStmt.getValue(0);
-      const jsonString = jsonVal.isNull ? undefined : jsonVal.getString();
-      const json = jsonString && JSON.parse(jsonString);
-      const classFullName = srcStmt.getValue(1).getString();
-      const sourceId = srcStmt.getValue(2).getId();
-      const targetId = useInstanceId();
+  const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
+  while (await aspectReader.step()) {
+    const jsonString = aspectReader.current[0];
+    const json = JSON.parse(jsonString);
+    const classFullName = aspectReader.current[1];
+    const sourceId = aspectReader.current[2];
+    const targetId = useInstanceId();
 
-      json.ECInstanceId = targetId;
+    json.ECInstanceId = targetId;
 
-      const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
-      assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
-      const insertQuery = queryMap.insert.get(classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
+    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
+    const insertQuery = queryMap.insert.get(classFullName);
+    assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-      const binaryValues = selectBinariesQuery(source, sourceId);
-      insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
+    const binaryValues = selectBinariesQuery(source, sourceId);
+    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
 
-      // FIXME: do we even need aspect remap tables anymore? I don't remember
-      // FIXME: doesn't support briefcase ids > 2**13 - 1
-      remapTables.aspect.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+    // FIXME: do we even need aspect remap tables anymore? I don't remember
+    // FIXME: doesn't support briefcase ids > 2**13 - 1
+    remapTables.aspect.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
 
-      incrementStmtsExeced();
-      await yieldManager.allowYield(); // NOTE: handle node.js not running native finalizers
-    }
-  });
+    incrementStmtsExeced();
+  }
 
   const elemRefersSelect = `
     SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
@@ -812,30 +812,27 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert ElementRefersToElements");
-  await source.withPreparedStatement(elemRefersSelect, async (srcStmt) => {
-    while (srcStmt.step() === DbResult.BE_SQLITE_ROW) {
-      const jsonVal = srcStmt.getValue(0);
-      const jsonString = jsonVal.isNull ? undefined : jsonVal.getString();
-      const json = jsonString && JSON.parse(jsonString);
-      const classFullName = srcStmt.getValue(1).getString();
-      const sourceId = srcStmt.getValue(2).getId();
-      const targetId = useInstanceId();
+  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
+  while (await elemRefersReader.step()) {
+    const jsonString = elemRefersReader.current[0];
+    const json = JSON.parse(jsonString);
+    const classFullName = elemRefersReader.current[1];
+    const sourceId = elemRefersReader.current[2];
+    const targetId = useInstanceId();
 
-      json.ECInstanceId = targetId;
+    json.ECInstanceId = targetId;
 
-      const insertQuery = queryMap.insert.get(classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+    const insertQuery = queryMap.insert.get(classFullName);
+    assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-      const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
-      assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
-      const binaryValues = selectBinariesQuery(source, sourceId);
+    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
+    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
+    const binaryValues = selectBinariesQuery(source, sourceId);
 
-      insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
+    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
 
-      incrementStmtsExeced();
-      await yieldManager.allowYield(); // NOTE: handle node.js not running native finalizers
-    }
-  });
+    incrementStmtsExeced();
+  }
 
   // FIXME: also do ElementDrivesElements
 
