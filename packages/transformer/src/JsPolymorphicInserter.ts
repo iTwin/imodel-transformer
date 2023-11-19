@@ -716,12 +716,36 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     ORDER BY e.ECInstanceId ASC
   `;
- 
+
   // now insert everything now that we know ids
   console.log("insert elements");
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
   await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
-    while (await sourceElemFirstPassReader.step()) {
+    const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
+
+    const sourceElemQueue: {
+      geomStream: Uint8Array | undefined;
+      elemJsonString: string;
+      elemJson: any;
+      elemClass: string;
+      sourceId: Id64String;
+      modelJsonString: string;
+      modelJson: any;
+      modelClass: string;
+      binaryValues: Record<string, Uint8Array>;
+      targetId: Id64String;
+    }[] = [];
+
+    // read an element from the source if not done, and put it in the queue
+    async function produceElem() {
+      // do not overread, that can increase garbage collector pressure
+      if (sourceElemQueue.length > 1000)
+        return;
+
+      const hadNext = await sourceElemFirstPassReader.step();
+      if (!hadNext)
+        return;
+
+      // FIXME: geomStmt could technically be interleaved by this?!
       assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
       const geomStreamVal = geomStmt.getValue(0);
       const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
@@ -743,35 +767,61 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
       const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
 
-      elemJson.ECInstanceId = targetId;
-      if (modelJson !== undefined)
-        modelJson.ECInstanceId = targetId;
+      sourceElemQueue.push({
+        geomStream,
+        elemJsonString, elemJson, elemClass, sourceId, modelJsonString, modelJson, modelClass,
+        binaryValues,
+        targetId,
+      });
+    }
+
+    async function consumeElem() {
+      const elem = sourceElemQueue.shift();
+      assert(elem, "consumeElem called without available items in queue");
+
+      const elemInsertQuery = queryMap.insert.get(elem.elemClass);
+      assert(elemInsertQuery, `couldn't find insert query for class '${elem.elemClass}'`);
+
+      elem.elemJson.ECInstanceId = elem.targetId;
+      if (elem.modelJson !== undefined)
+        elem.modelJson.ECInstanceId = elem.targetId;
 
       elemInsertQuery(
         writeableTarget,
-        targetId,
-        elemJson,
-        elemJsonString,
+        elem.targetId,
+        elem.elemJson,
+        elem.elemJsonString,
         {
-          ...binaryValues,
-          ...geomStream && { GeometryStream: geomStream },
+          ...elem.binaryValues,
+          ...elem.geomStream && { GeometryStream: elem.geomStream },
         },
-        { GeometryStream: geomStream?.byteLength ?? 0 },
-        { id: sourceId, db: source },
+        { GeometryStream: elem.geomStream?.byteLength ?? 0 },
+        { id: elem.sourceId, db: source },
       );
 
-      if (modelJson) {
-        const modelInsertQuery = queryMap.insert.get(modelClass);
-        assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+      if (elem.modelJson) {
+        const modelInsertQuery = queryMap.insert.get(elem.modelClass);
+        assert(modelInsertQuery, `couldn't find insert query for class '${elem.modelClass}'`);
 
         // FIXME: not yet handling binary properties on these
-        modelInsertQuery(writeableTarget, targetId, modelJson, modelJsonString);
+        modelInsertQuery(writeableTarget, elem.targetId, elem.modelJson, elem.modelJsonString);
+
+        incrementStmtsExeced();
       }
 
       // FIXME: doesn't support briefcase ids > 2**13 - 1
-      remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+      remapTables.element.remap(parseInt(elem.sourceId, 16), parseInt(elem.targetId, 16));
 
       incrementStmtsExeced();
+    }
+
+    await produceElem();
+
+    while (sourceElemQueue.length > 0) {
+      await Promise.all([
+        consumeElem(),
+        produceElem(),
+      ]);
     }
   });
 
