@@ -717,112 +717,105 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     ORDER BY e.ECInstanceId ASC
   `;
 
+  async function parallelSpsc<T>({
+    produce,
+    consume,
+    produceMaxOverflow = 1000,
+  }: {
+    produce: () => Promise<T | undefined>;
+    consume: (t: T) => Promise<void>;
+    /** prevents backpressure that can overload the garbage collector */
+    produceMaxOverflow?: number;
+  }): Promise<void> {
+    const queue: T[] = [];
+
+    while (queue.length > 0) {
+      await Promise.race([
+        queue.length < produceMaxOverflow
+          && produce().then((p) => p !== undefined && queue.push(p)),
+        consume(queue.shift()!),
+      ]);
+    }
+  }
+
   // now insert everything now that we know ids
   console.log("insert elements");
   await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
     const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
 
-    const sourceElemQueue: {
-      geomStream: Uint8Array | undefined;
-      elemJsonString: string;
-      elemJson: any;
-      elemClass: string;
-      sourceId: Id64String;
-      modelJsonString: string;
-      modelJson: any;
-      modelClass: string;
-      binaryValues: Record<string, Uint8Array>;
-      targetId: Id64String;
-    }[] = [];
+    await parallelSpsc({
+      async produce() {
+        const hadNext = await sourceElemFirstPassReader.step();
+        if (!hadNext)
+          return;
 
-    // read an element from the source if not done, and put it in the queue
-    async function produceElem() {
-      // do not overread, that can increase garbage collector pressure
-      if (sourceElemQueue.length > 1000)
-        return;
+        // FIXME: geomStmt could technically be interleaved by this?!
+        assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
+        const geomStreamVal = geomStmt.getValue(0);
+        const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
 
-      const hadNext = await sourceElemFirstPassReader.step();
-      if (!hadNext)
-        return;
+        const elemJsonString = sourceElemFirstPassReader.current[0] as string;
+        const elemJson = JSON.parse(elemJsonString);
+        const elemClass = sourceElemFirstPassReader.current[1];
+        const sourceId = sourceElemFirstPassReader.current[2];
+        const modelJsonString = sourceElemFirstPassReader.current[3];
+        const modelJson = modelJsonString && JSON.parse(modelJsonString);
+        const modelClass = sourceElemFirstPassReader.current[4];
 
-      // FIXME: geomStmt could technically be interleaved by this?!
-      assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
-      const geomStreamVal = geomStmt.getValue(0);
-      const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
+        const elemInsertQuery = queryMap.insert.get(elemClass);
+        assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
+        const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
+        assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-      const elemJsonString = sourceElemFirstPassReader.current[0] as string;
-      const elemJson = JSON.parse(elemJsonString);
-      const elemClass = sourceElemFirstPassReader.current[1];
-      const sourceId = sourceElemFirstPassReader.current[2];
-      const modelJsonString = sourceElemFirstPassReader.current[3];
-      const modelJson = modelJsonString && JSON.parse(modelJsonString);
-      const modelClass = sourceElemFirstPassReader.current[4];
+        const binaryValues = elemBinaryPropsQuery(source, sourceId);
 
-      const elemInsertQuery = queryMap.insert.get(elemClass);
-      assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
-      const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
-      assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
+        const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
 
-      const binaryValues = elemBinaryPropsQuery(source, sourceId);
+        return {
+          geomStream,
+          elemJsonString, elemJson, elemClass, sourceId, modelJsonString, modelJson, modelClass,
+          binaryValues,
+          targetId,
+        };
+      },
 
-      const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
+      async consume(e) {
+        const elemInsertQuery = queryMap.insert.get(e.elemClass);
+        assert(elemInsertQuery, `couldn't find insert query for class '${e.elemClass}'`);
 
-      sourceElemQueue.push({
-        geomStream,
-        elemJsonString, elemJson, elemClass, sourceId, modelJsonString, modelJson, modelClass,
-        binaryValues,
-        targetId,
-      });
-    }
+        e.elemJson.ECInstanceId = e.targetId;
+        if (e.modelJson !== undefined)
+          e.modelJson.ECInstanceId = e.targetId;
 
-    async function consumeElem() {
-      const elem = sourceElemQueue.shift();
-      assert(elem, "consumeElem called without available items in queue");
+        elemInsertQuery(
+          writeableTarget,
+          e.targetId,
+          e.elemJson,
+          e.elemJsonString,
+          {
+            ...e.binaryValues,
+            ...e.geomStream && { GeometryStream: e.geomStream },
+          },
+          { GeometryStream: e.geomStream?.byteLength ?? 0 },
+          { id: e.sourceId, db: source },
+        );
 
-      const elemInsertQuery = queryMap.insert.get(elem.elemClass);
-      assert(elemInsertQuery, `couldn't find insert query for class '${elem.elemClass}'`);
+        if (e.modelJson) {
+          const modelInsertQuery = queryMap.insert.get(e.modelClass);
+          assert(modelInsertQuery, `couldn't find insert query for class '${e.modelClass}'`);
 
-      elem.elemJson.ECInstanceId = elem.targetId;
-      if (elem.modelJson !== undefined)
-        elem.modelJson.ECInstanceId = elem.targetId;
+          // FIXME: not yet handling binary properties on these
+          modelInsertQuery(writeableTarget, e.targetId, e.modelJson, e.modelJsonString);
 
-      elemInsertQuery(
-        writeableTarget,
-        elem.targetId,
-        elem.elemJson,
-        elem.elemJsonString,
-        {
-          ...elem.binaryValues,
-          ...elem.geomStream && { GeometryStream: elem.geomStream },
-        },
-        { GeometryStream: elem.geomStream?.byteLength ?? 0 },
-        { id: elem.sourceId, db: source },
-      );
+          incrementStmtsExeced();
+        }
 
-      if (elem.modelJson) {
-        const modelInsertQuery = queryMap.insert.get(elem.modelClass);
-        assert(modelInsertQuery, `couldn't find insert query for class '${elem.modelClass}'`);
-
-        // FIXME: not yet handling binary properties on these
-        modelInsertQuery(writeableTarget, elem.targetId, elem.modelJson, elem.modelJsonString);
+        // FIXME: doesn't support briefcase ids > 2**13 - 1
+        remapTables.element.remap(parseInt(e.sourceId, 16), parseInt(e.targetId, 16));
 
         incrementStmtsExeced();
-      }
-
-      // FIXME: doesn't support briefcase ids > 2**13 - 1
-      remapTables.element.remap(parseInt(elem.sourceId, 16), parseInt(elem.targetId, 16));
-
-      incrementStmtsExeced();
-    }
-
-    await produceElem();
-
-    while (sourceElemQueue.length > 0) {
-      await Promise.all([
-        consumeElem(),
-        produceElem(),
-      ]);
-    }
+      },
+    });
   });
 
   const sourceAspectSelect = `
