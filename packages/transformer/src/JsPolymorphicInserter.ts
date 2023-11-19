@@ -729,12 +729,27 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }): Promise<void> {
     const queue: T[] = [];
 
+    const first = await produce();
+    if (first !== undefined)
+      queue.push(first);
+
     while (queue.length > 0) {
       await Promise.race([
-        queue.length < produceMaxOverflow
-          && produce().then((p) => p !== undefined && queue.push(p)),
+        (async () => {
+          if (queue.length >= produceMaxOverflow - 1)
+            return;
+          // FIXME: it's not really possible to do these in parallel since consume is blocking
+          const produced1 = await produce();
+          if (produced1 !== undefined)
+            queue.push(produced1);
+        })(),
+
         consume(queue.shift()!),
       ]);
+
+      if (queue.length === 0) {
+        await produce().then((p) => p !== undefined && queue.push(p));
+      }
     }
   }
 
@@ -877,65 +892,41 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   {
     const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
 
-    const queue: {
-      jsonString: string;
-      json: any;
-      classFullName: string;
-      sourceId: Id64String;
-      binaryValues: Record<string, Uint8Array>;
-      targetId: Id64String;
-    }[] = [];
+    await parallelSpsc({
+      async produce() {
+        const hadNext = await elemRefersReader.step();
+        if (!hadNext)
+          return;
 
-    // read an element from the source if not done, and put it in the queue
-    async function produce() {
-      // do not overread, that can increase garbage collector pressure
-      if (queue.length > 1000)
-        return;
+        const jsonString = elemRefersReader.current[0] as string;
+        const json = JSON.parse(jsonString);
+        const classFullName = elemRefersReader.current[1];
+        const sourceId = elemRefersReader.current[2];
 
-      const hadNext = await elemRefersReader.step();
-      if (!hadNext)
-        return;
+        const insertQuery = queryMap.insert.get(classFullName);
+        assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
 
-      const jsonString = elemRefersReader.current[0] as string;
-      const json = JSON.parse(jsonString);
-      const classFullName = elemRefersReader.current[1];
-      const sourceId = elemRefersReader.current[2];
+        const binaryPropsQuery = queryMap.selectBinaries.get(classFullName);
+        assert(binaryPropsQuery, `couldn't find select binary props query for class '${classFullName}'`);
 
-      const insertQuery = queryMap.insert.get(classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
+        const binaryValues = binaryPropsQuery(source, sourceId);
 
-      const binaryPropsQuery = queryMap.selectBinaries.get(classFullName);
-      assert(binaryPropsQuery, `couldn't find select binary props query for class '${classFullName}'`);
+        const targetId = useInstanceId();
 
-      const binaryValues = binaryPropsQuery(source, sourceId);
+        return {
+          jsonString, json, classFullName, sourceId, binaryValues, targetId,
+        };
+      },
 
-      const targetId = useInstanceId();
+      async consume(e) {
+        const insertQuery = queryMap.insert.get(e.classFullName);
+        assert(insertQuery, `couldn't find insert query for class '${e.classFullName}'`);
 
-      queue.push({
-        jsonString, json, classFullName, sourceId, binaryValues, targetId,
-      });
-    }
+        insertQuery(writeableTarget, e.targetId, e.json, e.jsonString, e.binaryValues, {}, { id: e.sourceId, db: source });
 
-    async function consume() {
-      const e = queue.shift();
-      assert(e, "consumeElem called without available items in queue");
-
-      const insertQuery = queryMap.insert.get(e.classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${e.classFullName}'`);
-
-      insertQuery(writeableTarget, e.targetId, e.json, e.jsonString, e.binaryValues, {}, { id: e.sourceId, db: source });
-
-      incrementStmtsExeced();
-    }
-
-    await produce();
-
-    while (queue.length > 0) {
-      await Promise.all([
-        consume(),
-        produce(),
-      ]);
-    }
+        incrementStmtsExeced();
+      },
+    });
   }
 
   // FIXME: also do ElementDrivesElements
