@@ -827,69 +827,45 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   {
     const sourceAspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
 
-    const queue: {
-      jsonString: string;
-      json: any;
-      classFullName: string;
-      sourceId: Id64String;
-      binaryValues: Record<string, Uint8Array>;
-      targetId: Id64String;
-    }[] = [];
+    await parallelSpsc({
+      async produce() {
+        const hadNext = await sourceAspectReader.step();
+        if (!hadNext)
+          return;
 
-    // read an element from the source if not done, and put it in the queue
-    async function produce() {
-      // do not overread, that can increase garbage collector pressure
-      if (queue.length > 1000)
-        return;
+        const jsonString = sourceAspectReader.current[0] as string;
+        const json = JSON.parse(jsonString);
+        const classFullName = sourceAspectReader.current[1];
+        const sourceId = sourceAspectReader.current[2];
 
-      const hadNext = await sourceAspectReader.step();
-      if (!hadNext)
-        return;
+        const insertQuery = queryMap.insert.get(classFullName);
+        assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
 
-      const jsonString = sourceAspectReader.current[0] as string;
-      const json = JSON.parse(jsonString);
-      const classFullName = sourceAspectReader.current[1];
-      const sourceId = sourceAspectReader.current[2];
+        const binaryPropsQuery = queryMap.selectBinaries.get(classFullName);
+        assert(binaryPropsQuery, `couldn't find select binary props query for class '${classFullName}'`);
 
-      const insertQuery = queryMap.insert.get(classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
+        const binaryValues = binaryPropsQuery(source, sourceId);
 
-      const binaryPropsQuery = queryMap.selectBinaries.get(classFullName);
-      assert(binaryPropsQuery, `couldn't find select binary props query for class '${classFullName}'`);
+        const targetId = useInstanceId();
 
-      const binaryValues = binaryPropsQuery(source, sourceId);
+        return{
+          jsonString, json, classFullName, sourceId, binaryValues, targetId,
+        };
+      },
 
-      const targetId = useInstanceId();
+      async consume(e) {
+        const insertQuery = queryMap.insert.get(e.classFullName);
+        assert(insertQuery, `couldn't find insert query for class '${e.classFullName}'`);
 
-      queue.push({
-        jsonString, json, classFullName, sourceId, binaryValues, targetId,
-      });
-    }
+        insertQuery(writeableTarget, e.targetId, e.json, e.jsonString, e.binaryValues, {}, { id: e.sourceId, db: source });
 
-    async function consume() {
-      const e = queue.shift();
-      assert(e, "consumeElem called without available items in queue");
+        // FIXME: do we even need aspect remap tables anymore? I don't remember
+        // FIXME: doesn't support briefcase ids > 2**13 - 1
+        remapTables.aspect.remap(parseInt(e.sourceId, 16), parseInt(e.targetId, 16));
 
-      const insertQuery = queryMap.insert.get(e.classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${e.classFullName}'`);
-
-      insertQuery(writeableTarget, e.targetId, e.json, e.jsonString, e.binaryValues, {}, { id: e.sourceId, db: source });
-
-      // FIXME: do we even need aspect remap tables anymore? I don't remember
-      // FIXME: doesn't support briefcase ids > 2**13 - 1
-      remapTables.aspect.remap(parseInt(e.sourceId, 16), parseInt(e.targetId, 16));
-
-      incrementStmtsExeced();
-    }
-
-    await produce();
-
-    while (queue.length > 0) {
-      await Promise.all([
-        consume(),
-        produce(),
-      ]);
-    }
+        incrementStmtsExeced();
+      },
+    });
   }
 
   const elemRefersSelect = `
