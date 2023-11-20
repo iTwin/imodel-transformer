@@ -905,68 +905,26 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   `;
 
   console.log("insert ElementRefersToElements");
-  {
-    const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
+  const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
+  while (await elemRefersReader.step()) {
+    const jsonString = elemRefersReader.current[0];
+    const json = JSON.parse(jsonString);
+    const classFullName = elemRefersReader.current[1];
+    const sourceId = elemRefersReader.current[2];
+    const targetId = useInstanceId();
 
-    const queue: {
-      jsonString: string;
-      json: any;
-      classFullName: string;
-      sourceId: Id64String;
-      binaryValues: Record<string, Uint8Array>;
-      targetId: Id64String;
-    }[] = [];
+    json.ECInstanceId = targetId;
 
-    // read an element from the source if not done, and put it in the queue
-    async function produce() {
-      // do not overread, that can increase garbage collector pressure
-      if (queue.length > 1000)
-        return;
+    const insertQuery = queryMap.insert.get(classFullName);
+    assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-      const hadNext = await elemRefersReader.step();
-      if (!hadNext)
-        return;
+    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
+    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
+    const binaryValues = selectBinariesQuery(source, sourceId);
 
-      const jsonString = elemRefersReader.current[0] as string;
-      const json = JSON.parse(jsonString);
-      const classFullName = elemRefersReader.current[1];
-      const sourceId = elemRefersReader.current[2];
+    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
 
-      const insertQuery = queryMap.insert.get(classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${classFullName}'`);
-
-      const binaryPropsQuery = queryMap.selectBinaries.get(classFullName);
-      assert(binaryPropsQuery, `couldn't find select binary props query for class '${classFullName}'`);
-
-      const binaryValues = binaryPropsQuery(source, sourceId);
-
-      const targetId = useInstanceId();
-
-      queue.push({
-        jsonString, json, classFullName, sourceId, binaryValues, targetId,
-      });
-    }
-
-    async function consume() {
-      const e = queue.shift();
-      assert(e, "consumeElem called without available items in queue");
-
-      const insertQuery = queryMap.insert.get(e.classFullName);
-      assert(insertQuery, `couldn't find insert query for class '${e.classFullName}'`);
-
-      insertQuery(writeableTarget, e.targetId, e.json, e.jsonString, e.binaryValues, {}, { id: e.sourceId, db: source });
-
-      incrementStmtsExeced();
-    }
-
-    await produce();
-
-    while (queue.length > 0) {
-      await Promise.all([
-        consume(),
-        produce(),
-      ]);
-    }
+    incrementStmtsExeced();
   }
 
   // FIXME: also do ElementDrivesElements
