@@ -172,7 +172,7 @@ function setupIModel(): [StandaloneDb, TupleKeyedMap<[boolean, boolean], [string
     fs.unlinkSync(sourcePath);
 
   const generatedIModel = StandaloneDb.createEmpty(sourcePath, { rootSubject: { name: sourceFileName }});
-  const physModelId = PhysicalModel.insert(generatedIModel, IModelDb.rootSubjectId, "physical model"); // FIXME<MIKE> Do I need multiple modles / spatial categories or is one good? 
+  const physModelId = PhysicalModel.insert(generatedIModel, IModelDb.rootSubjectId, "physical model");
   const categoryId = SpatialCategory.insert(generatedIModel, IModelDb.dictionaryId, "spatial category", {});
 
   for (const sourceHasFedGuid of [true, false]) {
