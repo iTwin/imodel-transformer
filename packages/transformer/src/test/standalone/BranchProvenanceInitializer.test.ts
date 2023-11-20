@@ -81,19 +81,24 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
         // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
         for (const sourceHasFedGuid of [true, false]) {
           for (const targetHasFedGuid of [true, false]) {
+            const logMessage = () => {
+              return `Expected the createFedGuidsForMaster: ${createFedGuidsForMaster} element pair: sourceHasFedGuid: ${sourceHasFedGuid}, targetHasFedGuid: ${targetHasFedGuid}`;
+            };
             const [sourceElem, targetElem] = sourceTargetFedGuidsToElemIds.get([sourceHasFedGuid, targetHasFedGuid])!;
             const sourceNumAspects = forkDb.elements.getAspects(sourceElem, ExternalSourceAspect.classFullName).length;
             const targetNumAspects = forkDb.elements.getAspects(targetElem, ExternalSourceAspect.classFullName).length;
-            expect([sourceNumAspects, targetNumAspects])
-            .to.deep.equal(sourceTargetFedGuidToAspectCountMap.get([sourceHasFedGuid, targetHasFedGuid, createFedGuidsForMaster]));
+            const expectedNumAspects = sourceTargetFedGuidToAspectCountMap.get([sourceHasFedGuid, targetHasFedGuid, createFedGuidsForMaster])!;
+            expect([sourceNumAspects, targetNumAspects],
+              `${logMessage()} to have sourceNumAspects: ${expectedNumAspects[0]} got ${sourceNumAspects}, targetNumAspects: ${expectedNumAspects[1]} got ${targetNumAspects}`)
+            .to.deep.equal(expectedNumAspects);
 
             const relHasFedguidProvenance = (sourceHasFedGuid && targetHasFedGuid) || createFedGuidsForMaster;
             const expectedSourceAspectNum
                 = (sourceHasFedGuid ? 0 : createFedGuidsForMaster ? 0 : 1)
                 + (relHasFedguidProvenance ? 0 : 1);
             const expectedTargetAspectNum = targetHasFedGuid || createFedGuidsForMaster ? 0 : 1;
-            expect(sourceNumAspects).to.equal(expectedSourceAspectNum);
-            expect(targetNumAspects).to.equal(expectedTargetAspectNum);
+            expect(sourceNumAspects, `${logMessage()} to have sourceNumAspects: ${expectedSourceAspectNum}. Got ${sourceNumAspects}`).to.equal(expectedSourceAspectNum);
+            expect(targetNumAspects, `${logMessage()} to have targetNumAspects: ${expectedTargetAspectNum}. Got ${targetNumAspects}`).to.equal(expectedTargetAspectNum);
           }
         }
 
