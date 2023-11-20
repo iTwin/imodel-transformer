@@ -87,7 +87,7 @@ function stmtBindProperty(
   if (prop.propertyType === PropertyType.DateTime)
     return stmt.bindDateTime(binding, val);
   if (prop.propertyType === PropertyType.Navigation)
-    return stmt.bindId(binding, val.Id);
+    return stmt.bindId(binding, val.id);
   if (prop.propertyType === PropertyType.Point2d) {
     stmt.bindDouble(bindings[0], val.X);
     stmt.bindDouble(bindings[1], val.Y);
@@ -240,8 +240,8 @@ async function createPolymorphicEntityQueryMap<
     // so premangle the parameter (add "_col1") so sqlite sees the parameters as the same... just in case
     // the query optimizer likes that
     if (empty)
-      return `coalesce(HexToId(JSON_EXTRACT(:x_col1, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}')), ${empty})`;
-    return `HexToId(JSON_EXTRACT(:x_col1, '$.${accessStr ?? `${p.name}${navProp ? ".Id" : ""}`}'))`;
+      return `coalesce(HexToId(JSON_EXTRACT(:x_col1, '$.${accessStr ?? `${p.name}${navProp ? ".id" : ""}`}')), ${empty})`;
+    return `HexToId(JSON_EXTRACT(:x_col1, '$.${accessStr ?? `${p.name}${navProp ? ".id" : ""}`}'))`;
   };
 
   for (const [classFullName, properties] of classFullNameAndProps) {
@@ -442,7 +442,7 @@ async function createPolymorphicEntityQueryMap<
       } catch (err) {
         console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
         console.log("ERROR", ecdb.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(json, undefined, " "));
+        console.log("transformed:", JSON.stringify(jsonObj, undefined, " "));
         console.log("ecsql:", insertQuery);
         console.log("native sql:", hackedRemapInsertSql);
         debugger;
@@ -453,16 +453,15 @@ async function createPolymorphicEntityQueryMap<
     const selectExprs = options.select?.exprs ?? {} as SelectExprs;
 
     const selectProps = [
-      { name: "ECInstanceId", expr: "ECInstanceId" },
-      ...nonBinaryProperties
+      ...binaryProperties
         // force guids to not be stringified
         .map((p) => ({
           name: p.name,
-          expr: `CAST(${
+          expr: `CAST((${
             p.name in selectExprs ? selectExprs[p.name].expr(p.name) : `[${p.name}]`
-          } AS BINARY)`,
+          }) AS BINARY)`,
         })),
-      ...binaryProperties
+      ...nonBinaryProperties
         .map((p) => ({
           name: p.name,
           expr: p.name in selectExprs ? selectExprs[p.name].expr(p.name) : `[${p.name}]`,
@@ -471,28 +470,35 @@ async function createPolymorphicEntityQueryMap<
 
     /* eslint-disable @typescript-eslint/indent */
     const selectQuery = `
-      SELECT ${selectProps.map((p) => p.name).join(",\n  ")}
+      SELECT ${selectProps.map((p) => p.expr).join(",\n  ")}
       FROM ${escapedClassFullName}
+      WHERE ECInstanceId=?
     `;
     /* eslint-enable @typescript-eslint/indent */
 
     function select(ecdb: ECDb | IModelDb, id: Id64String): Record<string, any> {
-      return ecdb.withPreparedStatement(selectQuery, (stmt) => {
-        stmt.bindId(1, id);
-        assert(stmt.step() === DbResult.BE_SQLITE_ROW, ecdb.nativeDb.getLastError());
-        // FIXME: maybe this should be a map?
-        const row = {} as Record<string, any>;
+      try {
+        return ecdb.withPreparedStatement(selectQuery, (stmt) => {
+          stmt.bindId(1, id);
+          assert(stmt.step() === DbResult.BE_SQLITE_ROW, ecdb.nativeDb.getLastError());
+          // FIXME: maybe this should be a map?
+          const row = {} as Record<string, any>;
 
-        for (let i = 0; i < binaryProperties.length; ++i) {
-          const prop = binaryProperties[i];
-          const value = stmt.getValue(i);
-          if (!value.isNull)
-            row[prop.name] = value.value;
-        }
+          for (let i = 0; i < selectProps.length; ++i) {
+            const prop = selectProps[i];
+            const value = stmt.getValue(i);
+            if (!value.isNull)
+              row[prop.name] = value.value;
+          }
 
-        assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
-        return row;
-      });
+          assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
+          return row;
+        });
+      } catch (err) {
+        console.log("SELECT", selectQuery);
+        debugger;
+        throw err;
+      }
     }
 
     result.insert.set(classFullName, insert);
@@ -732,15 +738,18 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   const sourceElemIdSelect = `
     SELECT e.ECInstanceId
-         , e.ECClassId
-         , m.ECClassId
-         -- , ec_classname(e.ECClassId, 's.c')
+         , ec_classname(e.ECClassId, 's.c')
+         , ec_classname(m.ECClassId, 's.c')
+         -- , e.ECClassId
+         -- , m.ECClassId
     FROM bis.Element e
     LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
+    -- FIXME: ordering by class *might* be faster due to less cache busting
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
-    ORDER BY ECClassId ASC
-    -- ORDER BY e.ECInstanceId ASC
+    ORDER BY e.ECClassId ASC
+    /* ORDER BY e.ECInstanceId ASC */
+
   `;
 
   // now insert everything now that we know ids
@@ -785,8 +794,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   const sourceAspectSelect = `
-    SELECT ECInstanceId, ECClassId
-      -- , ec_classname(ECClassId, 's.c'),
+    SELECT ECInstanceId, -- ECClassId
+      ec_classname(ECClassId, 's.c')
     FROM bis.ElementAspect
   `;
 
@@ -817,8 +826,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   const elemRefersSelect = `
-    SELECT ECInstanceId, ECClassId
-      -- , ec_classname(ECClassId, 's.c'),
+    SELECT ECInstanceId, -- ECClassId
+      ec_classname(ECClassId, 's.c')
     FROM bis.ElementRefersToElements
   `;
 
