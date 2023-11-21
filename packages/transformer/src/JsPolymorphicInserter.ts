@@ -386,7 +386,11 @@ async function createPolymorphicEntityQueryMap<
           )), // NOTE: ECSQL param mangling
         }));
       }
-      const json = JSON.stringify(jsonObj, (_k, v) => v instanceof Uint8Array ? undefined : v);
+      const json = JSON.stringify(jsonObj,
+        (_k, v) => v instanceof Uint8Array
+          ? undefined
+          : v
+      );
       const binaryValues: Record<string, Uint8Array> = {};
 
       for (const binProp of binaryProperties) {
@@ -453,23 +457,27 @@ async function createPolymorphicEntityQueryMap<
 
     const selectExprs = options.select?.exprs ?? {} as SelectExprs;
 
+    /* eslint-disable @typescript-eslint/indent */
     const selectProps = [
       ...binaryProperties
         // force guids to not be stringified
         .map((p) => ({
-          name: p.name,
+          prop: p,
           expr: `CAST((${
             p.name in selectExprs ? selectExprs[p.name].expr(p.name) : `[${p.name}]`
           }) AS BINARY)`,
         })),
       ...nonBinaryProperties
         .map((p) => ({
-          name: p.name,
-          expr: p.name in selectExprs ? selectExprs[p.name].expr(p.name) : `[${p.name}]`,
+          prop: p,
+          expr: p.name in selectExprs
+            ? selectExprs[p.name].expr(p.name)
+            : p.propertyType === PropertyType.Navigation
+            ? `[${p.name}].Id, [${p.name}].RelECClassId`
+            : `[${p.name}]`,
         })),
     ];
 
-    /* eslint-disable @typescript-eslint/indent */
     const selectQuery = `
       SELECT ${selectProps.map((p) => p.expr).join(",\n  ")}
       FROM ${escapedClassFullName}
@@ -485,11 +493,20 @@ async function createPolymorphicEntityQueryMap<
           // FIXME: maybe this should be a map?
           const row = {} as Record<string, any>;
 
-          for (let i = 0; i < selectProps.length; ++i) {
-            const prop = selectProps[i];
-            const value = stmt.getValue(i);
-            if (!value.isNull)
-              row[prop.name] = value.value;
+          let i = 0;
+          for (const { prop } of selectProps) {
+            if (prop.propertyType === PropertyType.Navigation) {
+              const navPropId = stmt.getValue(i++).getId();
+              const relClassId = stmt.getValue(i++).getId();
+              row[prop.name] = {
+                id: navPropId,
+                RelECClassId: relClassId,
+              };
+            } else {
+              const value = stmt.getValue(i++);
+              if (!value.isNull)
+                row[prop.name] = value.value;
+            }
           }
 
           assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
