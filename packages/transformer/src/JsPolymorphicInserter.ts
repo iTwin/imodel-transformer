@@ -747,62 +747,70 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   // now insert everything now that we know ids
   console.log("insert elements");
-  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
   await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
-    while (await sourceElemFirstPassReader.step()) {
-      assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
-      const geomStreamVal = geomStmt.getValue(0);
-      const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
+    const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
 
-      const elemJsonString = sourceElemFirstPassReader.current[0] as string;
-      const elemJson = JSON.parse(elemJsonString);
-      const elemClass = sourceElemFirstPassReader.current[1];
-      const sourceId = sourceElemFirstPassReader.current[2];
-      const modelJsonString = sourceElemFirstPassReader.current[3] as string | undefined;
-      const modelClass = sourceElemFirstPassReader.current[4];
+    await parallelSpsc({
+      async produce() {
+        assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
+        const geomStreamVal = geomStmt.getValue(0);
+        const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
 
-      const elemInsertQuery = queryMap.insert.get(elemClass);
-      assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
-      const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
-      assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
+        const elemJsonString = sourceElemFirstPassReader.current[0] as string;
+        const elemJson = JSON.parse(elemJsonString);
+        const elemClass = sourceElemFirstPassReader.current[1];
+        const sourceId = sourceElemFirstPassReader.current[2];
+        const modelJsonString = sourceElemFirstPassReader.current[3] as string | undefined;
+        const modelClass = sourceElemFirstPassReader.current[4];
 
-      const elemBinaryValues = elemBinaryPropsQuery(source, sourceId);
+        const elemInsertQuery = queryMap.insert.get(elemClass);
+        assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
+        const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
+        assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-      const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
+        const elemBinaryValues = elemBinaryPropsQuery(source, sourceId);
 
-      elemJson.ECInstanceId = targetId;
+        const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
 
-      elemInsertQuery(
-        writeableTarget,
-        targetId,
-        elemJson,
-        {
-          ...elemBinaryValues,
-          ...geomStream && { GeometryStream: geomStream },
-        },
-        { GeometryStream: geomStream?.byteLength ?? 0 },
-        { id: sourceId, db: source },
-      );
+        elemJson.ECInstanceId = targetId;
 
-      if (modelJsonString !== undefined) {
-        const modelJson = JSON.parse(modelJsonString);
-        modelJson.ECInstanceId = targetId;
-        const modelInsertQuery = queryMap.insert.get(modelClass);
-        assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
-        const modelBinaryPropsQuery = queryMap.selectBinaries.get(modelClass);
-        assert(modelBinaryPropsQuery, `couldn't find select binary props query for class '${modelClass}'`);
+        const insertElem = () => elemInsertQuery(
+          writeableTarget,
+          targetId,
+          elemJson,
+          {
+            ...elemBinaryValues,
+            ...geomStream && { GeometryStream: geomStream },
+          },
+          { GeometryStream: geomStream?.byteLength ?? 0 },
+          { id: sourceId, db: source },
+        );
 
-        const modelBinaryValues = modelBinaryPropsQuery(source, sourceId);
+        let insertModel: undefined | (() => void);
 
-        // FIXME: not yet handling binary properties on these
-        modelInsertQuery(writeableTarget, targetId, modelJson, modelBinaryValues);
-      }
+        if (modelJsonString !== undefined) {
+          const modelJson = JSON.parse(modelJsonString);
+          modelJson.ECInstanceId = targetId;
+          const modelBinaryPropsQuery = queryMap.selectBinaries.get(modelClass);
+          assert(modelBinaryPropsQuery, `couldn't find select binary props query for class '${modelClass}'`);
 
-      // FIXME: doesn't support briefcase ids > 2**13 - 1
-      remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+          const modelBinaryValues = modelBinaryPropsQuery(source, sourceId);
 
-      incrementStmtsExeced();
-    }
+          const modelInsertQuery = queryMap.insert.get(modelClass);
+          assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+
+          // FIXME: not yet handling binary properties on these
+          insertModel = () => modelInsertQuery(writeableTarget, targetId, modelJson, modelBinaryValues);
+        }
+
+        return { insertElem, insertModel };
+      },
+
+      async consume({ insertElem, insertModel }) {
+        insertElem();
+        insertModel?.();
+      },
+    });
   });
 
   const sourceAspectSelect = `
