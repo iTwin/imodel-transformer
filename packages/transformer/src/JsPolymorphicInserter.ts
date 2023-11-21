@@ -500,13 +500,21 @@ async function parallelSpsc<T>({
 
   do {
     if (queue.length < maxQueueSize) {
+      console.log("add");
       // FIXME: does this create excess empty queue items?
-      queue.push(produce().then((p) => p !== undefined ? void (producerDone = true) : undefined));
+      for (let i = queue.length; i <= maxQueueSize; ++i)
+        queue.push(produce().then((p) => p !== undefined ? void (producerDone = true) : undefined));
     }
     if (queue.length > 0) {
       // eslint-disable-next-line
-      void queue.shift()!.then<any>((p) => p && consume(p));
+      const consumed = queue.shift()!.then<any>((p) => p && consume(p));
+      console.log("consume");
+      if (queue.length >= maxQueueSize) {
+        console.log("blocking consume");
+        await consumed;
+      }
     }
+    console.log("spin", queue.length);
   } while(queue.length > 0 || !producerDone);
 }
 
@@ -756,6 +764,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     await parallelSpsc({
       async produce() {
+        await sourceElemFirstPassReader.step();
         assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
         const geomStreamVal = geomStmt.getValue(0);
         const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
