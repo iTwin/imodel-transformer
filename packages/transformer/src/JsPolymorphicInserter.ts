@@ -1,4 +1,4 @@
-import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, IModelHost, IModelJsNative } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, IModelHost, IModelJsNative, StandaloneDb } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -187,7 +187,8 @@ async function createPolymorphicEntityQueryMap<
   InsertExtraBindings extends Bindings,
   SelectExprs extends Expr,
 >(
-  db: IModelDb,
+  source: IModelDb,
+  target: IModelDb,
   options: {
     insert?: {
       extraBindings?: InsertExtraBindings;
@@ -198,14 +199,14 @@ async function createPolymorphicEntityQueryMap<
     };
   } = {}
 ): Promise<PolymorphicEntityQueries<InsertExtraBindings>> {
-  const schemaNamesReader = db.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
+  const schemaNamesReader = source.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
 
   const schemaNames: string[] = [];
   while (await schemaNamesReader.step()) {
     schemaNames.push(schemaNamesReader.current[0]);
   }
 
-  const schemaLoader = new SchemaLoader((name: string) => db.getSchemaProps(name));
+  const schemaLoader = new SchemaLoader((name: string) => source.getSchemaProps(name));
   const classFullNameAndProps = new Map<string, PropInfo[]>();
 
   for (const schemaName of schemaNames) {
@@ -526,8 +527,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb, {
   returnRemapper = false,
 } = {}): Promise<undefined | Remapper> {
-  // NOTE: initializing this transformer is expensive! it populates the ECReferenceCache for no reason
   const schemaExporter = new IModelTransformer(source, target);
+  // HACK: avoid expensive reference type calculation
+  schemaExporter.context.initialize = async () => {};
   const fontRemaps = new Map<number, number>();
 
   schemaExporter.context.importFont = function (id) {
@@ -543,7 +545,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   schemaExporter.dispose();
 
   // FIXME: return all three queries instead of loading schemas
-  const queryMap = await createPolymorphicEntityQueryMap(target, {
+  const queryMap = await createPolymorphicEntityQueryMap(source, target, {
     insert: {
       extraBindings: {
         GeometryStream: {
@@ -566,6 +568,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const targetPath = target.pathName;
   target.saveChanges();
   target.close();
+  // FIXME: slow
+  StandaloneDb.upgradeStandaloneSchemas(targetPath);
   const writeableTarget = new ECDb();
   writeableTarget.openDb(targetPath, ECDbOpenMode.ReadWrite);
 
