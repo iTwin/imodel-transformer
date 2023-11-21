@@ -61,6 +61,8 @@ const propBindings = (p: PropInfo): string[] =>
 ;
 /* eslint-enable */
 
+const sqlHasCache = new Map<string, Record<string, boolean>>();
+
 function stmtBindProperty(
   stmt: SqliteStatement | ECSqlStatement,
   prop: { name: string, propertyType: PropertyType, extendedTypeName?: string },
@@ -94,8 +96,18 @@ function stmtBindProperty(
     const julianDate = date / 86400000 + 2440587.5;
     return stmt.bindInteger(binding, julianDate); // FIXME: ecsql bindDateTime
   }
-  if (prop.propertyType === PropertyType.Navigation)
-    return stmt.bindId(binding, val.Id);
+  if (prop.propertyType === PropertyType.Navigation) {
+    stmt.bindId(bindings[0], val.Id);
+    // FIXME: reuse binding detection in caller
+    let stmtInfo = sqlHasCache.get(stmt.sql);
+    if (stmtInfo === undefined) {
+      stmtInfo = { [bindings[1]]: stmt.sql.includes(bindings[1]) };
+      sqlHasCache.set(stmt.sql, stmtInfo);
+    }
+    if (stmtInfo[bindings[1]])
+      stmt.bindId(bindings[1], val.RelECClassId);
+    return;
+  }
   if (prop.propertyType === PropertyType.Point2d) {
     stmt.bindDouble(bindings[0], val.X);
     stmt.bindDouble(bindings[1], val.Y);
@@ -362,10 +374,10 @@ async function createPolymorphicEntityQueryMap<
           needsId: /:id_col1\b/.test(sql), // NOTE: ECSQL parameter mangling
           needsEcId: sql.includes(ecIdBinding),
           needsProp: Object.fromEntries(insertProps.map(({ name }) =>
-            [name, new RegExp(`:[sp]_${name}(_(Id|RelECClassId|X|Y|Z))?\b`).test(sql)] as const
+            [name, new RegExp(`:[sp]_${name}(_(Id|RelECClassId|X|Y|Z|col1))?\\b`).test(sql)] as const
           )), // NOTE: ECSQL param mangling
           needsBinding: Object.fromEntries(insertProps.map(({ name }) =>
-            [name, new RegExp(`:[b]_${name}(_(Id|RelECClassId|X|Y|Z))?\b`).test(sql)] as const
+            [name, new RegExp(`:[b]_${name}(_(Id|RelECClassId|X|Y|Z|col1))?\\b`).test(sql)] as const
           )) as {[S in keyof InsertExtraBindings]: any}, // NOTE: ECSQL param mangling
         }));
       }
