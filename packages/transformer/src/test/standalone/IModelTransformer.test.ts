@@ -2674,7 +2674,6 @@ describe("IModelTransformer", () => {
 
     // NOTE: it was closed the transformer itself!
     targetDb = SnapshotDb.openFile(targetDbFile);
-    return;
 
     await assertIdentityTransformation(sourceDb, targetDb, remapper, { compareElemGeom: true, ignoreDefaultTransformerMutations: true });
     sourceDb.close();
