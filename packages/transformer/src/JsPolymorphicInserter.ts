@@ -484,6 +484,28 @@ export interface Remapper {
   findTargetAspectId(s: Id64String): Id64String;
 }
 
+async function parallelSpsc<T>({
+  produce,
+  consume,
+  maxQueueSize = 10_000,
+}: {
+  produce: () => Promise<T | undefined>;
+  consume: (t: T) => Promise<void>;
+  /** prevents backpressure that can overload the garbage collector */
+  maxQueueSize?: number;
+}): Promise<void> {
+  const queue: T[] = [];
+
+  let producerDone = false;
+
+  do {
+    if (queue.length < maxQueueSize)
+      void produce().then((p) => p !== undefined ? queue.push(p) : producerDone = true);
+    if (queue.length > 0)
+      void consume(queue.shift()!);
+  } while(queue.length > 0 || !producerDone);
+}
+
 /** @alpha FIXME: official docs */
 export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, target: IModelDb, options?: {
   returnRemapper?: false;
