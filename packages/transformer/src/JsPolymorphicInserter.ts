@@ -57,6 +57,8 @@ const propBindings = (p: PropInfo): string[] =>
   ? [`:s_${p.name}_col1`]
   : p.propertyType === PropertyType.Navigation
   ? [`:p_${p.name}_Id`, `:p_${p.name}_RelECClassId`]
+  : p.name === "SourceECInstanceId" || p.name === "TargetECInstanceId"
+  ? [`:p_${p.name}`]
   : [`:p_${p.name}_col1`]
 ;
 /* eslint-enable */
@@ -398,7 +400,11 @@ async function createPolymorphicEntityQueryMap<
 
             for (const prop of insertProps) {
               if (sqlInfo.needsProp[prop.name] && "propertyType" in prop) {
-                stmtBindProperty(targetStmt, prop, json[prop.name]);
+                if (prop.propertyType === PropertyType.Binary && prop.extendedTypeName !== "BeGuid") {
+                  stmtBindProperty(targetStmt, prop, binaryValues[prop.name]);
+                } else {
+                  stmtBindProperty(targetStmt, prop, json[prop.name]);
+                }
               }
             }
 
