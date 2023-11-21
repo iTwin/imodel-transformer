@@ -494,15 +494,19 @@ async function parallelSpsc<T>({
   /** prevents backpressure that can overload the garbage collector */
   maxQueueSize?: number;
 }): Promise<void> {
-  const queue: T[] = [];
+  const queue: Promise<T | undefined>[] = [];
 
   let producerDone = false;
 
   do {
-    if (queue.length < maxQueueSize)
-      void produce().then((p) => p !== undefined ? queue.push(p) : producerDone = true);
-    if (queue.length > 0)
-      void consume(queue.shift()!);
+    if (queue.length < maxQueueSize) {
+      // FIXME: does this create excess empty queue items?
+      queue.push(produce().then((p) => p !== undefined ? void (producerDone = true) : undefined));
+    }
+    if (queue.length > 0) {
+      // eslint-disable-next-line
+      void queue.shift()!.then<any>((p) => p && consume(p));
+    }
   } while(queue.length > 0 || !producerDone);
 }
 
