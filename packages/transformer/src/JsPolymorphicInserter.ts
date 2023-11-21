@@ -765,7 +765,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
          -- , m.ECClassId
     FROM bis.Element e
     LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
+    -- FIXME: ordering by class *might* be faster due to less cache busting
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    -- FIXME: ordering by class *might* be faster due to less cache busting
+    ORDER BY e.ECClassId ASC
+    /* ORDER BY e.ECInstanceId ASC */
+
   `;
 
   // now insert everything now that we know ids
