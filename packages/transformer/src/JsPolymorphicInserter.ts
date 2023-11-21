@@ -489,32 +489,43 @@ async function parallelSpsc<T>({
   consume,
   maxQueueSize = 10_000,
 }: {
-  produce: () => Promise<T | undefined>;
+  produce: () => Promise<T | void>;
   consume: (t: T) => Promise<void>;
   /** prevents backpressure that can overload the garbage collector */
   maxQueueSize?: number;
 }): Promise<void> {
-  const queue: Promise<T | undefined>[] = [];
+  let nextTaskId = 0;
+  const inProgressTasks = new Set<number>();
+  const queue: T[] = [];
 
   let producerDone = false;
 
+  const produceAndTryEnqueue = async () => {
+    if (inProgressTasks.size >= maxQueueSize)
+      return;
+    const taskId = nextTaskId;
+    inProgressTasks.add(taskId);
+    nextTaskId++;
+    return produce().then((res) => {
+      if (res === undefined) {
+        producerDone = true;
+      } else {
+        queue.push(res);
+        inProgressTasks.delete(taskId);
+      }
+    });
+  };
+
+  await produceAndTryEnqueue();
+
   do {
-    if (queue.length < maxQueueSize) {
-      console.log("add");
-      // FIXME: does this create excess empty queue items?
-      for (let i = queue.length; i <= maxQueueSize; ++i)
-        queue.push(produce().then((p) => p !== undefined ? void (producerDone = true) : undefined));
-    }
+    void produceAndTryEnqueue();
     if (queue.length > 0) {
       // eslint-disable-next-line
-      const consumed = queue.shift()!.then<any>((p) => p && consume(p));
-      console.log("consume");
-      if (queue.length >= maxQueueSize) {
-        console.log("blocking consume");
-        await consumed;
-      }
+      await consume(queue.shift()!);
     }
-    console.log("spin", queue.length);
+    // must await to allow the event loop to breathe
+    await new Promise(process.nextTick); // eslint-disable-line
   } while(queue.length > 0 || !producerDone);
 }
 
