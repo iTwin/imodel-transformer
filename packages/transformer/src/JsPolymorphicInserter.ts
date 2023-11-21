@@ -148,25 +148,21 @@ interface Bindings {
   } | undefined;
 }
 
-interface Expr {
-  [propName: string]: {
-    expr: (binding: string) => string;
-  };
-}
-
 /** each key is a map of entity class names to its query for that key's type */
 interface PolymorphicEntityQueries<
   InsertExtraBindings extends Bindings,
 > {
-  select: Map<string, (
+  selectBinaries: Map<string, (
     db: ECDb | IModelDb,
     id: Id64String,
-  ) => Record<string, any>>;
+  ) => Record<string, Uint8Array>>;
   insert: Map<string, (
     db: ECDb,
     /** for now you must provide the id to insert on */
     id: Id64String,
     json: any,
+    jsonString: any, // FIXME: TEMP
+    binaryValues?: Record<string, Uint8Array>,
     extraBindings?: Partial<Record<keyof InsertExtraBindings, any>>,
     source?: { id: Id64String, db: IModelDb },
   ) => Id64String>;
@@ -185,16 +181,11 @@ interface PropInfo {
  */
 async function createPolymorphicEntityQueryMap<
   InsertExtraBindings extends Bindings,
-  SelectExprs extends Expr,
 >(
   db: IModelDb,
   options: {
-    insert?: {
-      extraBindings?: InsertExtraBindings;
-    };
-    select?: {
-      // FIXME: qualify the property name!
-      exprs: SelectExprs;
+    extraBindings?: {
+      insert?: InsertExtraBindings;
     };
   } = {}
 ): Promise<PolymorphicEntityQueries<InsertExtraBindings>> {
@@ -231,7 +222,7 @@ async function createPolymorphicEntityQueryMap<
 
   const result: PolymorphicEntityQueries<InsertExtraBindings> = {
     insert: new Map(),
-    select: new Map(),
+    selectBinaries: new Map(),
   };
 
   const readHexFromJson = (p: Pick<PropInfo, "name" | "propertyType">, empty = "0", accessStr?: string) => {
@@ -276,22 +267,22 @@ async function createPolymorphicEntityQueryMap<
 
     const defaultExpr = (binding: string) => binding;
 
-    type AdvancedProp = PropInfo | {
+    type InsertProp = PropInfo | {
       name: string;
       expr: (binding: string) => string;
     };
 
-    const insertBindings = Object.entries(options.insert?.extraBindings ?? {})
+    const insertBindings = Object.entries(options.extraBindings?.insert ?? {})
       // FIXME: n^2
       .filter(([name]) => properties.some((p) => p.name === name));
 
-    const insertProps: AdvancedProp[] = [
+    const insertProps: InsertProp[] = [
       // FIXME: subtype of Id
       { name: "ECInstanceId", propertyType: PropertyType.Long },
       ...nonBinaryProperties
-        .filter((p) => !(p.name in (options.insert?.extraBindings ?? {}))),
+        .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
       ...binaryProperties
-        .filter((p) => !(p.name in (options.insert?.extraBindings ?? {}))),
+        .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
       ...insertBindings.map(([name, info]) => ({ expr: defaultExpr, ...info, name })),
     ];
 
@@ -363,7 +354,9 @@ async function createPolymorphicEntityQueryMap<
     function insert(
       ecdb: ECDb,
       id: string,
-      jsonObj: any,
+      _jsonObj: any,
+      json: string,
+      binaryValues: Record<string, Uint8Array> = {},
       bindingValues: {[S in keyof InsertExtraBindings]?: any} = {},
       source?: { id: string, db: IModelDb }
     ) {
@@ -384,14 +377,6 @@ async function createPolymorphicEntityQueryMap<
             [name, sql.includes(`:s_${name}_col1`)] as const
           )), // NOTE: ECSQL param mangling
         }));
-      }
-      const json = JSON.stringify(jsonObj, (_k, v) => v instanceof Uint8Array ? undefined : v);
-      const binaryValues: Record<string, Uint8Array> = {};
-
-      for (const binProp of binaryProperties) {
-        if (binProp.name in jsonObj) {
-          binaryValues[binProp.name] = jsonObj[binProp.name];
-        }
       }
 
       // NEXT FIXME: doesn't work on some relationships, need to explicitly know if it's a rel
@@ -450,53 +435,36 @@ async function createPolymorphicEntityQueryMap<
       }
     }
 
-    const selectExprs = options.select?.exprs ?? {} as SelectExprs;
-
-    const selectProps = [
-      { name: "ECInstanceId", expr: "ECInstanceId" },
-      ...nonBinaryProperties
-        // force guids to not be stringified
-        .map((p) => ({
-          name: p.name,
-          expr: `CAST(${
-            p.name in selectExprs ? selectExprs[p.name].expr(p.name) : `[${p.name}]`
-          } AS BINARY)`,
-        })),
-      ...binaryProperties
-        .map((p) => ({
-          name: p.name,
-          expr: p.name in selectExprs ? selectExprs[p.name].expr(p.name) : `[${p.name}]`,
-        })),
-    ];
-
-    /* eslint-disable @typescript-eslint/indent */
-    const selectQuery = `
-      SELECT ${selectProps.map((p) => p.name).join(",\n  ")}
+    // NOTE: ignored fields are still queried
+    const selectBinariesQuery = `
+      SELECT ${binaryProperties.map((p) => `CAST([${p.name}] AS BINARY)`)}
       FROM ${escapedClassFullName}
+      WHERE ECInstanceId=?
     `;
-    /* eslint-enable @typescript-eslint/indent */
 
-    function select(ecdb: ECDb | IModelDb, id: Id64String): Record<string, any> {
-      return ecdb.withPreparedStatement(selectQuery, (stmt) => {
+    function selectBinaries(ecdb: ECDb | IModelDb, id: Id64String): Record<string, Uint8Array> {
+      if (binaryProperties.length <= 0)
+        return {};
+
+      return ecdb.withPreparedStatement(selectBinariesQuery, (stmt) => {
         stmt.bindId(1, id);
         assert(stmt.step() === DbResult.BE_SQLITE_ROW, ecdb.nativeDb.getLastError());
         // FIXME: maybe this should be a map?
-        const row = {} as Record<string, any>;
-
+        const row = {} as Record<string, Uint8Array>;
         for (let i = 0; i < binaryProperties.length; ++i) {
           const prop = binaryProperties[i];
+          // FIXME: ignore is unused, remove this condition
           const value = stmt.getValue(i);
           if (!value.isNull)
-            row[prop.name] = value.value;
+            row[prop.name] = value.getBlob();
         }
-
         assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
         return row;
       });
     }
 
     result.insert.set(classFullName, insert);
-    result.select.set(classFullName, select);
+    result.selectBinaries.set(classFullName, selectBinaries);
   }
 
   return result;
@@ -538,18 +506,11 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   // FIXME: return all three queries instead of loading schemas
   const queryMap = await createPolymorphicEntityQueryMap(target, {
-    insert: {
-      extraBindings: {
+    extraBindings: {
+      insert: {
         GeometryStream: {
           // it will be written with blob io...
           expr: (b) => `zeroblob(${b})`,
-        },
-      },
-    },
-    select: {
-      exprs: {
-        GeometryStream: {
-          expr: (b) => `RemapGeom(${b}, 'temp.font_remap', 'temp.element_remap')`,
         },
       },
     },
@@ -730,86 +691,115 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   }
 
-  const sourceElemIdSelect = `
-    SELECT e.ECInstanceId
-         , e.ECClassId
-         , m.ECClassId
-         -- , ec_classname(e.ECClassId, 's.c')
+  const sourceElemSelect = `
+    SELECT e.$, ec_classname(e.ECClassId, 's.c'), e.ECInstanceId,
+           m.$, ec_classname(m.ECClassId, 's.c')
     FROM bis.Element e
+    -- FIXME: is it faster to use the new $->Blah syntax?
     LEFT JOIN bis.Model m ON e.ECInstanceId=m.ECInstanceId
     WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
     -- FIXME: ordering by class *might* be faster due to less cache busting
-    ORDER BY ECClassId ASC
-    -- ORDER BY e.ECInstanceId ASC
+    -- ORDER BY ECClassId, ECInstanceId ASC
+    ORDER BY e.ECInstanceId ASC
   `;
 
+  const sourceGeomForHydrate = `
+    SELECT CAST (RemapGeom(
+        coalesce(g3d.GeometryStream, g2d.GeometryStream, gp.GeometryStream),
+        'temp.font_remap', 'temp.element_remap'
+      ) AS Binary)
+    FROM bis.Element e
+    LEFT JOIN bis.GeometricElement3d g3d ON e.ECInstanceId=g3d.ECInstanceId
+    LEFT JOIN bis.GeometricElement2d g2d ON e.ECInstanceId=g2d.ECInstanceId
+    LEFT JOIN bis.GeometryPart       gp ON e.ECInstanceId=gp.ECInstanceId
+    -- NOTE: ORDER and WHERE must match the query above
+    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+    ORDER BY e.ECInstanceId ASC
+  `;
+ 
   // now insert everything now that we know ids
   console.log("insert elements");
-  const sourceElemReader = source.createQueryReader(sourceElemIdSelect, undefined, { abbreviateBlobs: true });
-  while (await sourceElemReader.step()) {
-    const sourceId = sourceElemReader.current[0] as Id64String;
-    const elemClass = sourceElemReader.current[1] as string;
-    const modelClass = sourceElemReader.current[2] as string | undefined;
+  const sourceElemFirstPassReader = source.createQueryReader(sourceElemSelect, undefined, { abbreviateBlobs: true });
+  await source.withPreparedStatement(sourceGeomForHydrate, async (geomStmt) => {
+    while (await sourceElemFirstPassReader.step()) {
+      assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
+      const geomStreamVal = geomStmt.getValue(0);
+      const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
 
-    const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
+      const elemJsonString = sourceElemFirstPassReader.current[0] as string;
+      const elemJson = JSON.parse(elemJsonString);
+      const elemClass = sourceElemFirstPassReader.current[1];
+      const sourceId = sourceElemFirstPassReader.current[2];
+      const modelJsonString = sourceElemFirstPassReader.current[3];
+      const modelJson = modelJsonString && JSON.parse(modelJsonString);
+      const modelClass = sourceElemFirstPassReader.current[4];
 
-    const elemSelectQuery = queryMap.select.get(elemClass);
-    assert(elemSelectQuery, `couldn't find select query for class '${elemClass}'`);
+      const elemInsertQuery = queryMap.insert.get(elemClass);
+      assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
+      const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
+      assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-    const elemInsertQuery = queryMap.insert.get(elemClass);
-    assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
+      const binaryValues = elemBinaryPropsQuery(source, sourceId);
 
-    const elemJson = elemSelectQuery(source, sourceId);
-    elemJson.ECInstanceId = targetId;
+      const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
 
-    elemInsertQuery(writeableTarget, targetId, elemJson, {}, { id: sourceId, db: source });
+      elemJson.ECInstanceId = targetId;
+      if (modelJson !== undefined)
+        modelJson.ECInstanceId = targetId;
 
-    if (modelClass) {
-      const modelSelectQuery = queryMap.select.get(modelClass);
-      assert(modelSelectQuery, `couldn't find select query for class '${modelClass}'`);
+      elemInsertQuery(
+        writeableTarget,
+        targetId,
+        elemJson,
+        elemJsonString,
+        {
+          ...binaryValues,
+          ...geomStream && { GeometryStream: geomStream },
+        },
+        { GeometryStream: geomStream?.byteLength ?? 0 },
+        { id: sourceId, db: source },
+      );
 
-      const modelJson = modelSelectQuery(source, sourceId);
-      modelJson.ECInstanceId = targetId;
+      if (modelJson) {
+        const modelInsertQuery = queryMap.insert.get(modelClass);
+        assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
 
-      const modelInsertQuery = queryMap.insert.get(modelClass);
-      assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+        // FIXME: not yet handling binary properties on these
+        modelInsertQuery(writeableTarget, targetId, modelJson, modelJsonString);
+      }
 
-      // FIXME: not yet handling binary properties on these
-      modelInsertQuery(writeableTarget, targetId, modelJson, {}, { id: sourceId, db: source });
+      // FIXME: doesn't support briefcase ids > 2**13 - 1
+      remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+
+      incrementStmtsExeced();
     }
-
-    // FIXME: doesn't support briefcase ids > 2**13 - 1
-    remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
-
-    incrementStmtsExeced();
-  }
+  });
 
   const sourceAspectSelect = `
-    SELECT ECInstanceId, ECClassId
-      -- , ec_classname(ECClassId, 's.c'),
+    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
     FROM bis.ElementAspect
   `;
 
   console.log("insert aspects");
   const aspectReader = source.createQueryReader(sourceAspectSelect, undefined, { abbreviateBlobs: true });
   while (await aspectReader.step()) {
-    const sourceId = aspectReader.current[0] as Id64String;
-    const classFullName = aspectReader.current[1] as string;
-
+    const jsonString = aspectReader.current[0];
+    const json = JSON.parse(jsonString);
+    const classFullName = aspectReader.current[1];
+    const sourceId = aspectReader.current[2];
     const targetId = useInstanceId();
 
-    const select = queryMap.select.get(classFullName);
-    assert(select, `couldn't find select query for class '${classFullName}'`);
-
-    const insert = queryMap.insert.get(classFullName);
-    assert(insert, `couldn't find insert query for class '${classFullName}'`);
-
-    const json = select(source, sourceId);
     json.ECInstanceId = targetId;
 
-    insert(writeableTarget, targetId, json, {}, { id: sourceId, db: source });
+    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
+    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
+    const insertQuery = queryMap.insert.get(classFullName);
+    assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
 
-    // FIXME: this is only used by the assertIdentityTransform test
+    const binaryValues = selectBinariesQuery(source, sourceId);
+    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
+
+    // FIXME: do we even need aspect remap tables anymore? I don't remember
     // FIXME: doesn't support briefcase ids > 2**13 - 1
     remapTables.aspect.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
 
@@ -817,29 +807,29 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   const elemRefersSelect = `
-    SELECT ECInstanceId, ECClassId
-      -- , ec_classname(ECClassId, 's.c'),
+    SELECT $, ec_classname(ECClassId, 's.c'), ECInstanceId
     FROM bis.ElementRefersToElements
   `;
 
   console.log("insert ElementRefersToElements");
   const elemRefersReader = source.createQueryReader(elemRefersSelect, undefined, { abbreviateBlobs: true });
   while (await elemRefersReader.step()) {
-    const sourceId = elemRefersReader.current[0] as Id64String;
-    const classFullName = elemRefersReader.current[1] as string;
-
+    const jsonString = elemRefersReader.current[0];
+    const json = JSON.parse(jsonString);
+    const classFullName = elemRefersReader.current[1];
+    const sourceId = elemRefersReader.current[2];
     const targetId = useInstanceId();
 
-    const select = queryMap.select.get(classFullName);
-    assert(select, `couldn't find select query for class '${classFullName}'`);
-
-    const insert = queryMap.insert.get(classFullName);
-    assert(insert, `couldn't find insert query for class '${classFullName}'`);
-
-    const json = select(source, sourceId);
     json.ECInstanceId = targetId;
 
-    insert(writeableTarget, targetId, json, {}, { id: sourceId, db: source });
+    const insertQuery = queryMap.insert.get(classFullName);
+    assert(insertQuery, `couldn't find insert query for class '${classFullName}`);
+
+    const selectBinariesQuery = queryMap.selectBinaries.get(classFullName);
+    assert(selectBinariesQuery, `couldn't find select binary properties query for class '${classFullName}`);
+    const binaryValues = selectBinariesQuery(source, sourceId);
+
+    insertQuery(writeableTarget, targetId, json, jsonString, binaryValues, {}, { id: sourceId, db: source });
 
     incrementStmtsExeced();
   }
