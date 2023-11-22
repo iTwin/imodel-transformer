@@ -781,64 +781,61 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     await parallelSpsc({
       async produce() {
-        return mutex.runExclusive(async () =>
-        {
-          if ((await sourceElemReader.step()) === undefined)
-            return undefined;
+        if (!await sourceElemReader.step())
+          return undefined;
 
-          assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
-          const geomStreamVal = geomStmt.getValue(0);
-          const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
+        assert(geomStmt.step() === DbResult.BE_SQLITE_ROW, source.nativeDb.getLastError());
+        const geomStreamVal = geomStmt.getValue(0);
+        const geomStream = geomStreamVal.isNull ? undefined : geomStreamVal.getBlob();
 
-          const elemJsonString = sourceElemReader.current[0] as string;
-          const elemJson = JSON.parse(elemJsonString);
-          const elemClass = sourceElemReader.current[1];
-          const sourceId = sourceElemReader.current[2];
-          const modelJsonString = sourceElemReader.current[3] as string | undefined;
-          const modelClass = sourceElemReader.current[4];
+        const elemJsonString = sourceElemReader.current[0] as string;
+        const elemJson = JSON.parse(elemJsonString);
+        const elemClass = sourceElemReader.current[1];
+        const sourceId = sourceElemReader.current[2];
+        const modelJsonString = sourceElemReader.current[3] as string | undefined;
+        const modelClass = sourceElemReader.current[4];
 
-          const elemInsertQuery = queryMap.insert.get(elemClass);
-          assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
-          const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
-          assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
+        const elemInsertQuery = queryMap.insert.get(elemClass);
+        assert(elemInsertQuery, `couldn't find insert query for class '${elemClass}'`);
+        const elemBinaryPropsQuery = queryMap.selectBinaries.get(elemClass);
+        assert(elemBinaryPropsQuery, `couldn't find select binary props query for class '${elemClass}'`);
 
-          const elemBinaryValues = elemBinaryPropsQuery(source, sourceId);
+        const elemBinaryValues = elemBinaryPropsQuery(source, sourceId);
 
-          const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
+        const targetId = numIdToId64(remapTables.element.get(id64ToNumId(sourceId)));
 
-          elemJson.ECInstanceId = targetId;
+        elemJson.ECInstanceId = targetId;
 
-          const insertElem = () => elemInsertQuery(
-            writeableTarget,
-            targetId,
-            elemJson,
-            {
-              ...elemBinaryValues,
-              ...geomStream && { GeometryStream: geomStream },
-            },
-            { GeometryStream: geomStream?.byteLength ?? 0 },
-            { id: sourceId, db: source },
-          );
+        const insertElem = () => elemInsertQuery(
+          writeableTarget,
+          targetId,
+          elemJson,
+          {
+            ...elemBinaryValues,
+            ...geomStream && { GeometryStream: geomStream },
+          },
+          { GeometryStream: geomStream?.byteLength ?? 0 },
+          { id: sourceId, db: source },
+        );
 
-          let insertModel: undefined | (() => void);
+        let insertModel: undefined | (() => void);
 
-          if (modelJsonString !== undefined) {
-            const modelJson = JSON.parse(modelJsonString);
-            modelJson.ECInstanceId = targetId;
-            const modelBinaryPropsQuery = queryMap.selectBinaries.get(modelClass);
-            assert(modelBinaryPropsQuery, `couldn't find select binary props query for class '${modelClass}'`);
+        if (modelJsonString !== undefined) {
+          const modelJson = JSON.parse(modelJsonString);
+          modelJson.ECInstanceId = targetId;
+          const modelBinaryPropsQuery = queryMap.selectBinaries.get(modelClass);
+          assert(modelBinaryPropsQuery, `couldn't find select binary props query for class '${modelClass}'`);
 
-            const modelBinaryValues = modelBinaryPropsQuery(source, sourceId);
+          const modelBinaryValues = modelBinaryPropsQuery(source, sourceId);
 
-            const modelInsertQuery = queryMap.insert.get(modelClass);
-            assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
+          const modelInsertQuery = queryMap.insert.get(modelClass);
+          assert(modelInsertQuery, `couldn't find insert query for class '${modelClass}'`);
 
-            // FIXME: not yet handling binary properties on these
-            insertModel = () => modelInsertQuery(writeableTarget, targetId, modelJson, modelBinaryValues);
-          }
+          // FIXME: not yet handling binary properties on these
+          insertModel = () => modelInsertQuery(writeableTarget, targetId, modelJson, modelBinaryValues);
+        }
 
-          return { insertElem, insertModel, sourceId, targetId };
-        });
+        return { insertElem, insertModel, sourceId, targetId };
       },
 
       async consume({ insertElem, insertModel, sourceId, targetId }) {
