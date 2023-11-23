@@ -18,7 +18,7 @@ import { Mutex, Semaphore } from "async-mutex";
 const injectionString = "Inject_1243yu1";
 const injectExpr = (s: string, type = "Integer") => `(CAST ((SELECT '${injectionString} ${escapeForSqlStr(s)}') AS ${type}))`;
 
-const getInjectedSqlite = (query: string, db: ECDb | IModelDb) => {
+const getInjectedSqlite = (db: ECDb | IModelDb, query: string) => {
   try {
     return db.withStatement(query, (stmt) => {
       const nativeSql = stmt.getNativeSql();
@@ -172,22 +172,15 @@ interface Bindings {
 }
 
 /** each key is a map of entity class names to its query for that key's type */
-interface PolymorphicEntityQueries<
-  InsertExtraBindings extends Bindings,
-> {
-  selectBinaries: Map<string, (
-    db: ECDb | IModelDb,
-    id: Id64String,
-  ) => Record<string, Uint8Array>>;
-  insert: Map<string, (
-    db: ECDb,
-    /** for now you must provide the id to insert on */
-    id: Id64String,
-    json: any,
-    binaryValues?: Record<string, Uint8Array>,
-    extraBindings?: Partial<Record<keyof InsertExtraBindings, any>>,
-    source?: { id: Id64String, db: IModelDb },
-  ) => Id64String>;
+interface PolymorphicEntityQueries {
+  bulkInsert: (
+    source: ECDb | IModelDb,
+    target: ECDb,
+    propertyTransforms?: {
+      // FIXME: should be a qualifier not a name!
+      [propertyName: string]: (b: string) => string;
+    },
+  ) => void;
 }
 
 interface PropInfo {
@@ -236,246 +229,153 @@ async function createPolymorphicEntityQueryMap<
           name: "TargetECInstanceId",
           propertyType: PropertyType.Long,
         });
+      } else {
+        classProps.push({
+          name: "ECInstanceId",
+          propertyType: PropertyType.Long,
+        });
       }
 
       classFullNameAndProps.set(ecclass.fullName, classProps);
     }
   }
 
-  const result: PolymorphicEntityQueries<InsertExtraBindings> = {
-    insert: new Map(),
-    selectBinaries: new Map(),
-  };
+  const classInserts = new Map<string, PolymorphicEntityQueries["bulkInsert"]>();
 
   for (const [classFullName, properties] of classFullNameAndProps) {
     const [schemaName, className] = classFullName.split(".");
     const escapedClassFullName = `[${schemaName}].[${className}]`;
 
     // TODO FIXME: support this
-    const nonCompoundProperties = properties
-      .filter((p) => !(
-        p.propertyType === PropertyType.Struct
-        || p.propertyType === PropertyType.Struct_Array
-        || p.propertyType === PropertyType.Binary_Array
-        || p.propertyType === PropertyType.Boolean_Array
-        || p.propertyType === PropertyType.DateTime_Array
-        || p.propertyType === PropertyType.Double_Array
-        || p.propertyType === PropertyType.Integer_Array
-        || p.propertyType === PropertyType.Integer_Enumeration_Array
-        || p.propertyType === PropertyType.Long_Array
-        || p.propertyType === PropertyType.Point2d_Array
-        || p.propertyType === PropertyType.Point3d_Array
-        || p.propertyType === PropertyType.String_Array
-        || p.propertyType === PropertyType.String_Enumeration_Array
-        || p.propertyType === PropertyType.IGeometry_Array
-      ));
-
-    // excludes currently unhandled prop types and GeometryStream which is separately bound
-    const binaryProperties = nonCompoundProperties
-      .filter((p) => p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid")
-      .filter((p) => p.name !== "GeometryStream"); // FIXME: hack ignore geomstream for most stuff
-    const nonBinaryProperties = nonCompoundProperties
-      .filter((p) => !(p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"));
-
-    const defaultExpr = (binding: string) => binding;
-
-    type InsertProp = PropInfo | {
-      name: string;
-      expr: (binding: string) => string;
-    };
-
-    const insertBindings = Object.entries(options.extraBindings?.insert ?? {})
-      // FIXME: n^2
-      .filter(([name]) => properties.some((p) => p.name === name));
-
-    const insertProps: InsertProp[] = [
-      // FIXME: subtype of Id
-      { name: "ECInstanceId", propertyType: PropertyType.Long },
-      ...nonBinaryProperties
-        .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
-      ...binaryProperties
-        .filter((p) => !(p.name in (options.extraBindings?.insert ?? {}))),
-      ...insertBindings.map(([name, info]) => ({ expr: defaultExpr, ...info, name })),
-    ];
-
-    /* eslint-disable @typescript-eslint/indent */
-    const insertQuery = `
-      INSERT INTO ${escapedClassFullName}
-      (
-        ${
-          insertProps.map((p) =>
-            "expr" in p
-            ? `[${p.name}]`
-            // FIXME: note that dynamic structs are completely unhandled
-            : p.propertyType === PropertyType.Navigation
-            ? `[${p.name}].Id, [${p.name}].RelECClassId`
-            : p.propertyType === PropertyType.Point2d
-            ? `[${p.name}].x, [${p.name}].y`
-            : p.propertyType === PropertyType.Point3d
-            ? `[${p.name}].x, [${p.name}].y, [${p.name}].z`
-            : `[${p.name}]`
-        )
-        .join(",\n  ")
-      })
-      VALUES (
-        ${insertProps.map((p) =>
-            "expr" in p
-            ? p.expr(`:b_${p.name}`)
-            // FIXME: should we not use the json id?
-            : p.name === "ECInstanceId"
-            ? ":id"
-            : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
-            ? `zeroblob(:s_${p.name})`
-            : p.propertyType === PropertyType.Navigation
-              // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-            ? `${injectExpr(remapSql(`:p_${p.name}_Id`, p.name === "CodeSpec" ? "codespec" : "element"))},
-              ${injectExpr(`(
-                -- FIXME: do this during remapping after schema processing!
-                SELECT tc.Id
-                FROM source.ec_Class sc
-                JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-                JOIN main.ec_Schema ts ON ts.Name=ss.Name
-                JOIN main.ec_Class tc ON tc.Name=sc.Name
-                WHERE sc.Id=:p_${p.name}_RelECClassId
-              )`)}`
-            // FIXME: use ECReferenceTypesCache to determine which remap table to use
-            : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
-            ? injectExpr(remapSql(`:p_${p.name}`, "element"))
-            : p.propertyType === PropertyType.Point2d
-            ? `:p_${p.name}_X, :p_${p.name}_Y`
-            : p.propertyType === PropertyType.Point3d
-            ? `:p_${p.name}_X, :p_${p.name}_Y, :p_${p.name}_Z`
-            : `:p_${p.name}`
-          )
-        .join(",\n  ")}
-      )
-    `;
-    /* eslint-enable @typescript-eslint/indent */
+    const excludedPropertyTypes = new Set([
+      PropertyType.Struct,
+      PropertyType.Struct_Array,
+      PropertyType.Binary_Array,
+      PropertyType.Boolean_Array,
+      PropertyType.DateTime_Array,
+      PropertyType.Double_Array,
+      PropertyType.Integer_Array,
+      PropertyType.Integer_Enumeration_Array,
+      PropertyType.Long_Array,
+      PropertyType.Point2d_Array,
+      PropertyType.Point3d_Array,
+      PropertyType.String_Array,
+      PropertyType.String_Enumeration_Array,
+      PropertyType.IGeometry_Array,
+    ]);
 
     let hackedRemapInsertSql: string | undefined;
     let hackedRemapInsertSqls: undefined | {
       sql: string;
-      needsId: boolean;
-      needsEcId: boolean;
-      needsProp: {[propName: string]: boolean};
-      needsBinding: {[S in keyof InsertExtraBindings]: boolean};
     }[];
-    const ecIdBinding = ":_ecdb_ecsqlparam_id_col1";
 
-    function insert(
-      ecdb: ECDb,
-      id: string,
-      json: any,
-      binaryValues: Record<string, Uint8Array> = {},
-      bindingValues: {[S in keyof InsertExtraBindings]?: any} = {},
-      source?: { id: string, db: IModelDb }
-    ) {
+    let hackedRemapSelectSql: string | undefined;
+    let hackedRemapSelectSqls: undefined | {
+      sql: string;
+    }[];
+
+    let hackedRemapBulkInsertSqls: undefined | {
+      sql: string;
+    }[];
+
+    const queryProps = properties.filter((p) => !excludedPropertyTypes.has(p.propertyType));
+
+    const classInsert: PolymorphicEntityQueries["bulkInsert"] = (
+      source,
+      target,
+      propertyTransforms = {},
+    ) => {
       if (hackedRemapInsertSql === undefined) {
-        hackedRemapInsertSql = getInjectedSqlite(insertQuery, ecdb);
-        hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({
-          sql,
-          needsId: /:id_col1\b/.test(sql), // NOTE: ECSQL parameter mangling
-          needsEcId: sql.includes(ecIdBinding),
-          needsProp: Object.fromEntries(insertProps.map(({ name }) =>
-            [name, new RegExp(`:[sp]_${name}(_(Id|RelECClassId|X|Y|Z|col1))?\\b`).test(sql)] as const
-          )), // NOTE: ECSQL param mangling
-          needsBinding: Object.fromEntries(insertProps.map(({ name }) =>
-            [name, new RegExp(`:[b]_${name}(_(Id|RelECClassId|X|Y|Z|col1))?\\b`).test(sql)] as const
-          )) as {[S in keyof InsertExtraBindings]: any}, // NOTE: ECSQL param mangling
-        }));
+        /* eslint-disable @typescript-eslint/indent */
+        hackedRemapInsertSql = getInjectedSqlite(target, `
+          INSERT INTO ${escapedClassFullName} (
+            ${queryProps.map((p) => `[${p.name}]`).join(",\n  ")}
+            ${queryProps.map((p) =>
+                p.propertyType === PropertyType.Navigation
+                  // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
+                ? `[${p.name}].Id, [${p.name}].RelECClassId`
+                : p.propertyType === PropertyType.Point2d
+                ?  `[${p.name}].X, [${p.name}].Y`
+                : p.propertyType === PropertyType.Point3d
+                ?  `[${p.name}].X, [${p.name}].Y,  [${p.name}].Z`
+                : `[${p.name}]`
+              )
+            .join(",\n  ")}
+          ) VALUES (${new Array(properties.length).fill("?").join(",")})
+        `);
+        hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({ sql }));
+
+        hackedRemapSelectSql = getInjectedSqlite(source, `
+          SELECT *
+            ${queryProps.map((p) =>
+                p.name in propertyTransforms
+                ? propertyTransforms[p.name](p.name)
+                // FIXME: should we not use the json id?
+                : p.propertyType === PropertyType.Navigation
+                  // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
+                ? `${injectExpr(remapSql(`[${p.name}].Id`, p.name === "CodeSpec" ? "codespec" : "element"))},
+                  ${injectExpr(`(
+                    -- FIXME: do this during remapping after schema processing!
+                    SELECT tc.Id
+                    FROM source.ec_Class sc
+                    JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
+                    JOIN main.ec_Schema ts ON ts.Name=ss.Name
+                    JOIN main.ec_Class tc ON tc.Name=sc.Name
+                    -- FIXME: need to drive the column containing the RelECClassId
+                    WHERE sc.Id=[${p.name}_RelECClassId]
+                  )`)}`
+                // FIXME: use ECReferenceTypesCache to determine which remap table to use
+                : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
+                ? injectExpr(remapSql(`:p_${p.name}`, "element"))
+                : p.propertyType === PropertyType.Point2d
+                ?  `[${p.name}].X, [${p.name}].Y`
+                : p.propertyType === PropertyType.Point3d
+                ?  `[${p.name}].X, [${p.name}].Y,  [${p.name}].Z`
+                : `[${p.name}]`
+              )
+            .join(",\n  ")}
+          FROM ${escapedClassFullName}
+        `);
+        /* eslint-enable @typescript-eslint/indent */
+        hackedRemapSelectSqls = hackedRemapSelectSql.split(";").map((sql) => ({ sql }));
+
+        // FIXME: this probably doesn't work due to overflow tables!
+        assert(hackedRemapInsertSqls.length === hackedRemapSelectSqls.length);
+
+        hackedRemapBulkInsertSqls = hackedRemapInsertSqls.map(({ sql: insertSql }, i) => {
+          const selectSql = hackedRemapSelectSqls![i].sql;
+          const bulkInsertSql = insertSql.replace(/VALUES.*$/, () => ` ${selectSql}`);
+          // FIXME: need to replace the last from with the attached source
+          return { sql: bulkInsertSql };
+        });
       }
 
-      // NEXT FIXME: doesn't work on some relationships, need to explicitly know if it's a rel
-      // class and then always add source/target to INSERT
       try {
         // eslint-disable-next-line
-        for (let i = 0; i < hackedRemapInsertSqls!.length; ++i) {
-          const sqlInfo = hackedRemapInsertSqls![i];
-          ecdb.withPreparedSqliteStatement(sqlInfo.sql, (targetStmt) => {
-            // FIXME: should calculate this ahead of time... really should cache all
-            // per-class statements
-            if (sqlInfo.needsId)
-              targetStmt.bindId(":id_col1", id); // NOTE: ECSQL parameter mangling
-            if (sqlInfo.needsEcId)
-              targetStmt.bindId(ecIdBinding, id);
-
-            for (const prop of insertProps) {
-              if (sqlInfo.needsProp[prop.name] && "propertyType" in prop) {
-                if (prop.propertyType === PropertyType.Binary && prop.extendedTypeName !== "BeGuid") {
-                  stmtBindProperty(targetStmt, prop, binaryValues[prop.name]);
-                } else {
-                  stmtBindProperty(targetStmt, prop, json[prop.name]);
-                }
-              }
-            }
-
-            for (const [name, value] of insertBindings) {
-              if (!sqlInfo.needsBinding[name])
-                continue;
-              const bindingValue = bindingValues[name];
-              // FIXME: why does typescript hate me
-              if (bindingValue)
-                (targetStmt as any)[value?.type ?? "bindInteger"](`:b_${name}_col1`, bindingValue);
-            }
-
-            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
+        for (let i = 0; i < hackedRemapBulkInsertSqls!.length; ++i) {
+          const sqlInfo = hackedRemapBulkInsertSqls![i];
+          target.withPreparedSqliteStatement(sqlInfo.sql, (targetStmt) => {
+            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
           });
         }
-
-        for (const [name, value] of Object.entries(binaryValues)) {
-          incrementalWriteBlob(ecdb.nativeDb, {
-            classFullName,
-            id,
-            propertyAccessString: name,
-            writeable: true,
-          }, value);
-        }
-
-        return id;
       } catch (err) {
-        console.log("SOURCE", source?.db.withStatement(`SELECT * FROM ${classFullName} WHERE ECInstanceId=${source.id}`, s=>[...s]));
-        console.log("ERROR", ecdb.nativeDb.getLastError());
-        console.log("transformed:", JSON.stringify(json, undefined, " "));
-        console.log("ecsql:", insertQuery);
-        console.log("native sql:", hackedRemapInsertSql);
+        console.log("ERROR", target.nativeDb.getLastError());
+        console.log("native sql:", hackedRemapBulkInsertSqls);
         debugger;
         throw err;
       }
-    }
+    };
 
-    // NOTE: ignored fields are still queried
-    const selectBinariesQuery = `
-      SELECT ${binaryProperties.map((p) => `CAST([${p.name}] AS BINARY)`)}
-      FROM ${escapedClassFullName}
-      WHERE ECInstanceId=?
-    `;
-
-    function selectBinaries(ecdb: ECDb | IModelDb, id: Id64String): Record<string, Uint8Array> {
-      if (binaryProperties.length <= 0)
-        return {};
-
-      return ecdb.withPreparedStatement(selectBinariesQuery, (stmt) => {
-        stmt.bindId(1, id);
-        assert(stmt.step() === DbResult.BE_SQLITE_ROW, ecdb.nativeDb.getLastError());
-        // FIXME: maybe this should be a map?
-        const row = {} as Record<string, Uint8Array>;
-        for (let i = 0; i < binaryProperties.length; ++i) {
-          const prop = binaryProperties[i];
-          // FIXME: ignore is unused, remove this condition
-          const value = stmt.getValue(i);
-          if (!value.isNull)
-            row[prop.name] = value.getBlob();
-        }
-        assert(stmt.step() === DbResult.BE_SQLITE_DONE, ecdb.nativeDb.getLastError());
-        return row;
-      });
-    }
-
-    result.insert.set(classFullName, insert);
-    result.selectBinaries.set(classFullName, selectBinaries);
+    classInserts.set(classFullName, classInsert);
   }
 
-  return result;
+  return {
+    bulkInsert: (source, target, propertyTransforms) => {
+      for (const [, classInsert] of classInserts) {
+        classInsert(source, target, propertyTransforms);
+      }
+    },
+  } satisfies PolymorphicEntityQueries;
 }
 
 // FIXME: consolidate with assertIdentityTransform test, and maybe hide this return type
