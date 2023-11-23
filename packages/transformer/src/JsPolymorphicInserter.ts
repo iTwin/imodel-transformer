@@ -1,6 +1,6 @@
 import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, IModelHost, IModelJsNative, SqliteStatement } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
-import { PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaLoader } from "@itwin/ecschema-metadata";
+import { ECClassModifier, PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import * as url from "url";
 import { IModelTransformer } from "./IModelTransformer";
@@ -29,7 +29,6 @@ const getInjectedSqlite = (db: ECDb | IModelDb, query: string) => {
     });
   } catch (err) {
     console.log("query", query);
-    debugger;
     throw err;
   }
 };
@@ -153,6 +152,17 @@ async function bulkInsertTransform(
   for (const schemaName of schemaNames) {
     const schema = schemaLoader.getSchema(schemaName);
     for (const ecclass of schema.getClasses()) {
+      if (!(
+        ecclass.schemaItemType === SchemaItemType.EntityClass
+        || ecclass.schemaItemType === SchemaItemType.RelationshipClass
+      )) continue;
+
+      // FIXME: skip navigation property only relationships
+      // FIXME: skip non-insertable custom mapped ec classes
+
+      if (ecclass.modifier === ECClassModifier.Abstract)
+        continue;
+
       const classProps: PropInfo[] = [...await ecclass.getProperties()];
       classFullNameAndProps.set(ecclass.fullName, classProps);
 
@@ -179,142 +189,181 @@ async function bulkInsertTransform(
   const classInserts = new Map<string, () => void>();
 
   for (const [classFullName, properties] of classFullNameAndProps) {
-    const [schemaName, className] = classFullName.split(".");
-    const escapedClassFullName = `[${schemaName}].[${className}]`;
+    try {
+      const [schemaName, className] = classFullName.split(".");
+      const escapedClassFullName = `[${schemaName}].[${className}]`;
 
-    // TODO FIXME: support this
-    const excludedPropertyTypes = new Set([
-      PropertyType.Struct,
-      PropertyType.Struct_Array,
-      PropertyType.Binary_Array,
-      PropertyType.Boolean_Array,
-      PropertyType.DateTime_Array,
-      PropertyType.Double_Array,
-      PropertyType.Integer_Array,
-      PropertyType.Integer_Enumeration_Array,
-      PropertyType.Long_Array,
-      PropertyType.Point2d_Array,
-      PropertyType.Point3d_Array,
-      PropertyType.String_Array,
-      PropertyType.String_Enumeration_Array,
-      PropertyType.IGeometry_Array,
-    ]);
+      // TODO FIXME: support this
+      const excludedPropertyTypes = new Set([
+        PropertyType.Struct,
+        PropertyType.Struct_Array,
+        PropertyType.Binary_Array,
+        PropertyType.Boolean_Array,
+        PropertyType.DateTime_Array,
+        PropertyType.Double_Array,
+        PropertyType.Integer_Array,
+        PropertyType.Integer_Enumeration_Array,
+        PropertyType.Long_Array,
+        PropertyType.Point2d_Array,
+        PropertyType.Point3d_Array,
+        PropertyType.String_Array,
+        PropertyType.String_Enumeration_Array,
+        PropertyType.IGeometry_Array,
+      ]);
 
-    const queryProps = properties.filter((p) => !excludedPropertyTypes.has(p.propertyType));
+      const queryProps = properties.filter((p) => !excludedPropertyTypes.has(p.propertyType));
 
-    /* eslint-disable @typescript-eslint/indent */
-    const selectSql = getInjectedSqlite(source, `
-      SELECT
-        ${queryProps.map((p) =>
-            p.name in propertyTransforms
-            ? propertyTransforms[p.name](p.name)
-            // FIXME: should we not use the json id?
-            : p.propertyType === PropertyType.Navigation
-              // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-            ? [
-                injectExpr(remapSql(`[${p.name}].Id`, p.name === "CodeSpec" ? "codespec" : "element")),
-                injectExpr(`(
-                  -- FIXME: do this during remapping after schema processing!
-                  SELECT tc.Id
-                  FROM source.ec_Class sc
-                  JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-                  JOIN main.ec_Schema ts ON ts.Name=ss.Name
-                  JOIN main.ec_Class tc ON tc.Name=sc.Name
-                  -- FIXME: need to drive the column containing the RelECClassId
-                  WHERE sc.Id=[${p.name}_RelECClassId]
-                )`)
-              ]
-            // FIXME: use ECReferenceTypesCache to determine which remap table to use
-            : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
-            ? [injectExpr(remapSql(`:p_${p.name}`, "element"))]
-            : p.propertyType === PropertyType.Point2d
-            ? [`[${p.name}].X`, `[${p.name}].Y`]
-            : p.propertyType === PropertyType.Point3d
-            ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
-            : [`[${p.name}]`]
-          )
-        .map((expr, i) => `(${expr}) AS _${i + 1}`) // ecsql indexes are one-indexed
-        .flat()
-        .join(",\n  ")}
-      FROM ${escapedClassFullName}
-    `);
+      /* eslint-disable @typescript-eslint/indent */
+      const selectSql = getInjectedSqlite(source, `
+        SELECT
+          ${queryProps.map((p) =>
+              p.name in propertyTransforms
+              ? [propertyTransforms[p.name](p.name)]
+              : p.propertyType === PropertyType.Navigation
+              ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
+              : p.propertyType === PropertyType.Point2d
+              ? [`[${p.name}].X`, `[${p.name}].Y`]
+              : p.propertyType === PropertyType.Point3d
+              ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
+              : [`[${p.name}]`]
+            )
+          .flat()
+          .map((expr, i) => `(${expr}) AS _${i + 1}`) // ecsql indexes are one-indexed
+          .join(",\n  ")}
+        FROM ${escapedClassFullName}
+      `);
 
-    const allInsertSql = getInjectedSqlite(target, `
-      INSERT INTO ${escapedClassFullName} (
-        ${queryProps.map((p) =>
-            p.propertyType === PropertyType.Navigation
-              // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-            ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
-            : p.propertyType === PropertyType.Point2d
-            ? [`[${p.name}].X`, `[${p.name}].Y`]
-            : p.propertyType === PropertyType.Point3d
-            ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
-            : [`[${p.name}]`]
-          )
-        .flat()
-        .join(",\n  ")}
-      ) VALUES (
-        ${queryProps.map((p) =>
-            p.propertyType === PropertyType.Navigation
-              // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-            ?  ["?","?"]
-            : p.propertyType === PropertyType.Point2d
-            ?  ["?","?"]
-            : p.propertyType === PropertyType.Point3d
-            ?  ["?","?","?"]
-            : ["?"]
-          )
-        .flat()
-        .join(",")}
-      )
-    `);
-    /* eslint-enable @typescript-eslint/indent */
+      assert(!selectSql.includes(";"));
 
-    assert(!selectSql.includes(";"));
-    const insertSqls = allInsertSql.split(";");
-
-    const selectFromAttached = selectSql.replace(/FROM\s*(\[[^\]]\])/, (_full, table) => `source.${table}`);
-
-    const bulkInsertSqls = insertSqls.map((insertSql) => {
-      // FIXME: just use ec_Table/ec_PropertyMap in the sqlite table!
-      const [, insertHeader, _colNames, values] = /(^.*\(([^)]*)\))\s*VALUES\s*\(([^)]*)\)/.exec(insertSql)!;
-      const mappedValues = values
-        .split(",")
-        .map((b) => [b, /_ix(\d+)_/.exec(b)?.[1]])
-        .map(([b, maybeColIdx]) => maybeColIdx !== undefined ? `_${maybeColIdx}` : b)
-      ;
-
-      const bulkInsertSql = `
-        ${insertHeader}
-        SELECT ${mappedValues}
-        FROM (${selectFromAttached})
+      // HACK: can increment this everytime we use it if we use it once per expression
+      // also pre-increment for one-indexing
+      let i = 0;
+      const remappedSql = `
+        SELECT
+          ${queryProps.map((p) =>
+              p.name in propertyTransforms
+              ? [propertyTransforms[p.name](`_${++i}`)]
+              : p.propertyType === PropertyType.Navigation
+              ? [
+                  // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
+                  // FIXME: detect exact property name for this, currently a hack
+                  remapSql(`[_${++i}]`, p.name === "CodeSpec" ? "codespec" : "element"),
+                  `(
+                    -- FIXME: do this during remapping after schema processing!
+                    SELECT tc.Id
+                    FROM source.ec_Class sc
+                    JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
+                    JOIN main.ec_Schema ts ON ts.Name=ss.Name
+                    JOIN main.ec_Class tc ON tc.Name=sc.Name
+                    -- FIXME: need to derive the column containing the RelECClassId
+                    WHERE sc.Id=[_${++i}]
+                  )`,
+                ]
+              // FIXME: use ECReferenceTypesCache to determine which remap table to use
+              : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
+              ? [remapSql(`_${++i}`, "element")]
+              : p.propertyType === PropertyType.Point2d
+              ? [`[_${++i}]`, `[_${++i}]`]
+              : p.propertyType === PropertyType.Point3d
+              ? [`[_${++i}]`, `[_${++i}]`, `[_${++i}]`]
+              : [`[_${++i}]`]
+            )
+          .flat()
+          .map((expr, i) => `(${expr}) AS _r${i + 1}`) // ecsql indexes are one-indexed
+          .join(",\n  ")}
+        FROM (
+          ${selectSql}
+        )
       `;
 
-      // FIXME: need to replace the last from with the attached source
-      return bulkInsertSql;
-    });
+      const allInsertSql = getInjectedSqlite(target, `
+        INSERT INTO ${escapedClassFullName} (
+          ${queryProps.map((p) =>
+              p.propertyType === PropertyType.Navigation
+                // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
+              ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
+              : p.propertyType === PropertyType.Point2d
+              ? [`[${p.name}].X`, `[${p.name}].Y`]
+              : p.propertyType === PropertyType.Point3d
+              ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
+              : [`[${p.name}]`]
+            )
+          .flat()
+          .join(",\n  ")}
+        ) VALUES (
+          ${queryProps.map((p) =>
+              p.propertyType === PropertyType.Navigation
+                // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
+              ?  ["?","?"]
+              : p.propertyType === PropertyType.Point2d
+              ?  ["?","?"]
+              : p.propertyType === PropertyType.Point3d
+              ?  ["?","?","?"]
+              : ["?"]
+            )
+          .flat()
+          .join(",")}
+        )
+      `);
+      /* eslint-enable @typescript-eslint/indent */
 
-    const classInsert = () => {
-      try {
-        // eslint-disable-next-line
-        for (const sql of bulkInsertSqls) {
-          target.withPreparedSqliteStatement(sql, (targetStmt) => {
-            assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
-          });
+      const insertSqls = allInsertSql.split(";");
+
+      //const remappedFromAttached = remappedSql.replace(/FROM\s*(\[[^\]]\])/, (_full, table) => `source.${table}`);
+      const remappedFromAttached = remappedSql.replace(/\[main\]\./g, "[source].");
+
+      const bulkInsertSqls = insertSqls.map((insertSql) => {
+        // FIXME: just use ec_Table/ec_PropertyMap in the sqlite table!
+        const [, insertHeader, _colNames, values] = /(^.*\(([^)]*)\))\s*VALUES\s*\(([^)]*)\)/.exec(insertSql)!;
+        const mappedValues = values
+          .split(",")
+          .map((b) => [b, /_ix(\d+)_/.exec(b)?.[1]])
+          .map(([b, maybeColIdx]) => maybeColIdx !== undefined ? `_r${maybeColIdx}` : b)
+        ;
+
+        const bulkInsertSql = `
+          ${insertHeader}
+          SELECT ${mappedValues}
+          FROM (${remappedFromAttached})
+        `;
+
+        // FIXME: need to replace the last from with the attached source
+        return bulkInsertSql;
+      });
+
+      let lastSql: string;
+      const classInsert = () => {
+        try {
+          // eslint-disable-next-line
+          for (const sql of bulkInsertSqls) {
+            lastSql = sql;
+            target.withPreparedSqliteStatement(sql, (targetStmt) => {
+              assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
+            });
+          }
+        } catch (err) {
+          console.log("ERROR", target.nativeDb.getLastError());
+          console.log("lastSql:", lastSql);
+          debugger;
+          throw err;
         }
-      } catch (err) {
-        console.log("ERROR", target.nativeDb.getLastError());
-        console.log("native sql:", bulkInsertSqls);
-        debugger;
-        throw err;
-      }
-    };
+      };
 
-    classInserts.set(classFullName, classInsert);
+      classInserts.set(classFullName, classInsert);
+    } catch (err: any) {
+      if (/Use the respective navigation property to modify it\.$/.test(err.message))
+        continue;
+      if (/is mapped to an existing table not owned by ECDb/.test(err.message))
+        continue;
+      debugger;
+      throw err;
+    }
   }
 
-  for (const classInsert of classInserts.values()) {
-    classInsert();
+  let j = 0;
+  for (const [className, inserter] of classInserts) {
+    inserter();
+    console.log("inserted all of className", j++);
   }
 }
 
@@ -477,7 +526,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   await bulkInsertTransform(source, writeableTarget, {
-    GeometryStream: (s) => `RemapGeom(GeometryStream, 'temp.font_remap', 'temp.element_remap')`,
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    GeometryStream: (s) => `RemapGeom(${s}, 'temp.font_remap', 'temp.element_remap')`,
   });
 
   writeableTarget.withPreparedSqliteStatement(`
