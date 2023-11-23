@@ -18,18 +18,13 @@ const injectionString = "Inject_1243yu1";
 const injectExpr = (s: string, type = "Integer") => `(CAST ((SELECT '${injectionString} ${escapeForSqlStr(s)}') AS ${type}))`;
 
 const getInjectedSqlite = (db: ECDb | IModelDb, query: string) => {
-  try {
-    return db.withStatement(query, (stmt) => {
-      const nativeSql = stmt.getNativeSql();
-      return nativeSql.replace(
-        new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
-        (_, p1) => unescapeSqlStr(p1),
-      );
-    });
-  } catch (err) {
-    console.log("query", query);
-    throw err;
-  }
+  return db.withStatement(query, (stmt) => {
+    const nativeSql = stmt.getNativeSql();
+    return nativeSql.replace(
+      new RegExp(`\\(SELECT '${injectionString} (.*?[^']('')*)'\\)`, "gs"),
+      (_, p1) => unescapeSqlStr(p1),
+    );
+  });
 };
 
 // FIXME: note that SQLite doesn't seem to have types/statistics that would let it consider using
