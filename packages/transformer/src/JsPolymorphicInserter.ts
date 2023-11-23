@@ -1,11 +1,10 @@
-import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, IModelHost, IModelJsNative, SqliteStatement } from "@itwin/core-backend";
+import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, SqliteStatement } from "@itwin/core-backend";
 import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
-import { ECClassModifier, PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
+import { ECClass, ECClassModifier, PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import * as url from "url";
 import { IModelTransformer } from "./IModelTransformer";
 import { CompactRemapTable } from "./CompactRemapTable";
-import { Mutex, Semaphore } from "async-mutex";
 
 // NOTES:
 // missing things:
@@ -146,8 +145,20 @@ async function bulkInsertTransform(
     schemaNames.push(schemaNamesReader.current[0]);
   }
 
+  interface ClassData {
+    properties: PropInfo[];
+    rootType: "element" | "aspect" | "codespec" | "relationship";
+  }
+
   const schemaLoader = new SchemaLoader((name: string) => source.getSchemaProps(name));
-  const classFullNameAndProps = new Map<string, PropInfo[]>();
+  const classData = new Map<string, ClassData>();
+
+  const bis = schemaLoader.getSchema("BisCore");
+  const [multiAspect, uniqueAspect] = await Promise.all([
+    bis.getItem("ElementMultiAspect") as Promise<ECClass>,
+    bis.getItem("ElementUniqueAspect") as Promise<ECClass>,
+  ]);
+  assert(multiAspect && uniqueAspect);
 
   for (const schemaName of schemaNames) {
     const schema = schemaLoader.getSchema(schemaName);
@@ -163,32 +174,44 @@ async function bulkInsertTransform(
       if (ecclass.modifier === ECClassModifier.Abstract)
         continue;
 
-      const classProps: PropInfo[] = [...await ecclass.getProperties()];
-      classFullNameAndProps.set(ecclass.fullName, classProps);
+      const properties: PropInfo[] = [...await ecclass.getProperties()];
 
       if (ecclass instanceof RelationshipClass) {
-        classProps.push({
+        properties.push({
           name: "SourceECInstanceId",
           propertyType: PropertyType.Long,
         });
-        classProps.push({
+        properties.push({
           name: "TargetECInstanceId",
           propertyType: PropertyType.Long,
         });
       } else {
-        classProps.push({
+        properties.push({
           name: "ECInstanceId",
           propertyType: PropertyType.Long,
         });
       }
 
-      classFullNameAndProps.set(ecclass.fullName, classProps);
+      // FIXME: remove this broken rule
+      /* eslint-disable */
+      classData.set(ecclass.fullName, {
+        properties,
+        rootType: ecclass.schemaItemType === SchemaItemType.RelationshipClass
+          ? "relationship"
+          : ecclass.fullName === "BisCore.CodeSpec"
+          ? "codespec"
+          // FIXME: async shortcircuit or?
+          : ecclass.isSync(multiAspect) || ecclass.isSync(uniqueAspect)
+          ? "aspect"
+          : "element"
+      });
+      /* eslint-enable */
     }
   }
 
   const classInserts = new Map<string, () => void>();
 
-  for (const [classFullName, properties] of classFullNameAndProps) {
+  for (const [classFullName, { properties, rootType }] of classData) {
     try {
       const [schemaName, className] = classFullName.split(".");
       const escapedClassFullName = `[${schemaName}].[${className}]`;
@@ -237,17 +260,17 @@ async function bulkInsertTransform(
 
       // HACK: can increment this everytime we use it if we use it once per expression
       // also pre-increment for one-indexing
-      let i = 0;
+      let j = 0;
       const remappedSql = `
         SELECT
           ${queryProps.map((p) =>
               p.name in propertyTransforms
-              ? [propertyTransforms[p.name](`_${++i}`)]
+              ? [propertyTransforms[p.name](`_${++j}`)]
               : p.propertyType === PropertyType.Navigation
               ? [
                   // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
                   // FIXME: detect exact property name for this, currently a hack
-                  remapSql(`[_${++i}]`, p.name === "CodeSpec" ? "codespec" : "element"),
+                  remapSql(`[_${++j}]`, p.name === "CodeSpec" ? "codespec" : "element"),
                   `(
                     -- FIXME: do this during remapping after schema processing!
                     SELECT tc.Id
@@ -256,17 +279,18 @@ async function bulkInsertTransform(
                     JOIN main.ec_Schema ts ON ts.Name=ss.Name
                     JOIN main.ec_Class tc ON tc.Name=sc.Name
                     -- FIXME: need to derive the column containing the RelECClassId
-                    WHERE sc.Id=[_${++i}]
+                    WHERE sc.Id=[_${++j}]
                   )`,
                 ]
               // FIXME: use ECReferenceTypesCache to determine which remap table to use
               : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
-              ? [remapSql(`_${++i}`, "element")]
+              // FIXME: support relationships!
+              ? [remapSql(`_${++j}`, rootType === "relationship" ? "element" : rootType)]
               : p.propertyType === PropertyType.Point2d
-              ? [`[_${++i}]`, `[_${++i}]`]
+              ? [`[_${++j}]`, `[_${++j}]`]
               : p.propertyType === PropertyType.Point3d
-              ? [`[_${++i}]`, `[_${++i}]`, `[_${++i}]`]
-              : [`[_${++i}]`]
+              ? [`[_${++j}]`, `[_${++j}]`, `[_${++j}]`]
+              : [`[_${++j}]`]
             )
           .flat()
           .map((expr, i) => `(${expr}) AS _r${i + 1}`) // ecsql indexes are one-indexed
@@ -309,7 +333,6 @@ async function bulkInsertTransform(
 
       const insertSqls = allInsertSql.split(";");
 
-      //const remappedFromAttached = remappedSql.replace(/FROM\s*(\[[^\]]\])/, (_full, table) => `source.${table}`);
       const remappedFromAttached = remappedSql.replace(/\[main\]\./g, "[source].");
 
       const bulkInsertSqls = insertSqls.map((insertSql) => {
@@ -325,6 +348,10 @@ async function bulkInsertTransform(
           ${insertHeader}
           SELECT ${mappedValues}
           FROM (${remappedFromAttached})
+          WHERE true -- necessary for sqlite's ON CONFLICT syntax
+          ${rootType === "codespec" ? `
+            ON CONFLICT([main].[bis_CodeSpec].[Name]) DO NOTHING
+          ` : ""}
         `;
 
         // FIXME: need to replace the last from with the attached source
@@ -342,8 +369,9 @@ async function bulkInsertTransform(
             });
           }
         } catch (err) {
-          console.log("ERROR", target.nativeDb.getLastError());
           console.log("lastSql:", lastSql);
+          console.log("ERROR", target.nativeDb.getLastError());
+          console.log("class:", classFullName);
           debugger;
           throw err;
         }
@@ -360,10 +388,12 @@ async function bulkInsertTransform(
     }
   }
 
-  let j = 0;
-  for (const [className, inserter] of classInserts) {
-    inserter();
-    console.log("inserted all of className", j++);
+  {
+    let j = 0;
+    for (const [className, inserter] of classInserts) {
+      inserter();
+      console.log("inserted all of", className, j++);
+    }
   }
 }
 

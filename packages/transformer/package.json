@@ -94,7 +94,6 @@
     "typescript": "^5.0.4"
   },
   "dependencies": {
-    "async-mutex": "^0.4.0",
     "semver": "^7.5.1"
   },
   "nyc": {
