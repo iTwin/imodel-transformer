@@ -237,9 +237,7 @@ async function bulkInsertTransform(
       const selectSql = getInjectedSqlite(source, `
         SELECT
           ${queryProps.map((p) =>
-              p.name in propertyTransforms
-              ? [propertyTransforms[p.name](p.name)]
-              : p.propertyType === PropertyType.Navigation
+              p.propertyType === PropertyType.Navigation
               ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
               : p.propertyType === PropertyType.Point2d
               ? [`[${p.name}].X`, `[${p.name}].Y`]
@@ -371,7 +369,6 @@ async function bulkInsertTransform(
           console.log("lastSql:", lastSql);
           console.log("ERROR", target.nativeDb.getLastError());
           console.log("class:", classFullName);
-          console.log("intended ids:", target.withSqliteStatement(remappedFromAttached, (s)=>[...s]).map((r) => Object.values(r).pop()));
           debugger;
           throw err;
         }
@@ -394,12 +391,6 @@ async function bulkInsertTransform(
     for (const [className, inserter] of classInserts) {
       inserter();
       console.log("finished inserting", className, j++);
-      const newElemInstances = target.withPreparedStatement("SELECT ECInstanceId FROM bis.Element", (s) => [...s])
-        .map((r) => r.id)
-        .filter((r) => !elemInstances.has(r));
-      console.log("new elements:", [...newElemInstances])
-      for (const elem of newElemInstances)
-        elemInstances.add(elem);
     }
   }
 }
