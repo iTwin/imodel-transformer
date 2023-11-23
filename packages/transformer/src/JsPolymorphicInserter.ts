@@ -392,7 +392,7 @@ async function bulkInsertTransform(
     let j = 0;
     for (const [className, inserter] of classInserts) {
       inserter();
-      console.log("inserted all of", className, j++);
+      console.log("finished inserting", className, j++);
     }
   }
 }
@@ -516,27 +516,38 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   // FIXME: doesn't support high briefcase ids (> 2 << 13)!
   const useElemId = () => `0x${(_nextElemId++).toString(16)}`;
 
-  const sourceElemRemapSelect = `
-    SELECT e.ECInstanceId
-    FROM bis.Element e
-    WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
-    -- FIXME: CompactRemapTable is broken, this must be ordered
-    ORDER BY e.ECInstanceId ASC
-  `;
+  {
+    const sourceElemRemapSelect = `
+      SELECT e.ECInstanceId
+      FROM bis.Element e
+      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+      -- FIXME: CompactRemapTable is broken, this must be ordered
+      ORDER BY e.ECInstanceId ASC
+    `;
 
-  // first pass, populate the id map
-  // FIXME: technically could do it all in one pass if we assume everything will have the same id moved
-  // just offset all references by the count of rows in the source...
-  //
-  // Might be useful to still do two passes though in a filter-heavy transform... we can always
-  // do the offsetting in the first pass, and then decide during the pass if there is too much sparsity
-  // in the IDs and redo it?
-  console.log("generate elements remap tables");
-  const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect, undefined, { abbreviateBlobs: true });
-  while (await sourceElemRemapPassReader.step()) {
-    const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
-    const targetId = useElemId();
-    remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+    console.log("generate element remap tables");
+    const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect, undefined, { abbreviateBlobs: true });
+    while (await sourceElemRemapPassReader.step()) {
+      const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
+      const targetId = useElemId();
+      remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+    }
+  }
+
+  {
+    const codeSpecRemapSelect = `
+      SELECT c.ECInstanceId
+      FROM bis.CodeSpec c
+      ORDER BY c.ECInstanceId ASC
+    `;
+
+    console.log("generate codespec remap tables");
+    const codeSpecRemapReader = source.createQueryReader(codeSpecRemapSelect, undefined, { abbreviateBlobs: true });
+    while (await codeSpecRemapReader.step()) {
+      const sourceId = codeSpecRemapReader.current[0] as Id64String;
+      const targetId = useElemId();
+      remapTables.codespec.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+    }
   }
 
   // give sqlite the tables
