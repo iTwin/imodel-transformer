@@ -155,6 +155,8 @@ async function bulkInsertTransform(
   ]);
   assert(multiAspect && uniqueAspect);
 
+  // NEXT: only do this on leaf classes so that we do not have id collisions
+
   for (const schemaName of schemaNames) {
     const schema = schemaLoader.getSchema(schemaName);
     for (const ecclass of schema.getClasses()) {
@@ -248,7 +250,7 @@ async function bulkInsertTransform(
           .flat()
           .map((expr, i) => `(${expr}) AS _${i + 1}`) // ecsql indexes are one-indexed
           .join(",\n  ")}
-        FROM ${escapedClassFullName}
+        FROM ONLY ${escapedClassFullName}
       `);
 
       assert(!selectSql.includes(";"));
@@ -344,7 +346,7 @@ async function bulkInsertTransform(
           SELECT ${mappedValues}
           FROM (${remappedFromAttached})
           WHERE true -- necessary for sqlite's ON CONFLICT syntax
-          ${rootType === "codespec" ? `
+          ${insertHeader.includes("[bis_CodeSpec]") ? `
             ON CONFLICT([main].[bis_CodeSpec].[Name]) DO NOTHING
           ` : ""}
         `;
