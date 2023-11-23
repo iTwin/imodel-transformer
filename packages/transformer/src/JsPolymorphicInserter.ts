@@ -200,45 +200,20 @@ async function bulkInsertTransform(
       PropertyType.IGeometry_Array,
     ]);
 
-    let hackedRemapInsertSql: string | undefined;
-    let hackedRemapInsertSqls: undefined | {
-      sql: string;
-    }[];
-
-    let hackedRemapSelectSql: string | undefined;
-    let hackedRemapSelectSqls: undefined | {
-      sql: string;
-    }[];
-
-    let hackedRemapBulkInsertSqls: undefined | {
-      sql: string;
-    }[];
+    let sqlHacks: undefined | {
+      allInsertSql: string;
+      insertSqls: string[];
+      selectSql: string;
+      bulkInsertSqls: string[];
+    };
 
     const queryProps = properties.filter((p) => !excludedPropertyTypes.has(p.propertyType));
 
     const classInsert = () => {
-      if (hackedRemapInsertSql === undefined) {
+      if (sqlHacks === undefined) {
         /* eslint-disable @typescript-eslint/indent */
-        hackedRemapInsertSql = getInjectedSqlite(target, `
-          INSERT INTO ${escapedClassFullName} (
-            ${queryProps.map((p) => `[${p.name}]`).join(",\n  ")}
-            ${queryProps.map((p) =>
-                p.propertyType === PropertyType.Navigation
-                  // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-                ? `[${p.name}].Id, [${p.name}].RelECClassId`
-                : p.propertyType === PropertyType.Point2d
-                ?  `[${p.name}].X, [${p.name}].Y`
-                : p.propertyType === PropertyType.Point3d
-                ?  `[${p.name}].X, [${p.name}].Y,  [${p.name}].Z`
-                : `[${p.name}]`
-              )
-            .join(",\n  ")}
-          ) VALUES (${new Array(properties.length).fill("?").join(",")})
-        `);
-        hackedRemapInsertSqls = hackedRemapInsertSql.split(";").map((sql) => ({ sql }));
-
-        hackedRemapSelectSql = getInjectedSqlite(source, `
-          SELECT *
+        const selectSql = getInjectedSqlite(source, `
+          SELECT
             ${queryProps.map((p) =>
                 p.name in propertyTransforms
                 ? propertyTransforms[p.name](p.name)
@@ -268,31 +243,73 @@ async function bulkInsertTransform(
             .join(",\n  ")}
           FROM ${escapedClassFullName}
         `);
+        assert(!selectSql.includes(";"));
+
+        const allInsertSql = getInjectedSqlite(target, `
+          INSERT INTO ${escapedClassFullName} (
+            ${queryProps.map((p) =>
+                p.propertyType === PropertyType.Navigation
+                  // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
+                ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
+                : p.propertyType === PropertyType.Point2d
+                ? [`[${p.name}].X`, `[${p.name}].Y`]
+                : p.propertyType === PropertyType.Point3d
+                ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
+                : [`[${p.name}]`]
+              )
+            .flat()
+            .join(",\n  ")}
+          ) VALUES (
+            ${queryProps.map((p) =>
+                p.propertyType === PropertyType.Navigation
+                  // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
+                ?  ["?","?"]
+                : p.propertyType === PropertyType.Point2d
+                ?  ["?","?"]
+                : p.propertyType === PropertyType.Point3d
+                ?  ["?","?","?"]
+                : ["?"]
+              )
+            .flat()
+            .join(",")}
+          )
+        `);
+        const insertSqls = allInsertSql.split(";");
         /* eslint-enable @typescript-eslint/indent */
-        hackedRemapSelectSqls = hackedRemapSelectSql.split(";").map((sql) => ({ sql }));
 
-        // FIXME: this probably doesn't work due to overflow tables!
-        assert(hackedRemapInsertSqls.length === hackedRemapSelectSqls.length);
+        // FIXME: just use ec_Table/ec_PropertyMap in the sqlite table!
+        const paramMap = insertSqls.map((sql) => {
+          const [_full, _colNames, values] = /\(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/.exec(sql)!;
+          const colIndices = values
+            .split(",")
+            .map((b) => /_ix(\d+)_/.exec(b)?.[1])
+          ;
+        });
 
-        hackedRemapBulkInsertSqls = hackedRemapInsertSqls.map(({ sql: insertSql }, i) => {
-          const selectSql = hackedRemapSelectSqls![i].sql;
+        const bulkInsertSqls = insertSqls.map((insertSql) => {
           const bulkInsertSql = insertSql.replace(/VALUES.*$/, () => ` ${selectSql}`);
           // FIXME: need to replace the last from with the attached source
-          return { sql: bulkInsertSql };
+          return bulkInsertSql;
         });
+
+        sqlHacks = {
+          allInsertSql,
+          insertSqls,
+          selectSql,
+          bulkInsertSqls,
+        };
       }
 
       try {
         // eslint-disable-next-line
-        for (let i = 0; i < hackedRemapBulkInsertSqls!.length; ++i) {
-          const sqlInfo = hackedRemapBulkInsertSqls![i];
-          target.withPreparedSqliteStatement(sqlInfo.sql, (targetStmt) => {
+        for (const sql of sqlHacks.bulkInsertSqls) {
+          target.withPreparedSqliteStatement(sql, (targetStmt) => {
             assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
           });
         }
       } catch (err) {
         console.log("ERROR", target.nativeDb.getLastError());
-        console.log("native sql:", hackedRemapBulkInsertSqls);
+        console.log("native sql:", sqlHacks);
         debugger;
         throw err;
       }
