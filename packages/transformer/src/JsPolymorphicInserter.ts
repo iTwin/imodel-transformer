@@ -251,6 +251,8 @@ async function bulkInsertTransform(
           .map((expr, i) => `(${expr}) AS _${i + 1}`) // ecsql indexes are one-indexed
           .join(",\n  ")}
         FROM ONLY ${escapedClassFullName}
+        -- TODO: add reality data dictionary
+        WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10)
       `);
 
       assert(!selectSql.includes(";"));
@@ -369,6 +371,7 @@ async function bulkInsertTransform(
           console.log("lastSql:", lastSql);
           console.log("ERROR", target.nativeDb.getLastError());
           console.log("class:", classFullName);
+          console.log("intended ids:", target.withSqliteStatement(remappedFromAttached, (s)=>[...s]).map((r) => Object.values(r).pop()));
           debugger;
           throw err;
         }
@@ -386,10 +389,17 @@ async function bulkInsertTransform(
   }
 
   {
+    const elemInstances = new Set<Id64String>();
     let j = 0;
     for (const [className, inserter] of classInserts) {
       inserter();
       console.log("finished inserting", className, j++);
+      const newElemInstances = target.withPreparedStatement("SELECT ECInstanceId FROM bis.Element", (s) => [...s])
+        .map((r) => r.id)
+        .filter((r) => !elemInstances.has(r));
+      console.log("new elements:", [...newElemInstances])
+      for (const elem of newElemInstances)
+        elemInstances.add(elem);
     }
   }
 }
