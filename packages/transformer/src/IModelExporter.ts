@@ -356,6 +356,7 @@ export class IModelExporter {
     await this.exportFonts();
     await this.exportModelContents(IModel.repositoryModelId);
     await this.exportSubModels(IModel.repositoryModelId);
+    await this.exportAllAspects();
     await this.exportRelationships(ElementRefersToElements.classFullName);
 
     // handle deletes
