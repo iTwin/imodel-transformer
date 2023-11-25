@@ -94,7 +94,7 @@ async function bulkInsertTransform(
   }
 
   const schemaLoader = new SchemaLoader((name: string) => source.getSchemaProps(name));
-  const classDatas = new Map<string | number, ClassData>();
+  const classDatas = new Map<string, ClassData>();
 
   const bis = schemaLoader.getSchema("BisCore");
   const [multiAspect, uniqueAspect] = await Promise.all([
