@@ -132,7 +132,12 @@ async function bulkInsertTransform(
       if (ecclass.modifier === ECClassModifier.Abstract)
         continue;
 
-      const properties: PropInfo[] = [...await ecclass.getProperties()];
+      const properties: PropInfo[] = [];
+
+      properties.push({
+        name: "ECInstanceId",
+        propertyType: PropertyType.Long,
+      });
 
       if (ecclass instanceof RelationshipClass) {
         properties.push({
@@ -143,12 +148,10 @@ async function bulkInsertTransform(
           name: "TargetECInstanceId",
           propertyType: PropertyType.Long,
         });
-      } else {
-        properties.push({
-          name: "ECInstanceId",
-          propertyType: PropertyType.Long,
-        });
       }
+
+      for (const prop of await ecclass.getProperties())
+        properties.push(prop);
 
       // FIXME: remove this broken rule
       /* eslint-disable */
@@ -216,7 +219,9 @@ async function bulkInsertTransform(
           .join(",\n  ")}
         FROM ONLY ${escapedClassFullName}
         -- TODO: add reality data dictionary
-        WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10)
+        ${rootType === "element" ? `
+          WHERE ECInstanceId NOT IN (0x1, 0xe, 0x10)
+        ` : ""}
       `);
 
       assert(!selectSql.includes(";"));
@@ -247,8 +252,13 @@ async function bulkInsertTransform(
                 ]
               // FIXME: use ECReferenceTypesCache to determine which remap table to use
               : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
-              // FIXME: support relationships!
-              ? [remapSql(`_${++j}`, rootType === "relationship" || rootType === "aspect" ? "nonElemEntity" : rootType)]
+              ? [remapSql(`_${++j}`,
+                  j === 1 // if it's 1, it's the ECInstanceId
+                  ? rootType === "element"
+                    ? "element"
+                    : "nonElemEntity"
+                  // FIXME: support non-element-targeting navProps (using ECReferenceTypesCache)
+                  : "element")]
               : p.propertyType === PropertyType.Point2d
               ? [`[_${++j}]`, `[_${++j}]`]
               : p.propertyType === PropertyType.Point3d
@@ -306,8 +316,7 @@ async function bulkInsertTransform(
           .map((b) => [b, /_ix(\d+)_/.exec(b)?.[1]])
           // FIXME: is this even correct?
           .map(([b, maybeColIdx]) => maybeColIdx !== undefined ? `_r${maybeColIdx}` : b)
-          // HACK: just a guess at how the ECInstance is laid out
-          .map((b) => rootType !== "relationship" && b === ":_ecdb_ecsqlparam_id_col1" ? `_r${j} /*was: ${b}*/` : b)
+          .map((b) => b === ":_ecdb_ecsqlparam_id_col1" ? `/*ECInstanceId*/ _r1` : b)
           .join(",")
         ;
 
@@ -539,6 +548,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       WHERE ECInstanceId IS NOT NULL
       -- FIXME: CompactRemapTable is slow if this is not ordered
       -- FIXME: test if this can be faster, e.g. try ORDER BY a.ECInstanceId, r.ECInstanceId
+      --   another option is query the two tables independently, and do an ordered tit-for-tat walk
       ORDER BY ECInstanceId
     `;
 
