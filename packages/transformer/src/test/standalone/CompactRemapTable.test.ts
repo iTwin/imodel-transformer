@@ -104,4 +104,16 @@ describe("CompactRemapTable", () => {
     expect(table["_tos"]).to.deep.equal([98, 100, 100, 500, 500]);
     expect(table["_lengths"]).to.deep.equal([1, 1, 1, 100, 1]);
   });
+
+  it("merge left later", () => {
+    const newTable = new CompactRemapTable();
+    newTable.remap(0, 0);
+    for (let i = 2; i < 15; ++i)
+      newTable.remap(i, i);
+    newTable.remap(29, 29);
+    newTable.remap(15, 15);
+    expect(newTable["_froms"]).to.deep.equal([0, 2, 29]);
+    expect(newTable["_tos"]).to.deep.equal([0, 2, 29]);
+    expect(newTable["_lengths"]).to.deep.equal([1, 14, 1]);
+  });
 });

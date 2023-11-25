@@ -514,6 +514,8 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       SELECT e.ECInstanceId
       FROM bis.Element e
       WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10)
+      -- FIXME: CompactRemapTable is slow if this is not ordered
+      ORDER BY e.ECInstanceId ASC
     `;
 
     console.log("generate element remap tables");
@@ -535,6 +537,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
         SELECT ECInstanceId FROM bis.ElementRefersToElements r
       )
       WHERE ECInstanceId IS NOT NULL
+      -- FIXME: CompactRemapTable is slow if this is not ordered
+      -- FIXME: test if this can be faster, e.g. try ORDER BY a.ECInstanceId, r.ECInstanceId
+      ORDER BY ECInstanceId
     `;
 
     console.log("generate Element*Aspect, ElementRefersToElements remap tables");
