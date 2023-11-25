@@ -223,11 +223,9 @@ export async function assertIdentityTransformation(
   remapper: IModelTransformer |  {
     findTargetCodeSpecId: (id: Id64String) => Id64String;
     findTargetElementId: (id: Id64String) => Id64String;
-    findTargetAspectId: (id: Id64String) => Id64String;
   } = {
     findTargetCodeSpecId: (id) => id,
     findTargetElementId: (id) => id,
-    findTargetAspectId: (id) => id,
   },
   {
     expectedElemsOnlyInSource = [],
@@ -245,12 +243,11 @@ export async function assertIdentityTransformation(
     ignoreDefaultTransformerMutations?: boolean;
   } = {}
 ) {
-  const [remapElem, remapCodeSpec, remapAspect]
+  const [remapElem, remapCodeSpec]
     = remapper instanceof IModelTransformer
       ? [remapper.context.findTargetElementId.bind(remapper.context),
-        remapper.context.findTargetCodeSpecId.bind(remapper.context),
-        remapper.context.findTargetAspectId.bind(remapper.context)]
-      : [remapper.findTargetElementId, remapper.findTargetCodeSpecId, remapper.findTargetAspectId];
+        remapper.context.findTargetCodeSpecId.bind(remapper.context)]
+      : [remapper.findTargetElementId, remapper.findTargetCodeSpecId];
 
   expect(sourceDb.nativeDb.hasUnsavedChanges()).to.be.false;
   expect(targetDb.nativeDb.hasUnsavedChanges()).to.be.false;
@@ -383,14 +380,19 @@ export async function assertIdentityTransformation(
       );
     }
 
-    for (const sourceAspect of sourceDb.elements.getAspects(sourceElemId)) {
+    const sourceAspects = sourceDb.elements.getAspects(sourceElemId)
+      .filter((sa) => classesToIgnoreMissingEntitiesOfInTarget.some((c) => sa instanceof c));
+    const targetAspects = targetDb.elements.getAspects(targetElemId);
+
+    expect(sourceAspects.length).to.equal(targetAspects.length);
+
+    for (let i = 0; i < sourceAspects.length; ++i) {
+      const sourceAspect = sourceAspects[i];
+      const targetAspect = targetAspects[i];
       if (classesToIgnoreMissingEntitiesOfInTarget.some((c) => sourceAspect instanceof c))
         continue;
-      const sourceAspectId = sourceAspect.id;
-      const targetAspectId = remapAspect(sourceAspectId);
-      expect(targetAspectId).not.to.equal(Id64.invalid);
-      const targetAspect = targetDb.elements.getAspect(targetAspectId);
-      expect(targetAspect).not.to.be.undefined;
+      // FIXME: could add element + json props remap-aware equality checks... probably a good idea by now
+      expect(sourceAspect.classFullName).to.equal(targetAspect.classFullName);
     }
   }
 

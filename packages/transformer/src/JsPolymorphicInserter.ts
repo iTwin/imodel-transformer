@@ -307,7 +307,7 @@ async function bulkInsertTransform(
           // FIXME: is this even correct?
           .map(([b, maybeColIdx]) => maybeColIdx !== undefined ? `_r${maybeColIdx}` : b)
           // HACK: just a guess at how the ECInstance is laid out
-          .map((b) => rootType !== "relationship" && b === ":_ecdb_ecsqlparam_id_col1" ? `_r${j} /*${j}*/` : b)
+          .map((b) => rootType !== "relationship" && b === ":_ecdb_ecsqlparam_id_col1" ? `_r${j} /*was: ${b}*/` : b)
           .join(",")
         ;
 

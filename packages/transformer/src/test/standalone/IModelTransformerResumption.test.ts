@@ -319,11 +319,10 @@ describe("test resuming transformations", () => {
       throw Error("unreachable");
     })();
 
-    const [elemMap, codeSpecMap, aspectMap] = new Array(3).fill(undefined).map(() => new Map<Id64String, Id64String>());
+    const [elemMap, codeSpecMap] = new Array(3).fill(undefined).map(() => new Map<Id64String, Id64String>());
     for (const [className, findMethod, map] of [
       ["bis.Element", "findTargetElementId", elemMap],
       ["bis.CodeSpec", "findTargetCodeSpecId", codeSpecMap],
-      ["bis.ElementAspect", "findTargetAspectId", aspectMap],
     ] as const) {
     // eslint-disable-next-line deprecation/deprecation
       for await (const [sourceElemId] of sourceDb.query(`SELECT ECInstanceId from ${className}`)) {
@@ -336,7 +335,6 @@ describe("test resuming transformations", () => {
     await assertIdentityTransformation(regularTarget, resumedTarget, {
       findTargetElementId: (id) => elemMap.get(id) ?? Id64.invalid,
       findTargetCodeSpecId: (id) => codeSpecMap.get(id) ?? Id64.invalid,
-      findTargetAspectId: (id) => aspectMap.get(id) ?? Id64.invalid,
     });
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, resumedTarget);
     await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, regularTarget);
