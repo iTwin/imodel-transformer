@@ -1,5 +1,5 @@
-import { ECDb, ECDbOpenMode, ECSqlStatement, IModelDb, SqliteStatement } from "@itwin/core-backend";
-import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
+import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
+import { DbResult, Id64String } from "@itwin/core-bentley";
 import { ECClass, ECClassModifier, PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import * as url from "url";
@@ -94,7 +94,7 @@ async function bulkInsertTransform(
   }
 
   const schemaLoader = new SchemaLoader((name: string) => source.getSchemaProps(name));
-  const classData = new Map<string, ClassData>();
+  const classDatas = new Map<string | number, ClassData>();
 
   const bis = schemaLoader.getSchema("BisCore");
   const [multiAspect, uniqueAspect] = await Promise.all([
@@ -102,8 +102,6 @@ async function bulkInsertTransform(
     bis.getItem("ElementUniqueAspect") as Promise<ECClass>,
   ]);
   assert(multiAspect && uniqueAspect);
-
-  // NEXT: only do this on leaf classes so that we do not have id collisions
 
   for (const { name: schemaName, version } of schemas) {
     const schemaKey = `${schemaName}@${version}`;
@@ -155,7 +153,7 @@ async function bulkInsertTransform(
 
       // FIXME: remove this broken rule
       /* eslint-disable */
-      classData.set(ecclass.fullName, {
+      const classData: ClassData = {
         schemaKey,
         properties,
         rootType: ecclass.schemaItemType === SchemaItemType.RelationshipClass
@@ -165,10 +163,48 @@ async function bulkInsertTransform(
           // FIXME: async shortcircuit or?
           : ecclass.isSync(multiAspect) || ecclass.isSync(uniqueAspect)
           ? "aspect"
-          : "element"
-      });
+          : "element",
+      };
       /* eslint-enable */
+
+      classDatas.set(ecclass.fullName, classData);
+      //classDatas.set(classId, classData);
     }
+  }
+
+  /** the trick is, sqlite calls in once per column, with every column
+   * we transform the first time, and the rest are no-ops reusing that
+   * result until the next row
+   */
+  function createTransformFunction(transform: (row: Record<string, any>) => Record<string, any>) {
+    let callCount = 0;
+    let outputRow = {} as Record<string, any>;
+
+    target.nativeDb.addJsDbFunc({
+      name: "",
+      deterministic: true,
+      impl(key, classId, allValues) {
+        const classData = classDatas.get(classId);
+        assert(classData !== undefined);
+        if (callCount === 0) {
+          const inputRow = {} as Record<string, any>;
+          for (let i = 0; i < allValues.length; ++i) {
+            const prop = classData.properties[i];
+            const val = allValues[i];
+            inputRow[prop.name] = val;
+          }
+          outputRow = transform(inputRow);
+        }
+
+        callCount++;
+
+        if (callCount >= classData.properties.length) {
+          callCount = 0;
+        }
+
+        return outputRow[key];
+      },
+    });
   }
 
   const classInserters = new Map<string, {
@@ -177,7 +213,7 @@ async function bulkInsertTransform(
     run: () => void;
   }>();
 
-  for (const [classFullName, { properties, rootType, schemaKey }] of classData) {
+  for (const [classFullName, { properties, rootType, schemaKey }] of classDatas) {
     try {
       const [schemaName, className] = classFullName.split(".");
       const escapedClassFullName = `[${schemaName}].[${className}]`;
