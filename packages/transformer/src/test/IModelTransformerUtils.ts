@@ -381,7 +381,7 @@ export async function assertIdentityTransformation(
     }
 
     const sourceAspects = sourceDb.elements.getAspects(sourceElemId)
-      .filter((sa) => classesToIgnoreMissingEntitiesOfInTarget.some((c) => sa instanceof c));
+      .filter((sa) => !classesToIgnoreMissingEntitiesOfInTarget.some((c) => sa instanceof c));
     const targetAspects = targetDb.elements.getAspects(targetElemId);
 
     expect(sourceAspects.length).to.equal(targetAspects.length);
