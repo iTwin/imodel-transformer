@@ -304,7 +304,11 @@ async function bulkInsertTransform(
         const mappedValues = values
           .split(",")
           .map((b) => [b, /_ix(\d+)_/.exec(b)?.[1]])
+          // FIXME: is this even correct?
           .map(([b, maybeColIdx]) => maybeColIdx !== undefined ? `_r${maybeColIdx}` : b)
+          // HACK: just a guess at how the ECInstance is laid out
+          .map((b) => rootType !== "relationship" && b === ":_ecdb_ecsqlparam_id_col1" ? `_r${j} /*${j}*/` : b)
+          .join(",")
         ;
 
         const bulkInsertSql = `
@@ -323,7 +327,7 @@ async function bulkInsertTransform(
 
       statementCache.get(schemaKey)!.set(className, {
         select: selectSql,
-        remap: remappedSql,
+        remap: remappedFromAttached,
         insert: insertSqls,
         transform: bulkInsertSqls,
       });
@@ -362,11 +366,11 @@ async function bulkInsertTransform(
     }
   }
 
-  await fs.promises.writeFile(statementCachePath, JSON.stringify(statementCache, (_k, v) => {
+  await fs.promises.writeFile(statementCachePath, JSON.stringify(statementCache, (_k, v) =>
     v instanceof Map
-    ? Object.fromEntries(v.entries())
-    : v
-  }));
+      ? Object.fromEntries(v.entries())
+      : v
+  ));
 
   {
     for (const [classFullName, { run, schemaName, className }] of classInserters) {
