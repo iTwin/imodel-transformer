@@ -35,7 +35,7 @@ const getInjectedSqlite = (db: ECDb | IModelDb, query: string) => {
 // get around to designing how we'll pass a JavaScript object to RemapGeom, then we can fix that.
 // That said, this should be pretty fast in our cases here regardless, since the table _should_
 // scale with briefcase count well
-const remapSql = (idExpr: string, remapType: "font" | "codespec" | "aspect" | "element") => `(
+const remapSql = (idExpr: string, remapType: "font" | "codespec" | "nonElemEntity" | "element") => `(
   SELECT TargetId + ((${idExpr}) - SourceId)
   FROM temp.${remapType}_remap
   WHERE ${idExpr} BETWEEN SourceId AND SourceId + Length - 1
@@ -248,7 +248,7 @@ async function bulkInsertTransform(
               // FIXME: use ECReferenceTypesCache to determine which remap table to use
               : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
               // FIXME: support relationships!
-              ? [remapSql(`_${++j}`, rootType === "relationship" ? "element" : rootType)]
+              ? [remapSql(`_${++j}`, rootType === "relationship" || rootType === "aspect" ? "nonElemEntity" : rootType)]
               : p.propertyType === PropertyType.Point2d
               ? [`[_${++j}]`, `[_${++j}]`]
               : p.propertyType === PropertyType.Point3d
@@ -316,7 +316,9 @@ async function bulkInsertTransform(
           SELECT ${mappedValues}
           FROM (${remappedFromAttached})
           WHERE true -- necessary for sqlite's ON CONFLICT syntax
-          ${insertHeader.includes("[bis_CodeSpec]") ? `
+          ${
+          /* FIXME: I think this can be removed after fixing the remapping */
+          insertHeader.includes("[bis_CodeSpec]") ? `
             ON CONFLICT([main].[bis_CodeSpec].[Name]) DO NOTHING
           ` : ""}
         `;
@@ -388,7 +390,6 @@ async function bulkInsertTransform(
 export interface Remapper {
   findTargetElementId(s: Id64String): Id64String;
   findTargetCodeSpecId(s: Id64String): Id64String;
-  findTargetAspectId(s: Id64String): Id64String;
 }
 
 /** @alpha FIXME: official docs */
@@ -429,12 +430,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   const remapTables = {
     element: new CompactRemapTable(),
-    aspect: new CompactRemapTable(),
+    nonElemEntity: new CompactRemapTable(),
     codespec: new CompactRemapTable(),
     font: new CompactRemapTable(),
   };
 
-  for (const name of ["element", "codespec", "aspect", "font"] as const) {
+  for (const name of ["element", "codespec", "nonElemEntity", "font"] as const) {
     // FIXME: don't do it in both connections ! currently due to blobio we need the
     // remap table in both the source connection to use RemapGeom and the target
     // connection for our remapping queries
@@ -504,6 +505,10 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   const useElemIdRaw = () => _nextElemId++;
   const _useElemId = () => `0x${useElemIdRaw().toString(16)}`;
 
+  // NOTE: I could do less querying if I LEFT JOIN the appropriate tables together
+  const useInstanceIdRaw = () => _nextInstanceId++;
+  const _useInstanceId = () => `0x${useInstanceIdRaw().toString(16)}`;
+
   {
     const sourceElemRemapSelect = `
       SELECT e.ECInstanceId
@@ -514,11 +519,34 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     `;
 
     console.log("generate element remap tables");
-    const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect, undefined, { abbreviateBlobs: true });
+    const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect);
     while (await sourceElemRemapPassReader.step()) {
       const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
       const targetId = useElemIdRaw();
       remapTables.element.remap(parseInt(sourceId, 16), targetId);
+    }
+  }
+
+  {
+    const nonElemEntityRemapSelect = `
+      SELECT ECInstanceId FROM (
+        -- we know that aspects and entities (link table relationships such as ERtE)
+        -- share an Id space, so this is valid
+        SELECT ECInstanceId FROM bis.ElementAspect a
+        UNION ALL
+        SELECT ECInstanceId FROM bis.ElementRefersToElements r
+      )
+      WHERE ECInstanceId IS NOT NULL
+      -- FIXME: CompactRemapTable is broken, this must be ordered, and is probably slow as a result
+      ORDER BY ECInstanceId
+    `;
+
+    console.log("generate Element*Aspect, ElementRefersToElements remap tables");
+    const nonElemEntityRemapReader = source.createQueryReader(nonElemEntityRemapSelect);
+    while (await nonElemEntityRemapReader.step()) {
+      const sourceId = nonElemEntityRemapReader.current[0] as Id64String;
+      const targetId = useInstanceIdRaw();
+      remapTables.nonElemEntity.remap(parseInt(sourceId, 16), targetId);
     }
   }
 
@@ -551,7 +579,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   // give sqlite the tables
-  for (const name of ["element", "codespec", "aspect", "font"] as const) {
+  for (const name of ["element", "codespec", "nonElemEntity", "font"] as const) {
     for (const run of remapTables[name].runs()) {
       for (const db of [source, writeableTarget]) {
         db.withPreparedSqliteStatement(`
@@ -592,7 +620,6 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   if (returnRemapper) {
     remapper = {
       findTargetElementId: makeGetter(remapTables.element),
-      findTargetAspectId: makeGetter(remapTables.aspect),
       findTargetCodeSpecId: makeGetter(remapTables.codespec),
     };
   }
