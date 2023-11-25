@@ -207,9 +207,9 @@ export class CompactRemapTable {
       }
 
       if (inFrom < from) {
-        right = curr - 1;
+        right = curr;
       } else if (inFrom >= from + length) {
-        left = curr + 1;
+        left = curr;
       } else {
         const currMatch = this._indexContains(curr, inFrom);
         return {
