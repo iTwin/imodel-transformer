@@ -3,6 +3,8 @@ import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
 import { ECClass, ECClassModifier, PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import * as url from "url";
+import * as path from "path";
+import * as fs from "fs";
 import { IModelTransformer } from "./IModelTransformer";
 import { CompactRemapTable } from "./CompactRemapTable";
 
@@ -13,6 +15,7 @@ import { CompactRemapTable } from "./CompactRemapTable";
 
 /* eslint-disable no-console, @itwin/no-internal */
 
+// FIXME: injection not really used anymore, but the nativesql stealing is
 // some high entropy string
 const injectionString = "Inject_1243yu1";
 const injectExpr = (s: string, type = "Integer") => `(CAST ((SELECT '${injectionString} ${escapeForSqlStr(s)}') AS ${type}))`;
@@ -41,90 +44,27 @@ const remapSql = (idExpr: string, remapType: "font" | "codespec" | "aspect" | "e
 const escapeForSqlStr = (s: string) => s.replace(/'/g, "''");
 const unescapeSqlStr = (s: string) => s.replace(/''/g, "'");
 
-/* eslint-disable */
-const propBindings = (p: PropInfo): string[] =>
-  p.propertyType === PropertyType.Point3d
-  ? [`:p_${p.name}_X`, `:p_${p.name}_Y`, `:p_${p.name}_Z`]
-  : p.propertyType === PropertyType.Point2d
-  ? [`:p_${p.name}_X`, `:p_${p.name}_Y`]
-  : p.propertyType === PropertyType.Binary && p.extendedTypeName !== "BeGuid"
-  ? [`:s_${p.name}_col1`]
-  : p.propertyType === PropertyType.Navigation
-  ? [`:p_${p.name}_Id`, `:p_${p.name}_RelECClassId`]
-  : p.name === "SourceECInstanceId" || p.name === "TargetECInstanceId"
-  ? [`:p_${p.name}`]
-  : [`:p_${p.name}_col1`]
-;
-/* eslint-enable */
-
-const sqlHasCache = new Map<string, Record<string, boolean>>();
-
-function stmtBindProperty(
-  stmt: SqliteStatement | ECSqlStatement,
-  prop: { name: string, propertyType: PropertyType, extendedTypeName?: string },
-  val: any,
-) {
-  const bindings = propBindings(prop);
-  const binding = bindings[0];
-  if (val === undefined)
-    return;
-  if (prop.propertyType === PropertyType.Long/* && prop.extendedTypeName === "Id"*/)
-    return stmt.bindId(binding, val);
-  if (prop.propertyType === PropertyType.Binary && prop.extendedTypeName === "BeGuid")
-    // FIXME: avoid guid serialization
-    return stmt.bindGuid(binding, val);
-  if (prop.propertyType === PropertyType.Binary)
-    return stmt.bindInteger(binding, (val as Uint8Array).byteLength);
-  if (prop.propertyType === PropertyType.Integer)
-    return stmt.bindInteger(binding, val);
-  if (prop.propertyType === PropertyType.Integer_Enumeration)
-    return stmt.bindInteger(binding, val);
-  if (prop.propertyType === PropertyType.String)
-    return stmt.bindString(binding, val);
-  if (prop.propertyType === PropertyType.String_Enumeration)
-    return stmt.bindString(binding, val);
-  if (prop.propertyType === PropertyType.Double)
-    return stmt.bindDouble(binding, val);
-  if (prop.propertyType === PropertyType.Boolean)
-    return stmt.bindBoolean(binding, val);
-  if (prop.propertyType === PropertyType.DateTime) {
-    const date = new Date(val as string).valueOf();
-    const julianDate = date / 86400000 + 2440587.5;
-    return stmt.bindInteger(binding, julianDate); // FIXME: ecsql bindDateTime
-  }
-  if (prop.propertyType === PropertyType.Navigation) {
-    stmt.bindId(bindings[0], val.Id);
-    // FIXME: reuse binding detection in caller
-    let stmtInfo = sqlHasCache.get(stmt.sql);
-    if (stmtInfo === undefined) {
-      stmtInfo = { [bindings[1]]: stmt.sql.includes(bindings[1]) };
-      sqlHasCache.set(stmt.sql, stmtInfo);
-    }
-    if (stmtInfo[bindings[1]])
-      stmt.bindId(bindings[1], val.RelECClassId);
-    return;
-  }
-  if (prop.propertyType === PropertyType.Point2d) {
-    stmt.bindDouble(bindings[0], val.X);
-    stmt.bindDouble(bindings[1], val.Y);
-    return;
-  }
-  if (prop.propertyType === PropertyType.Point3d) {
-    stmt.bindDouble(bindings[0], val.X);
-    stmt.bindDouble(bindings[1], val.Y);
-    stmt.bindDouble(bindings[2], val.Z);
-    return;
-  }
-  if (prop.propertyType === PropertyType.IGeometry)
-    return stmt.bindBlob(binding, val.Id);
-  console.warn(`ignoring binding unsupported property with type: ${prop.propertyType} (${prop.name})`);
-}
-
 interface PropInfo {
   name: Property["name"];
   propertyType: Property["propertyType"];
   extendedTypeName?: PrimitiveOrEnumPropertyBase["extendedTypeName"];
 }
+
+type CachedClassStatements = {
+  remap: string;
+  select: string;
+  insert: string[];
+  transform: string[];
+} | "NON_TRANSFORMABLE_CLASS";
+
+const statementCachePath = path.join(__dirname, ".transformer_statement_cache.json");
+
+/**
+ * not yet but eventually to be loaded from disk
+ * key is `SchemaFullName@Version`
+ * FIXME: dynamic schemas should not be cached
+ */
+const statementCache = new Map<string, Map<string, CachedClassStatements>>();
 
 async function bulkInsertTransform(
   source: IModelDb,
@@ -133,14 +73,22 @@ async function bulkInsertTransform(
     [propertyName: string]: (s: string) => string;
   } = {},
 ): Promise<void> {
-  const schemaNamesReader = source.createQueryReader("SELECT Name FROM ECDbMeta.ECSchemaDef", undefined, { usePrimaryConn: true });
+  const schemaNamesReader = source.createQueryReader(`
+    SELECT Name, VersionMajor, VersionWrite, VersionMinor
+    FROM ECDbMeta.ECSchemaDef
+  `);
 
-  const schemaNames: string[] = [];
+  const schemas: { name: string, version: string }[] = [];
   while (await schemaNamesReader.step()) {
-    schemaNames.push(schemaNamesReader.current[0]);
+    schemas.push({
+      name: schemaNamesReader.current[0],
+      version: `${schemaNamesReader.current[1]}.${schemaNamesReader.current[2]}.${schemaNamesReader.current[3]}`,
+    });
   }
 
   interface ClassData {
+    /** `SchemaName@schemaVersion` */
+    schemaKey: string;
     properties: PropInfo[];
     rootType: "element" | "aspect" | "codespec" | "relationship";
   }
@@ -157,13 +105,26 @@ async function bulkInsertTransform(
 
   // NEXT: only do this on leaf classes so that we do not have id collisions
 
-  for (const schemaName of schemaNames) {
+  for (const { name: schemaName, version } of schemas) {
+    const schemaKey = `${schemaName}@${version}`;
+    if (statementCache.has(schemaKey))
+      continue;
+
+    const schemaStmts = new Map<string, CachedClassStatements>();
+    statementCache.set(schemaKey, schemaStmts);
+
     const schema = schemaLoader.getSchema(schemaName);
+
     for (const ecclass of schema.getClasses()) {
+      // if transformable, overwritten in next loop
+      schemaStmts.set(ecclass.name,  "NON_TRANSFORMABLE_CLASS");
+
       if (!(
         ecclass.schemaItemType === SchemaItemType.EntityClass
         || ecclass.schemaItemType === SchemaItemType.RelationshipClass
-      )) continue;
+      )) {
+        continue;
+      }
 
       // FIXME: skip navigation property only relationships
       // FIXME: skip non-insertable custom mapped ec classes
@@ -192,6 +153,7 @@ async function bulkInsertTransform(
       // FIXME: remove this broken rule
       /* eslint-disable */
       classData.set(ecclass.fullName, {
+        schemaKey,
         properties,
         rootType: ecclass.schemaItemType === SchemaItemType.RelationshipClass
           ? "relationship"
@@ -206,9 +168,13 @@ async function bulkInsertTransform(
     }
   }
 
-  const classInserts = new Map<string, () => void>();
+  const classInserters = new Map<string, {
+    schemaName: string;
+    className: string;
+    run: () => void;
+  }>();
 
-  for (const [classFullName, { properties, rootType }] of classData) {
+  for (const [classFullName, { properties, rootType, schemaKey }] of classData) {
     try {
       const [schemaName, className] = classFullName.split(".");
       const escapedClassFullName = `[${schemaName}].[${className}]`;
@@ -355,6 +321,13 @@ async function bulkInsertTransform(
         return bulkInsertSql;
       });
 
+      statementCache.get(schemaKey)!.set(className, {
+        select: selectSql,
+        remap: remappedSql,
+        insert: insertSqls,
+        transform: bulkInsertSqls,
+      });
+
       let lastSql: string;
       const classInsert = () => {
         try {
@@ -374,7 +347,11 @@ async function bulkInsertTransform(
         }
       };
 
-      classInserts.set(classFullName, classInsert);
+      classInserters.set(classFullName, {
+        schemaName,
+        className,
+        run: classInsert,
+      });
     } catch (err: any) {
       if (/Use the respective navigation property to modify it\.$/.test(err.message))
         continue;
@@ -385,12 +362,20 @@ async function bulkInsertTransform(
     }
   }
 
+  await fs.promises.writeFile(statementCachePath, JSON.stringify(statementCache, (_k, v) => {
+    v instanceof Map
+    ? Object.fromEntries(v.entries())
+    : v
+  }));
+
   {
-    const elemInstances = new Set<Id64String>();
-    let j = 0;
-    for (const [className, inserter] of classInserts) {
-      inserter();
-      console.log("finished inserting", className, j++);
+    for (const [classFullName, { run, schemaName, className }] of classInserters) {
+      const count = source.withStatement(`SELECT COUNT(*) FROM [${schemaName}].[${className}]`, (s) => {
+        assert(s.step() === DbResult.BE_SQLITE_ROW);
+        return s.getValue(0).getInteger();
+      });
+      console.log(`inserting ${count} instances of ${classFullName}`);
+      run();
     }
   }
 }
@@ -508,11 +493,12 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     `, (s) => {
       assert(s.step() === DbResult.BE_SQLITE_ROW, writeableTarget.nativeDb.getLastError());
       // FIXME: check if this needs to be + 1
-      return parseInt(s.getValue(0).getId() + 1, 16);
+      return parseInt(s.getValue(0).getId(), 16) + 1;
     }));
 
   // FIXME: doesn't support high briefcase ids (> 2 << 13)!
-  const useElemId = () => `0x${(_nextElemId++).toString(16)}`;
+  const useElemIdRaw = () => _nextElemId++;
+  const _useElemId = () => `0x${useElemIdRaw().toString(16)}`;
 
   {
     const sourceElemRemapSelect = `
@@ -527,25 +513,37 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect, undefined, { abbreviateBlobs: true });
     while (await sourceElemRemapPassReader.step()) {
       const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
-      const targetId = useElemId();
-      remapTables.element.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
+      const targetId = useElemIdRaw();
+      remapTables.element.remap(parseInt(sourceId, 16), targetId);
     }
   }
 
+  let _nextCodeSpecId = writeableTarget.withStatement(`
+    SELECT Max(ECInstanceId) FROM Bis.CodeSpec
+  `, (s) => {
+    assert(s.step() === DbResult.BE_SQLITE_ROW, writeableTarget.nativeDb.getLastError());
+    return parseInt(s.getValue(0).getId(), 16) + 1;
+  });
+
+  const useCodeSpecIdRaw = () => _nextCodeSpecId++;
+  const _useCodeSpecId = () => `0x${useCodeSpecIdRaw().toString(16)}`;
+
   {
     const codeSpecRemapSelect = `
-      SELECT c.ECInstanceId
-      FROM bis.CodeSpec c
-      ORDER BY c.ECInstanceId ASC
+      SELECT s.Id, t.Id
+      FROM bis_CodeSpec s
+      LEFT JOIN main.bis_CodeSpec t ON s.Name=t.Name
     `;
 
     console.log("generate codespec remap tables");
-    const codeSpecRemapReader = source.createQueryReader(codeSpecRemapSelect, undefined, { abbreviateBlobs: true });
-    while (await codeSpecRemapReader.step()) {
-      const sourceId = codeSpecRemapReader.current[0] as Id64String;
-      const targetId = useElemId();
-      remapTables.codespec.remap(parseInt(sourceId, 16), parseInt(targetId, 16));
-    }
+    source.withPreparedSqliteStatement(codeSpecRemapSelect, (stmt) => {
+      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const sourceId = stmt.getValue(0).getId();
+        const maybeTargetId = stmt.getValue(1).getId() as Id64String | undefined;
+        const targetIdInt = maybeTargetId ? parseInt(maybeTargetId, 16) : useCodeSpecIdRaw();
+        remapTables.codespec.remap(parseInt(sourceId, 16), targetIdInt);
+      }
+    });
   }
 
   // give sqlite the tables
