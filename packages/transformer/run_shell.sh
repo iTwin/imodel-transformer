@@ -1,6 +1,0 @@
-NODE='/home/mike/.local/share/pnpm/node'
-strace -c $NODE -r source-map-support/register ../test-app/lib/Main.js   --sourceFile /home/mike/work/shell-noobstruction.bim --targetDestination /tmp/out.bim --noProvenance -F   |& tee noupdate-pass_shell.strace;
-/usr/bin/time -v $NODE -r source-map-support/register ../test-app/lib/Main.js --danglingReferencesBehavior ignore --sourceFile /home/mike/work/shell-noobstruction.bim --targetDestination /tmp/out.bim --noProvenance      |& tee oldtform_shell.usrtime;
-strace -c $NODE -r source-map-support/register ../test-app/lib/Main.js  --danglingReferencesBehavior ignore --sourceFile /home/mike/work/shell-noobstruction.bim --targetDestination /tmp/out.bim --noProvenance      |& tee oldtform_shell.strace;
-$NODE --cpu-prof --cpu-prof-name=noupdate-pass_shell.js.cpuprofile --cpu-prof-interval=50000 -r source-map-support/register ../test-app/lib/Main.js --sourceFile /home/mike/work/shell-noobstruction.bim --targetDestination /tmp/out.bim --noProvenance -F;
-sudo bash -c "perf record -F 10 -g $NODE --perf-basic-prof --interpreted-frames-native-stack -r source-map-support/register ../test-app/lib/Main.js   --sourceFile /home/mike/work/shell-noobstruction.bim --targetDestination /tmp/out.bim --noProvenance  -F && chmod +r perf.data && mv perf.data noupdate-pass_shell.perf.cpuprofile";
