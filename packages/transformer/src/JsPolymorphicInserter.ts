@@ -573,11 +573,16 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   {
-    // we know that aspects and entities (link table relationships such as ERtE)
-    // share an Id space, so this is valid
-    const aspectRemapSelect = `
+    // use separate queries to prevent EC from unioning the tables, instead we manually do a sorted multiwalk
+    const multiAspectRemapSelect = `
       SELECT CAST(ECInstanceId AS INTEGER)
-      FROM bis.ElementAspect
+      FROM bis.ElementMultiAspect
+      ORDER BY ECInstanceId
+    `;
+
+    const uniqueAspectRemapSelect = `
+      SELECT CAST(ECInstanceId AS INTEGER)
+      FROM bis.ElementUniqueAspect
       ORDER BY ECInstanceId
     `;
 
@@ -589,14 +594,19 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     `;
 
     console.log("generate Element*Aspect, ElementRefersToElements remap tables");
-    const aspectRemapReader = source.createQueryReader(aspectRemapSelect);
+    // we know that aspects and entities (link table relationships such as ERtE)
+    // share an id space, so this is valid
+    const multiAspectRemapReader = source.createQueryReader(multiAspectRemapSelect);
+    const uniqueAspectRemapReader = source.createQueryReader(uniqueAspectRemapSelect);
     const relRemapReader = source.createQueryReader(relRemapSelect);
 
-    const advanceAspectId = () => aspectRemapReader.step().then((has) => has ? aspectRemapReader.current[0] as number : undefined);
-    const advanceRelId = () => relRemapReader.step().then((has) => has ? relRemapReader.current[0] as number : undefined);
+    const advanceMultiAspectId = async () => multiAspectRemapReader.step().then((has) => has ? multiAspectRemapReader.current[0] as number : undefined);
+    const advanceUniqueAspectId = async () => uniqueAspectRemapReader.step().then((has) => has ? uniqueAspectRemapReader.current[0] as number : undefined);
+    const advanceRelId = async () => relRemapReader.step().then((has) => has ? relRemapReader.current[0] as number : undefined);
 
     // I don't trust the implementation enough to parallelize this since I saw a deadlock
-    await advanceAspectId();
+    await advanceMultiAspectId();
+    await advanceUniqueAspectId();
     await advanceRelId();
 
     const remap = (sourceId: number) => {
@@ -605,24 +615,36 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     };
 
     while (true) {
-      const aspectId = aspectRemapReader.done ? undefined : aspectRemapReader.current[0] as number;
-      const relId = relRemapReader.done ? undefined : relRemapReader.current[0] as number;
+      // positive infinity so it's never the minimum
+      const multiAspectId = multiAspectRemapReader.done ? Number.POSITIVE_INFINITY : multiAspectRemapReader.current[0] as number;
+      const uniqueAspectId = uniqueAspectRemapReader.done ? Number.POSITIVE_INFINITY : uniqueAspectRemapReader.current[0] as number;
+      const relId = relRemapReader.done ? Number.POSITIVE_INFINITY : relRemapReader.current[0] as number;
 
-      if (aspectId === undefined && relId === undefined)
+      if (multiAspectId === Number.POSITIVE_INFINITY
+        && uniqueAspectId === Number.POSITIVE_INFINITY
+        && relId === Number.POSITIVE_INFINITY
+      )
         break;
 
-      assert(aspectId !== relId);
+      const ids = [uniqueAspectId, relId, multiAspectId]
+      for (let i = 0; i < ids.length; ++i) {
+        for (let j = i + 1; j < ids.length; ++j) {
+          const id1 = ids[i];
+          const id2 = ids[j];
+          if (id1 === Number.POSITIVE_INFINITY || id2 === Number.POSITIVE_INFINITY)
+            continue
+          assert(id1 !== id2)
+        }
+      }
 
-      if (aspectId === undefined) {
-        remap(relId!);
-        await advanceRelId();
-      } else if (relId === undefined) {
-        remap(aspectId);
-        await advanceAspectId();
-      } else if (aspectId < relId) {
-        remap(aspectId);
-        await advanceAspectId();
-      } else  /* (aspectId > relId) */ {
+      const min = Math.min(multiAspectId, uniqueAspectId, relId);
+      if (multiAspectId === min) {
+        remap(multiAspectId);
+        await advanceMultiAspectId();
+      } else if (uniqueAspectId === min) {
+        remap(uniqueAspectId);
+        await advanceUniqueAspectId();
+      } else /* (relId === min) */ {
         remap(relId);
         await advanceRelId();
       }
