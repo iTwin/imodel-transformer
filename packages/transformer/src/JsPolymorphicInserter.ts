@@ -573,27 +573,59 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
   }
 
   {
-    const nonElemEntityRemapSelect = `
-      SELECT ECInstanceId FROM (
-        -- we know that aspects and entities (link table relationships such as ERtE)
-        -- share an Id space, so this is valid
-        SELECT ECInstanceId FROM bis.ElementAspect a
-        UNION ALL
-        SELECT ECInstanceId FROM bis.ElementRefersToElements r
-      )
-      WHERE ECInstanceId IS NOT NULL
-      -- FIXME: CompactRemapTable is slow if this is not ordered
-      -- FIXME: test if this can be faster, e.g. try ORDER BY a.ECInstanceId, r.ECInstanceId
-      --   another option is query the two tables independently, and do an ordered tit-for-tat walk
+    // we know that aspects and entities (link table relationships such as ERtE)
+    // share an Id space, so this is valid
+    const aspectRemapSelect = `
+      SELECT CAST(ECInstanceId AS INTEGER)
+      FROM bis.ElementAspect
+      ORDER BY ECInstanceId
+    `;
+
+    // HACK: will need to send high and low bits to support briefcase id > 13
+    const relRemapSelect = `
+      SELECT CAST(ECInstanceId AS INTEGER)
+      FROM bis.ElementRefersToElements
       ORDER BY ECInstanceId
     `;
 
     console.log("generate Element*Aspect, ElementRefersToElements remap tables");
-    const nonElemEntityRemapReader = source.createQueryReader(nonElemEntityRemapSelect);
-    while (await nonElemEntityRemapReader.step()) {
-      const sourceId = nonElemEntityRemapReader.current[0] as Id64String;
+    const aspectRemapReader = source.createQueryReader(aspectRemapSelect);
+    const relRemapReader = source.createQueryReader(relRemapSelect);
+
+    const advanceAspectId = () => aspectRemapReader.step().then((has) => has ? aspectRemapReader.current[0] as number : undefined);
+    const advanceRelId = () => relRemapReader.step().then((has) => has ? relRemapReader.current[0] as number : undefined);
+
+    // I don't trust the implementation enough to parallelize this since I saw a deadlock
+    await advanceAspectId();
+    await advanceRelId();
+
+    const remap = (sourceId: number) => {
       const targetId = useInstanceIdRaw();
-      remapTables.nonElemEntity.remap(parseInt(sourceId, 16), targetId);
+      remapTables.nonElemEntity.remap(sourceId, targetId);
+    };
+
+    while (true) {
+      const aspectId = aspectRemapReader.done ? undefined : aspectRemapReader.current[0] as number;
+      const relId = relRemapReader.done ? undefined : relRemapReader.current[0] as number;
+
+      if (aspectId === undefined && relId === undefined)
+        break;
+
+      assert(aspectId !== relId);
+
+      if (aspectId === undefined) {
+        remap(relId!);
+        await advanceRelId();
+      } else if (relId === undefined) {
+        remap(aspectId);
+        await advanceAspectId();
+      } else if (aspectId < relId) {
+        remap(aspectId);
+        await advanceAspectId();
+      } else  /* (aspectId > relId) */ {
+        remap(relId);
+        await advanceRelId();
+      }
     }
   }
 
