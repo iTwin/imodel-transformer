@@ -563,7 +563,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       ORDER BY e.ECInstanceId ASC
     `;
 
-    console.log("generate element remap tables", performance.now());
+    console.log("generate element remap tables");
     const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect);
     while (await sourceElemRemapPassReader.step()) {
       const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
@@ -593,34 +593,21 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       ORDER BY ECInstanceId
     `;
 
-    /* eslint-disable */
-    console.log("generate Element*Aspect, ElementRefersToElements remap tables", performance.now());
+    console.log("generate Element*Aspect, ElementRefersToElements remap tables");
     // we know that aspects and entities (link table relationships such as ERtE)
     // share an id space, so this is valid
-    source.withPreparedStatement(multiAspectRemapSelect, (multiAspectRemapReader) => {
-    source.withPreparedStatement(uniqueAspectRemapSelect, (uniqueAspectRemapReader) => {
-    source.withPreparedStatement(relRemapSelect, (relRemapReader) => {
+    const multiAspectRemapReader = source.createQueryReader(multiAspectRemapSelect);
+    const uniqueAspectRemapReader = source.createQueryReader(uniqueAspectRemapSelect);
+    const relRemapReader = source.createQueryReader(relRemapSelect);
 
-    let multiDone = {done: false}, uniqueDone = {done: false}, relDone = {done: false};
-
-    const makeStepper = (stmt: typeof relRemapReader, b: { done: boolean } ) => () => {
-      if (b.done)
-        return undefined;
-      if (DbResult.BE_SQLITE_ROW === stmt.step()) {
-        return stmt.getValue(0).getInteger();
-      } else {
-        b.done = true;
-        return undefined;
-      }
-    };
-    const advanceMultiAspectId = makeStepper(multiAspectRemapReader, multiDone);
-    const advanceUniqueAspectId = makeStepper(uniqueAspectRemapReader, uniqueDone);
-    const advanceRelId = makeStepper(relRemapReader, relDone);
+    const advanceMultiAspectId = async () => multiAspectRemapReader.step().then((has) => has ? multiAspectRemapReader.current[0] as number : undefined);
+    const advanceUniqueAspectId = async () => uniqueAspectRemapReader.step().then((has) => has ? uniqueAspectRemapReader.current[0] as number : undefined);
+    const advanceRelId = async () => relRemapReader.step().then((has) => has ? relRemapReader.current[0] as number : undefined);
 
     // I don't trust the implementation enough to parallelize this since I saw a deadlock
-    advanceMultiAspectId();
-    advanceUniqueAspectId();
-    advanceRelId();
+    await advanceMultiAspectId();
+    await advanceUniqueAspectId();
+    await advanceRelId();
 
     const remap = (sourceId: number) => {
       const targetId = useInstanceIdRaw();
@@ -629,9 +616,9 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
     while (true) {
       // positive infinity so it's never the minimum
-      const multiAspectId = multiDone.done ? Number.POSITIVE_INFINITY : multiAspectRemapReader.getValue(0).getInteger();
-      const uniqueAspectId = uniqueDone.done ? Number.POSITIVE_INFINITY : uniqueAspectRemapReader.getValue(0).getInteger();
-      const relId = relDone.done ? Number.POSITIVE_INFINITY : relRemapReader.getValue(0).getInteger();
+      const multiAspectId = multiAspectRemapReader.done ? Number.POSITIVE_INFINITY : multiAspectRemapReader.current[0] as number;
+      const uniqueAspectId = uniqueAspectRemapReader.done ? Number.POSITIVE_INFINITY : uniqueAspectRemapReader.current[0] as number;
+      const relId = relRemapReader.done ? Number.POSITIVE_INFINITY : relRemapReader.current[0] as number;
 
       if (multiAspectId === Number.POSITIVE_INFINITY
         && uniqueAspectId === Number.POSITIVE_INFINITY
@@ -639,35 +626,30 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       )
         break;
 
-      const ids = [uniqueAspectId, relId, multiAspectId];
+      const ids = [uniqueAspectId, relId, multiAspectId]
       for (let i = 0; i < ids.length; ++i) {
         for (let j = i + 1; j < ids.length; ++j) {
           const id1 = ids[i];
           const id2 = ids[j];
           if (id1 === Number.POSITIVE_INFINITY || id2 === Number.POSITIVE_INFINITY)
-            continue;
-          assert(id1 !== id2);
+            continue
+          assert(id1 !== id2)
         }
       }
 
       const min = Math.min(multiAspectId, uniqueAspectId, relId);
       if (multiAspectId === min) {
         remap(multiAspectId);
-        advanceMultiAspectId();
+        await advanceMultiAspectId();
       } else if (uniqueAspectId === min) {
         remap(uniqueAspectId);
-        advanceUniqueAspectId();
+        await advanceUniqueAspectId();
       } else /* (relId === min) */ {
         remap(relId);
-        advanceRelId();
+        await advanceRelId();
       }
     }
-
-    });
-    });
-    });
   }
-  /* eslint-enable */
 
   let _nextCodeSpecId = writeableTarget.withStatement(`
     SELECT Max(ECInstanceId) FROM Bis.CodeSpec
@@ -686,7 +668,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       LEFT JOIN main.bis_CodeSpec t ON s.Name=t.Name
     `;
 
-    console.log("generate codespec remap tables", performance.now());
+    console.log("generate codespec remap tables");
     source.withPreparedSqliteStatement(codeSpecRemapSelect, (stmt) => {
       while (stmt.step() === DbResult.BE_SQLITE_ROW) {
         const sourceId = stmt.getValue(0).getId();
