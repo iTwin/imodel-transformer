@@ -120,7 +120,7 @@ for i, (src, src_runs) in enumerate(data.items()):
                   if k in cool_versions}
 
   group_count = 2
-  group_bar_count = 4
+  group_bar_count = 2
   group_width_ratio = 0.8
   bar_width = group_width_ratio / group_bar_count
   bar_offset = lambda t, center: center + (t - group_bar_count / 2) * bar_width + bar_width / 2
@@ -143,27 +143,27 @@ for i, (src, src_runs) in enumerate(data.items()):
     plt.bar_label(wall_clock_bars, [run['wall_clock_time']], padding=2, fmt='{:.2g}', rotation='vertical')
 
     user_time_bars = plt.bar(
-      group_bar_offset(1),
-      run['user_time']/maxs['user_time'],
+      group_bar_offset(0),
+      run['user_time']/maxs['wall_clock_time'],
       label='user time',
       align='center',
       width=bar_width,
       color='blue',
     )
-    plt.bar_label(user_time_bars, [run['user_time']], padding=2, fmt='{:.2g}', rotation='vertical')
+    # plt.bar_label(user_time_bars, [run['user_time']], padding=2, fmt='{:.2g}', rotation='vertical')
 
     sys_time_bars = plt.bar(
-      group_bar_offset(2),
-      run['system_time']/maxs['system_time'],
+      group_bar_offset(0),
+      run['system_time']/maxs['wall_clock_time'],
       label='system time',
       align='center',
       width=bar_width,
       color='orange',
     )
-    plt.bar_label(sys_time_bars, [run['system_time']], padding=2, fmt='{:.2g}', rotation='vertical')
+    # plt.bar_label(sys_time_bars, [run['system_time']], padding=2, fmt='{:.2g}', rotation='vertical')
 
     max_rss_bars = plt.bar(
-      group_bar_offset(3),
+      group_bar_offset(1),
       run['max_rss']/maxs['max_rss'],
       label='max rss',
       align='center',
