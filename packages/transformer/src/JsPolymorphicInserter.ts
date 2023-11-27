@@ -563,7 +563,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       ORDER BY e.ECInstanceId ASC
     `;
 
-    console.log("generate element remap tables");
+    console.log("generate element remap tables", performance.now());
     const sourceElemRemapPassReader = source.createQueryReader(sourceElemRemapSelect);
     while (await sourceElemRemapPassReader.step()) {
       const sourceId = sourceElemRemapPassReader.current[0] as Id64String;
@@ -593,7 +593,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       ORDER BY ECInstanceId
     `;
 
-    console.log("generate Element*Aspect, ElementRefersToElements remap tables");
+    console.log("generate Element*Aspect, ElementRefersToElements remap tables", performance.now());
     // we know that aspects and entities (link table relationships such as ERtE)
     // share an id space, so this is valid
     const multiAspectRemapReader = source.createQueryReader(multiAspectRemapSelect);
@@ -626,14 +626,14 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       )
         break;
 
-      const ids = [uniqueAspectId, relId, multiAspectId]
+      const ids = [uniqueAspectId, relId, multiAspectId];
       for (let i = 0; i < ids.length; ++i) {
         for (let j = i + 1; j < ids.length; ++j) {
           const id1 = ids[i];
           const id2 = ids[j];
           if (id1 === Number.POSITIVE_INFINITY || id2 === Number.POSITIVE_INFINITY)
-            continue
-          assert(id1 !== id2)
+            continue;
+          assert(id1 !== id2);
         }
       }
 
@@ -668,7 +668,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
       LEFT JOIN main.bis_CodeSpec t ON s.Name=t.Name
     `;
 
-    console.log("generate codespec remap tables");
+    console.log("generate codespec remap tables", performance.now());
     source.withPreparedSqliteStatement(codeSpecRemapSelect, (stmt) => {
       while (stmt.step() === DbResult.BE_SQLITE_ROW) {
         const sourceId = stmt.getValue(0).getId();
