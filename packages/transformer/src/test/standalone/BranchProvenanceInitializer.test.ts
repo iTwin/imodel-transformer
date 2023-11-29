@@ -222,6 +222,9 @@ function setupIModel(): [StandaloneDb, TupleKeyedMap<[boolean, boolean], [string
 
 async function classicalTransformerBranchInit(args: ProvenanceInitArgs): Promise<ProvenanceInitResult> {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
+  // FIXME: do I have to use Entity.instantiate now for these two?
+  // Changed to protected to ensure IModelDb.constructEntity constructs the most-derived class (vs calling new directly), and @public so subclass constructors can call super.
+// A handful were public and @public; left intact to avoid breaking API.
   const masterLinkRepoId = new RepositoryLink({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(args.branch, IModelDb.repositoryModelId, "test-imodel"),
@@ -231,7 +234,6 @@ async function classicalTransformerBranchInit(args: ProvenanceInitArgs): Promise
     repositoryGuid: args.master.iModelId,
     description: args.masterDescription,
   }, args.branch).insert();
-
   const masterExternalSourceId = new ExternalSource({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
