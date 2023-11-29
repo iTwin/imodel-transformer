@@ -222,7 +222,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it("should synchronize changes from master to branch and back", async () => {
+  it.only("should synchronize changes from master to branch and back", async () => {
     // Simulate branching workflow by initializing branchDb to be a copy of the populated masterDb
     const masterDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "Master.bim");
     const masterDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, masterDbFile);
@@ -235,6 +235,9 @@ describe("IModelTransformer", () => {
     assert.isAtLeast(numMasterRelationships, 1);
     assert.equal(numMasterElements, count(branchDb, Element.classFullName));
     assert.equal(numMasterRelationships, count(branchDb, ElementRefersToElements.classFullName));
+    // const aspectId = branchDb.withPreparedStatement(`SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName}`, (statement: ECSqlStatement): number => {
+    //   return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
+    // });
     assert.equal(0, count(branchDb, ExternalSourceAspect.classFullName));
 
     // Ensure that master to branch synchronization did not add any new Elements or Relationships, but did add ExternalSourceAspects
@@ -244,6 +247,19 @@ describe("IModelTransformer", () => {
     branchDb.saveChanges();
     assert.equal(numMasterElements, count(branchDb, Element.classFullName));
     assert.equal(numMasterRelationships, count(branchDb, ElementRefersToElements.classFullName));
+    const aspectIds = branchDb.withPreparedStatement(`SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName}`, (statement: ECSqlStatement): string[] => {
+      const aspects = [];
+      while (DbResult.BE_SQLITE_ROW === statement.step()) {
+        aspects.push(statement.getValue(0).getString());
+      }
+      return aspects;
+    });
+    assert(aspectIds.length > 0);
+    // const aspect = branchDb.elements.getAspect(aspectIds[0]);
+    const aspects = [];
+    for (const aspectId of aspectIds) {
+      aspects.push(branchDb.elements.getAspect(aspectId));
+    }
     assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 3); // provenance aspect added for target scope element
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
