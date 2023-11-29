@@ -12,7 +12,7 @@ import { Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   AuxCoordSystem, AuxCoordSystem2d, CategorySelector, DefinitionModel, DisplayStyle3d, DrawingCategory, DrawingGraphicRepresentsElement,
-  ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementRefersToElements, ElementUniqueAspect, Entity, ExternalSourceAspect, FunctionalSchema,
+  ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementUniqueAspect, Entity, ExternalSourceAspect, FunctionalSchema,
   GeometricElement3d, GeometryPart, HubMock, IModelDb, IModelJsFs, InformationPartitionElement, InformationRecordModel, Model, ModelSelector,
   OrthographicViewDefinition, PhysicalElement, PhysicalModel, PhysicalObject, PhysicalPartition, Relationship, RelationshipProps,
   RenderMaterialElement, SnapshotDb, SpatialCategory, SpatialLocationModel, SpatialViewDefinition, SubCategory, Subject, Texture,
@@ -136,12 +136,13 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       assert.equal(physicalObject1.code.spec, iModelDb.codeSpecs.getByName(BisCodeSpec.nullCodeSpec).id);
       assert.isTrue(physicalObject1.code.value === "");
       assert.equal(physicalObject1.category, teamSpatialCategoryId);
-      assert.equal(1, iModelDb.elements.getAspects(physicalObjectId1, ExternalSourceAspect.classFullName).length);
-      assert.equal(1, iModelDb.elements.getAspects(teamSpatialCategoryId, ExternalSourceAspect.classFullName).length);
+      // provenance no longer adds an external source aspect if fedguids are available
+      expect(iModelDb.elements.getAspects(physicalObjectId1, ExternalSourceAspect.classFullName)).to.have.length(0);
+      expect(iModelDb.elements.getAspects(teamSpatialCategoryId, ExternalSourceAspect.classFullName)).to.have.length(0);
       const physicalObjectId2: Id64String = this.queryPhysicalElementId(iModelDb, physicalPartitionId, sharedSpatialCategoryId, `${teamName}2`);
       const physicalObject2: PhysicalElement = iModelDb.elements.getElement<PhysicalElement>(physicalObjectId2);
       assert.equal(physicalObject2.category, sharedSpatialCategoryId);
-      assert.equal(1, iModelDb.elements.getAspects(physicalObjectId2, ExternalSourceAspect.classFullName).length);
+      expect(iModelDb.elements.getAspects(physicalObjectId2, ExternalSourceAspect.classFullName)).to.have.length(0);
     });
   }
 
@@ -230,13 +231,18 @@ export async function assertIdentityTransformation(
     findTargetAspectId: (id) => id,
   },
   {
+    allowPropChange,
     expectedElemsOnlyInSource = [],
+    expectedElemsOnlyInTarget = [],
     // by default ignore the classes that the transformer ignores, this default is wrong if the option
     // [IModelTransformerOptions.includeSourceProvenance]$(transformer) is set to true
     classesToIgnoreMissingEntitiesOfInTarget = [...IModelTransformer.provenanceElementClasses, ...IModelTransformer.provenanceElementAspectClasses],
     compareElemGeom = false,
   }: {
     expectedElemsOnlyInSource?: Partial<ElementProps>[];
+    expectedElemsOnlyInTarget?: Partial<ElementProps>[];
+    /** return undefined to use the default allowProps check that expects a transformation */
+    allowPropChange?: (sourceElem: Element, targetElem: Element, propName: string) => boolean | undefined;
     /** before checking elements that are only in the source are correct, filter out elements of these classes */
     classesToIgnoreMissingEntitiesOfInTarget?: typeof Entity[];
     compareElemGeom?: boolean;
@@ -274,7 +280,8 @@ export async function assertIdentityTransformation(
         // known cases for the prop expecting to have been changed by the transformation under normal circumstances
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
-        const propChangesAllowed = sourceElem.federationGuid === undefined || propName === "jsonProperties";
+        const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
+          ?? (sourceElem.federationGuid === undefined || propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
@@ -297,9 +304,10 @@ export async function assertIdentityTransformation(
         } else if (!propChangesAllowed) {
           // kept for conditional breakpoints
           const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
-          expect(targetElem.asAny[propName]).to.deep.advancedEqual(
-            sourceElem.asAny[propName]
-          );
+          expect(
+            targetElem.asAny[propName],
+            `${targetElem.id}[${propName}] didn't match ${sourceElem.id}[${propName}]`
+          ).to.deep.advancedEqual(sourceElem.asAny[propName]);
         }
       }
       const quickClone = (obj: any) => JSON.parse(JSON.stringify(obj));
@@ -401,27 +409,28 @@ export async function assertIdentityTransformation(
       .filter(([_inTarget, inSource]) => inSource === undefined)
       .map(([inTarget]) => [inTarget.id, inTarget])
   );
-  const notIgnoredElementsOnlyInSourceAsInvariant = [
-    ...onlyInSourceElements.values(),
-  ]
-    .filter(
-      (elem) =>
-        !classesToIgnoreMissingEntitiesOfInTarget.some(
-          (cls) => elem instanceof cls
-        )
-    )
-    .map((elem) => {
-      const rawProps = { ...elem } as Partial<Mutable<Element>>;
-      delete rawProps.iModel;
-      delete rawProps.id;
-      delete rawProps.isInstanceOfEntity;
-      return rawProps;
-    });
 
-  expect(notIgnoredElementsOnlyInSourceAsInvariant).to.deep.equal(
-    expectedElemsOnlyInSource
-  );
-  expect(onlyInTargetElements).to.have.length(0);
+  const makeElemsInvariant = (elems: Partial<Element>[]) =>
+    elems
+      .filter(
+        (elem) =>
+          !classesToIgnoreMissingEntitiesOfInTarget.some(
+            (cls) => elem instanceof cls
+          )
+      )
+      .map((elem) => {
+        const rawProps = { ...elem } as Partial<Mutable<Element>>;
+        delete rawProps.iModel;
+        delete rawProps.id;
+        delete rawProps.isInstanceOfEntity;
+        return rawProps;
+      });
+
+  const elementsOnlyInSourceAsInvariant = makeElemsInvariant([...onlyInSourceElements.values()]);
+  const elementsOnlyInTargetAsInvariant = makeElemsInvariant([...onlyInTargetElements.values()]);
+
+  expect(elementsOnlyInSourceAsInvariant).to.deep.equal(expectedElemsOnlyInSource);
+  expect(elementsOnlyInTargetAsInvariant).to.deep.equal(expectedElemsOnlyInTarget);
 
   const sourceToTargetModelsMap = new Map<Model, Model | undefined>();
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
@@ -789,34 +798,19 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     assert.isTrue(Guid.isV4Guid(relWithProps.targetGuid));
   }
 
-  public static assertTargetElement(sourceDb: IModelDb, targetDb: IModelDb, targetElementId: Id64String): void {
+  public static assertTargetElement(_sourceDb: IModelDb, targetDb: IModelDb, targetElementId: Id64String): void {
     assert.isTrue(Id64.isValidId64(targetElementId));
     const element: Element = targetDb.elements.getElement(targetElementId);
     assert.isTrue(element.federationGuid && Guid.isV4Guid(element.federationGuid));
-    const aspects: ElementAspect[] = targetDb.elements.getAspects(targetElementId, ExternalSourceAspect.classFullName);
-    const aspect: ExternalSourceAspect = aspects.filter((esa: any) => esa.kind === ExternalSourceAspect.Kind.Element)[0] as ExternalSourceAspect;
-    assert.exists(aspect);
-    assert.equal(aspect.kind, ExternalSourceAspect.Kind.Element);
-    assert.equal(aspect.scope?.id, IModel.rootSubjectId);
-    assert.isUndefined(aspect.checksum);
-    assert.isTrue(Id64.isValidId64(aspect.identifier));
-    const sourceLastMod: string = sourceDb.elements.queryLastModifiedTime(aspect.identifier);
-    assert.equal(aspect.version, sourceLastMod);
-    const sourceElement: Element = sourceDb.elements.getElement(aspect.identifier);
-    assert.exists(sourceElement);
+    const aspects = targetDb.elements.getAspects(targetElementId, ExternalSourceAspect.classFullName);
+    assert(!aspects.some((esa: any) => esa.kind === ExternalSourceAspect.Kind.Element));
   }
 
-  public static assertTargetRelationship(sourceDb: IModelDb, targetDb: IModelDb, targetRelClassFullName: string, targetRelSourceId: Id64String, targetRelTargetId: Id64String): void {
+  public static assertTargetRelationship(_sourceDb: IModelDb, targetDb: IModelDb, targetRelClassFullName: string, targetRelSourceId: Id64String, targetRelTargetId: Id64String): void {
     const targetRelationship: Relationship = targetDb.relationships.getInstance(targetRelClassFullName, { sourceId: targetRelSourceId, targetId: targetRelTargetId });
     assert.exists(targetRelationship);
     const aspects: ElementAspect[] = targetDb.elements.getAspects(targetRelSourceId, ExternalSourceAspect.classFullName);
-    const aspect: ExternalSourceAspect = aspects.filter((esa: any) => esa.kind === ExternalSourceAspect.Kind.Relationship)[0] as ExternalSourceAspect;
-    assert.exists(aspect);
-    const sourceRelationship: Relationship = sourceDb.relationships.getInstance(ElementRefersToElements.classFullName, aspect.identifier);
-    assert.exists(sourceRelationship);
-    assert.isDefined(aspect.jsonProperties);
-    const json: any = JSON.parse(aspect.jsonProperties!);
-    assert.equal(targetRelationship.id, json.targetRelInstanceId);
+    assert(!aspects.some((esa: any) => esa.kind === ExternalSourceAspect.Kind.Relationship));
   }
 }
 
@@ -856,7 +850,7 @@ export class PhysicalModelConsolidator extends IModelTransformer {
   /** Override shouldExportElement to remap PhysicalPartition instances. */
   public override shouldExportElement(sourceElement: Element): boolean {
     if (sourceElement instanceof PhysicalPartition) {
-      this.context.remapElement(sourceElement.id, this._targetModelId);
+      this.combineElements([sourceElement.id], this._targetModelId);
       // NOTE: must allow export to continue so the PhysicalModel sub-modeling the PhysicalPartition is processed
     }
     return super.shouldExportElement(sourceElement);
@@ -1422,7 +1416,6 @@ export class ClassCounter extends IModelExportHandler {
  */
 export function copyDbPreserveId(sourceDb: IModelDb, pathForCopy: string) {
   const copy = SnapshotDb.createFrom(sourceDb, pathForCopy);
-  // eslint-disable-next-line @typescript-eslint/dot-notation
   copy["_iModelId"] = sourceDb.iModelId;
   return copy;
 }
