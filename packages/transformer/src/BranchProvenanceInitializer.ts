@@ -44,6 +44,8 @@ export interface ProvenanceInitResult {
  */
 export async function initializeBranchProvenance(args: ProvenanceInitArgs): Promise<ProvenanceInitResult> {
   if (args.createFedGuidsForMaster) {
+    // FIXME: ever since 4.3.0 the 3 special elements also have fed guids, we should check that they
+    // are the same between source and target, and if not, consider allowing overwriting them
     args.master.withSqliteStatement(`
         UPDATE bis_Element
         SET FederationGuid=randomblob(16)
