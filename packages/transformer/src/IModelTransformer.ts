@@ -2670,7 +2670,6 @@ export class IModelTransformer extends IModelExportHandler {
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(args));
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
-    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
 
     if (this._options.optimizeGeometry)
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
