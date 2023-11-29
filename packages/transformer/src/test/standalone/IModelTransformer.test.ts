@@ -207,7 +207,9 @@ describe("IModelTransformer", () => {
       // assert.equal(targetImporter.numRelationshipsDeleted, 0);
       targetDb.saveChanges();
       // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
-      TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, /* FIXME: */ false);
+      TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, /* FIXME: */ false); // Switch back to true once we have the old detect deltes behavior flag here. also enable force old provenance method.
+      // which is only used in in-imodel transformations.
+
       assert.equal(numTargetRelationships + targetImporter.numRelationshipsInserted - targetImporter.numRelationshipsDeleted, count(targetDb, ElementRefersToElements.classFullName));
       // FIXME: why?
       expect(count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")).to.equal(3);

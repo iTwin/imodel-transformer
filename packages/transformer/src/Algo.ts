@@ -19,17 +19,14 @@ export function rangesFromRangeAndSkipped(start: number, end: number, skipped: n
     throw RangeError(`invalid range: [${start}, ${end}]`);
 
   const ranges = [firstRange];
-
-  function findRangeContaining(pt: number, inRanges: [number, number][]): number {
-    // TODO: binary search
-    return inRanges.findIndex((r) => (pt >= r[0] && pt <= r[1]));
-  }
-
   for (const skip of skipped) {
     const rangeIndex = findRangeContaining(skip, ranges);
     if (rangeIndex === -1)
       continue;
     const range = ranges[rangeIndex];
+    // If the range we find ourselves in is just a single point (range[0] === range[1]) then we need to remove it if (range[0] === skip)
+    if (range[0] === range[1] && skip === range[0])
+      ranges.splice(rangeIndex, 1);
     const leftRange = [range[0], skip - 1] as [number, number];
     const rightRange = [skip + 1, range[1]] as [number, number];
     if (validRange(leftRange) && validRange(rightRange))
@@ -41,6 +38,25 @@ export function rangesFromRangeAndSkipped(start: number, end: number, skipped: n
   }
 
   return ranges;
+}
+
+function findRangeContaining(pt: number, inRanges: [number, number][]): number {
+  let begin = 0;
+  let end = inRanges.length - 1;
+  while (end >= begin) {
+    const mid = begin + Math.floor((end - begin) / 2);
+    const range = inRanges[mid];
+
+    if (pt >= range[0] && pt <= range[1])
+      return mid;
+
+    if (pt < range[0]) {
+      end = mid - 1;
+    } else {
+      begin = mid + 1;
+    }
+  }
+  return -1;
 }
 
 export function renderRanges(ranges: [number, number][]): number[] {
