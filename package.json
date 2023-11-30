@@ -42,7 +42,7 @@
     "overrides": {
       "typedoc": "^0.23.28",
       "typedoc-plugin-merge-modules": "^4.0.1",
-      "typescript": "^5.0.2",
+      "typescript": "~5.0.4",
       "@typescript-eslint/eslint-plugin": "^5.59.7"
     }
   }
