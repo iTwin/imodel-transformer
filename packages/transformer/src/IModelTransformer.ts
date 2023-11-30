@@ -1322,7 +1322,9 @@ export class IModelTransformer extends IModelExportHandler {
     let schemaFileName = schema.name + ext;
     // many file systems have a max file-name/path-segment size of 255, so we workaround that on all systems
     const systemMaxPathSegmentSize = 255;
-    if (schemaFileName.length > systemMaxPathSegmentSize) {
+    // windows usually has a limit for the total path length of 256
+    const windowsMaxPathLimit = 260;
+    if (schemaFileName.length > systemMaxPathSegmentSize || path.join(this._schemaExportDir, schemaFileName).length >= windowsMaxPathLimit) {
       // this name should be well under 255 bytes
       // ( 100 + (Number.MAX_SAFE_INTEGER.toString().length = 16) + (ext.length = 13) ) = 129 which is less than 255
       // You'd have to be past 2**53-1 (Number.MAX_SAFE_INTEGER) long named schemas in order to hit decimal formatting,
