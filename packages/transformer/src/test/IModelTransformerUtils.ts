@@ -238,6 +238,7 @@ export async function assertIdentityTransformation(
     // [IModelTransformerOptions.includeSourceProvenance]$(transformer) is set to true
     classesToIgnoreMissingEntitiesOfInTarget = [...IModelTransformer.provenanceElementClasses, ...IModelTransformer.provenanceElementAspectClasses],
     compareElemGeom = false,
+    ignoreFedGuidsOnAlwaysPresentElementIds = true,
   }: {
     expectedElemsOnlyInSource?: Partial<ElementProps>[];
     expectedElemsOnlyInTarget?: Partial<ElementProps>[];
@@ -246,8 +247,12 @@ export async function assertIdentityTransformation(
     /** before checking elements that are only in the source are correct, filter out elements of these classes */
     classesToIgnoreMissingEntitiesOfInTarget?: typeof Entity[];
     compareElemGeom?: boolean;
+    /** if true, ignores the fed guids present on always present elements (present even in an empty iModel!).
+     * That list includes the root subject (0x1), dictionaryModel (0x10) and the realityDataSourcesModel (0xe) */
+    ignoreFedGuidsOnAlwaysPresentElementIds?: boolean;
   } = {}
 ) {
+  const alwaysPresentElementIds = new Set<Id64String>(["0x1", "0x10", "0xe"]);
   const [remapElem, remapCodeSpec, remapAspect]
     = remapper instanceof IModelTransformer
       ? [remapper.context.findTargetElementId.bind(remapper.context),
@@ -280,6 +285,7 @@ export async function assertIdentityTransformation(
         // known cases for the prop expecting to have been changed by the transformation under normal circumstances
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
+        // FIXME: Doesn't this allow propChanges to ANY props if sourceElem.federationGuid is undefined? 
         const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
           ?? (sourceElem.federationGuid === undefined || propName === "jsonProperties");
         if (prop.isNavigation) {
@@ -302,6 +308,10 @@ export async function assertIdentityTransformation(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
+          if (ignoreFedGuidsOnAlwaysPresentElementIds && propName === "federationGuid" && alwaysPresentElementIds.has(sourceElemId)) {
+            // Skip comparing this prop if its the fedguid and its one of the always present element ids and ignoreFedGuidsOnAlwaysPresentElementIds is true.
+            continue;
+          }
           // kept for conditional breakpoints
           const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
           expect(

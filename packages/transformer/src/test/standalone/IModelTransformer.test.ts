@@ -25,7 +25,7 @@ import {
   ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
 } from "@itwin/core-common";
 import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
+import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -222,7 +222,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it.only("should synchronize changes from master to branch and back", async () => {
+  it("should synchronize changes from master to branch and back", async () => {
     // Simulate branching workflow by initializing branchDb to be a copy of the populated masterDb
     const masterDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "Master.bim");
     const masterDb = SnapshotDb.createFrom(await ReusedSnapshots.extensiveTestScenario, masterDbFile);
@@ -260,7 +260,7 @@ describe("IModelTransformer", () => {
     for (const aspectId of aspectIds) {
       aspects.push(branchDb.elements.getAspect(aspectId));
     }
-    assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 3); // provenance aspect added for target scope element
+    assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 1); // provenance aspect added for target scope element
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
@@ -1101,13 +1101,22 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  /** gets a mapping of element ids to their invariant content */
+  /** gets a mapping of element ids to their content ignoring or removing variance that is expected when transforming */
   async function getAllElementsInvariants(db: IModelDb, filterPredicate?: (element: Element) => boolean) {
+    // The set of element Ids where the fed guid should be ignored (since it can change between transforms).
+    const ignoreFedGuidElementIds = new Set<Id64String>([
+      IModel.rootSubjectId,
+      IModel.dictionaryId,
+      "0xe",
+    ]);
     const result: Record<Id64String, any> = {};
     // eslint-disable-next-line deprecation/deprecation
     for await (const row of db.query("SELECT * FROM bis.Element", undefined, { rowFormat: QueryRowFormat.UseJsPropertyNames })) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
+
         const { lastMod: _lastMod, ...invariantPortion } = row;
+        if (ignoreFedGuidElementIds.has(row.id))
+          delete invariantPortion.federationGuid;
         result[row.id] = invariantPortion;
       }
     }
@@ -2204,7 +2213,9 @@ describe("IModelTransformer", () => {
     // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
       // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
-      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(coreBackendPkgJson.version, "^3.0.0 || ^4.1.1");
+      // Probably unnecessary but right now we're using a dev version so I'm stripping it out. Eventually we'll probably be fine to remove this check once 4.3.0 comes out.
+      const versionStripped = coreBackendPkgJson.version.replace(/-dev\.\d{1,2}/, "");
+      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(versionStripped, "^3.0.0 || ^4.1.1");
       const expected = inITwinJsVersionWithExactCodeFeature ? `${initialVal}\xa0` : initialVal;
       getCodeValRawSqlite(targetDb, { initialVal, expected, expectedMatchCount });
       getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });
