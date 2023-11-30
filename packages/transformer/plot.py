@@ -66,20 +66,16 @@ def timeToSeconds(src: str):
   t = timedelta(hours=float(h), minutes=float(m), seconds=float(s))
   return t.total_seconds()
 
-cool_versions = {'oldtform', 'selectfrom'}
+cool_versions = {'oldtform': 'old', 'selectfrom': 'new'}
 syscalls = {
-  'pwrite64': {
-    'color': 'cyan',
-    'legend': 'pwrite64 (sec)',
-  },
-  'pread64': {
-    'color': 'pink',
-    'legend': 'pread64 (sec)',
-  },
-  'fsync': {
-    'color': 'gray',
-    'legend': 'fsync (sec)'
-  },
+  # 'pwrite64': {
+  #   'color': 'cyan',
+  #   'legend': 'pwrite64 ($s$)',
+  # },
+  # 'epoll_wait': {
+  #   'color': 'gray',
+  #   'legend': 'fsync ($s$)'
+  # },
 }
 
 data = {}
@@ -187,7 +183,7 @@ for i, (src, src_runs) in enumerate(data.items()):
   bar_width = group_width_ratio / group_bar_count
   bar_offset = lambda t, center: center + (t - group_bar_count / 2) * bar_width + bar_width / 2
 
-  plt.xticks([bar_offset(0.5, i) for i in range(len(versions))], [*versions.keys()], rotation=50)
+  plt.xticks([bar_offset(0.5, i) for i in range(len(versions))], [*cool_versions.values()], rotation=50)
 
   for j, (version, run) in enumerate(versions.items()):
     maxs = { key: max(run[key] for run in versions.values())
@@ -251,7 +247,7 @@ for i, (src, src_runs) in enumerate(data.items()):
       plt.bar_label(bars[-1], [run[syscall]], padding=2, fmt='{:.2g}', rotation='vertical')
 
     if i == 0 and j == 0:
-      plt.legend(handles=bars)
+      plt.legend(bars, [b._label + (' (s)' if 'time' in b._label else ' (KB)') for b in bars])
 
 plt.savefig("graph.png")
 plt.show()
