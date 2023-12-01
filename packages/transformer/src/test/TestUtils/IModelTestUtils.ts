@@ -1010,7 +1010,7 @@ export class ExtensiveTestScenario {
     // Insert ViewDefinitions
     const viewId = OrthographicViewDefinition.insert(sourceDb, definitionModelId, "Orthographic View", modelSelectorId, spatialCategorySelectorId, displayStyle3dId, projectExtents, StandardViewIndex.Iso);
     assert.isTrue(Id64.isValidId64(viewId));
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line no-deprecation
     sourceDb.views.setDefaultViewId(viewId);
     const drawingViewRange = new Range2d(0, 0, 100, 100);
     const drawingViewId = DrawingViewDefinition.insert(sourceDb, definitionModelId, "Drawing View", drawingId, drawingCategorySelectorId, displayStyle2dId, drawingViewRange);
