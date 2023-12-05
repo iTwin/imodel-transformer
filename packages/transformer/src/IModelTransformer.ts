@@ -930,6 +930,7 @@ export class IModelTransformer extends IModelExportHandler {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
       const changes: ChangedECInstance[] = Array.from(ecChangeUnifier.instances);
+      // FIXME: is this the best that can be done? basically serves as a replacement for querying the ESA.changes table
       const esaMap: Map<string, ChangedECInstance> = new Map<string, ChangedECInstance>();
       for (const change of changes) {
         // const comparison = `BisCore.${ExternalSourceAspect.class}`
