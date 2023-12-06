@@ -373,7 +373,9 @@ async function bulkInsertTransform(
           ${insertHeader}
           SELECT ${mappedValues}
           FROM (${remappedFromAttached})
-          WHERE true -- necessary for sqlite's ON CONFLICT syntax
+          WHERE ${transformType === "process-all"
+            ? "true" // necessary for SQLite's ON CONFLICT clause
+            : "InVirtualSet(?, ECInstanceId)"}
           ${
           /* FIXME: I think this can be removed after fixing the remapping */
           insertHeader.includes("[bis_CodeSpec]") ? `
