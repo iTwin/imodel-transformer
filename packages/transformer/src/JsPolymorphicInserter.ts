@@ -66,13 +66,7 @@ const statementCachePath = path.join(__dirname, ".transformer_statement_cache.js
  */
 const statementCache = new Map<string, Map<string, CachedClassStatements>>();
 
-async function bulkInsertTransform(
-  source: IModelDb,
-  target: ECDb,
-  propertyTransforms: {
-    [propertyName: string]: (s: string) => string;
-  } = {},
-): Promise<void> {
+async function getClassDatas(source: IModelDb) {
   const schemaNamesReader = source.createQueryReader(`
     SELECT Name, VersionMajor, VersionWrite, VersionMinor
     FROM ECDbMeta.ECSchemaDef
@@ -172,40 +166,57 @@ async function bulkInsertTransform(
     }
   }
 
-  /** the trick is, sqlite calls in once per column, with every column
-   * we transform the first time, and the rest are no-ops reusing that
-   * result until the next row
-   */
-  function createTransformFunction(transform: (row: Record<string, any>) => Record<string, any>) {
-    let callCount = 0;
-    let outputRow = {} as Record<string, any>;
+  return classDatas;
+}
 
-    target.nativeDb.addJsDbFunc({
-      name: "",
-      deterministic: true,
-      impl(key, classId, allValues) {
-        const classData = classDatas.get(classId);
-        assert(classData !== undefined);
-        if (callCount === 0) {
-          const inputRow = {} as Record<string, any>;
-          for (let i = 0; i < allValues.length; ++i) {
-            const prop = classData.properties[i];
-            const val = allValues[i];
-            inputRow[prop.name] = val;
-          }
-          outputRow = transform(inputRow);
+/** the trick is, sqlite calls in once per column, with every column
+ * we transform the first time, and the rest are no-ops reusing that
+ * result until the next row
+ */
+function _createTransformFunction(
+  target: ECDb,
+  classDatas: Awaited<ReturnType<typeof getClassDatas>>,
+  transform: (row: Record<string, any>) => Record<string, any>,
+) {
+  let callCount = 0;
+  let outputRow = {} as Record<string, any>;
+
+  target.nativeDb.addJsDbFunc({
+    name: "",
+    deterministic: true,
+    impl(key, classId, allValues) {
+      const classData = classDatas.get(classId);
+      assert(classData !== undefined);
+      if (callCount === 0) {
+        const inputRow = {} as Record<string, any>;
+        for (let i = 0; i < allValues.length; ++i) {
+          const prop = classData.properties[i];
+          const val = allValues[i];
+          inputRow[prop.name] = val;
         }
+        outputRow = transform(inputRow);
+      }
 
-        callCount++;
+      callCount++;
 
-        if (callCount >= classData.properties.length) {
-          callCount = 0;
-        }
+      if (callCount >= classData.properties.length) {
+        callCount = 0;
+      }
 
-        return outputRow[key];
-      },
-    });
-  }
+      return outputRow[key];
+    },
+  });
+}
+
+
+async function bulkInsertTransform(
+  source: IModelDb,
+  target: ECDb,
+  propertyTransforms: {
+    [propertyName: string]: (s: string) => string;
+  } = {},
+): Promise<void> {
+  const classDatas = await getClassDatas(source);
 
   const classInserters = new Map<string, {
     schemaName: string;

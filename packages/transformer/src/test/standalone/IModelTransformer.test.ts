@@ -2675,11 +2675,13 @@ describe("IModelTransformer", () => {
     // NOTE: it was closed the transformer itself!
     targetDb = SnapshotDb.openFile(targetDbFile);
 
+    console.log("start identity transform!", performance.now());
     await assertIdentityTransformation(sourceDb, targetDb, remapper, {
       compareElemGeom: true,
       ignoreDefaultTransformerMutations: true,
       classesToIgnoreMissingEntitiesOfInTarget: [],
     });
+    console.log("done", performance.now());
     sourceDb.close();
     targetDb.close();
     fs.copyFileSync(sourcePath, "/tmp/in.db");
