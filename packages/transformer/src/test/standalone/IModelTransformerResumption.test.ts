@@ -205,9 +205,11 @@ async function transformWithCrashAndRecover<
       "IModelTransformerResumption",
       "transformer-state.db"
     );
+    // eslint-disable-next-line deprecation/deprecation
     transformer.saveStateToFile(dumpPath);
     // eslint-disable-next-line @typescript-eslint/naming-convention
     const TransformerClass = transformer.constructor as typeof IModelTransformer;
+    // eslint-disable-next-line deprecation/deprecation
     transformer = TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb) as Transformer;
     disableCrashing?.(transformer);
     await transformerProcessing(transformer);
@@ -286,6 +288,7 @@ describe("test resuming transformations", () => {
       transformer.callback = async () => {
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "early state save" });
+        // eslint-disable-next-line deprecation/deprecation
         transformer.saveStateToFile(dumpPath);
         changesetId = targetDb.changeset.id;
         // now after another 10 exported elements, interrupt for resumption
@@ -311,6 +314,7 @@ describe("test resuming transformations", () => {
         expect(targetDb.changeset.id).to.equal(changesetId!);
         // eslint-disable-next-line @typescript-eslint/naming-convention
         const TransformerClass = transformer.constructor as typeof IModelTransformer;
+        // eslint-disable-next-line deprecation/deprecation
         transformer = TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb) as CountdownTransformer;
         await transformer.processAll();
         targetDb.saveChanges();
@@ -409,6 +413,7 @@ describe("test resuming transformations", () => {
         "IModelTransformerResumption",
         "transformer-state.db"
       );
+      // eslint-disable-next-line deprecation/deprecation
       transformer.saveStateToFile(dumpPath);
       // eslint-disable-next-line @typescript-eslint/naming-convention
       const TransformerClass = transformer.constructor as typeof IModelTransformer;
@@ -416,6 +421,7 @@ describe("test resuming transformations", () => {
       targetDb.close();
       targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
       expect(
+        // eslint-disable-next-line deprecation/deprecation
         () => TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb)
       ).to.throw(/does not have the expected provenance/);
     }
@@ -465,8 +471,10 @@ describe("test resuming transformations", () => {
           "IModelTransformerResumption",
           "transformer-state.db"
         );
+        // eslint-disable-next-line deprecation/deprecation
         transformer.saveStateToFile(dumpPath);
         expect(() =>
+          // eslint-disable-next-line deprecation/deprecation
           ResumeTransformerClass.resumeTransformation(
             dumpPath,
             new ResumeExporterClass(sourceDb),
@@ -550,10 +558,12 @@ describe("test resuming transformations", () => {
       "IModelTransformerResumption",
       "transformer-state.db"
     );
+    // eslint-disable-next-line deprecation/deprecation
     transformer.saveStateToFile(dumpPath);
     // eslint-disable-next-line @typescript-eslint/naming-convention
     const TransformerClass = transformer.constructor as typeof AdditionalStateTransformer;
     transformer.dispose();
+    // eslint-disable-next-line deprecation/deprecation
     const resumedTransformer = TransformerClass.resumeTransformation(dumpPath, new AdditionalStateExporter(sourceDb), new AdditionalStateImporter(targetDb));
     expect(resumedTransformer).not.to.equal(transformer);
     expect(resumedTransformer.state1).to.equal(transformer.state1);
@@ -583,6 +593,7 @@ describe("test resuming transformations", () => {
         "IModelTransformerResumption",
         "transformer-state.db"
       );
+      // eslint-disable-next-line deprecation/deprecation
       transformer.saveStateToFile(dumpPath);
       // eslint-disable-next-line @typescript-eslint/naming-convention
       const TransformerClass = transformer.constructor as typeof IModelTransformer;
@@ -591,6 +602,7 @@ describe("test resuming transformations", () => {
       targetDb.close();
       targetDb = await HubWrappers.downloadAndOpenBriefcase({ accessToken, iTwinId, iModelId: targetDbId });
       expect(
+        // eslint-disable-next-line deprecation/deprecation
         () => TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb)
       ).to.throw(/does not have the expected provenance/);
     }
@@ -619,9 +631,11 @@ describe("test resuming transformations", () => {
           "IModelTransformerResumption",
           "transformer-state.db"
         );
+        // eslint-disable-next-line deprecation/deprecation
         transformer.saveStateToFile(dumpPath);
         // eslint-disable-next-line @typescript-eslint/naming-convention
         const TransformerClass = transformer.constructor as typeof CountdownToCrashTransformer;
+        // eslint-disable-next-line deprecation/deprecation
         TransformerClass.resumeTransformation(dumpPath, sourceDb, targetDb);
         transformer.relationshipExportsUntilCall = undefined;
         await transformer.processAll();
@@ -803,7 +817,9 @@ describe("test resuming transformations", () => {
             crashCount++;
             const dumpPath = IModelTransformerTestUtils.prepareOutputFile("IModelTransformerResumption", "transformer-state.db");
             enableCrashes(false);
+            // eslint-disable-next-line deprecation/deprecation
             transformer.saveStateToFile(dumpPath);
+            // eslint-disable-next-line deprecation/deprecation
             transformer = CountingTransformer.resumeTransformation(dumpPath, { source: sourceDb, target: targetDb });
             enableCrashes(true);
             crashableCallsMade = 0;
