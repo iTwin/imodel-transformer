@@ -13,7 +13,6 @@ do
   do
     rm -f /tmp/out.bim
 
-    # FIXME: don't redo/destroy things we've already done!
     if [[ "$transform_args" = "-F" ]]
     then
       case="selectfrom-$(git rev-parse --short HEAD)"
@@ -30,7 +29,7 @@ do
     # sudo bash -c "perf record -F 50 -g $NODE --perf-basic-prof --interpreted-frames-native-stack -r source-map-support/register ../test-app/lib/Main.js   --sourceFile $file --targetDestination /tmp/out.bim --noProvenance --danglingReferencesBehavior ignore -F && chmod +r perf.data && mv perf.data $filebase.perf.cpuprofile";
     test -e $filebase.heaptrack.zst || (
       heaptrack $NODE ${global_node_args[@]} ../test-app/lib/Main.js --sourceFile $file --targetDestination /tmp/out.bim ${global_transform_args[@]} $transform_args &&
-      mv heaptrack.*.zst $filebase.heaptrack.zst)
+      mv heaptrack.*.zst $filebase.heaptrack.zst
     )
 
     rm -f /tmp/out.bim
