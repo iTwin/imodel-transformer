@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "Handle max path limit on windows for schema names",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "25615181+mindaugasdirg@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}
