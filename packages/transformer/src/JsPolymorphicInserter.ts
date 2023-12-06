@@ -208,14 +208,16 @@ function _createTransformFunction(
   });
 }
 
-
 async function bulkInsertTransform(
   source: IModelDb,
   target: ECDb,
+  transformType: "process-all" | "process-changes" = "process-all",
   propertyTransforms: {
     [propertyName: string]: (s: string) => string;
   } = {},
 ): Promise<void> {
+  assert(transformType === "process-all", "only transform 'process-all' supported for now");
+
   const classDatas = await getClassDatas(source);
 
   const classInserters = new Map<string, {
@@ -706,7 +708,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   }
 
-  await bulkInsertTransform(source, writeableTarget, {
+  await bulkInsertTransform(source, writeableTarget, "process-all", {
     // eslint-disable-next-line @typescript-eslint/naming-convention
     GeometryStream: (s) => `RemapGeom(${s}, 'temp.font_remap', 'temp.element_remap')`,
   });
