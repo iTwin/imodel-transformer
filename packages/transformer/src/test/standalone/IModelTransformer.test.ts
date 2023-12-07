@@ -37,7 +37,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
-import { Remapper, rawEmulatedPolymorphicInsertTransform } from "../../JsPolymorphicInserter";
+import { rawEmulatedPolymorphicInsertTransform } from "../../JsPolymorphicInserter";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelTransformer");
@@ -66,7 +66,7 @@ describe("IModelTransformer", () => {
 
   before(async () => {
     // pre-build this one so it doesn't affect test time
-    await ReusedSnapshots.extensiveTestScenario;
+    //await ReusedSnapshots.extensiveTestScenario;
 
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
