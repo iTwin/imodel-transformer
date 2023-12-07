@@ -72,42 +72,42 @@ async function bulkInsertByTable(target: ECDb, {
       , tep.ExtendedTypeName AS ExtendedPropertyType
       -- FIXME: use better, idiomatic root class check (see native extractChangeSets)
       , CASE
-          WHEN trt.Name='bis_ElementMultiAspect'
-            OR trt.Name='bis_ElementUniqueAspect'
+          WHEN strt.Name='bis_ElementMultiAspect'
+            OR strt.Name='bis_ElementUniqueAspect'
             THEN 'aspect'
-          WHEN trt.Name='bis_ElementRefersToElements'
-            OR trt.Name='bis_ElementDrivesElements'
+          WHEN strt.Name='bis_ElementRefersToElements'
+            OR strt.Name='bis_ElementDrivesElements'
             THEN 'relationship'
-          WHEN trt.Name='bis_CodeSpec'
+          WHEN strt.Name='bis_CodeSpec'
             THEN 'codespec'
-          WHEN trt.Name='bis_Element'
-            'element'
+          WHEN strt.Name='bis_Element'
+            THEN 'element'
           ELSE
             'unknown'
         END AS EntityType
       , seCls.Id AS SourceClassId
-      , set.name AS SourceTableName
+      , set_.name AS SourceTableName
       , strt.Name AS SourceRootTableName
     FROM ec_PropertyMap tepm
     JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
     JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
     JOIN ec_Table tet ON tet.Id=teCol.TableId
-    JOIN ec_Property tep ON tep.Id=teCol.RootPropertyId
+    JOIN ec_Property tep ON tep.Id=tepp.RootPropertyId
     JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
 
     JOIN source.ec_Schema ses ON ses.Name=tes.Name
-    JOIN source.ec_Class seCls ON sec.Name=teCls.Name
+    JOIN source.ec_Class seCls ON seCls.Name=teCls.Name
     JOIN source.ec_PropertyPath sepp ON sepp.AccessString=tepp.AccessString
     JOIN source.ec_PropertyMap sepm ON sepm.PropertyPathId=sepp.Id
     JOIN source.ec_Column seCol ON seCol.Id=sepm.ColumnId
-    JOIN source.ec_Table set ON set.Id=seCol.TableId
+    JOIN source.ec_Table set_ ON set_.Id=seCol.TableId
 
-    JOIN rootTable srt ON srt.root=set.Id
+    JOIN srcRootTable srt ON srt.root=set_.Id
     JOIN ec_Table strt ON strt.Id=srt.root
 
     WHERE NOT teCol.IsVirtual
-      AND rt.Parent IS NULL
+      AND srt.Parent IS NULL
 
     -- some columns (e.g. ClassId/ECInstanceId) are duplicated across tables
     GROUP BY teCol.Id
@@ -153,8 +153,17 @@ async function bulkInsertByTable(target: ECDb, {
   }
 
   for (const [targetTableName, sourceColumns] of targetTableToSourceColumns) {
+    let rootTable: string | undefined;
     // FIXME: need to join these somehow
-    const sourceTables = [...sourceColumns.reduce((set, c) => set.add(c.sqlite.table), new Set<string>())];
+    const sourceTables = new Set<string>();
+
+    for (const srcCol of sourceColumns) {
+      sourceTables.add(srcCol.sqlite.table);
+      assert(rootTable === undefined || srcCol.sqlite.rootTable === rootTable, "multiple root tables");
+    }
+
+    assert(rootTable !== undefined, "there was no root table");
+
     /* eslint-disable @typescript-eslint/indent */
     const transformSql = `
       INSERT INTO [${targetTableName}]
@@ -191,12 +200,13 @@ async function bulkInsertByTable(target: ECDb, {
           })
           .join(",")
       }
-      FROM ${sourceTables[0]}
+      FROM [${rootTable}]
       ${
         // FIXME: these must be sorted such that the root table is first...
-        sourceTables
-          .slice(1)
-          .map((sourceTable) => `JOIN [${sourceTable}] ON [${sourceTable}].Id=`)
+        [...sourceTables]
+          .map((sourceTable) => `JOIN [${sourceTable}] ON [${sourceTable}].${
+            rootTable === "bis_Element" ? "ElementId" : "Id"
+          }=[${rootTable}].Id`)
           .join("\n")
       }
     `;
