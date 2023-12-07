@@ -76,7 +76,19 @@ interface ClassData {
 async function getClassDatas(source: IModelDb, target: ECDb) {
   const classRemapsReader = target.createQueryReader(`
     SELECT
-      epp.AccessString, eCol.Id, eCol.Name as ColumnName, et.Name as TableName, eCls.Name as ClassName, es.Name as SchemaName
+        epp.AccessString -- TODO: unnecessary
+      , eCol.Id
+      , eCol.Name as ColumnName
+      , et.Name as TableName
+      , eCls.Name as ClassName
+      , es.Name as SchemaName
+      -- FIXME: use real root class check (see native extractChangeSets)
+      , CASE
+          WHEN et.Name LIKE 'bis_ElementMultiAspect%'
+          OR et.Name LIKE 'bis_ElementUniqueAspect%'
+            THEN 'aspect'
+          ELSE 'error'
+        END AS EntityType
     FROM ec_PropertyMap epm
     JOIN ec_Column eCol ON eCol.Id=epm.ColumnId
     JOIN ec_PropertyPath epp ON epp.Id=epm.PropertyPathId
@@ -86,14 +98,6 @@ async function getClassDatas(source: IModelDb, target: ECDb) {
     WHERE NOT eCol.IsVirtual
       GROUP BY eCol.Id
   `);
-
-  const schemas: { name: string, version: string }[] = [];
-  while (await classRemapsReader.step()) {
-    schemas.push({
-      name: schemaNamesReader.current[0],
-      version: `${schemaNamesReader.current[1]}.${schemaNamesReader.current[2]}.${schemaNamesReader.current[3]}`,
-    });
-  }
 
   const schemaLoader = new SchemaLoader((name: string) => source.getSchemaProps(name));
   const classDatas = new Map<string, ClassData>();
