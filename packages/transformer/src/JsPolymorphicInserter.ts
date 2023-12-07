@@ -50,6 +50,17 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
   const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
   const classRemapsReader = target.createQueryReader(`
+    WITH RECURSIVE rootTable(id, parent, root) AS (
+      SELECT Id, ParentTableId, Id
+      FROM ec_Table t
+
+      UNION ALL
+
+      SELECT t.Id, t.ParentTableId, p.root
+      FROM rootTable p
+      JOIN ec_Table t ON t.Id=p.parent
+    )
+
     SELECT
         tepp.AccessString
       , teCol.Name AS TargetColumnName
@@ -74,6 +85,7 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
         END AS EntityType
       , seCls.Id AS SourceClassId
       , set.name AS SourceTableName
+      , trt.Name AS TargetRootTableName
     FROM ec_PropertyMap tepm
     JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
     JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
@@ -81,6 +93,9 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
     JOIN ec_Property tep ON tep.Id=teCol.RootPropertyId
     JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
+
+    JOIN rootTable rt ON rt.root=tet.Id
+    JOIN ec_Table trt ON trt.Id=rt.root
 
     JOIN source.ec_Schema ses ON ses.Name=tes.Name
     JOIN source.ec_Class seCls ON sec.Name=teCls.Name
@@ -90,6 +105,7 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
     JOIN source.ec_Table set ON set.Id=seCol.TableId
 
     WHERE NOT teCol.IsVirtual
+      AND rt.Parent IS NULL
 
     -- some columns (e.g. ClassId/ECInstanceId) are duplicated across tables
     GROUP BY teCol.Id
@@ -134,10 +150,10 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
 
   for (const [targetTableName, sourceColumns] of targetTableToSourceColumns) {
     // FIXME: need to join these somehow
-    const sourceTables = sourceColumns.reduce((set, c) => set.add(c.sqlite.table), new Set<string>());
+    const sourceTables = [...sourceColumns.reduce((set, c) => set.add(c.sqlite.table), new Set<string>())];
     /* eslint-disable @typescript-eslint/indent */
     const transformSql = `
-      INSERT INTO ${targetTableName}
+      INSERT INTO [${targetTableName}]
       SELECT ${
         sourceColumns
           .map((c) => {
@@ -147,10 +163,10 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
             return propTransform
               ? propTransform(sourceColumnQualifier)
               : c.ec.type === PropertyType.Navigation
-              ? remapSql(sourceColumnQualifier, c.ec.accessString === "CodeSpec" ? "codespec" : "element")
+              ? remapSql(sourceColumnQualifier, c.ec.rootType === "codespec" ? "codespec" : "element")
               : c.ec.type === "NavPropRelClassId"
               ? `(
-                  -- FIXME: do this during remapping after schema processing!
+                  -- FIXME: create a TEMP class remap cache!
                   SELECT tc.Id
                   FROM source.ec_Class sc
                   JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
@@ -170,7 +186,14 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
           })
           .join(",")
       }
-      FROM ${[...sourceTables].join(",")}
+      FROM ${sourceTables[0]}
+      ${
+        // FIXME: these must be sorted such that the root table is first...
+        sourceTables
+          .slice(1)
+          .map((sourceTable) => `JOIN [${sourceTable}] ON [${sourceTable}].Id=`)
+          .join("\n")
+      }
     `;
 
     const timer = new StopWatch();
