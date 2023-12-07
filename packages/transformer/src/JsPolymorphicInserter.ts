@@ -145,7 +145,7 @@ async function bulkInsertByTable(target: ECDb, {
       );
       */
 
-      classData.push({
+      const row = {
         sqlite: {
           name: sqliteColumnName,
           table: sourceTableName,
@@ -161,7 +161,9 @@ async function bulkInsertByTable(target: ECDb, {
           sourceClassId,
           targetClassId,
         },
-      });
+      };
+
+      classData.push(row);
     }
   });
 
@@ -172,21 +174,49 @@ async function bulkInsertByTable(target: ECDb, {
 
     for (const srcCol of sourceColumns) {
       sourceTables.add(srcCol.sqlite.table);
-      assert(rootTable === undefined || srcCol.sqlite.rootTable === rootTable, "multiple root tables");
+      try {
+        assert(
+          rootTable === undefined || srcCol.sqlite.rootTable === rootTable,
+          `multiple root tables for ${srcCol.ec.schemaName}.${srcCol.ec.className}.${srcCol.ec.accessString}: ${
+            rootTable
+          },${srcCol.sqlite.rootTable}`
+        );
+      } catch (err) {
+        console.log("sourceColumns", sourceColumns);
+        throw err;
+      }
       rootTable = srcCol.sqlite.rootTable;
     }
 
     assert(rootTable !== undefined, "there was no root table");
+    sourceTables.delete(rootTable);
+
+    const sourceColumnsWithId: SourceColumnInfo[] = [
+      {
+        sqlite: {
+          ...sourceColumns[0].sqlite,
+          name: "Id",
+        },
+        ec: {
+          ...sourceColumns[0].ec,
+          accessString: "ECInstanceId",
+        },
+      },
+      ...sourceColumns,
+    ];
 
     /* eslint-disable @typescript-eslint/indent */
     const transformSql = `
-      INSERT INTO [${targetTableName}]
+      INSERT INTO [${targetTableName}](
+        ${sourceColumnsWithId.map((c) => c.sqlite.name).join(",")}
+      )
       SELECT ${
-        sourceColumns
+        sourceColumnsWithId
           .map((c) => {
             const propQualifier = `${c.ec.schemaName}.${c.ec.className}.${c.ec.accessString}`;
             const propTransform = propertyTransforms[propQualifier];
             const sourceColumnQualifier = `[${c.sqlite.table}].[${c.sqlite.name}]`;
+
             return propTransform
               ? propTransform(sourceColumnQualifier)
               : c.ec.type === PropertyType.Navigation
