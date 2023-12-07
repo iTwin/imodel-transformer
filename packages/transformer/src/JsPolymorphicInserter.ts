@@ -1,9 +1,8 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
 import { DbResult, Id64String, StopWatch } from "@itwin/core-bentley";
-import { ECClass, ECClassModifier, PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
+import { PropertyType } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import * as url from "url";
-import * as fs from "fs";
 import { IModelTransformer } from "./IModelTransformer";
 import { CompactRemapTable } from "./CompactRemapTable";
 
@@ -11,6 +10,7 @@ interface SourceColumnInfo {
   sqlite: {
     name: string;
     table: string;
+    rootTable: string;
   };
   ec: {
     type: PropertyType;
@@ -26,7 +26,6 @@ interface SourceColumnInfo {
   };
 }
 
-
 // FIXME: note that SQLite doesn't seem to have types/statistics that would let it consider using
 // an optimized binary search for our range query, so we should not do this via SQLite. Once we
 // get around to designing how we'll pass a JavaScript object to RemapGeom, then we can fix that.
@@ -38,7 +37,7 @@ const remapSql = (idExpr: string, remapType: "font" | "codespec" | "nonElemEntit
   WHERE ${idExpr} BETWEEN SourceId AND SourceId + Length - 1
 )`;
 
-async function bulkInsertByTable(source: IModelDb, target: ECDb, {
+async function bulkInsertByTable(target: ECDb, {
   propertyTransforms = {},
 }: {
   propertyTransforms?: {
@@ -50,15 +49,15 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
   const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
   const classRemapsReader = target.createQueryReader(`
-    WITH RECURSIVE rootTable(id, parent, root) AS (
+    WITH RECURSIVE srcRootTable(id, parent, root) AS (
       SELECT Id, ParentTableId, Id
-      FROM ec_Table t
+      FROM source.ec_Table t
 
       UNION ALL
 
       SELECT t.Id, t.ParentTableId, p.root
-      FROM rootTable p
-      JOIN ec_Table t ON t.Id=p.parent
+      FROM srcRootTable p
+      JOIN source.ec_Table t ON t.Id=p.parent
     )
 
     SELECT
@@ -68,24 +67,27 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
       , teCls.Name AS ClassName
       , teCls.Id AS TargetClassId
       , tes.Name AS SchemaName
-      , tep.Type AS PropertyType
-      , tep.ExtendedType AS ExtendedPropertyType
+      -- FIXME: this probably doesn't work for structs?
+      , tep.PrimitiveType AS PropertyType
+      , tep.ExtendedTypeName AS ExtendedPropertyType
       -- FIXME: use better, idiomatic root class check (see native extractChangeSets)
       , CASE
-          WHEN tet.Name LIKE 'bis_ElementMultiAspect%'
-          OR tet.Name LIKE 'bis_ElementUniqueAspect%'
+          WHEN trt.Name='bis_ElementMultiAspect'
+            OR trt.Name='bis_ElementUniqueAspect'
             THEN 'aspect'
-          WHEN tet.Name LIKE 'bis_ElementRefersToElements%'
-          OR tet.Name LIKE 'bis_ElementDrivesElements%'
+          WHEN trt.Name='bis_ElementRefersToElements'
+            OR trt.Name='bis_ElementDrivesElements'
             THEN 'relationship'
-          WHEN tet.Name='bis_CodeSpec'
+          WHEN trt.Name='bis_CodeSpec'
             THEN 'codespec'
-          ELSE
+          WHEN trt.Name='bis_Element'
             'element'
+          ELSE
+            'unknown'
         END AS EntityType
       , seCls.Id AS SourceClassId
       , set.name AS SourceTableName
-      , trt.Name AS TargetRootTableName
+      , strt.Name AS SourceRootTableName
     FROM ec_PropertyMap tepm
     JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
     JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
@@ -94,15 +96,15 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
     JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
 
-    JOIN rootTable rt ON rt.root=tet.Id
-    JOIN ec_Table trt ON trt.Id=rt.root
-
     JOIN source.ec_Schema ses ON ses.Name=tes.Name
     JOIN source.ec_Class seCls ON sec.Name=teCls.Name
     JOIN source.ec_PropertyPath sepp ON sepp.AccessString=tepp.AccessString
     JOIN source.ec_PropertyMap sepm ON sepm.PropertyPathId=sepp.Id
     JOIN source.ec_Column seCol ON seCol.Id=sepm.ColumnId
     JOIN source.ec_Table set ON set.Id=seCol.TableId
+
+    JOIN rootTable srt ON srt.root=set.Id
+    JOIN ec_Table strt ON strt.Id=srt.root
 
     WHERE NOT teCol.IsVirtual
       AND rt.Parent IS NULL
@@ -123,6 +125,7 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
     const propertyRootType = classRemapsReader.current[8];
     const sourceClassId = classRemapsReader.current[9];
     const sourceTableName = classRemapsReader.current[10];
+    const sourceRootTableName = classRemapsReader.current[11];
 
     let classData = targetTableToSourceColumns.get(targetTableName);
     if (classData === undefined) {
@@ -134,6 +137,7 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
       sqlite: {
         name: sqliteColumnName,
         table: sourceTableName,
+        rootTable: sourceRootTableName,
       },
       ec: {
         type: propertyType,
@@ -164,7 +168,8 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
               ? propTransform(sourceColumnQualifier)
               : c.ec.type === PropertyType.Navigation
               ? remapSql(sourceColumnQualifier, c.ec.rootType === "codespec" ? "codespec" : "element")
-              : c.ec.type === "NavPropRelClassId"
+              // HACK
+              : c.ec.accessString.endsWith(".RelECClassId")
               ? `(
                   -- FIXME: create a TEMP class remap cache!
                   SELECT tc.Id
@@ -474,7 +479,7 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
 
   const geomStreamRemap = (s: string) => `RemapGeom(${s}, 'temp.font_remap', 'temp.element_remap')`;
 
-  await bulkInsertByTable(source, writeableTarget, {
+  await bulkInsertByTable(writeableTarget, {
     propertyTransforms: {
       /* eslint-disable @typescript-eslint/naming-convention */
       "BisCore.GeometricElement3d.GeometryStream": geomStreamRemap,
