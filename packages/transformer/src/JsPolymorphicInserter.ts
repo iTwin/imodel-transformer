@@ -1,5 +1,5 @@
 import { ECDb, ECDbOpenMode, IModelDb } from "@itwin/core-backend";
-import { DbResult, Id64String } from "@itwin/core-bentley";
+import { DbResult, Id64String, StopWatch } from "@itwin/core-bentley";
 import { ECClass, ECClassModifier, PrimitiveOrEnumPropertyBase, Property, PropertyType, RelationshipClass, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import * as url from "url";
@@ -19,6 +19,10 @@ interface SourceColumnInfo {
     schemaName: string;
     className: string;
     accessString: string;
+    /** NOTE: only supports up to 2 << 53 */
+    sourceClassId: number;
+    /** NOTE: only supports up to 2 << 53 */
+    targetClassId: number;
   };
 }
 
@@ -43,16 +47,18 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
 } = {}): Promise<void> {
 
   /** key is table name in target */
-  const classDatas = new Map<string, SourceColumnInfo[]>();
+  const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
   const classRemapsReader = target.createQueryReader(`
     SELECT
         tepp.AccessString
-      , teCol.Id
-      , teCol.Name as ColumnName
-      , tet.Name as TableName
-      , teCls.Name as ClassName
-      , tes.Name as SchemaName
+      , teCol.Name AS TargetColumnName
+      , tet.Name AS TargetTableName
+      , teCls.Name AS ClassName
+      , teCls.Id AS TargetClassId
+      , tes.Name AS SchemaName
+      , tep.Type AS PropertyType
+      , tep.ExtendedType AS ExtendedPropertyType
       -- FIXME: use better, idiomatic root class check (see native extractChangeSets)
       , CASE
           WHEN tet.Name LIKE 'bis_ElementMultiAspect%'
@@ -63,35 +69,49 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
             THEN 'relationship'
           WHEN tet.Name='bis_CodeSpec'
             THEN 'codespec'
-          ELSE 'element'
+          ELSE
+            'element'
         END AS EntityType
+      , seCls.Id AS SourceClassId
+      , set.name AS SourceTableName
     FROM ec_PropertyMap tepm
-    JOIN ec_Column eCol ON teCol.Id=tepm.ColumnId
+    JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
     JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
-    JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Table tet ON tet.Id=teCol.TableId
+    JOIN ec_Property tep ON tep.Id=teCol.RootPropertyId
+    JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
+
+    JOIN source.ec_Schema ses ON ses.Name=tes.Name
+    JOIN source.ec_Class seCls ON sec.Name=teCls.Name
+    JOIN source.ec_PropertyPath sepp ON sepp.AccessString=tepp.AccessString
+    JOIN source.ec_PropertyMap sepm ON sepm.PropertyPathId=sepp.Id
+    JOIN source.ec_Column seCol ON seCol.Id=sepm.ColumnId
+    JOIN source.ec_Table set ON set.Id=seCol.TableId
+
     WHERE NOT teCol.IsVirtual
-      GROUP BY teCol.Id
+
+    -- some columns (e.g. ClassId/ECInstanceId) are duplicated across tables
+    GROUP BY teCol.Id
   `);
 
   while (await classRemapsReader.step()) {
     const accessString = classRemapsReader.current[0];
-    const sqliteColumnName = classRemapsReader.current[2];
-    const sourceTableName = classRemapsReader.current[3];
-    const sourceClassName = classRemapsReader.current[4];
-    const sourceSchemaName = classRemapsReader.current[5];
+    const sqliteColumnName = classRemapsReader.current[1];
+    const targetTableName = classRemapsReader.current[2];
+    const className = classRemapsReader.current[3];
+    const targetClassId = classRemapsReader.current[4];
+    const schemaName = classRemapsReader.current[5];
+    const propertyType = classRemapsReader.current[6];
+    const propertyExtendedType = classRemapsReader.current[7];
+    const propertyRootType = classRemapsReader.current[8];
+    const sourceClassId = classRemapsReader.current[9];
+    const sourceTableName = classRemapsReader.current[10];
 
-    const propertyRootType = classRemapsReader.current[6];
-
-    const targetTableName = classRemapsReader.current[7];
-    const propertyType = classRemapsReader.current[8];
-    const propertyExtendedType = classRemapsReader.current[9];
-
-    let classData = classDatas.get(targetTableName);
+    let classData = targetTableToSourceColumns.get(targetTableName);
     if (classData === undefined) {
       classData = [];
-      classDatas.set(targetTableName, classData);
+      targetTableToSourceColumns.set(targetTableName, classData);
     }
 
     classData.push({
@@ -103,14 +123,16 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
         type: propertyType,
         rootType: propertyRootType,
         extendedType: propertyExtendedType,
-        schemaName: sourceSchemaName,
-        className:sourceClassName,
+        schemaName,
+        className,
         accessString,
+        sourceClassId,
+        targetClassId,
       },
     });
   }
 
-  for (const [targetTableName, sourceColumns] of classDatas) {
+  for (const [targetTableName, sourceColumns] of targetTableToSourceColumns) {
     // FIXME: need to join these somehow
     const sourceTables = sourceColumns.reduce((set, c) => set.add(c.sqlite.table), new Set<string>());
     /* eslint-disable @typescript-eslint/indent */
@@ -121,7 +143,7 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
           .map((c) => {
             const propQualifier = `${c.ec.schemaName}.${c.ec.className}.${c.ec.accessString}`;
             const propTransform = propertyTransforms[propQualifier];
-            const sourceColumnQualifier = `${c.sqlite.table}.${c.sqlite.name}`;
+            const sourceColumnQualifier = `[${c.sqlite.table}].[${c.sqlite.name}]`;
             return propTransform
               ? propTransform(sourceColumnQualifier)
               : c.ec.type === PropertyType.Navigation
@@ -135,10 +157,10 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
                   JOIN main.ec_Schema ts ON ts.Name=ss.Name
                   JOIN main.ec_Class tc ON tc.Name=sc.Name
                   -- FIXME: need to derive the column containing the RelECClassId
-                  WHERE sc.Id=[_${++j}]
+                  WHERE sc.Id=${sourceColumnQualifier}
                 )`
               : remapSql(sourceColumnQualifier,
-                c.ec.accessString === "ECInstanceId" // if it's 1, it's the ECInstanceId
+                c.ec.accessString === "ECInstanceId"
                 ? c.ec.rootType === "element"
                   ? "element"
                   : "nonElemEntity"
@@ -151,347 +173,15 @@ async function bulkInsertByTable(source: IModelDb, target: ECDb, {
       FROM ${[...sourceTables].join(",")}
     `;
 
-    // HACK: can increment this everytime we use it if we use it once per expression
-    // also pre-increment for one-indexing
-    let j = 0;
-    const remappedSql = `
-      SELECT
-        ${classData.sourceColumns.map((c, i) =>
-            p.name in propertyTransforms
-            ? [propertyTransforms[p.name](`_${++j}`)]
-            : p.propertyType === PropertyType.Navigation
-            ? [
-                // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-                // FIXME: detect exact property name for this, currently a hack
-                remapSql(`[_${++j}]`, p.name === "CodeSpec" ? "codespec" : "element"),
-                `(
-                  -- FIXME: do this during remapping after schema processing!
-                  SELECT tc.Id
-                  FROM source.ec_Class sc
-                  JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-                  JOIN main.ec_Schema ts ON ts.Name=ss.Name
-                  JOIN main.ec_Class tc ON tc.Name=sc.Name
-                  -- FIXME: need to derive the column containing the RelECClassId
-                  WHERE sc.Id=[_${++j}]
-                )`,
-              ]
-            // FIXME: use ECReferenceTypesCache to determine which remap table to use
-            : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
-            : [`[_${++j}]`]
-          )
-        .join(",\n  ")}
-      FROM (
-        ${selectSql}
-      )
-    `;
+    const timer = new StopWatch();
+    timer.start();
+    console.log(`filling table ${targetTableName}...`);
 
-    const allInsertSql = getInjectedSqlite(target, `
-      INSERT INTO ${escapedClassFullName} (
-        ${queryProps.map((p) =>
-            p.propertyType === PropertyType.Navigation
-              // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-            ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
-            : p.propertyType === PropertyType.Point2d
-            ? [`[${p.name}].X`, `[${p.name}].Y`]
-            : p.propertyType === PropertyType.Point3d
-            ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
-            : [`[${p.name}]`]
-          )
-        .flat()
-        .join(",\n  ")}
-      ) VALUES (
-        ${queryProps.map((p) =>
-            p.propertyType === PropertyType.Navigation
-              // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-            ?  ["?","?"]
-            : p.propertyType === PropertyType.Point2d
-            ?  ["?","?"]
-            : p.propertyType === PropertyType.Point3d
-            ?  ["?","?","?"]
-            : ["?"]
-          )
-        .flat()
-        .join(",")}
-      )
-    `);
-  }
+    target.withPreparedSqliteStatement(transformSql, (targetStmt) => {
+      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
+    });
 
-  return classDatas;
-}
-
-/** the trick is, sqlite calls in once per column, with every column
- * we transform the first time, and the rest are no-ops reusing that
- * result until the next row
- */
-function _createTransformFunction(
-  target: ECDb,
-  classDatas: ClassDatas,
-  transform: (row: Record<string, any>) => Record<string, any>,
-) {
-  let callCount = 0;
-  let outputRow = {} as Record<string, any>;
-
-  target.nativeDb.addJsDbFunc({
-    name: "",
-    deterministic: true,
-    impl(key, classId, allValues) {
-      const classData = classDatas.get(classId);
-      assert(classData !== undefined);
-      if (callCount === 0) {
-        const inputRow = {} as Record<string, any>;
-        for (let i = 0; i < allValues.length; ++i) {
-          const prop = classData.properties[i];
-          const val = allValues[i];
-          inputRow[prop.name] = val;
-        }
-        outputRow = transform(inputRow);
-      }
-
-      callCount++;
-
-      if (callCount >= classData.properties.length) {
-        callCount = 0;
-      }
-
-      return outputRow[key];
-    },
-  });
-}
-
-async function bulkInsertTransform(
-  source: IModelDb,
-  target: ECDb,
-  {
-    propertyTransforms = {},
-  }: {
-    propertyTransforms?: {
-      [propertyName: string]: (s: string) => string;
-    };
-  } = {},
-): Promise<void> {
-  assert(transformType === "process-all", "only transform 'process-all' supported for now");
-
-  const classDatas = await getClassDatas(source, target);
-
-  const classInserters = new Map<string, {
-    schemaName: string;
-    className: string;
-    run: () => void;
-  }>();
-
-  for (const [classFullName, { properties, rootType, schemaKey }] of classDatas) {
-    try {
-      const [schemaName, className] = classFullName.split(".");
-      const escapedClassFullName = `[${schemaName}].[${className}]`;
-
-      // TODO FIXME: support this
-      const excludedPropertyTypes = new Set([
-        PropertyType.Struct,
-        PropertyType.Struct_Array,
-        PropertyType.Binary_Array,
-        PropertyType.Boolean_Array,
-        PropertyType.DateTime_Array,
-        PropertyType.Double_Array,
-        PropertyType.Integer_Array,
-        PropertyType.Integer_Enumeration_Array,
-        PropertyType.Long_Array,
-        PropertyType.Point2d_Array,
-        PropertyType.Point3d_Array,
-        PropertyType.String_Array,
-        PropertyType.String_Enumeration_Array,
-        PropertyType.IGeometry_Array,
-      ]);
-
-      const queryProps = properties.filter((p) => !excludedPropertyTypes.has(p.propertyType));
-
-      /* eslint-disable @typescript-eslint/indent */
-      const selectSql = getInjectedSqlite(source, `
-        SELECT
-          ${queryProps.map((p) =>
-              p.propertyType === PropertyType.Navigation
-              ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
-              : p.propertyType === PropertyType.Point2d
-              ? [`[${p.name}].X`, `[${p.name}].Y`]
-              : p.propertyType === PropertyType.Point3d
-              ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
-              : [`[${p.name}]`]
-            )
-          .flat()
-          .map((expr, i) => `(${expr}) AS _${i + 1}`) // ecsql indexes are one-indexed
-          .join(",\n  ")}
-        FROM ONLY ${escapedClassFullName}
-      `);
-
-      assert(!selectSql.includes(";"));
-
-      // HACK: can increment this everytime we use it if we use it once per expression
-      // also pre-increment for one-indexing
-      let j = 0;
-      const remappedSql = `
-        SELECT
-          ${queryProps.map((p) =>
-              p.name in propertyTransforms
-              ? [propertyTransforms[p.name](`_${++j}`)]
-              : p.propertyType === PropertyType.Navigation
-              ? [
-                  // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-                  // FIXME: detect exact property name for this, currently a hack
-                  remapSql(`[_${++j}]`, p.name === "CodeSpec" ? "codespec" : "element"),
-                  `(
-                    -- FIXME: do this during remapping after schema processing!
-                    SELECT tc.Id
-                    FROM source.ec_Class sc
-                    JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-                    JOIN main.ec_Schema ts ON ts.Name=ss.Name
-                    JOIN main.ec_Class tc ON tc.Name=sc.Name
-                    -- FIXME: need to derive the column containing the RelECClassId
-                    WHERE sc.Id=[_${++j}]
-                  )`,
-                ]
-              // FIXME: use ECReferenceTypesCache to determine which remap table to use
-              : p.propertyType === PropertyType.Long // FIXME: check if Id subtype
-              ? [remapSql(`_${++j}`,
-                  j === 1 // if it's 1, it's the ECInstanceId
-                  ? rootType === "element"
-                    ? "element"
-                    : "nonElemEntity"
-                  // FIXME: support non-element-targeting navProps (using ECReferenceTypesCache)
-                  : "element")]
-              : p.propertyType === PropertyType.Point2d
-              ? [`[_${++j}]`, `[_${++j}]`]
-              : p.propertyType === PropertyType.Point3d
-              ? [`[_${++j}]`, `[_${++j}]`, `[_${++j}]`]
-              : [`[_${++j}]`]
-            )
-          .flat()
-          .map((expr, i) => `(${expr}) AS _r${i + 1}`) // ecsql indexes are one-indexed
-          .join(",\n  ")}
-        FROM (
-          ${selectSql}
-        )
-      `;
-
-      const allInsertSql = getInjectedSqlite(target, `
-        INSERT INTO ${escapedClassFullName} (
-          ${queryProps.map((p) =>
-              p.propertyType === PropertyType.Navigation
-                // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-              ? [`[${p.name}].Id`, `[${p.name}].RelECClassId`]
-              : p.propertyType === PropertyType.Point2d
-              ? [`[${p.name}].X`, `[${p.name}].Y`]
-              : p.propertyType === PropertyType.Point3d
-              ? [`[${p.name}].X`, `[${p.name}].Y`, `[${p.name}].Z`]
-              : [`[${p.name}]`]
-            )
-          .flat()
-          .join(",\n  ")}
-        ) VALUES (
-          ${queryProps.map((p) =>
-              p.propertyType === PropertyType.Navigation
-                // FIXME: need to use ECReferenceTypesCache to get type of reference, might not be an elem
-              ?  ["?","?"]
-              : p.propertyType === PropertyType.Point2d
-              ?  ["?","?"]
-              : p.propertyType === PropertyType.Point3d
-              ?  ["?","?","?"]
-              : ["?"]
-            )
-          .flat()
-          .join(",")}
-        )
-      `);
-      /* eslint-enable @typescript-eslint/indent */
-
-      const insertSqls = allInsertSql.split(";");
-
-      const remappedFromAttached = remappedSql.replace(/\[main\]\./g, "[source].");
-
-      const bulkInsertSqls = insertSqls.map((insertSql) => {
-        // FIXME: just use ec_Table/ec_PropertyMap in the sqlite table!
-        const [, insertHeader, _colNames, values] = /(^.*\(([^)]*)\))\s*VALUES\s*\(([^)]*)\)/.exec(insertSql)!;
-        const mappedValues = values
-          .split(",")
-          .map((b) => [b, /_ix(\d+)_/.exec(b)?.[1]])
-          // FIXME: is this even correct?
-          .map(([b, maybeColIdx]) => maybeColIdx !== undefined ? `_r${maybeColIdx}` : b)
-          .map((b) => b === ":_ecdb_ecsqlparam_id_col1" ? `/*ECInstanceId*/ _r1` : b)
-          .join(",")
-        ;
-
-        const bulkInsertSql = `
-          ${insertHeader}
-          SELECT ${mappedValues}
-          FROM (${remappedFromAttached})
-          WHERE ${transformType === "process-all"
-            ? "true" // necessary for SQLite's ON CONFLICT clause
-            : "InVirtualSet(?, ECInstanceId)"}
-          ${
-          /* FIXME: I think this can be removed after fixing the remapping */
-          insertHeader.includes("[bis_CodeSpec]") ? `
-            ON CONFLICT([main].[bis_CodeSpec].[Name]) DO NOTHING
-          ` : ""}
-        `;
-
-        // FIXME: need to replace the last from with the attached source
-        return bulkInsertSql;
-      });
-
-      statementCache.get(schemaKey)!.set(className, {
-        select: selectSql,
-        remap: remappedFromAttached,
-        insert: insertSqls,
-        transform: bulkInsertSqls,
-      });
-
-      let lastSql: string;
-      const classInsert = () => {
-        try {
-          // eslint-disable-next-line
-          for (const sql of bulkInsertSqls) {
-            lastSql = sql;
-            target.withPreparedSqliteStatement(sql, (targetStmt) => {
-              assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
-            });
-          }
-        } catch (err) {
-          console.log("lastSql:", lastSql);
-          console.log("ERROR", target.nativeDb.getLastError());
-          console.log("class:", classFullName);
-          debugger;
-          throw err;
-        }
-      };
-
-      classInserters.set(classFullName, {
-        schemaName,
-        className,
-        run: classInsert,
-      });
-    } catch (err: any) {
-      if (/Use the respective navigation property to modify it\.$/.test(err.message))
-        continue;
-      if (/is mapped to an existing table not owned by ECDb/.test(err.message))
-        continue;
-      debugger;
-      throw err;
-    }
-  }
-
-  await fs.promises.writeFile(statementCachePath, JSON.stringify(statementCache, (_k, v) =>
-    v instanceof Map
-      ? Object.fromEntries(v.entries())
-      : v
-  ));
-
-  {
-    for (const [classFullName, { run, schemaName, className }] of classInserters) {
-      const count = source.withStatement(`SELECT COUNT(*) FROM [${schemaName}].[${className}]`, (s) => {
-        assert(s.step() === DbResult.BE_SQLITE_ROW);
-        return s.getValue(0).getInteger();
-      });
-      console.log(`inserting ${count} instances of ${classFullName}`);
-      run();
-    }
+    console.log(`done after ${timer.elapsedSeconds}s`);
   }
 }
 
@@ -759,9 +449,16 @@ export async function rawEmulatedPolymorphicInsertTransform(source: IModelDb, ta
     }
   }
 
-  await bulkInsertTransform(source, writeableTarget, "process-all", {
-    // eslint-disable-next-line @typescript-eslint/naming-convention
-    GeometryStream: (s) => `RemapGeom(${s}, 'temp.font_remap', 'temp.element_remap')`,
+  const geomStreamRemap = (s: string) => `RemapGeom(${s}, 'temp.font_remap', 'temp.element_remap')`;
+
+  await bulkInsertByTable(source, writeableTarget, {
+    propertyTransforms: {
+      /* eslint-disable @typescript-eslint/naming-convention */
+      "BisCore.GeometricElement3d.GeometryStream": geomStreamRemap,
+      "BisCore.GeometricElement2d.GeometryStream": geomStreamRemap,
+      "BisCore.GeometryPart.GeometryStream": geomStreamRemap,
+      /* eslint-enable @typescript-eslint/naming-convention */
+    },
   });
 
   writeableTarget.withPreparedSqliteStatement(`
