@@ -86,13 +86,14 @@ async function bulkInsertByTable(target: ECDb, {
             'unknown'
         END AS EntityType
       , seCls.Id AS SourceClassId
-      , set_.name AS SourceTableName
+      , set_.Name AS SourceTableName
       , strt.Name AS SourceRootTableName
     FROM ec_PropertyMap tepm
     JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
     JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
     JOIN ec_Table tet ON tet.Id=teCol.TableId
     JOIN ec_Property tep ON tep.Id=tepp.RootPropertyId
+                        AND tep.ClassId=teCls.id
     JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
 
@@ -104,7 +105,7 @@ async function bulkInsertByTable(target: ECDb, {
     JOIN source.ec_Table set_ ON set_.Id=seCol.TableId
 
     JOIN srcRootTable srt ON srt.root=set_.Id
-    JOIN ec_Table strt ON strt.Id=srt.root
+    JOIN source.ec_Table strt ON strt.Id=srt.root
 
     WHERE NOT teCol.IsVirtual
       AND srt.Parent IS NULL
