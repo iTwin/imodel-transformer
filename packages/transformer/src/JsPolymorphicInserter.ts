@@ -19,10 +19,10 @@ interface SourceColumnInfo {
     schemaName: string;
     className: string;
     accessString: string;
-    /** NOTE: only supports up to 2 << 53 */
-    sourceClassId: number;
-    /** NOTE: only supports up to 2 << 53 */
-    targetClassId: number;
+    // FIXME: not used
+    sourceClassId: Id64String;
+    // FIXME: not used
+    targetClassId: Id64String;
   };
 }
 
@@ -48,7 +48,7 @@ async function bulkInsertByTable(target: ECDb, {
   /** key is table name in target */
   const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
-  const classRemapsReader = target.createQueryReader(`
+  const classRemapsSql = `
     WITH RECURSIVE srcRootTable(id, parent, root) AS (
       SELECT Id, ParentTableId, Id
       FROM source.ec_Table t
@@ -111,46 +111,58 @@ async function bulkInsertByTable(target: ECDb, {
 
     -- some columns (e.g. ClassId/ECInstanceId) are duplicated across tables
     GROUP BY teCol.Id
-  `);
+  `;
 
-  while (await classRemapsReader.step()) {
-    const accessString = classRemapsReader.current[0];
-    const sqliteColumnName = classRemapsReader.current[1];
-    const targetTableName = classRemapsReader.current[2];
-    const className = classRemapsReader.current[3];
-    const targetClassId = classRemapsReader.current[4];
-    const schemaName = classRemapsReader.current[5];
-    const propertyType = classRemapsReader.current[6];
-    const propertyExtendedType = classRemapsReader.current[7];
-    const propertyRootType = classRemapsReader.current[8];
-    const sourceClassId = classRemapsReader.current[9];
-    const sourceTableName = classRemapsReader.current[10];
-    const sourceRootTableName = classRemapsReader.current[11];
+  target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
+    while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+      const accessString = stmt.getValue(0).getString();
+      const sqliteColumnName = stmt.getValue(1).getString();
+      const targetTableName = stmt.getValue(2).getString();
+      const className = stmt.getValue(3).getString();
+      const targetClassId = stmt.getValue(4).getId();
+      const schemaName = stmt.getValue(5).getString();
+      const propertyType = stmt.getValue(6).getInteger();
+      const propertyExtendedType = stmt.getValue(7).getString();
+      const propertyRootType = stmt.getValue(8).getString(); // FIXME: make this a numeric enum
+      const sourceClassId = stmt.getValue(9).getId();
+      const sourceTableName = stmt.getValue(10).getString();
+      const sourceRootTableName = stmt.getValue(11).getString();
 
-    let classData = targetTableToSourceColumns.get(targetTableName);
-    if (classData === undefined) {
-      classData = [];
-      targetTableToSourceColumns.set(targetTableName, classData);
+      let classData = targetTableToSourceColumns.get(targetTableName);
+      if (classData === undefined) {
+        classData = [];
+        targetTableToSourceColumns.set(targetTableName, classData);
+      }
+
+      /*
+      // FIXME: handle unknown better
+      assert(propertyRootType === "element"
+        || propertyRootType === "aspect"
+        || propertyRootType === "relationship"
+        || propertyRootType === "codespec",
+        `expected a rootType but got '${propertyRootType}'`
+      );
+      */
+
+      classData.push({
+        sqlite: {
+          name: sqliteColumnName,
+          table: sourceTableName,
+          rootTable: sourceRootTableName,
+        },
+        ec: {
+          type: propertyType,
+          rootType: propertyRootType as any,
+          extendedType: propertyExtendedType,
+          schemaName,
+          className,
+          accessString,
+          sourceClassId,
+          targetClassId,
+        },
+      });
     }
-
-    classData.push({
-      sqlite: {
-        name: sqliteColumnName,
-        table: sourceTableName,
-        rootTable: sourceRootTableName,
-      },
-      ec: {
-        type: propertyType,
-        rootType: propertyRootType,
-        extendedType: propertyExtendedType,
-        schemaName,
-        className,
-        accessString,
-        sourceClassId,
-        targetClassId,
-      },
-    });
-  }
+  });
 
   for (const [targetTableName, sourceColumns] of targetTableToSourceColumns) {
     let rootTable: string | undefined;
@@ -160,6 +172,7 @@ async function bulkInsertByTable(target: ECDb, {
     for (const srcCol of sourceColumns) {
       sourceTables.add(srcCol.sqlite.table);
       assert(rootTable === undefined || srcCol.sqlite.rootTable === rootTable, "multiple root tables");
+      rootTable = srcCol.sqlite.rootTable;
     }
 
     assert(rootTable !== undefined, "there was no root table");
@@ -177,6 +190,8 @@ async function bulkInsertByTable(target: ECDb, {
               ? propTransform(sourceColumnQualifier)
               : c.ec.type === PropertyType.Navigation
               ? remapSql(sourceColumnQualifier, c.ec.rootType === "codespec" ? "codespec" : "element")
+              : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
+              ? remapSql(sourceColumnQualifier, "element")
               // HACK
               : c.ec.accessString.endsWith(".RelECClassId")
               ? `(
