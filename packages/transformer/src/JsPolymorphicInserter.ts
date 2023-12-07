@@ -66,25 +66,33 @@ const statementCachePath = path.join(__dirname, ".transformer_statement_cache.js
  */
 const statementCache = new Map<string, Map<string, CachedClassStatements>>();
 
-async function getClassDatas(source: IModelDb) {
-  const schemaNamesReader = source.createQueryReader(`
-    SELECT Name, VersionMajor, VersionWrite, VersionMinor
-    FROM ECDbMeta.ECSchemaDef
+interface ClassData {
+  /** `SchemaName@schemaVersion` */
+  schemaKey: string;
+  properties: PropInfo[];
+  rootType: "element" | "aspect" | "codespec" | "relationship";
+}
+
+async function getClassDatas(source: IModelDb, target: ECDb) {
+  const classRemapsReader = target.createQueryReader(`
+    SELECT
+      epp.AccessString, eCol.Id, eCol.Name as ColumnName, et.Name as TableName, eCls.Name as ClassName, es.Name as SchemaName
+    FROM ec_PropertyMap epm
+    JOIN ec_Column eCol ON eCol.Id=epm.ColumnId
+    JOIN ec_PropertyPath epp ON epp.Id=epm.PropertyPathId
+    JOIN ec_Class eCls ON eCls.Id=epm.ClassId
+    JOIN ec_Table et ON et.Id=eCol.TableId
+    JOIN ec_Schema es ON es.Id=eCls.SchemaId
+    WHERE NOT eCol.IsVirtual
+      GROUP BY eCol.Id
   `);
 
   const schemas: { name: string, version: string }[] = [];
-  while (await schemaNamesReader.step()) {
+  while (await classRemapsReader.step()) {
     schemas.push({
       name: schemaNamesReader.current[0],
       version: `${schemaNamesReader.current[1]}.${schemaNamesReader.current[2]}.${schemaNamesReader.current[3]}`,
     });
-  }
-
-  interface ClassData {
-    /** `SchemaName@schemaVersion` */
-    schemaKey: string;
-    properties: PropInfo[];
-    rootType: "element" | "aspect" | "codespec" | "relationship";
   }
 
   const schemaLoader = new SchemaLoader((name: string) => source.getSchemaProps(name));
@@ -211,14 +219,17 @@ function _createTransformFunction(
 async function bulkInsertTransform(
   source: IModelDb,
   target: ECDb,
-  transformType: "process-all" | "process-changes" = "process-all",
-  propertyTransforms: {
-    [propertyName: string]: (s: string) => string;
+  {
+    propertyTransforms = {},
+  }: {
+    propertyTransforms?: {
+      [propertyName: string]: (s: string) => string;
+    };
   } = {},
 ): Promise<void> {
   assert(transformType === "process-all", "only transform 'process-all' supported for now");
 
-  const classDatas = await getClassDatas(source);
+  const classDatas = await getClassDatas(source, target);
 
   const classInserters = new Map<string, {
     schemaName: string;
