@@ -10,7 +10,7 @@ interface SourceColumnInfo {
   sqlite: {
     name: string;
     table: string;
-    rootTable: string;
+    sisterTables: string[];
   };
   ec: {
     type: PropertyType;
@@ -45,8 +45,8 @@ async function bulkInsertByTable(target: ECDb, {
   };
 } = {}): Promise<void> {
 
-  /** key is table name in target */
-  const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
+  /** table name -> sourceSqliteTable.sourceSqliteColName -> column info */
+  const targetTableToSourceColumns = new Map<string, Map<string, SourceColumnInfo>>();
 
   const classRemapsSql = `
     WITH RECURSIVE srcRootTable(id, parent, root) AS (
@@ -60,7 +60,7 @@ async function bulkInsertByTable(target: ECDb, {
       JOIN source.ec_Table t ON t.Id=p.parent
     )
 
-    SELECT
+    SELECT DISTINCT
         tepp.AccessString
       , teCol.Name AS TargetColumnName
       , tet.Name AS TargetTableName
@@ -81,6 +81,7 @@ async function bulkInsertByTable(target: ECDb, {
           WHEN strt.Name='bis_CodeSpec'
             THEN 'codespec'
           WHEN strt.Name='bis_Element'
+            OR strt.Name='bis_Model'
             THEN 'element'
           ELSE
             'unknown'
@@ -88,6 +89,8 @@ async function bulkInsertByTable(target: ECDb, {
       , seCls.Id AS SourceClassId
       , set_.Name AS SourceTableName
       , strt.Name AS SourceRootTableName
+      -- NOTE: aggregated in js
+      , srcSisT.Name AS SisterTable
     FROM ec_PropertyMap tepm
     JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
     JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
@@ -101,17 +104,22 @@ async function bulkInsertByTable(target: ECDb, {
     JOIN source.ec_Class seCls ON seCls.Name=teCls.Name
     JOIN source.ec_PropertyPath sepp ON sepp.AccessString=tepp.AccessString
     JOIN source.ec_PropertyMap sepm ON sepm.PropertyPathId=sepp.Id
+    JOIN source.ec_Property sep ON sep.Id=sepp.RootPropertyId
+                                AND sep.ClassId=seCls.id
     JOIN source.ec_Column seCol ON seCol.Id=sepm.ColumnId
     JOIN source.ec_Table set_ ON set_.Id=seCol.TableId
 
+    JOIN source.ec_cache_ClassHasTables seccht ON seccht.ClassId=seCls.Id
+    JOIN source.ec_Table srcSisT ON srcSisT.Id=seccht.TableId
+
+    -- FIXME: can probably remove
     JOIN srcRootTable srt ON srt.root=set_.Id
     JOIN source.ec_Table strt ON strt.Id=srt.root
 
     WHERE NOT teCol.IsVirtual
       AND srt.Parent IS NULL
-
-    -- some columns (e.g. ClassId/ECInstanceId) are duplicated across tables
-    GROUP BY teCol.Id
+      -- ignore metadata
+      AND tes.Name != 'ECDbMeta'
   `;
 
   target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
@@ -127,13 +135,42 @@ async function bulkInsertByTable(target: ECDb, {
       const propertyRootType = stmt.getValue(8).getString(); // FIXME: make this a numeric enum
       const sourceClassId = stmt.getValue(9).getId();
       const sourceTableName = stmt.getValue(10).getString();
-      const sourceRootTableName = stmt.getValue(11).getString();
+      // FIXME: don't calculate this thing, it's expensive
+      //const sourceRootTableName = stmt.getValue(11).getString();
+      const sisterTable = stmt.getValue(12).getString();
 
-      let classData = targetTableToSourceColumns.get(targetTableName);
-      if (classData === undefined) {
-        classData = [];
-        targetTableToSourceColumns.set(targetTableName, classData);
+      let columns = targetTableToSourceColumns.get(targetTableName);
+      if (columns === undefined) {
+        columns = new Map();
+        targetTableToSourceColumns.set(targetTableName, columns);
       }
+
+      const colPath = `${sourceTableName}.${sqliteColumnName}`;
+      let colData = columns.get(colPath);
+
+      if (colData === undefined) {
+        colData = {
+          sqlite: {
+            name: sqliteColumnName,
+            table: sourceTableName,
+            // FIXME: remove from query
+            sisterTables: [],
+          },
+          ec: {
+            type: propertyType,
+            rootType: propertyRootType as any,
+            extendedType: propertyExtendedType,
+            schemaName,
+            className,
+            accessString,
+            sourceClassId,
+            targetClassId,
+          },
+        };
+        columns.set(colPath, colData);
+      }
+
+      colData.sqlite.sisterTables.push(sisterTable);
 
       /*
       // FIXME: handle unknown better
@@ -145,25 +182,6 @@ async function bulkInsertByTable(target: ECDb, {
       );
       */
 
-      const row = {
-        sqlite: {
-          name: sqliteColumnName,
-          table: sourceTableName,
-          rootTable: sourceRootTableName,
-        },
-        ec: {
-          type: propertyType,
-          rootType: propertyRootType as any,
-          extendedType: propertyExtendedType,
-          schemaName,
-          className,
-          accessString,
-          sourceClassId,
-          targetClassId,
-        },
-      };
-
-      classData.push(row);
     }
   });
 
@@ -182,14 +200,16 @@ async function bulkInsertByTable(target: ECDb, {
           },${srcCol.sqlite.rootTable}`
         );
       } catch (err) {
-        console.log("sourceColumns", sourceColumns);
-        throw err;
+        // FIXME: temp ignore
+        //console.log("sourceColumns", sourceColumns);
+        //throw err;
       }
       rootTable = srcCol.sqlite.rootTable;
     }
 
-    assert(rootTable !== undefined, "there was no root table");
-    sourceTables.delete(rootTable);
+    // FIXME
+    //assert(rootTable !== undefined, "there was no root table");
+    //sourceTables.delete(rootTable as any);
 
     const sourceColumnsWithId: SourceColumnInfo[] = [
       {
@@ -200,6 +220,8 @@ async function bulkInsertByTable(target: ECDb, {
         ec: {
           ...sourceColumns[0].ec,
           accessString: "ECInstanceId",
+          type: PropertyType.Long,
+          extendedType: "Id",
         },
       },
       ...sourceColumns,
@@ -232,7 +254,6 @@ async function bulkInsertByTable(target: ECDb, {
                   JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
                   JOIN main.ec_Schema ts ON ts.Name=ss.Name
                   JOIN main.ec_Class tc ON tc.Name=sc.Name
-                  -- FIXME: need to derive the column containing the RelECClassId
                   WHERE sc.Id=${sourceColumnQualifier}
                 )`
               : remapSql(sourceColumnQualifier,
@@ -246,14 +267,19 @@ async function bulkInsertByTable(target: ECDb, {
           })
           .join(",")
       }
-      FROM [${rootTable}]
+      /*
+      FROM ${[...sourceTables]
+        .map((t) => `source.[${t}]`)
+        .join(",")}
+      */
       ${
-        // FIXME: these must be sorted such that the root table is first...
+      /*
         [...sourceTables]
           .map((sourceTable) => `JOIN [${sourceTable}] ON [${sourceTable}].${
             rootTable === "bis_Element" ? "ElementId" : "Id"
           }=[${rootTable}].Id`)
           .join("\n")
+      */""
       }
     `;
 
