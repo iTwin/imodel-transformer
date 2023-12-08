@@ -10,7 +10,6 @@ interface SourceColumnInfo {
   sqlite: {
     name: string;
     table: string;
-    sisterTables: Set<string>;
   };
   ec: {
     type: PropertyType;
@@ -45,10 +44,11 @@ async function bulkInsertByTable(target: ECDb, {
   };
 } = {}): Promise<void> {
 
-  /** table name -> sourceSqliteTable.sourceSqliteColName -> column info */
-  const targetTableToSourceColumns = new Map<string, Map<string, SourceColumnInfo>>();
+  /** table name -> column info */
+  const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
   const classRemapsSql = `
+    -- FIXME: remove
     WITH RECURSIVE srcRootTable(id, parent, root) AS (
       SELECT Id, ParentTableId, Id
       FROM source.ec_Table t
@@ -136,66 +136,69 @@ async function bulkInsertByTable(target: ECDb, {
       const sourceClassId = stmt.getValue(9).getId();
       const sourceTableName = stmt.getValue(10).getString();
       // FIXME: don't calculate this thing, it's expensive
-      //const sourceRootTableName = stmt.getValue(11).getString();
-      const sisterTable = stmt.getValue(12).getString();
+      // const sourceRootTableName = stmt.getValue(11).getString();
 
       let columns = targetTableToSourceColumns.get(targetTableName);
       if (columns === undefined) {
-        columns = new Map();
+        columns = [];
         targetTableToSourceColumns.set(targetTableName, columns);
       }
 
-      const colPath = `${sourceTableName}.${sqliteColumnName}`;
-      let colData = columns.get(colPath);
-
-      if (colData === undefined) {
-        colData = {
-          sqlite: {
-            name: sqliteColumnName,
-            table: sourceTableName,
-            // FIXME: remove from query
-            sisterTables: new Set(),
-          },
-          ec: {
-            type: propertyType,
-            rootType: propertyRootType as any,
-            extendedType: propertyExtendedType,
-            schemaName,
-            className,
-            accessString,
-            sourceClassId,
-            targetClassId,
-          },
-        };
-        columns.set(colPath, colData);
-      }
-
-      colData.sqlite.sisterTables.add(sisterTable);
-
-      /*
-      // FIXME: handle unknown better
-      assert(propertyRootType === "element"
-        || propertyRootType === "aspect"
-        || propertyRootType === "relationship"
-        || propertyRootType === "codespec",
-        `expected a rootType but got '${propertyRootType}'`
-      );
-      */
-
+      columns.push({
+        sqlite: {
+          name: sqliteColumnName,
+          table: sourceTableName,
+        },
+        ec: {
+          type: propertyType,
+          rootType: propertyRootType as any,
+          extendedType: propertyExtendedType,
+          schemaName,
+          className,
+          accessString,
+          sourceClassId,
+          targetClassId,
+        },
+      });
     }
   });
 
   for (const [targetTableName, sourceColumnMap] of targetTableToSourceColumns) {
     const sourceColumns = [...sourceColumnMap.values()];
 
-    const sourceTables = sourceColumns.reduce(
-      (res, c) => (c.sqlite.sisterTables.forEach((t) => res.add(t)), res),
-      new Set<string>()
-    );
+    // FIXME: can this be simplified
+    const classJoinColumnsSql = `
+      SELECT
+        teCol.Name AS ColumnName
+        , tet.Name AS TableName
+      FROM ec_PropertyMap tepm
+      JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
+      JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
+      JOIN ec_Table tet ON tet.Id=teCol.TableId
+      JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
+      JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
+
+      WHERE tepp.AccessString = 'ECInstanceId'
+        AND teCls.Name = ?
+        AND tes.Name = ?
+    `;
+
+    const joins = target.withPreparedSqliteStatement(classJoinColumnsSql, (stmt) => {
+      const result: { colName: string, tableName: string }[] = [];
+
+      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const colName = stmt.getValue(0).getString();
+        const tableName = stmt.getValue(1).getString();
+        result.push({ colName, tableName });
+      }
+
+      return result;
+    });
 
     const sourceColumnsWithId: SourceColumnInfo[] = [
       {
         sqlite: {
+          // FIXME: derive from joins query
           ...sourceColumns[0].sqlite,
           name: "Id",
         },
@@ -209,6 +212,8 @@ async function bulkInsertByTable(target: ECDb, {
       ...sourceColumns,
     ];
 
+    console.log(sourceColumnsWithId);
+
     /* eslint-disable @typescript-eslint/indent */
     const transformSql = `
       INSERT INTO [${targetTableName}](
@@ -219,7 +224,7 @@ async function bulkInsertByTable(target: ECDb, {
           .map((c) => {
             const propQualifier = `${c.ec.schemaName}.${c.ec.className}.${c.ec.accessString}`;
             const propTransform = propertyTransforms[propQualifier];
-            const sourceColumnQualifier = `[${c.sqlite.table}].[${c.sqlite.name}]`;
+            const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
 
             return propTransform
               ? propTransform(sourceColumnQualifier)
@@ -249,19 +254,15 @@ async function bulkInsertByTable(target: ECDb, {
           })
           .join(",")
       }
-      /*
-      FROM ${[sourceTables]
-        .map((t) => `source.[${t}]`)
-        .join(",")}
-      */
+      FROM ${joins[0].tableName}
       ${
-      /*
-        [...sourceTables]
-          .map((sourceTable) => `JOIN [${sourceTable}] ON [${sourceTable}].${
-            rootTable === "bis_Element" ? "ElementId" : "Id"
-          }=[${rootTable}].Id`)
+        joins
+          .slice(1)
+          .map((join) => `
+            JOIN [${join.tableName}]
+              ON [${join.tableName}].[${join.colName}]
+                = [${joins[0].tableName}].[${joins[0].colName}]`)
           .join("\n")
-      */""
       }
     `;
 
