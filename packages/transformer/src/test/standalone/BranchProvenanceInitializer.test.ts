@@ -130,10 +130,9 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
   }
 }
 
-// NOTE: This test has to run last in this suite! It relies on the previous tests to set 4 variables when createFedGuidsForMaster is false.
-// See first line of this test for the necessary variables to be set.
 it(`should have identityTransformation between branchProvenance and classic transformer provenance when createFedGuidsForMaster is false`, async () => {
-    assert(transformerForkDb !== undefined && noTransformerForkDb !== undefined && transformerBranchInitResult !== undefined && noTransformerBranchInitResult !== undefined);
+    assert(transformerForkDb !== undefined && noTransformerForkDb !== undefined && transformerBranchInitResult !== undefined && noTransformerBranchInitResult !== undefined,
+      "This test has to run last in this suite. It relies on the previous tests to set these 4 variables when createFedGuidsForMaster is false.");
     try {
       await assertIdentityTransformation(transformerForkDb, noTransformerForkDb, undefined, {
         allowPropChange(inSourceElem, inTargetElem, propName) {
