@@ -10,7 +10,7 @@ interface SourceColumnInfo {
   sqlite: {
     name: string;
     table: string;
-    sisterTables: string[];
+    sisterTables: Set<string>;
   };
   ec: {
     type: PropertyType;
@@ -154,7 +154,7 @@ async function bulkInsertByTable(target: ECDb, {
             name: sqliteColumnName,
             table: sourceTableName,
             // FIXME: remove from query
-            sisterTables: [],
+            sisterTables: new Set(),
           },
           ec: {
             type: propertyType,
@@ -170,7 +170,7 @@ async function bulkInsertByTable(target: ECDb, {
         columns.set(colPath, colData);
       }
 
-      colData.sqlite.sisterTables.push(sisterTable);
+      colData.sqlite.sisterTables.add(sisterTable);
 
       /*
       // FIXME: handle unknown better
@@ -185,31 +185,13 @@ async function bulkInsertByTable(target: ECDb, {
     }
   });
 
-  for (const [targetTableName, sourceColumns] of targetTableToSourceColumns) {
-    let rootTable: string | undefined;
-    // FIXME: need to join these somehow
-    const sourceTables = new Set<string>();
+  for (const [targetTableName, sourceColumnMap] of targetTableToSourceColumns) {
+    const sourceColumns = [...sourceColumnMap.values()];
 
-    for (const srcCol of sourceColumns) {
-      sourceTables.add(srcCol.sqlite.table);
-      try {
-        assert(
-          rootTable === undefined || srcCol.sqlite.rootTable === rootTable,
-          `multiple root tables for ${srcCol.ec.schemaName}.${srcCol.ec.className}.${srcCol.ec.accessString}: ${
-            rootTable
-          },${srcCol.sqlite.rootTable}`
-        );
-      } catch (err) {
-        // FIXME: temp ignore
-        //console.log("sourceColumns", sourceColumns);
-        //throw err;
-      }
-      rootTable = srcCol.sqlite.rootTable;
-    }
-
-    // FIXME
-    //assert(rootTable !== undefined, "there was no root table");
-    //sourceTables.delete(rootTable as any);
+    const sourceTables = sourceColumns.reduce(
+      (res, c) => (c.sqlite.sisterTables.forEach((t) => res.add(t)), res),
+      new Set<string>()
+    );
 
     const sourceColumnsWithId: SourceColumnInfo[] = [
       {
@@ -268,7 +250,7 @@ async function bulkInsertByTable(target: ECDb, {
           .join(",")
       }
       /*
-      FROM ${[...sourceTables]
+      FROM ${[sourceTables]
         .map((t) => `source.[${t}]`)
         .join(",")}
       */
