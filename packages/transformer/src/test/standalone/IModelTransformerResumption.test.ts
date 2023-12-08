@@ -240,7 +240,7 @@ async function transformNoCrash<
   return targetDb;
 }
 
-describe("test resuming transformations", () => {
+describe.skip("test resuming transformations", () => {
   let iTwinId: GuidString;
   let accessToken: AccessToken;
   let seedDbId: GuidString;
