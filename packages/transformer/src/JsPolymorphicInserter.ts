@@ -176,15 +176,17 @@ async function bulkInsertByTable(target: ECDb, {
       JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
       JOIN ec_Table tet ON tet.Id=teCol.TableId
       JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
-      JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
 
       WHERE tepp.AccessString = 'ECInstanceId'
-        AND teCls.Name = ?
-        AND tes.Name = ?
+        AND teCls.Id = ?
     `;
 
     const joins = target.withPreparedSqliteStatement(classJoinColumnsSql, (stmt) => {
       const result: { colName: string, tableName: string }[] = [];
+
+      // FIXME: this probably won't work because we need to join every possible source table...
+      // probably need to aggregate for all sets in this class
+      stmt.bindId(1, sourceColumnMap[0].ec.targetClassId);
 
       while (stmt.step() === DbResult.BE_SQLITE_ROW) {
         const colName = stmt.getValue(0).getString();
@@ -195,14 +197,20 @@ async function bulkInsertByTable(target: ECDb, {
       return result;
     });
 
+    assert(joins.length > 0, "joins was empty");
+
+    const idCol = joins.find((j) => j.tableName === targetTableName);
+
+    assert(idCol, `couldn't find id column for ${targetTableName}`);
+
     const sourceColumnsWithId: SourceColumnInfo[] = [
       {
         sqlite: {
-          // FIXME: derive from joins query
-          ...sourceColumns[0].sqlite,
-          name: "Id",
+          name: idCol.colName,
+          table: idCol.tableName,
         },
         ec: {
+          // FIXME: inaccurate probably
           ...sourceColumns[0].ec,
           accessString: "ECInstanceId",
           type: PropertyType.Long,
@@ -212,7 +220,7 @@ async function bulkInsertByTable(target: ECDb, {
       ...sourceColumns,
     ];
 
-    console.log(sourceColumnsWithId);
+    // console.log("columns", sourceColumnsWithId);
 
     /* eslint-disable @typescript-eslint/indent */
     const transformSql = `
@@ -254,14 +262,14 @@ async function bulkInsertByTable(target: ECDb, {
           })
           .join(",")
       }
-      FROM ${joins[0].tableName}
+      FROM source.[${joins[0].tableName}]
       ${
         joins
           .slice(1)
           .map((join) => `
-            JOIN [${join.tableName}]
-              ON [${join.tableName}].[${join.colName}]
-                = [${joins[0].tableName}].[${joins[0].colName}]`)
+            JOIN source.[${join.tableName}]
+              ON source.[${join.tableName}].[${join.colName}]
+                = source.[${joins[0].tableName}].[${joins[0].colName}]`)
           .join("\n")
       }
     `;
