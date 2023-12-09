@@ -287,6 +287,10 @@ async function bulkInsertByTable(target: ECDb, {
                 = source.[${joins[0].tableName}].[${joins[0].colName}]`)
           .join("\n")
       }
+      ${/* HACK */ joins.some((j) => j.tableName === "bis_Element")
+        ? `WHERE source.bis_Element.Id NOT IN (0x1, 0xe, 0x10)`
+        : ""
+      }
     `;
 
     const transformSql = `
