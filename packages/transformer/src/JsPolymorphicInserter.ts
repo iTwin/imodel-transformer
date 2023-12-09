@@ -6,7 +6,10 @@ import * as url from "url";
 import { IModelTransformer } from "./IModelTransformer";
 import { CompactRemapTable } from "./CompactRemapTable";
 
+type RootType = "element" | "aspect" | "model" | "codespec" | "relationship";
+
 interface SourceColumnInfo {
+  special: undefined | "ECInstanceId" | "ECClassId";
   sqlite: {
     name: string;
     table: string;
@@ -14,11 +17,11 @@ interface SourceColumnInfo {
   ec: {
     sourceClassId: Id64String;
     targetClassId: Id64String;
-    // maps target class id to source ec data
+    /** maps target class id to source ec info */
     perClassData: Map<Id64String, {
       type: PropertyType;
       extendedType: string | undefined;
-      rootType: "element" | "aspect" | "model" | "codespec" | "relationship";
+      rootType: RootType;
       schemaName: string;
       className: string;
       accessString: string;
@@ -93,8 +96,8 @@ async function bulkInsertByTable(target: ECDb, {
       , teCls.Id AS TargetClassId
       , tes.Name AS SchemaName
       -- FIXME: this probably doesn't work for structs?
-      , tep.PrimitiveType AS PropertyType
-      , tep.ExtendedTypeName AS ExtendedPropertyType
+      , sep.PrimitiveType AS PropertyType
+      , sep.ExtendedTypeName AS ExtendedPropertyType
       , seCls.Id AS SourceClassId
       , set_.Name AS SourceTableName
     FROM ec_PropertyMap tepm
@@ -122,7 +125,7 @@ async function bulkInsertByTable(target: ECDb, {
       AND RootType != 'ede'
 
     -- FIXME: is it possible for two columns in the source to write to 1 in the target?
-    GROUP BY TargetColumnName, TargetTableName, tep.PrimitiveType
+    GROUP BY teCol.Name, TargetTableName, tep.PrimitiveType
   `;
 
   target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
@@ -150,6 +153,7 @@ async function bulkInsertByTable(target: ECDb, {
       let column = columns.get(colKey);
       if (column === undefined) {
         column = {
+          special: undefined,
           sqlite: {
             name: sourceColumnName,
             table: sourceTableName,
@@ -163,7 +167,6 @@ async function bulkInsertByTable(target: ECDb, {
         columns.set(colKey, column);
       }
 
-      const ecClassKey = `${schemaName}.${className}.${accessString}`;
       const thisEcClassData = {
         type: propertyType,
         extendedType: propertyExtendedType,
@@ -172,7 +175,7 @@ async function bulkInsertByTable(target: ECDb, {
         className,
         accessString,
       };
-      column.ec.perClassData.set(ecClassKey, thisEcClassData);
+      column.ec.perClassData.set(targetClassId, thisEcClassData);
     }
   });
 
@@ -199,7 +202,7 @@ async function bulkInsertByTable(target: ECDb, {
 
       // FIXME: this probably won't work because we need to join every possible source table...
       // probably need to aggregate for all sets in this class
-      stmt.bindId(1, sourceColumnMap[0].ec.targetClassId);
+      stmt.bindId(1, sourceColumns[0].ec.targetClassId);
 
       while (stmt.step() === DbResult.BE_SQLITE_ROW) {
         const colName = stmt.getValue(0).getString();
@@ -216,35 +219,32 @@ async function bulkInsertByTable(target: ECDb, {
 
     assert(idCol, `couldn't find id column for ${targetTableName}`);
 
+    // should not be possible to vary root type across possible classes
+    const rootType = sourceColumns[0].ec.perClassData.values().next().value.rootType as RootType;
+
     const sourceColumnsWithId: SourceColumnInfo[] = [
       {
+        special: "ECInstanceId",
         sqlite: {
           name: idCol.colName,
           table: idCol.tableName,
         },
         ec: {
-          // FIXME: inaccurate probably
           ...sourceColumns[0].ec,
-          accessString: "ECInstanceId",
-          type: PropertyType.Long,
-          extendedType: "Id",
+          perClassData: new Map(),
         },
       },
       // FIXME HACK: how to tell if a table needs ECClassId?
-      ...!["codespec", "unknown"].includes(sourceColumns[0].ec.rootType)
+      ...!["codespec", "unknown"].includes(rootType)
         ? [{
+          special: "ECClassId" as const,
           sqlite: {
-            ...sourceColumns[0].sqlite,
-            name: "ECClassId", // always included
+            name: idCol.colName,
             table: idCol.tableName,
           },
           ec: {
-            // FIXME: inaccurate probably
             ...sourceColumns[0].ec,
-            // FIXME: hack, this prevents custom remapping and is obscure!
-            accessString: "__HACK.RelECClassId",
-            type: PropertyType.Long,
-            extendedType: "Id",
+            perClassData: new Map(),
           },
         }] : [],
       ...sourceColumns,
@@ -252,44 +252,59 @@ async function bulkInsertByTable(target: ECDb, {
 
     /* eslint-disable @typescript-eslint/indent */
     const handleColumn = (c: SourceColumnInfo) => {
-      const propQualifier = `${c.ec.schemaName}.${c.ec.className}.${c.ec.accessString}`;
-      const propTransform = propertyTransforms[propQualifier];
-      const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
+      const cases = [...c.ec.perClassData.entries()].map(([classId, ec]) => {
+        const propQualifier = `${ec.schemaName}.${ec.className}.${ec.accessString}`;
+        const propTransform = propertyTransforms[propQualifier];
+        const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
 
-      const res = propTransform
-        ? propTransform(sourceColumnQualifier)
-        : c.ec.accessString === "ECInstanceId"
-        ? remapSql(sourceColumnQualifier,
-            c.ec.rootType === "aspect" || c.ec.rootType === "relationship"
-            ? "nonElemEntity"
-            : c.ec.rootType === "model"
-            ? "element"
-            : c.ec.rootType)
-        : c.ec.accessString.endsWith(".RelECClassId")
-        ? `(
-            -- FIXME: create a TEMP class remap cache!
-            SELECT tc.Id
-            FROM source.ec_Class sc
-            JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-            JOIN main.ec_Schema ts ON ts.Name=ss.Name
-            JOIN main.ec_Class tc ON tc.Name=sc.Name
-            WHERE sc.Id=${sourceColumnQualifier}
-          )`
-        // @ts-ignore HACK: fix nav prop type in query
-        : c.ec.type === PropertyType.Navigation || c.ec.type === 0
-        // FIXME: use qualified name, correctly determine relationship end root type
-        ? remapSql(sourceColumnQualifier, c.ec.accessString === "CodeSpec.Id" ? "codespec" : "element")
-        // HACK
-        : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
-        // FIXME: support non-element-targeting navProps (using something like ECReferenceTypesCache)
-        ? remapSql(sourceColumnQualifier, "element")
-        : sourceColumnQualifier
-      ;
+        const condition = `ECClassId = ${classId}`;
 
-      return res;
+        const consequent = propTransform
+          ? propTransform(sourceColumnQualifier)
+          : c.special === "ECInstanceId"
+          ? remapSql(sourceColumnQualifier,
+              ec.rootType === "aspect" || ec.rootType === "relationship"
+              ? "nonElemEntity"
+              : ec.rootType === "model"
+              ? "element"
+              : ec.rootType)
+          : ec.accessString.endsWith(".RelECClassId") || c.special === "ECClassId"
+          ? `(
+              -- FIXME: create a TEMP class remap cache!
+              SELECT tc.Id
+              FROM source.ec_Class sc
+              JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
+              JOIN main.ec_Schema ts ON ts.Name=ss.Name
+              JOIN main.ec_Class tc ON tc.Name=sc.Name
+              WHERE sc.Id=${sourceColumnQualifier}
+            )`
+          // @ts-ignore HACK: fix nav prop type in query, for now assuming null is navprop which is probably wrong for arrays
+          : ec.type === PropertyType.Navigation || ec.type === 0
+          // FIXME: use qualified name, correctly determine relationship end root type
+          ? remapSql(sourceColumnQualifier, ec.accessString === "CodeSpec.Id" ? "codespec" : "element")
+          // HACK
+          : ec.type === PropertyType.Long && ec.extendedType === "Id"
+          // FIXME: support non-element-targeting navProps (using something like ECReferenceTypesCache)
+          ? remapSql(sourceColumnQualifier, "element")
+          : sourceColumnQualifier
+        ;
+
+        return { condition, consequent };
+      });
+
+      return `
+        CASE
+          ${cases
+              .map((case_) => `
+                WHEN ${case_.condition}
+                  THEN ${case_.consequent}`.trim()
+              )
+              .join("\n  ")
+          }
+          ELSE RAISE (ABORT, 'ECClassId was not valid')
+        END
+      `.trim();
     };
-
-    const rootType = sourceColumns[0].ec.rootType;
 
     const transformSql = `
       INSERT INTO [${targetTableName}](
