@@ -10,6 +10,7 @@ interface SourceColumnInfo {
   sqlite: {
     name: string;
     table: string;
+    rootTable: string;
   };
   ec: {
     type: PropertyType;
@@ -47,10 +48,17 @@ async function bulkInsertByTable(target: ECDb, {
   const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
   const classRemapsSql = `
+    WITH RECURSIVE parentTable(tableName, Id, ParentId, ExclusiveRootClassId) AS (
+      SELECT t.Name, Id, ParentTableId, ExclusiveRootClassId FROM ec_Table t
+      UNION ALL
+      SELECT p.tableName, t.Id, ParentTableId, t.ExclusiveRootClassId FROM ec_Table t JOIN parentTable p ON t.Id=ParentId
+    )
+
     SELECT DISTINCT
         tepp.AccessString
       , teCol.Name AS TargetColumnName
       , tet.Name AS TargetTableName
+      , p.tableName AS RootTableName
       , teCls.Name AS ClassName
       , teCls.Id AS TargetClassId
       , tes.Name AS SchemaName
@@ -69,6 +77,8 @@ async function bulkInsertByTable(target: ECDb, {
     JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
 
+    JOIN parentTable p ON p.ExclusiveRootClassId=teCls.Id
+
     JOIN source.ec_Schema ses ON ses.Name=tes.Name
     JOIN source.ec_Class seCls ON seCls.Name=teCls.Name
     JOIN source.ec_PropertyPath sepp ON sepp.AccessString=tepp.AccessString
@@ -78,12 +88,12 @@ async function bulkInsertByTable(target: ECDb, {
     JOIN source.ec_Column seCol ON seCol.Id=sepm.ColumnId
     JOIN source.ec_Table set_ ON set_.Id=seCol.TableId
 
-    JOIN source.ec_cache_ClassHasTables seccht ON seccht.ClassId=seCls.Id
-    JOIN source.ec_Table srcSisT ON srcSisT.Id=seccht.TableId
-
     WHERE NOT teCol.IsVirtual
       -- only transform bis data (for now)
       AND tet.Name like 'bis_%'
+
+    -- FIXME: is it possible for two columns in the source to write to 1 in the target?
+    GROUP BY TargetColumnName, TargetTableName
   `;
 
   target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
@@ -91,13 +101,14 @@ async function bulkInsertByTable(target: ECDb, {
       const accessString = stmt.getValue(0).getString();
       const sqliteColumnName = stmt.getValue(1).getString();
       const targetTableName = stmt.getValue(2).getString();
-      const className = stmt.getValue(3).getString();
-      const targetClassId = stmt.getValue(4).getId();
-      const schemaName = stmt.getValue(5).getString();
-      const propertyType = stmt.getValue(6).getInteger();
-      const propertyExtendedType = stmt.getValue(7).getString();
-      const sourceClassId = stmt.getValue(8).getId();
-      const sourceTableName = stmt.getValue(9).getString();
+      const rootTableName = stmt.getValue(3).getString();
+      const className = stmt.getValue(4).getString();
+      const targetClassId = stmt.getValue(5).getId();
+      const schemaName = stmt.getValue(6).getString();
+      const propertyType = stmt.getValue(7).getInteger();
+      const propertyExtendedType = stmt.getValue(8).getString();
+      const sourceClassId = stmt.getValue(9).getId();
+      const sourceTableName = stmt.getValue(10).getString();
       // FIXME: don't calculate this thing, it's expensive
       // const sourceRootTableName = stmt.getValue(11).getString();
 
@@ -111,6 +122,7 @@ async function bulkInsertByTable(target: ECDb, {
         sqlite: {
           name: sqliteColumnName,
           table: sourceTableName,
+          rootTable: rootTableName,
         },
         ec: {
           type: propertyType,
@@ -170,6 +182,7 @@ async function bulkInsertByTable(target: ECDb, {
         sqlite: {
           name: idCol.colName,
           table: idCol.tableName,
+          rootTable: idCol.tableName, // FIXME: wrong
         },
         ec: {
           // FIXME: inaccurate probably
@@ -180,16 +193,17 @@ async function bulkInsertByTable(target: ECDb, {
         },
       },
       // FIXME HACK: how to tell if a table needs ECClassId?
-      ...!["bis_CodeSpec", "bis_ModelSelectorRefersToModels"].includes(sourceColumns[0].sqlite.table)
+      ...!["bis_CodeSpec", "bis_ModelSelectorRefersToModels"].includes(sourceColumns[0].sqlite.rootTable)
         ? [{
           sqlite: {
             name: "ECClassId", // always included
             table: idCol.tableName,
+            rootTable: idCol.tableName, // FIXME: wrong
           },
           ec: {
             // FIXME: inaccurate probably
             ...sourceColumns[0].ec,
-            // FIXME: hack, this prevents custom remapping!
+            // FIXME: hack, this prevents custom remapping and is obscure!
             accessString: "__HACK.RelECClassId",
             type: PropertyType.Long,
             extendedType: "Id",
@@ -228,6 +242,10 @@ async function bulkInsertByTable(target: ECDb, {
       ;
     };
 
+    const rootTable = sourceColumns[0].sqlite.rootTable;
+
+    console.log("rootTable:", rootTable);
+
     const transformSql = `
       INSERT INTO [${targetTableName}](
         ${sourceColumnsWithId.map((c) => c.sqlite.name).join(",\n  ")}
@@ -248,24 +266,16 @@ async function bulkInsertByTable(target: ECDb, {
           .join("\n")
       }
       WHERE true -- required to do INSERT INTO ... SELECT ... ON CONFLICT
-      ${targetTableName === "bis_CodeSpec"
+      ${rootTable === "bis_CodeSpec"
         ? `ON CONFLICT([main].[bis_CodeSpec].[Name]) DO NOTHING`
         : ""}
-      ${targetTableName === "bis_Element"
+      ${rootTable === "bis_Element"
         ? `ON CONFLICT([main].[bis_Element].[Id]) DO NOTHING`
         : ""}
-      ${targetTableName === "bis_Model"
+      ${rootTable === "bis_Model"
         ? `ON CONFLICT([main].[bis_Model].[Id]) DO NOTHING`
         : ""}
     `;
-
-    console.log(`table data...`);
-    /*
-    require("fs").writeFileSync(
-      "/tmp/data.json",
-      JSON.stringify(target.withPreparedSqliteStatement(transformSql.slice(transformSql.indexOf("SELECT")), s=>[...s]))
-    );
-    */
 
     const timer = new StopWatch();
     timer.start();
