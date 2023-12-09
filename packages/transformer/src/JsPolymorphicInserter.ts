@@ -12,16 +12,17 @@ interface SourceColumnInfo {
     table: string;
   };
   ec: {
-    type: PropertyType;
-    extendedType: string | undefined;
-    rootType: "element" | "aspect" | "model" | "codespec" | "relationship";
-    schemaName: string;
-    className: string;
-    accessString: string;
-    // FIXME: not used
     sourceClassId: Id64String;
-    // FIXME: not used
     targetClassId: Id64String;
+    // maps target class id to source ec data
+    perClassData: Map<Id64String, {
+      type: PropertyType;
+      extendedType: string | undefined;
+      rootType: "element" | "aspect" | "model" | "codespec" | "relationship";
+      schemaName: string;
+      className: string;
+      accessString: string;
+    }>;
   };
 }
 
@@ -44,8 +45,8 @@ async function bulkInsertByTable(target: ECDb, {
   };
 } = {}): Promise<void> {
 
-  /** table name -> column info */
-  const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
+  /** tableName -> colName -> column info */
+  const targetColToSourceCols = new Map<string, Map<string, SourceColumnInfo>>();
 
   const classRemapsSql = `
     WITH
@@ -68,7 +69,7 @@ async function bulkInsertByTable(target: ECDb, {
       SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='CodeSpec'
     )
 
-    SELECT DISTINCT
+    SELECT
         tepp.AccessString
       , seCol.Name AS SourceColumnName
       , tet.Name AS TargetTableName
@@ -121,7 +122,7 @@ async function bulkInsertByTable(target: ECDb, {
       AND RootType != 'ede'
 
     -- FIXME: is it possible for two columns in the source to write to 1 in the target?
-    GROUP BY TargetColumnName, TargetTableName
+    GROUP BY TargetColumnName, TargetTableName, tep.PrimitiveType
   `;
 
   target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
@@ -138,32 +139,44 @@ async function bulkInsertByTable(target: ECDb, {
       const sourceClassId = stmt.getValue(9).getId();
       const sourceTableName = stmt.getValue(10).getString();
 
-      let columns = targetTableToSourceColumns.get(targetTableName);
+      let columns = targetColToSourceCols.get(targetTableName);
       if (columns === undefined) {
-        columns = [];
-        targetTableToSourceColumns.set(targetTableName, columns);
+        columns = new Map();
+        targetColToSourceCols.set(targetTableName, columns);
       }
 
-      columns.push({
-        sqlite: {
-          name: sourceColumnName,
-          table: sourceTableName,
-        },
-        ec: {
-          type: propertyType,
-          extendedType: propertyExtendedType,
-          rootType: rootType as any, // FIXME: handle unknown
-          schemaName,
-          className,
-          accessString,
-          sourceClassId,
-          targetClassId,
-        },
-      });
+      const colKey = sourceColumnName;
+
+      let column = columns.get(colKey);
+      if (column === undefined) {
+        column = {
+          sqlite: {
+            name: sourceColumnName,
+            table: sourceTableName,
+          },
+          ec: {
+            sourceClassId,
+            targetClassId,
+            perClassData: new Map(),
+          },
+        };
+        columns.set(colKey, column);
+      }
+
+      const ecClassKey = `${schemaName}.${className}.${accessString}`;
+      const thisEcClassData = {
+        type: propertyType,
+        extendedType: propertyExtendedType,
+        rootType: rootType as any, // FIXME: handle unknown
+        schemaName,
+        className,
+        accessString,
+      };
+      column.ec.perClassData.set(ecClassKey, thisEcClassData);
     }
   });
 
-  for (const [targetTableName, sourceColumnMap] of targetTableToSourceColumns) {
+  for (const [targetTableName, sourceColumnMap] of targetColToSourceCols) {
     const sourceColumns = [...sourceColumnMap.values()];
 
     // FIXME: can this be simplified
