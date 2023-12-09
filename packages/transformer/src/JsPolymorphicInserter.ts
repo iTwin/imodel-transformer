@@ -118,8 +118,8 @@ async function bulkInsertByTable(target: ECDb, {
 
     WHERE NOT teCol.IsVirtual
       AND srt.Parent IS NULL
-      -- ignore metadata
-      AND tes.Name != 'ECDbMeta'
+      -- only transform bis data (for now)
+      AND tet.Name like 'bis_%'
   `;
 
   target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
@@ -217,15 +217,31 @@ async function bulkInsertByTable(target: ECDb, {
           extendedType: "Id",
         },
       },
+      {
+        sqlite: {
+          name: "ECClassId", // always included
+          table: idCol.tableName,
+        },
+        ec: {
+          // FIXME: inaccurate probably
+          ...sourceColumns[0].ec,
+          // FIXME: hack, this prevents custom remapping!
+          accessString: "__HACK.RelECClassId",
+          type: PropertyType.Long,
+          extendedType: "Id",
+        },
+      },
       ...sourceColumns,
     ];
+
+    console.log(sourceColumns)
 
     // console.log("columns", sourceColumnsWithId);
 
     /* eslint-disable @typescript-eslint/indent */
     const transformSql = `
       INSERT INTO [${targetTableName}](
-        ${sourceColumnsWithId.map((c) => c.sqlite.name).join(",")}
+        ${sourceColumnsWithId.map((c) => c.sqlite.name).join(",\n  ")}
       )
       SELECT ${
         sourceColumnsWithId
@@ -236,10 +252,10 @@ async function bulkInsertByTable(target: ECDb, {
 
             return propTransform
               ? propTransform(sourceColumnQualifier)
-              : c.ec.type === PropertyType.Navigation
-              ? remapSql(sourceColumnQualifier, c.ec.rootType === "codespec" ? "codespec" : "element")
-              : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
-              ? remapSql(sourceColumnQualifier, "element")
+              // @ts-ignore HACK: fix nav prop type in query
+              : c.ec.type === PropertyType.Navigation || c.ec.type === 0
+              // FIXME: use qualified name, correctly determine relationship end root type
+              ? remapSql(sourceColumnQualifier, c.ec.accessString === "CodeSpec.Id" ? "codespec" : "element")
               // HACK
               : c.ec.accessString.endsWith(".RelECClassId")
               ? `(
@@ -251,16 +267,18 @@ async function bulkInsertByTable(target: ECDb, {
                   JOIN main.ec_Class tc ON tc.Name=sc.Name
                   WHERE sc.Id=${sourceColumnQualifier}
                 )`
-              : remapSql(sourceColumnQualifier,
+              : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
+              ? remapSql(sourceColumnQualifier,
                 c.ec.accessString === "ECInstanceId"
                 ? c.ec.rootType === "element"
                   ? "element"
                   : "nonElemEntity"
                 // FIXME: support non-element-targeting navProps (using ECReferenceTypesCache)
                 : "element")
+              : sourceColumnQualifier
             ;
           })
-          .join(",")
+          .join(",\n  ")
       }
       FROM source.[${joins[0].tableName}]
       ${
@@ -274,12 +292,23 @@ async function bulkInsertByTable(target: ECDb, {
       }
     `;
 
+    console.log(`table data...`);
+    require("fs").writeFileSync(
+      "/tmp/data.json",
+      JSON.stringify(target.withPreparedSqliteStatement(transformSql.slice(transformSql.indexOf("SELECT")), s=>[...s]))
+    );
+
     const timer = new StopWatch();
     timer.start();
     console.log(`filling table ${targetTableName}...`);
 
     target.withPreparedSqliteStatement(transformSql, (targetStmt) => {
-      assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
+      try {
+        assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
+      } catch (err) {
+        console.log("SQL >>>>>>>>>>>>>>>>>>>>>", transformSql);
+        throw err;
+      }
     });
 
     console.log(`done after ${timer.elapsedSeconds}s`);
