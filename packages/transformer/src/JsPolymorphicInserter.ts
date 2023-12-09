@@ -13,7 +13,6 @@ interface SourceColumnInfo {
   };
   ec: {
     type: PropertyType;
-    rootType: "element" | "aspect" | "relationship" | "codespec";
     extendedType: string | undefined;
     schemaName: string;
     className: string;
@@ -48,18 +47,6 @@ async function bulkInsertByTable(target: ECDb, {
   const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
   const classRemapsSql = `
-    -- FIXME: remove
-    WITH RECURSIVE srcRootTable(id, parent, root) AS (
-      SELECT Id, ParentTableId, Id
-      FROM source.ec_Table t
-
-      UNION ALL
-
-      SELECT t.Id, t.ParentTableId, p.root
-      FROM srcRootTable p
-      JOIN source.ec_Table t ON t.Id=p.parent
-    )
-
     SELECT DISTINCT
         tepp.AccessString
       , teCol.Name AS TargetColumnName
@@ -71,26 +58,8 @@ async function bulkInsertByTable(target: ECDb, {
       , tep.PrimitiveType AS PropertyType
       , tep.ExtendedTypeName AS ExtendedPropertyType
       -- FIXME: use better, idiomatic root class check (see native extractChangeSets)
-      , CASE
-          WHEN strt.Name='bis_ElementMultiAspect'
-            OR strt.Name='bis_ElementUniqueAspect'
-            THEN 'aspect'
-          WHEN strt.Name='bis_ElementRefersToElements'
-            OR strt.Name='bis_ElementDrivesElements'
-            THEN 'relationship'
-          WHEN strt.Name='bis_CodeSpec'
-            THEN 'codespec'
-          WHEN strt.Name='bis_Element'
-            OR strt.Name='bis_Model'
-            THEN 'element'
-          ELSE
-            'unknown'
-        END AS EntityType
       , seCls.Id AS SourceClassId
       , set_.Name AS SourceTableName
-      , strt.Name AS SourceRootTableName
-      -- NOTE: aggregated in js
-      , srcSisT.Name AS SisterTable
     FROM ec_PropertyMap tepm
     JOIN ec_Column teCol ON teCol.Id=tepm.ColumnId
     JOIN ec_PropertyPath tepp ON tepp.Id=tepm.PropertyPathId
@@ -112,12 +81,7 @@ async function bulkInsertByTable(target: ECDb, {
     JOIN source.ec_cache_ClassHasTables seccht ON seccht.ClassId=seCls.Id
     JOIN source.ec_Table srcSisT ON srcSisT.Id=seccht.TableId
 
-    -- FIXME: can probably remove
-    JOIN srcRootTable srt ON srt.root=set_.Id
-    JOIN source.ec_Table strt ON strt.Id=srt.root
-
     WHERE NOT teCol.IsVirtual
-      AND srt.Parent IS NULL
       -- only transform bis data (for now)
       AND tet.Name like 'bis_%'
   `;
@@ -132,9 +96,8 @@ async function bulkInsertByTable(target: ECDb, {
       const schemaName = stmt.getValue(5).getString();
       const propertyType = stmt.getValue(6).getInteger();
       const propertyExtendedType = stmt.getValue(7).getString();
-      const propertyRootType = stmt.getValue(8).getString(); // FIXME: make this a numeric enum
-      const sourceClassId = stmt.getValue(9).getId();
-      const sourceTableName = stmt.getValue(10).getString();
+      const sourceClassId = stmt.getValue(8).getId();
+      const sourceTableName = stmt.getValue(9).getString();
       // FIXME: don't calculate this thing, it's expensive
       // const sourceRootTableName = stmt.getValue(11).getString();
 
@@ -151,7 +114,6 @@ async function bulkInsertByTable(target: ECDb, {
         },
         ec: {
           type: propertyType,
-          rootType: propertyRootType as any,
           extendedType: propertyExtendedType,
           schemaName,
           className,
@@ -260,13 +222,8 @@ async function bulkInsertByTable(target: ECDb, {
             WHERE sc.Id=${sourceColumnQualifier}
           )`
         : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
-        ? remapSql(sourceColumnQualifier,
-          c.ec.accessString === "ECInstanceId"
-          ? c.ec.rootType === "element"
-            ? "element"
-            : "nonElemEntity"
-          // FIXME: support non-element-targeting navProps (using ECReferenceTypesCache)
-          : "element")
+        // FIXME: support non-element-targeting navProps (using something like ECReferenceTypesCache)
+        ? remapSql(sourceColumnQualifier, "element")
         : sourceColumnQualifier
       ;
     };
@@ -290,14 +247,16 @@ async function bulkInsertByTable(target: ECDb, {
                 = source.[${joins[0].tableName}].[${joins[0].colName}]`)
           .join("\n")
       }
-      ${
-        // HACK/FIXME: can be replaced with an on conflict handler probably
-        joins.some((j) => j.tableName === "bis_Element")
-        ? `WHERE source.bis_Element.Id NOT IN (0x1, 0xe, 0x10)`
-        : joins.some((j) => j.tableName === "bis_Model")
-        ? `WHERE source.bis_Model.Id NOT IN (0x1, 0xe, 0x10)`
-        : ""
-      }
+      WHERE true -- required to do INSERT INTO ... SELECT ... ON CONFLICT
+      ${targetTableName === "bis_CodeSpec"
+        ? `ON CONFLICT([main].[bis_CodeSpec].[Name]) DO NOTHING`
+        : ""}
+      ${targetTableName === "bis_Element"
+        ? `ON CONFLICT([main].[bis_Element].[Id]) DO NOTHING`
+        : ""}
+      ${targetTableName === "bis_Model"
+        ? `ON CONFLICT([main].[bis_Model].[Id]) DO NOTHING`
+        : ""}
     `;
 
     console.log(`table data...`);
