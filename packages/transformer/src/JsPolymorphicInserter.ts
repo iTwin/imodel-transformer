@@ -236,8 +236,6 @@ async function bulkInsertByTable(target: ECDb, {
       ...sourceColumns,
     ];
 
-    console.log(sourceColumns);
-
     /* eslint-disable @typescript-eslint/indent */
     const handleColumn = (c: SourceColumnInfo) => {
       const propQualifier = `${c.ec.schemaName}.${c.ec.className}.${c.ec.accessString}`;
@@ -273,26 +271,6 @@ async function bulkInsertByTable(target: ECDb, {
       ;
     };
 
-    const selectStepSql = `
-      SELECT 
-        ${sourceColumnsWithId[0].sqlite.name} AS id,
-        (${handleColumn(sourceColumnsWithId[0])}) AS remap
-      FROM source.[${joins[0].tableName}]
-      ${
-        joins
-          .slice(1)
-          .map((join) => `
-            JOIN source.[${join.tableName}]
-              ON source.[${join.tableName}].[${join.colName}]
-                = source.[${joins[0].tableName}].[${joins[0].colName}]`)
-          .join("\n")
-      }
-      ${/* HACK */ joins.some((j) => j.tableName === "bis_Element")
-        ? `WHERE source.bis_Element.Id NOT IN (0x1, 0xe, 0x10)`
-        : ""
-      }
-    `;
-
     const transformSql = `
       INSERT INTO [${targetTableName}](
         ${sourceColumnsWithId.map((c) => c.sqlite.name).join(",\n  ")}
@@ -312,37 +290,28 @@ async function bulkInsertByTable(target: ECDb, {
                 = source.[${joins[0].tableName}].[${joins[0].colName}]`)
           .join("\n")
       }
-      -- FIXME: remove
-      WHERE source.[${joins[0].tableName}].[${joins[0].colName}]=?
+      ${
+        // HACK/FIXME: can be replaced with an on conflict handler probably
+        joins.some((j) => j.tableName === "bis_Element")
+        ? `WHERE source.bis_Element.Id NOT IN (0x1, 0xe, 0x10)`
+        : joins.some((j) => j.tableName === "bis_Model")
+        ? `WHERE source.bis_Model.Id NOT IN (0x1, 0xe, 0x10)`
+        : ""
+      }
     `;
 
     console.log(`table data...`);
+    /*
     require("fs").writeFileSync(
       "/tmp/data.json",
       JSON.stringify(target.withPreparedSqliteStatement(transformSql.slice(transformSql.indexOf("SELECT")), s=>[...s]))
     );
+    */
 
     const timer = new StopWatch();
     timer.start();
     console.log(`filling table ${targetTableName}...`);
 
-    const remaps = target.withPreparedSqliteStatement(selectStepSql, (s) => [...s]);
-    console.log("gathered remaps...", remaps.length, remaps[0]);
-
-    for (const remap of remaps) {
-      target.withPreparedSqliteStatement(transformSql, (stmt) => {
-        try {
-          console.log("selecting", JSON.stringify(remap));
-          stmt.bindInteger(1, remap.id)
-          assert(stmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
-        } catch (err) {
-          console.log("SQL >>>>>>>>>>>>>>>>>>>>>", transformSql);
-          throw err;
-        }
-      });
-    }
-
-    /*
     target.withPreparedSqliteStatement(transformSql, (targetStmt) => {
       try {
         assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
@@ -351,7 +320,6 @@ async function bulkInsertByTable(target: ECDb, {
         throw err;
       }
     });
-    */
 
     console.log(`done after ${timer.elapsedSeconds}s`);
   }
