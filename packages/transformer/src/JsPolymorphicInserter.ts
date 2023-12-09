@@ -10,11 +10,11 @@ interface SourceColumnInfo {
   sqlite: {
     name: string;
     table: string;
-    rootTable: string;
   };
   ec: {
     type: PropertyType;
     extendedType: string | undefined;
+    rootType: "element" | "aspect" | "model" | "codespec" | "relationship";
     schemaName: string;
     className: string;
     accessString: string;
@@ -48,24 +48,52 @@ async function bulkInsertByTable(target: ECDb, {
   const targetTableToSourceColumns = new Map<string, SourceColumnInfo[]>();
 
   const classRemapsSql = `
-    WITH RECURSIVE parentTable(tableName, Id, ParentId, ExclusiveRootClassId) AS (
-      SELECT t.Name, Id, ParentTableId, ExclusiveRootClassId FROM ec_Table t
-      UNION ALL
-      SELECT p.tableName, t.Id, ParentTableId, t.ExclusiveRootClassId FROM ec_Table t JOIN parentTable p ON t.Id=ParentId
+    WITH
+    BisElementClassId(id) AS (
+      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='Element'
+    ),
+    BisModelClassId(id) AS (
+      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='Model'
+    ),
+    BisElementAspectClassId(id) AS (
+      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementAspect'
+    ),
+    BisElementRefersToElementsClassId(id) AS (
+      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementRefersToElements'
+    ),
+    BisElementDrivesElementClassId(id) AS (
+      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementDrivesElement'
+    ),
+    BisCodeSpecClassId(id) AS (
+      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='CodeSpec'
     )
 
     SELECT DISTINCT
         tepp.AccessString
       , teCol.Name AS TargetColumnName
       , tet.Name AS TargetTableName
-      , p.tableName AS RootTableName
+      , CASE
+          WHEN teCls.Id IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId IN BisElementClassId)
+            THEN 'element'
+          WHEN teCls.Id IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId IN BisModelClassId)
+            THEN 'model'
+          WHEN teCls.Id IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId IN BisElementAspectClassId)
+            THEN 'aspect'
+          WHEN teCls.Id IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId IN BisCodeSpecClassId)
+            THEN 'codespec'
+          WHEN teCls.Id IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId IN BisElementRefersToElementsClassId)
+            THEN 'relationship'
+          WHEN teCls.Id IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId IN BisElementDrivesElementClassId)
+            THEN 'ede'
+          ELSE
+            'unknown'
+        END AS RootType
       , teCls.Name AS ClassName
       , teCls.Id AS TargetClassId
       , tes.Name AS SchemaName
       -- FIXME: this probably doesn't work for structs?
       , tep.PrimitiveType AS PropertyType
       , tep.ExtendedTypeName AS ExtendedPropertyType
-      -- FIXME: use better, idiomatic root class check (see native extractChangeSets)
       , seCls.Id AS SourceClassId
       , set_.Name AS SourceTableName
     FROM ec_PropertyMap tepm
@@ -76,8 +104,6 @@ async function bulkInsertByTable(target: ECDb, {
                         AND tep.ClassId=teCls.id
     JOIN ec_Class teCls ON teCls.Id=tepm.ClassId
     JOIN ec_Schema tes ON tes.Id=teCls.SchemaId
-
-    JOIN parentTable p ON p.ExclusiveRootClassId=teCls.Id
 
     JOIN source.ec_Schema ses ON ses.Name=tes.Name
     JOIN source.ec_Class seCls ON seCls.Name=teCls.Name
@@ -91,6 +117,8 @@ async function bulkInsertByTable(target: ECDb, {
     WHERE NOT teCol.IsVirtual
       -- only transform bis data (for now)
       AND tet.Name like 'bis_%'
+      -- FIXME: to do as much work as current transformer, ignore ElementDrivesElement
+      AND RootType != 'ede'
 
     -- FIXME: is it possible for two columns in the source to write to 1 in the target?
     GROUP BY TargetColumnName, TargetTableName
@@ -101,7 +129,7 @@ async function bulkInsertByTable(target: ECDb, {
       const accessString = stmt.getValue(0).getString();
       const sqliteColumnName = stmt.getValue(1).getString();
       const targetTableName = stmt.getValue(2).getString();
-      const rootTableName = stmt.getValue(3).getString();
+      const rootType = stmt.getValue(3).getString();
       const className = stmt.getValue(4).getString();
       const targetClassId = stmt.getValue(5).getId();
       const schemaName = stmt.getValue(6).getString();
@@ -109,8 +137,6 @@ async function bulkInsertByTable(target: ECDb, {
       const propertyExtendedType = stmt.getValue(8).getString();
       const sourceClassId = stmt.getValue(9).getId();
       const sourceTableName = stmt.getValue(10).getString();
-      // FIXME: don't calculate this thing, it's expensive
-      // const sourceRootTableName = stmt.getValue(11).getString();
 
       let columns = targetTableToSourceColumns.get(targetTableName);
       if (columns === undefined) {
@@ -122,11 +148,11 @@ async function bulkInsertByTable(target: ECDb, {
         sqlite: {
           name: sqliteColumnName,
           table: sourceTableName,
-          rootTable: rootTableName,
         },
         ec: {
           type: propertyType,
           extendedType: propertyExtendedType,
+          rootType: rootType as any, // FIXME: handle unknown
           schemaName,
           className,
           accessString,
@@ -182,7 +208,6 @@ async function bulkInsertByTable(target: ECDb, {
         sqlite: {
           name: idCol.colName,
           table: idCol.tableName,
-          rootTable: idCol.tableName, // FIXME: wrong
         },
         ec: {
           // FIXME: inaccurate probably
@@ -193,12 +218,12 @@ async function bulkInsertByTable(target: ECDb, {
         },
       },
       // FIXME HACK: how to tell if a table needs ECClassId?
-      ...!["bis_CodeSpec", "bis_ModelSelectorRefersToModels"].includes(sourceColumns[0].sqlite.rootTable)
+      ...!["codespec", "unknown"].includes(sourceColumns[0].ec.rootType)
         ? [{
           sqlite: {
+            ...sourceColumns[0].sqlite,
             name: "ECClassId", // always included
             table: idCol.tableName,
-            rootTable: idCol.tableName, // FIXME: wrong
           },
           ec: {
             // FIXME: inaccurate probably
@@ -218,13 +243,15 @@ async function bulkInsertByTable(target: ECDb, {
       const propTransform = propertyTransforms[propQualifier];
       const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
 
-      return propTransform
+      const res = propTransform
         ? propTransform(sourceColumnQualifier)
-        // @ts-ignore HACK: fix nav prop type in query
-        : c.ec.type === PropertyType.Navigation || c.ec.type === 0
-        // FIXME: use qualified name, correctly determine relationship end root type
-        ? remapSql(sourceColumnQualifier, c.ec.accessString === "CodeSpec.Id" ? "codespec" : "element")
-        // HACK
+        : c.ec.accessString === "ECInstanceId"
+        ? remapSql(sourceColumnQualifier,
+            c.ec.rootType === "aspect" || c.ec.rootType === "relationship"
+            ? "nonElemEntity"
+            : c.ec.rootType === "model"
+            ? "element"
+            : c.ec.rootType)
         : c.ec.accessString.endsWith(".RelECClassId")
         ? `(
             -- FIXME: create a TEMP class remap cache!
@@ -235,16 +262,21 @@ async function bulkInsertByTable(target: ECDb, {
             JOIN main.ec_Class tc ON tc.Name=sc.Name
             WHERE sc.Id=${sourceColumnQualifier}
           )`
+        // @ts-ignore HACK: fix nav prop type in query
+        : c.ec.type === PropertyType.Navigation || c.ec.type === 0
+        // FIXME: use qualified name, correctly determine relationship end root type
+        ? remapSql(sourceColumnQualifier, c.ec.accessString === "CodeSpec.Id" ? "codespec" : "element")
+        // HACK
         : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
         // FIXME: support non-element-targeting navProps (using something like ECReferenceTypesCache)
         ? remapSql(sourceColumnQualifier, "element")
         : sourceColumnQualifier
       ;
+
+      return res;
     };
 
-    const rootTable = sourceColumns[0].sqlite.rootTable;
-
-    console.log("rootTable:", rootTable);
+    const rootType = sourceColumns[0].ec.rootType;
 
     const transformSql = `
       INSERT INTO [${targetTableName}](
@@ -265,15 +297,19 @@ async function bulkInsertByTable(target: ECDb, {
                 = source.[${joins[0].tableName}].[${joins[0].colName}]`)
           .join("\n")
       }
-      WHERE true -- required to do INSERT INTO ... SELECT ... ON CONFLICT
-      ${rootTable === "bis_CodeSpec"
+      WHERE true -- required for syntax of INSERT INTO ... SELECT ... ON CONFLICT
+      ${rootType === "codespec"
         ? `ON CONFLICT([main].[bis_CodeSpec].[Name]) DO NOTHING`
         : ""}
-      ${rootTable === "bis_Element"
-        ? `ON CONFLICT([main].[bis_Element].[Id]) DO NOTHING`
+      ${rootType === "element" && targetTableName === "bis_Element"
+        ? `ON CONFLICT([main].[${targetTableName}].[Id]) DO NOTHING`
+        : rootType === "element" && targetTableName !== "bis_Element"
+        ? `ON CONFLICT([main].[${targetTableName}].[ElementId]) DO NOTHING`
         : ""}
-      ${rootTable === "bis_Model"
-        ? `ON CONFLICT([main].[bis_Model].[Id]) DO NOTHING`
+      ${rootType === "model" && targetTableName === "bis_Model"
+        ? `ON CONFLICT([main].[${targetTableName}].[Id]) DO NOTHING`
+        : rootType === "model" && targetTableName !== "bis_Model"
+        ? `ON CONFLICT([main].[${targetTableName}].[ModelId]) DO NOTHING`
         : ""}
     `;
 
