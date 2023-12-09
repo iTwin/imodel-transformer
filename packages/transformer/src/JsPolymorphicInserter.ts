@@ -252,32 +252,43 @@ async function bulkInsertByTable(target: ECDb, {
 
     /* eslint-disable @typescript-eslint/indent */
     const handleColumn = (c: SourceColumnInfo) => {
+      const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
+
+      if (c.special === "ECInstanceId") {
+        return remapSql(
+          sourceColumnQualifier,
+          rootType === "aspect" || rootType === "relationship"
+          ? "nonElemEntity"
+          : rootType === "model"
+          ? "element"
+          : rootType
+        );
+      }
+
+      const classRemapSql = `(
+        -- FIXME: create a TEMP class remap cache!
+        SELECT tc.Id
+        FROM source.ec_Class sc
+        JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
+        JOIN main.ec_Schema ts ON ts.Name=ss.Name
+        JOIN main.ec_Class tc ON tc.Name=sc.Name
+        WHERE sc.Id=${sourceColumnQualifier}
+      )`;
+
+      if (c.special === "ECClassId") {
+        return classRemapSql;
+      }
+
       const cases = [...c.ec.perClassData.entries()].map(([classId, ec]) => {
         const propQualifier = `${ec.schemaName}.${ec.className}.${ec.accessString}`;
         const propTransform = propertyTransforms[propQualifier];
-        const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
 
-        const condition = `ECClassId = ${classId}`;
+        const condition = `ECClassId=${classId}`;
 
         const consequent = propTransform
           ? propTransform(sourceColumnQualifier)
-          : c.special === "ECInstanceId"
-          ? remapSql(sourceColumnQualifier,
-              ec.rootType === "aspect" || ec.rootType === "relationship"
-              ? "nonElemEntity"
-              : ec.rootType === "model"
-              ? "element"
-              : ec.rootType)
-          : ec.accessString.endsWith(".RelECClassId") || c.special === "ECClassId"
-          ? `(
-              -- FIXME: create a TEMP class remap cache!
-              SELECT tc.Id
-              FROM source.ec_Class sc
-              JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-              JOIN main.ec_Schema ts ON ts.Name=ss.Name
-              JOIN main.ec_Class tc ON tc.Name=sc.Name
-              WHERE sc.Id=${sourceColumnQualifier}
-            )`
+          : ec.accessString.endsWith(".RelECClassId")
+          ? classRemapSql
           // @ts-ignore HACK: fix nav prop type in query, for now assuming null is navprop which is probably wrong for arrays
           : ec.type === PropertyType.Navigation || ec.type === 0
           // FIXME: use qualified name, correctly determine relationship end root type
@@ -291,6 +302,12 @@ async function bulkInsertByTable(target: ECDb, {
 
         return { condition, consequent };
       });
+
+      if (cases.length === 0) {
+        console.log(sourceColumns);
+        console.log(c);
+        throw Error("bad case size");
+      }
 
       return `
         CASE
