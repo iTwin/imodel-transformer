@@ -217,69 +217,66 @@ async function bulkInsertByTable(target: ECDb, {
           extendedType: "Id",
         },
       },
-      {
-        sqlite: {
-          name: "ECClassId", // always included
-          table: idCol.tableName,
-        },
-        ec: {
-          // FIXME: inaccurate probably
-          ...sourceColumns[0].ec,
-          // FIXME: hack, this prevents custom remapping!
-          accessString: "__HACK.RelECClassId",
-          type: PropertyType.Long,
-          extendedType: "Id",
-        },
-      },
+      // FIXME HACK: how to tell if a table needs ECClassId?
+      ...!["bis_CodeSpec", "bis_ModelSelectorRefersToModels"].includes(sourceColumns[0].sqlite.table)
+        ? [{
+          sqlite: {
+            name: "ECClassId", // always included
+            table: idCol.tableName,
+          },
+          ec: {
+            // FIXME: inaccurate probably
+            ...sourceColumns[0].ec,
+            // FIXME: hack, this prevents custom remapping!
+            accessString: "__HACK.RelECClassId",
+            type: PropertyType.Long,
+            extendedType: "Id",
+          },
+        }] : [],
       ...sourceColumns,
     ];
 
-    console.log(sourceColumns)
-
-    // console.log("columns", sourceColumnsWithId);
+    console.log(sourceColumns);
 
     /* eslint-disable @typescript-eslint/indent */
-    const transformSql = `
-      INSERT INTO [${targetTableName}](
-        ${sourceColumnsWithId.map((c) => c.sqlite.name).join(",\n  ")}
-      )
-      SELECT ${
-        sourceColumnsWithId
-          .map((c) => {
-            const propQualifier = `${c.ec.schemaName}.${c.ec.className}.${c.ec.accessString}`;
-            const propTransform = propertyTransforms[propQualifier];
-            const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
+    const handleColumn = (c: SourceColumnInfo) => {
+      const propQualifier = `${c.ec.schemaName}.${c.ec.className}.${c.ec.accessString}`;
+      const propTransform = propertyTransforms[propQualifier];
+      const sourceColumnQualifier = `source.[${c.sqlite.table}].[${c.sqlite.name}]`;
 
-            return propTransform
-              ? propTransform(sourceColumnQualifier)
-              // @ts-ignore HACK: fix nav prop type in query
-              : c.ec.type === PropertyType.Navigation || c.ec.type === 0
-              // FIXME: use qualified name, correctly determine relationship end root type
-              ? remapSql(sourceColumnQualifier, c.ec.accessString === "CodeSpec.Id" ? "codespec" : "element")
-              // HACK
-              : c.ec.accessString.endsWith(".RelECClassId")
-              ? `(
-                  -- FIXME: create a TEMP class remap cache!
-                  SELECT tc.Id
-                  FROM source.ec_Class sc
-                  JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
-                  JOIN main.ec_Schema ts ON ts.Name=ss.Name
-                  JOIN main.ec_Class tc ON tc.Name=sc.Name
-                  WHERE sc.Id=${sourceColumnQualifier}
-                )`
-              : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
-              ? remapSql(sourceColumnQualifier,
-                c.ec.accessString === "ECInstanceId"
-                ? c.ec.rootType === "element"
-                  ? "element"
-                  : "nonElemEntity"
-                // FIXME: support non-element-targeting navProps (using ECReferenceTypesCache)
-                : "element")
-              : sourceColumnQualifier
-            ;
-          })
-          .join(",\n  ")
-      }
+      return propTransform
+        ? propTransform(sourceColumnQualifier)
+        // @ts-ignore HACK: fix nav prop type in query
+        : c.ec.type === PropertyType.Navigation || c.ec.type === 0
+        // FIXME: use qualified name, correctly determine relationship end root type
+        ? remapSql(sourceColumnQualifier, c.ec.accessString === "CodeSpec.Id" ? "codespec" : "element")
+        // HACK
+        : c.ec.accessString.endsWith(".RelECClassId")
+        ? `(
+            -- FIXME: create a TEMP class remap cache!
+            SELECT tc.Id
+            FROM source.ec_Class sc
+            JOIN source.ec_Schema ss ON ss.Id=sc.SchemaId
+            JOIN main.ec_Schema ts ON ts.Name=ss.Name
+            JOIN main.ec_Class tc ON tc.Name=sc.Name
+            WHERE sc.Id=${sourceColumnQualifier}
+          )`
+        : c.ec.type === PropertyType.Long && c.ec.extendedType === "Id"
+        ? remapSql(sourceColumnQualifier,
+          c.ec.accessString === "ECInstanceId"
+          ? c.ec.rootType === "element"
+            ? "element"
+            : "nonElemEntity"
+          // FIXME: support non-element-targeting navProps (using ECReferenceTypesCache)
+          : "element")
+        : sourceColumnQualifier
+      ;
+    };
+
+    const selectStepSql = `
+      SELECT 
+        ${sourceColumnsWithId[0].sqlite.name} AS id,
+        (${handleColumn(sourceColumnsWithId[0])}) AS remap
       FROM source.[${joins[0].tableName}]
       ${
         joins
@@ -292,6 +289,29 @@ async function bulkInsertByTable(target: ECDb, {
       }
     `;
 
+    const transformSql = `
+      INSERT INTO [${targetTableName}](
+        ${sourceColumnsWithId.map((c) => c.sqlite.name).join(",\n  ")}
+      )
+      SELECT ${
+        sourceColumnsWithId
+          .map(handleColumn)
+          .join(",\n  ")
+      }
+      FROM source.[${joins[0].tableName}]
+      ${
+        joins
+          .slice(1)
+          .map((join) => `
+            JOIN source.[${join.tableName}]
+              ON source.[${join.tableName}].[${join.colName}]
+                = source.[${joins[0].tableName}].[${joins[0].colName}]`)
+          .join("\n")
+      }
+      -- FIXME: remove
+      WHERE source.[${joins[0].tableName}].[${joins[0].colName}]=?
+    `;
+
     console.log(`table data...`);
     require("fs").writeFileSync(
       "/tmp/data.json",
@@ -302,6 +322,23 @@ async function bulkInsertByTable(target: ECDb, {
     timer.start();
     console.log(`filling table ${targetTableName}...`);
 
+    const remaps = target.withPreparedSqliteStatement(selectStepSql, (s) => [...s]);
+    console.log("gathered remaps...", remaps.length, remaps[0]);
+
+    for (const remap of remaps) {
+      target.withPreparedSqliteStatement(transformSql, (stmt) => {
+        try {
+          console.log("selecting", JSON.stringify(remap));
+          stmt.bindInteger(1, remap.id)
+          assert(stmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
+        } catch (err) {
+          console.log("SQL >>>>>>>>>>>>>>>>>>>>>", transformSql);
+          throw err;
+        }
+      });
+    }
+
+    /*
     target.withPreparedSqliteStatement(transformSql, (targetStmt) => {
       try {
         assert(targetStmt.step() === DbResult.BE_SQLITE_DONE, target.nativeDb.getLastError());
@@ -310,6 +347,7 @@ async function bulkInsertByTable(target: ECDb, {
         throw err;
       }
     });
+    */
 
     console.log(`done after ${timer.elapsedSeconds}s`);
   }
