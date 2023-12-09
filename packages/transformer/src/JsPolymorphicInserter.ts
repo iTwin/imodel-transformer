@@ -70,7 +70,7 @@ async function bulkInsertByTable(target: ECDb, {
 
     SELECT DISTINCT
         tepp.AccessString
-      , teCol.Name AS TargetColumnName
+      , seCol.Name AS SourceColumnName
       , tet.Name AS TargetTableName
       , CASE
           WHEN teCls.Id IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId IN BisElementClassId)
@@ -127,7 +127,7 @@ async function bulkInsertByTable(target: ECDb, {
   target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
     while (stmt.step() === DbResult.BE_SQLITE_ROW) {
       const accessString = stmt.getValue(0).getString();
-      const sqliteColumnName = stmt.getValue(1).getString();
+      const sourceColumnName = stmt.getValue(1).getString();
       const targetTableName = stmt.getValue(2).getString();
       const rootType = stmt.getValue(3).getString();
       const className = stmt.getValue(4).getString();
@@ -146,7 +146,7 @@ async function bulkInsertByTable(target: ECDb, {
 
       columns.push({
         sqlite: {
-          name: sqliteColumnName,
+          name: sourceColumnName,
           table: sourceTableName,
         },
         ec: {
