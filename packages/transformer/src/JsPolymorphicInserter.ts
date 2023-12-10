@@ -17,7 +17,7 @@ interface SourceColumnInfo {
   ec: {
     sourceClassId: Id64String;
     targetClassId: Id64String;
-    /** maps target class id to source ec info */
+    /** maps source class id to source ec info */
     perClassData: Map<Id64String, {
       type: PropertyType;
       extendedType: string | undefined;
@@ -175,7 +175,7 @@ async function bulkInsertByTable(target: ECDb, {
         className,
         accessString,
       };
-      column.ec.perClassData.set(targetClassId, thisEcClassData);
+      column.ec.perClassData.set(sourceClassId, thisEcClassData);
     }
   });
 
@@ -239,7 +239,7 @@ async function bulkInsertByTable(target: ECDb, {
         ? [{
           special: "ECClassId" as const,
           sqlite: {
-            name: idCol.colName,
+            name: "ECClassId", // HACK: is this always the case?
             table: idCol.tableName,
           },
           ec: {
@@ -279,11 +279,14 @@ async function bulkInsertByTable(target: ECDb, {
         return classRemapSql;
       }
 
-      const cases = [...c.ec.perClassData.entries()].map(([classId, ec]) => {
+      const cases = [...c.ec.perClassData.entries()].map(([sourceClassId, ec]) => {
         const propQualifier = `${ec.schemaName}.${ec.className}.${ec.accessString}`;
         const propTransform = propertyTransforms[propQualifier];
 
-        const condition = `ECClassId=${classId}`;
+        const condition = `
+          source.[${c.sqlite.table}].ECClassId
+            IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId=${sourceClassId})
+        `;
 
         const consequent = propTransform
           ? propTransform(sourceColumnQualifier)
@@ -309,6 +312,10 @@ async function bulkInsertByTable(target: ECDb, {
         throw Error("bad case size");
       }
 
+      if (cases.length === 1) {
+        return cases[0].consequent;
+      }
+
       return `
         CASE
           ${cases
@@ -318,7 +325,8 @@ async function bulkInsertByTable(target: ECDb, {
               )
               .join("\n  ")
           }
-          ELSE RAISE (ABORT, 'ECClassId was not valid')
+          -- FIXME: use a custom db function to raise an error
+          ELSE NULL
         END
       `.trim();
     };
