@@ -326,7 +326,7 @@ async function bulkInsertByTable(target: ECDb, {
               .join("\n  ")
           }
           -- FIXME: use a custom db function to raise an error
-          ELSE NULL
+          ELSE -1
         END
       `.trim();
     };
