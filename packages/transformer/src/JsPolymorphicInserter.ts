@@ -53,26 +53,26 @@ async function bulkInsertByTable(target: ECDb, {
 
   const classRemapsSql = `
     WITH
-    BisElementClassId(id) AS (
-      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='Element'
-    ),
-    BisModelClassId(id) AS (
-      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='Model'
-    ),
-    BisElementAspectClassId(id) AS (
-      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementAspect'
-    ),
-    BisElementRefersToElementsClassId(id) AS (
-      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementRefersToElements'
-    ),
-    BisElementDrivesElementClassId(id) AS (
-      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementDrivesElement'
-    ),
-    BisCodeSpecClassId(id) AS (
-      SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='CodeSpec'
-    )
+      BisElementClassId(id) AS (
+        SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='Element'
+      ),
+      BisModelClassId(id) AS (
+        SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='Model'
+      ),
+      BisElementAspectClassId(id) AS (
+        SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementAspect'
+      ),
+      BisElementRefersToElementsClassId(id) AS (
+        SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementRefersToElements'
+      ),
+      BisElementDrivesElementClassId(id) AS (
+        SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='ElementDrivesElement'
+      ),
+      BisCodeSpecClassId(id) AS (
+        SELECT c.Id FROM ec_Class c JOIN ec_Schema s WHERE s.Name='BisCore' AND c.Name='CodeSpec'
+      )
 
-    SELECT
+    SELECT DISTINCT
         tepp.AccessString
       , seCol.Name AS SourceColumnName
       , tet.Name AS TargetTableName
@@ -123,9 +123,6 @@ async function bulkInsertByTable(target: ECDb, {
       AND tet.Name like 'bis_%'
       -- FIXME: to do as much work as current transformer, ignore ElementDrivesElement
       AND RootType != 'ede'
-
-    -- FIXME: is it possible for two columns in the source to write to 1 in the target?
-    GROUP BY teCol.Name, TargetTableName, tep.PrimitiveType
   `;
 
   target.withPreparedSqliteStatement(classRemapsSql, (stmt) => {
@@ -284,11 +281,12 @@ async function bulkInsertByTable(target: ECDb, {
         const propTransform = propertyTransforms[propQualifier];
 
         const condition = `
-          source.[${c.sqlite.table}].ECClassId
-            IN (select ClassId FROM [ec_cache_ClassHierarchy] WHERE BaseClassId=${sourceClassId})
+          source.[${c.sqlite.table}].ECClassId /*subset of ${ec.schemaName}.${ec.className}*/
+            IN (select ClassId FROM source.[ec_cache_ClassHierarchy] WHERE BaseClassId=${sourceClassId} )
         `;
 
-        const consequent = propTransform
+        const consequent = `/* ${propQualifier} */ ` + (
+          propTransform
           ? propTransform(sourceColumnQualifier)
           : ec.accessString.endsWith(".RelECClassId")
           ? classRemapSql
@@ -301,7 +299,7 @@ async function bulkInsertByTable(target: ECDb, {
           // FIXME: support non-element-targeting navProps (using something like ECReferenceTypesCache)
           ? remapSql(sourceColumnQualifier, "element")
           : sourceColumnQualifier
-        ;
+        );
 
         return { condition, consequent };
       });
@@ -312,9 +310,13 @@ async function bulkInsertByTable(target: ECDb, {
         throw Error("bad case size");
       }
 
-      if (cases.length === 1) {
+      if (cases.length === 1)
         return cases[0].consequent;
-      }
+
+      // NOTE: currently includes a hack because the consequent has a non-unique comment
+      const uniqueCaseCount = cases.reduce((prev, cs) => (prev.add(cs.consequent.slice(cs.consequent.indexOf("*/"))), prev), new Set()).size;
+      if (uniqueCaseCount === 1)
+        return cases[0].consequent;
 
       return `
         CASE
