@@ -15,6 +15,7 @@ import {
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
 import {
+  BriefcaseManager,
   ChangedECInstance,
   ChangesetECAdaptor,
   ChangeSummaryManager,
@@ -2826,7 +2827,7 @@ export class IModelTransformer extends IModelExportHandler {
     const csFileProps: ChangesetFileProps[] = [];
     for (const [first, end] of this._changesetRanges) {
       // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
-      const fileProps = await IModelHost.hubAccess.downloadChangesets({iModelId: this.sourceDb.iModelId, targetDir: "", range: {first, end}});
+      const fileProps = await IModelHost.hubAccess.downloadChangesets({iModelId: this.sourceDb.iModelId, targetDir: BriefcaseManager.getChangeSetsPath(this.sourceDb.iModelId), range: {first, end}});
       csFileProps.push(...fileProps);
     }
     this._csFileProps = csFileProps;
