@@ -1973,11 +1973,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
-
-  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
-  private _changeSummaryIds?: Id64String[] = undefined;
   private _sourceChangeDataState: ChangeDataState = "uninited";
-
+  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
   /**
@@ -2163,12 +2160,8 @@ export class IModelTransformer extends IModelExportHandler {
             const aspects: ExternalSourceAspect[] = this.sourceDb.elements.getAspects(id, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
             for (const aspect of aspects) {
               if (aspect.element.id === id && aspect.scope.id === this.targetScopeElementId)
-                // Column 8 is built by looking through changesummaryIds.. I'm guessing I could search for a change where the inst id = to the sourceaspect's id.
-                // and I'd grab the identifier from that if below is undefined I guess...
-                // identifierValue = sourceAspect?.Identifier; // Column 8 --> ?? sourceAspectChange.Identifier;
                 identifierValue = aspect.identifier;
             }
-            // FIXME: I don't really think that I am fully covering everything that the old function was doing. THe column 7 / 8 stuff for example but test was still passing.
             if (identifierValue === undefined) {
               if (mapOfDeletedEsas.get(id) !== undefined)
                 identifierValue = mapOfDeletedEsas.get(id)!.Identifier;
