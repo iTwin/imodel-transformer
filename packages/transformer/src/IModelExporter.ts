@@ -9,9 +9,9 @@
 import {
   BriefcaseDb, BriefcaseManager, ChangedECInstance, ChangesetECAdaptor, DefinitionModel, ECSqlStatement, Element, ElementAspect,
   ElementMultiAspect, ElementRefersToElements, ElementUniqueAspect, GeometricElement, IModelDb,
-  IModelHost, IModelJsNative, Model, PartialECChangeUnifier, RecipeDefinitionElement, Relationship, SqliteChangeOp, SqliteChangesetReader
+  IModelHost, IModelJsNative, Model, PartialECChangeUnifier, RecipeDefinitionElement, Relationship, SqliteChangeOp, SqliteChangesetReader,
 } from "@itwin/core-backend";
-import { AccessToken, assert, CompressedId64Set, DbResult, Id64, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
+import { AccessToken, assert, CompressedId64Set, DbResult, Id64String, IModelStatus, Logger, YieldManager } from "@itwin/core-bentley";
 import { ChangesetFileProps, CodeSpec, FontProps, IModel, IModelError } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
@@ -1101,7 +1101,6 @@ export class ChangedInstanceIds {
       }
       const changes: ChangedECInstance[] = Array.from(ecChangeUnifier.instances);
 
-      const esaMap: Map<string, ChangedECInstance> = new Map<string, ChangedECInstance>();
       for (const change of changes) {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
           continue;

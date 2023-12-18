@@ -25,7 +25,7 @@ import {
   ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
 } from "@itwin/core-common";
 import { Point3d, Range3d, StandardViewIndex, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
+import { IModelExporter, IModelExportHandler, IModelTransformer, IModelTransformOptions, TransformerLoggerCategory } from "../../transformer";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -248,11 +248,11 @@ describe("IModelTransformer", () => {
     assert.equal(numMasterElements, count(branchDb, Element.classFullName));
     assert.equal(numMasterRelationships, count(branchDb, ElementRefersToElements.classFullName));
     const aspectIds = branchDb.withPreparedStatement(`SELECT ECInstanceId FROM ${ExternalSourceAspect.classFullName}`, (statement: ECSqlStatement): string[] => {
-      const aspects = [];
+      const aspcts = [];
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        aspects.push(statement.getValue(0).getString());
+        aspcts.push(statement.getValue(0).getString());
       }
-      return aspects;
+      return aspcts;
     });
     assert(aspectIds.length > 0);
     // const aspect = branchDb.elements.getAspect(aspectIds[0]);
