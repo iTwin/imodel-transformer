@@ -1106,6 +1106,7 @@ export class ChangedInstanceIds {
           continue;
         changedInstanceIds.addChange(change);
       }
+      csReader.close();
    }
    return changedInstanceIds;
   }
