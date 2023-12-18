@@ -270,7 +270,7 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    const hasChangeData = options.csFileProps !== undefined || options.startChangeset || options.changesetRanges || options.changedInstanceIds;
+    const hasChangeData = options.csFileProps || options.startChangeset || options.changesetRanges || options.changedInstanceIds;
     if (this._sourceDbChanges || !this.sourceDb.isBriefcaseDb() || !hasChangeData)
       return;
 
