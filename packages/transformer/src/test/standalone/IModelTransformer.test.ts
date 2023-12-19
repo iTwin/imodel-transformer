@@ -2301,8 +2301,13 @@ describe("IModelTransformer", () => {
       category,
       classFullName: PhysicalObject.classFullName,
     }, sourceDb).insert();
+    for (const elemId of [sourceId, targetId]) {
+      sourceDb.withSqliteStatement(
+        `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+        (s) => { expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE); }
+      );
+    }
     sourceDb.saveChanges();
-
     const rel = ElementGroupsMembers.create(sourceDb, sourceId, targetId);
     const relId = rel.insert();
     // sourceDb.saveChanges();
@@ -2317,6 +2322,17 @@ describe("IModelTransformer", () => {
     targetDb.performCheckpoint();
 
     /*
+     public static initRelationshipProvenanceOptions(
+    sourceRelInstanceId: Id64String,
+    targetRelInstanceId: Id64String,
+    args: {
+      sourceDb: IModelDb;
+      targetDb: IModelDb;
+      isReverseSynchronization: boolean;
+      targetScopeElementId: Id64String;
+      forceOldRelationshipProvenanceMethod: boolean;
+    },
+  ): ExternalSourceAspectProps {
     const provenanceDb = args.isReverseSynchronization ? args.sourceDb : args.targetDb;
     const aspectIdentifier = args.isReverseSynchronization ? targetRelInstanceId : sourceRelInstanceId;
     const provenanceRelInstanceId = args.isReverseSynchronization ? sourceRelInstanceId : targetRelInstanceId;
@@ -2345,26 +2361,30 @@ describe("IModelTransformer", () => {
     };
 
     return aspectProps;
-    */
-
-    // Do some validation on the ESA stored on the relationship??
-    /* const jsonProperties
-      = args.forceOldRelationshipProvenanceMethod
-      ? { targetRelInstanceId }
-      : { provenanceRelInstanceId };*/
+  }*/
     // So maybe just need to make sure that the relationship changes..? I'm sure theres other stuff too.. but whatever for now.
     // targetDb.elements.getAspect();
 
     // Source Element in the relationship is supposed to be where the ESA is stored, but of course I'm getting 0 aspects..
     let sourceIdInTarget = transformer.context.findTargetElementId(sourceId);
-    let aspects = targetDb.elements.getAspects(sourceIdInTarget, ExternalSourceAspect.classFullName);
+    
+    let relIdInTarget = transformer.context.findTargetEntityId(`r${relId}`).slice(1);
+    let aspects: ExternalSourceAspect[] = targetDb.elements.getAspects(sourceIdInTarget, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
+    expect(aspects.length).to.equal(1);
+    expect(aspects[0].identifier).to.equal(relId);
+    expect(JSON.parse(aspects[0].jsonProperties ?? "").targetRelInstanceId).to.equal(relIdInTarget);
+    // expect().to.equal()
+    // Previously the transformer would insert provenance always pointing to the "target" relationship.
+    // * It should (and now by default does) instead insert provenance pointing to the provenanceSource
+    // So im using the old method and I need to look
     // Run another transformation
     transformer = new IModelTransformer(sourceDb, targetDb); // do I need to declare a new one?
+    (transformer as any)._forceOldRelationshipProvenanceMethod = false;
     await expect(transformer.processAll()).not.to.be.rejected;
     targetDb.saveChanges();
     // Do some more validation on the ESA stored on the relationship?
     sourceIdInTarget = transformer.context.findTargetElementId(sourceId);
-    aspects = targetDb.elements.getAspects(sourceIdInTarget, ExternalSourceAspect.classFullName);
+    aspects = targetDb.elements.getAspects(sourceIdInTarget, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
 
     // const modelInTarget = transformer.context.findTargetElementId(model);
     // const objInTarget = transformer.context.findTargetElementId(obj.id);
