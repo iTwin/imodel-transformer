@@ -276,11 +276,10 @@ export interface InitOptions {
 /**
  * Arguments for [[IModelTransformer.processChanges]]
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
-export interface ProcessChangesOptions extends ExportChangesOptions {
+export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
   saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>;
-}
+};
 
 type ChangeDataState = "uninited" | "has-changes" | "no-changes" | "unconnected";
 
