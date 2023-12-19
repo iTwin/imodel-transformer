@@ -10,6 +10,7 @@ import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
   CategorySelector, DisplayStyle3d, DocumentListModel, Drawing, DrawingCategory, DrawingGraphic, DrawingModel, ECSqlStatement, Element,
+  ElementGroupsMembers,
   ElementMultiAspect, ElementOwnsChildElements, ElementOwnsExternalSourceAspects, ElementOwnsMultiAspects, ElementOwnsUniqueAspect, ElementRefersToElements,
   ElementUniqueAspect, ExternalSourceAspect, GenericPhysicalMaterial, GeometricElement, IModelDb, IModelElementCloneContext, IModelHost, IModelJsFs,
   InformationRecordModel, InformationRecordPartition, LinkElement, Model, ModelSelector, OrthographicViewDefinition,
@@ -2272,6 +2273,102 @@ describe("IModelTransformer", () => {
     transformer.dispose();
     sourceDb.close();
     targetDb.close();
+  });
+
+  // FIXME: add test transforming using this, then switching to new transform method
+  /**
+   * Previously the transformer would insert provenance always pointing to the "target" relationship.
+   * It should (and now by default does) instead insert provenance pointing to the provenanceSource
+   * SEE: https://github.com/iTwin/imodel-transformer/issues/54
+   * This exists only to facilitate testing that the transformer can handle the older, flawed method
+   */
+  // private _forceOldRelationshipProvenanceMethod = false; defined on IModelTransformer.
+  it.only("should be able to switch from old relationship provenance method to new relationship provenance method", async () => {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "OldToNewRelationshipProvenance.bim");
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "OldToNewRelationship" } });
+    const model = PhysicalModel.insert(sourceDb, IModelDb.rootSubjectId, "Model 1");
+    const category = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "TestCategory", {});
+    const sourceId = new PhysicalObject({
+      code: Code.createEmpty(),
+      model,
+      category,
+      classFullName: PhysicalObject.classFullName,
+    }, sourceDb).insert();
+
+    const targetId = new PhysicalObject({
+      code: Code.createEmpty(),
+      model,
+      category,
+      classFullName: PhysicalObject.classFullName,
+    }, sourceDb).insert();
+    sourceDb.saveChanges();
+
+    const rel = ElementGroupsMembers.create(sourceDb, sourceId, targetId);
+    const relId = rel.insert();
+    // sourceDb.saveChanges();
+    sourceDb.performCheckpoint();
+
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "OldToNewRelationshipProvenanceTarget.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "Combined Model" } });
+
+    let transformer = new IModelTransformer(sourceDb, targetDb);
+    (transformer as any)._forceOldRelationshipProvenanceMethod = true;
+    await expect(transformer.processAll()).not.to.be.rejected;
+    targetDb.performCheckpoint();
+
+    /*
+    const provenanceDb = args.isReverseSynchronization ? args.sourceDb : args.targetDb;
+    const aspectIdentifier = args.isReverseSynchronization ? targetRelInstanceId : sourceRelInstanceId;
+    const provenanceRelInstanceId = args.isReverseSynchronization ? sourceRelInstanceId : targetRelInstanceId;
+
+    const elementId = provenanceDb.withPreparedStatement(
+        "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
+        (stmt) => {
+          stmt.bindId(1, provenanceRelInstanceId);
+          nodeAssert(stmt.step() === DbResult.BE_SQLITE_ROW);
+          return stmt.getValue(0).getId();
+        },
+      );
+
+    const jsonProperties
+      = args.forceOldRelationshipProvenanceMethod
+      ? { targetRelInstanceId }
+      : { provenanceRelInstanceId };
+
+    const aspectProps: ExternalSourceAspectProps = {
+      classFullName: ExternalSourceAspect.classFullName,
+      element: { id: elementId, relClassName: ElementOwnsExternalSourceAspects.classFullName },
+      scope: { id: args.targetScopeElementId },
+      identifier: aspectIdentifier,
+      kind: ExternalSourceAspect.Kind.Relationship,
+      jsonProperties: JSON.stringify(jsonProperties),
+    };
+
+    return aspectProps;
+    */
+
+    // Do some validation on the ESA stored on the relationship??
+    /* const jsonProperties
+      = args.forceOldRelationshipProvenanceMethod
+      ? { targetRelInstanceId }
+      : { provenanceRelInstanceId };*/
+    // So maybe just need to make sure that the relationship changes..? I'm sure theres other stuff too.. but whatever for now.
+    // targetDb.elements.getAspect();
+
+    // Source Element in the relationship is supposed to be where the ESA is stored, but of course I'm getting 0 aspects..
+    let sourceIdInTarget = transformer.context.findTargetElementId(sourceId);
+    let aspects = targetDb.elements.getAspects(sourceIdInTarget, ExternalSourceAspect.classFullName);
+    // Run another transformation
+    transformer = new IModelTransformer(sourceDb, targetDb); // do I need to declare a new one?
+    await expect(transformer.processAll()).not.to.be.rejected;
+    targetDb.saveChanges();
+    // Do some more validation on the ESA stored on the relationship?
+    sourceIdInTarget = transformer.context.findTargetElementId(sourceId);
+    aspects = targetDb.elements.getAspects(sourceIdInTarget, ExternalSourceAspect.classFullName);
+
+    // const modelInTarget = transformer.context.findTargetElementId(model);
+    // const objInTarget = transformer.context.findTargetElementId(obj.id);
+
   });
 
   it("detect element deletes works on children", async () => {
