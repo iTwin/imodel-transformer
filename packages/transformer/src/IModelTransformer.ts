@@ -2049,7 +2049,7 @@ export class IModelTransformer extends IModelExportHandler {
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
-      const changes: ChangedECInstance[] = Array.from(ecChangeUnifier.instances);
+      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       // a map of elementId to ChangedECInstance. the elementId is not the id of the esa itself, but the id that the esa was stored on before the esa's deletion.
       const esaMap: Map<Id64String, ChangedECInstance> = new Map<Id64String, ChangedECInstance>();
