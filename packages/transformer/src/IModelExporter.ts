@@ -529,9 +529,11 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportFontByNumber(fontNumber: number): Promise<void> {
-    // sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts since fonts is not an ec table.
-    // So lets always export fonts for the time being by always setting isUpdate = true.
-    // See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
+    /** sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts since fonts is not an ec table.
+     * So lets always export fonts for the time being by always setting isUpdate = true.
+     * It is very rare and even problematic for the font table to reach a large size, so it is not a bottleneck in transforming changes.
+     * See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
+     */
     const isUpdate = true;
     Logger.logTrace(loggerCategory, `exportFontById(${fontNumber})`);
     const font: FontProps | undefined = this.sourceDb.fontMap.getFont(fontNumber);
