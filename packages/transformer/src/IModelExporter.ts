@@ -529,17 +529,9 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportFontByNumber(fontNumber: number): Promise<void> {
-    // sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts. So lets always export fonts for the time being.
-    // if (undefined !== this._sourceDbChanges) { // is changeset information available?
-    //   const fontId: Id64String = Id64.fromUint32Pair(fontNumber, 0); // changeset information uses Id64String, not number
-    //   if (this._sourceDbChanges.font.insertIds.has(fontId)) {
-    //     isUpdate = false;
-    //   } else if (this._sourceDbChanges.font.updateIds.has(fontId)) {
-    //     isUpdate = true;
-    //   } else {
-    //     return; // not in changeset, don't export
-    //   }
-    // }
+    // sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts since fonts is not an ec table.
+    // So lets always export fonts for the time being by always setting isUpdate = true.
+    // See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
     const isUpdate = true;
     Logger.logTrace(loggerCategory, `exportFontById(${fontNumber})`);
     const font: FontProps | undefined = this.sourceDb.fontMap.getFont(fontNumber);
