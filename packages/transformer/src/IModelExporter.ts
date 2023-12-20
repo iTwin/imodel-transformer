@@ -277,7 +277,6 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    this._sourceDbChanges = this.initializeFromInitOptions(options)
     const hasChangeData = "csFileProps" in options || "startChangeset" in options || "changesetRanges" in options || "changedInstanceIds" in options;
     if (this._sourceDbChanges || !this.sourceDb.isBriefcaseDb() || !hasChangeData)
       return;
@@ -1069,7 +1068,7 @@ export class ChangedInstanceIds {
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
-      const changes: ChangedECInstance[] = Array.from(ecChangeUnifier.instances);
+      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
