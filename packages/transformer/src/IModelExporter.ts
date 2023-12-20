@@ -277,11 +277,12 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    const hasChangeData = "csFileProps" in options || "startChangeset" in options || "changesetRanges" in options || "changedInstanceIds" in options;
-    if (this._sourceDbChanges || !this.sourceDb.isBriefcaseDb() || !hasChangeData)
+    if (!this.sourceDb.isBriefcaseDb())
       return;
 
-    this._sourceDbChanges = "changedInstanceIds" in options ? options.changedInstanceIds : await ChangedInstanceIds.initialize({ iModel: this.sourceDb, ...options });
+    this._sourceDbChanges = await ChangedInstanceIds.initialize({iModel: this.sourceDb, ...options});
+    if (this._sourceDbChanges === undefined)
+      return;
 
     this._exportElementAspectsStrategy.setAspectChanges(this._sourceDbChanges.aspect);
   }
@@ -1012,7 +1013,10 @@ export class ChangedInstanceIds {
   /**
    * Initializes a new ChangedInstanceIds object with information taken from a range of changesets.
    */
-  public static async initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds> {
+  public static async initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds | undefined> {
+    if ("changedInstanceIds" in opts)
+      return opts.changedInstanceIds;
+
     const iModelId = opts.iModel.iModelId;
     const accessToken = opts.accessToken;
 
@@ -1041,7 +1045,8 @@ export class ChangedInstanceIds {
       )
     )).flat() : "csFileProps" in opts ? opts.csFileProps : undefined;
 
-    nodeAssert(csFileProps);
+    if (csFileProps === undefined)
+      return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
     const relationshipECClassIdsToSkip = new Set<string>();
