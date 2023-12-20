@@ -277,6 +277,7 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
+    this._sourceDbChanges = this.initializeFromInitOptions(options)
     const hasChangeData = "csFileProps" in options || "startChangeset" in options || "changesetRanges" in options || "changedInstanceIds" in options;
     if (this._sourceDbChanges || !this.sourceDb.isBriefcaseDb() || !hasChangeData)
       return;
@@ -921,19 +922,14 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
-  private codeSpecECClassIds: Set<string>;
-  private modelECClassIds: Set<string>;
-  private elementECClassIds: Set<string>;
-  private aspectECClassIds: Set<string>;
-  private relationshipECClassIds: Set<string>;
+  private codeSpecECClassIds = new Set<string>();
+  private modelECClassIds = new Set<string>();
+  private elementECClassIds = new Set<string>();
+  private aspectECClassIds = new Set<string>();
+  private relationshipECClassIds = new Set<string>();
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
-    this.codeSpecECClassIds = new Set<string>();
-    this.modelECClassIds = new Set<string>();
-    this.elementECClassIds = new Set<string>();
-    this.aspectECClassIds = new Set<string>();
-    this.relationshipECClassIds = new Set<string>();
     this.setupECClassIds();
   }
 
