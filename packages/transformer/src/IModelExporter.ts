@@ -933,7 +933,7 @@ export class ChangedInstanceIds {
     this.setupECClassIds();
   }
 
-   private setupECClassIds(): void {
+  private setupECClassIds(): void {
     const addECClassIdsToSet = (setToModify: Set<string>, baseClass: string) => {
       this._db.withPreparedStatement(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`, (stmt) => {
         while (stmt.step() === DbResult.BE_SQLITE_ROW) {
@@ -947,29 +947,29 @@ export class ChangedInstanceIds {
     addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect");
     addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect");
     addECClassIdsToSet(this.relationshipECClassIds, "BisCore.ElementRefersToElements");
-   }
+  }
 
-   private isRelationship(ecClassId: string) {
+  private isRelationship(ecClassId: string) {
     return this.relationshipECClassIds.has(ecClassId);
-   }
+  }
 
-   private isCodeSpec(ecClassId: string) {
+  private isCodeSpec(ecClassId: string) {
     return this.codeSpecECClassIds.has(ecClassId);
-   }
+  }
 
-   private isAspect(ecClassId: string) {
+  private isAspect(ecClassId: string) {
     return this.aspectECClassIds.has(ecClassId);
-   }
+  }
 
-   private isModel(ecClassId: string) {
+  private isModel(ecClassId: string) {
     return this.modelECClassIds.has(ecClassId);
-   }
+  }
 
-   private isElement(ecClassId: string) {
+  private isElement(ecClassId: string) {
     return this.elementECClassIds.has(ecClassId);
-   }
+  }
 
-   public addChange(change: ChangedECInstance): void {
+  public addChange(change: ChangedECInstance): void {
     if (change.ECClassId === undefined)
       throw new Error(`Element must have been deleted. Table is : ${change?.$meta?.tables}`);
     const changeType: SqliteChangeOp | undefined = change.$meta?.op;
@@ -987,9 +987,9 @@ export class ChangedInstanceIds {
     else if (this.isElement(change.ECClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
     // Probably by looking at the ECClassId. I think currently without affan's change to fallback we might get some undefined classIds. so maybe look at the table in that case. Won't always have to do this.
-   }
+  }
 
-   private handleChange(changedInstanceOps: ChangedInstanceOps, changeType: SqliteChangeOp, id: Id64String) {
+  private handleChange(changedInstanceOps: ChangedInstanceOps, changeType: SqliteChangeOp, id: Id64String) {
     // if changeType is a delete and we already have the id in the inserts then we can remove the id from the inserts.
     // if changeType is a delete and we already have the id in the updates then we can remove the id from the updates AND add it to the deletes.
     // if changeType is an insert and we already have the id in the deletes then we can remove the id from the deletes AND add it to the inserts.
@@ -1008,7 +1008,7 @@ export class ChangedInstanceIds {
         changedInstanceOps.deleteIds.add(id);
       }
     }
-   }
+  }
 
   /**
    * Initializes a new ChangedInstanceIds object with information taken from a range of changesets.
