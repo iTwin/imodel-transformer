@@ -1016,43 +1016,32 @@ export class ChangedInstanceIds {
     const iModelId = opts.iModel.iModelId;
     const accessToken = opts.accessToken;
 
-    let csFileProps: ChangesetFileProps[];
-    if (!("csFileProps" in opts)) {
-      let changesetRanges: [number, number][];
-      if ("changesetRanges" in opts) {
-        changesetRanges = opts.changesetRanges;
-      } else if ("startChangeset" in opts) {
-        changesetRanges = [[
-        opts.startChangeset.index
-        ?? (await IModelHost.hubAccess.queryChangeset({
+    const startChangeset = "startChangeset" in opts ? opts.startChangeset : undefined;
+    const changesetRanges = startChangeset !== undefined ? [[
+      startChangeset.index
+      ?? (await IModelHost.hubAccess.queryChangeset({
+        iModelId,
+        changeset: { id: startChangeset.id ?? opts.iModel.changeset.id },
+        accessToken,
+      })).index,
+    opts.iModel.changeset.index
+      ?? (await IModelHost.hubAccess.queryChangeset({
           iModelId,
-          changeset: { id: opts.startChangeset.id ?? opts.iModel.changeset.id },
+          changeset: { id: opts.iModel.changeset.id },
           accessToken,
         })).index,
-      opts.iModel.changeset.index
-        ?? (await IModelHost.hubAccess.queryChangeset({
-            iModelId,
-            changeset: { id: opts.iModel.changeset.id },
-            accessToken,
-          })).index,
-        ]];
-      }
+      ]] : "changesetRanges" in opts ? opts.changesetRanges : undefined;
+    const csFileProps = changesetRanges !== undefined ? (await Promise.all(
+      changesetRanges.map(async ([first, end]) =>
+        IModelHost.hubAccess.downloadChangesets({
+          accessToken,
+          iModelId, range: { first, end },
+          targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
+        })
+      )
+    )).flat() : "csFileProps" in opts ? opts.csFileProps : undefined;
 
-      Logger.logTrace(loggerCategory, `ChangedInstanceIds.initialize ranges: ${changesetRanges!.join("|")}`);
-
-      const changesets = (await Promise.all(
-        changesetRanges!.map(async ([first, end]) =>
-          IModelHost.hubAccess.downloadChangesets({
-            accessToken,
-            iModelId, range: { first, end },
-            targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
-          })
-        )
-      )).flat();
-      csFileProps = changesets;
-    } else {
-      csFileProps = opts.csFileProps;
-    }
+    nodeAssert(csFileProps);
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
     const relationshipECClassIdsToSkip = new Set<string>();
