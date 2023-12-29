@@ -2051,7 +2051,7 @@ export class IModelTransformer extends IModelExportHandler {
       const esaMap: Map<Id64String, ChangedECInstance> = new Map<Id64String, ChangedECInstance>();
       for (const change of changes) {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
-          continue; // FIXME: Remove it from the changes array?
+          continue;
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         if (changeType === "Deleted" && change?.$meta?.className === esaNameNormalized && change.Scope.Id === this.targetScopeElementId) {
           esaMap.set(change.Element.Id, change);
@@ -2067,7 +2067,7 @@ export class IModelTransformer extends IModelExportHandler {
         if (changeType === undefined)
           throw new Error("2640");
         if (changeType !== "Deleted" || relationshipECClassIdsToSkip.has(change.ECClassId))
-          continue; // FIXME: Remove it from the changes array?
+          continue;
         this.processDeletedOp(change, esaMap, relationshipECClassIds.has(change.ECClassId ?? ""), alreadyImportedElementInserts, alreadyImportedModelInserts); // FIXME: ecclassid should never be undefined
       }
 
