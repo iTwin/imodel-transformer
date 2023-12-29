@@ -1441,6 +1441,7 @@ describe("IModelTransformerHub", () => {
     sourceDb.saveChanges();
     await sourceDb.pushChanges({ description: "deleted the second copy of the subject"});
     const startChangeset = sourceDb.changeset;
+    // readd the subject in a separate changeset
     sourceDb.elements.insertElement({
       classFullName: Subject.classFullName,
       code: Code.createEmpty(),
