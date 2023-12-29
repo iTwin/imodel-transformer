@@ -2080,14 +2080,14 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * Helper function for processChangesets. Remaps the id of element deleted found in the 'change' to an element in the targetDb.
    * @param change the change to process, must be of changeType "Deleted"
-   * @param mapOfDeletedEsas a map of elementIds to changedECInstances (which are ESAs). the elementId is not the id of the esa itself, but the elementid that the esa was stored on before the esa's deletion.
+   * @param mapOfDeletedElemIdToScopeEsas a map of elementIds to changedECInstances (which are ESAs). the elementId is not the id of the esa itself, but the elementid that the esa was stored on before the esa's deletion.
    * All ESAs in this map are part of the transformer's scope / ESA data and are tracked in case the ESA is deleted in the target.
    * @param isRelationship is relationship or not
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    * @returns void
    */
-  private processDeletedOp(change: ChangedECInstance, mapOfDeletedEsas: Map<string, ChangedECInstance>, isRelationship: boolean, alreadyImportedElementInserts: Set<Id64String>, alreadyImportedModelInserts: Set<Id64String>) {
+  private processDeletedOp(change: ChangedECInstance, mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>, isRelationship: boolean, alreadyImportedElementInserts: Set<Id64String>, alreadyImportedModelInserts: Set<Id64String>) {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges = this._synchronizationVersion.index === this.sourceDb.changeset.index;
@@ -2113,8 +2113,8 @@ export class IModelTransformer extends IModelExportHandler {
         // I need to know the id of the element dpeneding on which db its stored in.
       }
       if (queryCanAccessProvenance && !identifierValue) {
-        if (mapOfDeletedEsas.get(instId) !== undefined)
-          identifierValue = mapOfDeletedEsas.get(instId)!.Identifier;
+        if (mapOfDeletedElemIdToScopeEsas.get(instId) !== undefined)
+          identifierValue = mapOfDeletedElemIdToScopeEsas.get(instId)!.Identifier;
       }
       const targetId =
           (queryCanAccessProvenance && identifierValue)
@@ -2156,8 +2156,8 @@ export class IModelTransformer extends IModelExportHandler {
                 identifierValue = aspect.identifier;
             }
             if (identifierValue === undefined) {
-              if (mapOfDeletedEsas.get(id) !== undefined)
-                identifierValue = mapOfDeletedEsas.get(id)!.Identifier;
+              if (mapOfDeletedElemIdToScopeEsas.get(id) !== undefined)
+                identifierValue = mapOfDeletedElemIdToScopeEsas.get(id)!.Identifier;
             }
           }
 
