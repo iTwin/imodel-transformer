@@ -286,7 +286,8 @@ export async function assertIdentityTransformation(
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
         const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
-          ?? ((propName === "federationGuid" && sourceElem.federationGuid === undefined) || propName === "jsonProperties");
+          ?? ((propName === "federationGuid" && (sourceElem.federationGuid === undefined || (ignoreFedGuidsOnAlwaysPresentElementIds && alwaysPresentElementIds.has(sourceElemId))))
+             || propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
@@ -307,10 +308,6 @@ export async function assertIdentityTransformation(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
-          if (ignoreFedGuidsOnAlwaysPresentElementIds && propName === "federationGuid" && alwaysPresentElementIds.has(sourceElemId)) {
-            // Skip comparing this prop if its the fedguid and its one of the always present element ids and ignoreFedGuidsOnAlwaysPresentElementIds is true.
-            continue;
-          }
           // kept for conditional breakpoints
           const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
           expect(
