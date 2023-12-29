@@ -396,7 +396,13 @@ export async function assertIdentityTransformation(
         }
         return aspects;
       };
-      expect(targetAspectId, `Expected sourceAspect:\n\t ${JSON.stringify(sourceAspect)}\n on sourceElement:\n\t ${JSON.stringify(sourceElem)}\n with targetElement:\n\t ${JSON.stringify(targetElem)}\n to have a corresponding targetAspectId that wasn't invalid.\n targetElement's aspects:\n${collectAllAspects(targetElemId)}`).not.to.equal(Id64.invalid);
+      expect(targetAspectId, [
+        `Expected sourceAspect:\n\t ${JSON.stringify(sourceAspect)}`,
+        `on sourceElement:\n\t ${JSON.stringify(sourceElem)}`,
+        `with targetElement:\n\t ${JSON.stringify(targetElem)}`,
+        "to have a corresponding targetAspectId that wasn't invalid.",
+        `targetElement's aspects:\n${collectAllAspects(targetElemId)}`,
+      ].join("\n")).not.to.equal(Id64.invalid);
       const targetAspect = targetDb.elements.getAspect(targetAspectId);
       expect(targetAspect).not.to.be.undefined;
     }
