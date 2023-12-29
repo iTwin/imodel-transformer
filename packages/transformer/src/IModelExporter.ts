@@ -1037,7 +1037,8 @@ export class ChangedInstanceIds {
           changeset: { id: opts.iModel.changeset.id },
           accessToken,
         })).index,
-      ]] : "changesetRanges" in opts ? opts.changesetRanges : undefined;
+      ]] :
+      "changesetRanges" in opts ? opts.changesetRanges : undefined;
     const csFileProps = changesetRanges !== undefined ? (await Promise.all(
       changesetRanges.map(async ([first, end]) =>
         IModelHost.hubAccess.downloadChangesets({
@@ -1046,7 +1047,8 @@ export class ChangedInstanceIds {
           targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
         })
       )
-    )).flat() : "csFileProps" in opts ? opts.csFileProps : undefined;
+    )).flat() :
+      "csFileProps" in opts ? opts.csFileProps : undefined;
 
     if (csFileProps === undefined)
       return undefined;
