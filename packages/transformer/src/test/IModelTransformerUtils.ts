@@ -285,7 +285,6 @@ export async function assertIdentityTransformation(
         // known cases for the prop expecting to have been changed by the transformation under normal circumstances
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
-        // FIXME<Mike>: Doesn't this allow propChanges to ANY props if sourceElem.federationGuid is undefined?
         const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
           ?? ((propName === "federationGuid" && sourceElem.federationGuid === undefined) || propName === "jsonProperties");
         if (prop.isNavigation) {
