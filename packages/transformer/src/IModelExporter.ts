@@ -970,6 +970,12 @@ export class ChangedInstanceIds {
     return this.elementECClassIds.has(ecClassId);
   }
 
+  /**
+   * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
+   */
   public async addChange(change: ChangedECInstance): Promise<void> {
     if (!this._ecClassIdsInitialized)
       await this.setupECClassIds();
