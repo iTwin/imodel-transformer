@@ -1993,7 +1993,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    this.processChangesets();
+    await this.processChangesets();
 
     this._initialized = true;
   }
@@ -2005,7 +2005,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This function returns early if csFileProps is undefined or is of length 0.
    * @returns void
    */
-  private processChangesets(): void {
+  private async processChangesets(): Promise<void> {
     this.forEachTrackedElement((sourceElementId: Id64String, targetElementId: Id64String) => {
       this.context.remapElement(sourceElementId, targetElementId);
     });
@@ -2015,17 +2015,13 @@ export class IModelTransformer extends IModelExportHandler {
     const esaNameNormalized = ExternalSourceAspect.classFullName.replace(":", ".");
 
     const relationshipECClassIdsToSkip = new Set<string>();
-    this.sourceDb.withPreparedStatement(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`, (stmt) => {
-      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-        relationshipECClassIdsToSkip.add(stmt.getValue(0).getId());
-      }
-    });
+    for await (const row of this.sourceDb.createQueryReader(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`)) {
+      relationshipECClassIdsToSkip.add(row.ECInstanceId);
+    }
     const relationshipECClassIds = new Set<string>();
-    this.sourceDb.withPreparedStatement(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)`, (stmt) => {
-      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-        relationshipECClassIds.add(stmt.getValue(0).getId());
-      }
-    });
+    for await (const row of this.sourceDb.createQueryReader(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)`)) {
+      relationshipECClassIds.add(row.ECInstanceId);
+    }
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String> ();

@@ -277,7 +277,7 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    if (!this.sourceDb.isBriefcaseDb())
+    if (!this.sourceDb.isBriefcaseDb() || this._sourceDbChanges)
       return;
 
     this._sourceDbChanges = await ChangedInstanceIds.initialize({iModel: this.sourceDb, ...options});
@@ -927,26 +927,27 @@ export class ChangedInstanceIds {
   private elementECClassIds = new Set<string>();
   private aspectECClassIds = new Set<string>();
   private relationshipECClassIds = new Set<string>();
+  private _ecClassIdsInitialized = false;
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
-    this.setupECClassIds();
   }
 
-  private setupECClassIds(): void {
-    const addECClassIdsToSet = (setToModify: Set<string>, baseClass: string) => {
-      this._db.withPreparedStatement(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`, (stmt) => {
-        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-          setToModify.add(stmt.getValue(0).getId());
-        }
-      });
+  private async setupECClassIds(): Promise<void> {
+    const addECClassIdsToSet = async (setToModify: Set<string>, baseClass: string) => {
+      for await (const row of this._db.createQueryReader(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`)) {
+        setToModify.add(row.ECInstanceId);
+      }
     };
-    addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec");
-    addECClassIdsToSet(this.modelECClassIds, "BisCore.Model");
-    addECClassIdsToSet(this.elementECClassIds, "BisCore.Element");
-    addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect");
-    addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect");
-    addECClassIdsToSet(this.relationshipECClassIds, "BisCore.ElementRefersToElements");
+    const promises = [];
+    promises.push(addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec"));
+    promises.push(addECClassIdsToSet(this.modelECClassIds, "BisCore.Model"));
+    promises.push(addECClassIdsToSet(this.elementECClassIds, "BisCore.Element"));
+    promises.push(addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect"));
+    promises.push(addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect"));
+    promises.push(addECClassIdsToSet(this.relationshipECClassIds, "BisCore.ElementRefersToElements"));
+    await Promise.all(promises);
+    this._ecClassIdsInitialized = true;
   }
 
   private isRelationship(ecClassId: string) {
@@ -969,7 +970,9 @@ export class ChangedInstanceIds {
     return this.elementECClassIds.has(ecClassId);
   }
 
-  public addChange(change: ChangedECInstance): void {
+  public async addChange(change: ChangedECInstance): Promise<void> {
+    if (!this._ecClassIdsInitialized)
+      await this.setupECClassIds();
     if (change.ECClassId === undefined)
       throw new Error(`Element must have been deleted. Table is : ${change?.$meta?.tables}`);
     const changeType: SqliteChangeOp | undefined = change.$meta?.op;
@@ -1050,11 +1053,10 @@ export class ChangedInstanceIds {
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
     const relationshipECClassIdsToSkip = new Set<string>();
-    opts.iModel.withPreparedStatement(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`, (stmt) => {
-      while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-        relationshipECClassIdsToSkip.add(stmt.getValue(0).getId());
-      }
-    });
+    for await (const row of opts.iModel.createQueryReader(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`)) {
+      relationshipECClassIdsToSkip.add(row.ECInstanceId);
+    }
+
     for (const csFile of csFileProps) {
       const csReader = SqliteChangesetReader.openFile({fileName: csFile.pathname, db: opts.iModel, disableSchemaCheck: true});
       const csAdaptor = new ChangesetECAdaptor(csReader);
@@ -1067,7 +1069,7 @@ export class ChangedInstanceIds {
       for (const change of changes) {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
           continue;
-        changedInstanceIds.addChange(change);
+        await changedInstanceIds.addChange(change);
       }
       csReader.close();
    }
