@@ -2048,13 +2048,13 @@ export class IModelTransformer extends IModelExportHandler {
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
-      const esaMap: Map<Id64String, ChangedECInstance> = new Map<Id64String, ChangedECInstance>();
+      const elemIdToScopeEsa = new Map<Id64String, ChangedECInstance>();
       for (const change of changes) {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
           continue;
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         if (changeType === "Deleted" && change?.$meta?.className === esaNameNormalized && change.Scope.Id === this.targetScopeElementId) {
-          esaMap.set(change.Element.Id, change);
+          elemIdToScopeEsa.set(change.Element.Id, change);
         } else if (changeType === "Inserted" || changeType === "Updated")
           hasElementChangedCache.add(change.ECInstanceId);
       }
@@ -2068,7 +2068,7 @@ export class IModelTransformer extends IModelExportHandler {
           throw new Error("2640");
         if (changeType !== "Deleted" || relationshipECClassIdsToSkip.has(change.ECClassId))
           continue;
-        this.processDeletedOp(change, esaMap, relationshipECClassIds.has(change.ECClassId ?? ""), alreadyImportedElementInserts, alreadyImportedModelInserts); // FIXME: ecclassid should never be undefined
+        this.processDeletedOp(change, elemIdToScopeEsa, relationshipECClassIds.has(change.ECClassId ?? ""), alreadyImportedElementInserts, alreadyImportedModelInserts); // FIXME: ecclassid should never be undefined
       }
 
       csReader.close();
