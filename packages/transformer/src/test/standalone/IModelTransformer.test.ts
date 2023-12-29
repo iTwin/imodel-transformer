@@ -1091,7 +1091,7 @@ describe("IModelTransformer", () => {
     const ignoreFedGuidElementIds = new Set<Id64String>([
       IModel.rootSubjectId,
       IModel.dictionaryId,
-      "0xe",
+      "0xe", // id of realityDataSourcesModel
     ]);
     const result: Record<Id64String, any> = {};
     // eslint-disable-next-line deprecation/deprecation
