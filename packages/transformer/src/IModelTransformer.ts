@@ -2047,7 +2047,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
-      // a map of elementId to ChangedECInstance. the elementId is not the id of the esa itself, but the id that the esa was stored on before the esa's deletion.
+      /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
       const esaMap: Map<Id64String, ChangedECInstance> = new Map<Id64String, ChangedECInstance>();
       for (const change of changes) {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
@@ -2080,7 +2080,8 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * Helper function for processChangesets. Remaps the id of element deleted found in the 'change' to an element in the targetDb.
    * @param change the change to process, must be of changeType "Deleted"
-   * @param mapOfDeletedEsas a map of elementIds to changedECInstances. the elementId is not the id of the esa itself, but the id that the esa was stored on before the esa's deletion.
+   * @param mapOfDeletedEsas a map of elementIds to changedECInstances (which are ESAs). the elementId is not the id of the esa itself, but the elementid that the esa was stored on before the esa's deletion.
+   * All ESAs in this map are part of the transformer's scope / ESA data and are tracked in case the ESA is deleted in the target.
    * @param isRelationship is relationship or not
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
