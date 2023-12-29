@@ -287,7 +287,7 @@ export async function assertIdentityTransformation(
         // - jsonProperties may include remapped ids
         // FIXME<Mike>: Doesn't this allow propChanges to ANY props if sourceElem.federationGuid is undefined?
         const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
-          ?? (sourceElem.federationGuid === undefined || propName === "jsonProperties");
+          ?? ((propName === "federationGuid" && sourceElem.federationGuid === undefined) || propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
