@@ -2746,6 +2746,101 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
+  it.only("try import dynamic schemas regardless of version", async function () {
+    const makeDynamicSchema = (version: string, classes = [] as string[]) => `<?xml version="1.0" encoding="UTF-8"?>
+      <ECSchema schemaName="Dynamic" alias="d1" version="${version}" displayLabel="dyn" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+        <ECCustomAttributes>
+          <DynamicSchema xmlns="CoreCustomAttributes.01.00.03"/>
+        </ECCustomAttributes>
+        <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+        ${classes.map((c) => `
+          <ECEntityClass typeName="${c}">
+            <BaseClass>bis:PhysicalElement</BaseClass>
+            <ECProperty propertyName="MyProp1" typeName="string"/>
+          </ECEntityClass>
+        `)}
+      </ECSchema>
+    `;
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas2-Target.bim");
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "DynSchemasTarget" } });
+    const targetVersion = "01.10.00";
+    await targetDb.importSchemaStrings([makeDynamicSchema(targetVersion, ["A"])]);
+    targetDb.saveChanges();
+    expect(() => targetDb.getMetaData("d1:A")).not.to.throw();
+
+    const unpadVersion = (v: string) => v.split(".").map(Number).join(".");
+
+    // try import lesser version dynamic schema
+    {
+        const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas2-Source.bim");
+        const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DynSchemaSource" } });
+        const lesserVersion = "01.07.00";
+        expect(Semver.lt(unpadVersion(lesserVersion), unpadVersion(targetVersion))).to.be.true;
+        await sourceDb.importSchemaStrings([makeDynamicSchema(lesserVersion, ["A", "B"])]);
+        sourceDb.saveChanges();
+
+        const transformer = new IModelTransformer(sourceDb, targetDb);
+        // expect this to not reject, adding chai as promised makes the error less readable
+        await transformer.processSchemas();
+
+        transformer.dispose();
+        sourceDb.close();
+
+        expect(targetDb.querySchemaVersion("Dynamic")).to.equal(unpadVersion(targetVersion));
+        expect(() => targetDb.getMetaData("d1:A")).not.to.throw();
+        // schema be not be exported because <= version
+        expect(() => targetDb.getMetaData("d1:B")).to.throw();
+    }
+
+    // try import equal version schema
+    {
+        const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas2-Source2.bim");
+        const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DynSchemaSource2" } });
+        await sourceDb.importSchemaStrings([makeDynamicSchema(targetVersion, ["A", "B", "C"])]);
+        sourceDb.saveChanges();
+
+        const transformer = new IModelTransformer(sourceDb, targetDb);
+        // expect this to not reject, adding chai as promised makes the error less readable
+        await transformer.processSchemas();
+
+        transformer.dispose();
+        sourceDb.close();
+
+        expect(targetDb.querySchemaVersion("Dynamic")).to.equal(unpadVersion(targetVersion));
+        expect(() => targetDb.getMetaData("d1:A")).not.to.throw();
+        // schema be not be exported because <= version
+        expect(() => targetDb.getMetaData("d1:B")).to.throw();
+        expect(() => targetDb.getMetaData("d1:C")).to.throw();
+    }
+
+    // try import later dynamic schema
+    {
+        const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "DynSchemas2-Source3.bim");
+        const sourceDb = SnapshotDb.createEmpty(sourceDbFile, { rootSubject: { name: "DynSchemaSource3" } });
+        const greaterVersion = "01.11.00";
+        expect(Semver.gt(unpadVersion(greaterVersion), unpadVersion(targetVersion))).to.be.true;
+        await sourceDb.importSchemaStrings([makeDynamicSchema(greaterVersion, ["A", "B", "C", "D"])]);
+        sourceDb.saveChanges();
+
+        const transformer = new IModelTransformer(sourceDb, targetDb);
+        // expect this to not reject, adding chai as promised makes the error less readable
+        await transformer.processSchemas();
+
+        transformer.dispose();
+        sourceDb.close();
+
+        expect(targetDb.querySchemaVersion("Dynamic")).to.equal(unpadVersion(greaterVersion));
+        // schema will be exported and merged by ECDb because > version
+        expect(() => targetDb.getMetaData("d1:A")).not.to.throw();
+        expect(() => targetDb.getMetaData("d1:B")).not.to.throw();
+        expect(() => targetDb.getMetaData("d1:C")).not.to.throw();
+        expect(() => targetDb.getMetaData("d1:D")).not.to.throw();
+    }
+
+    targetDb.close();
+  });
+
   /** unskip to generate a javascript CPU profile on just the processAll portion of an iModel */
   it.skip("should profile an IModel transformation", async function () {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "ProfileTransformation.bim");
