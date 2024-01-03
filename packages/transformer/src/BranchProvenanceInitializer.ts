@@ -1,6 +1,21 @@
-import { BriefcaseDb, ExternalSource, ExternalSourceIsInRepository, IModelDb, RepositoryLink, StandaloneDb } from "@itwin/core-backend";
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
+import {
+  BriefcaseDb,
+  ExternalSource,
+  ExternalSourceIsInRepository,
+  IModelDb,
+  RepositoryLink,
+  StandaloneDb,
+} from "@itwin/core-backend";
 import { DbResult, Id64String, Logger, OpenMode } from "@itwin/core-bentley";
-import { Code, ExternalSourceProps, RepositoryLinkProps } from "@itwin/core-common";
+import {
+  Code,
+  ExternalSourceProps,
+  RepositoryLinkProps,
+} from "@itwin/core-common";
 import * as assert from "assert";
 import { IModelTransformer } from "./IModelTransformer";
 import { pathToFileURL } from "url";
@@ -42,18 +57,25 @@ export interface ProvenanceInitResult {
 /**
  * @alpha
  */
-export async function initializeBranchProvenance(args: ProvenanceInitArgs): Promise<ProvenanceInitResult> {
+export async function initializeBranchProvenance(
+  args: ProvenanceInitArgs
+): Promise<ProvenanceInitResult> {
   if (args.createFedGuidsForMaster) {
     // FIXME: ever since 4.3.0 the 3 special elements also have fed guids, we should check that they
     // are the same between source and target, and if not, consider allowing overwriting them
-    args.master.withSqliteStatement(`
+    args.master.withSqliteStatement(
+      `
         UPDATE bis_Element
         SET FederationGuid=randomblob(16)
         WHERE FederationGuid IS NULL
           AND Id NOT IN (0x1, 0xe, 0x10) -- ignore special elems
       `,
       // eslint-disable-next-line @itwin/no-internal
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.nativeDb.getLastError()),
+      (s) =>
+        assert(
+          s.step() === DbResult.BE_SQLITE_DONE,
+          args.branch.nativeDb.getLastError()
+        )
     );
     const masterPath = args.master.pathName;
     const reopenMaster = makeDbReopener(args.master);
@@ -61,9 +83,14 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
     args.branch.withSqliteStatement(
       `ATTACH DATABASE '${pathToFileURL(`${masterPath}`)}?mode=ro' AS master`,
       // eslint-disable-next-line @itwin/no-internal
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.nativeDb.getLastError()),
+      (s) =>
+        assert(
+          s.step() === DbResult.BE_SQLITE_DONE,
+          args.branch.nativeDb.getLastError()
+        )
     );
-    args.branch.withSqliteStatement(`
+    args.branch.withSqliteStatement(
+      `
       UPDATE main.bis_Element
       SET FederationGuid = (
         SELECT m.FederationGuid
@@ -71,36 +98,47 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
         WHERE m.Id=main.bis_Element.Id
       )`,
       // eslint-disable-next-line @itwin/no-internal
-      (s) => assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.nativeDb.getLastError()),
+      (s) =>
+        assert(
+          s.step() === DbResult.BE_SQLITE_DONE,
+          args.branch.nativeDb.getLastError()
+        )
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
     args.branch.saveChanges();
-    args.branch.withSqliteStatement(
-      `DETACH DATABASE master`,
-      (s) => {
-        const res = s.step();
-        if (res !== DbResult.BE_SQLITE_DONE)
-          Logger.logTrace(
-            "initializeBranchProvenance",
-            `Error detaching db (we will close anyway): ${args.branch.nativeDb.getLastError()}`
-          );
-        // this is the case until native side changes
-        // eslint-disable-next-line @itwin/no-internal
-        assert(res === DbResult.BE_SQLITE_ERROR, args.branch.nativeDb.getLastError());
-      }
-    );
+    args.branch.withSqliteStatement(`DETACH DATABASE master`, (s) => {
+      const res = s.step();
+      if (res !== DbResult.BE_SQLITE_DONE)
+        Logger.logTrace(
+          "initializeBranchProvenance",
+          `Error detaching db (we will close anyway): ${args.branch.nativeDb.getLastError()}`
+        );
+      // this is the case until native side changes
+      // eslint-disable-next-line @itwin/no-internal
+      assert(
+        res === DbResult.BE_SQLITE_ERROR,
+        args.branch.nativeDb.getLastError()
+      );
+    });
     args.branch.performCheckpoint();
 
     const reopenBranch = makeDbReopener(args.branch);
     // close dbs because element cache could be invalid
     args.branch.close();
-    [args.master, args.branch] = await Promise.all([reopenMaster(), reopenBranch()]);
+    [args.master, args.branch] = await Promise.all([
+      reopenMaster(),
+      reopenBranch(),
+    ]);
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
   const masterRepoLinkId = args.branch.elements.insertElement({
     classFullName: RepositoryLink.classFullName,
-    code: RepositoryLink.createCode(args.branch, IModelDb.repositoryModelId, "example-code-value"),
+    code: RepositoryLink.createCode(
+      args.branch,
+      IModelDb.repositoryModelId,
+      "example-code-value"
+    ),
     model: IModelDb.repositoryModelId,
     url: args.masterUrl,
     format: "iModel",
@@ -125,7 +163,11 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
     WHERE FederationGuid IS NULL
       AND ECInstanceId NOT IN (0x1, 0xe, 0x10) /* ignore special elems */
   `;
-  const elemReader = args.branch.createQueryReader(fedGuidLessElemsSql, undefined, { usePrimaryConn: true });
+  const elemReader = args.branch.createQueryReader(
+    fedGuidLessElemsSql,
+    undefined,
+    { usePrimaryConn: true }
+  );
   while (await elemReader.step()) {
     const id: string = elemReader.current.toRow().id;
     const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
@@ -146,16 +188,24 @@ export async function initializeBranchProvenance(args: ProvenanceInitArgs): Prom
       ON te.ECInstanceId=erte.TargetECInstanceId
       WHERE se.FederationGuid IS NULL
       OR te.FederationGuid IS NULL`;
-  const relReader = args.branch.createQueryReader(fedGuidLessRelsSql, undefined, { usePrimaryConn: true });
+  const relReader = args.branch.createQueryReader(
+    fedGuidLessRelsSql,
+    undefined,
+    { usePrimaryConn: true }
+  );
   while (await relReader.step()) {
     const id: string = relReader.current.toRow().id;
-    const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(id, id, {
-      isReverseSynchronization: false,
-      targetScopeElementId: masterExternalSourceId,
-      sourceDb: args.master,
-      targetDb: args.branch,
-      forceOldRelationshipProvenanceMethod: false,
-    });
+    const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(
+      id,
+      id,
+      {
+        isReverseSynchronization: false,
+        targetScopeElementId: masterExternalSourceId,
+        sourceDb: args.master,
+        targetDb: args.branch,
+        forceOldRelationshipProvenanceMethod: false,
+      }
+    );
     args.branch.elements.insertAspect(aspectProps);
   }
 
@@ -176,11 +226,13 @@ function makeDbReopener(db: IModelDb) {
   const dbPath = db.pathName;
   let reopenDb: (mode?: OpenMode) => IModelDb | Promise<IModelDb>;
   if (db instanceof BriefcaseDb)
-    reopenDb = async (mode = originalMode) => BriefcaseDb.open({ fileName: dbPath, readonly: mode === OpenMode.Readonly });
+    reopenDb = async (mode = originalMode) =>
+      BriefcaseDb.open({
+        fileName: dbPath,
+        readonly: mode === OpenMode.Readonly,
+      });
   else if (db instanceof StandaloneDb)
     reopenDb = (mode = originalMode) => StandaloneDb.openFile(dbPath, mode);
-  else
-    assert(false, `db type '${db.constructor.name}' not supported`);
+  else assert(false, `db type '${db.constructor.name}' not supported`);
   return reopenDb;
 }
-

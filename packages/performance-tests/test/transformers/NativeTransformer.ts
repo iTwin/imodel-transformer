@@ -1,13 +1,27 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
-import { Code, ExternalSourceProps, RepositoryLinkProps } from "@itwin/core-common";
-import { Element, ExternalSource, ExternalSourceIsInRepository, IModelDb, Relationship, RepositoryLink } from "@itwin/core-backend";
+import {
+  Code,
+  ExternalSourceProps,
+  RepositoryLinkProps,
+} from "@itwin/core-common";
+import {
+  Element,
+  ExternalSource,
+  ExternalSourceIsInRepository,
+  IModelDb,
+  Relationship,
+  RepositoryLink,
+} from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger } from "@itwin/core-bentley";
-import { TestTransformerModule, TransformRunner } from "../TestTransformerModule";
+import {
+  TestTransformerModule,
+  TransformRunner,
+} from "../TestTransformerModule";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 
@@ -29,7 +43,10 @@ class ProgressTransformer extends IModelTransformer {
 }
 
 const nativeTransformerTestModule: TestTransformerModule = {
-  async createIdentityTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<TransformRunner> {
+  async createIdentityTransform(
+    sourceDb: IModelDb,
+    targetDb: IModelDb
+  ): Promise<TransformRunner> {
     const transformer = new ProgressTransformer(sourceDb, targetDb);
     return {
       async run() {
@@ -39,11 +56,18 @@ const nativeTransformerTestModule: TestTransformerModule = {
       },
     };
   },
-  async createForkInitTransform(sourceDb: IModelDb, targetDb: IModelDb): Promise<TransformRunner> {
+  async createForkInitTransform(
+    sourceDb: IModelDb,
+    targetDb: IModelDb
+  ): Promise<TransformRunner> {
     // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
     const masterLinkRepoId = targetDb.elements.insertElement({
       classFullName: RepositoryLink.classFullName,
-      code: RepositoryLink.createCode(targetDb, IModelDb.repositoryModelId, "test-imodel"),
+      code: RepositoryLink.createCode(
+        targetDb,
+        IModelDb.repositoryModelId,
+        "test-imodel"
+      ),
       model: IModelDb.repositoryModelId,
       // url: "https://wherever-you-got-your-imodel.net",
       format: "iModel",
@@ -58,7 +82,8 @@ const nativeTransformerTestModule: TestTransformerModule = {
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
       connectorName: "iModel Transformer",
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      connectorVersion: require("@itwin/imodel-transformer/package.json").version,
+      connectorVersion: require("@itwin/imodel-transformer/package.json")
+        .version,
     } as ExternalSourceProps);
 
     const transformer = new ProgressTransformer(sourceDb, targetDb, {

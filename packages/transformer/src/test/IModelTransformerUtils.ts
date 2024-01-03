@@ -1,62 +1,184 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
 import { assert, expect } from "chai";
 import * as path from "path";
 import * as fs from "fs";
 import * as inspector from "inspector";
-import { CompressedId64Set, DbResult, Guid, Id64, Id64Set, Id64String, Mutable } from "@itwin/core-bentley";
+import {
+  CompressedId64Set,
+  DbResult,
+  Guid,
+  Id64,
+  Id64Set,
+  Id64String,
+  Mutable,
+} from "@itwin/core-bentley";
 import { Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
-  AuxCoordSystem, AuxCoordSystem2d, CategorySelector, DefinitionModel, DisplayStyle3d, DrawingCategory, DrawingGraphicRepresentsElement,
-  ECSqlStatement, Element, ElementAspect, ElementMultiAspect, ElementUniqueAspect, Entity, ExternalSourceAspect, FunctionalSchema,
-  GeometricElement3d, GeometryPart, HubMock, IModelDb, IModelJsFs, InformationPartitionElement, InformationRecordModel, Model, ModelSelector,
-  OrthographicViewDefinition, PhysicalElement, PhysicalModel, PhysicalObject, PhysicalPartition, Relationship, RelationshipProps,
-  RenderMaterialElement, SnapshotDb, SpatialCategory, SpatialLocationModel, SpatialViewDefinition, SubCategory, Subject, Texture,
+  AuxCoordSystem,
+  AuxCoordSystem2d,
+  CategorySelector,
+  DefinitionModel,
+  DisplayStyle3d,
+  DrawingCategory,
+  DrawingGraphicRepresentsElement,
+  ECSqlStatement,
+  Element,
+  ElementAspect,
+  ElementMultiAspect,
+  ElementUniqueAspect,
+  Entity,
+  ExternalSourceAspect,
+  FunctionalSchema,
+  GeometricElement3d,
+  GeometryPart,
+  HubMock,
+  IModelDb,
+  IModelJsFs,
+  InformationPartitionElement,
+  InformationRecordModel,
+  Model,
+  ModelSelector,
+  OrthographicViewDefinition,
+  PhysicalElement,
+  PhysicalModel,
+  PhysicalObject,
+  PhysicalPartition,
+  Relationship,
+  RelationshipProps,
+  RenderMaterialElement,
+  SnapshotDb,
+  SpatialCategory,
+  SpatialLocationModel,
+  SpatialViewDefinition,
+  SubCategory,
+  Subject,
+  Texture,
 } from "@itwin/core-backend";
 import * as TestUtils from "./TestUtils";
 import {
-  Base64EncodedString, BisCodeSpec, CategorySelectorProps, Code, CodeScopeSpec, CodeSpec, ColorDef, DisplayStyle3dSettingsProps, ElementAspectProps, ElementProps, EntityMetaData, FontProps,
-  GeometricElement3dProps, GeometryStreamIterator, IModel, ModelProps, ModelSelectorProps, PhysicalElementProps, Placement3d, QueryRowFormat, SkyBoxImageProps, SkyBoxImageType,
-  SpatialViewDefinitionProps, SubCategoryAppearance, SubjectProps, ViewDetails3dProps,
+  Base64EncodedString,
+  BisCodeSpec,
+  CategorySelectorProps,
+  Code,
+  CodeScopeSpec,
+  CodeSpec,
+  ColorDef,
+  DisplayStyle3dSettingsProps,
+  ElementAspectProps,
+  ElementProps,
+  EntityMetaData,
+  FontProps,
+  GeometricElement3dProps,
+  GeometryStreamIterator,
+  IModel,
+  ModelProps,
+  ModelSelectorProps,
+  PhysicalElementProps,
+  Placement3d,
+  QueryRowFormat,
+  SkyBoxImageProps,
+  SkyBoxImageType,
+  SpatialViewDefinitionProps,
+  SubCategoryAppearance,
+  SubjectProps,
+  ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler, IModelImporter, IModelTransformer } from "../transformer";
+import {
+  IModelExporter,
+  IModelExportHandler,
+  IModelImporter,
+  IModelTransformer,
+} from "../transformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 export class HubWrappers extends TestUtils.HubWrappers {
-  protected static override get hubMock() { return HubMock; }
+  protected static override get hubMock() {
+    return HubMock;
+  }
 }
 
 export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
-  protected static override get knownTestLocations(): { outputDir: string, assetsDir: string } { return KnownTestLocations; }
+  protected static override get knownTestLocations(): {
+    outputDir: string;
+    assetsDir: string;
+  } {
+    return KnownTestLocations;
+  }
 
-  public static createTeamIModel(outputDir: string, teamName: string, teamOrigin: Point3d, teamColor: ColorDef): SnapshotDb {
+  public static createTeamIModel(
+    outputDir: string,
+    teamName: string,
+    teamOrigin: Point3d,
+    teamColor: ColorDef
+  ): SnapshotDb {
     const teamFile: string = path.join(outputDir, `Team${teamName}.bim`);
     if (IModelJsFs.existsSync(teamFile)) {
       IModelJsFs.removeSync(teamFile);
     }
-    const iModelDb: SnapshotDb = SnapshotDb.createEmpty(teamFile, { rootSubject: { name: teamName }, createClassViews: true });
+    const iModelDb: SnapshotDb = SnapshotDb.createEmpty(teamFile, {
+      rootSubject: { name: teamName },
+      createClassViews: true,
+    });
     assert.exists(iModelDb);
-    IModelTransformerTestUtils.populateTeamIModel(iModelDb, teamName, teamOrigin, teamColor);
+    IModelTransformerTestUtils.populateTeamIModel(
+      iModelDb,
+      teamName,
+      teamOrigin,
+      teamColor
+    );
     iModelDb.saveChanges();
     return iModelDb;
   }
 
-  public static populateTeamIModel(teamDb: IModelDb, teamName: string, teamOrigin: Point3d, teamColor: ColorDef): void {
-    const contextSubjectId: Id64String = Subject.insert(teamDb, IModel.rootSubjectId, "Context");
+  public static populateTeamIModel(
+    teamDb: IModelDb,
+    teamName: string,
+    teamOrigin: Point3d,
+    teamColor: ColorDef
+  ): void {
+    const contextSubjectId: Id64String = Subject.insert(
+      teamDb,
+      IModel.rootSubjectId,
+      "Context"
+    );
     assert.isTrue(Id64.isValidId64(contextSubjectId));
-    const definitionModelId = DefinitionModel.insert(teamDb, IModel.rootSubjectId, `Definition${teamName}`);
+    const definitionModelId = DefinitionModel.insert(
+      teamDb,
+      IModel.rootSubjectId,
+      `Definition${teamName}`
+    );
     assert.isTrue(Id64.isValidId64(definitionModelId));
-    const teamSpatialCategoryId = this.insertSpatialCategory(teamDb, definitionModelId, `SpatialCategory${teamName}`, teamColor);
+    const teamSpatialCategoryId = this.insertSpatialCategory(
+      teamDb,
+      definitionModelId,
+      `SpatialCategory${teamName}`,
+      teamColor
+    );
     assert.isTrue(Id64.isValidId64(teamSpatialCategoryId));
-    const sharedSpatialCategoryId = this.insertSpatialCategory(teamDb, IModel.dictionaryId, "SpatialCategoryShared", ColorDef.white);
+    const sharedSpatialCategoryId = this.insertSpatialCategory(
+      teamDb,
+      IModel.dictionaryId,
+      "SpatialCategoryShared",
+      ColorDef.white
+    );
     assert.isTrue(Id64.isValidId64(sharedSpatialCategoryId));
-    const sharedDrawingCategoryId = DrawingCategory.insert(teamDb, IModel.dictionaryId, "DrawingCategoryShared", new SubCategoryAppearance());
+    const sharedDrawingCategoryId = DrawingCategory.insert(
+      teamDb,
+      IModel.dictionaryId,
+      "DrawingCategoryShared",
+      new SubCategoryAppearance()
+    );
     assert.isTrue(Id64.isValidId64(sharedDrawingCategoryId));
-    const physicalModelId = PhysicalModel.insert(teamDb, IModel.rootSubjectId, `Physical${teamName}`);
+    const physicalModelId = PhysicalModel.insert(
+      teamDb,
+      IModel.rootSubjectId,
+      `Physical${teamName}`
+    );
     assert.isTrue(Id64.isValidId64(physicalModelId));
     // insert PhysicalObject-team1 using team SpatialCategory
     const physicalObjectProps1: PhysicalElementProps = {
@@ -71,7 +193,8 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
         angles: YawPitchRollAngles.createDegrees(0, 0, 0),
       },
     };
-    const physicalObjectId1: Id64String = teamDb.elements.insertElement(physicalObjectProps1);
+    const physicalObjectId1: Id64String =
+      teamDb.elements.insertElement(physicalObjectProps1);
     assert.isTrue(Id64.isValidId64(physicalObjectId1));
     // insert PhysicalObject2 using "shared" SpatialCategory
     const physicalObjectProps2: PhysicalElementProps = {
@@ -86,90 +209,226 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
         angles: YawPitchRollAngles.createDegrees(0, 0, 0),
       },
     };
-    const physicalObjectId2: Id64String = teamDb.elements.insertElement(physicalObjectProps2);
+    const physicalObjectId2: Id64String =
+      teamDb.elements.insertElement(physicalObjectProps2);
     assert.isTrue(Id64.isValidId64(physicalObjectId2));
   }
 
-  public static createSharedIModel(outputDir: string, teamNames: string[]): SnapshotDb {
+  public static createSharedIModel(
+    outputDir: string,
+    teamNames: string[]
+  ): SnapshotDb {
     const iModelName: string = `Shared${teamNames.join("")}`;
     const iModelFile: string = path.join(outputDir, `${iModelName}.bim`);
     if (IModelJsFs.existsSync(iModelFile)) {
       IModelJsFs.removeSync(iModelFile);
     }
-    const iModelDb: SnapshotDb = SnapshotDb.createEmpty(iModelFile, { rootSubject: { name: iModelName } });
+    const iModelDb: SnapshotDb = SnapshotDb.createEmpty(iModelFile, {
+      rootSubject: { name: iModelName },
+    });
     assert.exists(iModelDb);
     teamNames.forEach((teamName: string) => {
-      const subjectId: Id64String = Subject.insert(iModelDb, IModel.rootSubjectId, teamName);
+      const subjectId: Id64String = Subject.insert(
+        iModelDb,
+        IModel.rootSubjectId,
+        teamName
+      );
       assert.isTrue(Id64.isValidId64(subjectId));
     });
     return iModelDb;
   }
 
-  public static assertTeamIModelContents(iModelDb: IModelDb, teamName: string): void {
-    const definitionPartitionId: Id64String = this.queryDefinitionPartitionId(iModelDb, IModel.rootSubjectId, teamName);
-    const teamSpatialCategoryId = this.querySpatialCategoryId(iModelDb, definitionPartitionId, teamName);
-    const sharedSpatialCategoryId = this.querySpatialCategoryId(iModelDb, IModel.dictionaryId, "Shared");
-    const physicalPartitionId: Id64String = this.queryPhysicalPartitionId(iModelDb, IModel.rootSubjectId, teamName);
-    const physicalObjectId1: Id64String = this.queryPhysicalElementId(iModelDb, physicalPartitionId, teamSpatialCategoryId, `${teamName}1`);
-    const physicalObject1: PhysicalElement = iModelDb.elements.getElement<PhysicalElement>(physicalObjectId1);
-    assert.equal(physicalObject1.code.spec, iModelDb.codeSpecs.getByName(BisCodeSpec.nullCodeSpec).id);
+  public static assertTeamIModelContents(
+    iModelDb: IModelDb,
+    teamName: string
+  ): void {
+    const definitionPartitionId: Id64String = this.queryDefinitionPartitionId(
+      iModelDb,
+      IModel.rootSubjectId,
+      teamName
+    );
+    const teamSpatialCategoryId = this.querySpatialCategoryId(
+      iModelDb,
+      definitionPartitionId,
+      teamName
+    );
+    const sharedSpatialCategoryId = this.querySpatialCategoryId(
+      iModelDb,
+      IModel.dictionaryId,
+      "Shared"
+    );
+    const physicalPartitionId: Id64String = this.queryPhysicalPartitionId(
+      iModelDb,
+      IModel.rootSubjectId,
+      teamName
+    );
+    const physicalObjectId1: Id64String = this.queryPhysicalElementId(
+      iModelDb,
+      physicalPartitionId,
+      teamSpatialCategoryId,
+      `${teamName}1`
+    );
+    const physicalObject1: PhysicalElement =
+      iModelDb.elements.getElement<PhysicalElement>(physicalObjectId1);
+    assert.equal(
+      physicalObject1.code.spec,
+      iModelDb.codeSpecs.getByName(BisCodeSpec.nullCodeSpec).id
+    );
     assert.equal(physicalObject1.code.scope, IModel.rootSubjectId);
     assert.isTrue(physicalObject1.code.value === "");
     assert.equal(physicalObject1.category, teamSpatialCategoryId);
-    const physicalObjectId2: Id64String = this.queryPhysicalElementId(iModelDb, physicalPartitionId, sharedSpatialCategoryId, `${teamName}2`);
-    const physicalObject2: PhysicalElement = iModelDb.elements.getElement<PhysicalElement>(physicalObjectId2);
+    const physicalObjectId2: Id64String = this.queryPhysicalElementId(
+      iModelDb,
+      physicalPartitionId,
+      sharedSpatialCategoryId,
+      `${teamName}2`
+    );
+    const physicalObject2: PhysicalElement =
+      iModelDb.elements.getElement<PhysicalElement>(physicalObjectId2);
     assert.equal(physicalObject2.category, sharedSpatialCategoryId);
   }
 
-  public static assertSharedIModelContents(iModelDb: IModelDb, teamNames: string[]): void {
-    const sharedSpatialCategoryId = this.querySpatialCategoryId(iModelDb, IModel.dictionaryId, "Shared");
+  public static assertSharedIModelContents(
+    iModelDb: IModelDb,
+    teamNames: string[]
+  ): void {
+    const sharedSpatialCategoryId = this.querySpatialCategoryId(
+      iModelDb,
+      IModel.dictionaryId,
+      "Shared"
+    );
     assert.isTrue(Id64.isValidId64(sharedSpatialCategoryId));
-    const aspects: ExternalSourceAspect[] = iModelDb.elements.getAspects(sharedSpatialCategoryId, ExternalSourceAspect.classFullName) as ExternalSourceAspect[];
-    assert.isAtLeast(teamNames.length, aspects.length, "Should have an ExternalSourceAspect from each source");
+    const aspects: ExternalSourceAspect[] = iModelDb.elements.getAspects(
+      sharedSpatialCategoryId,
+      ExternalSourceAspect.classFullName
+    ) as ExternalSourceAspect[];
+    assert.isAtLeast(
+      teamNames.length,
+      aspects.length,
+      "Should have an ExternalSourceAspect from each source"
+    );
     teamNames.forEach((teamName: string) => {
       const subjectId: Id64String = this.querySubjectId(iModelDb, teamName);
-      const definitionPartitionId: Id64String = this.queryDefinitionPartitionId(iModelDb, subjectId, teamName);
-      const teamSpatialCategoryId = this.querySpatialCategoryId(iModelDb, definitionPartitionId, teamName);
-      const physicalPartitionId: Id64String = this.queryPhysicalPartitionId(iModelDb, subjectId, teamName);
-      const physicalObjectId1: Id64String = this.queryPhysicalElementId(iModelDb, physicalPartitionId, teamSpatialCategoryId, `${teamName}1`);
-      const physicalObject1: PhysicalElement = iModelDb.elements.getElement<PhysicalElement>(physicalObjectId1);
-      assert.equal(physicalObject1.code.spec, iModelDb.codeSpecs.getByName(BisCodeSpec.nullCodeSpec).id);
+      const definitionPartitionId: Id64String = this.queryDefinitionPartitionId(
+        iModelDb,
+        subjectId,
+        teamName
+      );
+      const teamSpatialCategoryId = this.querySpatialCategoryId(
+        iModelDb,
+        definitionPartitionId,
+        teamName
+      );
+      const physicalPartitionId: Id64String = this.queryPhysicalPartitionId(
+        iModelDb,
+        subjectId,
+        teamName
+      );
+      const physicalObjectId1: Id64String = this.queryPhysicalElementId(
+        iModelDb,
+        physicalPartitionId,
+        teamSpatialCategoryId,
+        `${teamName}1`
+      );
+      const physicalObject1: PhysicalElement =
+        iModelDb.elements.getElement<PhysicalElement>(physicalObjectId1);
+      assert.equal(
+        physicalObject1.code.spec,
+        iModelDb.codeSpecs.getByName(BisCodeSpec.nullCodeSpec).id
+      );
       assert.isTrue(physicalObject1.code.value === "");
       assert.equal(physicalObject1.category, teamSpatialCategoryId);
       // provenance no longer adds an external source aspect if fedguids are available
-      expect(iModelDb.elements.getAspects(physicalObjectId1, ExternalSourceAspect.classFullName)).to.have.length(0);
-      expect(iModelDb.elements.getAspects(teamSpatialCategoryId, ExternalSourceAspect.classFullName)).to.have.length(0);
-      const physicalObjectId2: Id64String = this.queryPhysicalElementId(iModelDb, physicalPartitionId, sharedSpatialCategoryId, `${teamName}2`);
-      const physicalObject2: PhysicalElement = iModelDb.elements.getElement<PhysicalElement>(physicalObjectId2);
+      expect(
+        iModelDb.elements.getAspects(
+          physicalObjectId1,
+          ExternalSourceAspect.classFullName
+        )
+      ).to.have.length(0);
+      expect(
+        iModelDb.elements.getAspects(
+          teamSpatialCategoryId,
+          ExternalSourceAspect.classFullName
+        )
+      ).to.have.length(0);
+      const physicalObjectId2: Id64String = this.queryPhysicalElementId(
+        iModelDb,
+        physicalPartitionId,
+        sharedSpatialCategoryId,
+        `${teamName}2`
+      );
+      const physicalObject2: PhysicalElement =
+        iModelDb.elements.getElement<PhysicalElement>(physicalObjectId2);
       assert.equal(physicalObject2.category, sharedSpatialCategoryId);
-      expect(iModelDb.elements.getAspects(physicalObjectId2, ExternalSourceAspect.classFullName)).to.have.length(0);
+      expect(
+        iModelDb.elements.getAspects(
+          physicalObjectId2,
+          ExternalSourceAspect.classFullName
+        )
+      ).to.have.length(0);
     });
   }
 
-  public static createConsolidatedIModel(outputDir: string, consolidatedName: string): SnapshotDb {
-    const consolidatedFile: string = path.join(outputDir, `${consolidatedName}.bim`);
+  public static createConsolidatedIModel(
+    outputDir: string,
+    consolidatedName: string
+  ): SnapshotDb {
+    const consolidatedFile: string = path.join(
+      outputDir,
+      `${consolidatedName}.bim`
+    );
     if (IModelJsFs.existsSync(consolidatedFile)) {
       IModelJsFs.removeSync(consolidatedFile);
     }
-    const consolidatedDb: SnapshotDb = SnapshotDb.createEmpty(consolidatedFile, { rootSubject: { name: `${consolidatedName}` } });
+    const consolidatedDb: SnapshotDb = SnapshotDb.createEmpty(
+      consolidatedFile,
+      { rootSubject: { name: `${consolidatedName}` } }
+    );
     assert.exists(consolidatedDb);
-    const definitionModelId = DefinitionModel.insert(consolidatedDb, IModel.rootSubjectId, `Definition${consolidatedName}`);
+    const definitionModelId = DefinitionModel.insert(
+      consolidatedDb,
+      IModel.rootSubjectId,
+      `Definition${consolidatedName}`
+    );
     assert.isTrue(Id64.isValidId64(definitionModelId));
-    const physicalModelId = PhysicalModel.insert(consolidatedDb, IModel.rootSubjectId, `Physical${consolidatedName}`);
+    const physicalModelId = PhysicalModel.insert(
+      consolidatedDb,
+      IModel.rootSubjectId,
+      `Physical${consolidatedName}`
+    );
     assert.isTrue(Id64.isValidId64(physicalModelId));
     consolidatedDb.saveChanges();
     return consolidatedDb;
   }
 
-  public static assertConsolidatedIModelContents(iModelDb: IModelDb, consolidatedName: string): void {
+  public static assertConsolidatedIModelContents(
+    iModelDb: IModelDb,
+    consolidatedName: string
+  ): void {
     // assert what should exist
-    const definitionModelId: Id64String = this.queryDefinitionPartitionId(iModelDb, IModel.rootSubjectId, consolidatedName);
+    const definitionModelId: Id64String = this.queryDefinitionPartitionId(
+      iModelDb,
+      IModel.rootSubjectId,
+      consolidatedName
+    );
     assert.isTrue(Id64.isValidId64(definitionModelId));
-    const categoryA: Id64String = this.querySpatialCategoryId(iModelDb, definitionModelId, "A");
-    const categoryB: Id64String = this.querySpatialCategoryId(iModelDb, definitionModelId, "B");
+    const categoryA: Id64String = this.querySpatialCategoryId(
+      iModelDb,
+      definitionModelId,
+      "A"
+    );
+    const categoryB: Id64String = this.querySpatialCategoryId(
+      iModelDb,
+      definitionModelId,
+      "B"
+    );
     assert.isTrue(Id64.isValidId64(categoryA));
     assert.isTrue(Id64.isValidId64(categoryB));
-    const physicalModelId: Id64String = this.queryPhysicalPartitionId(iModelDb, IModel.rootSubjectId, consolidatedName);
+    const physicalModelId: Id64String = this.queryPhysicalPartitionId(
+      iModelDb,
+      IModel.rootSubjectId,
+      consolidatedName
+    );
     assert.isTrue(Id64.isValidId64(physicalModelId));
     this.queryPhysicalElementId(iModelDb, physicalModelId, categoryA, "A1");
     this.queryPhysicalElementId(iModelDb, physicalModelId, categoryB, "B1");
@@ -180,25 +439,37 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
 }
 
 /** map of properties in class's EC definition to their name in the JS implementation if different */
-const aliasedProperties: Record<string, Record<string, string> | undefined> = new Proxy({
-  // can't use GeometricElement.classFullName at module scope
-  ["BisCore:GeometricElement3d".toLowerCase()]: {
-    geometryStream: "geom",
-  },
-}, {
-  get(target, key: string, receiver) { return Reflect.get(target, key.toLowerCase(), receiver); },
-});
+const aliasedProperties: Record<string, Record<string, string> | undefined> =
+  new Proxy(
+    {
+      // can't use GeometricElement.classFullName at module scope
+      ["BisCore:GeometricElement3d".toLowerCase()]: {
+        geometryStream: "geom",
+      },
+    },
+    {
+      get(target, key: string, receiver) {
+        return Reflect.get(target, key.toLowerCase(), receiver);
+      },
+    }
+  );
 
 /**
  * get all properties, including those of bases and mixins from metadata,
  * and aliases some properties where the name differs in JS land from the ec property
  */
 function getAllElemMetaDataProperties(elem: Element) {
-  function getAllClassMetaDataProperties(className: string, metadata: EntityMetaData) {
+  function getAllClassMetaDataProperties(
+    className: string,
+    metadata: EntityMetaData
+  ) {
     const allProperties = { ...metadata?.properties };
     for (const baseName of metadata?.baseClasses ?? []) {
       const base = elem.iModel.getMetaData(baseName);
-      Object.assign(allProperties, getAllClassMetaDataProperties(baseName, base));
+      Object.assign(
+        allProperties,
+        getAllClassMetaDataProperties(baseName, base)
+      );
     }
 
     Object.assign(allProperties, aliasedProperties[className.toLowerCase()]);
@@ -206,8 +477,7 @@ function getAllElemMetaDataProperties(elem: Element) {
   }
 
   const classMetaData = elem.getClassMetaData();
-  if (!classMetaData)
-    return undefined;
+  if (!classMetaData) return undefined;
 
   return getAllClassMetaDataProperties(elem.classFullName, classMetaData);
 }
@@ -221,11 +491,13 @@ export async function assertIdentityTransformation(
   sourceDb: IModelDb,
   targetDb: IModelDb,
   /** either an IModelTransformer instance or a function mapping source element ids to target elements */
-  remapper: IModelTransformer |  {
-    findTargetCodeSpecId: (id: Id64String) => Id64String;
-    findTargetElementId: (id: Id64String) => Id64String;
-    findTargetAspectId: (id: Id64String) => Id64String;
-  } = {
+  remapper:
+    | IModelTransformer
+    | {
+        findTargetCodeSpecId: (id: Id64String) => Id64String;
+        findTargetElementId: (id: Id64String) => Id64String;
+        findTargetAspectId: (id: Id64String) => Id64String;
+      } = {
     findTargetCodeSpecId: (id) => id,
     findTargetElementId: (id) => id,
     findTargetAspectId: (id) => id,
@@ -236,16 +508,23 @@ export async function assertIdentityTransformation(
     expectedElemsOnlyInTarget = [],
     // by default ignore the classes that the transformer ignores, this default is wrong if the option
     // [IModelTransformerOptions.includeSourceProvenance]$(transformer) is set to true
-    classesToIgnoreMissingEntitiesOfInTarget = [...IModelTransformer.provenanceElementClasses, ...IModelTransformer.provenanceElementAspectClasses],
+    classesToIgnoreMissingEntitiesOfInTarget = [
+      ...IModelTransformer.provenanceElementClasses,
+      ...IModelTransformer.provenanceElementAspectClasses,
+    ],
     compareElemGeom = false,
     ignoreFedGuidsOnAlwaysPresentElementIds = true,
   }: {
     expectedElemsOnlyInSource?: Partial<ElementProps>[];
     expectedElemsOnlyInTarget?: Partial<ElementProps>[];
     /** return undefined to use the default allowProps check that expects a transformation */
-    allowPropChange?: (sourceElem: Element, targetElem: Element, propName: string) => boolean | undefined;
+    allowPropChange?: (
+      sourceElem: Element,
+      targetElem: Element,
+      propName: string
+    ) => boolean | undefined;
     /** before checking elements that are only in the source are correct, filter out elements of these classes */
-    classesToIgnoreMissingEntitiesOfInTarget?: typeof Entity[];
+    classesToIgnoreMissingEntitiesOfInTarget?: (typeof Entity)[];
     compareElemGeom?: boolean;
     /** if true, ignores the fed guids present on always present elements (present even in an empty iModel!).
      * That list includes the root subject (0x1), dictionaryModel (0x10) and the realityDataSourcesModel (0xe) */
@@ -253,12 +532,18 @@ export async function assertIdentityTransformation(
   } = {}
 ) {
   const alwaysPresentElementIds = new Set<Id64String>(["0x1", "0x10", "0xe"]);
-  const [remapElem, remapCodeSpec, remapAspect]
-    = remapper instanceof IModelTransformer
-      ? [remapper.context.findTargetElementId.bind(remapper.context),
-        remapper.context.findTargetCodeSpecId.bind(remapper.context),
-        remapper.context.findTargetAspectId.bind(remapper.context)]
-      : [remapper.findTargetElementId, remapper.findTargetCodeSpecId, remapper.findTargetAspectId];
+  const [remapElem, remapCodeSpec, remapAspect] =
+    remapper instanceof IModelTransformer
+      ? [
+          remapper.context.findTargetElementId.bind(remapper.context),
+          remapper.context.findTargetCodeSpecId.bind(remapper.context),
+          remapper.context.findTargetAspectId.bind(remapper.context),
+        ]
+      : [
+          remapper.findTargetElementId,
+          remapper.findTargetCodeSpecId,
+          remapper.findTargetAspectId,
+        ];
 
   expect(sourceDb.nativeDb.hasUnsavedChanges()).to.be.false;
   expect(targetDb.nativeDb.hasUnsavedChanges()).to.be.false;
@@ -272,8 +557,14 @@ export async function assertIdentityTransformation(
     "SELECT ECInstanceId FROM bis.Element"
   )) {
     const targetElemId = remapElem(sourceElemId);
-    const sourceElem = sourceDb.elements.getElement({ id: sourceElemId, wantGeometry: compareElemGeom });
-    const targetElem = targetDb.elements.tryGetElement({ id: targetElemId, wantGeometry: compareElemGeom });
+    const sourceElem = sourceDb.elements.getElement({
+      id: sourceElemId,
+      wantGeometry: compareElemGeom,
+    });
+    const targetElem = targetDb.elements.tryGetElement({
+      id: targetElemId,
+      wantGeometry: compareElemGeom,
+    });
     // expect(targetElem.toExist)
     sourceToTargetElemsMap.set(sourceElem, targetElem);
     if (targetElem) {
@@ -286,34 +577,51 @@ export async function assertIdentityTransformation(
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
         // FIXME<Mike>: Doesn't this allow propChanges to ANY props if sourceElem.federationGuid is undefined?
-        const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
-          ?? (sourceElem.federationGuid === undefined || propName === "jsonProperties");
+        const propChangesAllowed =
+          allowPropChange?.(sourceElem, targetElem, propName) ??
+          (sourceElem.federationGuid === undefined ||
+            propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
           // so we query the prop instead of the checking for the property on the element
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
-          const relationTargetInSourceId = sourceDb.withPreparedStatement(sql, (stmt) => {
-            stmt.bindId("id", sourceElemId);
-            stmt.step();
-            return stmt.getValue(0).getId() ?? Id64.invalid;
-          });
-          const relationTargetInTargetId = targetDb.withPreparedStatement(sql, (stmt) => {
-            stmt.bindId("id", targetElemId);
-            expect(stmt.step()).to.equal(DbResult.BE_SQLITE_ROW);
-            return stmt.getValue(0).getId() ?? Id64.invalid;
-          });
-          const mappedRelationTargetInTargetId = (propName === "codeSpec" ? remapCodeSpec : remapElem)(relationTargetInSourceId);
+          const relationTargetInSourceId = sourceDb.withPreparedStatement(
+            sql,
+            (stmt) => {
+              stmt.bindId("id", sourceElemId);
+              stmt.step();
+              return stmt.getValue(0).getId() ?? Id64.invalid;
+            }
+          );
+          const relationTargetInTargetId = targetDb.withPreparedStatement(
+            sql,
+            (stmt) => {
+              stmt.bindId("id", targetElemId);
+              expect(stmt.step()).to.equal(DbResult.BE_SQLITE_ROW);
+              return stmt.getValue(0).getId() ?? Id64.invalid;
+            }
+          );
+          const mappedRelationTargetInTargetId = (
+            propName === "codeSpec" ? remapCodeSpec : remapElem
+          )(relationTargetInSourceId);
           expect(relationTargetInTargetId).to.equal(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
-          if (ignoreFedGuidsOnAlwaysPresentElementIds && propName === "federationGuid" && alwaysPresentElementIds.has(sourceElemId)) {
+          if (
+            ignoreFedGuidsOnAlwaysPresentElementIds &&
+            propName === "federationGuid" &&
+            alwaysPresentElementIds.has(sourceElemId)
+          ) {
             // Skip comparing this prop if its the fedguid and its one of the always present element ids and ignoreFedGuidsOnAlwaysPresentElementIds is true.
             continue;
           }
           // kept for conditional breakpoints
-          const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
+          const _propEq = TestUtils.advancedDeepEqual(
+            targetElem.asAny[propName],
+            sourceElem.asAny[propName]
+          );
           expect(
             targetElem.asAny[propName],
             `${targetElem.id}[${propName}] didn't match ${sourceElem.id}[${propName}]`
@@ -345,19 +653,18 @@ export async function assertIdentityTransformation(
           if (image?.texture === Id64.invalid)
             (image.texture as string | undefined) = undefined;
 
-          if (image?.texture)
-            image.texture = remapElem(image.texture);
+          if (image?.texture) image.texture = remapElem(image.texture);
 
           if (!sky.twoColor)
             expectedSourceElemJsonProps.styles.environment.sky.twoColor = false;
 
-          if ((sky as any).file === "")
-            delete (sky as any).file;
+          if ((sky as any).file === "") delete (sky as any).file;
         }
 
-        const excludedElements = typeof styles?.excludedElements === "string"
-          ? CompressedId64Set.decompressArray(styles.excludedElements)
-          : styles?.excludedElements;
+        const excludedElements =
+          typeof styles?.excludedElements === "string"
+            ? CompressedId64Set.decompressArray(styles.excludedElements)
+            : styles?.excludedElements;
 
         for (let i = 0; i < (styles?.excludedElements?.length ?? 0); ++i) {
           const id = excludedElements![i];
@@ -365,13 +672,14 @@ export async function assertIdentityTransformation(
         }
 
         for (const ovr of styles?.subCategoryOvr ?? []) {
-          if (ovr.subCategory)
-            ovr.subCategory = remapElem(ovr.subCategory);
+          if (ovr.subCategory) ovr.subCategory = remapElem(ovr.subCategory);
         }
       }
 
       if (sourceElem instanceof SpatialViewDefinition) {
-        const viewProps = expectedSourceElemJsonProps.viewDetails as ViewDetails3dProps | undefined;
+        const viewProps = expectedSourceElemJsonProps.viewDetails as
+          | ViewDetails3dProps
+          | undefined;
         if (viewProps && viewProps.acs)
           viewProps.acs = remapElem(viewProps.acs);
       }
@@ -389,7 +697,11 @@ export async function assertIdentityTransformation(
     }
 
     for (const sourceAspect of sourceDb.elements.getAspects(sourceElemId)) {
-      if (classesToIgnoreMissingEntitiesOfInTarget.some((c) => sourceAspect instanceof c))
+      if (
+        classesToIgnoreMissingEntitiesOfInTarget.some(
+          (c) => sourceAspect instanceof c
+        )
+      )
         continue;
       const sourceAspectId = sourceAspect.id;
       const targetAspectId = remapAspect(sourceAspectId);
@@ -400,7 +712,18 @@ export async function assertIdentityTransformation(
         }
         return aspects;
       };
-      expect(targetAspectId, `Expected sourceAspect:\n\t ${JSON.stringify(sourceAspect)}\n on sourceElement:\n\t ${JSON.stringify(sourceElem)}\n with targetElement:\n\t ${JSON.stringify(targetElem)}\n to have a corresponding targetAspectId that wasn't invalid.\n targetElement's aspects:\n${collectAllAspects(targetElemId)}`).not.to.equal(Id64.invalid);
+      expect(
+        targetAspectId,
+        `Expected sourceAspect:\n\t ${JSON.stringify(
+          sourceAspect
+        )}\n on sourceElement:\n\t ${JSON.stringify(
+          sourceElem
+        )}\n with targetElement:\n\t ${JSON.stringify(
+          targetElem
+        )}\n to have a corresponding targetAspectId that wasn't invalid.\n targetElement's aspects:\n${collectAllAspects(
+          targetElemId
+        )}`
+      ).not.to.equal(Id64.invalid);
       const targetAspect = targetDb.elements.getAspect(targetAspectId);
       expect(targetAspect).not.to.be.undefined;
     }
@@ -443,11 +766,19 @@ export async function assertIdentityTransformation(
         return rawProps;
       });
 
-  const elementsOnlyInSourceAsInvariant = makeElemsInvariant([...onlyInSourceElements.values()]);
-  const elementsOnlyInTargetAsInvariant = makeElemsInvariant([...onlyInTargetElements.values()]);
+  const elementsOnlyInSourceAsInvariant = makeElemsInvariant([
+    ...onlyInSourceElements.values(),
+  ]);
+  const elementsOnlyInTargetAsInvariant = makeElemsInvariant([
+    ...onlyInTargetElements.values(),
+  ]);
 
-  expect(elementsOnlyInSourceAsInvariant).to.deep.equal(expectedElemsOnlyInSource);
-  expect(elementsOnlyInTargetAsInvariant).to.deep.equal(expectedElemsOnlyInTarget);
+  expect(elementsOnlyInSourceAsInvariant).to.deep.equal(
+    expectedElemsOnlyInSource
+  );
+  expect(elementsOnlyInTargetAsInvariant).to.deep.equal(
+    expectedElemsOnlyInTarget
+  );
 
   const sourceToTargetModelsMap = new Map<Model, Model | undefined>();
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
@@ -468,10 +799,10 @@ export async function assertIdentityTransformation(
       const expectedSourceModelJsonProps = { ...sourceModel.jsonProperties };
       const _eq = TestUtils.advancedDeepEqual(
         expectedSourceModelJsonProps,
-        targetModel.jsonProperties,
+        targetModel.jsonProperties
       );
       expect(targetModel.jsonProperties).to.deep.advancedEqual(
-        expectedSourceModelJsonProps,
+        expectedSourceModelJsonProps
       );
     }
   }
@@ -527,8 +858,7 @@ export async function assertIdentityTransformation(
     const isOnlyInSource =
       onlyInSourceElements.has(relInSource.SourceECInstanceId) &&
       onlyInSourceElements.has(relInSource.TargetECInstanceId);
-    if (isOnlyInSource)
-      continue;
+    if (isOnlyInSource) continue;
 
     const relSourceInTarget = remapElem(relInSource.SourceECInstanceId);
     expect(relSourceInTarget).to.not.equal(Id64.invalid);
@@ -547,7 +877,10 @@ export async function assertIdentityTransformation(
         return s.getValue(0).getString();
       }
     );
-    expect(relInTarget, `rel ${relClassName}:${relInSource.SourceECInstanceId}->${relInSource.TargetECInstanceId} was missing`).not.to.be.undefined;
+    expect(
+      relInTarget,
+      `rel ${relClassName}:${relInSource.SourceECInstanceId}->${relInSource.TargetECInstanceId} was missing`
+    ).not.to.be.undefined;
     // this won't work if the relationship instance has navigation properties (or any property that was changed by the transformer)
     const makeRelInvariant = ({
       SourceECInstanceId: _1,
@@ -571,22 +904,42 @@ export async function assertIdentityTransformation(
 export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestScenario {
   public static async prepareTargetDb(targetDb: IModelDb): Promise<void> {
     // Import desired target schemas
-    const targetSchemaFileName: string = path.join(KnownTestLocations.assetsDir, "ExtensiveTestScenarioTarget.ecschema.xml");
+    const targetSchemaFileName: string = path.join(
+      KnownTestLocations.assetsDir,
+      "ExtensiveTestScenarioTarget.ecschema.xml"
+    );
     await targetDb.importSchemas([targetSchemaFileName]);
     // Insert a target-only CodeSpec to test remapping
-    const targetCodeSpecId: Id64String = targetDb.codeSpecs.insert("TargetCodeSpec", CodeScopeSpec.Type.Model);
+    const targetCodeSpecId: Id64String = targetDb.codeSpecs.insert(
+      "TargetCodeSpec",
+      CodeScopeSpec.Type.Model
+    );
     assert.isTrue(Id64.isValidId64(targetCodeSpecId));
     // Insert some elements to avoid getting same IDs for sourceDb and targetDb
-    const subjectId = Subject.insert(targetDb, IModel.rootSubjectId, "Only in Target");
+    const subjectId = Subject.insert(
+      targetDb,
+      IModel.rootSubjectId,
+      "Only in Target"
+    );
     Subject.insert(targetDb, subjectId, "S1");
     Subject.insert(targetDb, subjectId, "S2");
     Subject.insert(targetDb, subjectId, "S3");
     Subject.insert(targetDb, subjectId, "S4");
-    const targetPhysicalCategoryId = IModelTransformerTestUtils.insertSpatialCategory(targetDb, IModel.dictionaryId, "TargetPhysicalCategory", ColorDef.red);
+    const targetPhysicalCategoryId =
+      IModelTransformerTestUtils.insertSpatialCategory(
+        targetDb,
+        IModel.dictionaryId,
+        "TargetPhysicalCategory",
+        ColorDef.red
+      );
     assert.isTrue(Id64.isValidId64(targetPhysicalCategoryId));
   }
 
-  public static assertTargetDbContents(sourceDb: IModelDb, targetDb: IModelDb, targetSubjectName: string = "Subject"): void {
+  public static assertTargetDbContents(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetSubjectName: string = "Subject"
+  ): void {
     // CodeSpec
     assert.isTrue(targetDb.codeSpecs.hasName("TargetCodeSpec"));
     assert.isTrue(targetDb.codeSpecs.hasName("InformationRecords"));
@@ -596,100 +949,291 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     // Font
     assert.exists(targetDb.fontMap.getFont("Arial"));
     // Subject
-    const subjectId: Id64String = targetDb.elements.queryElementIdByCode(Subject.createCode(targetDb, IModel.rootSubjectId, targetSubjectName))!;
+    const subjectId: Id64String = targetDb.elements.queryElementIdByCode(
+      Subject.createCode(targetDb, IModel.rootSubjectId, targetSubjectName)
+    )!;
     assert.isTrue(Id64.isValidId64(subjectId));
-    const subjectProps: SubjectProps = targetDb.elements.getElementProps(subjectId);
+    const subjectProps: SubjectProps =
+      targetDb.elements.getElementProps(subjectId);
     assert.equal(subjectProps.description, `${targetSubjectName} Description`);
-    const sourceOnlySubjectId = targetDb.elements.queryElementIdByCode(Subject.createCode(targetDb, IModel.rootSubjectId, "Only in Source"));
+    const sourceOnlySubjectId = targetDb.elements.queryElementIdByCode(
+      Subject.createCode(targetDb, IModel.rootSubjectId, "Only in Source")
+    );
     assert.equal(undefined, sourceOnlySubjectId);
-    const targetOnlySubjectId = targetDb.elements.queryElementIdByCode(Subject.createCode(targetDb, IModel.rootSubjectId, "Only in Target"))!;
+    const targetOnlySubjectId = targetDb.elements.queryElementIdByCode(
+      Subject.createCode(targetDb, IModel.rootSubjectId, "Only in Target")
+    )!;
     assert.isTrue(Id64.isValidId64(targetOnlySubjectId));
     // Partitions / Models
-    const definitionModelId = targetDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(targetDb, subjectId, "Definition"))!;
-    const informationModelId = targetDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(targetDb, subjectId, "Information"))!;
-    const groupModelId = targetDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(targetDb, subjectId, "Group"))!;
-    const physicalModelId = targetDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(targetDb, subjectId, "Physical"))!;
-    const spatialLocationModelId = targetDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(targetDb, subjectId, "SpatialLocation"))!;
-    const documentListModelId = targetDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(targetDb, subjectId, "Document"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, definitionModelId);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, informationModelId);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, groupModelId);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, physicalModelId);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, spatialLocationModelId);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, documentListModelId);
-    const physicalModel: PhysicalModel = targetDb.models.getModel<PhysicalModel>(physicalModelId);
-    const spatialLocationModel: SpatialLocationModel = targetDb.models.getModel<SpatialLocationModel>(spatialLocationModelId);
+    const definitionModelId = targetDb.elements.queryElementIdByCode(
+      InformationPartitionElement.createCode(targetDb, subjectId, "Definition")
+    )!;
+    const informationModelId = targetDb.elements.queryElementIdByCode(
+      InformationPartitionElement.createCode(targetDb, subjectId, "Information")
+    )!;
+    const groupModelId = targetDb.elements.queryElementIdByCode(
+      InformationPartitionElement.createCode(targetDb, subjectId, "Group")
+    )!;
+    const physicalModelId = targetDb.elements.queryElementIdByCode(
+      InformationPartitionElement.createCode(targetDb, subjectId, "Physical")
+    )!;
+    const spatialLocationModelId = targetDb.elements.queryElementIdByCode(
+      InformationPartitionElement.createCode(
+        targetDb,
+        subjectId,
+        "SpatialLocation"
+      )
+    )!;
+    const documentListModelId = targetDb.elements.queryElementIdByCode(
+      InformationPartitionElement.createCode(targetDb, subjectId, "Document")
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      definitionModelId
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      informationModelId
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      groupModelId
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      physicalModelId
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      spatialLocationModelId
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      documentListModelId
+    );
+    const physicalModel: PhysicalModel =
+      targetDb.models.getModel<PhysicalModel>(physicalModelId);
+    const spatialLocationModel: SpatialLocationModel =
+      targetDb.models.getModel<SpatialLocationModel>(spatialLocationModelId);
     assert.isFalse(physicalModel.isPlanProjection);
     assert.isTrue(spatialLocationModel.isPlanProjection);
     // SpatialCategory
-    const spatialCategoryId = targetDb.elements.queryElementIdByCode(SpatialCategory.createCode(targetDb, definitionModelId, "SpatialCategory"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, spatialCategoryId);
-    const spatialCategoryProps = targetDb.elements.getElementProps(spatialCategoryId);
+    const spatialCategoryId = targetDb.elements.queryElementIdByCode(
+      SpatialCategory.createCode(targetDb, definitionModelId, "SpatialCategory")
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      spatialCategoryId
+    );
+    const spatialCategoryProps =
+      targetDb.elements.getElementProps(spatialCategoryId);
     assert.equal(definitionModelId, spatialCategoryProps.model);
     assert.equal(definitionModelId, spatialCategoryProps.code.scope);
-    assert.equal(undefined, targetDb.elements.queryElementIdByCode(SpatialCategory.createCode(targetDb, definitionModelId, "SourcePhysicalCategory")), "Should have been remapped");
-    const targetPhysicalCategoryId = targetDb.elements.queryElementIdByCode(SpatialCategory.createCode(targetDb, IModel.dictionaryId, "TargetPhysicalCategory"))!;
+    assert.equal(
+      undefined,
+      targetDb.elements.queryElementIdByCode(
+        SpatialCategory.createCode(
+          targetDb,
+          definitionModelId,
+          "SourcePhysicalCategory"
+        )
+      ),
+      "Should have been remapped"
+    );
+    const targetPhysicalCategoryId = targetDb.elements.queryElementIdByCode(
+      SpatialCategory.createCode(
+        targetDb,
+        IModel.dictionaryId,
+        "TargetPhysicalCategory"
+      )
+    )!;
     assert.isTrue(Id64.isValidId64(targetPhysicalCategoryId));
     // SubCategory
-    const subCategoryId = targetDb.elements.queryElementIdByCode(SubCategory.createCode(targetDb, spatialCategoryId, "SubCategory"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, subCategoryId);
-    const filteredSubCategoryId = targetDb.elements.queryElementIdByCode(SubCategory.createCode(targetDb, spatialCategoryId, "FilteredSubCategory"));
+    const subCategoryId = targetDb.elements.queryElementIdByCode(
+      SubCategory.createCode(targetDb, spatialCategoryId, "SubCategory")
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      subCategoryId
+    );
+    const filteredSubCategoryId = targetDb.elements.queryElementIdByCode(
+      SubCategory.createCode(targetDb, spatialCategoryId, "FilteredSubCategory")
+    );
     assert.isUndefined(filteredSubCategoryId);
     // DrawingCategory
-    const drawingCategoryId = targetDb.elements.queryElementIdByCode(DrawingCategory.createCode(targetDb, definitionModelId, "DrawingCategory"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, drawingCategoryId);
-    const drawingCategoryProps = targetDb.elements.getElementProps(drawingCategoryId);
+    const drawingCategoryId = targetDb.elements.queryElementIdByCode(
+      DrawingCategory.createCode(targetDb, definitionModelId, "DrawingCategory")
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      drawingCategoryId
+    );
+    const drawingCategoryProps =
+      targetDb.elements.getElementProps(drawingCategoryId);
     assert.equal(definitionModelId, drawingCategoryProps.model);
     assert.equal(definitionModelId, drawingCategoryProps.code.scope);
     // Spatial CategorySelector
-    const spatialCategorySelectorId = targetDb.elements.queryElementIdByCode(CategorySelector.createCode(targetDb, definitionModelId, "SpatialCategories"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, spatialCategorySelectorId);
-    const spatialCategorySelectorProps = targetDb.elements.getElementProps<CategorySelectorProps>(spatialCategorySelectorId);
-    assert.isTrue(spatialCategorySelectorProps.categories.includes(spatialCategoryId));
-    assert.isTrue(spatialCategorySelectorProps.categories.includes(targetPhysicalCategoryId), "SourcePhysicalCategory should have been remapped to TargetPhysicalCategory");
+    const spatialCategorySelectorId = targetDb.elements.queryElementIdByCode(
+      CategorySelector.createCode(
+        targetDb,
+        definitionModelId,
+        "SpatialCategories"
+      )
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      spatialCategorySelectorId
+    );
+    const spatialCategorySelectorProps =
+      targetDb.elements.getElementProps<CategorySelectorProps>(
+        spatialCategorySelectorId
+      );
+    assert.isTrue(
+      spatialCategorySelectorProps.categories.includes(spatialCategoryId)
+    );
+    assert.isTrue(
+      spatialCategorySelectorProps.categories.includes(
+        targetPhysicalCategoryId
+      ),
+      "SourcePhysicalCategory should have been remapped to TargetPhysicalCategory"
+    );
     // Drawing CategorySelector
-    const drawingCategorySelectorId = targetDb.elements.queryElementIdByCode(CategorySelector.createCode(targetDb, definitionModelId, "DrawingCategories"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, drawingCategorySelectorId);
-    const drawingCategorySelectorProps = targetDb.elements.getElementProps<CategorySelectorProps>(drawingCategorySelectorId);
-    assert.isTrue(drawingCategorySelectorProps.categories.includes(drawingCategoryId));
+    const drawingCategorySelectorId = targetDb.elements.queryElementIdByCode(
+      CategorySelector.createCode(
+        targetDb,
+        definitionModelId,
+        "DrawingCategories"
+      )
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      drawingCategorySelectorId
+    );
+    const drawingCategorySelectorProps =
+      targetDb.elements.getElementProps<CategorySelectorProps>(
+        drawingCategorySelectorId
+      );
+    assert.isTrue(
+      drawingCategorySelectorProps.categories.includes(drawingCategoryId)
+    );
     // ModelSelector
-    const modelSelectorId = targetDb.elements.queryElementIdByCode(ModelSelector.createCode(targetDb, definitionModelId, "SpatialModels"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, modelSelectorId);
-    const modelSelectorProps = targetDb.elements.getElementProps<ModelSelectorProps>(modelSelectorId);
+    const modelSelectorId = targetDb.elements.queryElementIdByCode(
+      ModelSelector.createCode(targetDb, definitionModelId, "SpatialModels")
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      modelSelectorId
+    );
+    const modelSelectorProps =
+      targetDb.elements.getElementProps<ModelSelectorProps>(modelSelectorId);
     assert.isTrue(modelSelectorProps.models.includes(physicalModelId));
     assert.isTrue(modelSelectorProps.models.includes(spatialLocationModelId));
     // Texture
-    const textureId = targetDb.elements.queryElementIdByCode(Texture.createCode(targetDb, definitionModelId, "Texture"))!;
+    const textureId = targetDb.elements.queryElementIdByCode(
+      Texture.createCode(targetDb, definitionModelId, "Texture")
+    )!;
     assert.isTrue(Id64.isValidId64(textureId));
     // RenderMaterial
-    const renderMaterialId = targetDb.elements.queryElementIdByCode(RenderMaterialElement.createCode(targetDb, definitionModelId, "RenderMaterial"))!;
+    const renderMaterialId = targetDb.elements.queryElementIdByCode(
+      RenderMaterialElement.createCode(
+        targetDb,
+        definitionModelId,
+        "RenderMaterial"
+      )
+    )!;
     assert.isTrue(Id64.isValidId64(renderMaterialId));
     // GeometryPart
-    const geometryPartId = targetDb.elements.queryElementIdByCode(GeometryPart.createCode(targetDb, definitionModelId, "GeometryPart"))!;
+    const geometryPartId = targetDb.elements.queryElementIdByCode(
+      GeometryPart.createCode(targetDb, definitionModelId, "GeometryPart")
+    )!;
     assert.isTrue(Id64.isValidId64(geometryPartId));
     // PhysicalElement
-    const physicalObjectId1: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject1");
-    const physicalObjectId2: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject2");
-    const physicalObjectId3: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject3");
-    const physicalObjectId4: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject4");
-    const physicalElementId1: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalElement1");
-    const childObjectId1A: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "ChildObject1A");
-    const childObjectId1B: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "ChildObject1B");
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, physicalObjectId1);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, physicalObjectId2);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, physicalObjectId3);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, physicalObjectId4);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, physicalElementId1);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, childObjectId1A);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, childObjectId1B);
-    const physicalObject1: PhysicalObject = targetDb.elements.getElement<PhysicalObject>({ id: physicalObjectId1, wantGeometry: true });
-    const physicalObject2: PhysicalObject = targetDb.elements.getElement<PhysicalObject>(physicalObjectId2);
-    const physicalObject3: PhysicalObject = targetDb.elements.getElement<PhysicalObject>(physicalObjectId3);
-    const physicalObject4: PhysicalObject = targetDb.elements.getElement<PhysicalObject>({ id: physicalObjectId4, wantGeometry: true });
-    const physicalElement1: PhysicalElement = targetDb.elements.getElement<PhysicalElement>(physicalElementId1);
-    const childObject1A: PhysicalObject = targetDb.elements.getElement<PhysicalObject>(childObjectId1A);
-    const childObject1B: PhysicalObject = targetDb.elements.getElement<PhysicalObject>(childObjectId1B);
-    assert.equal(physicalObject1.category, spatialCategoryId, "SpatialCategory should have been imported");
+    const physicalObjectId1: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject1");
+    const physicalObjectId2: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject2");
+    const physicalObjectId3: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject3");
+    const physicalObjectId4: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalObject4");
+    const physicalElementId1: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "PhysicalElement1");
+    const childObjectId1A: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "ChildObject1A");
+    const childObjectId1B: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "ChildObject1B");
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      physicalObjectId1
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      physicalObjectId2
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      physicalObjectId3
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      physicalObjectId4
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      physicalElementId1
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      childObjectId1A
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      childObjectId1B
+    );
+    const physicalObject1: PhysicalObject =
+      targetDb.elements.getElement<PhysicalObject>({
+        id: physicalObjectId1,
+        wantGeometry: true,
+      });
+    const physicalObject2: PhysicalObject =
+      targetDb.elements.getElement<PhysicalObject>(physicalObjectId2);
+    const physicalObject3: PhysicalObject =
+      targetDb.elements.getElement<PhysicalObject>(physicalObjectId3);
+    const physicalObject4: PhysicalObject =
+      targetDb.elements.getElement<PhysicalObject>({
+        id: physicalObjectId4,
+        wantGeometry: true,
+      });
+    const physicalElement1: PhysicalElement =
+      targetDb.elements.getElement<PhysicalElement>(physicalElementId1);
+    const childObject1A: PhysicalObject =
+      targetDb.elements.getElement<PhysicalObject>(childObjectId1A);
+    const childObject1B: PhysicalObject =
+      targetDb.elements.getElement<PhysicalObject>(childObjectId1B);
+    assert.equal(
+      physicalObject1.category,
+      spatialCategoryId,
+      "SpatialCategory should have been imported"
+    );
     assert.isDefined(physicalObject1.geom);
     let index1 = 0;
     for (const entry of new GeometryStreamIterator(physicalObject1.geom!)) {
@@ -708,106 +1252,295 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
       }
       index1++;
     }
-    assert.equal(physicalObject2.category, targetPhysicalCategoryId, "SourcePhysicalCategory should have been remapped to TargetPhysicalCategory");
-    assert.equal(physicalObject3.federationGuid, TestUtils.ExtensiveTestScenario.federationGuid3, "Source FederationGuid should have been transferred to target element");
+    assert.equal(
+      physicalObject2.category,
+      targetPhysicalCategoryId,
+      "SourcePhysicalCategory should have been remapped to TargetPhysicalCategory"
+    );
+    assert.equal(
+      physicalObject3.federationGuid,
+      TestUtils.ExtensiveTestScenario.federationGuid3,
+      "Source FederationGuid should have been transferred to target element"
+    );
     assert.equal(physicalObject4.category, spatialCategoryId);
     let index4 = 0;
     for (const entry of new GeometryStreamIterator(physicalObject4.geom!)) {
       assert.equal(entry.primitive.type, "geometryQuery");
       if (0 === index4) {
-        assert.notEqual(entry.geomParams.subCategoryId, subCategoryId, "Expect the default SubCategory");
+        assert.notEqual(
+          entry.geomParams.subCategoryId,
+          subCategoryId,
+          "Expect the default SubCategory"
+        );
       } else if (1 === index4) {
         assert.equal(entry.geomParams.subCategoryId, subCategoryId);
       }
       index4++;
     }
-    assert.equal(index4, 2, "Expect 2 remaining boxes since 1 was filtered out");
-    assert.equal(physicalElement1.category, targetPhysicalCategoryId, "SourcePhysicalCategory should have been remapped to TargetPhysicalCategory");
-    assert.equal(physicalElement1.classFullName, "ExtensiveTestScenarioTarget:TargetPhysicalElement", "Class should have been remapped");
-    assert.equal(physicalElement1.asAny.targetString, "S1", "Property should have been remapped by onTransformElement override");
-    assert.equal(physicalElement1.asAny.targetDouble, 1.1, "Property should have been remapped by onTransformElement override");
-    assert.equal(physicalElement1.asAny.targetNavigation.id, targetPhysicalCategoryId, "Property should have been remapped by onTransformElement override");
-    assert.equal(physicalElement1.asAny.commonNavigation.id, targetPhysicalCategoryId, "Property should have been automatically remapped (same name)");
-    assert.equal(physicalElement1.asAny.commonString, "Common", "Property should have been automatically remapped (same name)");
-    assert.equal(physicalElement1.asAny.commonDouble, 7.3, "Property should have been automatically remapped (same name)");
-    assert.equal(Base64EncodedString.fromUint8Array(physicalElement1.asAny.targetBinary), Base64EncodedString.fromUint8Array(new Uint8Array([1, 3, 5, 7])), "Property should have been remapped by onTransformElement override");
-    assert.equal(Base64EncodedString.fromUint8Array(physicalElement1.asAny.commonBinary), Base64EncodedString.fromUint8Array(new Uint8Array([2, 4, 6, 8])), "Property should have been automatically remapped (same name)");
-    assert.notExists(physicalElement1.asAny.extraString, "Property should have been dropped during transformation");
+    assert.equal(
+      index4,
+      2,
+      "Expect 2 remaining boxes since 1 was filtered out"
+    );
+    assert.equal(
+      physicalElement1.category,
+      targetPhysicalCategoryId,
+      "SourcePhysicalCategory should have been remapped to TargetPhysicalCategory"
+    );
+    assert.equal(
+      physicalElement1.classFullName,
+      "ExtensiveTestScenarioTarget:TargetPhysicalElement",
+      "Class should have been remapped"
+    );
+    assert.equal(
+      physicalElement1.asAny.targetString,
+      "S1",
+      "Property should have been remapped by onTransformElement override"
+    );
+    assert.equal(
+      physicalElement1.asAny.targetDouble,
+      1.1,
+      "Property should have been remapped by onTransformElement override"
+    );
+    assert.equal(
+      physicalElement1.asAny.targetNavigation.id,
+      targetPhysicalCategoryId,
+      "Property should have been remapped by onTransformElement override"
+    );
+    assert.equal(
+      physicalElement1.asAny.commonNavigation.id,
+      targetPhysicalCategoryId,
+      "Property should have been automatically remapped (same name)"
+    );
+    assert.equal(
+      physicalElement1.asAny.commonString,
+      "Common",
+      "Property should have been automatically remapped (same name)"
+    );
+    assert.equal(
+      physicalElement1.asAny.commonDouble,
+      7.3,
+      "Property should have been automatically remapped (same name)"
+    );
+    assert.equal(
+      Base64EncodedString.fromUint8Array(physicalElement1.asAny.targetBinary),
+      Base64EncodedString.fromUint8Array(new Uint8Array([1, 3, 5, 7])),
+      "Property should have been remapped by onTransformElement override"
+    );
+    assert.equal(
+      Base64EncodedString.fromUint8Array(physicalElement1.asAny.commonBinary),
+      Base64EncodedString.fromUint8Array(new Uint8Array([2, 4, 6, 8])),
+      "Property should have been automatically remapped (same name)"
+    );
+    assert.notExists(
+      physicalElement1.asAny.extraString,
+      "Property should have been dropped during transformation"
+    );
     assert.equal(childObject1A.parent!.id, physicalObjectId1);
     assert.equal(childObject1B.parent!.id, physicalObjectId1);
     // ElementUniqueAspects
-    const targetUniqueAspects: ElementAspect[] = targetDb.elements.getAspects(physicalObjectId1, "ExtensiveTestScenarioTarget:TargetUniqueAspect");
+    const targetUniqueAspects: ElementAspect[] = targetDb.elements.getAspects(
+      physicalObjectId1,
+      "ExtensiveTestScenarioTarget:TargetUniqueAspect"
+    );
     assert.equal(targetUniqueAspects.length, 1);
     assert.equal(targetUniqueAspects[0].asAny.commonDouble, 1.1);
     assert.equal(targetUniqueAspects[0].asAny.commonString, "Unique");
-    assert.equal(targetUniqueAspects[0].asAny.commonLong, physicalObjectId1, "Id should have been remapped");
-    assert.equal(Base64EncodedString.fromUint8Array(targetUniqueAspects[0].asAny.commonBinary), Base64EncodedString.fromUint8Array(new Uint8Array([2, 4, 6, 8])));
+    assert.equal(
+      targetUniqueAspects[0].asAny.commonLong,
+      physicalObjectId1,
+      "Id should have been remapped"
+    );
+    assert.equal(
+      Base64EncodedString.fromUint8Array(
+        targetUniqueAspects[0].asAny.commonBinary
+      ),
+      Base64EncodedString.fromUint8Array(new Uint8Array([2, 4, 6, 8]))
+    );
     assert.equal(targetUniqueAspects[0].asAny.targetDouble, 11.1);
     assert.equal(targetUniqueAspects[0].asAny.targetString, "UniqueAspect");
-    assert.equal(targetUniqueAspects[0].asAny.targetLong, physicalObjectId1, "Id should have been remapped");
+    assert.equal(
+      targetUniqueAspects[0].asAny.targetLong,
+      physicalObjectId1,
+      "Id should have been remapped"
+    );
     assert.isTrue(Guid.isV4Guid(targetUniqueAspects[0].asAny.targetGuid));
-    assert.equal(TestUtils.ExtensiveTestScenario.uniqueAspectGuid, targetUniqueAspects[0].asAny.targetGuid);
+    assert.equal(
+      TestUtils.ExtensiveTestScenario.uniqueAspectGuid,
+      targetUniqueAspects[0].asAny.targetGuid
+    );
     // ElementMultiAspects
-    const targetMultiAspects: ElementAspect[] = targetDb.elements.getAspects(physicalObjectId1, "ExtensiveTestScenarioTarget:TargetMultiAspect");
+    const targetMultiAspects: ElementAspect[] = targetDb.elements.getAspects(
+      physicalObjectId1,
+      "ExtensiveTestScenarioTarget:TargetMultiAspect"
+    );
     assert.equal(targetMultiAspects.length, 2);
     assert.equal(targetMultiAspects[0].asAny.commonDouble, 2.2);
     assert.equal(targetMultiAspects[0].asAny.commonString, "Multi");
-    assert.equal(targetMultiAspects[0].asAny.commonLong, physicalObjectId1, "Id should have been remapped");
+    assert.equal(
+      targetMultiAspects[0].asAny.commonLong,
+      physicalObjectId1,
+      "Id should have been remapped"
+    );
     assert.equal(targetMultiAspects[0].asAny.targetDouble, 22.2);
     assert.equal(targetMultiAspects[0].asAny.targetString, "MultiAspect");
-    assert.equal(targetMultiAspects[0].asAny.targetLong, physicalObjectId1, "Id should have been remapped");
+    assert.equal(
+      targetMultiAspects[0].asAny.targetLong,
+      physicalObjectId1,
+      "Id should have been remapped"
+    );
     assert.isTrue(Guid.isV4Guid(targetMultiAspects[0].asAny.targetGuid));
     assert.equal(targetMultiAspects[1].asAny.commonDouble, 3.3);
     assert.equal(targetMultiAspects[1].asAny.commonString, "Multi");
-    assert.equal(targetMultiAspects[1].asAny.commonLong, physicalObjectId1, "Id should have been remapped");
+    assert.equal(
+      targetMultiAspects[1].asAny.commonLong,
+      physicalObjectId1,
+      "Id should have been remapped"
+    );
     assert.equal(targetMultiAspects[1].asAny.targetDouble, 33.3);
     assert.equal(targetMultiAspects[1].asAny.targetString, "MultiAspect");
-    assert.equal(targetMultiAspects[1].asAny.targetLong, physicalObjectId1, "Id should have been remapped");
+    assert.equal(
+      targetMultiAspects[1].asAny.targetLong,
+      physicalObjectId1,
+      "Id should have been remapped"
+    );
     assert.isTrue(Guid.isV4Guid(targetMultiAspects[1].asAny.targetGuid));
     // InformationRecords
-    const informationRecordCodeSpec: CodeSpec = targetDb.codeSpecs.getByName("InformationRecords");
+    const informationRecordCodeSpec: CodeSpec =
+      targetDb.codeSpecs.getByName("InformationRecords");
     assert.isTrue(Id64.isValidId64(informationRecordCodeSpec.id));
-    const informationRecordId1 = targetDb.elements.queryElementIdByCode(new Code({ spec: informationRecordCodeSpec.id, scope: informationModelId, value: "InformationRecord1" }));
-    const informationRecordId2 = targetDb.elements.queryElementIdByCode(new Code({ spec: informationRecordCodeSpec.id, scope: informationModelId, value: "InformationRecord2" }));
-    const informationRecordId3 = targetDb.elements.queryElementIdByCode(new Code({ spec: informationRecordCodeSpec.id, scope: informationModelId, value: "InformationRecord3" }));
+    const informationRecordId1 = targetDb.elements.queryElementIdByCode(
+      new Code({
+        spec: informationRecordCodeSpec.id,
+        scope: informationModelId,
+        value: "InformationRecord1",
+      })
+    );
+    const informationRecordId2 = targetDb.elements.queryElementIdByCode(
+      new Code({
+        spec: informationRecordCodeSpec.id,
+        scope: informationModelId,
+        value: "InformationRecord2",
+      })
+    );
+    const informationRecordId3 = targetDb.elements.queryElementIdByCode(
+      new Code({
+        spec: informationRecordCodeSpec.id,
+        scope: informationModelId,
+        value: "InformationRecord3",
+      })
+    );
     assert.isTrue(Id64.isValidId64(informationRecordId1!));
     assert.isTrue(Id64.isValidId64(informationRecordId2!));
     assert.isTrue(Id64.isValidId64(informationRecordId3!));
-    const informationRecord2: any = targetDb.elements.getElement(informationRecordId2!);
+    const informationRecord2: any = targetDb.elements.getElement(
+      informationRecordId2!
+    );
     assert.equal(informationRecord2.commonString, "Common2");
     assert.equal(informationRecord2.targetString, "Two");
     // DisplayStyle
-    const displayStyle3dId = targetDb.elements.queryElementIdByCode(DisplayStyle3d.createCode(targetDb, definitionModelId, "DisplayStyle3d"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, displayStyle3dId);
-    const displayStyle3d = targetDb.elements.getElement<DisplayStyle3d>(displayStyle3dId);
+    const displayStyle3dId = targetDb.elements.queryElementIdByCode(
+      DisplayStyle3d.createCode(targetDb, definitionModelId, "DisplayStyle3d")
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      displayStyle3dId
+    );
+    const displayStyle3d =
+      targetDb.elements.getElement<DisplayStyle3d>(displayStyle3dId);
     assert.isTrue(displayStyle3d.settings.hasSubCategoryOverride);
     assert.equal(displayStyle3d.settings.subCategoryOverrides.size, 1);
-    assert.exists(displayStyle3d.settings.getSubCategoryOverride(subCategoryId), "Expect subCategoryOverrides to have been remapped");
-    assert.isTrue(new Set<string>(displayStyle3d.settings.excludedElementIds).has(physicalObjectId1), "Expect excludedElements to be remapped");
-    assert.equal(displayStyle3d.settings.environment.sky.toJSON()?.image?.type, SkyBoxImageType.Spherical);
-    assert.equal(displayStyle3d.settings.environment.sky.toJSON()?.image?.texture, textureId);
-    assert.equal(displayStyle3d.settings.getPlanProjectionSettings(spatialLocationModelId)?.elevation, 10.0);
+    assert.exists(
+      displayStyle3d.settings.getSubCategoryOverride(subCategoryId),
+      "Expect subCategoryOverrides to have been remapped"
+    );
+    assert.isTrue(
+      new Set<string>(displayStyle3d.settings.excludedElementIds).has(
+        physicalObjectId1
+      ),
+      "Expect excludedElements to be remapped"
+    );
+    assert.equal(
+      displayStyle3d.settings.environment.sky.toJSON()?.image?.type,
+      SkyBoxImageType.Spherical
+    );
+    assert.equal(
+      displayStyle3d.settings.environment.sky.toJSON()?.image?.texture,
+      textureId
+    );
+    assert.equal(
+      displayStyle3d.settings.getPlanProjectionSettings(spatialLocationModelId)
+        ?.elevation,
+      10.0
+    );
     // ViewDefinition
-    const viewId = targetDb.elements.queryElementIdByCode(OrthographicViewDefinition.createCode(targetDb, definitionModelId, "Orthographic View"))!;
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, viewId);
-    const viewProps = targetDb.elements.getElementProps<SpatialViewDefinitionProps>(viewId);
+    const viewId = targetDb.elements.queryElementIdByCode(
+      OrthographicViewDefinition.createCode(
+        targetDb,
+        definitionModelId,
+        "Orthographic View"
+      )
+    )!;
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      viewId
+    );
+    const viewProps =
+      targetDb.elements.getElementProps<SpatialViewDefinitionProps>(viewId);
     assert.equal(viewProps.displayStyleId, displayStyle3dId);
     assert.equal(viewProps.categorySelectorId, spatialCategorySelectorId);
     assert.equal(viewProps.modelSelectorId, modelSelectorId);
     // AuxCoordSystem2d
-    assert.equal(undefined, targetDb.elements.queryElementIdByCode(AuxCoordSystem2d.createCode(targetDb, definitionModelId, "AuxCoordSystem2d")), "Should have been excluded by class");
+    assert.equal(
+      undefined,
+      targetDb.elements.queryElementIdByCode(
+        AuxCoordSystem2d.createCode(
+          targetDb,
+          definitionModelId,
+          "AuxCoordSystem2d"
+        )
+      ),
+      "Should have been excluded by class"
+    );
     // DrawingGraphic
-    const drawingGraphicId1: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "DrawingGraphic1");
-    const drawingGraphicId2: Id64String = IModelTransformerTestUtils.queryByUserLabel(targetDb, "DrawingGraphic2");
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, drawingGraphicId1);
-    TransformerExtensiveTestScenario.assertTargetElement(sourceDb, targetDb, drawingGraphicId2);
+    const drawingGraphicId1: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "DrawingGraphic1");
+    const drawingGraphicId2: Id64String =
+      IModelTransformerTestUtils.queryByUserLabel(targetDb, "DrawingGraphic2");
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      drawingGraphicId1
+    );
+    TransformerExtensiveTestScenario.assertTargetElement(
+      sourceDb,
+      targetDb,
+      drawingGraphicId2
+    );
     // DrawingGraphicRepresentsElement
-    TransformerExtensiveTestScenario.assertTargetRelationship(sourceDb, targetDb, DrawingGraphicRepresentsElement.classFullName, drawingGraphicId1, physicalObjectId1);
-    TransformerExtensiveTestScenario.assertTargetRelationship(sourceDb, targetDb, DrawingGraphicRepresentsElement.classFullName, drawingGraphicId2, physicalObjectId1);
+    TransformerExtensiveTestScenario.assertTargetRelationship(
+      sourceDb,
+      targetDb,
+      DrawingGraphicRepresentsElement.classFullName,
+      drawingGraphicId1,
+      physicalObjectId1
+    );
+    TransformerExtensiveTestScenario.assertTargetRelationship(
+      sourceDb,
+      targetDb,
+      DrawingGraphicRepresentsElement.classFullName,
+      drawingGraphicId2,
+      physicalObjectId1
+    );
     // TargetRelWithProps
     const relWithProps: any = targetDb.relationships.getInstanceProps(
       "ExtensiveTestScenarioTarget:TargetRelWithProps",
-      { sourceId: spatialCategorySelectorId, targetId: drawingCategorySelectorId },
+      {
+        sourceId: spatialCategorySelectorId,
+        targetId: drawingCategorySelectorId,
+      }
     );
     assert.equal(relWithProps.targetString, "One");
     assert.equal(relWithProps.targetDouble, 1.1);
@@ -815,19 +1548,48 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     assert.isTrue(Guid.isV4Guid(relWithProps.targetGuid));
   }
 
-  public static assertTargetElement(_sourceDb: IModelDb, targetDb: IModelDb, targetElementId: Id64String): void {
+  public static assertTargetElement(
+    _sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetElementId: Id64String
+  ): void {
     assert.isTrue(Id64.isValidId64(targetElementId));
     const element: Element = targetDb.elements.getElement(targetElementId);
-    assert.isTrue(element.federationGuid && Guid.isV4Guid(element.federationGuid));
-    const aspects = targetDb.elements.getAspects(targetElementId, ExternalSourceAspect.classFullName);
-    assert(!aspects.some((esa: any) => esa.kind === ExternalSourceAspect.Kind.Element));
+    assert.isTrue(
+      element.federationGuid && Guid.isV4Guid(element.federationGuid)
+    );
+    const aspects = targetDb.elements.getAspects(
+      targetElementId,
+      ExternalSourceAspect.classFullName
+    );
+    assert(
+      !aspects.some(
+        (esa: any) => esa.kind === ExternalSourceAspect.Kind.Element
+      )
+    );
   }
 
-  public static assertTargetRelationship(_sourceDb: IModelDb, targetDb: IModelDb, targetRelClassFullName: string, targetRelSourceId: Id64String, targetRelTargetId: Id64String): void {
-    const targetRelationship: Relationship = targetDb.relationships.getInstance(targetRelClassFullName, { sourceId: targetRelSourceId, targetId: targetRelTargetId });
+  public static assertTargetRelationship(
+    _sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetRelClassFullName: string,
+    targetRelSourceId: Id64String,
+    targetRelTargetId: Id64String
+  ): void {
+    const targetRelationship: Relationship = targetDb.relationships.getInstance(
+      targetRelClassFullName,
+      { sourceId: targetRelSourceId, targetId: targetRelTargetId }
+    );
     assert.exists(targetRelationship);
-    const aspects: ElementAspect[] = targetDb.elements.getAspects(targetRelSourceId, ExternalSourceAspect.classFullName);
-    assert(!aspects.some((esa: any) => esa.kind === ExternalSourceAspect.Kind.Relationship));
+    const aspects: ElementAspect[] = targetDb.elements.getAspects(
+      targetRelSourceId,
+      ExternalSourceAspect.classFullName
+    );
+    assert(
+      !aspects.some(
+        (esa: any) => esa.kind === ExternalSourceAspect.Kind.Relationship
+      )
+    );
   }
 }
 
@@ -836,15 +1598,24 @@ export class IModelTransformer3d extends IModelTransformer {
   /** The Transform to apply to all GeometricElement3d instances. */
   private readonly _transform3d: Transform;
   /** Construct a new IModelTransformer3d */
-  public constructor(sourceDb: IModelDb, targetDb: IModelDb, transform3d: Transform) {
+  public constructor(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    transform3d: Transform
+  ) {
     super(sourceDb, targetDb);
     this._transform3d = transform3d;
   }
   /** Override transformElement to apply a 3d transform to all GeometricElement3d instances. */
   public override onTransformElement(sourceElement: Element): ElementProps {
-    const targetElementProps: ElementProps = super.onTransformElement(sourceElement);
-    if (sourceElement instanceof GeometricElement3d) { // can check the sourceElement since this IModelTransformer does not remap classes
-      const placement = Placement3d.fromJSON((targetElementProps as GeometricElement3dProps).placement);
+    const targetElementProps: ElementProps = super.onTransformElement(
+      sourceElement
+    );
+    if (sourceElement instanceof GeometricElement3d) {
+      // can check the sourceElement since this IModelTransformer does not remap classes
+      const placement = Placement3d.fromJSON(
+        (targetElementProps as GeometricElement3dProps).placement
+      );
       if (placement.isValid) {
         placement.multiplyTransform(this._transform3d);
         (targetElementProps as GeometricElement3dProps).placement = placement;
@@ -859,7 +1630,11 @@ export class PhysicalModelConsolidator extends IModelTransformer {
   /** Remap all source PhysicalModels to this one. */
   private readonly _targetModelId: Id64String;
   /** Construct a new PhysicalModelConsolidator */
-  public constructor(sourceDb: IModelDb, targetDb: IModelDb, targetModelId: Id64String) {
+  public constructor(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetModelId: Id64String
+  ) {
     super(sourceDb, targetDb);
     this._targetModelId = targetModelId;
     this.importer.doNotUpdateElementIds.add(targetModelId);
@@ -881,29 +1656,49 @@ export class FilterByViewTransformer extends IModelTransformer {
   private readonly _exportCategorySelectorId: Id64String;
   private readonly _exportDisplayStyleId: Id64String;
   private readonly _exportModelIds: Id64Set;
-  public constructor(sourceDb: IModelDb, targetDb: IModelDb, exportViewDefinitionId: Id64String) {
+  public constructor(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    exportViewDefinitionId: Id64String
+  ) {
     super(sourceDb, targetDb);
     this._exportViewDefinitionId = exportViewDefinitionId;
-    const exportViewDefinition = sourceDb.elements.getElement<SpatialViewDefinition>(exportViewDefinitionId, SpatialViewDefinition);
+    const exportViewDefinition =
+      sourceDb.elements.getElement<SpatialViewDefinition>(
+        exportViewDefinitionId,
+        SpatialViewDefinition
+      );
     this._exportCategorySelectorId = exportViewDefinition.categorySelectorId;
     this._exportModelSelectorId = exportViewDefinition.modelSelectorId;
     this._exportDisplayStyleId = exportViewDefinition.displayStyleId;
-    const exportCategorySelector = sourceDb.elements.getElement<CategorySelector>(exportViewDefinition.categorySelectorId, CategorySelector);
-    this.excludeCategoriesExcept(Id64.toIdSet(exportCategorySelector.categories));
-    const exportModelSelector = sourceDb.elements.getElement<ModelSelector>(exportViewDefinition.modelSelectorId, ModelSelector);
+    const exportCategorySelector =
+      sourceDb.elements.getElement<CategorySelector>(
+        exportViewDefinition.categorySelectorId,
+        CategorySelector
+      );
+    this.excludeCategoriesExcept(
+      Id64.toIdSet(exportCategorySelector.categories)
+    );
+    const exportModelSelector = sourceDb.elements.getElement<ModelSelector>(
+      exportViewDefinition.modelSelectorId,
+      ModelSelector
+    );
     this._exportModelIds = Id64.toIdSet(exportModelSelector.models);
   }
   /** Excludes categories not referenced by the export view's CategorySelector */
   private excludeCategoriesExcept(exportCategoryIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const categoryId = statement.getValue(0).getId();
-        if (!exportCategoryIds.has(categoryId)) {
-          this.exporter.excludeElementsInCategory(categoryId);
+    this.sourceDb.withPreparedStatement(
+      sql,
+      (statement: ECSqlStatement): void => {
+        while (DbResult.BE_SQLITE_ROW === statement.step()) {
+          const categoryId = statement.getValue(0).getId();
+          if (!exportCategoryIds.has(categoryId)) {
+            this.exporter.excludeElementsInCategory(categoryId);
+          }
         }
       }
-    });
+    );
   }
   /** Override of IModelTransformer.shouldExportElement that excludes other ViewDefinition-related elements that are not associated with the *export* ViewDefinition. */
   public override shouldExportElement(sourceElement: Element): boolean {
@@ -927,7 +1722,10 @@ export class FilterByViewTransformer extends IModelTransformer {
  * and records transformation data in the iModel itself.
  */
 export class TestIModelTransformer extends IModelTransformer {
-  public constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter) {
+  public constructor(
+    source: IModelDb | IModelExporter,
+    target: IModelDb | IModelImporter
+  ) {
     super(source, target);
     this.initExclusions();
     this.initCodeSpecRemapping();
@@ -940,10 +1738,24 @@ export class TestIModelTransformer extends IModelTransformer {
   private initExclusions(): void {
     this.exporter.excludeCodeSpec("ExtraCodeSpec");
     this.exporter.excludeElementClass(AuxCoordSystem.classFullName); // want to exclude AuxCoordSystem2d/3d
-    this.exporter.excludeElement(this.sourceDb.elements.queryElementIdByCode(Subject.createCode(this.sourceDb, IModel.rootSubjectId, "Only in Source"))!);
-    this.exporter.excludeRelationshipClass("ExtensiveTestScenario:SourceRelToExclude");
-    this.exporter.excludeElementAspectClass("ExtensiveTestScenario:SourceUniqueAspectToExclude");
-    this.exporter.excludeElementAspectClass("ExtensiveTestScenario:SourceMultiAspectToExclude");
+    this.exporter.excludeElement(
+      this.sourceDb.elements.queryElementIdByCode(
+        Subject.createCode(
+          this.sourceDb,
+          IModel.rootSubjectId,
+          "Only in Source"
+        )
+      )!
+    );
+    this.exporter.excludeRelationshipClass(
+      "ExtensiveTestScenario:SourceRelToExclude"
+    );
+    this.exporter.excludeElementAspectClass(
+      "ExtensiveTestScenario:SourceUniqueAspectToExclude"
+    );
+    this.exporter.excludeElementAspectClass(
+      "ExtensiveTestScenario:SourceMultiAspectToExclude"
+    );
   }
 
   /** Initialize some CodeSpec remapping rules for testing */
@@ -953,42 +1765,81 @@ export class TestIModelTransformer extends IModelTransformer {
 
   /** Initialize some category remapping rules for testing */
   private initCategoryRemapping(): void {
-    const subjectId = this.sourceDb.elements.queryElementIdByCode(Subject.createCode(this.sourceDb, IModel.rootSubjectId, "Subject"))!;
-    const definitionModelId = this.sourceDb.elements.queryElementIdByCode(InformationPartitionElement.createCode(this.sourceDb, subjectId, "Definition"))!;
-    const sourceCategoryId = this.sourceDb.elements.queryElementIdByCode(SpatialCategory.createCode(this.sourceDb, definitionModelId, "SourcePhysicalCategory"))!;
-    const targetCategoryId = this.targetDb.elements.queryElementIdByCode(SpatialCategory.createCode(this.targetDb, IModel.dictionaryId, "TargetPhysicalCategory"))!;
-    assert.isTrue(Id64.isValidId64(subjectId) && Id64.isValidId64(definitionModelId) && Id64.isValidId64(sourceCategoryId) && Id64.isValidId64(targetCategoryId));
+    const subjectId = this.sourceDb.elements.queryElementIdByCode(
+      Subject.createCode(this.sourceDb, IModel.rootSubjectId, "Subject")
+    )!;
+    const definitionModelId = this.sourceDb.elements.queryElementIdByCode(
+      InformationPartitionElement.createCode(
+        this.sourceDb,
+        subjectId,
+        "Definition"
+      )
+    )!;
+    const sourceCategoryId = this.sourceDb.elements.queryElementIdByCode(
+      SpatialCategory.createCode(
+        this.sourceDb,
+        definitionModelId,
+        "SourcePhysicalCategory"
+      )
+    )!;
+    const targetCategoryId = this.targetDb.elements.queryElementIdByCode(
+      SpatialCategory.createCode(
+        this.targetDb,
+        IModel.dictionaryId,
+        "TargetPhysicalCategory"
+      )
+    )!;
+    assert.isTrue(
+      Id64.isValidId64(subjectId) &&
+        Id64.isValidId64(definitionModelId) &&
+        Id64.isValidId64(sourceCategoryId) &&
+        Id64.isValidId64(targetCategoryId)
+    );
     this.context.remapElement(sourceCategoryId, targetCategoryId);
     this.exporter.excludeElement(sourceCategoryId); // Don't process a specifically remapped element
   }
 
   /** Initialize some class remapping rules for testing */
   private initClassRemapping(): void {
-    this.context.remapElementClass("ExtensiveTestScenario:SourcePhysicalElement", "ExtensiveTestScenarioTarget:TargetPhysicalElement");
-    this.context.remapElementClass("ExtensiveTestScenario:SourcePhysicalElementUsesCommonDefinition", "ExtensiveTestScenarioTarget:TargetPhysicalElementUsesCommonDefinition");
-    this.context.remapElementClass("ExtensiveTestScenario:SourceInformationRecord", "ExtensiveTestScenarioTarget:TargetInformationRecord");
+    this.context.remapElementClass(
+      "ExtensiveTestScenario:SourcePhysicalElement",
+      "ExtensiveTestScenarioTarget:TargetPhysicalElement"
+    );
+    this.context.remapElementClass(
+      "ExtensiveTestScenario:SourcePhysicalElementUsesCommonDefinition",
+      "ExtensiveTestScenarioTarget:TargetPhysicalElementUsesCommonDefinition"
+    );
+    this.context.remapElementClass(
+      "ExtensiveTestScenario:SourceInformationRecord",
+      "ExtensiveTestScenarioTarget:TargetInformationRecord"
+    );
   }
 
   /** */
   private initSubCategoryFilters(): void {
     assert.isFalse(this.context.hasSubCategoryFilter);
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:codeValue`;
-    this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      statement.bindString("codeValue", "FilteredSubCategory");
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const subCategoryId = statement.getValue(0).getId();
-        assert.isFalse(this.context.isSubCategoryFiltered(subCategoryId));
-        this.context.filterSubCategory(subCategoryId);
-        this.exporter.excludeElement(subCategoryId);
-        assert.isTrue(this.context.isSubCategoryFiltered(subCategoryId));
+    this.sourceDb.withPreparedStatement(
+      sql,
+      (statement: ECSqlStatement): void => {
+        statement.bindString("codeValue", "FilteredSubCategory");
+        while (DbResult.BE_SQLITE_ROW === statement.step()) {
+          const subCategoryId = statement.getValue(0).getId();
+          assert.isFalse(this.context.isSubCategoryFiltered(subCategoryId));
+          this.context.filterSubCategory(subCategoryId);
+          this.exporter.excludeElement(subCategoryId);
+          assert.isTrue(this.context.isSubCategoryFiltered(subCategoryId));
+        }
       }
-    });
+    );
     assert.isTrue(this.context.hasSubCategoryFilter);
   }
 
   /** Override shouldExportElement to exclude all elements from the Functional schema. */
   public override shouldExportElement(sourceElement: Element): boolean {
-    return sourceElement.classFullName.startsWith(FunctionalSchema.schemaName) ? false : super.shouldExportElement(sourceElement);
+    return sourceElement.classFullName.startsWith(FunctionalSchema.schemaName)
+      ? false
+      : super.shouldExportElement(sourceElement);
   }
 
   /** Override transformElement to make sure that all target Elements have a FederationGuid */
@@ -997,38 +1848,65 @@ export class TestIModelTransformer extends IModelTransformer {
     if (!targetElementProps.federationGuid) {
       targetElementProps.federationGuid = Guid.createValue();
     }
-    if ("ExtensiveTestScenario:SourcePhysicalElement" === sourceElement.classFullName) {
+    if (
+      "ExtensiveTestScenario:SourcePhysicalElement" ===
+      sourceElement.classFullName
+    ) {
       targetElementProps.targetString = sourceElement.asAny.sourceString;
       targetElementProps.targetDouble = sourceElement.asAny.sourceDouble;
       targetElementProps.targetBinary = sourceElement.asAny.sourceBinary;
       targetElementProps.targetNavigation = {
-        id: this.context.findTargetElementId(sourceElement.asAny.sourceNavigation.id),
-        relClassName: "ExtensiveTestScenarioTarget:TargetPhysicalElementUsesTargetDefinition",
+        id: this.context.findTargetElementId(
+          sourceElement.asAny.sourceNavigation.id
+        ),
+        relClassName:
+          "ExtensiveTestScenarioTarget:TargetPhysicalElementUsesTargetDefinition",
       };
-    } else if ("ExtensiveTestScenario:SourceInformationRecord" === sourceElement.classFullName) {
+    } else if (
+      "ExtensiveTestScenario:SourceInformationRecord" ===
+      sourceElement.classFullName
+    ) {
       targetElementProps.targetString = sourceElement.asAny.sourceString;
     }
     return targetElementProps;
   }
 
   /** Override transformElementAspect to remap Source*Aspect --> Target*Aspect */
-  public override onTransformElementAspect(sourceElementAspect: ElementAspect, targetElementId: Id64String): ElementAspectProps {
-    const targetElementAspectProps: any = super.onTransformElementAspect(sourceElementAspect, targetElementId);
-    if ("ExtensiveTestScenario:SourceUniqueAspect" === sourceElementAspect.classFullName) {
-      targetElementAspectProps.classFullName = "ExtensiveTestScenarioTarget:TargetUniqueAspect";
-      targetElementAspectProps.targetDouble = targetElementAspectProps.sourceDouble;
+  public override onTransformElementAspect(
+    sourceElementAspect: ElementAspect,
+    targetElementId: Id64String
+  ): ElementAspectProps {
+    const targetElementAspectProps: any = super.onTransformElementAspect(
+      sourceElementAspect,
+      targetElementId
+    );
+    if (
+      "ExtensiveTestScenario:SourceUniqueAspect" ===
+      sourceElementAspect.classFullName
+    ) {
+      targetElementAspectProps.classFullName =
+        "ExtensiveTestScenarioTarget:TargetUniqueAspect";
+      targetElementAspectProps.targetDouble =
+        targetElementAspectProps.sourceDouble;
       targetElementAspectProps.sourceDouble = undefined;
-      targetElementAspectProps.targetString = targetElementAspectProps.sourceString;
+      targetElementAspectProps.targetString =
+        targetElementAspectProps.sourceString;
       targetElementAspectProps.sourceString = undefined;
       targetElementAspectProps.targetLong = targetElementAspectProps.sourceLong; // Id64 value was already remapped by super.transformElementAspect()
       targetElementAspectProps.sourceLong = undefined;
       targetElementAspectProps.targetGuid = targetElementAspectProps.sourceGuid;
       targetElementAspectProps.sourceGuid = undefined;
-    } else if ("ExtensiveTestScenario:SourceMultiAspect" === sourceElementAspect.classFullName) {
-      targetElementAspectProps.classFullName = "ExtensiveTestScenarioTarget:TargetMultiAspect";
-      targetElementAspectProps.targetDouble = targetElementAspectProps.sourceDouble;
+    } else if (
+      "ExtensiveTestScenario:SourceMultiAspect" ===
+      sourceElementAspect.classFullName
+    ) {
+      targetElementAspectProps.classFullName =
+        "ExtensiveTestScenarioTarget:TargetMultiAspect";
+      targetElementAspectProps.targetDouble =
+        targetElementAspectProps.sourceDouble;
       targetElementAspectProps.sourceDouble = undefined;
-      targetElementAspectProps.targetString = targetElementAspectProps.sourceString;
+      targetElementAspectProps.targetString =
+        targetElementAspectProps.sourceString;
       targetElementAspectProps.sourceString = undefined;
       targetElementAspectProps.targetLong = targetElementAspectProps.sourceLong; // Id64 value was already remapped by super.transformElementAspect()
       targetElementAspectProps.sourceLong = undefined;
@@ -1039,13 +1917,23 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override transformRelationship to remap SourceRelWithProps --> TargetRelWithProps */
-  public override onTransformRelationship(sourceRelationship: Relationship): RelationshipProps {
-    const targetRelationshipProps: any = super.onTransformRelationship(sourceRelationship);
-    if ("ExtensiveTestScenario:SourceRelWithProps" === sourceRelationship.classFullName) {
-      targetRelationshipProps.classFullName = "ExtensiveTestScenarioTarget:TargetRelWithProps";
-      targetRelationshipProps.targetString = targetRelationshipProps.sourceString;
+  public override onTransformRelationship(
+    sourceRelationship: Relationship
+  ): RelationshipProps {
+    const targetRelationshipProps: any = super.onTransformRelationship(
+      sourceRelationship
+    );
+    if (
+      "ExtensiveTestScenario:SourceRelWithProps" ===
+      sourceRelationship.classFullName
+    ) {
+      targetRelationshipProps.classFullName =
+        "ExtensiveTestScenarioTarget:TargetRelWithProps";
+      targetRelationshipProps.targetString =
+        targetRelationshipProps.sourceString;
       targetRelationshipProps.sourceString = undefined;
-      targetRelationshipProps.targetDouble = targetRelationshipProps.sourceDouble;
+      targetRelationshipProps.targetDouble =
+        targetRelationshipProps.sourceDouble;
       targetRelationshipProps.sourceDouble = undefined;
       targetRelationshipProps.targetLong = targetRelationshipProps.sourceLong; // Id64 value was already remapped by super.transformRelationship()
       targetRelationshipProps.sourceLong = undefined;
@@ -1058,11 +1946,19 @@ export class TestIModelTransformer extends IModelTransformer {
 
 /** Specialization of IModelTransformer for testing */
 export class AspectTrackingTransformer extends IModelTransformer {
-  public exportedAspectIdsByElement = new Map<Id64String, ElementMultiAspect[]>();
+  public exportedAspectIdsByElement = new Map<
+    Id64String,
+    ElementMultiAspect[]
+  >();
 
-  public override onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): void {
+  public override onExportElementMultiAspects(
+    sourceAspects: ElementMultiAspect[]
+  ): void {
     const elementId = sourceAspects[0].element.id;
-    assert(!this.exportedAspectIdsByElement.has(elementId), "tried to export element multi aspects for an element more than once");
+    assert(
+      !this.exportedAspectIdsByElement.has(elementId),
+      "tried to export element multi aspects for an element more than once"
+    );
     this.exportedAspectIdsByElement.set(elementId, sourceAspects);
     return super.onExportElementMultiAspects(sourceAspects);
   }
@@ -1070,20 +1966,30 @@ export class AspectTrackingTransformer extends IModelTransformer {
 
 /** a transformer which will throw an error if a given array of element ids are exported out of that list's order, or not at all*/
 export class AssertOrderTransformer extends IModelTransformer {
-  public constructor(private _exportOrderQueue: Id64String[], ...superArgs: ConstructorParameters<typeof IModelTransformer>) {
+  public constructor(
+    private _exportOrderQueue: Id64String[],
+    ...superArgs: ConstructorParameters<typeof IModelTransformer>
+  ) {
     super(...superArgs);
   }
 
-  public get errPrologue() { return "The export order given to AssertOrderTransformer was not followed"; }
-  public get errEpilogue() { return `The elements [${this._exportOrderQueue}] remain`; }
+  public get errPrologue() {
+    return "The export order given to AssertOrderTransformer was not followed";
+  }
+  public get errEpilogue() {
+    return `The elements [${this._exportOrderQueue}] remain`;
+  }
 
   public override onExportElement(elem: Element) {
-    if (elem.id === this._exportOrderQueue[0])
-      this._exportOrderQueue.shift(); // pop the front
+    if (elem.id === this._exportOrderQueue[0]) this._exportOrderQueue.shift(); // pop the front
     // we just popped the queue if it was expected, so it shouldn't be there the order was correct (and there are no duplicates)
-    const currentExportWasNotInExpectedOrder = this._exportOrderQueue.includes(elem.id);
+    const currentExportWasNotInExpectedOrder = this._exportOrderQueue.includes(
+      elem.id
+    );
     if (currentExportWasNotInExpectedOrder)
-      throw Error(`${this.errPrologue}. '${elem.id}' came before the expected '${this._exportOrderQueue[0]}'. ${this.errEpilogue}`);
+      throw Error(
+        `${this.errPrologue}. '${elem.id}' came before the expected '${this._exportOrderQueue[0]}'. ${this.errEpilogue}`
+      );
     return super.onExportElement(elem);
   }
 
@@ -1129,23 +2035,33 @@ export class CountingIModelImporter extends IModelImporter {
     this.numElementsDeleted++;
     super.onDeleteElement(elementId);
   }
-  protected override onInsertElementAspect(aspectProps: ElementAspectProps): Id64String {
+  protected override onInsertElementAspect(
+    aspectProps: ElementAspectProps
+  ): Id64String {
     this.numElementAspectsInserted++;
     return super.onInsertElementAspect(aspectProps);
   }
-  protected override onUpdateElementAspect(aspectProps: ElementAspectProps): void {
+  protected override onUpdateElementAspect(
+    aspectProps: ElementAspectProps
+  ): void {
     this.numElementAspectsUpdated++;
     super.onUpdateElementAspect(aspectProps);
   }
-  protected override onInsertRelationship(relationshipProps: RelationshipProps): Id64String {
+  protected override onInsertRelationship(
+    relationshipProps: RelationshipProps
+  ): Id64String {
     this.numRelationshipsInserted++;
     return super.onInsertRelationship(relationshipProps);
   }
-  protected override onUpdateRelationship(relationshipProps: RelationshipProps): void {
+  protected override onUpdateRelationship(
+    relationshipProps: RelationshipProps
+  ): void {
     this.numRelationshipsUpdated++;
     super.onUpdateRelationship(relationshipProps);
   }
-  protected override onDeleteRelationship(relationshipProps: RelationshipProps): void {
+  protected override onDeleteRelationship(
+    relationshipProps: RelationshipProps
+  ): void {
     this.numRelationshipsDeleted++;
     super.onDeleteRelationship(relationshipProps);
   }
@@ -1160,12 +2076,19 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     const modelId: Id64String = super.onInsertModel(modelProps);
     const model: Model = this.targetDb.models.getModel(modelId);
     if (model instanceof PhysicalModel) {
-      const modeledElement: Element = this.targetDb.elements.getElement(model.modeledElement.id);
+      const modeledElement: Element = this.targetDb.elements.getElement(
+        model.modeledElement.id
+      );
       if (modeledElement instanceof PhysicalPartition) {
         const parentSubjectId: Id64String = modeledElement.parent!.id; // InformationPartitionElements are always parented to Subjects
-        const recordPartitionId: Id64String = InformationRecordModel.insert(this.targetDb, parentSubjectId, `Records for ${model.name}`);
+        const recordPartitionId: Id64String = InformationRecordModel.insert(
+          this.targetDb,
+          parentSubjectId,
+          `Records for ${model.name}`
+        );
         this.targetDb.relationships.insertInstance({
-          classFullName: "ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords",
+          classFullName:
+            "ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords",
           sourceId: modeledElement.id,
           targetId: recordPartitionId,
         });
@@ -1177,7 +2100,9 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     const elementId: Id64String = super.onInsertElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(element.model);
+      const recordPartitionId: Id64String = this.getRecordPartitionId(
+        element.model
+      );
       if (Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Insert", recordPartitionId, element);
       }
@@ -1186,9 +2111,13 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   }
   protected override onUpdateElement(elementProps: ElementProps): void {
     super.onUpdateElement(elementProps);
-    const element: Element = this.targetDb.elements.getElement(elementProps.id!);
+    const element: Element = this.targetDb.elements.getElement(
+      elementProps.id!
+    );
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(element.model);
+      const recordPartitionId: Id64String = this.getRecordPartitionId(
+        element.model
+      );
       if (Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Update", recordPartitionId, element);
       }
@@ -1197,7 +2126,9 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   protected override onDeleteElement(elementId: Id64String): void {
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(element.model);
+      const recordPartitionId: Id64String = this.getRecordPartitionId(
+        element.model
+      );
       if (Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Delete", recordPartitionId, element);
       }
@@ -1205,13 +2136,23 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
   }
   private getRecordPartitionId(physicalPartitionId: Id64String): Id64String {
-    const sql = "SELECT TargetECInstanceId FROM ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords WHERE SourceECInstanceId=:physicalPartitionId";
-    return this.targetDb.withPreparedStatement(sql, (statement: ECSqlStatement): Id64String => {
-      statement.bindId("physicalPartitionId", physicalPartitionId);
-      return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getId() : Id64.invalid;
-    });
+    const sql =
+      "SELECT TargetECInstanceId FROM ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords WHERE SourceECInstanceId=:physicalPartitionId";
+    return this.targetDb.withPreparedStatement(
+      sql,
+      (statement: ECSqlStatement): Id64String => {
+        statement.bindId("physicalPartitionId", physicalPartitionId);
+        return DbResult.BE_SQLITE_ROW === statement.step()
+          ? statement.getValue(0).getId()
+          : Id64.invalid;
+      }
+    );
   }
-  private insertAuditRecord(operation: string, recordPartitionId: Id64String, physicalElement: PhysicalElement): Id64String {
+  private insertAuditRecord(
+    operation: string,
+    recordPartitionId: Id64String,
+    physicalElement: PhysicalElement
+  ): Id64String {
     const auditRecord: any = {
       classFullName: "ExtensiveTestScenarioTarget:AuditRecord",
       model: recordPartitionId,
@@ -1229,11 +2170,16 @@ export class RecordingIModelImporter extends CountingIModelImporter {
  */
 export class AspectTrackingImporter extends IModelImporter {
   public importedAspectIdsByElement = new Map<Id64String, Id64String[]>();
-  public override importElementMultiAspects(...args: Parameters<IModelImporter["importElementMultiAspects"]>) {
+  public override importElementMultiAspects(
+    ...args: Parameters<IModelImporter["importElementMultiAspects"]>
+  ) {
     const resultTargetIds = super.importElementMultiAspects(...args);
     const [aspectsProps] = args;
     const elementId = aspectsProps[0].element.id;
-    assert(!this.importedAspectIdsByElement.has(elementId), "should only export multiaspects for an element once");
+    assert(
+      !this.importedAspectIdsByElement.has(elementId),
+      "should only export multiaspects for an element once"
+    );
     this.importedAspectIdsByElement.set(elementId, resultTargetIds);
     return resultTargetIds;
   }
@@ -1259,7 +2205,9 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeSeparator();
     await this.exporter.exportAll();
   }
-  public async exportChanges(...args: Parameters<IModelExporter["exportChanges"]>): Promise<void> {
+  public async exportChanges(
+    ...args: Parameters<IModelExporter["exportChanges"]>
+  ): Promise<void> {
     this._shouldIndent = false;
     // eslint-disable-next-line deprecation/deprecation
     return this.exporter.exportChanges(...args);
@@ -1277,8 +2225,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeLine("--------------------------------");
   }
   private formatOperationName(isUpdate: boolean | undefined): string {
-    if (undefined === isUpdate)
-      return "";
+    if (undefined === isUpdate) return "";
 
     return isUpdate ? ", UPDATE" : ", INSERT";
   }
@@ -1286,8 +2233,10 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     if (!this._shouldIndent) {
       return 0;
     }
-    if ((undefined !== element.parent) && (Id64.isValidId64(element.parent.id))) {
-      const parentElement: Element = this.exporter.sourceDb.elements.getElement(element.parent.id);
+    if (undefined !== element.parent && Id64.isValidId64(element.parent.id)) {
+      const parentElement: Element = this.exporter.sourceDb.elements.getElement(
+        element.parent.id
+      );
       return 1 + this.getIndentLevelForElement(parentElement);
     }
     return 1;
@@ -1296,18 +2245,30 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     if (!this._shouldIndent) {
       return 0;
     }
-    const element: Element = this.exporter.sourceDb.elements.getElement(aspect.element.id);
+    const element: Element = this.exporter.sourceDb.elements.getElement(
+      aspect.element.id
+    );
     return 1 + this.getIndentLevelForElement(element);
   }
   public override async onExportSchema(schema: Schema) {
     this.writeLine(`[Schema] ${schema.name}`);
     return super.onExportSchema(schema);
   }
-  public override onExportCodeSpec(codeSpec: CodeSpec, isUpdate: boolean | undefined): void {
-    this.writeLine(`[CodeSpec] ${codeSpec.id}, ${codeSpec.name}${this.formatOperationName(isUpdate)}`);
+  public override onExportCodeSpec(
+    codeSpec: CodeSpec,
+    isUpdate: boolean | undefined
+  ): void {
+    this.writeLine(
+      `[CodeSpec] ${codeSpec.id}, ${codeSpec.name}${this.formatOperationName(
+        isUpdate
+      )}`
+    );
     super.onExportCodeSpec(codeSpec, isUpdate);
   }
-  public override onExportFont(font: FontProps, isUpdate: boolean | undefined): void {
+  public override onExportFont(
+    font: FontProps,
+    isUpdate: boolean | undefined
+  ): void {
     if (this._firstFont) {
       this.writeSeparator();
       this._firstFont = false;
@@ -1315,38 +2276,73 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeLine(`[Font] ${font.id}, ${font.name}`);
     super.onExportFont(font, isUpdate);
   }
-  public override onExportModel(model: Model, isUpdate: boolean | undefined): void {
+  public override onExportModel(
+    model: Model,
+    isUpdate: boolean | undefined
+  ): void {
     this.writeSeparator();
-    this.writeLine(`[Model] ${model.classFullName}, ${model.id}, ${model.name}${this.formatOperationName(isUpdate)}`);
+    this.writeLine(
+      `[Model] ${model.classFullName}, ${model.id}, ${
+        model.name
+      }${this.formatOperationName(isUpdate)}`
+    );
     super.onExportModel(model, isUpdate);
   }
-  public override onExportElement(element: Element, isUpdate: boolean | undefined): void {
+  public override onExportElement(
+    element: Element,
+    isUpdate: boolean | undefined
+  ): void {
     const indentLevel: number = this.getIndentLevelForElement(element);
-    this.writeLine(`[Element] ${element.classFullName}, ${element.id}, ${element.getDisplayLabel()}${this.formatOperationName(isUpdate)}`, indentLevel);
+    this.writeLine(
+      `[Element] ${element.classFullName}, ${
+        element.id
+      }, ${element.getDisplayLabel()}${this.formatOperationName(isUpdate)}`,
+      indentLevel
+    );
     super.onExportElement(element, isUpdate);
   }
   public override onDeleteElement(elementId: Id64String): void {
     this.writeLine(`[Element] ${elementId}, DELETE`);
     super.onDeleteElement(elementId);
   }
-  public override onExportElementUniqueAspect(aspect: ElementUniqueAspect, isUpdate: boolean | undefined): void {
+  public override onExportElementUniqueAspect(
+    aspect: ElementUniqueAspect,
+    isUpdate: boolean | undefined
+  ): void {
     const indentLevel: number = this.getIndentLevelForElementAspect(aspect);
-    this.writeLine(`[Aspect] ${aspect.classFullName}, ${aspect.id}${this.formatOperationName(isUpdate)}`, indentLevel);
+    this.writeLine(
+      `[Aspect] ${aspect.classFullName}, ${aspect.id}${this.formatOperationName(
+        isUpdate
+      )}`,
+      indentLevel
+    );
     super.onExportElementUniqueAspect(aspect, isUpdate);
   }
-  public override onExportElementMultiAspects(aspects: ElementMultiAspect[]): void {
+  public override onExportElementMultiAspects(
+    aspects: ElementMultiAspect[]
+  ): void {
     const indentLevel: number = this.getIndentLevelForElementAspect(aspects[0]);
     for (const aspect of aspects) {
-      this.writeLine(`[Aspect] ${aspect.classFullName}, ${aspect.id}`, indentLevel);
+      this.writeLine(
+        `[Aspect] ${aspect.classFullName}, ${aspect.id}`,
+        indentLevel
+      );
     }
     super.onExportElementMultiAspects(aspects);
   }
-  public override onExportRelationship(relationship: Relationship, isUpdate: boolean | undefined): void {
+  public override onExportRelationship(
+    relationship: Relationship,
+    isUpdate: boolean | undefined
+  ): void {
     if (this._firstRelationship) {
       this.writeSeparator();
       this._firstRelationship = false;
     }
-    this.writeLine(`[Relationship] ${relationship.classFullName}, ${relationship.id}${this.formatOperationName(isUpdate)}`);
+    this.writeLine(
+      `[Relationship] ${relationship.classFullName}, ${
+        relationship.id
+      }${this.formatOperationName(isUpdate)}`
+    );
     super.onExportRelationship(relationship, isUpdate);
   }
   public override onDeleteRelationship(relInstanceId: Id64String): void {
@@ -1362,7 +2358,10 @@ export class ClassCounter extends IModelExportHandler {
   private _modelClassCounts: Map<string, number> = new Map<string, number>();
   private _elementClassCounts: Map<string, number> = new Map<string, number>();
   private _aspectClassCounts: Map<string, number> = new Map<string, number>();
-  private _relationshipClassCounts: Map<string, number> = new Map<string, number>();
+  private _relationshipClassCounts: Map<string, number> = new Map<
+    string,
+    number
+  >();
   public constructor(sourceDb: IModelDb, outputFileName: string) {
     super();
     this.outputFileName = outputFileName;
@@ -1374,7 +2373,10 @@ export class ClassCounter extends IModelExportHandler {
     await this.exporter.exportAll();
     this.outputAllClassCounts();
   }
-  private incrementClassCount(map: Map<string, number>, classFullName: string): void {
+  private incrementClassCount(
+    map: Map<string, number>,
+    classFullName: string
+  ): void {
     const count: number | undefined = map.get(classFullName);
     if (undefined === count) {
       map.set(classFullName, 1);
@@ -1383,47 +2385,87 @@ export class ClassCounter extends IModelExportHandler {
     }
   }
   private sortClassCounts(map: Map<string, number>): any[] {
-    return Array.from(map).sort((a: [string, number], b: [string, number]): number => {
-      if (a[1] === b[1]) {
-        return a[0] > b[0] ? 1 : -1;
-      } else {
-        return a[1] > b[1] ? -1 : 1;
+    return Array.from(map).sort(
+      (a: [string, number], b: [string, number]): number => {
+        if (a[1] === b[1]) {
+          return a[0] > b[0] ? 1 : -1;
+        } else {
+          return a[1] > b[1] ? -1 : 1;
+        }
       }
-    });
+    );
   }
   private outputAllClassCounts(): void {
-    this.outputClassCounts("Model", this.sortClassCounts(this._modelClassCounts));
-    this.outputClassCounts("Element", this.sortClassCounts(this._elementClassCounts));
-    this.outputClassCounts("ElementAspect", this.sortClassCounts(this._aspectClassCounts));
-    this.outputClassCounts("Relationship", this.sortClassCounts(this._relationshipClassCounts));
+    this.outputClassCounts(
+      "Model",
+      this.sortClassCounts(this._modelClassCounts)
+    );
+    this.outputClassCounts(
+      "Element",
+      this.sortClassCounts(this._elementClassCounts)
+    );
+    this.outputClassCounts(
+      "ElementAspect",
+      this.sortClassCounts(this._aspectClassCounts)
+    );
+    this.outputClassCounts(
+      "Relationship",
+      this.sortClassCounts(this._relationshipClassCounts)
+    );
   }
-  private outputClassCounts(title: string, classCounts: Array<[string, number]>): void {
-    IModelJsFs.appendFileSync(this.outputFileName, `=== ${title} Class Counts ===\n`);
+  private outputClassCounts(
+    title: string,
+    classCounts: Array<[string, number]>
+  ): void {
+    IModelJsFs.appendFileSync(
+      this.outputFileName,
+      `=== ${title} Class Counts ===\n`
+    );
     classCounts.forEach((value: [string, number]) => {
-      IModelJsFs.appendFileSync(this.outputFileName, `${value[1]}, ${value[0]}\n`);
+      IModelJsFs.appendFileSync(
+        this.outputFileName,
+        `${value[1]}, ${value[0]}\n`
+      );
     });
     IModelJsFs.appendFileSync(this.outputFileName, `\n`);
   }
-  public override onExportModel(model: Model, isUpdate: boolean | undefined): void {
+  public override onExportModel(
+    model: Model,
+    isUpdate: boolean | undefined
+  ): void {
     this.incrementClassCount(this._modelClassCounts, model.classFullName);
     super.onExportModel(model, isUpdate);
   }
-  public override onExportElement(element: Element, isUpdate: boolean | undefined): void {
+  public override onExportElement(
+    element: Element,
+    isUpdate: boolean | undefined
+  ): void {
     this.incrementClassCount(this._elementClassCounts, element.classFullName);
     super.onExportElement(element, isUpdate);
   }
-  public override onExportElementUniqueAspect(aspect: ElementUniqueAspect, isUpdate: boolean | undefined): void {
+  public override onExportElementUniqueAspect(
+    aspect: ElementUniqueAspect,
+    isUpdate: boolean | undefined
+  ): void {
     this.incrementClassCount(this._aspectClassCounts, aspect.classFullName);
     super.onExportElementUniqueAspect(aspect, isUpdate);
   }
-  public override onExportElementMultiAspects(aspects: ElementMultiAspect[]): void {
+  public override onExportElementMultiAspects(
+    aspects: ElementMultiAspect[]
+  ): void {
     for (const aspect of aspects) {
       this.incrementClassCount(this._aspectClassCounts, aspect.classFullName);
     }
     super.onExportElementMultiAspects(aspects);
   }
-  public override onExportRelationship(relationship: Relationship, isUpdate: boolean | undefined): void {
-    this.incrementClassCount(this._relationshipClassCounts, relationship.classFullName);
+  public override onExportRelationship(
+    relationship: Relationship,
+    isUpdate: boolean | undefined
+  ): void {
+    this.incrementClassCount(
+      this._relationshipClassCounts,
+      relationship.classFullName
+    );
     super.onExportRelationship(relationship, isUpdate);
   }
 }
@@ -1459,19 +2501,31 @@ export async function runWithCpuProfiler<F extends () => any>(
   } = {}
 ): Promise<ReturnType<F>> {
   const maybeNameTimePortion = timestamp ? `_${new Date().toISOString()}` : "";
-  const profilePath = path.join(profileDir, `${profileName}${maybeNameTimePortion}${profileExtension}`);
+  const profilePath = path.join(
+    profileDir,
+    `${profileName}${maybeNameTimePortion}${profileExtension}`
+  );
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   // implementation influenced by https://github.com/wallet77/v8-inspector-api/blob/master/src/utils.js
-  const invokeFunc = async (thisSession: inspector.Session, funcName: string, args: any = {}) => {
+  const invokeFunc = async (
+    thisSession: inspector.Session,
+    funcName: string,
+    args: any = {}
+  ) => {
     return new Promise<void>((resolve, reject) => {
-      thisSession.post(funcName, args, (err) => err ? reject(err) : resolve());
+      thisSession.post(funcName, args, (err) =>
+        err ? reject(err) : resolve()
+      );
     });
   };
-  const stopProfiler = async (thisSession: inspector.Session, funcName: "Profiler.stop", writePath: string) => {
+  const stopProfiler = async (
+    thisSession: inspector.Session,
+    funcName: "Profiler.stop",
+    writePath: string
+  ) => {
     return new Promise<void>((resolve, reject) => {
       thisSession.post(funcName, async (err, res) => {
-        if (err)
-          return reject(err);
+        if (err) return reject(err);
         await fs.promises.writeFile(writePath, JSON.stringify(res.profile));
         resolve();
       });
@@ -1480,7 +2534,9 @@ export async function runWithCpuProfiler<F extends () => any>(
   const session = new inspector.Session();
   session.connect();
   await invokeFunc(session, "Profiler.enable");
-  await invokeFunc(session, "Profiler.setSamplingInterval", { interval: sampleIntervalMicroSec });
+  await invokeFunc(session, "Profiler.setSamplingInterval", {
+    interval: sampleIntervalMicroSec,
+  });
   await invokeFunc(session, "Profiler.start");
   const result = await f();
   await stopProfiler(session, "Profiler.stop", profilePath);
@@ -1490,7 +2546,10 @@ export async function runWithCpuProfiler<F extends () => any>(
 }
 
 export function getProfileVersion(db: IModelDb): ProfileVersion {
-  const rows = db.withPreparedSqliteStatement("SELECT Name,StrData FROM be_Prop WHERE Namespace='ec_Db' AND Name='SchemaVersion'", (s) => [...s]);
+  const rows = db.withPreparedSqliteStatement(
+    "SELECT Name,StrData FROM be_Prop WHERE Namespace='ec_Db' AND Name='SchemaVersion'",
+    (s) => [...s]
+  );
   const profile = JSON.parse(rows[0].strData);
   assert(profile.major !== undefined);
   assert(profile.minor !== undefined);
@@ -1512,12 +2571,13 @@ export interface ProfileVersion {
  * 0 if they are equal,
  * or a negative integer if the first is less than the second
  */
-export function cmpProfileVersion(a: ProfileVersion, b: ProfileVersion): number {
+export function cmpProfileVersion(
+  a: ProfileVersion,
+  b: ProfileVersion
+): number {
   for (const subKey of ["major", "minor", "sub1", "sub2"] as const) {
-    if (a[subKey] > b[subKey])
-      return 1;
-    else if (a[subKey] < b[subKey])
-      return -1;
+    if (a[subKey] > b[subKey]) return 1;
+    else if (a[subKey] < b[subKey]) return -1;
   }
   return 0;
 }
