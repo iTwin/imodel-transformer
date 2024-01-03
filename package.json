@@ -11,6 +11,7 @@
     "test": "pnpm -r test --filter !transformer-performance-tests",
     "docs": "pnpm -r docs",
     "lint": "pnpm -r lint",
+    "prettier:format": "pnpm -r prettier:format",
     "cover": "pnpm -r cover",
     "lint:copyright": "node scripts/copyrightLinter.js",
     "change": "beachball change",
