@@ -71,7 +71,17 @@ module.exports = [
         }
     },
     {
-        files: ["packages/performance-tests/**/*.ts"], // TODO: see if that one difference in selector rule or whatever matters.
+        files: ["packages/performance-tests/**/*.ts"],
+        rules: {
+            "@typescript-eslint/naming-convention": [
+              ...itwinjsRecommended.rules["@typescript-eslint/naming-convention"],
+              {
+                selector: ["objectLiteralProperty", "typeProperty"],
+                format: null,
+                leadingUnderscore: "allowSingleOrDouble", 
+              },
+            ],
+        },
         languageOptions: {
             parserOptions: {
                 project: "packages/performance-tests/tsconfig.json",
