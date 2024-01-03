@@ -20,18 +20,21 @@
     "version-bump-dev": "beachball bump --config beachball.config.dev.js --keep-change-files",
     "publish-packages": "beachball publish",
     "publish-packages-dev": "beachball publish --config beachball.config.dev.js --keep-change-files",
-    "pre-commit": "lint-staged"
+    "pre-commit": "lint-staged",
+    "prepare": "husky install"
   },
   "license": "MIT",
   "devDependencies": {
     "beachball": "^2.33.3",
     "fast-glob": "^3.2.12",
     "husky": "^8.0.3",
-    "lint-staged": "^13.2.2"
+    "lint-staged": "^13.2.2",
+    "prettier": "^3.1.1"
   },
   "lint-staged": {
     "*.{ts,html}": [
-      "pnpm lint:copyright --fix"
+      "pnpm lint:copyright --fix",
+      "prettier --write -u"
     ]
   },
   "engines": {
