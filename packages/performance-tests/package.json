@@ -1,105 +1,62 @@
 {
-  "name": "@itwin/imodel-transformer",
-  "version": "0.4.18-fedguidopt.4",
-  "description": "API for exporting an iModel's parts and also importing them into another iModel",
-  "main": "lib/cjs/transformer.js",
-  "typings": "lib/cjs/transformer",
+  "name": "transformer-performance-tests",
+  "private": true,
   "license": "MIT",
-  "engines": {
-    "node": "^18.0.0"
-  },
+  "version": "0.1.0",
   "scripts": {
-    "build": "npm run -s build:cjs && npm run -s copy:test-assets",
+    "build": "tsc 1>&2",
     "build:ci": "npm run -s build",
-    "build:cjs": "tsc 1>&2 --outDir lib/cjs",
     "clean": "rimraf lib",
-    "docs": "npm run -s docs:extract && npm run -s docs:reference && npm run -s docs:changelog",
-    "docs:changelog": "cpx ./CHANGELOG.md ../../build/docs/reference/imodel-transformer",
-    "# env var is workaround, need to contribute a better rush-less root-package.json detector to betools": "",
-    "docs:reference": "cross-env RUSHSTACK_FILE_ERROR_BASE_FOLDER='../..' betools docs --includes=../../build/docs/extract --json=../../build/docs/reference/imodel-transformer/file.json --tsIndexFile=transformer.ts --onlyJson",
-    "docs:extract": "betools extract --fileExt=ts --extractFrom=./src/test --recursive --out=../../build/docs/extract",
-    "copy:test-assets": "cpx \"./src/test/assets/**/*\" ./lib/cjs/test/assets",
-    "cover": "nyc npm -s test",
-    "extract-api": "betools extract-api --entry=imodel-transformer",
-    "lint": "eslint -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
-    "lint:no-tests": "eslint -f visualstudio --quiet \"./src/*.ts\" 1>&2",
-    "lint:fix": "eslint --fix -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
+    "lint": "eslint \"./test/**/*.ts\" 1>&2",
+    "test": "mocha --delay --timeout 300000 --require ts-node/register test/**/*.test.ts",
     "prettier:format": "prettier \"./test/**/*.ts\" --write",
-    "lint:with-warnings": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
-    "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000 --reporter-option maxDiffSize=0 --require source-map-support/register",
-    "no-internal-report": "no-internal-report src/**/*.ts"
+    "test-mocha": "mocha --delay --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
+    "process-reports": "node scripts/process-reports"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/iTwin/imodel-transformer.git",
-    "directory": "packages/transformer"
-  },
-  "keywords": [
-    "Bentley",
-    "BIM",
-    "iModel",
-    "digital-twin",
-    "iTwin"
-  ],
-  "author": {
-    "name": "Bentley Systems, Inc.",
-    "url": "http://www.bentley.com"
-  },
-  "//deps": [
-    "SEE file://./README.md#versioning",
-    "This package relies on @internal APIs in iTwin.js, and therefore has very strict peerDep versions",
-    "We perform a version check at runtime to ensure this.",
-    "Every new iTwin.js version must be validated, and fixes are rarely ported to old versions.",
-    "Removing Dependencies on internal APIs is ongoing.",
-    "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
-  ],
-  "peerDependencies": {
+  "repository": {},
+  "dependencies": {
     "@itwin/core-backend": "4.3.0-dev.31",
     "@itwin/core-bentley": "4.3.0-dev.31",
     "@itwin/core-common": "4.3.0-dev.31",
     "@itwin/core-geometry": "4.3.0-dev.31",
     "@itwin/core-quantity": "4.3.0-dev.31",
-    "@itwin/ecschema-metadata": "4.3.0-dev.31"
+    "@itwin/imodel-transformer": "workspace:*",
+    "@itwin/ecschema-metadata": "4.3.0-dev.31",
+    "@itwin/imodels-access-backend": "^2.2.1",
+    "@itwin/imodels-client-authoring": "2.3.0",
+    "@itwin/node-cli-authorization": "~0.9.0",
+    "@itwin/perf-tools": "3.7.2",
+    "dotenv": "^10.0.0",
+    "dotenv-expand": "^5.1.0",
+    "fs-extra": "^8.1.0",
+    "yargs": "^16.0.0"
   },
-  "//devDependencies": [
-    "NOTE: All peerDependencies should also be listed as devDependencies since peerDependencies are not considered by npm install",
-    "NOTE: All tools used by scripts in this package must be listed as devDependencies"
-  ],
   "devDependencies": {
     "@itwin/build-tools": "4.3.0-dev.31",
-    "@itwin/core-backend": "4.3.0-dev.31",
-    "@itwin/core-bentley": "4.3.0-dev.31",
-    "@itwin/core-common": "4.3.0-dev.31",
-    "@itwin/core-geometry": "4.3.0-dev.31",
-    "@itwin/core-quantity": "4.3.0-dev.31",
-    "@itwin/ecschema-metadata": "4.3.0-dev.31",
-    "@itwin/eslint-plugin": "4.0.0-dev.48",
-    "@types/chai": "4.3.1",
-    "@types/chai-as-promised": "^7.1.5",
-    "@types/mocha": "^8.2.3",
-    "@types/node": "^18.16.14",
-    "@types/semver": "7.3.10",
-    "@types/sinon": "^9.0.11",
-    "chai": "^4.3.7",
-    "chai-as-promised": "^7.1.1",
-    "cpx2": "^3.0.2",
-    "cross-env": "^5.2.1",
+    "@itwin/eslint-plugin": "^4.0.0-dev.48",
+    "@itwin/oidc-signin-tool": "^3.4.1",
+    "@itwin/projects-client": "^0.6.0",
+    "@types/chai": "^4.1.4",
+    "@types/fs-extra": "^4.0.7",
+    "@types/mocha": "^8.2.2",
+    "@types/node": "14.14.31",
+    "@types/yargs": "^12.0.5",
+    "chai": "^4.3.6",
     "eslint": "^8.36.0",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.1.1",
-    "js-base64": "^3.7.5",
-    "mocha": "^10.2.0",
-    "npm-run-all": "^4.1.5",
-    "nyc": "^15.1.0",
+    "mocha": "^10.0.0",
     "rimraf": "^3.0.2",
-    "sinon": "^9.2.4",
-    "source-map-support": "^0.5.21",
-    "typescript": "^5.0.4"
+    "ts-node": "^10.7.0",
+    "typescript": "~4.4.0"
   },
-  "dependencies": {
-    "semver": "^7.5.1"
-  },
-  "nyc": {
-    "extends": "./node_modules/@itwin/build-tools/.nycrc"
+  "eslintConfig": {
+    "plugins": [
+      "@itwin"
+    ],
+    "extends": "plugin:@itwin/itwinjs-recommended",
+    "parserOptions": {
+      "project": "./tsconfig.json"
+    }
   }
 }
