@@ -2750,7 +2750,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it.only("try import dynamic schemas regardless of version", async function () {
+  it("try import dynamic schemas regardless of version", async function () {
     const makeDynamicSchema = (version: string, classes = [] as string[]) => `<?xml version="1.0" encoding="UTF-8"?>
       <ECSchema schemaName="Dynamic" alias="d1" version="${version}" displayLabel="dyn" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
         <ECCustomAttributes>
