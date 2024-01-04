@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 import * as fs from "fs";
 import * as path from "path";
 import { ElementGroupsMembers, IModelDb, IModelHost, PhysicalModel, PhysicalObject, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
@@ -27,7 +31,7 @@ export function setToStandalone(iModelPath: string) {
   nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
   nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
   nativeDb.saveChanges(); // save change to briefcaseId
-  nativeDb.closeIModel();
+  nativeDb.closeFile();
 }
 
 export function generateTestIModel(iModelParam: IModelParams): TestIModel {

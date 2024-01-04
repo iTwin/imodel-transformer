@@ -2053,7 +2053,7 @@ export class IModelTransformer extends IModelExportHandler {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
           continue;
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        if (changeType === "Deleted" && change?.$meta?.className === esaNameNormalized && change.Scope.Id === this.targetScopeElementId) {
+        if (changeType === "Deleted" && change?.$meta?.classFullName === esaNameNormalized && change.Scope.Id === this.targetScopeElementId) {
           elemIdToScopeEsa.set(change.Element.Id, change);
         } else if (changeType === "Inserted" || changeType === "Updated")
           hasElementChangedCache.add(change.ECInstanceId);
@@ -2139,7 +2139,7 @@ export class IModelTransformer extends IModelExportHandler {
         this.exporter.sourceDbChanges?.model.deleteIds.delete(instId);
       }
     } else { // is deleted relationship
-        const classFullName = change.$meta?.className;
+        const classFullName = change.$meta?.classFullName;
         const sourceIdOfRelationship = change.SourceECInstanceId;
         const targetIdOfRelationship = change.TargetECInstanceId;
         const [sourceIdInTarget, targetIdInTarget] = [sourceIdOfRelationship, targetIdOfRelationship].map((id) => {
@@ -2179,8 +2179,8 @@ export class IModelTransformer extends IModelExportHandler {
           // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
           const relProvenance = this._queryProvenanceForRelationship(instId, {
             classFullName: classFullName ?? "",
-            sourceId: "stmt.getValue(2).getId()",
-            targetId: "stmt.getValue(3).getId()",
+            sourceId: sourceIdOfRelationship,
+            targetId: targetIdOfRelationship,
           });
           if (relProvenance && relProvenance.relationshipId)
             this._deletedSourceRelationshipData!.set(instId, {

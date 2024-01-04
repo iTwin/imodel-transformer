@@ -1041,7 +1041,7 @@ describe("IModelTransformer", () => {
     nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
     nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
     nativeDb.saveChanges(); // save change to briefcaseId
-    nativeDb.closeIModel();
+    nativeDb.closeFile();
   }
 
   it("biscore update is valid", async () => {
@@ -1060,7 +1060,7 @@ describe("IModelTransformer", () => {
     // StandaloneDb.upgradeStandaloneSchemas is the suggested method to handle a profile upgrade but that will also upgrade
     // the BisCore schema.  This test is explicitly testing that the BisCore schema will be updated from the source iModel
     const nativeDb = StandaloneDb.openDgnDb({path: targetDbPath}, OpenMode.ReadWrite, {profile: ProfileOptions.Upgrade, schemaLockHeld: true});
-    nativeDb.closeIModel();
+    nativeDb.closeFile();
     const targetDb = StandaloneDb.openFile(targetDbPath);
 
     assert(
