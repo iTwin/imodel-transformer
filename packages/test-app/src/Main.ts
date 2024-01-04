@@ -508,7 +508,7 @@ void (async () => {
             JSON.stringify({ txns: true })
           );
           nativeDb.saveChanges(); // save change to briefcaseId
-          nativeDb.closeIModel();
+          nativeDb.closeFile();
         }
         targetDb.close();
         setToStandalone(args.targetStandaloneDestination);
