@@ -2672,7 +2672,7 @@ export class IModelTransformer extends IModelExportHandler {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         if (
           changeType === "Deleted" &&
-          change?.$meta?.className === esaNameNormalized &&
+          change?.$meta?.classFullName === esaNameNormalized &&
           change.Scope.Id === this.targetScopeElementId
         ) {
           esaMap.set(change.Element.Id, change);
@@ -2779,7 +2779,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     } else {
       // is deleted relationship
-      const classFullName = change.$meta?.className;
+      const classFullName = change.$meta?.classFullName;
       const sourceIdOfRelationship = change.SourceECInstanceId;
       const targetIdOfRelationship = change.TargetECInstanceId;
       const [sourceIdInTarget, targetIdInTarget] = [
