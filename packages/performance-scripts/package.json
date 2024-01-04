@@ -12,12 +12,15 @@
     "build": "tsc -p tsconfig.json",
     "test": "echo \"Error: no tests\" && exit 0"
   },
-  "keywords": ["performance", "profiling"],
+  "keywords": [
+    "performance",
+    "profiling"
+  ],
   "author": "Bentley Systems, Inc.",
   "license": "MIT",
   "devDependencies": {
-    "@itwin/build-tools": "4.3.0-dev.31",
-    "@itwin/core-backend": "4.3.0-dev.31",
+    "@itwin/build-tools": "4.3.3",
+    "@itwin/core-backend": "4.3.3",
     "@types/node": "^18.11.5",
     "typescript": "~4.4.0"
   }
