@@ -241,7 +241,15 @@ export type TimelineStateChange =
   // create a branch from an existing iModel with a given name
   | { branch: string }
   // synchronize with the changes in an iModel of a given name from a starting timeline point
-  | { sync: [source: string, opts?: { since: number }] }
+  | {
+      sync: [
+        source: string,
+        opts?: {
+          since?: number;
+          initTransformer?: (transformer: IModelTransformer) => void;
+        },
+      ];
+    }
   // manually update an iModel, state will be automatically detected after. Useful for more complicated
   // element changes with inter-dependencies.
   // @note: the key for the element in the state will be the userLabel or if none, the id
@@ -334,7 +342,13 @@ export async function runTimeline(
   const getSync = (model: TimelineStateChange) =>
     // HACK: concat {} so destructuring works if opts were undefined
     (model as any).sync?.concat({}) as
-      | [src: string, opts: { since?: number }]
+      | [
+          src: string,
+          opts: {
+            since?: number;
+            initTransformer?: (transformer: IModelTransformer) => void;
+          },
+        ]
       | undefined;
   const getManualUpdate = (
     model: TimelineStateChange
@@ -465,7 +479,8 @@ export async function runTimeline(
         // "branch" and "seed" event has already been handled in the new imodels loop above
         continue;
       } else if ("sync" in event) {
-        const [syncSource, { since: startIndex }] = getSync(event)!;
+        const [syncSource, { since: startIndex, initTransformer }] =
+          getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
         const target = trackedIModels.get(iModelName)!;
@@ -479,6 +494,7 @@ export async function runTimeline(
           ...transformerOpts,
           isReverseSynchronization: !isForwardSync,
         });
+        initTransformer?.(syncer);
         try {
           await syncer.processChanges({
             accessToken,

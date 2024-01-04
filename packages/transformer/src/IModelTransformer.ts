@@ -1236,7 +1236,10 @@ export class IModelTransformer extends IModelExportHandler {
       WHERE s.Name=? AND c.Name=?
     `,
       (stmt) => {
-        const [schemaName, className] = classFullName.split(".");
+        const [schemaName, className] =
+          classFullName.indexOf(".") !== -1
+            ? classFullName.split(".")
+            : classFullName.split(":");
         stmt.bindString(1, schemaName);
         stmt.bindString(2, className);
         if (stmt.step() === DbResult.BE_SQLITE_ROW)
@@ -2831,8 +2834,8 @@ export class IModelTransformer extends IModelExportHandler {
         // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
         const relProvenance = this._queryProvenanceForRelationship(instId, {
           classFullName: classFullName ?? "",
-          sourceId: "stmt.getValue(2).getId()",
-          targetId: "stmt.getValue(3).getId()",
+          sourceId: change.SourceECInstanceId,
+          targetId: change.TargetECInstanceId,
         });
         if (relProvenance && relProvenance.relationshipId)
           this._deletedSourceRelationshipData!.set(instId, {
