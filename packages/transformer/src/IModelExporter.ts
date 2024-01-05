@@ -354,25 +354,13 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    const hasChangeData =
-      "csFileProps" in options ||
-      "startChangeset" in options ||
-      "changesetRanges" in options ||
-      "changedInstanceIds" in options;
-    if (
-      this._sourceDbChanges ||
-      !this.sourceDb.isBriefcaseDb() ||
-      !hasChangeData
-    )
-      return;
+    if (!this.sourceDb.isBriefcaseDb() || this._sourceDbChanges) return;
 
-    this._sourceDbChanges =
-      "changedInstanceIds" in options
-        ? options.changedInstanceIds
-        : await ChangedInstanceIds.initialize({
-            iModel: this.sourceDb,
-            ...options,
-          });
+    this._sourceDbChanges = await ChangedInstanceIds.initialize({
+      iModel: this.sourceDb,
+      ...options,
+    });
+    if (this._sourceDbChanges === undefined) return;
 
     this._exportElementAspectsStrategy.setAspectChanges(
       this._sourceDbChanges.aspect
@@ -657,17 +645,11 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportFontByNumber(fontNumber: number): Promise<void> {
-    // sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts. So lets always export fonts for the time being.
-    // if (undefined !== this._sourceDbChanges) { // is changeset information available?
-    //   const fontId: Id64String = Id64.fromUint32Pair(fontNumber, 0); // changeset information uses Id64String, not number
-    //   if (this._sourceDbChanges.font.insertIds.has(fontId)) {
-    //     isUpdate = false;
-    //   } else if (this._sourceDbChanges.font.updateIds.has(fontId)) {
-    //     isUpdate = true;
-    //   } else {
-    //     return; // not in changeset, don't export
-    //   }
-    // }
+    /** sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts since fonts is not an ec table.
+     * So lets always export fonts for the time being by always setting isUpdate = true.
+     * It is very rare and even problematic for the font table to reach a large size, so it is not a bottleneck in transforming changes.
+     * See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
+     */
     const isUpdate = true;
     Logger.logTrace(loggerCategory, `exportFontById(${fontNumber})`);
     const font: FontProps | undefined =
@@ -1169,45 +1151,50 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
-  private codeSpecECClassIds: Set<string>;
-  private modelECClassIds: Set<string>;
-  private elementECClassIds: Set<string>;
-  private aspectECClassIds: Set<string>;
-  private relationshipECClassIds: Set<string>;
+  private codeSpecECClassIds = new Set<string>();
+  private modelECClassIds = new Set<string>();
+  private elementECClassIds = new Set<string>();
+  private aspectECClassIds = new Set<string>();
+  private relationshipECClassIds = new Set<string>();
+  private _ecClassIdsInitialized = false;
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
-    this.codeSpecECClassIds = new Set<string>();
-    this.modelECClassIds = new Set<string>();
-    this.elementECClassIds = new Set<string>();
-    this.aspectECClassIds = new Set<string>();
-    this.relationshipECClassIds = new Set<string>();
-    this.setupECClassIds();
   }
 
-  private setupECClassIds(): void {
-    const addECClassIdsToSet = (
+  private async setupECClassIds(): Promise<void> {
+    const addECClassIdsToSet = async (
       setToModify: Set<string>,
       baseClass: string
     ) => {
-      this._db.withPreparedStatement(
-        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`,
-        (stmt) => {
-          while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-            setToModify.add(stmt.getValue(0).getId());
-          }
-        }
-      );
+      for await (const row of this._db.createQueryReader(
+        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`
+      )) {
+        setToModify.add(row.ECInstanceId);
+      }
     };
-    addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec");
-    addECClassIdsToSet(this.modelECClassIds, "BisCore.Model");
-    addECClassIdsToSet(this.elementECClassIds, "BisCore.Element");
-    addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect");
-    addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect");
-    addECClassIdsToSet(
-      this.relationshipECClassIds,
-      "BisCore.ElementRefersToElements"
+    const promises = [];
+    promises.push(
+      addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec")
     );
+    promises.push(addECClassIdsToSet(this.modelECClassIds, "BisCore.Model"));
+    promises.push(
+      addECClassIdsToSet(this.elementECClassIds, "BisCore.Element")
+    );
+    promises.push(
+      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect")
+    );
+    promises.push(
+      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect")
+    );
+    promises.push(
+      addECClassIdsToSet(
+        this.relationshipECClassIds,
+        "BisCore.ElementRefersToElements"
+      )
+    );
+    await Promise.all(promises);
+    this._ecClassIdsInitialized = true;
   }
 
   private isRelationship(ecClassId: string) {
@@ -1230,23 +1217,31 @@ export class ChangedInstanceIds {
     return this.elementECClassIds.has(ecClassId);
   }
 
-  public addChange(change: ChangedECInstance): void {
-    if (change.ECClassId === undefined)
+  /**
+   * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
+   */
+  public async addChange(change: ChangedECInstance): Promise<void> {
+    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    if (ecClassId === undefined)
       throw new Error(
         `Element must have been deleted. Table is : ${change?.$meta?.tables}`
       );
     const changeType: SqliteChangeOp | undefined = change.$meta?.op;
     if (changeType === undefined) throw new Error(`ChangeType was undefined.`);
 
-    if (this.isRelationship(change.ECClassId))
+    if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
-    else if (this.isCodeSpec(change.ECClassId))
+    else if (this.isCodeSpec(ecClassId))
       this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
-    else if (this.isAspect(change.ECClassId))
+    else if (this.isAspect(ecClassId))
       this.handleChange(this.aspect, changeType, change.ECInstanceId);
-    else if (this.isModel(change.ECClassId))
+    else if (this.isModel(ecClassId))
       this.handleChange(this.model, changeType, change.ECInstanceId);
-    else if (this.isElement(change.ECClassId))
+    else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
     // Probably by looking at the ECClassId. I think currently without affan's change to fallback we might get some undefined classIds. so maybe look at the table in that case. Won't always have to do this.
   }
@@ -1281,72 +1276,69 @@ export class ChangedInstanceIds {
    */
   public static async initialize(
     opts: ChangedInstanceIdsInitOptions
-  ): Promise<ChangedInstanceIds> {
+  ): Promise<ChangedInstanceIds | undefined> {
+    if ("changedInstanceIds" in opts) return opts.changedInstanceIds;
+
     const iModelId = opts.iModel.iModelId;
     const accessToken = opts.accessToken;
 
-    let csFileProps: ChangesetFileProps[];
-    if (!("csFileProps" in opts)) {
-      let changesetRanges: [number, number][];
-      if ("changesetRanges" in opts) {
-        changesetRanges = opts.changesetRanges;
-      } else if ("startChangeset" in opts) {
-        changesetRanges = [
-          [
-            opts.startChangeset.index ??
-              (
-                await IModelHost.hubAccess.queryChangeset({
-                  iModelId,
-                  changeset: {
-                    id: opts.startChangeset.id ?? opts.iModel.changeset.id,
-                  },
+    const startChangeset =
+      "startChangeset" in opts ? opts.startChangeset : undefined;
+    const changesetRanges =
+      startChangeset !== undefined
+        ? [
+            [
+              startChangeset.index ??
+                (
+                  await IModelHost.hubAccess.queryChangeset({
+                    iModelId,
+                    changeset: {
+                      id: startChangeset.id ?? opts.iModel.changeset.id,
+                    },
+                    accessToken,
+                  })
+                ).index,
+              opts.iModel.changeset.index ??
+                (
+                  await IModelHost.hubAccess.queryChangeset({
+                    iModelId,
+                    changeset: { id: opts.iModel.changeset.id },
+                    accessToken,
+                  })
+                ).index,
+            ],
+          ]
+        : "changesetRanges" in opts
+          ? opts.changesetRanges
+          : undefined;
+    const csFileProps =
+      changesetRanges !== undefined
+        ? (
+            await Promise.all(
+              changesetRanges.map(async ([first, end]) =>
+                IModelHost.hubAccess.downloadChangesets({
                   accessToken,
-                })
-              ).index,
-            opts.iModel.changeset.index ??
-              (
-                await IModelHost.hubAccess.queryChangeset({
                   iModelId,
-                  changeset: { id: opts.iModel.changeset.id },
-                  accessToken,
+                  range: { first, end },
+                  targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
                 })
-              ).index,
-          ],
-        ];
-      }
+              )
+            )
+          ).flat()
+        : "csFileProps" in opts
+          ? opts.csFileProps
+          : undefined;
 
-      Logger.logTrace(
-        loggerCategory,
-        `ChangedInstanceIds.initialize ranges: ${changesetRanges!.join("|")}`
-      );
-
-      const changesets = (
-        await Promise.all(
-          changesetRanges!.map(async ([first, end]) =>
-            IModelHost.hubAccess.downloadChangesets({
-              accessToken,
-              iModelId,
-              range: { first, end },
-              targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
-            })
-          )
-        )
-      ).flat();
-      csFileProps = changesets;
-    } else {
-      csFileProps = opts.csFileProps;
-    }
+    if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
     const relationshipECClassIdsToSkip = new Set<string>();
-    opts.iModel.withPreparedStatement(
-      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`,
-      (stmt) => {
-        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-          relationshipECClassIdsToSkip.add(stmt.getValue(0).getId());
-        }
-      }
-    );
+    for await (const row of opts.iModel.createQueryReader(
+      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`
+    )) {
+      relationshipECClassIdsToSkip.add(row.ECInstanceId);
+    }
+
     for (const csFile of csFileProps) {
       const csReader = SqliteChangesetReader.openFile({
         fileName: csFile.pathname,
@@ -1358,9 +1350,7 @@ export class ChangedInstanceIds {
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
-      const changes: ChangedECInstance[] = Array.from(
-        ecChangeUnifier.instances
-      );
+      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {
         if (
@@ -1368,7 +1358,7 @@ export class ChangedInstanceIds {
           relationshipECClassIdsToSkip.has(change.ECClassId)
         )
           continue;
-        changedInstanceIds.addChange(change);
+        await changedInstanceIds.addChange(change);
       }
       csReader.close();
     }

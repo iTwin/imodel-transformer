@@ -2578,7 +2578,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    this.processChangesets();
+    await this.processChangesets();
 
     this._initialized = true;
   }
@@ -2590,7 +2590,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This function returns early if csFileProps is undefined or is of length 0.
    * @returns void
    */
-  private processChangesets(): void {
+  private async processChangesets(): Promise<void> {
     this.forEachTrackedElement(
       (sourceElementId: Id64String, targetElementId: Id64String) => {
         this.context.remapElement(sourceElementId, targetElementId);
@@ -2599,29 +2599,19 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._csFileProps === undefined || this._csFileProps.length === 0)
       return;
     const hasElementChangedCache = new Set<string>();
-    const esaNameNormalized = ExternalSourceAspect.classFullName.replace(
-      ":",
-      "."
-    );
 
     const relationshipECClassIdsToSkip = new Set<string>();
-    this.sourceDb.withPreparedStatement(
-      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`,
-      (stmt) => {
-        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-          relationshipECClassIdsToSkip.add(stmt.getValue(0).getId());
-        }
-      }
-    );
+    for await (const row of this.sourceDb.createQueryReader(
+      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`
+    )) {
+      relationshipECClassIdsToSkip.add(row.ECInstanceId);
+    }
     const relationshipECClassIds = new Set<string>();
-    this.sourceDb.withPreparedStatement(
-      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)`,
-      (stmt) => {
-        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-          relationshipECClassIds.add(stmt.getValue(0).getId());
-        }
-      }
-    );
+    for await (const row of this.sourceDb.createQueryReader(
+      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)`
+    )) {
+      relationshipECClassIds.add(row.ECInstanceId);
+    }
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String>();
@@ -2657,28 +2647,23 @@ export class IModelTransformer extends IModelExportHandler {
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
-      const changes: ChangedECInstance[] = Array.from(
-        ecChangeUnifier.instances
-      );
+      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
-      // a map of elementId to ChangedECInstance. the elementId is not the id of the esa itself, but the id that the esa was stored on before the esa's deletion.
-      const esaMap: Map<Id64String, ChangedECInstance> = new Map<
-        Id64String,
-        ChangedECInstance
-      >();
+      /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
+      const elemIdToScopeEsa = new Map<Id64String, ChangedECInstance>();
       for (const change of changes) {
         if (
           change.ECClassId !== undefined &&
           relationshipECClassIdsToSkip.has(change.ECClassId)
         )
-          continue; // FIXME: Remove it from the changes array?
+          continue;
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         if (
           changeType === "Deleted" &&
-          change?.$meta?.classFullName === esaNameNormalized &&
+          change?.$meta?.classFullName === ExternalSourceAspect.classFullName &&
           change.Scope.Id === this.targetScopeElementId
         ) {
-          esaMap.set(change.Element.Id, change);
+          elemIdToScopeEsa.set(change.Element.Id, change);
         } else if (changeType === "Inserted" || changeType === "Updated")
           hasElementChangedCache.add(change.ECInstanceId);
       }
@@ -2686,17 +2671,18 @@ export class IModelTransformer extends IModelExportHandler {
       // Loop to process deletes.
       for (const change of changes) {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        if (change.ECClassId === undefined) throw new Error("2638");
+        const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+        if (ecClassId === undefined) throw new Error("2638");
         if (changeType === undefined) throw new Error("2640");
         if (
           changeType !== "Deleted" ||
-          relationshipECClassIdsToSkip.has(change.ECClassId)
+          relationshipECClassIdsToSkip.has(ecClassId)
         )
-          continue; // FIXME: Remove it from the changes array?
+          continue;
         this.processDeletedOp(
           change,
-          esaMap,
-          relationshipECClassIds.has(change.ECClassId ?? ""),
+          elemIdToScopeEsa,
+          relationshipECClassIds.has(ecClassId ?? ""),
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         ); // FIXME: ecclassid should never be undefined
@@ -2710,7 +2696,8 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * Helper function for processChangesets. Remaps the id of element deleted found in the 'change' to an element in the targetDb.
    * @param change the change to process, must be of changeType "Deleted"
-   * @param mapOfDeletedEsas a map of elementIds to changedECInstances. the elementId is not the id of the esa itself, but the id that the esa was stored on before the esa's deletion.
+   * @param mapOfDeletedElemIdToScopeEsas a map of elementIds to changedECInstances (which are ESAs). the elementId is not the id of the esa itself, but the elementid that the esa was stored on before the esa's deletion.
+   * All ESAs in this map are part of the transformer's scope / ESA data and are tracked in case the ESA is deleted in the target.
    * @param isRelationship is relationship or not
    * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
@@ -2718,7 +2705,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private processDeletedOp(
     change: ChangedECInstance,
-    mapOfDeletedEsas: Map<string, ChangedECInstance>,
+    mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
     isRelationship: boolean,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>
@@ -2755,8 +2742,9 @@ export class IModelTransformer extends IModelExportHandler {
         // I need to know the id of the element dpeneding on which db its stored in.
       }
       if (queryCanAccessProvenance && !identifierValue) {
-        if (mapOfDeletedEsas.get(instId) !== undefined)
-          identifierValue = mapOfDeletedEsas.get(instId)!.Identifier;
+        if (mapOfDeletedElemIdToScopeEsas.get(instId) !== undefined)
+          identifierValue =
+            mapOfDeletedElemIdToScopeEsas.get(instId)!.Identifier;
       }
       const targetId =
         (queryCanAccessProvenance && identifierValue) ||
@@ -2811,11 +2799,11 @@ export class IModelTransformer extends IModelExportHandler {
               identifierValue = aspect.identifier;
           }
           if (identifierValue === undefined) {
-            if (mapOfDeletedEsas.get(id) !== undefined)
-              identifierValue = mapOfDeletedEsas.get(id)!.Identifier;
+            if (mapOfDeletedElemIdToScopeEsas.get(id) !== undefined)
+              identifierValue =
+                mapOfDeletedElemIdToScopeEsas.get(id)!.Identifier;
           }
         }
-
         return (
           (queryCanAccessProvenance && identifierValue) ||
           // maybe batching these queries would perform better but we should

@@ -171,7 +171,7 @@ describe("IModelTransformerHub", () => {
     return iModelId;
   };
 
-  it.only("Transform source iModel to target iModel", async () => {
+  it("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",
       async (sourceSeedDb) => {
@@ -1181,8 +1181,6 @@ describe("IModelTransformerHub", () => {
             ].map((aspectId) =>
               branch.db.elements.getAspect(aspectId).toJSON()
             ) as ExternalSourceAspectProps[];
-            // FIXME: It seems as if deep subsetEqual requires that the array of elements be in the same order between expected and actual.
-            // That requirement seems like it should be avoided, but I bet its difficult.
             expect(aspects).to.deep.subsetEqual([
               {
                 element: { id: IModelDb.rootSubjectId },
@@ -2501,6 +2499,7 @@ describe("IModelTransformerHub", () => {
         description: "deleted the second copy of the subject",
       });
       const startChangeset = sourceDb.changeset;
+      // readd the subject in a separate changeset
       sourceDb.elements.insertElement({
         classFullName: Subject.classFullName,
         code: Code.createEmpty(),

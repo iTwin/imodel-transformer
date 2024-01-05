@@ -576,10 +576,12 @@ export async function assertIdentityTransformation(
         // known cases for the prop expecting to have been changed by the transformation under normal circumstances
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
-        // FIXME<Mike>: Doesn't this allow propChanges to ANY props if sourceElem.federationGuid is undefined?
         const propChangesAllowed =
           allowPropChange?.(sourceElem, targetElem, propName) ??
-          (sourceElem.federationGuid === undefined ||
+          ((propName === "federationGuid" &&
+            (sourceElem.federationGuid === undefined ||
+              (ignoreFedGuidsOnAlwaysPresentElementIds &&
+                alwaysPresentElementIds.has(sourceElemId)))) ||
             propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
@@ -609,14 +611,6 @@ export async function assertIdentityTransformation(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
-          if (
-            ignoreFedGuidsOnAlwaysPresentElementIds &&
-            propName === "federationGuid" &&
-            alwaysPresentElementIds.has(sourceElemId)
-          ) {
-            // Skip comparing this prop if its the fedguid and its one of the always present element ids and ignoreFedGuidsOnAlwaysPresentElementIds is true.
-            continue;
-          }
           // kept for conditional breakpoints
           const _propEq = TestUtils.advancedDeepEqual(
             targetElem.asAny[propName],
@@ -714,15 +708,13 @@ export async function assertIdentityTransformation(
       };
       expect(
         targetAspectId,
-        `Expected sourceAspect:\n\t ${JSON.stringify(
-          sourceAspect
-        )}\n on sourceElement:\n\t ${JSON.stringify(
-          sourceElem
-        )}\n with targetElement:\n\t ${JSON.stringify(
-          targetElem
-        )}\n to have a corresponding targetAspectId that wasn't invalid.\n targetElement's aspects:\n${collectAllAspects(
-          targetElemId
-        )}`
+        [
+          `Expected sourceAspect:\n\t ${JSON.stringify(sourceAspect)}`,
+          `on sourceElement:\n\t ${JSON.stringify(sourceElem)}`,
+          `with targetElement:\n\t ${JSON.stringify(targetElem)}`,
+          "to have a corresponding targetAspectId that wasn't invalid.",
+          `targetElement's aspects:\n${collectAllAspects(targetElemId)}`,
+        ].join("\n")
       ).not.to.equal(Id64.invalid);
       const targetAspect = targetDb.elements.getAspect(targetAspectId);
       expect(targetAspect).not.to.be.undefined;
