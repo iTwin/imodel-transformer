@@ -609,8 +609,6 @@ describe("IModelTransformerHub", () => {
             const aspects =
               [...branch.db.queryEntityIds({ from: "BisCore.ExternalSourceAspect" })]
               .map((aspectId) => branch.db.elements.getAspect(aspectId).toJSON()) as ExternalSourceAspectProps[];
-              // FIXME: It seems as if deep subsetEqual requires that the array of elements be in the same order between expected and actual.
-              // That requirement seems like it should be avoided, but I bet its difficult.
             expect(aspects).to.deep.subsetEqual([
               {
                 element: { id: IModelDb.rootSubjectId },

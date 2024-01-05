@@ -979,21 +979,22 @@ export class ChangedInstanceIds {
   public async addChange(change: ChangedECInstance): Promise<void> {
     if (!this._ecClassIdsInitialized)
       await this.setupECClassIds();
-    if (change.ECClassId === undefined)
+    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    if (ecClassId === undefined)
       throw new Error(`Element must have been deleted. Table is : ${change?.$meta?.tables}`);
     const changeType: SqliteChangeOp | undefined = change.$meta?.op;
     if (changeType === undefined)
       throw new Error(`ChangeType was undefined.`);
 
-    if (this.isRelationship(change.ECClassId))
+    if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
-    else if (this.isCodeSpec(change.ECClassId))
+    else if (this.isCodeSpec(ecClassId))
       this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
-    else if (this.isAspect(change.ECClassId))
+    else if (this.isAspect(ecClassId))
       this.handleChange(this.aspect, changeType, change.ECInstanceId);
-    else if (this.isModel(change.ECClassId))
+    else if (this.isModel(ecClassId))
       this.handleChange(this.model, changeType, change.ECInstanceId);
-    else if (this.isElement(change.ECClassId))
+    else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
     // Probably by looking at the ECClassId. I think currently without affan's change to fallback we might get some undefined classIds. so maybe look at the table in that case. Won't always have to do this.
   }

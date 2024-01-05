@@ -2012,7 +2012,6 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._csFileProps === undefined || this._csFileProps.length === 0)
       return;
     const hasElementChangedCache = new Set<string>();
-    const esaNameNormalized = ExternalSourceAspect.classFullName.replace(":", ".");
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`)) {
@@ -2053,7 +2052,7 @@ export class IModelTransformer extends IModelExportHandler {
         if (change.ECClassId !== undefined && relationshipECClassIdsToSkip.has(change.ECClassId))
           continue;
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        if (changeType === "Deleted" && change?.$meta?.classFullName === esaNameNormalized && change.Scope.Id === this.targetScopeElementId) {
+        if (changeType === "Deleted" && change?.$meta?.classFullName === ExternalSourceAspect.classFullName && change.Scope.Id === this.targetScopeElementId) {
           elemIdToScopeEsa.set(change.Element.Id, change);
         } else if (changeType === "Inserted" || changeType === "Updated")
           hasElementChangedCache.add(change.ECInstanceId);
@@ -2062,13 +2061,14 @@ export class IModelTransformer extends IModelExportHandler {
       // Loop to process deletes.
       for (const change of changes) {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        if (change.ECClassId === undefined)
+        const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+        if (ecClassId === undefined)
           throw new Error("2638");
         if (changeType === undefined)
           throw new Error("2640");
-        if (changeType !== "Deleted" || relationshipECClassIdsToSkip.has(change.ECClassId))
+        if (changeType !== "Deleted" || relationshipECClassIdsToSkip.has(ecClassId))
           continue;
-        this.processDeletedOp(change, elemIdToScopeEsa, relationshipECClassIds.has(change.ECClassId ?? ""), alreadyImportedElementInserts, alreadyImportedModelInserts); // FIXME: ecclassid should never be undefined
+        this.processDeletedOp(change, elemIdToScopeEsa, relationshipECClassIds.has(ecClassId ?? ""), alreadyImportedElementInserts, alreadyImportedModelInserts); // FIXME: ecclassid should never be undefined
       }
 
       csReader.close();
