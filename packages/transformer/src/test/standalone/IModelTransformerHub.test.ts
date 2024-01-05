@@ -878,7 +878,20 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should be able to handle relationship delete using old relationship provenance method", async () => {
+  it("should be able to handle relationship delete using new relationship provenance method with no fedguids", async () => {
+    // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
+    /** This test does the following:
+     *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
+     *  create relationship between x and y in branch imodel
+     *  reverse sync branch to master
+     *  delete relationship between x and y in master
+     *  forward sync to branch
+     *  expect relationship gets deleted in branch imodel.
+     */
+  });
+
+  it("should be able to handle relationship delete using old relationship provenance method with no fedguids", async () => {
+    // FIXME: This test should be removed once we have more structured testing with a case matrix (add the 2 one offs)
     // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
     /** This test does the following:
      *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
