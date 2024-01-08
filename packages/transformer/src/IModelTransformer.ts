@@ -2771,11 +2771,11 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       // is deleted relationship
       const classFullName = change.$meta?.classFullName;
-      const sourceIdOfRelationship = change.SourceECInstanceId;
-      const targetIdOfRelationship = change.TargetECInstanceId;
+      const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
+      const targetIdOfRelationshipInSource = change.TargetECInstanceId;
       const [sourceIdInTarget, targetIdInTarget] = [
-        sourceIdOfRelationship,
-        targetIdOfRelationship,
+        sourceIdOfRelationshipInSource,
+        targetIdOfRelationshipInSource,
       ].map((id) => {
         let element;
         try {
@@ -2822,8 +2822,8 @@ export class IModelTransformer extends IModelExportHandler {
         // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
         const relProvenance = this._queryProvenanceForRelationship(instId, {
           classFullName: classFullName ?? "",
-          sourceId: change.SourceECInstanceId,
-          targetId: change.TargetECInstanceId,
+          sourceId: sourceIdOfRelationshipInSource,
+          targetId: targetIdOfRelationshipInSource,
         });
         if (relProvenance && relProvenance.relationshipId)
           this._deletedSourceRelationshipData!.set(instId, {

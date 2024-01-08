@@ -878,7 +878,95 @@ describe("IModelTransformerHub", () => {
     }
   });
 
+  it("should be able to handle relationship delete using fedguids", async () => {
+    // FIXME: This test should be removed once we have more structured testing with a case matrix
+    const masterIModelName = "MasterNewRelProvenanceFedGuids";
+    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
+    if (IModelJsFs.existsSync(masterSeedFileName))
+      IModelJsFs.removeSync(masterSeedFileName);
+    const masterSeedState = { 1: 1, 2: 1 };
+    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+      rootSubject: { name: masterIModelName },
+    });
+    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    populateTimelineSeed(masterSeedDb, masterSeedState);
+
+    const masterSeed: TimelineIModelState = {
+      // HACK: we know this will only be used for seeding via its path and performCheckpoint
+      db: masterSeedDb as any as BriefcaseDb,
+      id: "master-seed",
+      state: masterSeedState,
+    };
+    let relIdInBranch: string | undefined;
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } }, // masterSeedState is above
+      { branch1: { branch: "master" } },
+      {
+        branch1: {
+          manualUpdate(db) {
+            // Create relationship in branch iModel
+            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+            const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+            relIdInBranch = rel.insert();
+          },
+        },
+      },
+      {
+        master: {
+          sync: ["branch1"],
+        },
+      }, // first master<-branch1 reverse sync picking up new relationship from branch imodel
+      {
+        assert({ branch1 }) {
+          const aspects = branch1.db.elements.getAspects(
+            IModelTestUtils.queryByUserLabel(branch1.db, "1"),
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[];
+          expect(aspects.length).to.be.equal(0);
+        },
+      },
+      {
+        master: {
+          manualUpdate(db) {
+            // Delete relationship in master iModel
+            const rel = db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              {
+                sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
+                targetId: IModelTestUtils.queryByUserLabel(db, "2"),
+              }
+            );
+            rel.delete();
+          },
+        },
+      },
+      {
+        branch1: {
+          sync: ["master"],
+        },
+      }, // forward sync master->branch1 to pick up delete of relationship
+      {
+        assert({ branch1 }) {
+          // Expect relationship to be gone in branch iModel.
+          expect(relIdInBranch, "expected relationship id in branch to be set")
+            .to.not.be.undefined;
+          expect(() =>
+            branch1.db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              relIdInBranch!
+            )
+          ).to.throw(IModelError);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    await tearDown();
+  });
+
   it("should be able to handle relationship delete using new relationship provenance method with no fedguids", async () => {
+    // FIXME: This test should be removed once we have more structured testing with a case matrix
     // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
     /** This test does the following:
      *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
@@ -888,10 +976,114 @@ describe("IModelTransformerHub", () => {
      *  forward sync to branch
      *  expect relationship gets deleted in branch imodel.
      */
+    const masterIModelName = "MasterNewRelProvenanceNoFedGuids";
+    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
+    if (IModelJsFs.existsSync(masterSeedFileName))
+      IModelJsFs.removeSync(masterSeedFileName);
+    const masterSeedState = { 1: 1, 2: 1 };
+    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+      rootSubject: { name: masterIModelName },
+    });
+    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    populateTimelineSeed(masterSeedDb, masterSeedState);
+    const noFedGuidElemIds = masterSeedDb.queryEntityIds({
+      from: "Bis.Element",
+      where: "UserLabel IN ('1','2')",
+    });
+    for (const elemId of noFedGuidElemIds)
+      masterSeedDb.withSqliteStatement(
+        `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+        (s) => {
+          expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+        }
+      );
+    masterSeedDb.saveChanges();
+    masterSeedDb.performCheckpoint();
+
+    const masterSeed: TimelineIModelState = {
+      // HACK: we know this will only be used for seeding via its path and performCheckpoint
+      db: masterSeedDb as any as BriefcaseDb,
+      id: "master-seed",
+      state: masterSeedState,
+    };
+    let relIdInBranch: string | undefined;
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } }, // masterSeedState is above
+      { branch1: { branch: "master" } },
+      {
+        branch1: {
+          manualUpdate(db) {
+            // Create relationship in branch iModel
+            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+            const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+            relIdInBranch = rel.insert();
+          },
+        },
+      },
+      {
+        master: {
+          sync: ["branch1"],
+        },
+      }, // first master<-branch1 reverse sync picking up new relationship from branch imodel
+      {
+        assert({ branch1 }) {
+          const aspects = branch1.db.elements.getAspects(
+            IModelTestUtils.queryByUserLabel(branch1.db, "1"),
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[];
+          expect(aspects.length).to.be.equal(2);
+          for (const aspect of aspects) {
+            if (aspect.kind === "Relationship") {
+              // When forceOldRelationshipProvenanceMethod is not set to true, provenanceRelInstanceId is defined on jsonProperties.
+              expect(aspect.jsonProperties).to.not.be.undefined;
+              expect(JSON.parse(aspect.jsonProperties!).provenanceRelInstanceId)
+                .to.not.be.undefined;
+            }
+          }
+        },
+      },
+      {
+        master: {
+          manualUpdate(db) {
+            // Delete relationship in master iModel
+            const rel = db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              {
+                sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
+                targetId: IModelTestUtils.queryByUserLabel(db, "2"),
+              }
+            );
+            rel.delete();
+          },
+        },
+      },
+      {
+        branch1: {
+          sync: ["master"],
+        },
+      }, // forward sync master->branch1 to pick up delete of relationship
+      {
+        assert({ branch1 }) {
+          // Expect relationship to be gone in branch iModel.
+          expect(relIdInBranch, "expected relationship id in branch to be set")
+            .to.not.be.undefined;
+          expect(() =>
+            branch1.db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              relIdInBranch!
+            )
+          ).to.throw(IModelError);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    await tearDown();
   });
 
   it("should be able to handle relationship delete using old relationship provenance method with no fedguids", async () => {
-    // FIXME: This test should be removed once we have more structured testing with a case matrix (add the 2 one offs)
+    // FIXME: This test should be removed once we have more structured testing with a case matrix
     // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
     /** This test does the following:
      *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
@@ -901,7 +1093,7 @@ describe("IModelTransformerHub", () => {
      *  forward sync to branch
      *  expect relationship gets deleted in branch imodel.
      */
-    const masterIModelName = "MasterOldRelProvenance";
+    const masterIModelName = "MasterOldRelProvenanceNoFedGuids";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
       IModelJsFs.removeSync(masterSeedFileName);
