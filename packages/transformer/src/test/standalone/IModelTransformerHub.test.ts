@@ -1157,14 +1157,17 @@ describe("IModelTransformerHub", () => {
             ExternalSourceAspect.classFullName
           ) as ExternalSourceAspect[];
           expect(aspects.length).to.be.equal(2);
+          let foundRelationshipAspect = false;
           for (const aspect of aspects) {
             if (aspect.kind === "Relationship") {
+              foundRelationshipAspect = true;
               // When forceOldRelationshipProvenanceMethod is true, targetRelInstanceId is defined on jsonProperties.
               expect(aspect.jsonProperties).to.not.be.undefined;
               expect(JSON.parse(aspect.jsonProperties!).targetRelInstanceId).to
                 .not.be.undefined;
             }
           }
+          expect(foundRelationshipAspect).to.be.true;
         },
       },
       {
