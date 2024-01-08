@@ -3534,13 +3534,8 @@ describe("IModelTransformer", () => {
       ["PhysicalObject", 1],
     ] as const) {
       // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
-      // Probably unnecessary but right now we're using a dev version so I'm stripping it out. Eventually we'll probably be fine to remove this check once 4.3.0 comes out.
-      const versionStripped = coreBackendPkgJson.version.replace(
-        /-dev\.\d{1,2}/,
-        ""
-      );
       const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(
-        versionStripped,
+        coreBackendPkgJson.version,
         "^3.0.0 || ^4.1.1"
       );
       const expected = inITwinJsVersionWithExactCodeFeature
