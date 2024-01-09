@@ -61,14 +61,13 @@ export async function initializeBranchProvenance(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
   if (args.createFedGuidsForMaster) {
-    // FIXME: ever since 4.3.0 the 3 special elements also have fed guids, we should check that they
-    // are the same between source and target, and if not, consider allowing overwriting them
+    // FIXME<LOW>: Consider enforcing that the master and branch dbs passed as part of ProvenanceInitArgs to this function
+    // are identical. https://github.com/iTwin/imodel-transformer/issues/138
     args.master.withSqliteStatement(
       `
         UPDATE bis_Element
         SET FederationGuid=randomblob(16)
         WHERE FederationGuid IS NULL
-          AND Id NOT IN (0x1, 0xe, 0x10) -- ignore special elems
       `,
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
