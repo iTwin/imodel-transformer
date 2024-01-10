@@ -48,6 +48,9 @@
       "typedoc-plugin-merge-modules": "^4.0.1",
       "typescript": "^5.0.2",
       "@typescript-eslint/eslint-plugin": "^5.59.7"
+    },
+    "patchedDependencies": {
+      "@itwin/core-backend@4.3.3": "patches/@itwin__core-backend@4.3.3.patch"
     }
   }
 }
