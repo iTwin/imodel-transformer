@@ -939,13 +939,14 @@ export class ChangedInstanceIds {
         setToModify.add(row.ECInstanceId);
       }
     };
-    const promises = [];
-    promises.push(addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec"));
-    promises.push(addECClassIdsToSet(this.modelECClassIds, "BisCore.Model"));
-    promises.push(addECClassIdsToSet(this.elementECClassIds, "BisCore.Element"));
-    promises.push(addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect"));
-    promises.push(addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect"));
-    promises.push(addECClassIdsToSet(this.relationshipECClassIds, "BisCore.ElementRefersToElements"));
+    const promises = [
+      addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec"),
+      addECClassIdsToSet(this.modelECClassIds, "BisCore.Model"),
+      addECClassIdsToSet(this.elementECClassIds, "BisCore.Element"),
+      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect"),
+      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect"),
+      addECClassIdsToSet(this.relationshipECClassIds, "BisCore.ElementRefersToElements"),
+    ];
     await Promise.all(promises);
     this._ecClassIdsInitialized = true;
   }
