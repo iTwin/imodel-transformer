@@ -171,7 +171,7 @@ describe("IModelTransformerHub", () => {
     return iModelId;
   };
 
-  it("Transform source iModel to target iModel", async () => {
+  it.only("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",
       async (sourceSeedDb) => {

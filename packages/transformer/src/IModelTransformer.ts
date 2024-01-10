@@ -386,6 +386,9 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly targetDb: IModelDb;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
+  /** Whether its reversesync or not. FIXME<NICK> */
+  private _isReverseSynchronization: boolean | undefined;
+
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
     return this._options.targetScopeElementId;
@@ -411,12 +414,134 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _isSynchronization = false;
 
-  private get _isReverseSynchronization() {
-    return this._isSynchronization && this._options.isReverseSynchronization;
+  private nicksQueryScopeExternalSource(
+    dbToQuery: IModelDb,
+    aspectProps: ExternalSourceAspectProps,
+    { getJsonProperties = false } = {}
+  ): {
+    aspectId?: Id64String;
+    version?: string;
+    /** stringified json */
+    jsonProperties?: string;
+  } {
+    const sql = `
+      SELECT ECInstanceId, Version
+      ${getJsonProperties ? ", JsonProperties" : ""}
+      FROM ${ExternalSourceAspect.classFullName}
+      WHERE Element.Id=:elementId
+        AND Scope.Id=:scopeId
+        AND Kind=:kind
+        AND Identifier=:identifier
+      LIMIT 1
+    `;
+    const emptyResult = {
+      aspectId: undefined,
+      version: undefined,
+      jsonProperties: undefined,
+    };
+    return dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
+      statement.bindId("elementId", aspectProps.element.id);
+      if (aspectProps.scope === undefined) return emptyResult; // return undefined instead of binding an invalid id
+      statement.bindId("scopeId", aspectProps.scope.id);
+      statement.bindString("kind", aspectProps.kind);
+      statement.bindString("identifier", aspectProps.identifier);
+      if (DbResult.BE_SQLITE_ROW !== statement.step()) return emptyResult;
+      const aspectId = statement.getValue(0).getId();
+      const version = statement.getValue(1).getString();
+      const jsonProperties = getJsonProperties
+        ? statement.getValue(2).getString()
+        : undefined;
+      return { aspectId, version, jsonProperties };
+    });
+  }
+
+  public get isReverseSynchronization(): boolean {
+    // return (this._isSynchronization && this._options.isReverseSynchronization)!;
+    if (this._isReverseSynchronization === undefined) {
+      if (!this._isSynchronization) {
+        this._isReverseSynchronization = false;
+        return this._isReverseSynchronization;
+      }
+      const aspectProps = {
+        id: undefined as string | undefined,
+        version: undefined as string | undefined,
+        classFullName: ExternalSourceAspect.classFullName,
+        element: {
+          id: this.targetScopeElementId,
+          relClassName: ElementOwnsExternalSourceAspects.classFullName,
+        },
+        scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
+        identifier: this.sourceDb.iModelId, // NICK CHANGE: this used to say provenancesourcedb. Right now we don't know which db that is and we're trying to figure that out!
+        kind: ExternalSourceAspect.Kind.Scope,
+        jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
+      };
+      // queryScopeExternalSource also uses provenanceDb which we don't know because we're rtying to figure that out!!
+      // the identifier of the iModelId probably are related to what choice I would make when passing the dbToQuery? not sure..
+      // Yheah seems that way. We want to find the provenancesourcedb's imodelid, and the provenanceDbs scopeexteernalsource. So we'll just mak,e sure that when we have the sourceDb.imodelid, we look at the targetDb.
+      // if that fails we'll flip and go targetDb.iModelid, and look at sourcedb.
+      const externalSource = this.nicksQueryScopeExternalSource(
+        this.targetDb,
+        aspectProps,
+        {
+          getJsonProperties: true,
+        }
+      ); // this query includes "identifier"
+      aspectProps.id = externalSource.aspectId;
+      aspectProps.version = externalSource.version;
+      aspectProps.jsonProperties = externalSource.jsonProperties
+        ? JSON.parse(externalSource.jsonProperties)
+        : {};
+
+      if (undefined !== aspectProps.id) {
+        this._isReverseSynchronization = false;
+        return this._isReverseSynchronization;
+      }
+
+      // try the other way around now?
+      aspectProps.identifier = this.targetDb.iModelId;
+      const externalSource2 = this.nicksQueryScopeExternalSource(
+        this.sourceDb,
+        aspectProps,
+        {
+          getJsonProperties: true,
+        }
+      ); // this query includes "identifier"
+      aspectProps.id = externalSource2.aspectId;
+      aspectProps.version = externalSource2.version;
+      aspectProps.jsonProperties = externalSource2.jsonProperties
+        ? JSON.parse(externalSource2.jsonProperties)
+        : {};
+
+      if (undefined !== aspectProps.id) {
+        this._isReverseSynchronization = true;
+        return this._isReverseSynchronization;
+      }
+
+      if (undefined === aspectProps.id) {
+        // still undefined..
+        // That means we haven't set an ESA up yet.
+        // Maybe it means that we're initing branch provenance? // In which case we can probably assume that we're in a forward sync?
+        // How would I differentiate between soemthings gone wrong and initing branch provenance?
+        // FIXME<NICK> I had to assume that we're in a forward sync to get transform soruce imodel to target imodel test to pass. ask mike about this
+        // this._isReverseSynchronization = false;
+        // return this._isReverseSynchronization;
+        throw new Error("COULDN'T FIND AN ESA TO DETERMINE SYNC DIRECTION!");
+      }
+      if (undefined === aspectProps.id) {
+        aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
+        aspectProps.jsonProperties = {
+          pendingReverseSyncChangesetIndices: [],
+          pendingSyncChangesetIndices: [],
+          reverseSyncVersion: "", // empty since never before transformed. Will be updated in first reverse sync
+        };
+      }
+    }
+    return this._isReverseSynchronization!;
   }
 
   private get _isForwardSynchronization() {
-    return this._isSynchronization && !this._options.isReverseSynchronization;
+    return this._isFirstSynchronization || !this.isReverseSynchronization; // Is it accurate to assume a firstsync is always a forward sync?
+    // return this._isSynchronization && !this._options.isReverseSynchronization;
   }
 
   private _changesetRanges: [number, number][] | undefined = undefined;
@@ -609,18 +734,14 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This will be [[targetDb]] except when it is a reverse synchronization. In that case it be [[sourceDb]].
    */
   public get provenanceDb(): IModelDb {
-    return this._options.isReverseSynchronization
-      ? this.sourceDb
-      : this.targetDb;
+    return this.isReverseSynchronization ? this.sourceDb : this.targetDb;
   }
 
   /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
    * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
    */
   public get provenanceSourceDb(): IModelDb {
-    return this._options.isReverseSynchronization
-      ? this.targetDb
-      : this.sourceDb;
+    return this.isReverseSynchronization ? this.targetDb : this.sourceDb;
   }
 
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
@@ -725,7 +846,7 @@ export class IModelTransformer extends IModelExportHandler {
       sourceElementId,
       targetElementId,
       {
-        isReverseSynchronization: !!this._options.isReverseSynchronization,
+        isReverseSynchronization: this.isReverseSynchronization, // !!this._options.isReverseSynchronization,
         targetScopeElementId: this.targetScopeElementId,
         sourceDb: this.sourceDb,
         targetDb: this.targetDb,
@@ -748,7 +869,7 @@ export class IModelTransformer extends IModelExportHandler {
       {
         sourceDb: this.sourceDb,
         targetDb: this.targetDb,
-        isReverseSynchronization: !!this._options.isReverseSynchronization,
+        isReverseSynchronization: this.isReverseSynchronization, // !!this._options.isReverseSynchronization,
         targetScopeElementId: this.targetScopeElementId,
         forceOldRelationshipProvenanceMethod:
           this._forceOldRelationshipProvenanceMethod,
@@ -789,7 +910,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._targetScopeProvenanceProps,
         "_targetScopeProvenanceProps was not set yet"
       );
-      const version = this._options.isReverseSynchronization
+      const version = this.isReverseSynchronization // this._options.isReverseSynchronization
         ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
@@ -817,7 +938,7 @@ export class IModelTransformer extends IModelExportHandler {
         return { index: -1, id: "" }; // first synchronization.
       }
 
-      const version = this._options.isReverseSynchronization
+      const version = this.isReverseSynchronization
         ? (
             JSON.parse(
               provenanceScopeAspect.jsonProperties ?? "{}"
@@ -1108,7 +1229,7 @@ export class IModelTransformer extends IModelExportHandler {
       provenanceSourceDb: this.provenanceSourceDb,
       provenanceDb: this.provenanceDb,
       targetScopeElementId: this.targetScopeElementId,
-      isReverseSynchronization: !!this._options.isReverseSynchronization,
+      isReverseSynchronization: this.isReverseSynchronization, // !!this._options.isReverseSynchronization,
       fn,
     });
   }
@@ -1272,10 +1393,12 @@ export class IModelTransformer extends IModelExportHandler {
     // to just follow the new deprecated option
     if (this._isFirstSynchronization) return false; // not necessary the first time since there are no deletes to detect
 
-    if (this._options.isReverseSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
+    if (this.isReverseSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
 
     // FIXME: do any tests fail? if not, consider using @see _isSynchronization
-    if (this._isForwardSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
+    // FIXME<NICK> why was this return false before? and why did this work before my changes to determine isReverseSync?
+    // needed to change to true for 'detect element deletes works on children' for this to work.
+    if (this._isForwardSynchronization) return true; // not possible for a reverse synchronization since provenance will be deleted when element is deleted. FIXME<NICK> why was this return false before? and why d
 
     return true;
   }
@@ -1299,7 +1422,7 @@ export class IModelTransformer extends IModelExportHandler {
     `;
 
     nodeAssert(
-      !this._options.isReverseSynchronization,
+      !this.isReverseSynchronization,
       "synchronizations with processChanges already detect element deletes, don't call detectElementDeletes"
     );
 
@@ -1992,7 +2115,7 @@ export class IModelTransformer extends IModelExportHandler {
       this._targetScopeProvenanceProps.version = sourceVersion;
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         targetVersion;
-    } else if (this._options.isReverseSynchronization) {
+    } else if (this.isReverseSynchronization) {
       const oldVersion =
         this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
       Logger.logInfo(
@@ -2001,7 +2124,7 @@ export class IModelTransformer extends IModelExportHandler {
       );
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         sourceVersion;
-    } else if (!this._options.isReverseSynchronization) {
+    } else if (!this.isReverseSynchronization) {
       Logger.logInfo(
         loggerCategory,
         `updating sync version from ${this._targetScopeProvenanceProps.version} to ${sourceVersion}`
@@ -2242,7 +2365,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
   public async detectRelationshipDeletes(): Promise<void> {
-    if (this._options.isReverseSynchronization) {
+    if (this.isReverseSynchronization) {
       throw new IModelError(
         IModelStatus.BadRequest,
         "Cannot detect deletes when isReverseSynchronization=true"
