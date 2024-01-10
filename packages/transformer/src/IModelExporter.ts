@@ -981,10 +981,10 @@ export class ChangedInstanceIds {
       await this.setupECClassIds();
     const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
     if (ecClassId === undefined)
-      throw new Error(`Element must have been deleted. Table is : ${change?.$meta?.tables}`);
+      throw new Error(`ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`);
     const changeType: SqliteChangeOp | undefined = change.$meta?.op;
     if (changeType === undefined)
-      throw new Error(`ChangeType was undefined.`);
+      throw new Error(`ChangeType was undefined for id: ${change.ECInstanceId}.`);
 
     if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
@@ -996,7 +996,6 @@ export class ChangedInstanceIds {
       this.handleChange(this.model, changeType, change.ECInstanceId);
     else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
-    // Probably by looking at the ECClassId. I think currently without affan's change to fallback we might get some undefined classIds. so maybe look at the table in that case. Won't always have to do this.
   }
 
   private handleChange(changedInstanceOps: ChangedInstanceOps, changeType: SqliteChangeOp, id: Id64String) {

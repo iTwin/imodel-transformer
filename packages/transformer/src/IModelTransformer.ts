@@ -2063,9 +2063,9 @@ export class IModelTransformer extends IModelExportHandler {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
         if (ecClassId === undefined)
-          throw new Error("2638");
+          throw new Error(`ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`);
         if (changeType === undefined)
-          throw new Error("2640");
+          throw new Error(`ChangeType was undefined for id: ${change.ECInstanceId}.`);
         if (changeType !== "Deleted" || relationshipECClassIdsToSkip.has(ecClassId))
           continue;
         this.processDeletedOp(change, elemIdToScopeEsa, relationshipECClassIds.has(ecClassId ?? ""), alreadyImportedElementInserts, alreadyImportedModelInserts); // FIXME: ecclassid should never be undefined
