@@ -922,53 +922,61 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
-  private codeSpecECClassIds = new Set<string>();
-  private modelECClassIds = new Set<string>();
-  private elementECClassIds = new Set<string>();
-  private aspectECClassIds = new Set<string>();
-  private relationshipECClassIds = new Set<string>();
-  private _ecClassIdsInitialized = false;
+  private _codeSpecECClassIds?: Set<string>;
+  private _modelECClassIds?: Set<string>;
+  private _elementECClassIds?: Set<string>;
+  private _aspectECClassIds?: Set<string>;
+  private _relationshipECClassIds?: Set<string>;
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
   }
 
   private async setupECClassIds(): Promise<void> {
+    this._codeSpecECClassIds = new Set<string>();
+    this._modelECClassIds = new Set<string>();
+    this._elementECClassIds = new Set<string>();
+    this._aspectECClassIds = new Set<string>();
+    this._relationshipECClassIds = new Set<string>();
+    
     const addECClassIdsToSet = async (setToModify: Set<string>, baseClass: string) => {
       for await (const row of this._db.createQueryReader(`SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`)) {
         setToModify.add(row.ECInstanceId);
       }
     };
     const promises = [
-      addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec"),
-      addECClassIdsToSet(this.modelECClassIds, "BisCore.Model"),
-      addECClassIdsToSet(this.elementECClassIds, "BisCore.Element"),
-      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect"),
-      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect"),
-      addECClassIdsToSet(this.relationshipECClassIds, "BisCore.ElementRefersToElements"),
+      addECClassIdsToSet(this._codeSpecECClassIds, "BisCore.CodeSpec"),
+      addECClassIdsToSet(this._modelECClassIds, "BisCore.Model"),
+      addECClassIdsToSet(this._elementECClassIds, "BisCore.Element"),
+      addECClassIdsToSet(this._aspectECClassIds, "BisCore.ElementUniqueAspect"),
+      addECClassIdsToSet(this._aspectECClassIds, "BisCore.ElementMultiAspect"),
+      addECClassIdsToSet(this._relationshipECClassIds, "BisCore.ElementRefersToElements"),
     ];
     await Promise.all(promises);
-    this._ecClassIdsInitialized = true;
+  }
+
+  private get _ecClassIdsInitialized() {
+    return this._codeSpecECClassIds && this._modelECClassIds && this._elementECClassIds && this._aspectECClassIds && this._relationshipECClassIds;
   }
 
   private isRelationship(ecClassId: string) {
-    return this.relationshipECClassIds.has(ecClassId);
+    return this._relationshipECClassIds?.has(ecClassId);
   }
 
   private isCodeSpec(ecClassId: string) {
-    return this.codeSpecECClassIds.has(ecClassId);
+    return this._codeSpecECClassIds?.has(ecClassId);
   }
 
   private isAspect(ecClassId: string) {
-    return this.aspectECClassIds.has(ecClassId);
+    return this._aspectECClassIds?.has(ecClassId);
   }
 
   private isModel(ecClassId: string) {
-    return this.modelECClassIds.has(ecClassId);
+    return this._modelECClassIds?.has(ecClassId);
   }
 
   private isElement(ecClassId: string) {
-    return this.elementECClassIds.has(ecClassId);
+    return this._elementECClassIds?.has(ecClassId);
   }
 
   /**
