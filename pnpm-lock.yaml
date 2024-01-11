@@ -162,12 +162,12 @@ importers:
   packages/transformer:
     specifiers:
       '@itwin/build-tools': 4.0.0-dev.86
-      '@itwin/core-backend': 4.3.3
-      '@itwin/core-bentley': 4.3.3
-      '@itwin/core-common': 4.3.3
-      '@itwin/core-geometry': 4.3.3
-      '@itwin/core-quantity': 4.3.3
-      '@itwin/ecschema-metadata': 4.3.3
+      '@itwin/core-backend': ^4.3.3
+      '@itwin/core-bentley': ^4.3.3
+      '@itwin/core-common': ^4.3.3
+      '@itwin/core-geometry': ^4.3.3
+      '@itwin/core-quantity': ^4.3.3
+      '@itwin/ecschema-metadata': ^4.3.3
       '@itwin/eslint-plugin': ^3.6.0 || ^4.0.0
       '@types/chai': 4.3.1
       '@types/chai-as-promised': ^7.1.5
