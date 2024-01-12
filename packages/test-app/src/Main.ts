@@ -379,7 +379,7 @@ void (async () => {
           nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
           nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
           nativeDb.saveChanges(); // save change to briefcaseId
-          nativeDb.closeIModel();
+          nativeDb.closeFile();
         }
         targetDb.close();
         setToStandalone(args.targetStandaloneDestination);

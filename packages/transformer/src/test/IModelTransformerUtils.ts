@@ -238,6 +238,7 @@ export async function assertIdentityTransformation(
     // [IModelTransformerOptions.includeSourceProvenance]$(transformer) is set to true
     classesToIgnoreMissingEntitiesOfInTarget = [...IModelTransformer.provenanceElementClasses, ...IModelTransformer.provenanceElementAspectClasses],
     compareElemGeom = false,
+    ignoreFedGuidsOnAlwaysPresentElementIds = true,
   }: {
     expectedElemsOnlyInSource?: Partial<ElementProps>[];
     expectedElemsOnlyInTarget?: Partial<ElementProps>[];
@@ -246,8 +247,12 @@ export async function assertIdentityTransformation(
     /** before checking elements that are only in the source are correct, filter out elements of these classes */
     classesToIgnoreMissingEntitiesOfInTarget?: typeof Entity[];
     compareElemGeom?: boolean;
+    /** if true, ignores the fed guids present on always present elements (present even in an empty iModel!).
+     * That list includes the root subject (0x1), dictionaryModel (0x10) and the realityDataSourcesModel (0xe) */
+    ignoreFedGuidsOnAlwaysPresentElementIds?: boolean;
   } = {}
 ) {
+  const alwaysPresentElementIds = new Set<Id64String>(["0x1", "0x10", "0xe"]);
   const [remapElem, remapCodeSpec, remapAspect]
     = remapper instanceof IModelTransformer
       ? [remapper.context.findTargetElementId.bind(remapper.context),
@@ -281,7 +286,8 @@ export async function assertIdentityTransformation(
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
         const propChangesAllowed = allowPropChange?.(sourceElem, targetElem, propName)
-          ?? (sourceElem.federationGuid === undefined || propName === "jsonProperties");
+          ?? ((propName === "federationGuid" && (sourceElem.federationGuid === undefined || (ignoreFedGuidsOnAlwaysPresentElementIds && alwaysPresentElementIds.has(sourceElemId))))
+             || propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
@@ -383,7 +389,20 @@ export async function assertIdentityTransformation(
         continue;
       const sourceAspectId = sourceAspect.id;
       const targetAspectId = remapAspect(sourceAspectId);
-      expect(targetAspectId).not.to.equal(Id64.invalid);
+      const collectAllAspects = (elemId: string) => {
+        let aspects = "";
+        for (const targetElemAspect of targetDb.elements.getAspects(elemId)) {
+          aspects += `\t${JSON.stringify(targetElemAspect)}\n\n`;
+        }
+        return aspects;
+      };
+      expect(targetAspectId, [
+        `Expected sourceAspect:\n\t ${JSON.stringify(sourceAspect)}`,
+        `on sourceElement:\n\t ${JSON.stringify(sourceElem)}`,
+        `with targetElement:\n\t ${JSON.stringify(targetElem)}`,
+        "to have a corresponding targetAspectId that wasn't invalid.",
+        `targetElement's aspects:\n${collectAllAspects(targetElemId)}`,
+      ].join("\n")).not.to.equal(Id64.invalid);
       const targetAspect = targetDb.elements.getAspect(targetAspectId);
       expect(targetAspect).not.to.be.undefined;
     }

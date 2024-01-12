@@ -615,14 +615,6 @@ describe("IModelTransformerHub", () => {
                 identifier: master.db.iModelId,
               },
               {
-                element: { id: "0xe" }, // link partition
-                identifier: "0xe",
-              },
-              {
-                element: { id: IModelDb.dictionaryId },
-                identifier: IModelDb.dictionaryId,
-              },
-              {
                 element: { id: elem1Id },
                 identifier: elem1Id,
               },
@@ -1344,7 +1336,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should preserve FederationGuid when element is recreated", async () => {
+  it("should preserve FederationGuid when element is recreated within the same changeset and across changesets", async () => {
     const sourceIModelName: string = IModelTransformerTestUtils.generateUniqueName("Source");
     const sourceIModelId = await HubWrappers.recreateIModel({ accessToken, iTwinId, iModelName: sourceIModelName, noLocks: true });
     assert.isTrue(Guid.isGuid(sourceIModelId));
@@ -1397,7 +1389,7 @@ describe("IModelTransformerHub", () => {
     expect(originalTargetModel.isPrivate).to.be.true;
 
     sourceDb.elements.deleteElement(originalSubjectId);
-    sourceDb.elements.insertElement({
+    const secondCopyOfSubjectId = sourceDb.elements.insertElement({
       classFullName: Subject.classFullName,
       code: Code.createEmpty(),
       model: IModel.repositoryModelId,
@@ -1442,6 +1434,30 @@ describe("IModelTransformerHub", () => {
     expect(count(targetDb, PhysicalPartition.classFullName)).to.equal(1);
     expect(count(sourceDb, PhysicalModel.classFullName)).to.equal(1);
     expect(count(targetDb, PhysicalModel.classFullName)).to.equal(1);
+
+    sourceDb.elements.deleteElement(secondCopyOfSubjectId);
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "deleted the second copy of the subject"});
+    const startChangeset = sourceDb.changeset;
+    // readd the subject in a separate changeset
+    sourceDb.elements.insertElement({
+      classFullName: Subject.classFullName,
+      code: Code.createEmpty(),
+      model: IModel.repositoryModelId,
+      parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+      federationGuid: constSubjectFedGuid,
+      userLabel: "C",
+    });
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "inserted a third copy of the subject with userLabel C"} );
+
+    transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.processChanges({startChangeset});
+    targetDb.saveChanges();
+    await targetDb.pushChanges({ description: "transformation"} );
+
+    const thirdCopySubject = targetDb.elements.getElement<Subject>({federationGuid: constSubjectFedGuid}, Subject);
+    expect (thirdCopySubject?.userLabel).to.equal("C");
 
     } finally {
       try {

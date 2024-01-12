@@ -244,7 +244,7 @@ describe("IModelTransformer", () => {
     branchDb.saveChanges();
     assert.equal(numMasterElements, count(branchDb, Element.classFullName));
     assert.equal(numMasterRelationships, count(branchDb, ElementRefersToElements.classFullName));
-    assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 3); // provenance aspect added for target scope element
+    assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 1); // provenance aspect added for target scope element
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
@@ -1041,7 +1041,7 @@ describe("IModelTransformer", () => {
     nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
     nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
     nativeDb.saveChanges(); // save change to briefcaseId
-    nativeDb.closeIModel();
+    nativeDb.closeFile();
   }
 
   it("biscore update is valid", async () => {
@@ -1060,7 +1060,7 @@ describe("IModelTransformer", () => {
     // StandaloneDb.upgradeStandaloneSchemas is the suggested method to handle a profile upgrade but that will also upgrade
     // the BisCore schema.  This test is explicitly testing that the BisCore schema will be updated from the source iModel
     const nativeDb = StandaloneDb.openDgnDb({path: targetDbPath}, OpenMode.ReadWrite, {profile: ProfileOptions.Upgrade, schemaLockHeld: true});
-    nativeDb.closeIModel();
+    nativeDb.closeFile();
     const targetDb = StandaloneDb.openFile(targetDbPath);
 
     assert(
@@ -1085,13 +1085,22 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  /** gets a mapping of element ids to their invariant content */
+  /** gets a mapping of element ids to their content ignoring or removing variance that is expected when transforming */
   async function getAllElementsInvariants(db: IModelDb, filterPredicate?: (element: Element) => boolean) {
+    // The set of element Ids where the fed guid should be ignored (since it can change between transforms).
+    const ignoreFedGuidElementIds = new Set<Id64String>([
+      IModel.rootSubjectId,
+      IModel.dictionaryId,
+      "0xe", // id of realityDataSourcesModel
+    ]);
     const result: Record<Id64String, any> = {};
     // eslint-disable-next-line deprecation/deprecation
     for await (const row of db.query("SELECT * FROM bis.Element", undefined, { rowFormat: QueryRowFormat.UseJsPropertyNames })) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
+
         const { lastMod: _lastMod, ...invariantPortion } = row;
+        if (ignoreFedGuidElementIds.has(row.id))
+          delete invariantPortion.federationGuid;
         result[row.id] = invariantPortion;
       }
     }
@@ -2188,7 +2197,9 @@ describe("IModelTransformer", () => {
     // eslint-disable-next-line @typescript-eslint/no-shadow
     for (const [initialVal, expectedMatchCount] of [["SpatialCategory",2], ["PhysicalModel",1], ["PhysicalObject",1]] as const) {
       // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
-      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(coreBackendPkgJson.version, "^3.0.0 || ^4.1.1");
+      // Probably unnecessary but right now we're using a dev version so I'm stripping it out. Eventually we'll probably be fine to remove this check once 4.3.0 comes out.
+      const versionStripped = coreBackendPkgJson.version.replace(/-dev\.\d{1,2}/, "");
+      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(versionStripped, "^3.0.0 || ^4.1.1");
       const expected = inITwinJsVersionWithExactCodeFeature ? `${initialVal}\xa0` : initialVal;
       getCodeValRawSqlite(targetDb, { initialVal, expected, expectedMatchCount });
       getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });

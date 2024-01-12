@@ -31,7 +31,11 @@ export const defaultOpts = {
 declare global {
   namespace Chai {
     interface Deep {
+      /** deep equality with extra options @see DeepEqualOpts */
       advancedEqual(actual: any, options?: DeepEqualOpts): Assertion;
+      /** deep equality ignoring undefined keys. When checking if an array is a subset of another array, 
+       *  the order of the elements in the smaller array must be the same as the order of the elements in the larger array.
+       *  @see DeepEqualOpts */
       subsetEqual(actual: any, options?: DeepEqualOpts): Assertion;
     }
   }

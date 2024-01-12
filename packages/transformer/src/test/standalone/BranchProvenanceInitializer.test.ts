@@ -1,8 +1,12 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 import * as fs from "fs";
 import { ElementGroupsMembers, ExternalSource, ExternalSourceAspect, ExternalSourceIsInRepository, IModelDb, IModelHost, PhysicalModel, PhysicalObject, RepositoryLink, SpatialCategory, StandaloneDb } from "@itwin/core-backend";
 import { initializeBranchProvenance, ProvenanceInitArgs, ProvenanceInitResult } from "../../BranchProvenanceInitializer";
 import { assertIdentityTransformation, IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { BriefcaseIdValue, Code } from "@itwin/core-common";
+import { BriefcaseIdValue, Code, ExternalSourceProps, RepositoryLinkProps } from "@itwin/core-common";
 import { IModelTransformer } from "../../IModelTransformer";
 import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
 import { assert, expect } from "chai";
@@ -221,7 +225,7 @@ function setupIModel(): [StandaloneDb, TupleKeyedMap<[boolean, boolean], [string
 
 async function classicalTransformerBranchInit(args: ProvenanceInitArgs): Promise<ProvenanceInitResult> {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterLinkRepoId = new RepositoryLink({
+  const masterLinkRepoId = args.branch.constructEntity<RepositoryLink, RepositoryLinkProps>({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(args.branch, IModelDb.repositoryModelId, "test-imodel"),
     model: IModelDb.repositoryModelId,
@@ -229,9 +233,9 @@ async function classicalTransformerBranchInit(args: ProvenanceInitArgs): Promise
     format: "iModel",
     repositoryGuid: args.master.iModelId,
     description: args.masterDescription,
-  }, args.branch).insert();
+  }).insert();
 
-  const masterExternalSourceId = new ExternalSource({
+  const masterExternalSourceId = args.branch.constructEntity<ExternalSource, ExternalSourceProps>({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
@@ -240,7 +244,7 @@ async function classicalTransformerBranchInit(args: ProvenanceInitArgs): Promise
     connectorName: require("../../../../package.json").name,
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     connectorVersion: require("../../../../package.json").version,
-  }, args.branch).insert();
+  }).insert();
 
   // initialize the branch provenance
   const branchInitializer = new IModelTransformer(args.master, args.branch, {
@@ -274,5 +278,5 @@ function setToStandalone(iModelName: string) {
   nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
   nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
   nativeDb.saveChanges(); // save change to briefcaseId
-  nativeDb.closeIModel();
+  nativeDb.closeFile();
 }
