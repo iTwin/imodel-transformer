@@ -2852,6 +2852,8 @@ export class IModelTransformer extends IModelExportHandler {
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _changeSummaryIds?: Id64String[] = undefined;
   private _sourceChangeDataState: ChangeDataState = "uninited";
+  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
+  private _csFileProps?: ChangesetFileProps[] = undefined;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
@@ -3383,10 +3385,11 @@ export class IModelTransformer extends IModelExportHandler {
   private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
     if (!this._isSynchronization)
       return {};
-
     return {
       accessToken: opts.accessToken,
-      ...this._changesetRanges
+      ...this._csFileProps
+        ? { csFileProps: this._csFileProps }
+        : this._changesetRanges
         ? { changesetRanges: this._changesetRanges }
         : opts.startChangeset
         ? { startChangeset: opts.startChangeset }
