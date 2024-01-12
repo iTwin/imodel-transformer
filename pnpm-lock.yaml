@@ -6,6 +6,11 @@ overrides:
   typescript: ^5.0.2
   '@typescript-eslint/eslint-plugin': ^5.59.7
 
+patchedDependencies:
+  '@itwin/core-backend@4.3.3':
+    hash: 4tix5ydov2miqr6g7sm6d4w6oy
+    path: patches/@itwin__core-backend@4.3.3.patch
+
 importers:
 
   .:
@@ -30,7 +35,7 @@ importers:
       typescript: ^5.0.2
     devDependencies:
       '@itwin/build-tools': 4.3.3_@types+node@18.16.14
-      '@itwin/core-backend': 4.3.3
+      '@itwin/core-backend': 4.3.3_4tix5ydov2miqr6g7sm6d4w6oy
       '@types/node': 18.16.14
       typescript: 5.1.3
 
@@ -69,7 +74,7 @@ importers:
       typescript: ^5.0.2
       yargs: ^16.0.0
     dependencies:
-      '@itwin/core-backend': 4.3.3_7qfebkgfkytmdr5gckh4dqdaey
+      '@itwin/core-backend': 4.3.3_4tix5ydov2miqr6g7sm6d4w6oy_7qfebkgfkytmdr5gckh4dqdaey
       '@itwin/core-bentley': 4.3.3
       '@itwin/core-common': 4.3.3_dg7g5ezpru5bq5yk7sprirsab4
       '@itwin/core-geometry': 4.3.3
@@ -134,7 +139,7 @@ importers:
       typescript: ^5.0.2
       yargs: ^17.7.2
     dependencies:
-      '@itwin/core-backend': 4.3.3_7qfebkgfkytmdr5gckh4dqdaey
+      '@itwin/core-backend': 4.3.3_4tix5ydov2miqr6g7sm6d4w6oy_7qfebkgfkytmdr5gckh4dqdaey
       '@itwin/core-bentley': 4.3.3
       '@itwin/core-common': 4.3.3_dg7g5ezpru5bq5yk7sprirsab4
       '@itwin/core-geometry': 4.3.3
@@ -166,13 +171,13 @@ importers:
 
   packages/transformer:
     specifiers:
-      '@itwin/build-tools': 4.3.3
-      '@itwin/core-backend': 4.3.3
-      '@itwin/core-bentley': 4.3.3
-      '@itwin/core-common': 4.3.3
-      '@itwin/core-geometry': 4.3.3
-      '@itwin/core-quantity': 4.3.3
-      '@itwin/ecschema-metadata': 4.3.3
+      '@itwin/build-tools': 4.0.0-dev.86
+      '@itwin/core-backend': ^4.3.3
+      '@itwin/core-bentley': ^4.3.3
+      '@itwin/core-common': ^4.3.3
+      '@itwin/core-geometry': ^4.3.3
+      '@itwin/core-quantity': ^4.3.3
+      '@itwin/ecschema-metadata': ^4.3.3
       '@itwin/eslint-plugin': 4.0.0-dev.48
       '@types/chai': 4.3.1
       '@types/chai-as-promised': ^7.1.5
@@ -199,8 +204,8 @@ importers:
     dependencies:
       semver: 7.5.1
     devDependencies:
-      '@itwin/build-tools': 4.3.3_@types+node@18.16.16
-      '@itwin/core-backend': 4.3.3_7qfebkgfkytmdr5gckh4dqdaey
+      '@itwin/build-tools': 4.0.0-dev.86_@types+node@18.16.16
+      '@itwin/core-backend': 4.3.3_4tix5ydov2miqr6g7sm6d4w6oy_7qfebkgfkytmdr5gckh4dqdaey
       '@itwin/core-bentley': 4.3.3
       '@itwin/core-common': 4.3.3_dg7g5ezpru5bq5yk7sprirsab4
       '@itwin/core-geometry': 4.3.3
@@ -734,30 +739,6 @@ packages:
       - supports-color
     dev: true
 
-  /@itwin/build-tools/4.3.3_@types+node@18.16.16:
-    resolution: {integrity: sha512-puHB5iXiGT+Q6IZdLImLqyL7Ed7bN0cwwnBMe2YaH/j5syLO3UEgbVM1OJHizygS17VlJmp94568VtNOL+NkRA==}
-    hasBin: true
-    dependencies:
-      '@microsoft/api-extractor': 7.36.4_@types+node@18.16.16
-      chalk: 3.0.0
-      cpx2: 3.0.2
-      cross-spawn: 7.0.3
-      fs-extra: 8.1.0
-      glob: 7.2.3
-      mocha: 10.2.0
-      mocha-junit-reporter: 2.2.0_mocha@10.2.0
-      rimraf: 3.0.2
-      tree-kill: 1.2.2
-      typedoc: 0.23.28_typescript@5.1.3
-      typedoc-plugin-merge-modules: 4.1.0_typedoc@0.23.28
-      typescript: 5.1.3
-      wtfnode: 0.9.1
-      yargs: 17.7.2
-    transitivePeerDependencies:
-      - '@types/node'
-      - supports-color
-    dev: true
-
   /@itwin/certa/3.8.0:
     resolution: {integrity: sha512-7Vl2PtJH43ZAmAbGFNqy6eW/+j7zq/nI8HvrauaqupbvHaCWPyaI8T98A5hScR7TlIPpB9sCU/+5Fjxs34BfQw==}
     hasBin: true
@@ -800,7 +781,7 @@ packages:
       inversify: 6.0.2
       reflect-metadata: 0.1.13
 
-  /@itwin/core-backend/4.3.3:
+  /@itwin/core-backend/4.3.3_4tix5ydov2miqr6g7sm6d4w6oy:
     resolution: {integrity: sha512-zhKqmnUQsgwWMbbMD17eK2gbZ39/N5hKiFLP4l5dfAZBDgk0VPHhHo4uwsh6izloT6x7Wox9RnrVGVP6n39S+A==}
     engines: {node: ^18.0.0 || ^20.0.0}
     peerDependencies:
@@ -832,8 +813,9 @@ packages:
       - encoding
       - utf-8-validate
     dev: true
+    patched: true
 
-  /@itwin/core-backend/4.3.3_7qfebkgfkytmdr5gckh4dqdaey:
+  /@itwin/core-backend/4.3.3_4tix5ydov2miqr6g7sm6d4w6oy_7qfebkgfkytmdr5gckh4dqdaey:
     resolution: {integrity: sha512-zhKqmnUQsgwWMbbMD17eK2gbZ39/N5hKiFLP4l5dfAZBDgk0VPHhHo4uwsh6izloT6x7Wox9RnrVGVP6n39S+A==}
     engines: {node: ^18.0.0 || ^20.0.0}
     peerDependencies:
@@ -867,6 +849,7 @@ packages:
       - debug
       - encoding
       - utf-8-validate
+    patched: true
 
   /@itwin/core-bentley/4.3.3:
     resolution: {integrity: sha512-7Fs/JFYX3T6HW5zS0YHyUX5beWiT7JHR6v9dKkPk+i27i6bdDrQaVnj+IITe+eYrIQPchOMIxrOpKRZdR5Oz2A==}
@@ -968,7 +951,7 @@ packages:
       '@itwin/core-common': ^3.3.0
     dependencies:
       '@azure/abort-controller': 1.1.0
-      '@itwin/core-backend': 4.3.3_7qfebkgfkytmdr5gckh4dqdaey
+      '@itwin/core-backend': 4.3.3_4tix5ydov2miqr6g7sm6d4w6oy_7qfebkgfkytmdr5gckh4dqdaey
       '@itwin/core-bentley': 4.3.3
       '@itwin/core-common': 4.3.3_dg7g5ezpru5bq5yk7sprirsab4
       '@itwin/imodels-client-authoring': 2.3.0
@@ -1177,16 +1160,6 @@ packages:
       - '@types/node'
     dev: true
 
-  /@microsoft/api-extractor-model/7.27.6_@types+node@18.16.16:
-    resolution: {integrity: sha512-eiCnlayyum1f7fS2nA9pfIod5VCNR1G+Tq84V/ijDrKrOFVa598BLw145nCsGDMoFenV6ajNi2PR5WCwpAxW6Q==}
-    dependencies:
-      '@microsoft/tsdoc': 0.14.2
-      '@microsoft/tsdoc-config': 0.16.2
-      '@rushstack/node-core-library': 3.59.7_@types+node@18.16.16
-    transitivePeerDependencies:
-      - '@types/node'
-    dev: true
-
   /@microsoft/api-extractor/7.34.4_@types+node@18.16.16:
     resolution: {integrity: sha512-HOdcci2nT40ejhwPC3Xja9G+WSJmWhCUKKryRfQYsmE9cD+pxmBaKBKCbuS9jUcl6bLLb4Gz+h7xEN5r0QiXnQ==}
     hasBin: true
@@ -1235,26 +1208,6 @@ packages:
       '@microsoft/tsdoc': 0.14.2
       '@microsoft/tsdoc-config': 0.16.2
       '@rushstack/node-core-library': 3.59.7_@types+node@18.16.14
-      '@rushstack/rig-package': 0.4.1
-      '@rushstack/ts-command-line': 4.15.2
-      colors: 1.2.5
-      lodash: 4.17.21
-      resolve: 1.22.2
-      semver: 7.5.4
-      source-map: 0.6.1
-      typescript: 5.1.3
-    transitivePeerDependencies:
-      - '@types/node'
-    dev: true
-
-  /@microsoft/api-extractor/7.36.4_@types+node@18.16.16:
-    resolution: {integrity: sha512-21UECq8C/8CpHT23yiqTBQ10egKUacIpxkPyYR7hdswo/M5yTWdBvbq+77YC9uPKQJOUfOD1FImBQ1DzpsdeQQ==}
-    hasBin: true
-    dependencies:
-      '@microsoft/api-extractor-model': 7.27.6_@types+node@18.16.16
-      '@microsoft/tsdoc': 0.14.2
-      '@microsoft/tsdoc-config': 0.16.2
-      '@rushstack/node-core-library': 3.59.7_@types+node@18.16.16
       '@rushstack/rig-package': 0.4.1
       '@rushstack/ts-command-line': 4.15.2
       colors: 1.2.5
@@ -1379,24 +1332,6 @@ packages:
         optional: true
     dependencies:
       '@types/node': 18.16.14
-      colors: 1.2.5
-      fs-extra: 7.0.1
-      import-lazy: 4.0.0
-      jju: 1.4.0
-      resolve: 1.22.2
-      semver: 7.5.4
-      z-schema: 5.0.5
-    dev: true
-
-  /@rushstack/node-core-library/3.59.7_@types+node@18.16.16:
-    resolution: {integrity: sha512-ln1Drq0h+Hwa1JVA65x5mlSgUrBa1uHL+V89FqVWQgXd1vVIMhrtqtWGQrhTnFHxru5ppX+FY39VWELF/FjQCw==}
-    peerDependencies:
-      '@types/node': '*'
-    peerDependenciesMeta:
-      '@types/node':
-        optional: true
-    dependencies:
-      '@types/node': 18.16.16
       colors: 1.2.5
       fs-extra: 7.0.1
       import-lazy: 4.0.0
