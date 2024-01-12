@@ -2672,8 +2672,14 @@ export class IModelTransformer extends IModelExportHandler {
       for (const change of changes) {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
-        if (ecClassId === undefined) throw new Error("2638");
-        if (changeType === undefined) throw new Error("2640");
+        if (ecClassId === undefined)
+          throw new Error(
+            `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
+          );
+        if (changeType === undefined)
+          throw new Error(
+            `ChangeType was undefined for id: ${change.ECInstanceId}.`
+          );
         if (
           changeType !== "Deleted" ||
           relationshipECClassIdsToSkip.has(ecClassId)
@@ -2685,7 +2691,7 @@ export class IModelTransformer extends IModelExportHandler {
           relationshipECClassIds.has(ecClassId ?? ""),
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
-        ); // FIXME: ecclassid should never be undefined
+        );
       }
 
       csReader.close();

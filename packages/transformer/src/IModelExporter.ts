@@ -1151,18 +1151,23 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
-  private codeSpecECClassIds = new Set<string>();
-  private modelECClassIds = new Set<string>();
-  private elementECClassIds = new Set<string>();
-  private aspectECClassIds = new Set<string>();
-  private relationshipECClassIds = new Set<string>();
-  private _ecClassIdsInitialized = false;
+  private _codeSpecSubclassIds?: Set<string>;
+  private _modelSubclassIds?: Set<string>;
+  private _elementSubclassIds?: Set<string>;
+  private _aspectSubclassIds?: Set<string>;
+  private _relationshipSubclassIds?: Set<string>;
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
   }
 
   private async setupECClassIds(): Promise<void> {
+    this._codeSpecSubclassIds = new Set<string>();
+    this._modelSubclassIds = new Set<string>();
+    this._elementSubclassIds = new Set<string>();
+    this._aspectSubclassIds = new Set<string>();
+    this._relationshipSubclassIds = new Set<string>();
+
     const addECClassIdsToSet = async (
       setToModify: Set<string>,
       baseClass: string
@@ -1173,48 +1178,51 @@ export class ChangedInstanceIds {
         setToModify.add(row.ECInstanceId);
       }
     };
-    const promises = [];
-    promises.push(
-      addECClassIdsToSet(this.codeSpecECClassIds, "BisCore.CodeSpec")
-    );
-    promises.push(addECClassIdsToSet(this.modelECClassIds, "BisCore.Model"));
-    promises.push(
-      addECClassIdsToSet(this.elementECClassIds, "BisCore.Element")
-    );
-    promises.push(
-      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementUniqueAspect")
-    );
-    promises.push(
-      addECClassIdsToSet(this.aspectECClassIds, "BisCore.ElementMultiAspect")
-    );
-    promises.push(
+    const promises = [
+      addECClassIdsToSet(this._codeSpecSubclassIds, "BisCore.CodeSpec"),
+      addECClassIdsToSet(this._modelSubclassIds, "BisCore.Model"),
+      addECClassIdsToSet(this._elementSubclassIds, "BisCore.Element"),
       addECClassIdsToSet(
-        this.relationshipECClassIds,
+        this._aspectSubclassIds,
+        "BisCore.ElementUniqueAspect"
+      ),
+      addECClassIdsToSet(this._aspectSubclassIds, "BisCore.ElementMultiAspect"),
+      addECClassIdsToSet(
+        this._relationshipSubclassIds,
         "BisCore.ElementRefersToElements"
-      )
-    );
+      ),
+    ];
     await Promise.all(promises);
-    this._ecClassIdsInitialized = true;
+  }
+
+  private get _ecClassIdsInitialized() {
+    return (
+      this._codeSpecSubclassIds &&
+      this._modelSubclassIds &&
+      this._elementSubclassIds &&
+      this._aspectSubclassIds &&
+      this._relationshipSubclassIds
+    );
   }
 
   private isRelationship(ecClassId: string) {
-    return this.relationshipECClassIds.has(ecClassId);
+    return this._relationshipSubclassIds?.has(ecClassId);
   }
 
   private isCodeSpec(ecClassId: string) {
-    return this.codeSpecECClassIds.has(ecClassId);
+    return this._codeSpecSubclassIds?.has(ecClassId);
   }
 
   private isAspect(ecClassId: string) {
-    return this.aspectECClassIds.has(ecClassId);
+    return this._aspectSubclassIds?.has(ecClassId);
   }
 
   private isModel(ecClassId: string) {
-    return this.modelECClassIds.has(ecClassId);
+    return this._modelSubclassIds?.has(ecClassId);
   }
 
   private isElement(ecClassId: string) {
-    return this.elementECClassIds.has(ecClassId);
+    return this._elementSubclassIds?.has(ecClassId);
   }
 
   /**
@@ -1228,10 +1236,13 @@ export class ChangedInstanceIds {
     const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
     if (ecClassId === undefined)
       throw new Error(
-        `Element must have been deleted. Table is : ${change?.$meta?.tables}`
+        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
       );
     const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-    if (changeType === undefined) throw new Error(`ChangeType was undefined.`);
+    if (changeType === undefined)
+      throw new Error(
+        `ChangeType was undefined for id: ${change.ECInstanceId}.`
+      );
 
     if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
@@ -1243,7 +1254,6 @@ export class ChangedInstanceIds {
       this.handleChange(this.model, changeType, change.ECInstanceId);
     else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
-    // Probably by looking at the ECClassId. I think currently without affan's change to fallback we might get some undefined classIds. so maybe look at the table in that case. Won't always have to do this.
   }
 
   private handleChange(
