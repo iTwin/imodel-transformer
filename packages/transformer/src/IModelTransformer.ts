@@ -160,12 +160,11 @@ export interface IModelTransformOptions {
    */
   wasSourceIModelCopiedToTarget?: boolean;
 
-  // FIXME: deprecate this, we should now be able to detect it from the external source aspect data
-  // add property
   /** Flag that indicates that the current source and target iModels are now synchronizing in the reverse direction from a prior synchronization.
    * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
    * This means that the provenance on the (current) source is used instead.
    * @note This also means that only [[IModelTransformer.processChanges]] can detect deletes.
+   * @deprecated in 1.x  the transformer now detects synchronization direction by reading the external source aspect data
    */
   isReverseSynchronization?: boolean;
 
