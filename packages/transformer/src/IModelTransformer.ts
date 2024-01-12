@@ -750,7 +750,8 @@ export class IModelTransformer extends IModelExportHandler {
     args: {
       sourceDb: IModelDb;
       targetDb: IModelDb;
-      // FIXME: deprecate isReverseSync option and instead detect from targetScopeElement provenance
+      // deprecate isReverseSync option and instead detect from targetScopeElement provenance
+      // FIXME<NICK>: how can I deprecate this in a static function? Shouldn't this stay here since it will be passed from transformer?
       isReverseSynchronization: boolean;
       targetScopeElementId: Id64String;
     }
@@ -845,7 +846,7 @@ export class IModelTransformer extends IModelExportHandler {
       sourceElementId,
       targetElementId,
       {
-        isReverseSynchronization: this.isReverseSynchronization, // !!this._options.isReverseSynchronization,
+        isReverseSynchronization: this.isReverseSynchronization,
         targetScopeElementId: this.targetScopeElementId,
         sourceDb: this.sourceDb,
         targetDb: this.targetDb,
