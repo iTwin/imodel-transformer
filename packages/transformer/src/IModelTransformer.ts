@@ -386,8 +386,8 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly targetDb: IModelDb;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
-  /** Whether its reversesync or not. FIXME<NICK> */
   private _isReverseSynchronization: boolean | undefined;
+  private _isForwardSynchronization: boolean | undefined;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
@@ -414,19 +414,27 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _isSynchronization = false;
 
-  private nicksQueryScopeExternalSource(
+  /**
+   * @returns the id and version of an aspect with the given element, scope, kind, and identifier
+   * May also return a reverseSyncVersion from json properties if requested
+   */
+
+  /**
+   * querys the scopes external source and sets aspectId, version and jsonProperties on the provided aspectProps if available.
+   * @param dbToQuery db to run the query on for scope external source
+   * @param aspectProps aspectProps to search for
+   * @param opts opts containing preserveVersionReceived and getJsonProperties. if preserveVersionReceived is true and an aspect is found with the provided aspectProps,
+   * then the version passed as part of the aspectProps will be kept on the aspectProps.
+   * If false or not provided, the version on the aspectProps will be overwritten with the version from the queried aspect.
+   */
+  private queryScopeExternalSource(
     dbToQuery: IModelDb,
     aspectProps: ExternalSourceAspectProps,
-    { getJsonProperties = false } = {}
-  ): {
-    aspectId?: Id64String;
-    version?: string;
-    /** stringified json */
-    jsonProperties?: string;
-  } {
+    opts?: { getJsonProperties?: boolean; preserveVersionReceived?: boolean }
+  ): void {
     const sql = `
       SELECT ECInstanceId, Version
-      ${getJsonProperties ? ", JsonProperties" : ""}
+      ${opts?.getJsonProperties ? ", JsonProperties" : ""}
       FROM ${ExternalSourceAspect.classFullName}
       WHERE Element.Id=:elementId
         AND Scope.Id=:scopeId
@@ -434,122 +442,105 @@ export class IModelTransformer extends IModelExportHandler {
         AND Identifier=:identifier
       LIMIT 1
     `;
-    const emptyResult = {
-      aspectId: undefined,
-      version: undefined,
-      jsonProperties: undefined,
-    };
-    return dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
+    dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
-      if (aspectProps.scope === undefined) return emptyResult; // return undefined instead of binding an invalid id
+      if (aspectProps.scope === undefined) return; // return instead of binding an invalid id
       statement.bindId("scopeId", aspectProps.scope.id);
       statement.bindString("kind", aspectProps.kind);
       statement.bindString("identifier", aspectProps.identifier);
-      if (DbResult.BE_SQLITE_ROW !== statement.step()) return emptyResult;
-      const aspectId = statement.getValue(0).getId();
-      const version = statement.getValue(1).getString();
-      const jsonProperties = getJsonProperties
-        ? statement.getValue(2).getString()
+      if (DbResult.BE_SQLITE_ROW !== statement.step()) return;
+      aspectProps.id = statement.getValue(0).getId();
+      aspectProps.version = opts?.preserveVersionReceived
+        ? aspectProps.version
+        : statement.getValue(1).getString();
+      aspectProps.jsonProperties = opts?.getJsonProperties
+        ? JSON.parse(statement.getValue(2).getString())
         : undefined;
-      return { aspectId, version, jsonProperties };
     });
   }
 
   /**
-   * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all transforms today we expect to find an ESA in the branch db which describes the master -> branch relationship.
+   * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
    * The exception to this is the first transform aka the provenance initializing transform which requires that the master imodel and the branch imodel are identical at the time of provenance initialization.
    * A couple ofoutdated tests run their first transform providing a source and targetdb that are slightly different which is no longer supported. In order to not remove these tests which are still providing value
    * this private property on the IModelTransformer exists.
    * The two tests which currently require this leniency are "Transform source iModel to target iModel" and "should update aspects when processing changes and detachedAspectProcessing is turned on"
    */
-  //
   private _allowNoScopingESA = false;
 
-  public get isReverseSynchronization(): boolean {
-    // return (this._isSynchronization && this._options.isReverseSynchronization)!;
-    if (this._isReverseSynchronization === undefined) {
-      if (!this._isSynchronization || this._isProvenanceInitTransform) {
-        this._isReverseSynchronization = false;
-        return this._isReverseSynchronization;
-      }
-      const aspectProps = {
-        id: undefined as string | undefined,
-        version: undefined as string | undefined,
-        classFullName: ExternalSourceAspect.classFullName,
-        element: {
-          id: this.targetScopeElementId,
-          relClassName: ElementOwnsExternalSourceAspects.classFullName,
-        },
-        scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
-        identifier: this.sourceDb.iModelId, // NICK CHANGE: this used to say provenancesourcedb. Right now we don't know which db that is and we're trying to figure that out!
-        kind: ExternalSourceAspect.Kind.Scope,
-        jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
-      };
-      // queryScopeExternalSource also uses provenanceDb which we don't know because we're rtying to figure that out!!
-      // the identifier of the iModelId probably are related to what choice I would make when passing the dbToQuery? not sure..
-      // Yheah seems that way. We want to find the provenancesourcedb's imodelid, and the provenanceDbs scopeexteernalsource. So we'll just mak,e sure that when we have the sourceDb.imodelid, we look at the targetDb.
-      // if that fails we'll flip and go targetDb.iModelid, and look at sourcedb.
-      const externalSource = this.nicksQueryScopeExternalSource(
-        this.targetDb,
-        aspectProps,
-        {
-          getJsonProperties: true,
-        }
-      ); // this query includes "identifier"
-      aspectProps.id = externalSource.aspectId;
-      aspectProps.version = externalSource.version;
-      aspectProps.jsonProperties = externalSource.jsonProperties
-        ? JSON.parse(externalSource.jsonProperties)
-        : {};
-
-      if (undefined !== aspectProps.id) {
-        this._isReverseSynchronization = false;
-        return this._isReverseSynchronization;
-      }
-
-      // try the other way around now?
-      aspectProps.identifier = this.targetDb.iModelId;
-      const externalSource2 = this.nicksQueryScopeExternalSource(
-        this.sourceDb,
-        aspectProps,
-        {
-          getJsonProperties: true,
-        }
-      ); // this query includes "identifier"
-      aspectProps.id = externalSource2.aspectId;
-      aspectProps.version = externalSource2.version;
-      aspectProps.jsonProperties = externalSource2.jsonProperties
-        ? JSON.parse(externalSource2.jsonProperties)
-        : {};
-
-      if (undefined !== aspectProps.id) {
-        this._isReverseSynchronization = true;
-        return this._isReverseSynchronization;
-      }
-
-      if (undefined === aspectProps.id) {
-        if (!this._allowNoScopingESA)
-          throw new Error(
-            "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true."
-          );
-        this._isReverseSynchronization = false;
-        return this._isReverseSynchronization;
-      }
-      if (undefined === aspectProps.id) {
-        aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
-        aspectProps.jsonProperties = {
-          pendingReverseSyncChangesetIndices: [],
-          pendingSyncChangesetIndices: [],
-          reverseSyncVersion: "", // empty since never before transformed. Will be updated in first reverse sync
-        };
-      }
+  /**
+   * @returns true for forward sync, false for reverse sync. undefined for no sync.
+   */
+  private determineSyncDirectionIfAny(): boolean | undefined {
+    if (this._isProvenanceInitTransform) {
+      return true;
     }
-    return this._isReverseSynchronization!;
+    if (!this._isSynchronization) {
+      return undefined;
+    }
+
+    const aspectProps = {
+      id: undefined as string | undefined,
+      version: undefined as string | undefined,
+      classFullName: ExternalSourceAspect.classFullName,
+      element: {
+        id: this.targetScopeElementId,
+        relClassName: ElementOwnsExternalSourceAspects.classFullName,
+      },
+      scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
+      identifier: this.sourceDb.iModelId,
+      kind: ExternalSourceAspect.Kind.Scope,
+      jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
+    };
+    // First assume that the targetDb is the provenanceDb/branch (meaning holds the provenance which points back to master)
+    this.queryScopeExternalSource(this.targetDb, aspectProps, {
+      getJsonProperties: true,
+    });
+    if (undefined !== aspectProps.id) {
+      return true; // we found an esa assuming targetDb is the provenanceDb/branch so this is a forward sync.
+    }
+
+    // Now assume that the sourceDb is the provenanceDb/branch
+    aspectProps.identifier = this.targetDb.iModelId;
+    this.queryScopeExternalSource(this.sourceDb, aspectProps, {
+      getJsonProperties: true,
+    });
+
+    if (undefined !== aspectProps.id) {
+      return false; // we found an esa assuming sourceDb is the provenanceDb/branch so this is a reverse sync.
+    } else {
+      if (!this._allowNoScopingESA)
+        throw new Error(
+          "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true."
+        );
+      return true;
+    }
   }
 
-  private get _isForwardSynchronization() {
-    return this._isProvenanceInitTransform || !this.isReverseSynchronization; // Is it accurate to assume a firstsync is always a forward sync?
-    // return this._isSynchronization && !this._options.isReverseSynchronization;
+  public get isReverseSynchronization(): boolean {
+    if (this._isReverseSynchronization !== undefined)
+      return this._isReverseSynchronization;
+    if (this._isForwardSynchronization) {
+      this._isReverseSynchronization = false;
+      return this._isReverseSynchronization;
+    }
+
+    const sync = this.determineSyncDirectionIfAny();
+    this._isReverseSynchronization = sync !== undefined && !sync;
+    return this._isReverseSynchronization;
+  }
+
+  public get isForwardSynchronization(): boolean {
+    if (this._isForwardSynchronization !== undefined)
+      return this._isForwardSynchronization;
+    if (this._isReverseSynchronization) {
+      this._isForwardSynchronization = false;
+      return this._isForwardSynchronization;
+    }
+
+    const sync = this.determineSyncDirectionIfAny();
+    this._isForwardSynchronization = sync !== undefined && sync;
+    return this._isForwardSynchronization;
   }
 
   private _changesetRanges: [number, number][] | undefined = undefined;
@@ -971,17 +962,22 @@ export class IModelTransformer extends IModelExportHandler {
    * Provenance scope aspect is created and inserted into provenanceDb when [[initScopeProvenance]] is invoked.
    */
   protected tryGetProvenanceScopeAspect(): ExternalSourceAspect | undefined {
-    const scopeProvenanceAspectId = this.queryScopeExternalSource({
+    const scopeProvenanceAspectProps: ExternalSourceAspectProps = {
+      id: undefined,
       classFullName: ExternalSourceAspect.classFullName,
       scope: { id: IModel.rootSubjectId },
       kind: ExternalSourceAspect.Kind.Scope,
       element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
       identifier: this.provenanceSourceDb.iModelId,
-    });
+    };
+    this.queryScopeExternalSource(
+      this.provenanceDb,
+      scopeProvenanceAspectProps
+    );
 
-    return scopeProvenanceAspectId.aspectId
+    return scopeProvenanceAspectProps.id
       ? (this.provenanceDb.elements.getAspect(
-          scopeProvenanceAspectId.aspectId
+          scopeProvenanceAspectProps.id
         ) as ExternalSourceAspect)
       : undefined;
   }
@@ -1009,14 +1005,9 @@ export class IModelTransformer extends IModelExportHandler {
 
     // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them.
     // or reverseSyncVersion set correctly
-    const externalSource = this.queryScopeExternalSource(aspectProps, {
+    this.queryScopeExternalSource(this.provenanceDb, aspectProps, {
       getJsonProperties: true,
     }); // this query includes "identifier"
-    aspectProps.id = externalSource.aspectId;
-    aspectProps.version = externalSource.version;
-    aspectProps.jsonProperties = externalSource.jsonProperties
-      ? JSON.parse(externalSource.jsonProperties)
-      : {};
 
     if (undefined === aspectProps.id) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
@@ -1062,53 +1053,6 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._targetScopeProvenanceProps =
       aspectProps as typeof this._targetScopeProvenanceProps;
-  }
-
-  /**
-   * @returns the id and version of an aspect with the given element, scope, kind, and identifier
-   * May also return a reverseSyncVersion from json properties if requested
-   */
-  private queryScopeExternalSource(
-    aspectProps: ExternalSourceAspectProps,
-    { getJsonProperties = false } = {}
-  ): {
-    aspectId?: Id64String;
-    version?: string;
-    /** stringified json */
-    jsonProperties?: string;
-  } {
-    const sql = `
-      SELECT ECInstanceId, Version
-      ${getJsonProperties ? ", JsonProperties" : ""}
-      FROM ${ExternalSourceAspect.classFullName}
-      WHERE Element.Id=:elementId
-        AND Scope.Id=:scopeId
-        AND Kind=:kind
-        AND Identifier=:identifier
-      LIMIT 1
-    `;
-    const emptyResult = {
-      aspectId: undefined,
-      version: undefined,
-      jsonProperties: undefined,
-    };
-    return this.provenanceDb.withPreparedStatement(
-      sql,
-      (statement: ECSqlStatement) => {
-        statement.bindId("elementId", aspectProps.element.id);
-        if (aspectProps.scope === undefined) return emptyResult; // return undefined instead of binding an invalid id
-        statement.bindId("scopeId", aspectProps.scope.id);
-        statement.bindString("kind", aspectProps.kind);
-        statement.bindString("identifier", aspectProps.identifier);
-        if (DbResult.BE_SQLITE_ROW !== statement.step()) return emptyResult;
-        const aspectId = statement.getValue(0).getId();
-        const version = statement.getValue(1).getString();
-        const jsonProperties = getJsonProperties
-          ? statement.getValue(2).getString()
-          : undefined;
-        return { aspectId, version, jsonProperties };
-      }
-    );
   }
 
   /**
@@ -1876,13 +1820,14 @@ export class IModelTransformer extends IModelExportHandler {
           sourceElement.id,
           targetElementProps.id!
         );
-        const aspectId = this.queryScopeExternalSource(aspectProps).aspectId;
-        if (aspectId === undefined) {
+        // Since initElementProvenance sets a property 'version' on the aspectProps, pass preserveVersionReceived to queryScopeExternalSource so it doesn't get overwritten.
+        this.queryScopeExternalSource(this.provenanceDb, aspectProps, {
+          preserveVersionReceived: true,
+        });
+        if (aspectProps.id === undefined)
           aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
-        } else {
-          aspectProps.id = aspectId;
-          this.provenanceDb.elements.updateAspect(aspectProps);
-        }
+        else this.provenanceDb.elements.updateAspect(aspectProps);
+
         provenance = aspectProps as MarkRequired<
           ExternalSourceAspectProps,
           "id"
@@ -2302,7 +2247,8 @@ export class IModelTransformer extends IModelExportHandler {
           sourceRelationship,
           targetRelationshipInstanceId
         );
-        aspectProps.id = this.queryScopeExternalSource(aspectProps).aspectId;
+        this.queryScopeExternalSource(this.provenanceDb, aspectProps);
+        // FIXME<NICK>: Why does onExportElement update the aspect, but onExportRelationship doesn't update the aspect?
         if (undefined === aspectProps.id) {
           aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
         }
