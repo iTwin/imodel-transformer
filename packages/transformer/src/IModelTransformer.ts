@@ -455,10 +455,20 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
+  /**
+   * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all transforms today we expect to find an ESA in the branch db which describes the master -> branch relationship.
+   * The exception to this is the first transform aka the provenance initializing transform which requires that the master imodel and the branch imodel are identical at the time of provenance initialization.
+   * A couple ofoutdated tests run their first transform providing a source and targetdb that are slightly different which is no longer supported. In order to not remove these tests which are still providing value
+   * this private property on the IModelTransformer exists.
+   * The two tests which currently require this leniency are "Transform source iModel to target iModel" and "should update aspects when processing changes and detachedAspectProcessing is turned on"
+   */
+  //
+  private _allowNoScopingESA = false;
+
   public get isReverseSynchronization(): boolean {
     // return (this._isSynchronization && this._options.isReverseSynchronization)!;
     if (this._isReverseSynchronization === undefined) {
-      if (!this._isSynchronization) {
+      if (!this._isSynchronization || this._isFirstSynchronization) {
         this._isReverseSynchronization = false;
         return this._isReverseSynchronization;
       }
@@ -518,14 +528,12 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       if (undefined === aspectProps.id) {
-        // still undefined..
-        // That means we haven't set an ESA up yet.
-        // Maybe it means that we're initing branch provenance? // In which case we can probably assume that we're in a forward sync?
-        // How would I differentiate between soemthings gone wrong and initing branch provenance?
-        // FIXME<NICK> I had to assume that we're in a forward sync to get transform soruce imodel to target imodel test to pass. ask mike about this
-        // this._isReverseSynchronization = false;
-        // return this._isReverseSynchronization;
-        throw new Error("COULDN'T FIND AN ESA TO DETERMINE SYNC DIRECTION!");
+        if (!this._allowNoScopingESA)
+          throw new Error(
+            "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true."
+          );
+        this._isReverseSynchronization = false;
+        return this._isReverseSynchronization;
       }
       if (undefined === aspectProps.id) {
         aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]

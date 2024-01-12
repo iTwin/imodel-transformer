@@ -171,7 +171,7 @@ describe("IModelTransformerHub", () => {
     return iModelId;
   };
 
-  it.only("Transform source iModel to target iModel", async () => {
+  it("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",
       async (sourceSeedDb) => {
@@ -256,7 +256,11 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        await transformer.processChanges({ accessToken });
+        transformer["_allowNoScopingESA"] = true;
+        await transformer.processChanges({
+          accessToken,
+          startChangeset: { id: sourceDb.changeset.id },
+        });
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
@@ -2917,6 +2921,7 @@ describe("IModelTransformerHub", () => {
       const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
       });
+      transformer["_allowNoScopingESA"] = true;
 
       // run first transformation
       await transformer.processChanges({ accessToken });
