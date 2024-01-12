@@ -468,7 +468,7 @@ export class IModelTransformer extends IModelExportHandler {
   public get isReverseSynchronization(): boolean {
     // return (this._isSynchronization && this._options.isReverseSynchronization)!;
     if (this._isReverseSynchronization === undefined) {
-      if (!this._isSynchronization || this._isFirstSynchronization) {
+      if (!this._isSynchronization || this._isProvenanceInitTransform) {
         this._isReverseSynchronization = false;
         return this._isReverseSynchronization;
       }
@@ -548,14 +548,14 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private get _isForwardSynchronization() {
-    return this._isFirstSynchronization || !this.isReverseSynchronization; // Is it accurate to assume a firstsync is always a forward sync?
+    return this._isProvenanceInitTransform || !this.isReverseSynchronization; // Is it accurate to assume a firstsync is always a forward sync?
     // return this._isSynchronization && !this._options.isReverseSynchronization;
   }
 
   private _changesetRanges: [number, number][] | undefined = undefined;
 
   /** Set if it can be determined whether this is the first source --> target synchronization. */
-  private _isFirstSynchronization?: boolean;
+  private _isProvenanceInitTransform?: boolean;
 
   /** The element classes that are considered to define provenance in the iModel */
   public static get provenanceElementClasses(): (typeof Entity)[] {
@@ -601,7 +601,8 @@ export class IModelTransformer extends IModelExportHandler {
         options?.danglingPredecessorsBehavior ??
         "reject",
     };
-    this._isFirstSynchronization = this._options.wasSourceIModelCopiedToTarget
+    this._isProvenanceInitTransform = this._options
+      .wasSourceIModelCopiedToTarget //isforkprovenanceinittransform
       ? true
       : undefined;
     // initialize exporter and sourceDb
@@ -1399,7 +1400,7 @@ export class IModelTransformer extends IModelExportHandler {
   protected shouldDetectDeletes(): boolean {
     // FIXME: all synchronizations should mark this as false, but we can probably change this
     // to just follow the new deprecated option
-    if (this._isFirstSynchronization) return false; // not necessary the first time since there are no deletes to detect
+    if (this._isProvenanceInitTransform) return false; // not necessary the first time since there are no deletes to detect
 
     if (this.isReverseSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
 
@@ -2110,7 +2111,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (
       !force &&
       this._sourceChangeDataState !== "has-changes" &&
-      !this._isFirstSynchronization
+      !this._isProvenanceInitTransform
     )
       return;
 
@@ -2119,7 +2120,7 @@ export class IModelTransformer extends IModelExportHandler {
     const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
     const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
 
-    if (this._isFirstSynchronization) {
+    if (this._isProvenanceInitTransform) {
       this._targetScopeProvenanceProps.version = sourceVersion;
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         targetVersion;
