@@ -93,7 +93,6 @@ void (async () => {
           type: "string",
         },
 
-
         // used if the source iModel is on iModelHub
         sourceITwinId: {
           desc: "The iModelHub iTwin containing the source iModel",

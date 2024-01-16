@@ -849,20 +849,24 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** NOTE: the json properties must be converted to string before insertion */
   private _targetScopeProvenanceProps:
-    Omit<ExternalSourceAspectProps, "jsonProperties"> & { jsonProperties: TargetScopeProvenanceJsonProps }
-    | undefined
-      = undefined;
+    | (Omit<ExternalSourceAspectProps, "jsonProperties"> & {
+        jsonProperties: TargetScopeProvenanceJsonProps;
+      })
+    | undefined = undefined;
 
   /**
    * Index of the changeset that the transformer was at when the transformation begins (was constructed).
    * Used to determine at the end which changesets were part of a synchronization.
    */
-  private _startingChangesetIndices: {
-    target: number;
-    source: number;
-  } | undefined = undefined;
+  private _startingChangesetIndices:
+    | {
+        target: number;
+        source: number;
+      }
+    | undefined = undefined;
 
-  private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined = undefined;
+  private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
+    undefined;
 
   /** the changeset in the scoping element's source version found for this transformation
    * @note: the version depends on whether this is a reverse synchronization or not, as
@@ -872,18 +876,22 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private get _synchronizationVersion(): ChangesetIndexAndId {
     if (!this._cachedSynchronizationVersion) {
-      nodeAssert(this._targetScopeProvenanceProps, "_targetScopeProvenanceProps was not set yet");
+      nodeAssert(
+        this._targetScopeProvenanceProps,
+        "_targetScopeProvenanceProps was not set yet"
+      );
       const version = this._options.isReverseSynchronization
         ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
       nodeAssert(version !== undefined, "no version contained in target scope");
 
-      const [id, index] = version === ""
-        ? ["", -1]
-        : version.split(";");
+      const [id, index] = version === "" ? ["", -1] : version.split(";");
       this._cachedSynchronizationVersion = { index: Number(index), id };
-      nodeAssert(!Number.isNaN(this._cachedSynchronizationVersion.index), "bad parse: invalid index in version");
+      nodeAssert(
+        !Number.isNaN(this._cachedSynchronizationVersion.index),
+        "bad parse: invalid index in version"
+      );
     }
     return this._cachedSynchronizationVersion;
   }
@@ -901,7 +909,11 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       const version = this._options.isReverseSynchronization
-        ? (JSON.parse(provenanceScopeAspect.jsonProperties ?? "{}") as TargetScopeProvenanceJsonProps).reverseSyncVersion
+        ? (
+            JSON.parse(
+              provenanceScopeAspect.jsonProperties ?? "{}"
+            ) as TargetScopeProvenanceJsonProps
+          ).reverseSyncVersion
         : provenanceScopeAspect.version;
       if (!version) {
         return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
@@ -929,7 +941,9 @@ export class IModelTransformer extends IModelExportHandler {
     });
 
     return scopeProvenanceAspectId.aspectId
-      ? this.provenanceDb.elements.getAspect(scopeProvenanceAspectId.aspectId) as ExternalSourceAspect
+      ? (this.provenanceDb.elements.getAspect(
+          scopeProvenanceAspectId.aspectId
+        ) as ExternalSourceAspect)
       : undefined;
   }
 
@@ -1376,7 +1390,7 @@ export class IModelTransformer extends IModelExportHandler {
           runFnInDataFlowDirection(elementId, aspectIdentifier);
         }
       }
-    });
+    );
   }
 
   private forEachTrackedElement(
@@ -3383,17 +3397,20 @@ export class IModelTransformer extends IModelExportHandler {
    * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
    */
   private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
-    if (!this._isSynchronization)
-      return {};
+    if (!this._isSynchronization) return {};
     return {
       accessToken: opts.accessToken,
-      ...this._csFileProps
+      ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
         : this._changesetRanges
-        ? { changesetRanges: this._changesetRanges }
-        : opts.startChangeset
-        ? { startChangeset: opts.startChangeset }
-        : { startChangeset: { index: this._synchronizationVersion.index + 1 } },
+          ? { changesetRanges: this._changesetRanges }
+          : opts.startChangeset
+            ? { startChangeset: opts.startChangeset }
+            : {
+                startChangeset: {
+                  index: this._synchronizationVersion.index + 1,
+                },
+              }),
     };
   }
 

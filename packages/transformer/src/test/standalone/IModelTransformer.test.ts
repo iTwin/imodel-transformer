@@ -2248,7 +2248,6 @@ describe("IModelTransformer", () => {
       rowFormat: QueryRowFormat.UseJsPropertyNames,
     })) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
-
         const { lastMod: _lastMod, ...invariantPortion } = row;
         if (ignoreFedGuidElementIds.has(row.id))
           delete invariantPortion.federationGuid;
