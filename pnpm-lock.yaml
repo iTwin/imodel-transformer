@@ -245,25 +245,25 @@ importers:
         version: 7.5.1
     devDependencies:
       '@itwin/build-tools':
-        specifier: 4.3.3
+        specifier: ^4.3.3
         version: 4.3.3(@types/node@18.16.16)
       '@itwin/core-backend':
-        specifier: 4.3.3
+        specifier: ^4.3.3
         version: 4.3.3(patch_hash=4tix5ydov2miqr6g7sm6d4w6oy)(@itwin/core-bentley@4.3.3)(@itwin/core-common@4.3.3)(@itwin/core-geometry@4.3.3)
       '@itwin/core-bentley':
-        specifier: 4.3.3
+        specifier: ^4.3.3
         version: 4.3.3
       '@itwin/core-common':
-        specifier: 4.3.3
+        specifier: ^4.3.3
         version: 4.3.3(@itwin/core-bentley@4.3.3)(@itwin/core-geometry@4.3.3)
       '@itwin/core-geometry':
-        specifier: 4.3.3
+        specifier: ^4.3.3
         version: 4.3.3
       '@itwin/core-quantity':
-        specifier: 4.3.3
+        specifier: ^4.3.3
         version: 4.3.3(@itwin/core-bentley@4.3.3)
       '@itwin/ecschema-metadata':
-        specifier: 4.3.3
+        specifier: ^4.3.3
         version: 4.3.3(@itwin/core-bentley@4.3.3)(@itwin/core-quantity@4.3.3)
       '@itwin/eslint-plugin':
         specifier: 4.0.0-dev.48

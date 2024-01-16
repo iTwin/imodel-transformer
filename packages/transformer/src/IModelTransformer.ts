@@ -592,7 +592,7 @@ export class IModelTransformer extends IModelExportHandler {
         "reject",
     };
     this._isProvenanceInitTransform = this._options
-      .wasSourceIModelCopiedToTarget //isforkprovenanceinittransform
+      .wasSourceIModelCopiedToTarget
       ? true
       : undefined;
     // initialize exporter and sourceDb
@@ -733,14 +733,18 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This will be [[targetDb]] except when it is a reverse synchronization. In that case it be [[sourceDb]].
    */
   public get provenanceDb(): IModelDb {
-    return this.isReverseSynchronization ? this.sourceDb : this.targetDb;
+    return this._options.isReverseSynchronization
+      ? this.sourceDb
+      : this.targetDb;
   }
 
   /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
    * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
    */
   public get provenanceSourceDb(): IModelDb {
-    return this.isReverseSynchronization ? this.targetDb : this.sourceDb;
+    return this._options.isReverseSynchronization
+      ? this.targetDb
+      : this.sourceDb;
   }
 
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
@@ -910,7 +914,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._targetScopeProvenanceProps,
         "_targetScopeProvenanceProps was not set yet"
       );
-      const version = this.isReverseSynchronization // this._options.isReverseSynchronization
+      const version = this.isReverseSynchronization
         ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
@@ -1351,7 +1355,7 @@ export class IModelTransformer extends IModelExportHandler {
     // FIXME: do any tests fail? if not, consider using @see _isSynchronization
     // FIXME<NICK> why was this return false before? and why did this work before my changes to determine isReverseSync?
     // needed to change to true for 'detect element deletes works on children' for this to work.
-    if (this._isForwardSynchronization) return true; // not possible for a reverse synchronization since provenance will be deleted when element is deleted. FIXME<NICK> why was this return false before? and why d
+    if (this._isForwardSynchronization) return true; // not possible for a reverse synchronization since provenance will be deleted when element is deleted.
 
     return true;
   }
@@ -2750,8 +2754,14 @@ export class IModelTransformer extends IModelExportHandler {
       for (const change of changes) {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
-        if (ecClassId === undefined) throw new Error("2638");
-        if (changeType === undefined) throw new Error("2640");
+        if (ecClassId === undefined)
+          throw new Error(
+            `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
+          );
+        if (changeType === undefined)
+          throw new Error(
+            `ChangeType was undefined for id: ${change.ECInstanceId}.`
+          );
         if (
           changeType !== "Deleted" ||
           relationshipECClassIdsToSkip.has(ecClassId)
@@ -2763,7 +2773,7 @@ export class IModelTransformer extends IModelExportHandler {
           relationshipECClassIds.has(ecClassId ?? ""),
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
-        ); // FIXME: ecclassid should never be undefined
+        );
       }
 
       csReader.close();

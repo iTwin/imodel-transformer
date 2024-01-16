@@ -12,7 +12,7 @@
     "docs": "",
     "lint": "eslint --quiet \"./src/**/*.ts\" 1>&2",
     "lint:fix": "eslint --fix --quiet \"./src/**/*.ts\" 1>&2",
-    "prettier:format": "prettier \"./src/**/*.ts\" --write",
+    "format": "prettier \"./src/**/*.ts\" --write",
     "start": "node ./lib/Main.js",
     "test": "mocha",
     "copy:config": "internal-tools copy-config"

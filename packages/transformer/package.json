@@ -24,7 +24,7 @@
     "lint": "eslint -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
     "lint:no-tests": "eslint -f visualstudio --quiet \"./src/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
-    "prettier:format": "prettier \"./src/**/*.ts\" --write",
+    "format": "prettier \"./src/**/*.ts\" --write",
     "lint:with-warnings": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
     "test": "mocha \"lib/cjs/test/**/*.test.js\" --timeout 8000 --reporter-option maxDiffSize=0 --require source-map-support/register",
     "no-internal-report": "no-internal-report src/**/*.ts"
@@ -54,25 +54,25 @@
     "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
   ],
   "peerDependencies": {
-    "@itwin/core-backend": "4.3.3",
-    "@itwin/core-bentley": "4.3.3",
-    "@itwin/core-common": "4.3.3",
-    "@itwin/core-geometry": "4.3.3",
-    "@itwin/core-quantity": "4.3.3",
-    "@itwin/ecschema-metadata": "4.3.3"
+    "@itwin/core-backend": "^4.3.3",
+    "@itwin/core-bentley": "^4.3.3",
+    "@itwin/core-common": "^4.3.3",
+    "@itwin/core-geometry": "^4.3.3",
+    "@itwin/core-quantity": "^4.3.3",
+    "@itwin/ecschema-metadata": "^4.3.3"
   },
   "//devDependencies": [
     "NOTE: All peerDependencies should also be listed as devDependencies since peerDependencies are not considered by npm install",
     "NOTE: All tools used by scripts in this package must be listed as devDependencies"
   ],
   "devDependencies": {
-    "@itwin/build-tools": "4.3.3",
-    "@itwin/core-backend": "4.3.3",
-    "@itwin/core-bentley": "4.3.3",
-    "@itwin/core-common": "4.3.3",
-    "@itwin/core-geometry": "4.3.3",
-    "@itwin/core-quantity": "4.3.3",
-    "@itwin/ecschema-metadata": "4.3.3",
+    "@itwin/build-tools": "^4.3.3",
+    "@itwin/core-backend": "^4.3.3",
+    "@itwin/core-bentley": "^4.3.3",
+    "@itwin/core-common": "^4.3.3",
+    "@itwin/core-geometry": "^4.3.3",
+    "@itwin/core-quantity": "^4.3.3",
+    "@itwin/ecschema-metadata": "^4.3.3",
     "@itwin/eslint-plugin": "4.0.0-dev.48",
     "@types/chai": "4.3.1",
     "@types/chai-as-promised": "^7.1.5",

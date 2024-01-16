@@ -9,7 +9,7 @@
     "clean": "rimraf lib",
     "lint": "eslint \"./test/**/*.ts\" 1>&2",
     "test": "mocha --delay --timeout 300000 --require ts-node/register test/**/*.test.ts",
-    "prettier:format": "prettier \"./test/**/*.ts\" --write",
+    "format": "prettier \"./test/**/*.ts\" --write",
     "test-mocha": "mocha --delay --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
     "process-reports": "node scripts/process-reports"
   },
