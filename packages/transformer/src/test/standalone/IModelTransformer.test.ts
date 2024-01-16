@@ -2373,7 +2373,7 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "Source Provenance Test (Target)" } });
 
     // clone
-    const transformer = new IModelTransformer(sourceDb, targetDb, { includeSourceProvenance: true });
+    const transformer = new IModelTransformer(sourceDb, targetDb, { includeSourceProvenance: true, forceExternalSourceAspectProvenance: true });
     await transformer.processAll();
     targetDb.saveChanges();
 
@@ -2579,6 +2579,7 @@ describe("IModelTransformer", () => {
     const exporter = new IModelExporter(sourceDb, DetachedExportElementAspectsStrategy);
     const transformer = new IModelTransformer(exporter, targetDb, {
       includeSourceProvenance: true,
+      forceExternalSourceAspectProvenance: true
     });
 
     // act

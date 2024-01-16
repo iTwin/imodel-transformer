@@ -996,25 +996,6 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
-  /** Returns `true` if *brute force* delete detections should be run.
-   * @note Not relevant for processChanges when change history is known.
-   */
-  protected shouldDetectDeletes(): boolean {
-    // FIXME: all synchronizations should mark this as false, but we can probably change this
-    // to just follow the new deprecated option
-    if (this._isFirstSynchronization)
-      return false; // not necessary the first time since there are no deletes to detect
-
-    if (this._options.isReverseSynchronization)
-      return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
-
-    // FIXME: do any tests fail? if not, consider using @see _isSynchronization
-    if (this._isForwardSynchronization)
-      return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
-
-    return true;
-  }
-
   /**
    * Detect Element deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against Elements
    * in the source iModel.
@@ -2281,8 +2262,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
     await this.exporter.exportRelationships(ElementRefersToElements.classFullName);
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
-    // FIXME: add a deprecated option to force run these, don't otherwise
-    if (this.shouldDetectDeletes()) {
+    if (this._options.forceExternalSourceAspectProvenance) {
       await this.detectElementDeletes();
       await this.detectRelationshipDeletes();
     }
