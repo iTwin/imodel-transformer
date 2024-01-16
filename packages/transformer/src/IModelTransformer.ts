@@ -1353,9 +1353,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this.isReverseSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
 
     // FIXME: do any tests fail? if not, consider using @see _isSynchronization
-    // FIXME<NICK> why was this return false before? and why did this work before my changes to determine isReverseSync?
-    // needed to change to true for 'detect element deletes works on children' for this to work.
-    if (this._isForwardSynchronization) return true; // not possible for a reverse synchronization since provenance will be deleted when element is deleted.
+    if (this.isForwardSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted.
 
     return true;
   }
