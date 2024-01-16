@@ -1,31 +1,51 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
 import { DbResult, Id64Array, Id64Set, Id64String } from "@itwin/core-bentley";
 import {
-  Category, CategorySelector, DisplayStyle, DisplayStyle3d, ECSqlStatement, ExternalSourceAspect, GeometricModel3d, IModelDb, ModelSelector,
-  SpatialCategory, SpatialModel, SpatialViewDefinition, SubCategory, ViewDefinition,
+  Category,
+  CategorySelector,
+  DisplayStyle,
+  DisplayStyle3d,
+  ECSqlStatement,
+  ExternalSourceAspect,
+  GeometricModel3d,
+  IModelDb,
+  ModelSelector,
+  SpatialCategory,
+  SpatialModel,
+  SpatialViewDefinition,
+  SubCategory,
+  ViewDefinition,
 } from "@itwin/core-backend";
 import { IModel } from "@itwin/core-common";
 
 export namespace ElementUtils {
-
   function queryElementIds(iModelDb: IModelDb, classFullName: string): Id64Set {
     const elementIds = new Set<Id64String>();
-    iModelDb.withPreparedStatement(`SELECT ECInstanceId FROM ${classFullName}`, (statement: ECSqlStatement) => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        elementIds.add(statement.getValue(0).getId());
+    iModelDb.withPreparedStatement(
+      `SELECT ECInstanceId FROM ${classFullName}`,
+      (statement: ECSqlStatement) => {
+        while (DbResult.BE_SQLITE_ROW === statement.step()) {
+          elementIds.add(statement.getValue(0).getId());
+        }
       }
-    });
+    );
     return elementIds;
   }
 
   export function validateModelSelectors(iModelDb: IModelDb): void {
-    const modelSelectorIds = queryElementIds(iModelDb, ModelSelector.classFullName);
+    const modelSelectorIds = queryElementIds(
+      iModelDb,
+      ModelSelector.classFullName
+    );
     modelSelectorIds.forEach((modelSelectorId: Id64String) => {
-      const modelSelector = iModelDb.elements.getElement<ModelSelector>(modelSelectorId, ModelSelector);
+      const modelSelector = iModelDb.elements.getElement<ModelSelector>(
+        modelSelectorId,
+        ModelSelector
+      );
       validateModelSelector(modelSelector);
     });
   }
@@ -38,9 +58,15 @@ export namespace ElementUtils {
   }
 
   export function validateCategorySelectors(iModelDb: IModelDb): void {
-    const categorySelectorIds = queryElementIds(iModelDb, CategorySelector.classFullName);
+    const categorySelectorIds = queryElementIds(
+      iModelDb,
+      CategorySelector.classFullName
+    );
     categorySelectorIds.forEach((categorySelectorId: Id64String) => {
-      const categorySelector = iModelDb.elements.getElement<CategorySelector>(categorySelectorId, CategorySelector);
+      const categorySelector = iModelDb.elements.getElement<CategorySelector>(
+        categorySelectorId,
+        CategorySelector
+      );
       validateCategorySelector(categorySelector);
     });
   }
@@ -53,9 +79,15 @@ export namespace ElementUtils {
   }
 
   export function validateDisplayStyles(iModelDb: IModelDb): void {
-    const displayStyleIds = queryElementIds(iModelDb, DisplayStyle.classFullName);
+    const displayStyleIds = queryElementIds(
+      iModelDb,
+      DisplayStyle.classFullName
+    );
     displayStyleIds.forEach((displayStyleId: Id64String) => {
-      const displayStyle = iModelDb.elements.getElement<DisplayStyle>(displayStyleId, DisplayStyle);
+      const displayStyle = iModelDb.elements.getElement<DisplayStyle>(
+        displayStyleId,
+        DisplayStyle
+      );
       validateDisplayStyle(displayStyle);
     });
   }
@@ -94,15 +126,45 @@ export namespace ElementUtils {
    * @param makeDefault If `true` make the inserted ViewDefinition the default view.
    * @returns The Id of the ViewDefinition that was found or inserted.
    */
-  export function insertViewDefinition(iModelDb: IModelDb, name: string, makeDefault?: boolean): Id64String {
+  export function insertViewDefinition(
+    iModelDb: IModelDb,
+    name: string,
+    makeDefault?: boolean
+  ): Id64String {
     const definitionModelId = IModel.dictionaryId;
-    const viewCode = ViewDefinition.createCode(iModelDb, definitionModelId, name);
+    const viewCode = ViewDefinition.createCode(
+      iModelDb,
+      definitionModelId,
+      name
+    );
     let viewId = iModelDb.elements.queryElementIdByCode(viewCode);
     if (viewId === undefined) {
-      const modelSelectorId = ModelSelector.insert(iModelDb, definitionModelId, name, queryModelIds(iModelDb, SpatialModel.classFullName));
-      const categorySelectorId = CategorySelector.insert(iModelDb, definitionModelId, name, querySpatialCategoryIds(iModelDb));
-      const displayStyleId = DisplayStyle3d.insert(iModelDb, definitionModelId, name);
-      viewId = SpatialViewDefinition.insertWithCamera(iModelDb, definitionModelId, name, modelSelectorId, categorySelectorId, displayStyleId, iModelDb.projectExtents);
+      const modelSelectorId = ModelSelector.insert(
+        iModelDb,
+        definitionModelId,
+        name,
+        queryModelIds(iModelDb, SpatialModel.classFullName)
+      );
+      const categorySelectorId = CategorySelector.insert(
+        iModelDb,
+        definitionModelId,
+        name,
+        querySpatialCategoryIds(iModelDb)
+      );
+      const displayStyleId = DisplayStyle3d.insert(
+        iModelDb,
+        definitionModelId,
+        name
+      );
+      viewId = SpatialViewDefinition.insertWithCamera(
+        iModelDb,
+        definitionModelId,
+        name,
+        modelSelectorId,
+        categorySelectorId,
+        displayStyleId,
+        iModelDb.projectExtents
+      );
       if (makeDefault) {
         iModelDb.views.setDefaultViewId(viewId);
       }
@@ -111,7 +173,10 @@ export namespace ElementUtils {
     return viewId;
   }
 
-  function queryModelIds(iModelDb: IModelDb, modelClassFullName: string): Id64Array {
+  function queryModelIds(
+    iModelDb: IModelDb,
+    modelClassFullName: string
+  ): Id64Array {
     const modelIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${modelClassFullName} WHERE IsTemplate=false`;
     iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {

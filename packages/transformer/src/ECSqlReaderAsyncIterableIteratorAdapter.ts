@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
 import { ECSqlReader, QueryRowProxy } from "@itwin/core-common";
 
@@ -10,9 +10,10 @@ import { ECSqlReader, QueryRowProxy } from "@itwin/core-common";
  * It allows to iterate through query results in itwin 3.x using for await() syntax like using itwin 4.x version.
  * @internal
  */
-export class ECSqlReaderAsyncIterableIteratorAdapter implements AsyncIterableIterator<QueryRowProxy> {
-
-  public constructor(private _ecSqlReader: ECSqlReader) { }
+export class ECSqlReaderAsyncIterableIteratorAdapter
+  implements AsyncIterableIterator<QueryRowProxy>
+{
+  public constructor(private _ecSqlReader: ECSqlReader) {}
 
   public [Symbol.asyncIterator](): AsyncIterableIterator<QueryRowProxy> {
     return this;
@@ -32,10 +33,18 @@ export class ECSqlReaderAsyncIterableIteratorAdapter implements AsyncIterableIte
  * @param ecSqlReader ECSqlReader isntance from itwin 3.x or 4.x version
  * @internal
  */
-export function ensureECSqlReaderIsAsyncIterableIterator(ecSqlReader: ECSqlReader & AsyncIterableIterator<QueryRowProxy> | Omit<ECSqlReader, keyof AsyncIterableIterator<QueryRowProxy>>): AsyncIterableIterator<QueryRowProxy> {
-  if (Symbol.asyncIterator in ecSqlReader) { // using itwin 4.x
+export function ensureECSqlReaderIsAsyncIterableIterator(
+  ecSqlReader:
+    | (ECSqlReader & AsyncIterableIterator<QueryRowProxy>)
+    | Omit<ECSqlReader, keyof AsyncIterableIterator<QueryRowProxy>>
+): AsyncIterableIterator<QueryRowProxy> {
+  if (Symbol.asyncIterator in ecSqlReader) {
+    // using itwin 4.x
     return ecSqlReader;
-  } else { // using itwin 3.x
-    return new ECSqlReaderAsyncIterableIteratorAdapter(ecSqlReader as ECSqlReader);
+  } else {
+    // using itwin 3.x
+    return new ECSqlReaderAsyncIterableIteratorAdapter(
+      ecSqlReader as ECSqlReader
+    );
   }
 }

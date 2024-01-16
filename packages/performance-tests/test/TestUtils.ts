@@ -1,3 +1,7 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 import * as fs from "fs";
 import * as path from "path";
 import { assert } from "chai";
@@ -19,7 +23,9 @@ type PromiseInnerType<T> = T extends Promise<infer R> ? R : never;
 
 export function timed<R extends any | Promise<any>>(
   f: () => R
-): R extends Promise<any> ? Promise<[StopWatch, PromiseInnerType<R>]> : [StopWatch, R] {
+): R extends Promise<any>
+  ? Promise<[StopWatch, PromiseInnerType<R>]>
+  : [StopWatch, R] {
   const stopwatch = new StopWatch();
   stopwatch.start();
   const result = f();
@@ -35,7 +41,9 @@ export function timed<R extends any | Promise<any>>(
 }
 
 // Mocha tests must know the test cases ahead time, so we collect the the Imodels first before beginning the tests
-export async function preFetchAsyncIterator<T>(iter: AsyncGenerator<T>): Promise<T[]> {
+export async function preFetchAsyncIterator<T>(
+  iter: AsyncGenerator<T>
+): Promise<T[]> {
   const elements: T[] = [];
   for await (const elem of iter) {
     elements.push(elem);
@@ -43,7 +51,7 @@ export async function preFetchAsyncIterator<T>(iter: AsyncGenerator<T>): Promise
   return elements;
 }
 
-export function filterIModels(iModel: TestIModel): boolean{
+export function filterIModels(iModel: TestIModel): boolean {
   const iModelIdStr = process.env.IMODEL_IDS;
   assert(iModelIdStr, "no Imodel Ids");
   const iModelIds = iModelIdStr === "*" ? "" : iModelIdStr.split(",");
