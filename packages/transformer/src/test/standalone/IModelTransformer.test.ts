@@ -4112,7 +4112,10 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     // assert
+    const numSourceSubjectIds = count(sourceDb, Subject.classFullName);
     const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
+
+    expect(elementIds.size).to.be.equal(numSourceSubjectIds);
     elementIds.forEach((elementId) => {
       if (elementId === IModel.rootSubjectId) {
         return;
