@@ -1309,7 +1309,7 @@ export class IModelTransformer extends IModelExportHandler {
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
         // ExternalSourceAspect.Identifier is of type string
         const aspectIdentifier = stmt.getValue(0).getString();
-        if (!Id64.isId64(aspectIdentifier)) {
+        if (!Id64.isValidId64(aspectIdentifier)) {
           continue;
         }
         const targetElemId = stmt.getValue(1).getId();
