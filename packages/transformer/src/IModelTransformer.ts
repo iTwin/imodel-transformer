@@ -414,11 +414,6 @@ export class IModelTransformer extends IModelExportHandler {
   private _isSynchronization = false;
 
   /**
-   * @returns the id and version of an aspect with the given element, scope, kind, and identifier
-   * May also return a reverseSyncVersion from json properties if requested
-   */
-
-  /**
    * querys the scopes external source and sets aspectId, version and jsonProperties on the provided aspectProps if available.
    * @param dbToQuery db to run the query on for scope external source
    * @param aspectProps aspectProps to search for
