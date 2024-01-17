@@ -419,7 +419,6 @@ export class IModelTransformer extends IModelExportHandler {
    * The exception to this is the first transform aka the provenance initializing transform which requires that the master imodel and the branch imodel are identical at the time of provenance initialization.
    * A couple ofoutdated tests run their first transform providing a source and targetdb that are slightly different which is no longer supported. In order to not remove these tests which are still providing value
    * this private property on the IModelTransformer exists.
-   * The two tests which currently require this leniency are "Transform source iModel to target iModel" and "should update aspects when processing changes and detachedAspectProcessing is turned on"
    */
   private _allowNoScopingESA = false;
 
