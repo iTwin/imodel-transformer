@@ -4105,7 +4105,6 @@ describe("IModelTransformer", () => {
     );
     const transformer = new IModelTransformer(exporter, targetDb, {
       includeSourceProvenance: true,
-      forceExternalSourceAspectProvenance: true,
     });
 
     // act
@@ -4126,7 +4125,7 @@ describe("IModelTransformer", () => {
         elementId,
         ExternalSourceAspect.classFullName
       );
-      expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
+      expect(targetAspects.length).to.be.equal(sourceAspects.length);
     });
   });
 
