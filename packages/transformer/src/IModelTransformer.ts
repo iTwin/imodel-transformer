@@ -164,7 +164,7 @@ export interface IModelTransformOptions {
    * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
    * This means that the provenance on the (current) source is used instead.
    * @note This also means that only [[IModelTransformer.processChanges]] can detect deletes.
-   * @deprecated in 1.x  the transformer now detects synchronization direction by reading the external source aspect data
+   * @deprecated in 1.x  the transformer now detects synchronization direction using the target scope element
    */
   isReverseSynchronization?: boolean;
 
