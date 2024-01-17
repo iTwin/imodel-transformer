@@ -368,6 +368,8 @@ type ChangeDataState =
  */
 export type InitFromExternalSourceAspectsArgs = InitOptions;
 
+type SyncType = "not-sync" | "forward" | "reverse";
+
 /** Base class used to transform a source iModel into a different target iModel.
  * @see [iModel Transformation and Data Exchange]($docs/learning/transformer/index.md), [IModelExporter]($transformer), [IModelImporter]($transformer)
  * @beta
@@ -385,8 +387,7 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly targetDb: IModelDb;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
-  private _isReverseSynchronization: boolean | undefined;
-  private _isForwardSynchronization: boolean | undefined;
+  private _syncType?: SyncType;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
@@ -422,15 +423,12 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _allowNoScopingESA = false;
 
-  /**
-   * @returns true for forward sync, false for reverse sync. undefined for no sync.
-   */
-  private determineSyncDirectionIfAny(): boolean | undefined {
+  private determineSyncType(): SyncType {
     if (this._isProvenanceInitTransform) {
-      return true;
+      return "forward";
     }
     if (!this._isSynchronization) {
-      return undefined;
+      return "not-sync";
     }
 
     const aspectProps = {
@@ -451,7 +449,7 @@ export class IModelTransformer extends IModelExportHandler {
       getJsonProperties: true,
     });
     if (undefined !== aspectProps.id) {
-      return true; // we found an esa assuming targetDb is the provenanceDb/branch so this is a forward sync.
+      return "forward"; // we found an esa assuming targetDb is the provenanceDb/branch so this is a forward sync.
     }
 
     // Now assume that the sourceDb is the provenanceDb/branch
@@ -461,40 +459,24 @@ export class IModelTransformer extends IModelExportHandler {
     });
 
     if (undefined !== aspectProps.id) {
-      return false; // we found an esa assuming sourceDb is the provenanceDb/branch so this is a reverse sync.
+      return "reverse"; // we found an esa assuming sourceDb is the provenanceDb/branch so this is a reverse sync.
     } else {
       if (!this._allowNoScopingESA)
         throw new Error(
           "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true."
         );
-      return true;
+      return "forward";
     }
   }
 
   public get isReverseSynchronization(): boolean {
-    if (this._isReverseSynchronization !== undefined)
-      return this._isReverseSynchronization;
-    if (this._isForwardSynchronization) {
-      this._isReverseSynchronization = false;
-      return this._isReverseSynchronization;
-    }
-
-    const sync = this.determineSyncDirectionIfAny();
-    this._isReverseSynchronization = sync !== undefined && !sync;
-    return this._isReverseSynchronization;
+    if (this._syncType === undefined) this._syncType = this.determineSyncType();
+    return this._syncType === "reverse";
   }
 
   public get isForwardSynchronization(): boolean {
-    if (this._isForwardSynchronization !== undefined)
-      return this._isForwardSynchronization;
-    if (this._isReverseSynchronization) {
-      this._isForwardSynchronization = false;
-      return this._isForwardSynchronization;
-    }
-
-    const sync = this.determineSyncDirectionIfAny();
-    this._isForwardSynchronization = sync !== undefined && sync;
-    return this._isForwardSynchronization;
+    if (this._syncType === undefined) this._syncType = this.determineSyncType();
+    return this._syncType === "forward";
   }
 
   private _changesetRanges: [number, number][] | undefined = undefined;
@@ -2098,7 +2080,7 @@ export class IModelTransformer extends IModelExportHandler {
       );
 
       const [syncChangesetsToClear, syncChangesetsToUpdate] = this
-        ._isReverseSynchronization
+        .isReverseSynchronization
         ? [
             jsonProps.pendingReverseSyncChangesetIndices,
             jsonProps.pendingSyncChangesetIndices,
@@ -2124,7 +2106,7 @@ export class IModelTransformer extends IModelExportHandler {
       syncChangesetsToClear.length = 0;
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
-      if (this._isReverseSynchronization) {
+      if (this.isReverseSynchronization) {
         nodeAssert(this.sourceDb.changeset.index, "changeset didn't exist");
         for (
           let i = this._startingChangesetIndices.source + 1;
@@ -2976,7 +2958,7 @@ export class IModelTransformer extends IModelExportHandler {
       "_targetScopeProvenanceProps should be set by now"
     );
 
-    const changesetsToSkip = this._isReverseSynchronization
+    const changesetsToSkip = this.isReverseSynchronization
       ? this._targetScopeProvenanceProps.jsonProperties
           .pendingReverseSyncChangesetIndices
       : this._targetScopeProvenanceProps.jsonProperties
