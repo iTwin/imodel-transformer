@@ -733,18 +733,14 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This will be [[targetDb]] except when it is a reverse synchronization. In that case it be [[sourceDb]].
    */
   public get provenanceDb(): IModelDb {
-    return this._options.isReverseSynchronization
-      ? this.sourceDb
-      : this.targetDb;
+    return this.isReverseSynchronization ? this.sourceDb : this.targetDb;
   }
 
   /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
    * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
    */
   public get provenanceSourceDb(): IModelDb {
-    return this._options.isReverseSynchronization
-      ? this.targetDb
-      : this.sourceDb;
+    return this.isReverseSynchronization ? this.targetDb : this.sourceDb;
   }
 
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
@@ -873,7 +869,7 @@ export class IModelTransformer extends IModelExportHandler {
       {
         sourceDb: this.sourceDb,
         targetDb: this.targetDb,
-        isReverseSynchronization: this.isReverseSynchronization, // !!this._options.isReverseSynchronization,
+        isReverseSynchronization: this.isReverseSynchronization,
         targetScopeElementId: this.targetScopeElementId,
         forceOldRelationshipProvenanceMethod:
           this._forceOldRelationshipProvenanceMethod,
@@ -1186,7 +1182,7 @@ export class IModelTransformer extends IModelExportHandler {
       provenanceSourceDb: this.provenanceSourceDb,
       provenanceDb: this.provenanceDb,
       targetScopeElementId: this.targetScopeElementId,
-      isReverseSynchronization: this.isReverseSynchronization, // !!this._options.isReverseSynchronization,
+      isReverseSynchronization: this.isReverseSynchronization,
       fn,
     });
   }
