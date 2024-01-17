@@ -1,13 +1,24 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
 import { assert } from "chai";
 import * as path from "path";
 import {
-  Category, ECSqlStatement, Element, GeometricElement2d, GeometricElement3d, IModelDb, IModelHost, IModelJsFs, PhysicalModel, PhysicalPartition,
-  SnapshotDb, SpatialCategory, SpatialElement,
+  Category,
+  ECSqlStatement,
+  Element,
+  GeometricElement2d,
+  GeometricElement3d,
+  IModelDb,
+  IModelHost,
+  IModelJsFs,
+  PhysicalModel,
+  PhysicalPartition,
+  SnapshotDb,
+  SpatialCategory,
+  SpatialElement,
 } from "@itwin/core-backend";
 import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, PhysicalElementProps, QueryBinder } from "@itwin/core-common";
@@ -15,19 +26,25 @@ import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { loggerCategory, Transformer } from "../Transformer";
 
 describe("imodel-transformer", () => {
-  const sourceDbFileName = require.resolve("../../../transformer/src/test/assets/CompatibilityTestSeed.bim");
+  const sourceDbFileName = require.resolve(
+    "../../../transformer/src/test/assets/CompatibilityTestSeed.bim"
+  );
   let sourceDb: IModelDb;
 
   before(async () => {
     await IModelHost.startup();
 
-    if (false) { // set to true to enable logging
+    if (false) {
+      // set to true to enable logging
       Logger.initializeToConsole();
       Logger.setLevelDefault(LogLevel.Error);
       Logger.setLevel(loggerCategory, LogLevel.Info);
       Logger.setLevel(TransformerLoggerCategory.IModelExporter, LogLevel.Trace);
       Logger.setLevel(TransformerLoggerCategory.IModelImporter, LogLevel.Trace);
-      Logger.setLevel(TransformerLoggerCategory.IModelTransformer, LogLevel.Trace);
+      Logger.setLevel(
+        TransformerLoggerCategory.IModelTransformer,
+        LogLevel.Trace
+      );
     }
 
     assert.isTrue(IModelJsFs.existsSync(sourceDbFileName));
@@ -52,19 +69,28 @@ describe("imodel-transformer", () => {
   }
 
   function count(iModelDb: IModelDb, classFullName: string): number {
-    return iModelDb.withPreparedStatement(`SELECT COUNT(*) FROM ${classFullName}`, (statement: ECSqlStatement): number => {
-      return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
-    });
+    return iModelDb.withPreparedStatement(
+      `SELECT COUNT(*) FROM ${classFullName}`,
+      (statement: ECSqlStatement): number => {
+        return DbResult.BE_SQLITE_ROW === statement.step()
+          ? statement.getValue(0).getInteger()
+          : 0;
+      }
+    );
   }
 
   it("should should simplify Element geometry in the target iModel", async () => {
-    const targetDbFileName = initOutputFile("CompatibilityTestSeed-Simplified.bim");
+    const targetDbFileName = initOutputFile(
+      "CompatibilityTestSeed-Simplified.bim"
+    );
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
       rootSubject: { name: `${sourceDb.rootSubject.name}-Simplified` },
       ecefLocation: sourceDb.ecefLocation,
     });
 
-    await Transformer.transformAll(sourceDb, targetDb, { simplifyElementGeometry: true });
+    await Transformer.transformAll(sourceDb, targetDb, {
+      simplifyElementGeometry: true,
+    });
     const numSourceElements = count(sourceDb, Element.classFullName);
     assert.isAtLeast(numSourceElements, 50);
     assert.equal(count(targetDb, Element.classFullName), numSourceElements);
@@ -72,23 +98,35 @@ describe("imodel-transformer", () => {
   });
 
   it("should should combine PhysicalModels in the target iModel", async () => {
-    const targetDbFileName = initOutputFile("CompatibilityTestSeed-Combined.bim");
+    const targetDbFileName = initOutputFile(
+      "CompatibilityTestSeed-Combined.bim"
+    );
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
       rootSubject: { name: `${sourceDb.rootSubject.name}-Combined` },
       ecefLocation: sourceDb.ecefLocation,
     });
 
-    await Transformer.transformAll(sourceDb, targetDb, { combinePhysicalModels: true });
-    const numSourceSpatialElements = count(sourceDb, SpatialElement.classFullName);
+    await Transformer.transformAll(sourceDb, targetDb, {
+      combinePhysicalModels: true,
+    });
+    const numSourceSpatialElements = count(
+      sourceDb,
+      SpatialElement.classFullName
+    );
     assert.isAtLeast(numSourceSpatialElements, 6);
-    assert.equal(count(targetDb, SpatialElement.classFullName), numSourceSpatialElements);
+    assert.equal(
+      count(targetDb, SpatialElement.classFullName),
+      numSourceSpatialElements
+    );
     assert.equal(count(targetDb, PhysicalPartition.classFullName), 1);
     assert.isAtLeast(count(sourceDb, PhysicalPartition.classFullName), 2);
     targetDb.close();
   });
 
   it("should exclude categories", async () => {
-    const targetDbFileName = initOutputFile("CompatibilityTestSeed-CategoryExcluded.bim");
+    const targetDbFileName = initOutputFile(
+      "CompatibilityTestSeed-CategoryExcluded.bim"
+    );
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
       rootSubject: { name: `${sourceDb.rootSubject.name}-CategoryExcluded` },
       ecefLocation: sourceDb.ecefLocation,
@@ -96,31 +134,48 @@ describe("imodel-transformer", () => {
 
     const testCategory = "TestSpatialCategory";
 
-    await Transformer.transformAll(sourceDb, targetDb, { excludeCategories: [testCategory] });
+    await Transformer.transformAll(sourceDb, targetDb, {
+      excludeCategories: [testCategory],
+    });
 
     async function getElementCountInTestCategory(db: IModelDb) {
       // do two queries because querying abstract GeometricElement won't contain the category
       const sum = (arr: number[]) => arr.reduce((prev, x) => prev + x, 0);
-      return sum(await Promise.all([GeometricElement2d.classFullName, GeometricElement3d.classFullName].map(async (className) => {
-        // eslint-disable-next-line deprecation/deprecation
-        const queryResult = await db.query(
-          `SELECT COUNT(*) FROM ${className} e JOIN bis.Category c ON e.category.id=c.ECInstanceId WHERE c.CodeValue=:category`,
-          QueryBinder.from({ category: testCategory })
-        ).next();
-        const value = queryResult.value[0];
-        if (typeof value !== "number") {
-          throw Error(`unexpected result from COUNT query, queryResult was: '${JSON.stringify(queryResult)}'`);
-        }
-        return value;
-      })));
+      return sum(
+        await Promise.all(
+          [
+            GeometricElement2d.classFullName,
+            GeometricElement3d.classFullName,
+          ].map(async (className) => {
+            // eslint-disable-next-line deprecation/deprecation
+            const queryResult = await db
+              .query(
+                `SELECT COUNT(*) FROM ${className} e JOIN bis.Category c ON e.category.id=c.ECInstanceId WHERE c.CodeValue=:category`,
+                QueryBinder.from({ category: testCategory })
+              )
+              .next();
+            const value = queryResult.value[0];
+            if (typeof value !== "number") {
+              throw Error(
+                `unexpected result from COUNT query, queryResult was: '${JSON.stringify(
+                  queryResult
+                )}'`
+              );
+            }
+            return value;
+          })
+        )
+      );
     }
 
     async function hasTheCategory(db: IModelDb) {
-      return db.queryEntityIds({
-        from: Category.classFullName,
-        where: "CodeValue=:category",
-        bindings: { category: testCategory },
-      }).size > 0;
+      return (
+        db.queryEntityIds({
+          from: Category.classFullName,
+          where: "CodeValue=:category",
+          bindings: { category: testCategory },
+        }).size > 0
+      );
     }
 
     assert.isTrue(await hasTheCategory(sourceDb));
@@ -130,7 +185,8 @@ describe("imodel-transformer", () => {
 
     assert.isFalse(await hasTheCategory(targetDb));
 
-    const elemsInCategoryInTarget = await getElementCountInTestCategory(targetDb);
+    const elemsInCategoryInTarget =
+      await getElementCountInTestCategory(targetDb);
     assert.equal(elemsInCategoryInTarget, 0);
 
     targetDb.close();
@@ -143,28 +199,49 @@ describe("imodel-transformer", () => {
           <ECSchemaReference name="BisCore" version="01.00" alias="bis"/>
           <ECStructClass typeName="TestStruct">
             <ECProperty propertyName="SomeNumber" typeName="string" />
-            ${version === "01.01" ? `<ECProperty propertyName="NewProperty" typeName="string" />` : ""}
+            ${
+              version === "01.01"
+                ? `<ECProperty propertyName="NewProperty" typeName="string" />`
+                : ""
+            }
           </ECStructClass >
           <ECEntityClass typeName="TestElement">
             <BaseClass>bis:PhysicalElement</BaseClass>
             <ECProperty propertyName="MyProp" typeName="string"/>
-            ${version === "01.01" ? `<ECProperty propertyName="MyProp2" typeName="string" />` : ""}
+            ${
+              version === "01.01"
+                ? `<ECProperty propertyName="MyProp2" typeName="string" />`
+                : ""
+            }
             <ECStructArrayProperty propertyName="MyArray" typeName="TestStruct" minOccurs="0" maxOccurs="unbounded" />
           </ECEntityClass>
       </ECSchema>`;
 
-    const testSchemaPath = initOutputFile("TestSchema-StructArrayClone.ecschema.01.00.xml");
+    const testSchemaPath = initOutputFile(
+      "TestSchema-StructArrayClone.ecschema.01.00.xml"
+    );
     IModelJsFs.writeFileSync(testSchemaPath, makeSchema("01.00"));
 
-    const newSchemaSourceDbPath = initOutputFile("sourceDb-StructArrayClone.bim");
+    const newSchemaSourceDbPath = initOutputFile(
+      "sourceDb-StructArrayClone.bim"
+    );
     IModelJsFs.copySync(sourceDbFileName, newSchemaSourceDbPath);
-    const newSchemaSourceDb = SnapshotDb.createFrom(sourceDb, newSchemaSourceDbPath);
+    const newSchemaSourceDb = SnapshotDb.createFrom(
+      sourceDb,
+      newSchemaSourceDbPath
+    );
 
     await newSchemaSourceDb.importSchemas([testSchemaPath]);
 
-    const [firstModelId] = newSchemaSourceDb.queryEntityIds({ from: PhysicalModel.classFullName, limit: 1 });
+    const [firstModelId] = newSchemaSourceDb.queryEntityIds({
+      from: PhysicalModel.classFullName,
+      limit: 1,
+    });
     assert.isString(firstModelId);
-    const [firstSpatialCategId] = newSchemaSourceDb.queryEntityIds({ from: SpatialCategory.classFullName, limit: 1 });
+    const [firstSpatialCategId] = newSchemaSourceDb.queryEntityIds({
+      from: SpatialCategory.classFullName,
+      limit: 1,
+    });
     assert.isString(firstSpatialCategId);
 
     const elementProps = {
@@ -184,19 +261,28 @@ describe("imodel-transformer", () => {
 
     const targetDbFileName = initOutputFile("EditSchemas.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
-      rootSubject: { name: `${newSchemaSourceDb.rootSubject.name}-EditSchemas` },
+      rootSubject: {
+        name: `${newSchemaSourceDb.rootSubject.name}-EditSchemas`,
+      },
       ecefLocation: newSchemaSourceDb.ecefLocation,
     });
 
-    const testSchemaPathUpgrade = initOutputFile("TestSchema-StructArrayClone.01.01.ecschema.xml");
+    const testSchemaPathUpgrade = initOutputFile(
+      "TestSchema-StructArrayClone.01.01.ecschema.xml"
+    );
     IModelJsFs.writeFileSync(testSchemaPathUpgrade, makeSchema("01.01"));
     await targetDb.importSchemas([testSchemaPathUpgrade]);
 
     await Transformer.transformAll(newSchemaSourceDb, targetDb);
 
-    async function getStructInstances(db: IModelDb): Promise<typeof elementProps | {}> {
+    async function getStructInstances(
+      db: IModelDb
+    ): Promise<typeof elementProps | {}> {
       let result: any = [{}];
-      db.withPreparedStatement("SELECT MyProp, MyArray FROM test.TestElement LIMIT 1", (stmtResult) => (result = stmtResult));
+      db.withPreparedStatement(
+        "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
+        (stmtResult) => (result = stmtResult)
+      );
       return [...result][0];
     }
 
@@ -209,7 +295,9 @@ describe("imodel-transformer", () => {
 
   it("should clone element structs values", async () => {
     const testSchemaPath = initOutputFile("TestSchema-Struct.ecschema.xml");
-    IModelJsFs.writeFileSync(testSchemaPath, `<?xml version="1.0" encoding="UTF-8"?>
+    IModelJsFs.writeFileSync(
+      testSchemaPath,
+      `<?xml version="1.0" encoding="UTF-8"?>
       <ECSchema schemaName="Test" alias="test" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
           <ECSchemaReference name="BisCore" version="01.00" alias="bis"/>
           <ECStructClass typeName="TestStruct">
@@ -225,13 +313,22 @@ describe("imodel-transformer", () => {
 
     const newSchemaSourceDbPath = initOutputFile("sourceDb-Struct.bim");
     IModelJsFs.copySync(sourceDbFileName, newSchemaSourceDbPath);
-    const newSchemaSourceDb = SnapshotDb.createFrom(sourceDb, newSchemaSourceDbPath);
+    const newSchemaSourceDb = SnapshotDb.createFrom(
+      sourceDb,
+      newSchemaSourceDbPath
+    );
 
     await newSchemaSourceDb.importSchemas([testSchemaPath]);
 
-    const [firstModelId] = newSchemaSourceDb.queryEntityIds({ from: PhysicalModel.classFullName, limit: 1 });
+    const [firstModelId] = newSchemaSourceDb.queryEntityIds({
+      from: PhysicalModel.classFullName,
+      limit: 1,
+    });
     assert.isString(firstModelId);
-    const [firstSpatialCategId] = newSchemaSourceDb.queryEntityIds({ from: SpatialCategory.classFullName, limit: 1 });
+    const [firstSpatialCategId] = newSchemaSourceDb.queryEntityIds({
+      from: SpatialCategory.classFullName,
+      limit: 1,
+    });
     assert.isString(firstSpatialCategId);
 
     const elementProps = {
@@ -249,15 +346,22 @@ describe("imodel-transformer", () => {
 
     const targetDbFileName = initOutputFile("targetDb-Struct.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
-      rootSubject: { name: `${newSchemaSourceDb.rootSubject.name}-targetDb-Struct` },
+      rootSubject: {
+        name: `${newSchemaSourceDb.rootSubject.name}-targetDb-Struct`,
+      },
       ecefLocation: newSchemaSourceDb.ecefLocation,
     });
 
     await Transformer.transformAll(newSchemaSourceDb, targetDb);
 
-    async function getStructValue(db: IModelDb): Promise<typeof elementProps | {}> {
+    async function getStructValue(
+      db: IModelDb
+    ): Promise<typeof elementProps | {}> {
       let result: any = [{}];
-      db.withPreparedStatement("SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1", (stmtResult) => (result = stmtResult));
+      db.withPreparedStatement(
+        "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
+        (stmtResult) => (result = stmtResult)
+      );
       return [...result][0];
     }
 

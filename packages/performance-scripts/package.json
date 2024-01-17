@@ -12,7 +12,10 @@
     "build": "tsc -p tsconfig.json",
     "test": "echo \"Error: no tests\" && exit 0"
   },
-  "keywords": ["performance", "profiling"],
+  "keywords": [
+    "performance",
+    "profiling"
+  ],
   "author": "Bentley Systems, Inc.",
   "license": "MIT",
   "devDependencies": {

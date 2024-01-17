@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 /** @packageDocumentation
  * @module Utils
  */
@@ -21,7 +21,10 @@ export interface PendingReference {
 }
 
 export namespace PendingReference {
-  export function from(referencer: ConcreteEntity | EntityReference, referenced: ConcreteEntity | EntityReference): PendingReference {
+  export function from(
+    referencer: ConcreteEntity | EntityReference,
+    referenced: ConcreteEntity | EntityReference
+  ): PendingReference {
     if (typeof referencer !== "string")
       referencer = EntityReferences.from(referencer);
     if (typeof referenced !== "string")
@@ -34,7 +37,10 @@ export namespace PendingReference {
   }
 
   export function fromKey(key: string): PendingReference {
-    const [referencer, referenced] = key.split("\x00") as [EntityReference, EntityReference];
+    const [referencer, referenced] = key.split("\x00") as [
+      EntityReference,
+      EntityReference,
+    ];
     return { referencer, referenced };
   }
 }
@@ -52,7 +58,9 @@ export class PendingReferenceMap<T> {
     return this.getReferencersByEntityKey(referencedKey);
   }
 
-  public getReferencersByEntityKey(referenced: EntityKey): Set<EntityReference> {
+  public getReferencersByEntityKey(
+    referenced: EntityKey
+  ): Set<EntityReference> {
     let referencers = this._referencedToReferencers.getByKey(referenced);
     if (referencers === undefined) {
       referencers = new Set();
@@ -62,14 +70,15 @@ export class PendingReferenceMap<T> {
   }
 
   /// Map implementation
-  public clear(): void { this._map.clear(); }
+  public clear(): void {
+    this._map.clear();
+  }
 
   public delete(ref: PendingReference): boolean {
     const deleteResult = this._map.delete(PendingReference.toKey(ref));
     const referencedKey = ref.referenced;
     const referencers = this._referencedToReferencers.getByKey(referencedKey);
-    if (referencers !== undefined)
-      referencers.delete(ref.referencer);
+    if (referencers !== undefined) referencers.delete(ref.referencer);
     return deleteResult;
   }
 
@@ -93,7 +102,11 @@ export class PendingReferenceMap<T> {
     return this;
   }
 
-  public get size(): number { return this._map.size; }
+  public get size(): number {
+    return this._map.size;
+  }
 
-  public get [Symbol.toStringTag](): string { return "PendingReferenceMap"; }
+  public get [Symbol.toStringTag](): string {
+    return "PendingReferenceMap";
+  }
 }
