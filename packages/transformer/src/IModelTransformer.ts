@@ -414,46 +414,6 @@ export class IModelTransformer extends IModelExportHandler {
   private _isSynchronization = false;
 
   /**
-   * querys the scopes external source and sets aspectId, version and jsonProperties on the provided aspectProps if available.
-   * @param dbToQuery db to run the query on for scope external source
-   * @param aspectProps aspectProps to search for
-   * @param opts opts containing preserveVersionReceived and getJsonProperties. if preserveVersionReceived is true and an aspect is found with the provided aspectProps,
-   * then the version passed as part of the aspectProps will be kept on the aspectProps.
-   * If false or not provided, the version on the aspectProps will be overwritten with the version from the queried aspect.
-   */
-  private queryScopeExternalSource(
-    dbToQuery: IModelDb,
-    aspectProps: ExternalSourceAspectProps,
-    opts?: { getJsonProperties?: boolean; preserveVersionReceived?: boolean }
-  ): void {
-    const sql = `
-      SELECT ECInstanceId, Version
-      ${opts?.getJsonProperties ? ", JsonProperties" : ""}
-      FROM ${ExternalSourceAspect.classFullName}
-      WHERE Element.Id=:elementId
-        AND Scope.Id=:scopeId
-        AND Kind=:kind
-        AND Identifier=:identifier
-      LIMIT 1
-    `;
-    dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-      statement.bindId("elementId", aspectProps.element.id);
-      if (aspectProps.scope === undefined) return; // return instead of binding an invalid id
-      statement.bindId("scopeId", aspectProps.scope.id);
-      statement.bindString("kind", aspectProps.kind);
-      statement.bindString("identifier", aspectProps.identifier);
-      if (DbResult.BE_SQLITE_ROW !== statement.step()) return;
-      aspectProps.id = statement.getValue(0).getId();
-      aspectProps.version = opts?.preserveVersionReceived
-        ? aspectProps.version
-        : statement.getValue(1).getString();
-      aspectProps.jsonProperties = opts?.getJsonProperties
-        ? JSON.parse(statement.getValue(2).getString())
-        : undefined;
-    });
-  }
-
-  /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
    * The exception to this is the first transform aka the provenance initializing transform which requires that the master imodel and the branch imodel are identical at the time of provenance initialization.
    * A couple ofoutdated tests run their first transform providing a source and targetdb that are slightly different which is no longer supported. In order to not remove these tests which are still providing value
@@ -1048,6 +1008,46 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._targetScopeProvenanceProps =
       aspectProps as typeof this._targetScopeProvenanceProps;
+  }
+
+  /**
+   * querys the scopes external source and sets aspectId, version and jsonProperties on the provided aspectProps if available.
+   * @param dbToQuery db to run the query on for scope external source
+   * @param aspectProps aspectProps to search for
+   * @param opts opts containing preserveVersionReceived and getJsonProperties. if preserveVersionReceived is true and an aspect is found with the provided aspectProps,
+   * then the version passed as part of the aspectProps will be kept on the aspectProps.
+   * If false or not provided, the version on the aspectProps will be overwritten with the version from the queried aspect.
+   */
+  private queryScopeExternalSource(
+    dbToQuery: IModelDb,
+    aspectProps: ExternalSourceAspectProps,
+    opts?: { getJsonProperties?: boolean; preserveVersionReceived?: boolean }
+  ): void {
+    const sql = `
+      SELECT ECInstanceId, Version
+      ${opts?.getJsonProperties ? ", JsonProperties" : ""}
+      FROM ${ExternalSourceAspect.classFullName}
+      WHERE Element.Id=:elementId
+        AND Scope.Id=:scopeId
+        AND Kind=:kind
+        AND Identifier=:identifier
+      LIMIT 1
+    `;
+    dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
+      statement.bindId("elementId", aspectProps.element.id);
+      if (aspectProps.scope === undefined) return; // return instead of binding an invalid id
+      statement.bindId("scopeId", aspectProps.scope.id);
+      statement.bindString("kind", aspectProps.kind);
+      statement.bindString("identifier", aspectProps.identifier);
+      if (DbResult.BE_SQLITE_ROW !== statement.step()) return;
+      aspectProps.id = statement.getValue(0).getId();
+      aspectProps.version = opts?.preserveVersionReceived
+        ? aspectProps.version
+        : statement.getValue(1).getString();
+      aspectProps.jsonProperties = opts?.getJsonProperties
+        ? JSON.parse(statement.getValue(2).getString())
+        : undefined;
+    });
   }
 
   /**
