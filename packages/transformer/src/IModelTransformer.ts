@@ -707,7 +707,6 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
-  // FIXME: add test transforming using this, then switching to new transform method
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
    * It should (and now by default does) instead insert provenance pointing to the provenanceSource
