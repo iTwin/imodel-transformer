@@ -3819,6 +3819,7 @@ describe("IModelTransformer", () => {
     // clone
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       includeSourceProvenance: true,
+      forceExternalSourceAspectProvenance: true,
     });
     await transformer.processAll();
     targetDb.saveChanges();
@@ -4111,7 +4112,10 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     // assert
+    const numSourceSubjectIds = count(sourceDb, Subject.classFullName);
     const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
+
+    expect(elementIds.size).to.be.equal(numSourceSubjectIds);
     elementIds.forEach((elementId) => {
       if (elementId === IModel.rootSubjectId) {
         return;
@@ -4124,7 +4128,7 @@ describe("IModelTransformer", () => {
         elementId,
         ExternalSourceAspect.classFullName
       );
-      expect(targetAspects.length).to.be.equal(sourceAspects.length + 1); // +1 because provenance aspect was added
+      expect(targetAspects.length).to.be.equal(sourceAspects.length);
     });
   });
 

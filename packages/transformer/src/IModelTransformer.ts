@@ -1265,11 +1265,10 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Returns `true` if *brute force* delete detections should be run.
+   * @note This is only called if [[IModelTransformOptions.forceExternalSourceAspectProvenance]] option is true
    * @note Not relevant for processChanges when change history is known.
    */
   protected shouldDetectDeletes(): boolean {
-    // FIXME: all synchronizations should mark this as false, but we can probably change this
-    // to just follow the new deprecated option
     if (this._isFirstSynchronization) return false; // not necessary the first time since there are no deletes to detect
 
     if (this._options.isReverseSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
@@ -1285,7 +1284,7 @@ export class IModelTransformer extends IModelExportHandler {
    * in the source iModel.
    * @deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
    * This method is only called during [[processAll]] when the option
-   * [[IModelTransformerOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
+   * [[IModelTransformOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
    * necessary when using [[processChanges]] since changeset information is sufficient.
    * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
@@ -1309,7 +1308,7 @@ export class IModelTransformer extends IModelExportHandler {
       while (DbResult.BE_SQLITE_ROW === stmt.step()) {
         // ExternalSourceAspect.Identifier is of type string
         const aspectIdentifier = stmt.getValue(0).getString();
-        if (!Id64.isId64(aspectIdentifier)) {
+        if (!Id64.isValidId64(aspectIdentifier)) {
           continue;
         }
         const targetElemId = stmt.getValue(1).getId();
@@ -1481,7 +1480,7 @@ export class IModelTransformer extends IModelExportHandler {
               [
                 `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
                 "This must have been caused by an upstream application that changed the iModel.",
-                "You can set the IModelTransformerOptions.danglingReferencesBehavior option to 'ignore' to ignore this, but this will leave the iModel",
+                "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this, but this will leave the iModel",
                 "in a state where downstream consuming applications will need to handle the invalidity themselves. In some cases, writing a custom",
                 "transformer to remove the reference and fix affected elements may be suitable.",
               ].join("\n")
@@ -2956,8 +2955,10 @@ export class IModelTransformer extends IModelExportHandler {
       ElementRefersToElements.classFullName
     );
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
-    // FIXME: add a deprecated option to force run these, don't otherwise
-    if (this.shouldDetectDeletes()) {
+    if (
+      this._options.forceExternalSourceAspectProvenance &&
+      this.shouldDetectDeletes()
+    ) {
       await this.detectElementDeletes();
       await this.detectRelationshipDeletes();
     }
