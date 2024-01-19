@@ -1268,8 +1268,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Not relevant for processChanges when change history is known.
    */
   protected shouldDetectDeletes(): boolean {
-    // FIXME: all synchronizations should mark this as false, but we can probably change this
-    // to just follow the new deprecated option
     if (this._isFirstSynchronization) return false; // not necessary the first time since there are no deletes to detect
 
     if (this._options.isReverseSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
