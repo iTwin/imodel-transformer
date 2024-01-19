@@ -164,7 +164,7 @@ export interface IModelTransformOptions {
    * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
    * This means that the provenance on the (current) source is used instead.
    * @note This also means that only [[IModelTransformer.processChanges]] can detect deletes.
-   * @deprecated in 1.x  the transformer now detects synchronization direction using the target scope element
+   * @deprecated in 1.x this option is ignored and the transformer now detects synchronization direction using the target scope element
    */
   isReverseSynchronization?: boolean;
 
@@ -422,29 +422,69 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _allowNoScopingESA = false;
 
-  private determineSyncType(): SyncType {
-    if (this._isProvenanceInitTransform) {
-      return "forward";
-    }
-    if (!this._isSynchronization) {
-      return "not-sync";
-    }
+  public static noEsaSyncDirectionErrorMessage =
+    "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true.";
 
+  /**
+   * querys the scopes external source and sets aspectId, version and jsonProperties on the provided aspectProps if available.
+   * @param dbToQuery db to run the query on for scope external source
+   * @param aspectProps aspectProps to search for
+   * @param opts opts containing preserveVersionReceived and getJsonProperties. if preserveVersionReceived is true and an aspect is found with the provided aspectProps,
+   * then the version passed as part of the aspectProps will be kept on the aspectProps.
+   * If false or not provided, the version on the aspectProps will be overwritten with the version from the queried aspect.
+   */
+  public static queryScopeExternalSource(
+    dbToQuery: IModelDb,
+    aspectProps: ExternalSourceAspectProps,
+    opts?: { getJsonProperties?: boolean; preserveVersionReceived?: boolean }
+  ): void {
+    const sql = `
+      SELECT ECInstanceId, Version
+      ${opts?.getJsonProperties ? ", JsonProperties" : ""}
+      FROM ${ExternalSourceAspect.classFullName}
+      WHERE Element.Id=:elementId
+        AND Scope.Id=:scopeId
+        AND Kind=:kind
+        AND Identifier=:identifier
+      LIMIT 1
+    `;
+    dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
+      statement.bindId("elementId", aspectProps.element.id);
+      if (aspectProps.scope === undefined) return; // return instead of binding an invalid id
+      statement.bindId("scopeId", aspectProps.scope.id);
+      statement.bindString("kind", aspectProps.kind);
+      statement.bindString("identifier", aspectProps.identifier);
+      if (DbResult.BE_SQLITE_ROW !== statement.step()) return;
+      aspectProps.id = statement.getValue(0).getId();
+      aspectProps.version = opts?.preserveVersionReceived
+        ? aspectProps.version
+        : statement.getValue(1).getString();
+      aspectProps.jsonProperties = opts?.getJsonProperties
+        ? JSON.parse(statement.getValue(2).getString())
+        : undefined;
+    });
+  }
+
+  public static determineSyncType(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetScopeElementId: Id64String
+  ) {
     const aspectProps = {
       id: undefined as string | undefined,
       version: undefined as string | undefined,
       classFullName: ExternalSourceAspect.classFullName,
       element: {
-        id: this.targetScopeElementId,
+        id: targetScopeElementId,
         relClassName: ElementOwnsExternalSourceAspects.classFullName,
       },
       scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
-      identifier: this.sourceDb.iModelId,
+      identifier: sourceDb.iModelId,
       kind: ExternalSourceAspect.Kind.Scope,
       jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
     // First assume that the targetDb is the provenanceDb/branch (meaning holds the provenance which points back to master)
-    this.queryScopeExternalSource(this.targetDb, aspectProps, {
+    this.queryScopeExternalSource(targetDb, aspectProps, {
       getJsonProperties: true,
     });
     if (undefined !== aspectProps.id) {
@@ -452,19 +492,39 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     // Now assume that the sourceDb is the provenanceDb/branch
-    aspectProps.identifier = this.targetDb.iModelId;
-    this.queryScopeExternalSource(this.sourceDb, aspectProps, {
+    aspectProps.identifier = targetDb.iModelId;
+    this.queryScopeExternalSource(sourceDb, aspectProps, {
       getJsonProperties: true,
     });
 
     if (undefined !== aspectProps.id) {
       return "reverse"; // we found an esa assuming sourceDb is the provenanceDb/branch so this is a reverse sync.
-    } else {
-      if (!this._allowNoScopingESA)
-        throw new Error(
-          "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true."
-        );
+    }
+    throw new Error(this.noEsaSyncDirectionErrorMessage);
+  }
+
+  private determineSyncType(): SyncType {
+    if (this._isProvenanceInitTransform) {
       return "forward";
+    }
+    if (!this._isSynchronization) {
+      return "not-sync";
+    }
+    try {
+      return IModelTransformer.determineSyncType(
+        this.sourceDb,
+        this.targetDb,
+        this.targetScopeElementId
+      );
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message === IModelTransformer.noEsaSyncDirectionErrorMessage &&
+        this._allowNoScopingESA
+      ) {
+        return "forward";
+      }
+      throw err;
     }
   }
 
@@ -686,8 +746,7 @@ export class IModelTransformer extends IModelExportHandler {
     args: {
       sourceDb: IModelDb;
       targetDb: IModelDb;
-      // deprecate isReverseSync option and instead detect from targetScopeElement provenance
-      // FIXME<NICK>: how can I deprecate this in a static function? Shouldn't this stay here since it will be passed from transformer?
+      // TODO: Consider making it optional and determining it through ESAs if not provided. This gives opportunity for people to determine it themselves using public static determineSyncType function.
       isReverseSynchronization: boolean;
       targetScopeElementId: Id64String;
     }
@@ -906,7 +965,7 @@ export class IModelTransformer extends IModelExportHandler {
       element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
       identifier: this.provenanceSourceDb.iModelId,
     };
-    this.queryScopeExternalSource(
+    IModelTransformer.queryScopeExternalSource(
       this.provenanceDb,
       scopeProvenanceAspectProps
     );
@@ -941,7 +1000,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them.
     // or reverseSyncVersion set correctly
-    this.queryScopeExternalSource(this.provenanceDb, aspectProps, {
+    IModelTransformer.queryScopeExternalSource(this.provenanceDb, aspectProps, {
       getJsonProperties: true,
     }); // this query includes "identifier"
 
@@ -989,46 +1048,6 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._targetScopeProvenanceProps =
       aspectProps as typeof this._targetScopeProvenanceProps;
-  }
-
-  /**
-   * querys the scopes external source and sets aspectId, version and jsonProperties on the provided aspectProps if available.
-   * @param dbToQuery db to run the query on for scope external source
-   * @param aspectProps aspectProps to search for
-   * @param opts opts containing preserveVersionReceived and getJsonProperties. if preserveVersionReceived is true and an aspect is found with the provided aspectProps,
-   * then the version passed as part of the aspectProps will be kept on the aspectProps.
-   * If false or not provided, the version on the aspectProps will be overwritten with the version from the queried aspect.
-   */
-  private queryScopeExternalSource(
-    dbToQuery: IModelDb,
-    aspectProps: ExternalSourceAspectProps,
-    opts?: { getJsonProperties?: boolean; preserveVersionReceived?: boolean }
-  ): void {
-    const sql = `
-      SELECT ECInstanceId, Version
-      ${opts?.getJsonProperties ? ", JsonProperties" : ""}
-      FROM ${ExternalSourceAspect.classFullName}
-      WHERE Element.Id=:elementId
-        AND Scope.Id=:scopeId
-        AND Kind=:kind
-        AND Identifier=:identifier
-      LIMIT 1
-    `;
-    dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-      statement.bindId("elementId", aspectProps.element.id);
-      if (aspectProps.scope === undefined) return; // return instead of binding an invalid id
-      statement.bindId("scopeId", aspectProps.scope.id);
-      statement.bindString("kind", aspectProps.kind);
-      statement.bindString("identifier", aspectProps.identifier);
-      if (DbResult.BE_SQLITE_ROW !== statement.step()) return;
-      aspectProps.id = statement.getValue(0).getId();
-      aspectProps.version = opts?.preserveVersionReceived
-        ? aspectProps.version
-        : statement.getValue(1).getString();
-      aspectProps.jsonProperties = opts?.getJsonProperties
-        ? JSON.parse(statement.getValue(2).getString())
-        : undefined;
-    });
   }
 
   /**
@@ -1318,16 +1337,9 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Not relevant for processChanges when change history is known.
    */
   protected shouldDetectDeletes(): boolean {
-    // FIXME: all synchronizations should mark this as false, but we can probably change this
-    // to just follow the new deprecated option
-    if (this._isProvenanceInitTransform) return false; // not necessary the first time since there are no deletes to detect
+    nodeAssert(this._syncType !== undefined);
 
-    if (this.isReverseSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted
-
-    // FIXME: do any tests fail? if not, consider using @see _isSynchronization
-    if (this.isForwardSynchronization) return false; // not possible for a reverse synchronization since provenance will be deleted when element is deleted.
-
-    return true;
+    return this._syncType === "not-sync";
   }
 
   /**
@@ -1795,9 +1807,13 @@ export class IModelTransformer extends IModelExportHandler {
           targetElementProps.id!
         );
         // Since initElementProvenance sets a property 'version' on the aspectProps, pass preserveVersionReceived to queryScopeExternalSource so it doesn't get overwritten.
-        this.queryScopeExternalSource(this.provenanceDb, aspectProps, {
-          preserveVersionReceived: true,
-        });
+        IModelTransformer.queryScopeExternalSource(
+          this.provenanceDb,
+          aspectProps,
+          {
+            preserveVersionReceived: true,
+          }
+        );
         if (aspectProps.id === undefined)
           aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
         else this.provenanceDb.elements.updateAspect(aspectProps);
@@ -2221,8 +2237,11 @@ export class IModelTransformer extends IModelExportHandler {
           sourceRelationship,
           targetRelationshipInstanceId
         );
-        this.queryScopeExternalSource(this.provenanceDb, aspectProps);
-        // FIXME<NICK>: Why does onExportElement update the aspect, but onExportRelationship doesn't update the aspect?
+        IModelTransformer.queryScopeExternalSource(
+          this.provenanceDb,
+          aspectProps
+        );
+        // onExportRelationship doesn't need to call updateAspect, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
         if (undefined === aspectProps.id) {
           aspectProps.id = this.provenanceDb.elements.insertAspect(aspectProps);
         }
