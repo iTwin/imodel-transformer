@@ -465,6 +465,16 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
+  /**
+   * Determines the sync direction "forward" or "reverse" of a given sourceDb and targetDb by looking for the scoping ESA.
+   * If the sourceDb's iModelId is found as the identifier of the expected scoping ESA in the targetDb, then it is a forward synchronization.
+   * If the targetDb's iModelId is found as the identifier of the expected scoping ESA in the sourceDb, then it is a reverse synchronization.
+   * @throws if no scoping ESA can be found in either the sourceDb or targetDb which describes a master branch relationship between the two databases.
+   * @param sourceDb
+   * @param targetDb
+   * @param targetScopeElementId the element Id defined on the ExternalSourceAspect's scope. @see [[ExternalSourceAspectProps]]
+   * @returns "forward" or "reverse"
+   */
   public static determineSyncType(
     sourceDb: IModelDb,
     targetDb: IModelDb,
