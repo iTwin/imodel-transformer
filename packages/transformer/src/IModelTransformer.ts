@@ -1264,7 +1264,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  /** Returns `true` if *brute force* delete detections should be run. This is only called if [[IModelTransformerOptions.forceExternalSourceAspectProvenance]] option is true
+  /** Returns `true` if *brute force* delete detections should be run.
+   * @note This is only called if [[IModelTransformOptions.forceExternalSourceAspectProvenance]] option is true
    * @note Not relevant for processChanges when change history is known.
    */
   protected shouldDetectDeletes(): boolean {
@@ -1283,7 +1284,7 @@ export class IModelTransformer extends IModelExportHandler {
    * in the source iModel.
    * @deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
    * This method is only called during [[processAll]] when the option
-   * [[IModelTransformerOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
+   * [[IModelTransformOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
    * necessary when using [[processChanges]] since changeset information is sufficient.
    * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
@@ -1479,7 +1480,7 @@ export class IModelTransformer extends IModelExportHandler {
               [
                 `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
                 "This must have been caused by an upstream application that changed the iModel.",
-                "You can set the IModelTransformerOptions.danglingReferencesBehavior option to 'ignore' to ignore this, but this will leave the iModel",
+                "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this, but this will leave the iModel",
                 "in a state where downstream consuming applications will need to handle the invalidity themselves. In some cases, writing a custom",
                 "transformer to remove the reference and fix affected elements may be suitable.",
               ].join("\n")
