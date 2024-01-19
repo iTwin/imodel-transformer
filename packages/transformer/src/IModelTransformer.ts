@@ -479,7 +479,7 @@ export class IModelTransformer extends IModelExportHandler {
     sourceDb: IModelDb,
     targetDb: IModelDb,
     targetScopeElementId: Id64String
-  ) {
+  ): "forward" | "reverse" {
     const aspectProps = {
       id: undefined as string | undefined,
       version: undefined as string | undefined,
