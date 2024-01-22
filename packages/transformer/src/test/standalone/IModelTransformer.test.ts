@@ -1090,8 +1090,8 @@ describe("IModelTransformer", () => {
     nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
     nativeDb.saveChanges(); // save change to briefcaseId
     // handle cross-version usage of internal API
-    (nativeDb as any)?.closeIModel();
-    (nativeDb as any)?.closeFile();
+    (nativeDb as any)?.closeIModel?.();
+    (nativeDb as any)?.closeFile?.();
   }
 
   it("biscore update is valid", async () => {
@@ -1111,8 +1111,8 @@ describe("IModelTransformer", () => {
     // the BisCore schema.  This test is explicitly testing that the BisCore schema will be updated from the source iModel
     const nativeDb = StandaloneDb.openDgnDb({path: targetDbPath}, OpenMode.ReadWrite, {profile: ProfileOptions.Upgrade, schemaLockHeld: true});
     // handle cross-version usage of internal API
-    (nativeDb as any)?.closeIModel();
-    (nativeDb as any)?.closeFile();
+    (nativeDb as any)?.closeIModel?.();
+    (nativeDb as any)?.closeFile?.();
     const targetDb = StandaloneDb.openFile(targetDbPath);
 
     assert(
