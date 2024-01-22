@@ -235,13 +235,18 @@ export async function assertIdentityTransformation(
     // [IModelTransformerOptions.includeSourceProvenance]$(transformer) is set to true
     classesToIgnoreMissingEntitiesOfInTarget = [...IModelTransformer.provenanceElementClasses, ...IModelTransformer.provenanceElementAspectClasses],
     compareElemGeom = false,
+    ignoreFedGuidsOnAlwaysPresentElementIds = true,
   }: {
     expectedElemsOnlyInSource?: Partial<ElementProps>[];
     /** before checking elements that are only in the source are correct, filter out elements of these classes */
     classesToIgnoreMissingEntitiesOfInTarget?: typeof Entity[];
     compareElemGeom?: boolean;
+    /** if true, ignores the fed guids present on always present elements (present even in an empty iModel!).
+     * That list includes the root subject (0x1), dictionaryModel (0x10) and the realityDataSourcesModel (0xe) */
+    ignoreFedGuidsOnAlwaysPresentElementIds?: boolean;
   } = {}
 ) {
+  const alwaysPresentElementIds = new Set<Id64String>(["0x1", "0x10", "0xe"]);
   const [remapElem, remapCodeSpec, remapAspect]
     = remapper instanceof IModelTransformer
       ? [remapper.context.findTargetElementId.bind(remapper.context),
@@ -274,7 +279,8 @@ export async function assertIdentityTransformation(
         // known cases for the prop expecting to have been changed by the transformation under normal circumstances
         // - federation guid will be generated if it didn't exist
         // - jsonProperties may include remapped ids
-        const propChangesAllowed = sourceElem.federationGuid === undefined || propName === "jsonProperties";
+        const propChangesAllowed = ((propName === "federationGuid" && (sourceElem.federationGuid === undefined || (ignoreFedGuidsOnAlwaysPresentElementIds && alwaysPresentElementIds.has(sourceElemId))))
+        || propName === "jsonProperties");
         if (prop.isNavigation) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
@@ -295,11 +301,16 @@ export async function assertIdentityTransformation(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
-          // kept for conditional breakpoints
-          const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
-          expect(targetElem.asAny[propName]).to.deep.advancedEqual(
-            sourceElem.asAny[propName]
-          );
+          try {
+            expect(
+              (targetElem as any)[propName],
+              `${targetElem.id}[${propName}] didn't match ${sourceElem.id}[${propName}]`
+            ).to.deep.advancedEqual((sourceElem as any)[propName]);
+          } catch (err) {
+            // for debugging broken tests
+            debugger; // eslint-disable-line no-debugger
+            throw err;
+          }
         }
       }
       const quickClone = (obj: any) => JSON.parse(JSON.stringify(obj));

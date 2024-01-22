@@ -1089,7 +1089,9 @@ describe("IModelTransformer", () => {
     nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
     nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
     nativeDb.saveChanges(); // save change to briefcaseId
-    nativeDb.closeIModel();
+    // handle cross-version usage of internal API
+    (nativeDb as any)?.closeIModel?.();
+    (nativeDb as any)?.closeFile?.();
   }
 
   it("biscore update is valid", async () => {
@@ -1108,7 +1110,9 @@ describe("IModelTransformer", () => {
     // StandaloneDb.upgradeStandaloneSchemas is the suggested method to handle a profile upgrade but that will also upgrade
     // the BisCore schema.  This test is explicitly testing that the BisCore schema will be updated from the source iModel
     const nativeDb = StandaloneDb.openDgnDb({path: targetDbPath}, OpenMode.ReadWrite, {profile: ProfileOptions.Upgrade, schemaLockHeld: true});
-    nativeDb.closeIModel();
+    // handle cross-version usage of internal API
+    (nativeDb as any)?.closeIModel?.();
+    (nativeDb as any)?.closeFile?.();
     const targetDb = StandaloneDb.openFile(targetDbPath);
 
     assert(
@@ -1135,11 +1139,19 @@ describe("IModelTransformer", () => {
 
   /** gets a mapping of element ids to their invariant content */
   async function getAllElementsInvariants(db: IModelDb, filterPredicate?: (element: Element) => boolean) {
+    // The set of element Ids where the fed guid should be ignored (since it can change between transforms).
+    const ignoreFedGuidElementIds = new Set<Id64String>([
+      IModel.rootSubjectId,
+      IModel.dictionaryId,
+      "0xe", // id of realityDataSourcesModel
+    ]);
     const result: Record<Id64String, any> = {};
     // eslint-disable-next-line deprecation/deprecation
     for await (const row of db.query("SELECT * FROM bis.Element", undefined, { rowFormat: QueryRowFormat.UseJsPropertyNames })) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
         const { lastMod: _lastMod, ...invariantPortion } = row;
+        if (ignoreFedGuidElementIds.has(row.id))
+          delete invariantPortion.federationGuid;
         result[row.id] = invariantPortion;
       }
     }
