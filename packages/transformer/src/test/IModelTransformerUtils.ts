@@ -295,11 +295,16 @@ export async function assertIdentityTransformation(
             mappedRelationTargetInTargetId
           );
         } else if (!propChangesAllowed) {
-          // kept for conditional breakpoints
-          const _propEq = TestUtils.advancedDeepEqual(targetElem.asAny[propName], sourceElem.asAny[propName]);
-          expect(targetElem.asAny[propName]).to.deep.advancedEqual(
-            sourceElem.asAny[propName]
-          );
+          try {
+            expect(
+              (targetElem as any)[propName],
+              `${targetElem.id}[${propName}] didn't match ${sourceElem.id}[${propName}]`
+            ).to.deep.advancedEqual((sourceElem as any)[propName]);
+          } catch (err) {
+            // for debugging broken tests
+            debugger; // eslint-disable-line no-debugger
+            throw err;
+          }
         }
       }
       const quickClone = (obj: any) => JSON.parse(JSON.stringify(obj));
