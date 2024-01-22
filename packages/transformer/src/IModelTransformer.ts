@@ -413,6 +413,7 @@ export class IModelTransformer extends IModelExportHandler {
   >;
 
   private _isSynchronization = false;
+  private _forceOldVersionBehavior = false;
 
   /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
@@ -924,6 +925,7 @@ export class IModelTransformer extends IModelExportHandler {
         ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
+      // FIXME<NICK> private variable to transformer to get past this nodeAssert. dontStoreSyncVersion
       nodeAssert(version !== undefined, "no version contained in target scope");
 
       const [id, index] = version === "" ? ["", -1] : version.split(";");
@@ -1023,6 +1025,7 @@ export class IModelTransformer extends IModelExportHandler {
         pendingReverseSyncChangesetIndices: [],
         pendingSyncChangesetIndices: [],
         reverseSyncVersion: "", // empty since never before transformed. Will be updated in first reverse sync
+        };
       };
 
       // this query does not include "identifier" to find possible conflicts
@@ -1054,7 +1057,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (!this._options.noProvenance) {
         const id = this.provenanceDb.elements.insertAspect({
           ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any, // FIXME<NICK> make jsonproperties undefined if the flag is on.
         });
         aspectProps.id = id;
       }
@@ -2064,7 +2067,9 @@ export class IModelTransformer extends IModelExportHandler {
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
+    if (oldBehavior) return;
     if (
+      // FIXME<NICK> unscrew this if statement, multiple if statements? evaluate might keep as is. Combine these ifs into one verbose boolean ifhasNoChangesAndIsSynchronizingButForced. weigh options.
       !force &&
       this._sourceChangeDataState !== "has-changes" &&
       !this._isProvenanceInitTransform

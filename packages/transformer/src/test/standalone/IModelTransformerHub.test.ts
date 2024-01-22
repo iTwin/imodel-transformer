@@ -3255,6 +3255,134 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
+  it.only("should handle older iModels without syncVersion and reverseSyncVersion in jsonProps properly", async () => {
+    // TODO: could consolidate this with the test that I copied from
+    let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
+    const setForceOldVersionBehavior = (transformer: IModelTransformer) =>
+      (transformer["_forceOldVersionBehavior"] = true);
+    const timeline: Timeline = [
+      { master: { 1: 1 } },
+      { master: { 2: 2 } },
+      { master: { 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(3);
+          expect(branch.db.changeset.index).to.equal(2);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
+            9
+          );
+
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+
+          expect(targetScopeProvenance).to.deep.subsetEqual({
+            identifier: master.db.iModelId,
+            version: `${master.db.changeset.id};${master.db.changeset.index}`,
+            jsonProperties: JSON.stringify({
+              pendingReverseSyncChangesetIndices: [],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: ";0", // not synced yet
+            }),
+          } as ExternalSourceAspectProps);
+        },
+      },
+      {
+        master: {
+          sync: ["branch", { initTransformer: setForceOldVersionBehavior }],
+        },
+      },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(4);
+          expect(branch.db.changeset.index).to.equal(3);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          // added because the root was modified
+          expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
+            11
+          );
+
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+
+          expect(targetScopeProvenance.version).to.match(/;3$/);
+          const targetScopeJsonProps = JSON.parse(
+            targetScopeProvenance.jsonProperties
+          );
+          expect(targetScopeJsonProps).to.deep.subsetEqual({
+            pendingReverseSyncChangesetIndices: [3],
+            pendingSyncChangesetIndices: [4],
+          });
+          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;2$/);
+          // Delete the jsonprops to maek sure they still work or something idk.
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      { branch: { sync: ["master"] } },
+      {
+        branch: {
+          manualUpdate(branch) {
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              jsonProperties: undefined,
+            });
+          },
+        },
+      },
+      { master: { sync: ["branch"] } },
+      { branch: { 5: 1 } },
+      { master: { sync: ["branch"] } },
+      {
+        assert({ master, branch }) {
+          const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
+          expect(master.state).to.deep.equal(expectedState);
+          expect(branch.state).to.deep.equal(expectedState);
+          assertElemState(master.db, expectedState);
+          assertElemState(branch.db, expectedState);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      transformerOpts: {
+        // force aspects so that reverse sync has to edit the target
+        forceExternalSourceAspectProvenance: true,
+      },
+    });
+
+    await tearDown();
+  });
+
   // FIXME: As a side effect of fixing a bug in findRangeContaining, we error out with no changesummary data because we now properly skip changesetindices
   // i.e. a range [4,4] with skip 4 now properly gets skipped. so we have no changesummary data. We need to revisit this after switching to affan's new API
   // to read changesets directly.
