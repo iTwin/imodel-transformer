@@ -475,7 +475,7 @@ export class IModelTransformer extends IModelExportHandler {
   public static determineSyncType(
     sourceDb: IModelDb,
     targetDb: IModelDb,
-    /** @see [[IModelTransformOptions.targetScopeElement]] */
+    /** @see [[IModelTransformOptions.targetScopeElementId]] */
     targetScopeElementId: Id64String
   ): "forward" | "reverse" {
     const aspectProps = {
