@@ -687,6 +687,7 @@ describe("IModelTransformer", () => {
     const actualIds = unresolvedElementMessage!.split(messageStart)[1].split(messageEnd)[0].split(",");
 
     // Assert
+    assert.equal(actualIds.length, 4);
     assert.sameMembers(actualIds, expectedIds);
 
     transformerA2S.dispose();
