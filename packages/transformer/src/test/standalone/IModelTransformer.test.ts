@@ -19,7 +19,7 @@ import {
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import * as TestUtils from "../TestUtils";
-import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
+import { DbResult, Guid, Id64, Id64String, Logger, LogLevel, LoggingMetaData, OpenMode } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d, BriefcaseIdValue, Code, CodeScopeSpec, CodeSpec, ColorDef, CreateIModelProps, DefinitionElementProps, ElementAspectProps, ElementProps,
   ExternalSourceAspectProps, GeometricElement2dProps, ImageSourceFormat, IModel, IModelError, InformationPartitionElementProps, ModelProps, PhysicalElementProps, Placement3d, ProfileOptions, QueryRowFormat, RelatedElement, RelationshipProps, RepositoryLinkProps,
@@ -71,6 +71,9 @@ describe("IModelTransformer", () => {
     if (!IModelJsFs.existsSync(outputDir)) {
       IModelJsFs.mkdirSync(outputDir);
     }
+  });
+
+  beforeEach(async () => {
     // initialize logging
     if (process.env.LOG_TRANSFORMER_IN_TESTS) {
       Logger.initializeToConsole();
@@ -639,6 +642,55 @@ describe("IModelTransformer", () => {
     }
 
     IModelTransformerTestUtils.dumpIModelInfo(iModelShared);
+    iModelShared.close();
+  });
+
+  it("should log unresolved references", async () => {
+    const iModelShared: SnapshotDb = IModelTransformerTestUtils.createSharedIModel(outputDir, ["A", "B"]);
+    const iModelA: SnapshotDb = IModelTransformerTestUtils.createTeamIModel(outputDir, "A", Point3d.create(0, 0, 0), ColorDef.green);
+    IModelTransformerTestUtils.assertTeamIModelContents(iModelA, "A");
+    const iModelExporterA = new IModelExporter(iModelA);
+    
+    // Exclude element
+    const excludedId = iModelA.elements.queryElementIdByCode(Subject.createCode(iModelA, IModel.rootSubjectId, "Context"));
+    assert.isDefined (excludedId);
+    iModelExporterA.excludeElement(excludedId!);
+
+    const subjectId: Id64String = IModelTransformerTestUtils.querySubjectId(iModelShared, "A");
+    const transformerA2S = new IModelTransformer(iModelExporterA, iModelShared, { targetScopeElementId: subjectId });
+    transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
+    
+    // Configure logger to capture warning message about unresolved references
+    const messageStart = "The following elements were never fully resolved:\n";
+    const messageEnd = "\nThis indicates that either some references were excluded from the transformation\nor the source has dangling references.";
+
+    let unresolvedElementMessage: string | undefined = undefined;
+    const logWarning = (_category: string, message: string, _metaData: LoggingMetaData) => {
+      if (message.startsWith (messageStart)) {
+        unresolvedElementMessage = message;
+      } 
+    }
+    Logger.initialize(undefined, logWarning);
+    Logger.setLevelDefault(LogLevel.Warning);
+    
+    // Act
+    await transformerA2S.processAll();
+    
+    // Collect expected ids
+    const result = iModelA.queryEntityIds({ from: "BisCore.Element", 
+                                            where: "Model.Id = :rootId AND ECInstanceId NOT IN (:rootId, :excludedId)",
+                                            bindings: {rootId: IModel.rootSubjectId, excludedId: excludedId } });
+    const expectedIds = [...result].map (x => `e${x}`);
+
+    // Collect actual ids
+    assert.isDefined(unresolvedElementMessage);
+    var actualIds = unresolvedElementMessage!.split(messageStart)[1].split(messageEnd)[0].split(',');
+
+    // Assert
+    assert.sameMembers(actualIds, expectedIds);
+
+    transformerA2S.dispose();
+    iModelA.close();
     iModelShared.close();
   });
 
