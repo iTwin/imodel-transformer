@@ -15,103 +15,103 @@ import { Id64String } from "@itwin/core-bentley";
  * @internal
  */
 export class BigMap<V> implements Map<Id64String, V> {
-    private _maps: Record<string, Map<string, V>>;
-    private _size: number;
+  private _maps: Record<string, Map<string, V>>;
+  private _size: number;
 
-    public get size(): number {
-      return this._size;
+  public get size(): number {
+    return this._size;
+  }
+
+  public constructor() {
+    this._maps = {
+      0: new Map(),
+      1: new Map(),
+      2: new Map(),
+      3: new Map(),
+      4: new Map(),
+      5: new Map(),
+      6: new Map(),
+      7: new Map(),
+      8: new Map(),
+      9: new Map(),
+      a: new Map(),
+      b: new Map(),
+      c: new Map(),
+      d: new Map(),
+      e: new Map(),
+      f: new Map(),
+    };
+    this._size = 0;
+  }
+
+  public clear(): void {
+    Object.values(this._maps).forEach((m) => m.clear());
+    this._size = 0;
+  }
+
+  public delete(key: Id64String): boolean {
+    const wasDeleted = this._maps[key[key.length - 1]].delete(key);
+    if (wasDeleted) {
+      this._size--;
     }
 
-    public constructor() {
-      this._maps = {
-        0: new Map(),
-        1: new Map(),
-        2: new Map(),
-        3: new Map(),
-        4: new Map(),
-        5: new Map(),
-        6: new Map(),
-        7: new Map(),
-        8: new Map(),
-        9: new Map(),
-        a: new Map(),
-        b: new Map(),
-        c: new Map(),
-        d: new Map(),
-        e: new Map(),
-        f: new Map(),
-      };
-      this._size = 0;
-    }
+    return wasDeleted;
+  }
 
-    public clear(): void {
-      Object.values(this._maps).forEach((m) => m.clear());
-      this._size = 0;
-    }
+  public forEach(callbackfn: (value: V, key: Id64String, map: Map<Id64String, V>) => void, thisArg?: any): void {
+    Object.values(this._maps).forEach((m) => {
+      m.forEach(callbackfn, thisArg);
+    });
+  }
 
-    public delete(key: Id64String): boolean {
-      const wasDeleted = this._maps[key[key.length - 1]].delete(key);
-      if (wasDeleted) {
-        this._size--;
-      }
+  public get(key: Id64String): V | undefined {
+    return this._maps[key[key.length - 1]].get(key);
+  }
 
-      return wasDeleted;
-    }
+  public has(key: Id64String): boolean {
+    return this._maps[key[key.length - 1]].has(key);
+  }
 
-    public forEach(callbackfn: (value: V, key: Id64String, map: Map<Id64String, V>) => void, thisArg?: any): void {
-      Object.values(this._maps).forEach((m) => {
-        m.forEach(callbackfn, thisArg);
-      });
-    }
+  public set(key: Id64String, value: V): this {
+    const mapForKey = this._maps[key[key.length - 1]];
+    if (mapForKey === undefined)
+      throw Error(`Tried to set ${key}, but that key has no submap`);
+    const beforeSize = mapForKey.size;
+    mapForKey.set(key, value);
+    const afterSize = mapForKey.size;
+    this._size += (afterSize - beforeSize);
+    return this;
+  }
 
-    public get(key: Id64String): V | undefined {
-      return this._maps[key[key.length - 1]].get(key);
-    }
+  public [Symbol.iterator](): IterableIterator<[Id64String, V]>{
+    return this.entries();
+  }
 
-    public has(key: Id64String): boolean {
-      return this._maps[key[key.length - 1]].has(key);
-    }
+  public get [Symbol.toStringTag]() {
+    return "BigMap";
+  }
 
-    public set(key: Id64String, value: V): this {
-      const mapForKey = this._maps[key[key.length - 1]];
-      if (mapForKey === undefined)
-        throw Error(`Tried to set ${key}, but that key has no submap`);
-      const beforeSize = mapForKey.size;
-      mapForKey.set(key, value);
-      const afterSize = mapForKey.size;
-      this._size += (afterSize - beforeSize);
-      return this;
+  public *entries(): IterableIterator<[Id64String, V]> {
+    const maps = Object.values(this._maps);
+    for (const map of maps) {
+      for (const [key, value] of map.entries())
+        yield [key, value];
     }
+  }
 
-    public [Symbol.iterator](): IterableIterator<[Id64String, V]>{
-      return this.entries();
+  public *keys(): IterableIterator<Id64String> {
+    const maps = Object.values(this._maps);
+    for (const map of maps) {
+      for (const key of map.keys())
+        yield key;
     }
+  }
 
-    public get [Symbol.toStringTag]() {
-      return "BigMap";
+  public *values(): IterableIterator<V> {
+    const maps = Object.values(this._maps);
+    for (const map of maps) {
+      for (const value of map.values())
+        yield value;
     }
-
-    public *entries(): IterableIterator<[Id64String, V]> {
-      const maps = Object.values(this._maps);
-      for (const map of maps) {
-        for (const [key, value] of map.entries())
-          yield [key, value];
-      }
-    }
-
-    public *keys(): IterableIterator<Id64String> {
-      const maps = Object.values(this._maps);
-      for (const map of maps) {
-        for (const key of map.keys())
-          yield key;
-      }
-    }
-
-    public *values(): IterableIterator<V> {
-      const maps = Object.values(this._maps);
-      for (const map of maps) {
-        for (const value of map.values())
-          yield value;
-      }
-    }
+  }
 }
