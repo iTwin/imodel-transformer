@@ -491,7 +491,7 @@ export class IModelTransformer extends IModelExportHandler {
       kind: ExternalSourceAspect.Kind.Scope,
       jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
-    // First assume that the targetDb is the provenanceDb/branch (meaning holds the provenance which points back to master)
+    // First check if the targetDb is the provenanceDb/branch (meaning holds the provenance which points back to master)
     this.queryScopeExternalSource(targetDb, aspectProps, {
       getJsonProperties: true,
     });
@@ -499,7 +499,7 @@ export class IModelTransformer extends IModelExportHandler {
       return "forward"; // we found an esa assuming targetDb is the provenanceDb/branch so this is a forward sync.
     }
 
-    // Now assume that the sourceDb is the provenanceDb/branch
+    // Now check if the sourceDb is the provenanceDb/branch
     aspectProps.identifier = targetDb.iModelId;
     this.queryScopeExternalSource(sourceDb, aspectProps, {
       getJsonProperties: true,
