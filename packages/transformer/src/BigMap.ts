@@ -83,34 +83,34 @@ export class BigMap<V> implements Map<Id64String, V> {
       return this;
     }
 
-    [Symbol.iterator](): IterableIterator<[Id64String, V]>{
+    public [Symbol.iterator](): IterableIterator<[Id64String, V]>{
       return this.entries();
     }
 
-    get [Symbol.toStringTag]() {
-      return 'BigMap';
+    public get [Symbol.toStringTag]() {
+      return "BigMap";
     }
 
-    *entries(): IterableIterator<[Id64String, V]> {
-      var maps = Object.values(this._maps);       
-      for (var map of maps) {
-        for (let [key, value] of map.entries())
+    public *entries(): IterableIterator<[Id64String, V]> {
+      const maps = Object.values(this._maps);
+      for (const map of maps) {
+        for (const [key, value] of map.entries())
           yield [key, value];
       }
     }
 
-    *keys(): IterableIterator<Id64String> {
-      var maps = Object.values(this._maps);       
-      for (var map of maps) {
-        for (let key of map.keys())
+    public *keys(): IterableIterator<Id64String> {
+      const maps = Object.values(this._maps);
+      for (const map of maps) {
+        for (const key of map.keys())
           yield key;
       }
     }
 
-    *values(): IterableIterator<V> {
-      var maps = Object.values(this._maps);       
-      for (var map of maps) {
-        for (let value of map.values())
+    public *values(): IterableIterator<V> {
+      const maps = Object.values(this._maps);
+      for (const map of maps) {
+        for (const value of map.values())
           yield value;
       }
     }
