@@ -550,7 +550,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /**
    * Set if the transformer is being used to perform the provenance initialization step of a fork initialization.
-   * In general don't use the transformer for that, prefer [[BranchingProvenanceInitializer.initializeFork]]
+   * In general don't use the transformer for that, prefer [[BranchProvenanceInitializer.initializeBranchProvenance]]
    */
   private _isProvenanceInitTransform?: boolean;
 
