@@ -433,7 +433,7 @@ export class IModelTransformer extends IModelExportHandler {
    * then the version passed as part of the aspectProps will be kept on the aspectProps.
    * If false or not provided, the version on the aspectProps will be overwritten with the version from the queried aspect.
    */
-  public static queryScopeExternalSource(
+  public static queryScopeExternalSourceAspect(
     dbToQuery: IModelDb,
     aspectProps: ExternalSourceAspectProps,
     opts?: { getJsonProperties?: boolean; preserveVersionReceived?: boolean }
@@ -492,7 +492,7 @@ export class IModelTransformer extends IModelExportHandler {
       jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
     /** First check if the targetDb is the branch (branch is the @see provenanceDb) */
-    this.queryScopeExternalSource(targetDb, aspectProps, {
+    this.queryScopeExternalSourceAspect(targetDb, aspectProps, {
       getJsonProperties: true,
     });
     if (undefined !== aspectProps.id) {
@@ -501,7 +501,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     // Now check if the sourceDb is the branch
     aspectProps.identifier = targetDb.iModelId;
-    this.queryScopeExternalSource(sourceDb, aspectProps, {
+    this.queryScopeExternalSourceAspect(sourceDb, aspectProps, {
       getJsonProperties: true,
     });
 
@@ -976,7 +976,7 @@ export class IModelTransformer extends IModelExportHandler {
       element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
       identifier: this.provenanceSourceDb.iModelId,
     };
-    IModelTransformer.queryScopeExternalSource(
+    IModelTransformer.queryScopeExternalSourceAspect(
       this.provenanceDb,
       scopeProvenanceAspectProps
     );
@@ -1011,9 +1011,13 @@ export class IModelTransformer extends IModelExportHandler {
 
     // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them.
     // or reverseSyncVersion set correctly
-    IModelTransformer.queryScopeExternalSource(this.provenanceDb, aspectProps, {
-      getJsonProperties: true,
-    }); // this query includes "identifier"
+    IModelTransformer.queryScopeExternalSourceAspect(
+      this.provenanceDb,
+      aspectProps,
+      {
+        getJsonProperties: true,
+      }
+    ); // this query includes "identifier"
 
     if (undefined === aspectProps.id) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
@@ -1819,7 +1823,7 @@ export class IModelTransformer extends IModelExportHandler {
           targetElementProps.id!
         );
         // Since initElementProvenance sets a property 'version' on the aspectProps, pass preserveVersionReceived to queryScopeExternalSource so it doesn't get overwritten.
-        IModelTransformer.queryScopeExternalSource(
+        IModelTransformer.queryScopeExternalSourceAspect(
           this.provenanceDb,
           aspectProps,
           {
@@ -2249,7 +2253,7 @@ export class IModelTransformer extends IModelExportHandler {
           sourceRelationship,
           targetRelationshipInstanceId
         );
-        IModelTransformer.queryScopeExternalSource(
+        IModelTransformer.queryScopeExternalSourceAspect(
           this.provenanceDb,
           aspectProps
         );
