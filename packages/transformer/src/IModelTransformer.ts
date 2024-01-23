@@ -548,7 +548,10 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _changesetRanges: [number, number][] | undefined = undefined;
 
-  /** Set if it can be determined whether this is the first source --> target synchronization. */
+  /**
+   * Set if the transformer is being used to perform the provenance initialization step of a fork initialization.
+   * In general don't use the transformer for that, prefer [[BranchingProvenanceInitializer.initializeFork]]
+   */
   private _isProvenanceInitTransform?: boolean;
 
   /** The element classes that are considered to define provenance in the iModel */
