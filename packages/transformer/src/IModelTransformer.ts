@@ -437,7 +437,8 @@ export class IModelTransformer extends IModelExportHandler {
     | {
         aspectId: Id64String;
         version: string;
-        /** stringified json */ jsonProperties?: string;
+        /** stringified json */
+        jsonProperties?: string;
       }
     | undefined {
     const sql = `
