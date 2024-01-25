@@ -14,16 +14,15 @@ import { Id64String } from "@itwin/core-bentley";
  * replace this stopgap with a more robust solution, utilizing a temporary SQLite database (https://github.com/iTwin/imodel-transformer/issues/83).
  * @internal
  */
-export class BigMap<V> extends Map<Id64String, V> {
+export class BigMap<V> implements Map<Id64String, V> {
     private _maps: Record<string, Map<string, V>>;
     private _size: number;
 
-    public override get size(): number {
+    public get size(): number {
       return this._size;
     }
 
     public constructor() {
-      super();
       this._maps = {
         0: new Map(),
         1: new Map(),
@@ -45,12 +44,12 @@ export class BigMap<V> extends Map<Id64String, V> {
       this._size = 0;
     }
 
-    public override clear(): void {
+    public clear(): void {
       Object.values(this._maps).forEach((m) => m.clear());
       this._size = 0;
     }
 
-    public override delete(key: Id64String): boolean {
+    public delete(key: Id64String): boolean {
       const wasDeleted = this._maps[key[key.length - 1]].delete(key);
       if (wasDeleted) {
         this._size--;
@@ -59,21 +58,21 @@ export class BigMap<V> extends Map<Id64String, V> {
       return wasDeleted;
     }
 
-    public override forEach(callbackfn: (value: V, key: Id64String, map: Map<Id64String, V>) => void, thisArg?: any): void {
+    public forEach(callbackfn: (value: V, key: Id64String, map: Map<Id64String, V>) => void, thisArg?: any): void {
       Object.values(this._maps).forEach((m) => {
         m.forEach(callbackfn, thisArg);
       });
     }
 
-    public override get(key: Id64String): V | undefined {
+    public get(key: Id64String): V | undefined {
       return this._maps[key[key.length - 1]].get(key);
     }
 
-    public override has(key: Id64String): boolean {
+    public has(key: Id64String): boolean {
       return this._maps[key[key.length - 1]].has(key);
     }
 
-    public override set(key: Id64String, value: V): this {
+    public set(key: Id64String, value: V): this {
       const mapForKey = this._maps[key[key.length - 1]];
       if (mapForKey === undefined)
         throw Error(`Tried to set ${key}, but that key has no submap`);
@@ -82,5 +81,37 @@ export class BigMap<V> extends Map<Id64String, V> {
       const afterSize = mapForKey.size;
       this._size += (afterSize - beforeSize);
       return this;
+    }
+
+    public [Symbol.iterator](): IterableIterator<[Id64String, V]>{
+      return this.entries();
+    }
+
+    public get [Symbol.toStringTag]() {
+      return "BigMap";
+    }
+
+    public *entries(): IterableIterator<[Id64String, V]> {
+      const maps = Object.values(this._maps);
+      for (const map of maps) {
+        for (const [key, value] of map.entries())
+          yield [key, value];
+      }
+    }
+
+    public *keys(): IterableIterator<Id64String> {
+      const maps = Object.values(this._maps);
+      for (const map of maps) {
+        for (const key of map.keys())
+          yield key;
+      }
+    }
+
+    public *values(): IterableIterator<V> {
+      const maps = Object.values(this._maps);
+      for (const map of maps) {
+        for (const value of map.values())
+          yield value;
+      }
     }
 }
