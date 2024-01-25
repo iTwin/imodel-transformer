@@ -372,6 +372,8 @@ export interface RelationshipPropsForDelete {
 
 type SyncType = "not-sync" | "forward" | "reverse";
 
+type SyncType = "not-sync" | "forward" | "reverse";
+
 /** Base class used to transform a source iModel into a different target iModel.
  * @see [iModel Transformation and Data Exchange]($docs/learning/transformer/index.md), [IModelExporter]($transformer), [IModelImporter]($transformer)
  * @beta
@@ -880,7 +882,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._targetScopeProvenanceProps,
         "_targetScopeProvenanceProps was not set yet"
       );
-      const version = this._options.isReverseSynchronization
+      const version = this.isReverseSynchronization
         ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
@@ -908,7 +910,7 @@ export class IModelTransformer extends IModelExportHandler {
         return { index: -1, id: "" }; // first synchronization.
       }
 
-      const version = this._options.isReverseSynchronization
+      const version = this.isReverseSynchronization
         ? (
             JSON.parse(
               provenanceScopeAspect.jsonProperties ?? "{}"
@@ -932,17 +934,19 @@ export class IModelTransformer extends IModelExportHandler {
    * Provenance scope aspect is created and inserted into provenanceDb when [[initScopeProvenance]] is invoked.
    */
   protected tryGetProvenanceScopeAspect(): ExternalSourceAspect | undefined {
-    const scopeProvenanceAspectId = this.queryScopeExternalSource({
-      classFullName: ExternalSourceAspect.classFullName,
-      scope: { id: IModel.rootSubjectId },
-      kind: ExternalSourceAspect.Kind.Scope,
-      element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
-      identifier: this.provenanceSourceDb.iModelId,
-    });
+    const scopeProvenanceAspectProps =
+      IModelTransformer.queryScopeExternalSourceAspect(this.provenanceDb, {
+        id: undefined,
+        classFullName: ExternalSourceAspect.classFullName,
+        scope: { id: IModel.rootSubjectId },
+        kind: ExternalSourceAspect.Kind.Scope,
+        element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
+        identifier: this.provenanceSourceDb.iModelId,
+      });
 
-    return scopeProvenanceAspectId.aspectId
+    return scopeProvenanceAspectProps !== undefined
       ? (this.provenanceDb.elements.getAspect(
-          scopeProvenanceAspectId.aspectId
+          scopeProvenanceAspectProps.aspectId
         ) as ExternalSourceAspect)
       : undefined;
   }
@@ -1191,6 +1195,12 @@ export class IModelTransformer extends IModelExportHandler {
         // Busting a potential cached version
         this.clearCachedSynchronizationVersion();
       }
+    } else {
+      aspectProps.id = foundEsaProps.aspectId;
+      aspectProps.version = foundEsaProps.version;
+      aspectProps.jsonProperties = foundEsaProps.jsonProperties
+        ? JSON.parse(foundEsaProps.jsonProperties)
+        : {};
     }
 
     this._targetScopeProvenanceProps =
