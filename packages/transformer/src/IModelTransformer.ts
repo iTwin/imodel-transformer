@@ -289,6 +289,7 @@ class PartiallyCommittedEntity {
  * @beta
  */
 export interface TargetScopeProvenanceJsonProps {
+  // FIXME<NICK> document these properties!
   pendingReverseSyncChangesetIndices: number[];
   pendingSyncChangesetIndices: number[];
   reverseSyncVersion: string;
@@ -413,7 +414,6 @@ export class IModelTransformer extends IModelExportHandler {
   >;
 
   private _isSynchronization = false;
-  private _forceOldVersionBehavior = false;
 
   /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
@@ -921,13 +921,13 @@ export class IModelTransformer extends IModelExportHandler {
         "_targetScopeProvenanceProps was not set yet"
       );
       const version = this.isReverseSynchronization
-        ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
+        ? this._targetScopeProvenanceProps.jsonProperties?.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
-      // FIXME<NICK> private variable to transformer to get past this nodeAssert. dontStoreSyncVersion
       nodeAssert(version !== undefined, "no version contained in target scope");
 
-      const [id, index] = version === "" ? ["", -1] : version.split(";");
+      const [id, index] =
+        version === "" || version === undefined ? ["", -1] : version.split(";");
       this._cachedSynchronizationVersion = { index: Number(index), id };
       nodeAssert(
         !Number.isNaN(this._cachedSynchronizationVersion.index),
@@ -1013,18 +1013,20 @@ export class IModelTransformer extends IModelExportHandler {
 
     // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them.
     // or reverseSyncVersion set correctly
+
     const foundEsaProps = IModelTransformer.queryScopeExternalSourceAspect(
       this.provenanceDb,
       aspectProps
     ); // this query includes "identifier"
 
+    // FIXME<NICK> If an aspect is found without versions on the scoping ESA then we need to set them up I guess? i'm guessing this means that the transformation services team probably does
+    // this themselves to support older imodels but I could be wrong.
     if (foundEsaProps === undefined) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
       aspectProps.jsonProperties = {
         pendingReverseSyncChangesetIndices: [],
         pendingSyncChangesetIndices: [],
         reverseSyncVersion: "", // empty since never before transformed. Will be updated in first reverse sync
-        };
       };
 
       // this query does not include "identifier" to find possible conflicts
@@ -1056,16 +1058,22 @@ export class IModelTransformer extends IModelExportHandler {
       if (!this._options.noProvenance) {
         const id = this.provenanceDb.elements.insertAspect({
           ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any, // FIXME<NICK> make jsonproperties undefined if the flag is on.
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
         aspectProps.id = id;
       }
     } else {
+      // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version = foundEsaProps.version;
+      aspectProps.version = foundEsaProps.version ?? "";
+      // If jsonProps are undefined we probably are dealing with an imodel who was last synced before the updates to versioning behavior.
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : {};
+        : {
+            pendingReverseSyncChangesetIndices: [],
+            pendingSyncChangesetIndices: [],
+            reverseSyncVersion: "",
+          };
     }
 
     this._targetScopeProvenanceProps =
@@ -2066,7 +2074,6 @@ export class IModelTransformer extends IModelExportHandler {
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
-    if (oldBehavior) return;
     if (
       // FIXME<NICK> unscrew this if statement, multiple if statements? evaluate might keep as is. Combine these ifs into one verbose boolean ifhasNoChangesAndIsSynchronizingButForced. weigh options.
       !force &&
