@@ -289,9 +289,19 @@ class PartiallyCommittedEntity {
  * @beta
  */
 export interface TargetScopeProvenanceJsonProps {
-  // FIXME<NICK> document these properties!
+  /** An array of changeset indices to ignore when doing a reverse sync. This array gets appended to during a forward sync and cleared
+   *  during a reverse sync. Since a forward sync pushes a changeset to the branch db, the changeset pushed to the branch db
+   *  by the forward sync isn't considered part of the changes made on the branch db and therefore doesn't need to be synced back to master
+   *  during a forward sync.
+   */
   pendingReverseSyncChangesetIndices: number[];
+  /** An array of changeset indices to ignore when doing a forward sync. This array gets appended to during a reverse sync and cleared
+   *  during a forward sync. Since a reverse sync pushes a changeset to the master db, the changeset pushed to the master db
+   *  by the reverse sync isn't considered part of the changes made on the master db and therefore doesn't need to be synced back to the branch
+   *  during a forward sync.
+   */
   pendingSyncChangesetIndices: number[];
+  /** the latest changesetid/index reverse synced into master */
   reverseSyncVersion: string;
 }
 
@@ -1016,8 +1026,6 @@ export class IModelTransformer extends IModelExportHandler {
       aspectProps
     ); // this query includes "identifier"
 
-    // FIXME<NICK> If an aspect is found without versions on the scoping ESA then we need to set them up I guess? i'm guessing this means that the transformation services team probably does
-    // this themselves to support older imodels but I could be wrong.
     if (foundEsaProps === undefined) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
       aspectProps.jsonProperties = {
