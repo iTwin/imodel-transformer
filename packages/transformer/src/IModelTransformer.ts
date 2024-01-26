@@ -2209,7 +2209,6 @@ export class IModelTransformer extends IModelExportHandler {
     this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
-      // FIXME: throw in this case if danglingReferenceBehavior === reject
       const message = [
         "The following elements were never fully resolved:",
         [...this._partiallyCommittedEntities.keys()].join(","),
