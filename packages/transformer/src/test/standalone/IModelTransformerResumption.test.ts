@@ -670,7 +670,7 @@ describe.skip("test resuming transformations", () => {
         );
         db.saveChanges();
         db.withSqliteStatement(
-          `INSERT INTO additionalState (state1) VALUES (?)`,
+          "INSERT INTO additionalState (state1) VALUES (?)",
           (stmt) => {
             stmt.bindString(1, this.state1);
             expect(stmt.step()).to.equal(DbResult.BE_SQLITE_DONE);
@@ -679,7 +679,7 @@ describe.skip("test resuming transformations", () => {
       }
       protected override loadStateFromDb(db: SQLiteDb): void {
         super.loadStateFromDb(db);
-        db.withSqliteStatement(`SELECT state1 FROM additionalState`, (stmt) => {
+        db.withSqliteStatement("SELECT state1 FROM additionalState", (stmt) => {
           expect(stmt.step()).to.equal(DbResult.BE_SQLITE_ROW);
           this.state1 = stmt.getValueString(0);
         });

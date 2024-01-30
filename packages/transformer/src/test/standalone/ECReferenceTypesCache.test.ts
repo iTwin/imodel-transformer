@@ -8,10 +8,8 @@ import { assert, expect } from "chai";
 import * as path from "path";
 import { ECReferenceTypesCache } from "../../ECReferenceTypesCache";
 import { Relationship, SnapshotDb } from "@itwin/core-backend";
-import {
-  KnownTestLocations as BackendTestsKnownLocations,
-  IModelTestUtils,
-} from "../TestUtils";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
+import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations";
 import * as Semver from "semver";
 import { Schema, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as sinon from "sinon";

@@ -35,10 +35,8 @@ import {
   TemplateRecipe3d,
   TypeDefinitionElement,
 } from "@itwin/core-backend";
-import {
-  KnownTestLocations as BackendKnownTestLocations,
-  IModelTestUtils,
-} from "../TestUtils";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
+import { KnownTestLocations as BackendKnownTestLocations } from "../TestUtils/KnownTestLocations";
 import {
   DbResult,
   Id64,
@@ -68,13 +66,13 @@ import {
   Range3d,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
+import { IModelImporter } from "../../IModelImporter";
 import {
-  IModelImporter,
   IModelTransformer,
   IModelTransformOptions,
   TemplateModelCloner,
-  TransformerLoggerCategory,
-} from "../../transformer";
+} from "../../IModelTransformer";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
@@ -620,7 +618,7 @@ function indexCatalog(db: IModelDb, outputFile: string): void {
     IModelJsFs.appendFileSync(outputFile, `## ${container.code.value}\n`);
     const templateRecipeIds = queryTemplateRecipeIds(db, containerId);
     if (templateRecipeIds.size > 0) {
-      IModelJsFs.appendFileSync(outputFile, `### TemplateRecipes\n`);
+      IModelJsFs.appendFileSync(outputFile, "### TemplateRecipes\n");
       for (const templateRecipeId of templateRecipeIds) {
         const templateRecipe = db.elements.getElement<RecipeDefinitionElement>(
           templateRecipeId,
@@ -646,7 +644,7 @@ function indexCatalog(db: IModelDb, outputFile: string): void {
     }
     const groupIds = queryDefinitionGroupIds(db, containerId);
     if (groupIds.size > 0) {
-      IModelJsFs.appendFileSync(outputFile, `### DefinitionGroups\n`);
+      IModelJsFs.appendFileSync(outputFile, "### DefinitionGroups\n");
       for (const groupId of groupIds) {
         const group = db.elements.getElement<DefinitionGroup>(
           groupId,
@@ -863,7 +861,8 @@ function queryEquipmentId(
   db: IModelDb,
   templateModelId: Id64String
 ): Id64String | undefined {
-  const sql = `SELECT ECInstanceId FROM TestDomain:Equipment WHERE Model.Id=:modelId LIMIT 1`;
+  const sql =
+    "SELECT ECInstanceId FROM TestDomain:Equipment WHERE Model.Id=:modelId LIMIT 1";
   return db.withPreparedStatement(
     sql,
     (statement: ECSqlStatement): Id64String | undefined => {

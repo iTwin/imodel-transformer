@@ -67,7 +67,7 @@ describe("IModelCloneContext", () => {
       const sourceModelId = PhysicalModel.insert(
         sourceDb,
         IModel.rootSubjectId,
-        `PhysicalModel`
+        "PhysicalModel"
       );
       const physicalObjectProps: PhysicalElementProps = {
         classFullName: PhysicalObject.classFullName,

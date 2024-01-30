@@ -1444,7 +1444,7 @@ export class IModelTransformer extends IModelExportHandler {
   protected skipElement(_sourceElement: Element): void {
     Logger.logWarning(
       loggerCategory,
-      `Tried to defer/skip an element, which is no longer necessary`
+      "Tried to defer/skip an element, which is no longer necessary"
     );
   }
 
@@ -2728,13 +2728,13 @@ export class IModelTransformer extends IModelExportHandler {
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
-      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)"
     )) {
       relationshipECClassIdsToSkip.add(row.ECInstanceId);
     }
     const relationshipECClassIds = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
-      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)`
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)"
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
     }

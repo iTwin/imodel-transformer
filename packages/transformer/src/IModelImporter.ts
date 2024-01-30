@@ -256,7 +256,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
       if (elementProps.id === undefined) {
         throw new IModelError(
           IModelStatus.BadElement,
-          `elementProps.id must be defined during a preserveIds operation`
+          "elementProps.id must be defined during a preserveIds operation"
         );
       }
       // Categories are the only element that onInserted will immediately insert a new element (their default subcategory)
@@ -954,7 +954,7 @@ function isDefaultSubCategory(props: SubCategoryProps): boolean {
   if (!Id64.isId64(props.id))
     throw new IModelError(
       IModelStatus.BadElement,
-      `subcategory had invalid id`
+      "subcategory had invalid id"
     );
   if (props.parent?.id === undefined)
     throw new IModelError(

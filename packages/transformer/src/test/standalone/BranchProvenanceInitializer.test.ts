@@ -228,7 +228,7 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
     }
   }
 
-  it(`should have identityTransformation between branchProvenance and classic transformer provenance when createFedGuidsForMaster is false`, async () => {
+  it("should have identityTransformation between branchProvenance and classic transformer provenance when createFedGuidsForMaster is false", async () => {
     assert(
       transformerForkDb !== undefined &&
         noTransformerForkDb !== undefined &&

@@ -75,7 +75,7 @@ if (
         [
           errHeader,
           `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.`,
-          `Be aware that older versions may be missing bug fixes.`,
+          "Be aware that older versions may be missing bug fixes.",
           ...latestFirstApplicableVersions,
         ].join("\n")
       );

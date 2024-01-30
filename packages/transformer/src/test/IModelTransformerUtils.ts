@@ -88,13 +88,12 @@ import {
   SubjectProps,
   ViewDetails3dProps,
 } from "@itwin/core-common";
+import { IModelExporter, IModelExportHandler } from "../IModelExporter";
+import { IModelImporter } from "../IModelImporter";
 import {
-  IModelExporter,
-  IModelExportHandler,
-  IModelImporter,
   IModelTransformer,
   IModelTransformOptions,
-} from "../transformer";
+} from "../IModelTransformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 export class HubWrappers extends TestUtils.HubWrappers {
@@ -2335,7 +2334,7 @@ export class ClassCounter extends IModelExportHandler {
         `${value[1]}, ${value[0]}\n`
       );
     });
-    IModelJsFs.appendFileSync(this.outputFileName, `\n`);
+    IModelJsFs.appendFileSync(this.outputFileName, "\n");
   }
   public override onExportModel(
     model: Model,

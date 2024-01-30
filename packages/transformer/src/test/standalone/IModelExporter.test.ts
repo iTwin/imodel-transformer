@@ -28,9 +28,9 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
 import { IModelExportHandler } from "../../IModelExporter";
-import { IModelExporter } from "../../transformer";
+import { IModelExporter } from "../../IModelExporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { createBRepDataProps } from "../TestUtils";
+import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
@@ -128,7 +128,7 @@ describe("IModelExporter", () => {
       const sourceModelId = PhysicalModel.insert(
         sourceDb,
         IModel.rootSubjectId,
-        `PhysicalModel`
+        "PhysicalModel"
       );
       const physicalObjectProps: PhysicalElementProps = {
         classFullName: PhysicalObject.classFullName,

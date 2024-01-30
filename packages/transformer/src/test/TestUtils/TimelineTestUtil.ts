@@ -24,7 +24,10 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelTransformer, IModelTransformOptions } from "../../transformer";
+import {
+  IModelTransformer,
+  IModelTransformOptions,
+} from "../../IModelTransformer";
 import {
   HubWrappers,
   IModelTransformerTestUtils,

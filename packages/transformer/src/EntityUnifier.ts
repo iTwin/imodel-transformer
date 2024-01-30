@@ -7,6 +7,7 @@
  * utilities that unify operations, especially CRUD operations, on entities
  * for entity-generic operations in the transformer
  */
+
 import * as assert from "assert";
 import {
   ConcreteEntityTypes,
@@ -24,6 +25,8 @@ import {
   Relationship,
 } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
+
+Element;
 
 /** @internal */
 export namespace EntityUnifier {
