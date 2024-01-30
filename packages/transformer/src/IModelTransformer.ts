@@ -2399,11 +2399,13 @@ export class IModelTransformer extends IModelExportHandler {
             // use the old (external source aspect) provenance method anyway so we don't need to support
             // new provenance
             const json: any = JSON.parse(statement.getValue(2).getString());
-            if (undefined !== json.targetRelInstanceId) {
+            const targetRelInstanceId =
+              json.targetRelInstanceId ?? json.provenanceRelInstanceId;
+            if (targetRelInstanceId) {
               const targetRelationship: Relationship =
                 this.targetDb.relationships.getInstance(
                   ElementRefersToElements.classFullName,
-                  json.targetRelInstanceId
+                  targetRelInstanceId
                 );
               this.importer.deleteRelationship(targetRelationship.toJSON());
             }

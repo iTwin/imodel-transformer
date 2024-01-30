@@ -93,6 +93,7 @@ import {
   IModelExportHandler,
   IModelImporter,
   IModelTransformer,
+  IModelTransformOptions,
 } from "../transformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
@@ -930,7 +931,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
   public static assertTargetDbContents(
     sourceDb: IModelDb,
     targetDb: IModelDb,
-    targetSubjectName: string = "Subject"
+    targetSubjectName: string = "Subject",
+    expectEsas: boolean = false
   ): void {
     // CodeSpec
     assert.isTrue(targetDb.codeSpecs.hasName("TargetCodeSpec"));
@@ -982,32 +984,38 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      definitionModelId
+      definitionModelId,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      informationModelId
+      informationModelId,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      groupModelId
+      groupModelId,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      physicalModelId
+      physicalModelId,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      spatialLocationModelId
+      spatialLocationModelId,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      documentListModelId
+      documentListModelId,
+      expectEsas
     );
     const physicalModel: PhysicalModel =
       targetDb.models.getModel<PhysicalModel>(physicalModelId);
@@ -1022,7 +1030,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      spatialCategoryId
+      spatialCategoryId,
+      expectEsas
     );
     const spatialCategoryProps =
       targetDb.elements.getElementProps(spatialCategoryId);
@@ -1054,7 +1063,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      subCategoryId
+      subCategoryId,
+      expectEsas
     );
     const filteredSubCategoryId = targetDb.elements.queryElementIdByCode(
       SubCategory.createCode(targetDb, spatialCategoryId, "FilteredSubCategory")
@@ -1067,7 +1077,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      drawingCategoryId
+      drawingCategoryId,
+      expectEsas
     );
     const drawingCategoryProps =
       targetDb.elements.getElementProps(drawingCategoryId);
@@ -1084,7 +1095,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      spatialCategorySelectorId
+      spatialCategorySelectorId,
+      expectEsas
     );
     const spatialCategorySelectorProps =
       targetDb.elements.getElementProps<CategorySelectorProps>(
@@ -1110,7 +1122,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      drawingCategorySelectorId
+      drawingCategorySelectorId,
+      expectEsas
     );
     const drawingCategorySelectorProps =
       targetDb.elements.getElementProps<CategorySelectorProps>(
@@ -1126,7 +1139,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      modelSelectorId
+      modelSelectorId,
+      expectEsas
     );
     const modelSelectorProps =
       targetDb.elements.getElementProps<ModelSelectorProps>(modelSelectorId);
@@ -1169,37 +1183,44 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      physicalObjectId1
+      physicalObjectId1,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      physicalObjectId2
+      physicalObjectId2,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      physicalObjectId3
+      physicalObjectId3,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      physicalObjectId4
+      physicalObjectId4,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      physicalElementId1
+      physicalElementId1,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      childObjectId1A
+      childObjectId1A,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      childObjectId1B
+      childObjectId1B,
+      expectEsas
     );
     const physicalObject1: PhysicalObject =
       targetDb.elements.getElement<PhysicalObject>({
@@ -1437,7 +1458,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      displayStyle3dId
+      displayStyle3dId,
+      expectEsas
     );
     const displayStyle3d =
       targetDb.elements.getElement<DisplayStyle3d>(displayStyle3dId);
@@ -1477,7 +1499,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      viewId
+      viewId,
+      expectEsas
     );
     const viewProps =
       targetDb.elements.getElementProps<SpatialViewDefinitionProps>(viewId);
@@ -1504,12 +1527,14 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      drawingGraphicId1
+      drawingGraphicId1,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetElement(
       sourceDb,
       targetDb,
-      drawingGraphicId2
+      drawingGraphicId2,
+      expectEsas
     );
     // DrawingGraphicRepresentsElement
     TransformerExtensiveTestScenario.assertTargetRelationship(
@@ -1517,14 +1542,16 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
       targetDb,
       DrawingGraphicRepresentsElement.classFullName,
       drawingGraphicId1,
-      physicalObjectId1
+      physicalObjectId1,
+      expectEsas
     );
     TransformerExtensiveTestScenario.assertTargetRelationship(
       sourceDb,
       targetDb,
       DrawingGraphicRepresentsElement.classFullName,
       drawingGraphicId2,
-      physicalObjectId1
+      physicalObjectId1,
+      expectEsas
     );
     // TargetRelWithProps
     const relWithProps: any = targetDb.relationships.getInstanceProps(
@@ -1543,7 +1570,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
   public static assertTargetElement(
     _sourceDb: IModelDb,
     targetDb: IModelDb,
-    targetElementId: Id64String
+    targetElementId: Id64String,
+    expectEsas: boolean = false
   ): void {
     assert.isTrue(Id64.isValidId64(targetElementId));
     const element: Element = targetDb.elements.getElement(targetElementId);
@@ -1554,11 +1582,9 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
       targetElementId,
       ExternalSourceAspect.classFullName
     );
-    assert(
-      !aspects.some(
-        (esa: any) => esa.kind === ExternalSourceAspect.Kind.Element
-      )
-    );
+    expect(
+      aspects.some((esa: any) => esa.kind === ExternalSourceAspect.Kind.Element)
+    ).to.be.equal(expectEsas);
   }
 
   public static assertTargetRelationship(
@@ -1566,7 +1592,8 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     targetDb: IModelDb,
     targetRelClassFullName: string,
     targetRelSourceId: Id64String,
-    targetRelTargetId: Id64String
+    targetRelTargetId: Id64String,
+    expectEsas: boolean = false
   ): void {
     const targetRelationship: Relationship = targetDb.relationships.getInstance(
       targetRelClassFullName,
@@ -1577,11 +1604,11 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
       targetRelSourceId,
       ExternalSourceAspect.classFullName
     );
-    assert(
-      !aspects.some(
+    expect(
+      aspects.some(
         (esa: any) => esa.kind === ExternalSourceAspect.Kind.Relationship
       )
-    );
+    ).to.be.equal(expectEsas);
   }
 }
 
@@ -1716,9 +1743,10 @@ export class FilterByViewTransformer extends IModelTransformer {
 export class TestIModelTransformer extends IModelTransformer {
   public constructor(
     source: IModelDb | IModelExporter,
-    target: IModelDb | IModelImporter
+    target: IModelDb | IModelImporter,
+    options?: IModelTransformOptions
   ) {
-    super(source, target);
+    super(source, target, options);
     this.initExclusions();
     this.initCodeSpecRemapping();
     this.initCategoryRemapping();

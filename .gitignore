@@ -19,6 +19,9 @@ imjs_plugins
 imjs_extensions
 !tools/build
 
+# git-specific
+.git-blame-ignore-revs
+
 # rush-specific
 /common/temp
 package-deps.json
