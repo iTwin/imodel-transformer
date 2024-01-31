@@ -1072,7 +1072,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (!this._options.noProvenance) {
         const id = this.provenanceDb.elements.insertAspect({
           ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any, // FIXME<NICK> make jsonproperties undefined if the flag is on.
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
         aspectProps.id = id;
       }
