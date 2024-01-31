@@ -3255,6 +3255,170 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
+  it("should not lose deletions with old->new versioning behavior and should properly setup versions", async () => {
+    // TODO: could consolidate this with the test that I copied from
+    const deleteVersions = (branch: IModelDb) => {
+      // Delete the version and jsonProperties on the scoping ESA to simulate old versoning behavior.
+      branch.elements.updateAspect({
+        ...targetScopeProvenanceProps!,
+        version: undefined,
+        jsonProperties: undefined,
+      } as ExternalSourceAspectProps);
+    };
+    const getTargetScopeProvenance = (
+      master: TimelineIModelState,
+      branch: TimelineIModelState
+    ) => {
+      const scopeProvenanceCandidates = branch.db.elements
+        .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+        .filter(
+          (a) => (a as ExternalSourceAspect).identifier === master.db.iModelId
+        );
+      expect(scopeProvenanceCandidates).to.have.length(1);
+      return scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+    };
+    let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
+    const timeline: Timeline = [
+      { master: { 1: 1 } },
+      { master: { 2: 2 } },
+      { master: { 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 4 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(3);
+          expect(branch.db.changeset.index).to.equal(2);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
+            9
+          );
+
+          const targetScopeProvenance = getTargetScopeProvenance(
+            master,
+            branch
+          );
+          expect(targetScopeProvenance).to.deep.subsetEqual({
+            identifier: master.db.iModelId,
+            version: `${master.db.changeset.id};${master.db.changeset.index}`,
+            jsonProperties: JSON.stringify({
+              pendingReverseSyncChangesetIndices: [],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: ";0", // not synced yet
+            }),
+          } as ExternalSourceAspectProps);
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            deleteVersions(branch);
+          },
+        },
+      },
+      { branch: { 1: deleted, 4: 4 } },
+      {
+        master: {
+          sync: ["branch", { useOldTransformer: true }], // reverseSync with old (old versioning behavior) transformer IDK why but using the oldtransformer here made it so I Had to mention 4:4 in this delete changeset. or else 4:4 wouldn't show up in master.
+        },
+      },
+      {
+        assert({ master, branch }) {
+          const expectedState = { 2: 2, 3: 1, 4: 4 };
+          expect(master.state).to.deep.equal(expectedState);
+          expect(branch.state).to.deep.equal(expectedState);
+          assertElemState(master.db, expectedState);
+          assertElemState(branch.db, expectedState);
+
+          const targetScopeProvenance = getTargetScopeProvenance(
+            master,
+            branch
+          );
+
+          expect(targetScopeProvenance).to.deep.subsetEqual({
+            identifier: master.db.iModelId,
+            version: undefined,
+            jsonProperties: undefined,
+          } as ExternalSourceAspectProps);
+        },
+      },
+      { master: { 5: 5 } },
+      {
+        branch: {
+          sync: ["master", { useOldTransformer: false }],
+        },
+      },
+      {
+        assert({ master, branch }) {
+          const expectedState = { 2: 2, 3: 1, 4: 4, 5: 5 };
+          expect(master.state).to.deep.equal(expectedState);
+          expect(branch.state).to.deep.equal(expectedState);
+          assertElemState(master.db, expectedState);
+          assertElemState(branch.db, expectedState);
+
+          const targetScopeProvenance = getTargetScopeProvenance(
+            master,
+            branch
+          );
+
+          expect(targetScopeProvenance.version).to.equal(
+            `${master.db.changeset.id};${master.db.changeset.index}`
+          );
+
+          const targetScopeJsonProps = JSON.parse(
+            targetScopeProvenance.jsonProperties
+          );
+          expect(targetScopeJsonProps).to.deep.subsetEqual({
+            pendingReverseSyncChangesetIndices: [6],
+            pendingSyncChangesetIndices: [],
+          });
+          // Haven't done a reversesync with new transformer yet so expect no reverseSyncVersion.
+          expect(targetScopeJsonProps.reverseSyncVersion).to.equal("");
+        },
+      },
+      {
+        master: { sync: ["branch", { useOldTransformer: false }] },
+      },
+      {
+        assert({ master, branch }) {
+          const expectedState = { 2: 2, 3: 1, 4: 4, 5: 5 };
+          expect(master.state).to.deep.equal(expectedState);
+          expect(branch.state).to.deep.equal(expectedState);
+          assertElemState(master.db, expectedState);
+          assertElemState(branch.db, expectedState);
+          expect(master.db.changeset.index).to.equal(6);
+          const targetScopeProvenance = getTargetScopeProvenance(
+            master,
+            branch
+          );
+
+          expect(targetScopeProvenance.version).to.match(/;5$/);
+
+          const targetScopeJsonProps = JSON.parse(
+            targetScopeProvenance.jsonProperties
+          );
+          expect(targetScopeJsonProps).to.deep.subsetEqual({
+            pendingReverseSyncChangesetIndices: [],
+            pendingSyncChangesetIndices: [6],
+          });
+          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;6$/);
+        },
+      },
+    ];
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      transformerOpts: {
+        // force aspects so that reverse sync has to edit the target
+        forceExternalSourceAspectProvenance: true,
+      },
+    });
+
+    await tearDown();
+  });
   // FIXME: As a side effect of fixing a bug in findRangeContaining, we error out with no changesummary data because we now properly skip changesetindices
   // i.e. a range [4,4] with skip 4 now properly gets skipped. so we have no changesummary data. We need to revisit this after switching to affan's new API
   // to read changesets directly.
