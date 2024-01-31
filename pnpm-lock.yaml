@@ -35,39 +35,6 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1
 
-  packages/old-transformer-hack:
-    devDependencies:
-      '@itwin/build-tools':
-        specifier: ^4.3.3
-        version: 4.3.3
-      '@itwin/core-backend':
-        specifier: ^4.3.3
-        version: 4.3.3(patch_hash=4tix5ydov2miqr6g7sm6d4w6oy)(@itwin/core-bentley@4.3.3)(@itwin/core-common@4.3.3)(@itwin/core-geometry@4.3.3)
-      '@itwin/core-bentley':
-        specifier: ^4.3.3
-        version: 4.3.3
-      '@itwin/core-common':
-        specifier: ^4.3.3
-        version: 4.3.3(@itwin/core-bentley@4.3.3)(@itwin/core-geometry@4.3.3)
-      '@itwin/core-geometry':
-        specifier: ^4.3.3
-        version: 4.3.3
-      '@itwin/core-quantity':
-        specifier: ^4.3.3
-        version: 4.3.3(@itwin/core-bentley@4.3.3)
-      '@itwin/ecschema-metadata':
-        specifier: ^4.3.3
-        version: 4.3.3(@itwin/core-bentley@4.3.3)(@itwin/core-quantity@4.3.3)
-      '@itwin/imodel-transformer':
-        specifier: 0.4.4-dev.0
-        version: 0.4.4-dev.0(@itwin/core-backend@4.3.3)(@itwin/core-bentley@4.3.3)(@itwin/core-common@4.3.3)(@itwin/core-geometry@4.3.3)(@itwin/core-quantity@4.3.3)(@itwin/ecschema-metadata@4.3.3)
-      cpx2:
-        specifier: ^3.0.2
-        version: 3.0.2
-      typescript:
-        specifier: ^5.0.2
-        version: 5.1.3
-
   packages/performance-scripts:
     devDependencies:
       '@itwin/build-tools':
@@ -349,9 +316,6 @@ importers:
       nyc:
         specifier: ^15.1.0
         version: 15.1.0
-      old-transformer-hack:
-        specifier: workspace:*
-        version: link:../old-transformer-hack
       prettier:
         specifier: ^3.1.1
         version: 3.1.1
@@ -825,30 +789,6 @@ packages:
       - supports-color
     dev: true
 
-  /@itwin/build-tools@4.3.3:
-    resolution: {integrity: sha512-puHB5iXiGT+Q6IZdLImLqyL7Ed7bN0cwwnBMe2YaH/j5syLO3UEgbVM1OJHizygS17VlJmp94568VtNOL+NkRA==}
-    hasBin: true
-    dependencies:
-      '@microsoft/api-extractor': 7.36.4
-      chalk: 3.0.0
-      cpx2: 3.0.2
-      cross-spawn: 7.0.3
-      fs-extra: 8.1.0
-      glob: 7.2.3
-      mocha: 10.2.0
-      mocha-junit-reporter: 2.2.0(mocha@10.2.0)
-      rimraf: 3.0.2
-      tree-kill: 1.2.2
-      typedoc: 0.23.28(typescript@5.1.3)
-      typedoc-plugin-merge-modules: 4.1.0(typedoc@0.23.28)
-      typescript: 5.1.3
-      wtfnode: 0.9.1
-      yargs: 17.7.2
-    transitivePeerDependencies:
-      - '@types/node'
-      - supports-color
-    dev: true
-
   /@itwin/build-tools@4.3.3(@types/node@14.14.31):
     resolution: {integrity: sha512-puHB5iXiGT+Q6IZdLImLqyL7Ed7bN0cwwnBMe2YaH/j5syLO3UEgbVM1OJHizygS17VlJmp94568VtNOL+NkRA==}
     hasBin: true
@@ -1125,26 +1065,6 @@ packages:
       - supports-color
     dev: true
 
-  /@itwin/imodel-transformer@0.4.4-dev.0(@itwin/core-backend@4.3.3)(@itwin/core-bentley@4.3.3)(@itwin/core-common@4.3.3)(@itwin/core-geometry@4.3.3)(@itwin/core-quantity@4.3.3)(@itwin/ecschema-metadata@4.3.3):
-    resolution: {integrity: sha512-bWt4GOf+L/CQ4y2ykLHlt1EqioAxHm2vEzF43QFbcQCG+cSdh4SEvEYuzeF0RN1W+4tX530cNi0Q4anFjRGjPg==}
-    engines: {node: ^18.0.0}
-    peerDependencies:
-      '@itwin/core-backend': ^3.6.0 || ^4.0.0
-      '@itwin/core-bentley': ^3.6.0 || ^4.0.0
-      '@itwin/core-common': ^3.6.0 || ^4.0.0
-      '@itwin/core-geometry': ^3.6.0 || ^4.0.0
-      '@itwin/core-quantity': ^3.6.0 || ^4.0.0
-      '@itwin/ecschema-metadata': ^3.6.0 || ^4.0.0
-    dependencies:
-      '@itwin/core-backend': 4.3.3(patch_hash=4tix5ydov2miqr6g7sm6d4w6oy)(@itwin/core-bentley@4.3.3)(@itwin/core-common@4.3.3)(@itwin/core-geometry@4.3.3)
-      '@itwin/core-bentley': 4.3.3
-      '@itwin/core-common': 4.3.3(@itwin/core-bentley@4.3.3)(@itwin/core-geometry@4.3.3)
-      '@itwin/core-geometry': 4.3.3
-      '@itwin/core-quantity': 4.3.3(@itwin/core-bentley@4.3.3)
-      '@itwin/ecschema-metadata': 4.3.3(@itwin/core-bentley@4.3.3)(@itwin/core-quantity@4.3.3)
-      semver: 7.5.4
-    dev: true
-
   /@itwin/imodels-access-backend@2.3.0(@itwin/core-backend@4.3.3)(@itwin/core-bentley@4.3.3)(@itwin/core-common@4.3.3):
     resolution: {integrity: sha512-g2Bygiu6Is/Xa6OWUxXN/BZwGU2M4izFl8fdgL1cFWxhoWSYL169bN3V4zvRTUJIqtsNaTyOeRu2mjkRgHY9KQ==}
     peerDependencies:
@@ -1342,16 +1262,6 @@ packages:
       - '@types/node'
     dev: true
 
-  /@microsoft/api-extractor-model@7.27.6:
-    resolution: {integrity: sha512-eiCnlayyum1f7fS2nA9pfIod5VCNR1G+Tq84V/ijDrKrOFVa598BLw145nCsGDMoFenV6ajNi2PR5WCwpAxW6Q==}
-    dependencies:
-      '@microsoft/tsdoc': 0.14.2
-      '@microsoft/tsdoc-config': 0.16.2
-      '@rushstack/node-core-library': 3.59.7
-    transitivePeerDependencies:
-      - '@types/node'
-    dev: true
-
   /@microsoft/api-extractor-model@7.27.6(@types/node@14.14.31):
     resolution: {integrity: sha512-eiCnlayyum1f7fS2nA9pfIod5VCNR1G+Tq84V/ijDrKrOFVa598BLw145nCsGDMoFenV6ajNi2PR5WCwpAxW6Q==}
     dependencies:
@@ -1396,26 +1306,6 @@ packages:
       lodash: 4.17.21
       resolve: 1.22.2
       semver: 7.3.8
-      source-map: 0.6.1
-      typescript: 5.1.3
-    transitivePeerDependencies:
-      - '@types/node'
-    dev: true
-
-  /@microsoft/api-extractor@7.36.4:
-    resolution: {integrity: sha512-21UECq8C/8CpHT23yiqTBQ10egKUacIpxkPyYR7hdswo/M5yTWdBvbq+77YC9uPKQJOUfOD1FImBQ1DzpsdeQQ==}
-    hasBin: true
-    dependencies:
-      '@microsoft/api-extractor-model': 7.27.6
-      '@microsoft/tsdoc': 0.14.2
-      '@microsoft/tsdoc-config': 0.16.2
-      '@rushstack/node-core-library': 3.59.7
-      '@rushstack/rig-package': 0.4.1
-      '@rushstack/ts-command-line': 4.15.2
-      colors: 1.2.5
-      lodash: 4.17.21
-      resolve: 1.22.2
-      semver: 7.5.4
       source-map: 0.6.1
       typescript: 5.1.3
     transitivePeerDependencies:
@@ -1564,23 +1454,6 @@ packages:
       jju: 1.4.0
       resolve: 1.22.2
       semver: 7.3.8
-      z-schema: 5.0.5
-    dev: true
-
-  /@rushstack/node-core-library@3.59.7:
-    resolution: {integrity: sha512-ln1Drq0h+Hwa1JVA65x5mlSgUrBa1uHL+V89FqVWQgXd1vVIMhrtqtWGQrhTnFHxru5ppX+FY39VWELF/FjQCw==}
-    peerDependencies:
-      '@types/node': '*'
-    peerDependenciesMeta:
-      '@types/node':
-        optional: true
-    dependencies:
-      colors: 1.2.5
-      fs-extra: 7.0.1
-      import-lazy: 4.0.0
-      jju: 1.4.0
-      resolve: 1.22.2
-      semver: 7.5.4
       z-schema: 5.0.5
     dev: true
 
