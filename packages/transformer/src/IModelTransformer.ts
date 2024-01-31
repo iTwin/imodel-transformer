@@ -2233,12 +2233,6 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
     }
     /* eslint-enable @itwin/no-internal */
-
-    // if (this.isForwardSynchronization) {
-    //   if (this.sourceDb.isBriefcaseDb()) {
-    //     this.sourceDb.pushChanges({})
-    //   }
-    // }
   }
 
   /** Imports all relationships that subclass from the specified base class.
