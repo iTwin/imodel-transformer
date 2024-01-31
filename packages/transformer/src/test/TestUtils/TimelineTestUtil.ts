@@ -495,15 +495,11 @@ export async function runTimeline(
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
 
-        const syncer = useOldTransformer
-          ? new OldIModelTransformer(source.db, target.db, {
-              ...transformerOpts,
-              isReverseSynchronization: !isForwardSync,
-            })
-          : new IModelTransformer(source.db, target.db, {
-              ...transformerOpts,
-              isReverseSynchronization: !isForwardSync,
-            });
+        const TransformClass = useOldTransformer ? OldIModelTransformer : IModelTransformer;
+        const syncer = new TransformClass(source.db, target.db, {
+          ...transformerOpts,
+          isReverseSynchronization: !isForwardSync,
+        });
         if (!useOldTransformer) initTransformer?.(syncer as any);
         try {
           await syncer.processChanges({
