@@ -31,7 +31,6 @@ import {
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
-import { IModelTransformer as OldIModelTransformer } from "old-transformer-hack";
 
 const { saveAndPushChanges } = IModelTestUtils;
 
@@ -248,7 +247,6 @@ export type TimelineStateChange =
         opts?: {
           since?: number;
           initTransformer?: (transformer: IModelTransformer) => void;
-          useOldTransformer?: boolean;
         },
       ];
     }
@@ -349,7 +347,6 @@ export async function runTimeline(
           opts: {
             since?: number;
             initTransformer?: (transformer: IModelTransformer) => void;
-            useOldTransformer?: boolean;
           },
         ]
       | undefined;
@@ -482,10 +479,8 @@ export async function runTimeline(
         // "branch" and "seed" event has already been handled in the new imodels loop above
         continue;
       } else if ("sync" in event) {
-        const [
-          syncSource,
-          { useOldTransformer, since: startIndex, initTransformer },
-        ] = getSync(event)!;
+        const [syncSource, { since: startIndex, initTransformer }] =
+          getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
         const target = trackedIModels.get(iModelName)!;
@@ -495,16 +490,11 @@ export async function runTimeline(
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
 
-        const syncer = useOldTransformer
-          ? new OldIModelTransformer(source.db, target.db, {
-              ...transformerOpts,
-              isReverseSynchronization: !isForwardSync,
-            })
-          : new IModelTransformer(source.db, target.db, {
-              ...transformerOpts,
-              isReverseSynchronization: !isForwardSync,
-            });
-        if (!useOldTransformer) initTransformer?.(syncer as any);
+        const syncer = new IModelTransformer(source.db, target.db, {
+          ...transformerOpts,
+          isReverseSynchronization: !isForwardSync,
+        });
+        initTransformer?.(syncer);
         try {
           await syncer.processChanges({
             accessToken,

@@ -74,7 +74,6 @@
     "@itwin/core-quantity": "^4.3.3",
     "@itwin/ecschema-metadata": "^4.3.3",
     "@itwin/eslint-plugin": "4.0.0-dev.48",
-    "old-transformer-hack": "workspace:*",
     "@types/chai": "4.3.1",
     "@types/chai-as-promised": "^7.1.5",
     "@types/mocha": "^8.2.3",

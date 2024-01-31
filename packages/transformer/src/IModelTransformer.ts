@@ -424,6 +424,7 @@ export class IModelTransformer extends IModelExportHandler {
   >;
 
   private _isSynchronization = false;
+  private _forceOldVersionBehavior = false;
 
   /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
@@ -931,13 +932,13 @@ export class IModelTransformer extends IModelExportHandler {
         "_targetScopeProvenanceProps was not set yet"
       );
       const version = this.isReverseSynchronization
-        ? this._targetScopeProvenanceProps.jsonProperties?.reverseSyncVersion
+        ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
+      // FIXME<NICK> private variable to transformer to get past this nodeAssert. dontStoreSyncVersion
       nodeAssert(version !== undefined, "no version contained in target scope");
 
-      const [id, index] =
-        version === "" || version === undefined ? ["", -1] : version.split(";");
+      const [id, index] = version === "" ? ["", -1] : version.split(";");
       this._cachedSynchronizationVersion = { index: Number(index), id };
       nodeAssert(
         !Number.isNaN(this._cachedSynchronizationVersion.index),
@@ -1063,15 +1064,13 @@ export class IModelTransformer extends IModelExportHandler {
       if (!this._options.noProvenance) {
         const id = this.provenanceDb.elements.insertAspect({
           ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any, // FIXME<NICK> make jsonproperties undefined if the flag is on.
         });
         aspectProps.id = id;
       }
     } else {
-      // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version = foundEsaProps.version ?? "";
-      // If jsonProps are undefined we probably are dealing with an imodel who was last synced before the updates to versioning behavior.
+      aspectProps.version = foundEsaProps.version;
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
         : {
