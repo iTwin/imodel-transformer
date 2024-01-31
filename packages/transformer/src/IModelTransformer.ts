@@ -424,7 +424,6 @@ export class IModelTransformer extends IModelExportHandler {
   >;
 
   private _isSynchronization = false;
-  private _forceOldVersionBehavior = false;
 
   /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
