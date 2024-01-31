@@ -258,6 +258,16 @@ export interface IModelTransformOptions {
    * @default false
    */
   ignoreMissingChangesetsInSynchronizations?: boolean;
+
+  /**
+   * Do not error out if a scoping ESA @see ExternalSourceAspectProps is found without a version or jsonProperties defined on that scoping ESA.
+   * If true, the version and jsonproperties will be properly set on the scoping ESA @see TargetScopeProvenanceJsonProps after the transformer is complete.
+   * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to true is not without risk.
+   * @note Depending on the state of the branching relationship at the time of using this option, some data may be lost.
+   * @note It is very unlikely that this option will ever need to be provided.
+   * @default false
+   */
+  ignoreNoBranchRelationshipData?: boolean;
 }
 
 /**
@@ -931,10 +941,9 @@ export class IModelTransformer extends IModelExportHandler {
         "_targetScopeProvenanceProps was not set yet"
       );
       const version = this.isReverseSynchronization
-        ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
+        ? this._targetScopeProvenanceProps.jsonProperties?.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
-      // FIXME<NICK> private variable to transformer to get past this nodeAssert. dontStoreSyncVersion
       nodeAssert(version !== undefined, "no version contained in target scope");
 
       const [id, index] = version === "" ? ["", -1] : version.split(";");
@@ -1068,15 +1077,23 @@ export class IModelTransformer extends IModelExportHandler {
         aspectProps.id = id;
       }
     } else {
+      // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version = foundEsaProps.version;
+      aspectProps.version =
+        foundEsaProps.version !== undefined
+          ? foundEsaProps.version
+          : this._options.ignoreNoBranchRelationshipData
+            ? ""
+            : undefined;
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : {
-            pendingReverseSyncChangesetIndices: [],
-            pendingSyncChangesetIndices: [],
-            reverseSyncVersion: "",
-          };
+        : this._options.ignoreNoBranchRelationshipData
+          ? {
+              pendingReverseSyncChangesetIndices: [],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: "",
+            }
+          : undefined;
     }
 
     this._targetScopeProvenanceProps =
@@ -2216,6 +2233,12 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
     }
     /* eslint-enable @itwin/no-internal */
+
+    // if (this.isForwardSynchronization) {
+    //   if (this.sourceDb.isBriefcaseDb()) {
+    //     this.sourceDb.pushChanges({})
+    //   }
+    // }
   }
 
   /** Imports all relationships that subclass from the specified base class.

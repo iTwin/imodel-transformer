@@ -3255,29 +3255,21 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
-  it.only("should handle older iModels without syncVersion and reverseSyncVersion in jsonProps properly", async () => {
-    // TODO: could consolidate this with the test that I copied from
+  it("should fail older iModels without new versioning behavior unless ignoreNoBranchRelationshipData is true", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
-    const setForceOldVersionBehavior = (transformer: IModelTransformer) =>
-      (transformer["_forceOldVersionBehavior"] = true);
+    const setIgnoreNoBranchRelationshipData = (
+      transformer: IModelTransformer
+    ) => (transformer["_options"]["ignoreNoBranchRelationshipData"] = true);
     const timeline: Timeline = [
       { master: { 1: 1 } },
       { master: { 2: 2 } },
       { master: { 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
+
       // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(3);
-          expect(branch.db.changeset.index).to.equal(2);
-          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
-            0
-          );
-          expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            9
-          );
-
           const scopeProvenanceCandidates = branch.db.elements
             .getAspects(
               IModelDb.rootSubjectId,
@@ -3300,18 +3292,78 @@ describe("IModelTransformerHub", () => {
               reverseSyncVersion: ";0", // not synced yet
             }),
           } as ExternalSourceAspectProps);
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without jsonprops
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              jsonProperties: undefined,
+            });
+          },
         },
       },
       {
         master: {
-          sync: ["branch", { initTransformer: setForceOldVersionBehavior }],
+          sync: ["branch", { expectThrow: true }],
+        },
+      },
+      {
+        branch: {
+          sync: ["master", { expectThrow: true }],
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without version now
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              version: undefined,
+            } as ExternalSourceAspectProps);
+          },
+        },
+      },
+      {
+        master: {
+          sync: ["branch", { expectThrow: true }],
+        },
+      },
+      {
+        branch: {
+          sync: ["master", { expectThrow: true }],
+        },
+      },
+      {
+        branch: {
+          sync: [
+            "master",
+            {
+              expectThrow: false,
+              initTransformer: setIgnoreNoBranchRelationshipData,
+            },
+          ],
+        },
+      },
+      {
+        master: {
+          sync: [
+            "branch",
+            {
+              expectThrow: false,
+              initTransformer: setIgnoreNoBranchRelationshipData,
+            },
+          ],
         },
       },
       // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(4);
-          expect(branch.db.changeset.index).to.equal(3);
+          expect(branch.db.changeset.index).to.equal(6);
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
@@ -3338,25 +3390,13 @@ describe("IModelTransformerHub", () => {
             targetScopeProvenance.jsonProperties
           );
           expect(targetScopeJsonProps).to.deep.subsetEqual({
-            pendingReverseSyncChangesetIndices: [3],
+            pendingReverseSyncChangesetIndices: [6],
             pendingSyncChangesetIndices: [4],
           });
-          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;2$/);
-          // Delete the jsonprops to maek sure they still work or something idk.
-          targetScopeProvenanceProps = targetScopeProvenance;
+          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;5$/);
         },
       },
       { branch: { sync: ["master"] } },
-      {
-        branch: {
-          manualUpdate(branch) {
-            branch.elements.updateAspect({
-              ...targetScopeProvenanceProps!,
-              jsonProperties: undefined,
-            });
-          },
-        },
-      },
       { master: { sync: ["branch"] } },
       { branch: { 5: 1 } },
       { master: { sync: ["branch"] } },

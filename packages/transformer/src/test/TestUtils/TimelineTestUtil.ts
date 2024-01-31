@@ -247,6 +247,7 @@ export type TimelineStateChange =
         opts?: {
           since?: number;
           initTransformer?: (transformer: IModelTransformer) => void;
+          expectThrow?: boolean;
         },
       ];
     }
@@ -347,6 +348,7 @@ export async function runTimeline(
           opts: {
             since?: number;
             initTransformer?: (transformer: IModelTransformer) => void;
+            expectThrow?: boolean;
           },
         ]
       | undefined;
@@ -479,8 +481,10 @@ export async function runTimeline(
         // "branch" and "seed" event has already been handled in the new imodels loop above
         continue;
       } else if ("sync" in event) {
-        const [syncSource, { since: startIndex, initTransformer }] =
-          getSync(event)!;
+        const [
+          syncSource,
+          { since: startIndex, initTransformer, expectThrow },
+        ] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
         const target = trackedIModels.get(iModelName)!;
@@ -500,12 +504,16 @@ export async function runTimeline(
             accessToken,
             startChangeset: startIndex ? { index: startIndex } : undefined,
           });
+          expect(
+            expectThrow === false || expectThrow === undefined,
+            "expectThrow was set to true and transformer succeeded."
+          ).to.be.true;
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
             printChangelogs();
           }
-          throw err;
+          if (!expectThrow) throw err;
         } finally {
           syncer.dispose();
         }
@@ -525,9 +533,10 @@ export async function runTimeline(
 
         target.state = getIModelState(target.db); // update the tracking state
 
-        if (!isForwardSync)
+        if (!isForwardSync && !expectThrow)
           await saveAndPushChanges(accessToken, source.db, stateMsg);
-        await saveAndPushChanges(accessToken, target.db, stateMsg);
+        if (!expectThrow)
+          await saveAndPushChanges(accessToken, target.db, stateMsg);
       } else {
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
         let stateMsg: string;
