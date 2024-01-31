@@ -3,4 +3,4 @@ packages:
   - packages/test-app
   - packages/performance-scripts
   - packages/performance-tests
-  - packages/old-transformer-hack
+
