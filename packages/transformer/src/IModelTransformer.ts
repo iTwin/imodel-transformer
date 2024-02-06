@@ -2159,11 +2159,6 @@ export class IModelTransformer extends IModelExportHandler {
             jsonProps.pendingReverseSyncChangesetIndices,
           ];
 
-      // NOTE that as documented in [[processChanges]], this assumes that right after
-      // transformation finalization, the work will be saved immediately, otherwise we've
-      // just marked this changeset as a synchronization to ignore, and the user can add other
-      // stuff to it which would break future synchronizations
-      // FIXME: force push for the user to prevent that
       for (
         let i = this._startingChangesetIndices.target + 1;
         i <= this.targetDb.changeset.index + 1;
@@ -2204,7 +2199,9 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
-  private finalizeTransformation() {
+  private async finalizeTransformation(
+    saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>
+  ) {
     this.importer.finalize();
     this.updateSynchronizationVersion();
 
@@ -2236,6 +2233,31 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
     }
     /* eslint-enable @itwin/no-internal */
+
+    const defaultSaveTargetChanges = () => this.targetDb.saveChanges();
+    await (saveTargetChanges ?? defaultSaveTargetChanges)(this);
+    if (this.isReverseSynchronization) this.sourceDb.saveChanges();
+
+    const description = `${
+      this._isProvenanceInitTransform
+        ? `initialized branch provenance with master`
+        : this.isForwardSynchronization
+          ? "Forward sync of"
+          : "Reverse sync of"
+    } iModel: ${this.sourceDb.iModelId}`;
+
+    if (this.targetDb.isBriefcaseDb()) {
+      // FIXME<NICK> This relies on them defining an authorizationClient on iModelHost, otherwise this will fail. Not sure thats good.
+      await this.targetDb.pushChanges({
+        description,
+      });
+    }
+    if (this.isReverseSynchronization && this.sourceDb.isBriefcaseDb()) {
+      // FIXME<NICK> This relies on them defining an authorizationClient on iModelHost, otherwise this will fail. Not sure thats good.
+      await this.sourceDb.pushChanges({
+        description: `Update provenance in response to a reverse sync to iModel: ${this.targetDb.iModelId}`,
+      });
+    }
   }
 
   /** Imports all relationships that subclass from the specified base class.
@@ -3094,7 +3116,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
-    this.finalizeTransformation();
+    await this.finalizeTransformation();
   }
 
   /** previous provenance, either a federation guid, a `${sourceFedGuid}/${targetFedGuid}` pair, or required aspect props */
@@ -3383,9 +3405,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
-   * @note the transformer assumes that you saveChanges after processing changes. You should not
-   * modify the iModel after processChanges until saveChanges, failure to do so may result in corrupted
-   * data loss in future branch operations
+   * @note the transformer saves and pushes changes when its work is complete.
    * @note if no startChangesetId or startChangeset option is provided as part of the ProcessChangesOptions, the next unsynchronized changeset
    * will automatically be determined and used
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
@@ -3405,13 +3425,8 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
-    this.finalizeTransformation();
 
-    const defaultSaveTargetChanges = () => {
-      this.targetDb.saveChanges();
-    };
-
-    await (options.saveTargetChanges ?? defaultSaveTargetChanges)(this);
+    await this.finalizeTransformation(options.saveTargetChanges);
   }
 
   /** Changeset data must be initialized in order to build correct changeOptions.

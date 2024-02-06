@@ -261,8 +261,6 @@ describe("IModelTransformerHub", () => {
           startChangeset: { id: sourceDb.changeset.id },
         });
         transformer.dispose();
-        targetDb.saveChanges();
-        await targetDb.pushChanges({ accessToken, description: "Import #1" });
         TransformerExtensiveTestScenario.assertTargetDbContents(
           sourceDb,
           targetDb
@@ -329,6 +327,8 @@ describe("IModelTransformerHub", () => {
           targetDb,
           ElementRefersToElements.classFullName
         );
+        const changesetIndexOfTargetDbBeforeChangelessTransform =
+          targetDb.changeset.index;
         const targetImporter = new CountingIModelImporter(targetDb);
         const transformer = new TestIModelTransformer(sourceDb, targetImporter);
         await transformer.processChanges({ accessToken });
@@ -356,12 +356,14 @@ describe("IModelTransformerHub", () => {
           count(targetDb, ElementRefersToElements.classFullName),
           "Second import should not add relationships"
         );
-        targetDb.saveChanges();
         assert.isFalse(targetDb.nativeDb.hasPendingTxns());
-        await targetDb.pushChanges({
-          accessToken,
-          description: "Should not actually push because there are no changes",
-        });
+        // Validate same changeset index, because there were no changes in this run of the transform.
+        expect(changesetIndexOfTargetDbBeforeChangelessTransform).to.not.be
+          .undefined;
+        expect(targetDb.changeset.index).to.equal(
+          changesetIndexOfTargetDbBeforeChangelessTransform
+        );
+
         transformer.dispose();
       }
 
@@ -414,8 +416,6 @@ describe("IModelTransformerHub", () => {
         const transformer = new TestIModelTransformer(sourceDb, targetDb);
         await transformer.processChanges({ accessToken });
         transformer.dispose();
-        targetDb.saveChanges();
-        await targetDb.pushChanges({ accessToken, description: "Import #2" });
         TestUtils.ExtensiveTestScenario.assertUpdatesInDb(targetDb);
 
         // Use IModelExporter.exportChanges to verify the changes to the targetDb
