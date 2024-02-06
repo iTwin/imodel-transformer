@@ -513,7 +513,14 @@ export async function runTimeline(
             console.log("change history:"); // eslint-disable-line
             printChangelogs();
           }
-          if (!expectThrow) throw err;
+          if (
+            !expectThrow ||
+            (expectThrow &&
+              err.message.includes(
+                "expectThrow was set to true and transformer succeeded."
+              ))
+          )
+            throw err;
         } finally {
           syncer.dispose();
         }

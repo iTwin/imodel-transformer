@@ -457,7 +457,7 @@ export class IModelTransformer extends IModelExportHandler {
   ):
     | {
         aspectId: Id64String;
-        version: string;
+        version?: string;
         /** stringified json */
         jsonProperties?: string;
       }
@@ -479,7 +479,10 @@ export class IModelTransformer extends IModelExportHandler {
       statement.bindString("identifier", aspectProps.identifier);
       if (DbResult.BE_SQLITE_ROW !== statement.step()) return undefined;
       const aspectId = statement.getValue(0).getId();
-      const version = statement.getValue(1).getString();
+      const versionValue = statement.getValue(1);
+      const version = versionValue.isNull
+        ? undefined
+        : versionValue.getString();
       const jsonPropsValue = statement.getValue(2);
       const jsonProperties = jsonPropsValue.isNull
         ? undefined

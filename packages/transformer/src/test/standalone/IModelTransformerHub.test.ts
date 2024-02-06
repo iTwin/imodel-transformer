@@ -3308,18 +3308,19 @@ describe("IModelTransformerHub", () => {
       },
       {
         master: {
+          // Reverse sync and reverse sync looks for a 'reverseSyncVersion' inside of jsonProperties which will be missing so expectthrow.
           sync: ["branch", { expectThrow: true }],
         },
       },
       {
         branch: {
-          sync: ["master", { expectThrow: true }],
+          sync: ["master", { expectThrow: false }],
         },
       },
       {
         branch: {
           manualUpdate(branch) {
-            // Check it fails without version now
+            // Check it fails without version now.
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               version: undefined,
@@ -3328,13 +3329,26 @@ describe("IModelTransformerHub", () => {
         },
       },
       {
+        branch: {
+          // Forward sync and forward sync looks for a prop 'version' on the ESA which will be missing so expect to throw.
+          sync: ["master", { expectThrow: true }],
+        },
+      },
+      {
         master: {
-          sync: ["branch", { expectThrow: true }],
+          sync: ["branch", { expectThrow: false }],
         },
       },
       {
         branch: {
-          sync: ["master", { expectThrow: true }],
+          manualUpdate(branch) {
+            // Remove both and make sure it passes with both removed + setIgnoreNoBranchRelationshipData
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              jsonProperties: undefined,
+              version: undefined,
+            } as ExternalSourceAspectProps);
+          },
         },
       },
       {
@@ -3362,8 +3376,8 @@ describe("IModelTransformerHub", () => {
       // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(4);
-          expect(branch.db.changeset.index).to.equal(6);
+          expect(master.db.changeset.index).to.equal(5);
+          expect(branch.db.changeset.index).to.equal(8);
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
@@ -3385,15 +3399,15 @@ describe("IModelTransformerHub", () => {
           const targetScopeProvenance =
             scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
 
-          expect(targetScopeProvenance.version).to.match(/;3$/);
+          expect(targetScopeProvenance.version).to.match(/;4$/);
           const targetScopeJsonProps = JSON.parse(
             targetScopeProvenance.jsonProperties
           );
           expect(targetScopeJsonProps).to.deep.subsetEqual({
-            pendingReverseSyncChangesetIndices: [6],
-            pendingSyncChangesetIndices: [4],
+            pendingReverseSyncChangesetIndices: [8],
+            pendingSyncChangesetIndices: [5],
           });
-          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;5$/);
+          expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;7$/);
         },
       },
       { branch: { sync: ["master"] } },
