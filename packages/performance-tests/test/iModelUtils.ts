@@ -27,7 +27,9 @@ export function setToStandalone(iModelPath: string) {
   nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
   nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
   nativeDb.saveChanges(); // save change to briefcaseId
-  nativeDb.closeIModel();
+  // handle cross-version usage of internal API
+  (nativeDb as any)?.closeIModel?.();
+  (nativeDb as any)?.closeFile?.();
 }
 
 export function generateTestIModel(iModelParam: IModelParams): TestIModel {
