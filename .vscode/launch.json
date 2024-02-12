@@ -7,7 +7,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Unit tests",
+            "name": "Regression Tests",
             "runtimeExecutable": "npm",
             "cwd": "${workspaceFolder}/packages/performance-tests/",
             "runtimeArgs": [
