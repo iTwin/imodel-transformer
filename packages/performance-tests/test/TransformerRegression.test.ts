@@ -106,7 +106,6 @@ const setupTestData = async () => {
     });
 
   await authClient.signIn();
-  console.log("signin complete");
 
   const hostConfig = new IModelHostConfiguration();
   hostConfig.authorizationClient = authClient;
