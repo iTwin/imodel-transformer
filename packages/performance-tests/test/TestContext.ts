@@ -40,7 +40,7 @@ export async function *getTestIModels(filter: (iModel: TestIModel) => boolean) {
       authorization: AccessTokenAdapter.toAuthorizationCallback(
         await IModelHost.authorizationClient.getAccessToken()
       ),
-      urlParams: { iTwinId: iTwinId },
+      urlParams: { iTwinId },
     });
 
     for await (const iModel of iModels) {
