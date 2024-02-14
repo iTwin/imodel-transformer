@@ -83,8 +83,9 @@ export type ExporterInitOptions = ExportChangesOptions;
  * Arguments for [[IModelExporter.exportChanges]]
  * @public
  */
-export type ExportChangesOptions = Omit<InitOptions, "startChangeset"> &
-  /**
+export type ExportChangesOptions = Omit<InitOptions, "startChangeset"> & {
+  skipPropagateChangesToRootElements?: boolean;
+} & /**
    * an array of ChangesetFileProps which are used to read the changesets and populate the ChangedInstanceIds using [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]]
    * @note mutually exclusive with @see changesetRanges, @see startChangeset and @see changedInstanceIds, so define one of the four, never more
    */
@@ -464,8 +465,12 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    await this.exportModelContents(IModel.repositoryModelId);
-    await this.exportSubModels(IModel.repositoryModelId);
+    if (initOpts.skipPropagateChangesToRootElements) {
+      await this.exportModelContents(IModel.repositoryModelId);
+      await this.exportSubModels(IModel.repositoryModelId);
+    } else {
+      await this.exportModel(IModel.repositoryModelId);
+    }
     await this.exportAllAspects();
     await this.exportRelationships(ElementRefersToElements.classFullName);
 

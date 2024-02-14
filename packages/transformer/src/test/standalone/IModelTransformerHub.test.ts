@@ -68,14 +68,17 @@ import {
   ModelProps,
   PhysicalElementProps,
   Placement3d,
+  RootSubjectProps,
   SpatialViewDefinitionProps,
   SubCategoryAppearance,
+  SubjectProps,
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   IModelExporter,
   IModelImporter,
   IModelTransformer,
+  TargetScopeProvenanceJsonProps,
   TransformerLoggerCategory,
 } from "../../transformer";
 import {
@@ -1212,6 +1215,45 @@ describe("IModelTransformerHub", () => {
     ];
 
     const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
+    await tearDown();
+  });
+
+  it("should not include 'initialized branch provenance' changeset in a reverse sync", async () => {
+    const validateCsFileProps = (transformer: IModelTransformer) => {
+      const csFileProps = transformer["_csFileProps"];
+      const targetScopeProvenanceProps =
+        transformer["_targetScopeProvenanceProps"];
+      const csWithInitBranchProvenance = csFileProps?.find((csFileProp) =>
+        csFileProp.description.includes("initialized branch provenance")
+      );
+      // expect((targetScopeProvenanceProps.jsonProperties as TargetScopeProvenanceJsonProps).pendingReverseSyncChangesetIndices.)
+      expect(
+        csFileProps?.some((csFileProp) =>
+          csFileProp.description.includes("initialized branch provenance")
+        )
+      ).to.be.false;
+    };
+    const timeline: Timeline = [
+      { master: { 1: 1 } },
+      { master: { 2: 2 } },
+      { master: { 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      {
+        master: {
+          sync: [
+            "branch",
+            { assertStatePostProcessChanges: validateCsFileProps },
+          ],
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
     await tearDown();
   });
 
@@ -3286,7 +3328,7 @@ describe("IModelTransformerHub", () => {
             identifier: master.db.iModelId,
             version: `${master.db.changeset.id};${master.db.changeset.index}`,
             jsonProperties: JSON.stringify({
-              pendingReverseSyncChangesetIndices: [],
+              pendingReverseSyncChangesetIndices: [1],
               pendingSyncChangesetIndices: [],
               reverseSyncVersion: ";0", // not synced yet
             }),
@@ -3458,6 +3500,261 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
+  it("should not propagate changes to rootSubject, repositoryModel, realityDataSourcesModel when skipPropagateChangesToRootElements is true", async () => {
+    const timeline: Timeline = [
+      { master: { 1: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Update models
+            const dictionaryId = IModelDb.dictionaryId;
+            const dict = branch.models.getModelProps(dictionaryId);
+            branch.models.updateModel({ ...dict, jsonProperties: { test: 1 } });
+
+            const repositoryModel = branch.models.getModelProps(
+              IModelDb.repositoryModelId
+            );
+            branch.models.updateModel({
+              ...repositoryModel,
+              jsonProperties: { test: 2 },
+            });
+
+            const realityDataSourcesModel = branch.models.getModelProps("0xe");
+            branch.models.updateModel({
+              ...realityDataSourcesModel,
+              jsonProperties: { test: 3 },
+            });
+
+            // Update Elements now.
+            const rootSubjectFromBranch =
+              branch.elements.getElementProps<SubjectProps>(
+                "0x1"
+              ) as SubjectProps;
+            branch.elements.updateElement({
+              ...rootSubjectFromBranch,
+              description: "test description",
+              jsonProperties: { test: 4 },
+            } as SubjectProps);
+
+            const realityDataSourcesElement =
+              branch.elements.getElementProps("0xe");
+            branch.elements.updateElement({
+              ...realityDataSourcesElement,
+              jsonProperties: { test: 5 },
+            });
+
+            const dictionaryElement = branch.elements.getElementProps(
+              IModelDb.dictionaryId
+            );
+            branch.elements.updateElement({
+              ...dictionaryElement,
+              jsonProperties: { test: 6 },
+            });
+          },
+        },
+      },
+      { master: { sync: ["branch"] } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          const dictionaryModelMaster = master.db.models.getModel(
+            IModelDb.dictionaryId
+          );
+          const dictionaryModelBranch = branch.db.models.getModel(
+            IModelDb.dictionaryId
+          );
+          expect(dictionaryModelMaster.jsonProperties.test).to.equal(undefined);
+          expect(dictionaryModelBranch.jsonProperties.test).to.equal(1);
+
+          const repositoryModelMaster = master.db.models.getModel(
+            IModelDb.repositoryModelId
+          );
+          const repositoryModelBranch = branch.db.models.getModel(
+            IModelDb.repositoryModelId
+          );
+          expect(repositoryModelMaster.jsonProperties.test).to.equal(undefined);
+          expect(repositoryModelBranch.jsonProperties.test).to.equal(2);
+
+          const realityDataSourcesModelMaster =
+            master.db.models.getModel("0xe");
+          const realityDataSourcesModelBranch =
+            branch.db.models.getModel("0xe");
+          expect(realityDataSourcesModelMaster.jsonProperties.test).to.equal(
+            undefined
+          );
+          expect(realityDataSourcesModelBranch.jsonProperties.test).to.equal(3);
+
+          const rootSubjectMaster = master.db.elements.getRootSubject();
+          const rootSubjectBranch = branch.db.elements.getRootSubject();
+          expect(rootSubjectMaster.description).to.equal("");
+          expect(rootSubjectBranch.description).to.equal("test description");
+          expect(rootSubjectMaster.jsonProperties.test).to.equal(undefined);
+          expect(rootSubjectBranch.jsonProperties.test).to.equal(4);
+
+          const realityDataSourcesElementMaster =
+            master.db.elements.getElementProps("0xe");
+          const realityDataSourcesElementBranch =
+            branch.db.elements.getElementProps("0xe");
+          expect(realityDataSourcesElementMaster.jsonProperties?.test).to.equal(
+            undefined
+          );
+          expect(realityDataSourcesElementBranch.jsonProperties.test).to.equal(
+            5
+          );
+
+          const dictionaryElementMaster = master.db.elements.getElementProps(
+            IModelDb.dictionaryId
+          );
+          const dictionaryElementBranch = branch.db.elements.getElementProps(
+            IModelDb.dictionaryId
+          );
+          expect(dictionaryElementMaster.jsonProperties?.test).to.equal(
+            undefined
+          );
+          expect(dictionaryElementBranch.jsonProperties.test).to.equal(6);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      transformerOpts: {
+        skipPropagateChangesToRootElements: true,
+      },
+    });
+
+    await tearDown();
+  });
+
+  it("should propagate changes to elements and models of rootSubject, dictionary, and realityDataSourcesElement", async () => {
+    const timeline: Timeline = [
+      { master: { 1: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Update models
+            const dictionaryId = IModelDb.dictionaryId;
+            const dict = branch.models.getModelProps(dictionaryId);
+            branch.models.updateModel({ ...dict, jsonProperties: { test: 1 } });
+
+            const repositoryModel = branch.models.getModelProps(
+              IModelDb.repositoryModelId
+            );
+            branch.models.updateModel({
+              ...repositoryModel,
+              jsonProperties: { test: 2 },
+            });
+
+            const realityDataSourcesModel = branch.models.getModelProps("0xe");
+            branch.models.updateModel({
+              ...realityDataSourcesModel,
+              jsonProperties: { test: 3 },
+            });
+
+            // Update Elements now.
+            const rootSubjectFromBranch =
+              branch.elements.getElementProps<SubjectProps>(
+                "0x1"
+              ) as SubjectProps;
+            branch.elements.updateElement({
+              ...rootSubjectFromBranch,
+              description: "test description",
+              jsonProperties: { test: 4 },
+            } as SubjectProps);
+
+            const realityDataSourcesElement =
+              branch.elements.getElementProps("0xe");
+            branch.elements.updateElement({
+              ...realityDataSourcesElement,
+              jsonProperties: { test: 5 },
+            });
+
+            const dictionaryElement = branch.elements.getElementProps(
+              IModelDb.dictionaryId
+            );
+            branch.elements.updateElement({
+              ...dictionaryElement,
+              jsonProperties: { test: 6 },
+            });
+          },
+        },
+      },
+      { master: { sync: ["branch"] } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          const dictionaryModelMaster = master.db.models.getModel(
+            IModelDb.dictionaryId
+          );
+          const dictionaryModelBranch = branch.db.models.getModel(
+            IModelDb.dictionaryId
+          );
+          expect(dictionaryModelMaster.jsonProperties.test).to.equal(1);
+          expect(dictionaryModelBranch.jsonProperties.test).to.equal(1);
+
+          const repositoryModelMaster = master.db.models.getModel(
+            IModelDb.repositoryModelId
+          );
+          const repositoryModelBranch = branch.db.models.getModel(
+            IModelDb.repositoryModelId
+          );
+          expect(repositoryModelMaster.jsonProperties.test).to.equal(2);
+          expect(repositoryModelBranch.jsonProperties.test).to.equal(2);
+
+          const realityDataSourcesModelMaster =
+            master.db.models.getModel("0xe");
+          const realityDataSourcesModelBranch =
+            branch.db.models.getModel("0xe");
+          expect(realityDataSourcesModelMaster.jsonProperties.test).to.equal(3);
+          expect(realityDataSourcesModelBranch.jsonProperties.test).to.equal(3);
+
+          const rootSubjectMaster = master.db.elements.getRootSubject();
+          const rootSubjectBranch = branch.db.elements.getRootSubject();
+          expect(rootSubjectMaster.description).to.equal(
+            rootSubjectBranch.description
+          );
+          expect(rootSubjectBranch.description).to.equal("test description");
+          expect(rootSubjectMaster.jsonProperties.test).to.equal(4);
+          expect(rootSubjectBranch.jsonProperties.test).to.equal(4);
+
+          const realityDataSourcesElementMaster =
+            master.db.elements.getElementProps("0xe");
+          const realityDataSourcesElementBranch =
+            branch.db.elements.getElementProps("0xe");
+          expect(realityDataSourcesElementMaster.jsonProperties.test).to.equal(
+            5
+          );
+          expect(realityDataSourcesElementBranch.jsonProperties.test).to.equal(
+            5
+          );
+
+          const dictionaryElementMaster = master.db.elements.getElementProps(
+            IModelDb.dictionaryId
+          );
+          const dictionaryElementBranch = branch.db.elements.getElementProps(
+            IModelDb.dictionaryId
+          );
+          expect(dictionaryElementMaster.jsonProperties.test).to.equal(6);
+          expect(dictionaryElementBranch.jsonProperties.test).to.equal(6);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    await tearDown();
+  });
+
   // FIXME: As a side effect of fixing a bug in findRangeContaining, we error out with no changesummary data because we now properly skip changesetindices
   // i.e. a range [4,4] with skip 4 now properly gets skipped. so we have no changesummary data. We need to revisit this after switching to affan's new API
   // to read changesets directly.
@@ -3477,7 +3774,7 @@ describe("IModelTransformerHub", () => {
             0
           );
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            9
+            10
           );
 
           const scopeProvenanceCandidates = branch.db.elements
@@ -3497,7 +3794,7 @@ describe("IModelTransformerHub", () => {
             identifier: master.db.iModelId,
             version: `${master.db.changeset.id};${master.db.changeset.index}`,
             jsonProperties: JSON.stringify({
-              pendingReverseSyncChangesetIndices: [],
+              pendingReverseSyncChangesetIndices: [1],
               pendingSyncChangesetIndices: [],
               reverseSyncVersion: ";0", // not synced yet
             }),

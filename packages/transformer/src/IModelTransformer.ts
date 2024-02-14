@@ -268,6 +268,11 @@ export interface IModelTransformOptions {
    * @default "reject"
    */
   branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
+  /**
+   * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
+   * @default false
+   */
+  skipPropagateChangesToRootElements?: boolean;
 }
 
 /**
@@ -684,27 +689,12 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer = new IModelImporter(target, {
         preserveElementIdsForFiltering:
           this._options.preserveElementIdsForFiltering,
+        skipPropagateChangesToRootElements:
+          this._options.skipPropagateChangesToRootElements,
       });
     } else {
       this.importer = target;
-      /* eslint-disable deprecation/deprecation */
-      if (
-        Boolean(this._options.preserveElementIdsForFiltering) !==
-        this.importer.preserveElementIdsForFiltering
-      ) {
-        Logger.logWarning(
-          loggerCategory,
-          [
-            "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.",
-            "The custom importer target's option will be force updated to use the transformer's value.",
-            "This behavior is deprecated and will be removed in a future version, throwing an error if they are out of sync.",
-          ].join("\n")
-        );
-        this.importer.preserveElementIdsForFiltering = Boolean(
-          this._options.preserveElementIdsForFiltering
-        );
-      }
-      /* eslint-enable deprecation/deprecation */
+      this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
     // create the IModelCloneContext, it must be initialized later
@@ -729,6 +719,30 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
+  }
+
+  /** validates that the importer set on the transformer has the same values for its shared options as the transformer.
+   *  @note This expects that the importer is already set on the transformer.
+   */
+  private validateSharedOptionsMatch() {
+    if (
+      Boolean(this._options.preserveElementIdsForFiltering) !==
+      this.importer.options.preserveElementIdsForFiltering
+    ) {
+      const errMessage =
+        "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.";
+      Logger.logError(loggerCategory, errMessage);
+      throw new Error(errMessage);
+    }
+    if (
+      Boolean(this._options.skipPropagateChangesToRootElements) !==
+      this.importer.options.skipPropagateChangesToRootElements
+    ) {
+      const errMessage =
+        "A custom importer was passed as a target but its 'skipPropagateChangesToRootElements' option is out of sync with the transformer's option.";
+      Logger.logError(loggerCategory, errMessage);
+      throw new Error(errMessage);
+    }
   }
 
   /** Dispose any native resources associated with this IModelTransformer. */
@@ -1160,11 +1174,11 @@ export class IModelTransformer extends IModelExportHandler {
       ? args.provenanceSourceDb
       : args.provenanceDb;
 
+    // FIXME<NICK>: I removed the where e.ecinstanceId not in (0x1, 0xe, 0x10) here. I wonder if we need to special case it for the propagatechangesoption.
     // query for provenanceDb
     const elementIdByFedGuidQuery = `
       SELECT e.ECInstanceId, FederationGuid
       FROM bis.Element e
-      WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements
       ORDER BY FederationGuid
     `;
 
@@ -1934,9 +1948,11 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformModel]] and then [IModelImporter.importModel]($transformer) to update the target iModel.
    */
   public override onExportModel(sourceModel: Model): void {
-    if (IModel.repositoryModelId === sourceModel.id) {
+    if (
+      this._options.skipPropagateChangesToRootElements &&
+      IModel.repositoryModelId === sourceModel.id
+    )
       return; // The RepositoryModel should not be directly imported
-    }
     const targetModeledElementId: Id64String = this.context.findTargetElementId(
       sourceModel.id
     );
@@ -2140,9 +2156,24 @@ export class IModelTransformer extends IModelExportHandler {
       this._targetScopeProvenanceProps.version = sourceVersion;
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         targetVersion;
+      if (this._startingChangesetIndices) {
+        nodeAssert(
+          this.targetDb.changeset.index !== undefined,
+          "changeset didn't exist"
+        );
+        for (
+          let i = this._startingChangesetIndices.target + 1;
+          i <= this.targetDb.changeset.index + 1;
+          i++
+        )
+          this._targetScopeProvenanceProps.jsonProperties.pendingReverseSyncChangesetIndices.push(
+            i
+          );
+      }
     } else if (this.isReverseSynchronization) {
       const oldVersion =
         this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
+
       Logger.logInfo(
         loggerCategory,
         `updating reverse version from ${oldVersion} to ${sourceVersion}`
@@ -2158,6 +2189,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (this._isSynchronization) {
+      // FIXME<NICK>: Should this be a nodeassert?
       assert(
         this.targetDb.changeset.index !== undefined &&
           this._startingChangesetIndices !== undefined,
@@ -2198,7 +2230,10 @@ export class IModelTransformer extends IModelExportHandler {
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
       if (this.isReverseSynchronization) {
-        nodeAssert(this.sourceDb.changeset.index, "changeset didn't exist");
+        nodeAssert(
+          this.sourceDb.changeset.index !== undefined,
+          "changeset didn't exist"
+        );
         for (
           let i = this._startingChangesetIndices.source + 1;
           i <= this.sourceDb.changeset.index + 1;
@@ -3125,14 +3160,20 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
-    // The RepositoryModel and root Subject of the target iModel should not be transformed.
-    await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-    await this.exporter.exportModelContents(
-      IModel.repositoryModelId,
-      Element.classFullName,
-      true
-    ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-    await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+
+    if (this._options.skipPropagateChangesToRootElements) {
+      // FIXME<NICK>: This option in exportAll was a maybe.
+      // The RepositoryModel and root Subject of the target iModel should not be transformed.
+      await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+      await this.exporter.exportModelContents(
+        IModel.repositoryModelId,
+        Element.classFullName,
+        true
+      ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+      await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+    } else {
+      await this.exporter.exportModel(IModel.repositoryModelId);
+    }
     await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName
@@ -3469,6 +3510,8 @@ export class IModelTransformer extends IModelExportHandler {
   private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
     if (!this._isSynchronization) return {};
     return {
+      skipPropagateChangesToRootElements:
+        this._options.skipPropagateChangesToRootElements ?? false,
       accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }

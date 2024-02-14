@@ -89,7 +89,7 @@ import {
   ViewDetails3dProps,
 } from "@itwin/core-common";
 import { IModelExporter, IModelExportHandler } from "../IModelExporter";
-import { IModelImporter } from "../IModelImporter";
+import { IModelImportOptions, IModelImporter } from "../IModelImporter";
 import {
   IModelTransformer,
   IModelTransformOptions,
@@ -1919,8 +1919,8 @@ export class CountingIModelImporter extends IModelImporter {
   public numRelationshipsInserted: number = 0;
   public numRelationshipsUpdated: number = 0;
   public numRelationshipsDeleted: number = 0;
-  public constructor(targetDb: IModelDb) {
-    super(targetDb);
+  public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
+    super(targetDb, options);
   }
   protected override onInsertModel(modelProps: ModelProps): Id64String {
     this.numModelsInserted++;
@@ -1976,8 +1976,8 @@ export class CountingIModelImporter extends IModelImporter {
 
 /** Specialization of IModelImporter that creates an InformationRecordElement for each PhysicalElement that it imports. */
 export class RecordingIModelImporter extends CountingIModelImporter {
-  public constructor(targetDb: IModelDb) {
-    super(targetDb);
+  public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
+    super(targetDb, options);
   }
   protected override onInsertModel(modelProps: ModelProps): Id64String {
     const modelId: Id64String = super.onInsertModel(modelProps);

@@ -251,6 +251,9 @@ export type TimelineStateChange =
           since?: number;
           initTransformer?: (transformer: IModelTransformer) => void;
           expectThrow?: boolean;
+          assertStatePostProcessChanges?: (
+            transformer: IModelTransformer
+          ) => void;
         },
       ];
     }
@@ -352,6 +355,9 @@ export async function runTimeline(
             since?: number;
             initTransformer?: (transformer: IModelTransformer) => void;
             expectThrow?: boolean;
+            assertStatePostProcessChanges?: (
+              transformer: IModelTransformer
+            ) => void;
           },
         ]
       | undefined;
@@ -481,7 +487,12 @@ export async function runTimeline(
       } else if ("sync" in event) {
         const [
           syncSource,
-          { since: startIndex, initTransformer, expectThrow },
+          {
+            since: startIndex,
+            initTransformer,
+            expectThrow,
+            assertStatePostProcessChanges,
+          },
         ] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
@@ -506,6 +517,7 @@ export async function runTimeline(
             expectThrow === false || expectThrow === undefined,
             "expectThrow was set to true and transformer succeeded."
           ).to.be.true;
+          assertStatePostProcessChanges?.(syncer);
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
