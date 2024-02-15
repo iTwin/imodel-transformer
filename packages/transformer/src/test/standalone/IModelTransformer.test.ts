@@ -976,9 +976,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it.only("should sync Team iModels into Shared", async () => {
-    Logger.initializeToConsole();
-    Logger.setLevelDefault(LogLevel.Trace);
+  it("should sync Team iModels into Shared", async () => {
     const iModelShared: SnapshotDb =
       IModelTransformerTestUtils.createSharedIModel(outputDir, ["A", "B"]);
 
@@ -1009,9 +1007,6 @@ describe("IModelTransformer", () => {
         }
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      // I'm not convinced this is the right thing to do. If rootsubject is remapped, then we need to not export the model which houses it.
-      // I think this will mean that the subjectId never makes it into shared, which it should! because its the top level subject for the entire team iModel I think.
-      // More like it means that any changes made to the rootsubject in the team iModel will not make it into the shared iModel I believe!
       transformerA2S.importer.doNotUpdateElementIds.add(subjectId);
       await transformerA2S.processAll();
       transformerA2S.dispose();
@@ -1050,9 +1045,6 @@ describe("IModelTransformer", () => {
         }
       );
       transformerB2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      // I'm not convinced this is the right thing to do. If rootsubject is remapped, then we need to not export the model which houses it.
-      // I think this will mean that the subjectId never makes it into shared, which it should! because its the top level subject for the entire team iModel I think.
-      // More like it means that any changes made to the rootsubject in the team iModel will not make it into the shared iModel I believe!
       transformerB2S.importer.doNotUpdateElementIds.add(subjectId);
       await transformerB2S.processAll();
       transformerB2S.dispose();
