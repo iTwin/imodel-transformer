@@ -1082,12 +1082,10 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version =
-        foundEsaProps.version !== undefined
-          ? foundEsaProps.version
-          : this._options.ignoreNoBranchRelationshipData
+      aspectProps.version = foundEsaProps.version ??
+          (this._options.ignoreNoBranchRelationshipData
             ? ""
-            : undefined;
+            : undefined);
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
         : this._options.ignoreNoBranchRelationshipData
