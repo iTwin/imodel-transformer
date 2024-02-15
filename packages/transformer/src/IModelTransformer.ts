@@ -2099,7 +2099,7 @@ export class IModelTransformer extends IModelExportHandler {
       !force &&
       this._sourceChangeDataState !== "has-changes" &&
       !this._isProvenanceInitTransform;
-    if (notForcedAndHasNoChangesAndIsntInitTransform) return;
+    if (notForcedAndHasNoChangesAndIsntProvenanceInit) return;
 
     nodeAssert(this._targetScopeProvenanceProps);
 
