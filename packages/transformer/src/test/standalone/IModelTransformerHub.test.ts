@@ -3255,11 +3255,10 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
-  it("should fail older iModels without new versioning behavior unless ignoreNoBranchRelationshipData is true", async () => {
+  it("should fail older iModels without new versioning behavior unless allowNoBranchRelationshipData is true", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
-    const setIgnoreNoBranchRelationshipData = (
-      transformer: IModelTransformer
-    ) => (transformer["_options"]["ignoreNoBranchRelationshipData"] = true);
+    const setallowNoBranchRelationshipData = (transformer: IModelTransformer) =>
+      (transformer["_options"]["allowNoBranchRelationshipData"] = true);
     const timeline: Timeline = [
       { master: { 1: 1 } },
       { master: { 2: 2 } },
@@ -3342,7 +3341,7 @@ describe("IModelTransformerHub", () => {
       {
         branch: {
           manualUpdate(branch) {
-            // Remove both and make sure it passes with both removed + setIgnoreNoBranchRelationshipData
+            // Remove both and make sure it passes with both removed + setallowNoBranchRelationshipData
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               jsonProperties: undefined,
@@ -3357,7 +3356,7 @@ describe("IModelTransformerHub", () => {
             "master",
             {
               expectThrow: false,
-              initTransformer: setIgnoreNoBranchRelationshipData,
+              initTransformer: setallowNoBranchRelationshipData,
             },
           ],
         },
@@ -3368,7 +3367,7 @@ describe("IModelTransformerHub", () => {
             "branch",
             {
               expectThrow: false,
-              initTransformer: setIgnoreNoBranchRelationshipData,
+              initTransformer: setallowNoBranchRelationshipData,
             },
           ],
         },

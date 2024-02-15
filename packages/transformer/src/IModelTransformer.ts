@@ -264,10 +264,9 @@ export interface IModelTransformOptions {
    * If true, the version and jsonproperties will be properly set on the scoping ESA @see TargetScopeProvenanceJsonProps after the transformer is complete.
    * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to true is not without risk.
    * @note Depending on the state of the branching relationship at the time of using this option, some data may be lost.
-   * @note It is very unlikely that this option will ever need to be provided.
    * @default false
    */
-  ignoreNoBranchRelationshipData?: boolean;
+  allowNoBranchRelationshipData?: boolean;
 }
 
 /**
@@ -1085,12 +1084,12 @@ export class IModelTransformer extends IModelExportHandler {
       aspectProps.version =
         foundEsaProps.version !== undefined
           ? foundEsaProps.version
-          : this._options.ignoreNoBranchRelationshipData
+          : this._options.allowNoBranchRelationshipData
             ? ""
             : undefined;
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : this._options.ignoreNoBranchRelationshipData
+        : this._options.allowNoBranchRelationshipData
           ? {
               pendingReverseSyncChangesetIndices: [],
               pendingSyncChangesetIndices: [],
