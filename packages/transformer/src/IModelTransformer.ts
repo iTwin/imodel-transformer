@@ -1082,11 +1082,8 @@ export class IModelTransformer extends IModelExportHandler {
       // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
       aspectProps.version =
-        foundEsaProps.version !== undefined
-          ? foundEsaProps.version
-          : this._options.allowNoBranchRelationshipData
-            ? ""
-            : undefined;
+        foundEsaProps.version ??
+        (this._options.allowNoBranchRelationshipData ? "" : undefined);
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
         : this._options.allowNoBranchRelationshipData
@@ -2096,11 +2093,11 @@ export class IModelTransformer extends IModelExportHandler {
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
-    const notForcedAndHasNoChangesAndIsntInitTransform =
+    const notForcedAndHasNoChangesAndIsntProvenanceInit =
       !force &&
       this._sourceChangeDataState !== "has-changes" &&
       !this._isProvenanceInitTransform;
-    if (notForcedAndHasNoChangesAndIsntInitTransform) return;
+    if (notForcedAndHasNoChangesAndIsntProvenanceInit) return;
 
     nodeAssert(this._targetScopeProvenanceProps);
 
