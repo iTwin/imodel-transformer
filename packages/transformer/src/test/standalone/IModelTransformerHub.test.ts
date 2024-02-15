@@ -3255,7 +3255,7 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
-  it.only("should fail older iModels without new versioning behavior unless allowNoBranchRelationshipData is true", async () => {
+  it("should fail processingChanges on pre-version-tracking forks unless allowNoBranchRelationshipData is true", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
     const setallowNoBranchRelationshipData = (transformer: IModelTransformer) =>
       (transformer["_options"]["allowNoBranchRelationshipData"] = true);
