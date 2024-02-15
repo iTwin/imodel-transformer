@@ -540,10 +540,11 @@ export async function runTimeline(
 
         target.state = getIModelState(target.db); // update the tracking state
 
-        if (!isForwardSync && !expectThrow)
-          await saveAndPushChanges(accessToken, source.db, stateMsg);
-        if (!expectThrow)
+        if (!expectThrow) {
+          if (!isForwardSync)
+            await saveAndPushChanges(accessToken, source.db, stateMsg);
           await saveAndPushChanges(accessToken, target.db, stateMsg);
+        }
       } else {
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
         let stateMsg: string;
