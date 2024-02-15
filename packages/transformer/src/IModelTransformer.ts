@@ -2095,7 +2095,7 @@ export class IModelTransformer extends IModelExportHandler {
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
-    const notForcedAndHasNoChangesAndIsntInitTransform =
+    const notForcedAndHasNoChangesAndIsntProvenanceInit =
       !force &&
       this._sourceChangeDataState !== "has-changes" &&
       !this._isProvenanceInitTransform;
