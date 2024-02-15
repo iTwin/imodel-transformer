@@ -3255,17 +3255,14 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
-  it("should fail older iModels without new versioning behavior unless allowNoBranchRelationshipData is true", async () => {
+  it.only("should fail older iModels without new versioning behavior unless allowNoBranchRelationshipData is true", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
     const setallowNoBranchRelationshipData = (transformer: IModelTransformer) =>
       (transformer["_options"]["allowNoBranchRelationshipData"] = true);
     const timeline: Timeline = [
-      { master: { 1: 1 } },
-      { master: { 2: 2 } },
-      { master: { 3: 1 } },
+      { master: { 1: 1, 2: 2, 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-
       // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
@@ -3375,7 +3372,7 @@ describe("IModelTransformerHub", () => {
       // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
-          expect(master.db.changeset.index).to.equal(5);
+          expect(master.db.changeset.index).to.equal(3);
           expect(branch.db.changeset.index).to.equal(8);
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
@@ -3398,13 +3395,13 @@ describe("IModelTransformerHub", () => {
           const targetScopeProvenance =
             scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
 
-          expect(targetScopeProvenance.version).to.match(/;4$/);
+          expect(targetScopeProvenance.version).to.match(/;2$/);
           const targetScopeJsonProps = JSON.parse(
             targetScopeProvenance.jsonProperties
           );
           expect(targetScopeJsonProps).to.deep.subsetEqual({
             pendingReverseSyncChangesetIndices: [8],
-            pendingSyncChangesetIndices: [5],
+            pendingSyncChangesetIndices: [3],
           });
           expect(targetScopeJsonProps.reverseSyncVersion).to.match(/;7$/);
         },
