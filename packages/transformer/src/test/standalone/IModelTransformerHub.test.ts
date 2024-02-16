@@ -3379,13 +3379,14 @@ describe("IModelTransformerHub", () => {
           );
           /**
            * We expect 11 ESAs since we are passing forceExternalSourceAspectProvenance: true which puts an ESA on each element.
-           * 1 for the scoping ESA which describes the sync relationship between master and branch.
-           * 1 for 0x1 (RootSubject)
-           * 1 for 0xe (RealityDataSourcesLinkPartition)
-           * 1 for 0x10 (DefinitionPartition)
+           * There are 10 elements in our database at this point in time so that accounts for 10 of 11 ESAs.
+           * The 10 Elements:
+           * 0x1 (RootSubject)
+           * 0xe (RealityDataSourcesLinkPartition)
+           * 0x10 (DefinitionPartition)
            * 1 for each PhysicalObject added to the db in timelinetestutil.ts (we added 4)
            * In order for PhysicalObjects to exist, our db also needs a SpatialCategory,SubCategory, and a PhysicalPartition, so one ESA for each of those elements (3 ESAs)
-           * Totalling 11.
+           * The 11th ESA is the scoping ESA which describes the sync relationship between master and branch, and this lives on the [[IModelTransformOptions.targetScopeElementId]]
            */
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
             11
