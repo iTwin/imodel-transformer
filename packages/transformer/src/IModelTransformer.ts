@@ -264,6 +264,7 @@ export interface IModelTransformOptions {
    * If true, the version and jsonproperties will be properly set on the scoping ESA @see TargetScopeProvenanceJsonProps after the transformer is complete.
    * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to true is not without risk.
    * @note Depending on the state of the branching relationship at the time of using this option, some data may be lost.
+   * @note This should only need to be done at most once for a branching relationship.
    * @default false
    */
   allowNoBranchRelationshipData?: boolean;
