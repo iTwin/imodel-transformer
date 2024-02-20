@@ -249,7 +249,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.isAtLeast(targetImporter.numElementsInserted, 1);
       assert.isAtLeast(targetImporter.numElementsUpdated, 1);
-      assert.equal(targetImporter.numElementsDeleted, 0);
+      assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
       assert.isAtLeast(targetImporter.numElementAspectsInserted, 1);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.isAtLeast(targetImporter.numRelationshipsInserted, 1);
@@ -362,7 +362,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numElementsInserted, 0);
       // TODO: explain which elements are updated
       assert.equal(targetImporter.numElementsUpdated, 38);
-      assert.equal(targetImporter.numElementsDeleted, 0);
+      assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.equal(targetImporter.numRelationshipsInserted, 0);
@@ -420,8 +420,9 @@ describe("IModelTransformer", () => {
        * There are 5 elements deleted in TransformerExtensiveTestScenario.updateDb, but only 4 detected.
        * This is because PhysicalObject6's code is scoped to PhysicalObject5. When PhysicalObject5 is deleted, PhysicalObject6 is also deleted in the superclasses
        * of the RecordingIModelImporter and therefore can't be detected by the RecordingIModelImporter.
+       * The deletion of PhysicalObject6 is asserted in [[TransformerExtensiveTestScenario.assertUpdatesInDb]] when assertDeletes is true.
        */
-      assert.equal(targetImporter.numElementsDeleted, 4);
+      assert.equal(targetImporter.numElementsExplicitlyDeleted, 4);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 2);
       assert.equal(targetImporter.numRelationshipsInserted, 2);

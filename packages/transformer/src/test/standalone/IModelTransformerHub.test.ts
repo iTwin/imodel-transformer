@@ -337,7 +337,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(targetImporter.numModelsUpdated, 0);
         assert.equal(targetImporter.numElementsInserted, 0);
         expect(targetImporter.numElementsUpdated).to.equal(0);
-        assert.equal(targetImporter.numElementsDeleted, 0);
+        assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
         assert.equal(targetImporter.numElementAspectsInserted, 0);
         assert.equal(targetImporter.numElementAspectsUpdated, 0);
         assert.equal(targetImporter.numRelationshipsInserted, 0);

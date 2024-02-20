@@ -1909,7 +1909,12 @@ export class CountingIModelImporter extends IModelImporter {
   public numModelsUpdated: number = 0;
   public numElementsInserted: number = 0;
   public numElementsUpdated: number = 0;
-  public numElementsDeleted: number = 0;
+  /**
+   * This property does not include implicit deletions that occur when deleting trees.
+   * Consider two PhysicalObjects A and B. PhysicalObject A has a code whose scope is PhysicalObject B. When PhysicalObject B is deleted,
+   * PhysicalObject A gets deleted as a part of a cascading delete. The cascading delete is not recorded by onDeleteElement in this class.
+   */
+  public numElementsExplicitlyDeleted: number = 0;
   public numElementAspectsInserted: number = 0;
   public numElementAspectsUpdated: number = 0;
   public numRelationshipsInserted: number = 0;
@@ -1935,7 +1940,7 @@ export class CountingIModelImporter extends IModelImporter {
     super.onUpdateElement(elementProps);
   }
   protected override onDeleteElement(elementId: Id64String): void {
-    this.numElementsDeleted++;
+    this.numElementsExplicitlyDeleted++;
     super.onDeleteElement(elementId);
   }
   protected override onInsertElementAspect(
