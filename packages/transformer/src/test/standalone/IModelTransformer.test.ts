@@ -382,6 +382,10 @@ describe("IModelTransformer", () => {
       );
       assert.equal(
         3,
+        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
+      );
+      assert.equal(
+        3,
         count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
       );
       transformer.dispose();
@@ -434,10 +438,12 @@ describe("IModelTransformer", () => {
           targetImporter.numRelationshipsDeleted,
         count(targetDb, ElementRefersToElements.classFullName)
       );
-      // FIXME<NICK>: I saw that the previous commit which added this FIXME: why changed the test from 3 to 2. But now in my test its producing 2.
-      // Should I determine why this is the case? Or was it the 3 that makes no sense and the 2 does? I do not understand either number at the moment.
+      // We deleted one of the 3 SourceInformationRecords in TransformerExtensiveTestScenario.updateDb, so expect to find 2 now.
       expect(
         count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
+      ).to.equal(2);
+      expect(
+        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
       ).to.equal(2);
       transformer.dispose();
     }
