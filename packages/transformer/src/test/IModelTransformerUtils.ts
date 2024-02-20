@@ -931,9 +931,10 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
   public static assertTargetDbContents(
     sourceDb: IModelDb,
     targetDb: IModelDb,
-    targetSubjectName: string = "Subject",
-    expectEsas: boolean = false
+    options?: { expectEsas?: boolean; targetSubjectName?: string }
   ): void {
+    const expectEsas = options?.expectEsas ?? false;
+    const targetSubjectName = options?.targetSubjectName ?? "Subject";
     const assertTargetElement = (targetElementId: Id64String) => {
       assert.isTrue(Id64.isValidId64(targetElementId));
       const element: Element = targetDb.elements.getElement(targetElementId);

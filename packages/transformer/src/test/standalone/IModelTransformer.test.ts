@@ -285,8 +285,7 @@ describe("IModelTransformer", () => {
       TransformerExtensiveTestScenario.assertTargetDbContents(
         sourceDb,
         targetDb,
-        undefined,
-        true
+        { expectEsas: true }
       );
       transformer.context.dump(`${targetDbFile}.context.txt`);
       transformer.dispose();
@@ -602,7 +601,7 @@ describe("IModelTransformer", () => {
     TransformerExtensiveTestScenario.assertTargetDbContents(
       sourceDb,
       targetDb,
-      "Target Subject"
+      { targetSubjectName: "Target Subject" }
     );
     const targetSubject: Subject =
       targetDb.elements.getElement<Subject>(targetSubjectId);
