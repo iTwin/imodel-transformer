@@ -72,10 +72,12 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelExporter } from "../../IModelExporter";
-import { IModelImporter } from "../../IModelImporter";
-import { IModelTransformer } from "../../IModelTransformer";
-import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+import {
+  IModelExporter,
+  IModelImporter,
+  IModelTransformer,
+  TransformerLoggerCategory,
+} from "../../transformer";
 import {
   CountingIModelImporter,
   HubWrappers,
