@@ -3255,10 +3255,13 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
-  it("should fail processingChanges on pre-version-tracking forks unless allowNoBranchRelationshipData is true", async () => {
+  it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
-    const setallowNoBranchRelationshipData = (transformer: IModelTransformer) =>
-      (transformer["_options"]["allowNoBranchRelationshipData"] = true);
+    const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
+      transformer: IModelTransformer
+    ) =>
+      (transformer["_options"]["branchRelationshipDataBehavior"] =
+        "unsafe-migrate");
     const timeline: Timeline = [
       { master: { 1: 1, 2: 2, 3: 1 } },
       { branch: { branch: "master" } },
@@ -3353,7 +3356,7 @@ describe("IModelTransformerHub", () => {
             "master",
             {
               expectThrow: false,
-              initTransformer: setallowNoBranchRelationshipData,
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
             },
           ],
         },
@@ -3364,7 +3367,7 @@ describe("IModelTransformerHub", () => {
             "branch",
             {
               expectThrow: false,
-              initTransformer: setallowNoBranchRelationshipData,
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
             },
           ],
         },

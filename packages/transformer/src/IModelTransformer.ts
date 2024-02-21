@@ -262,12 +262,12 @@ export interface IModelTransformOptions {
   /**
    * Do not error out if a scoping ESA @see ExternalSourceAspectProps is found without a version or jsonProperties defined on that scoping ESA.
    * If true, the version and jsonproperties will be properly set on the scoping ESA @see TargetScopeProvenanceJsonProps after the transformer is complete.
-   * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to true is not without risk.
-   * @note Depending on the state of the branching relationship at the time of using this option, some data may be lost.
-   * @note This should only need to be done at most once for a branching relationship.
-   * @default false
+   * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to 'unsafe-migrate' is not without risk.
+   * Depending on the state of the branching relationship at the time of using this option, some data may be lost.
+   * @note This should only need to be set to 'unsafe-migrate' at most once for a branching relationship. For future transformations on the branching relationship, the @see TargetScopeProvenanceJsonProps will be present.
+   * @default "reject"
    */
-  allowNoBranchRelationshipData?: boolean;
+  branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
 }
 
 /**
@@ -625,6 +625,8 @@ export class IModelTransformer extends IModelExportHandler {
         options?.danglingReferencesBehavior ??
         options?.danglingPredecessorsBehavior ??
         "reject",
+      branchRelationshipDataBehavior:
+        options?.branchRelationshipDataBehavior ?? "reject",
     };
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
@@ -1084,10 +1086,12 @@ export class IModelTransformer extends IModelExportHandler {
       aspectProps.id = foundEsaProps.aspectId;
       aspectProps.version =
         foundEsaProps.version ??
-        (this._options.allowNoBranchRelationshipData ? "" : undefined);
+        (this._options.branchRelationshipDataBehavior === "unsafe-migrate"
+          ? ""
+          : undefined);
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : this._options.allowNoBranchRelationshipData
+        : this._options.branchRelationshipDataBehavior === "unsafe-migrate"
           ? {
               pendingReverseSyncChangesetIndices: [],
               pendingSyncChangesetIndices: [],
