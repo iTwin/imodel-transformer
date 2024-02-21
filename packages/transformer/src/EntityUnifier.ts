@@ -26,8 +26,6 @@ import {
 } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
 
-Element;
-
 /** @internal */
 export namespace EntityUnifier {
   export function getReadableType(entity: ConcreteEntity) {
