@@ -2247,13 +2247,11 @@ export class IModelTransformer extends IModelExportHandler {
     } iModel: ${this.sourceDb.iModelId}`;
 
     if (this.targetDb.isBriefcaseDb()) {
-      // FIXME<NICK> This relies on them defining an authorizationClient on iModelHost, otherwise this will fail. Not sure thats good.
       await this.targetDb.pushChanges({
         description,
       });
     }
     if (this.isReverseSynchronization && this.sourceDb.isBriefcaseDb()) {
-      // FIXME<NICK> This relies on them defining an authorizationClient on iModelHost, otherwise this will fail. Not sure thats good.
       await this.sourceDb.pushChanges({
         description: `Update provenance in response to a reverse sync to iModel: ${this.targetDb.iModelId}`,
       });
