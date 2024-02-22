@@ -1955,7 +1955,9 @@ export class IModelTransformer extends IModelExportHandler {
       sourceModel.id
     );
     // there can only be one repositoryModel per database, so ignore the repo model on remapped subjects
-    const isRemappedRootSubject = sourceModel.id === IModel.repositoryModelId && targetModeledElementId != sourceModel.id;
+    const isRemappedRootSubject =
+      sourceModel.id === IModel.repositoryModelId &&
+      targetModeledElementId != sourceModel.id;
     if (isRemappedRootSubject) return;
     const targetModelProps: ModelProps = this.onTransformModel(
       sourceModel,
@@ -2190,8 +2192,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (this._isSynchronization) {
-      // FIXME<NICK>: Should this be a nodeassert?
-      assert(
+      nodeAssert(
         this.targetDb.changeset.index !== undefined &&
           this._startingChangesetIndices !== undefined,
         "updateSynchronizationVersion was called without change history"
