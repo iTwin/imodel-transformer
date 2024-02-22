@@ -2277,11 +2277,13 @@ export class IModelTransformer extends IModelExportHandler {
     }`;
 
     if (this.targetDb.isBriefcaseDb()) {
+      // This relies on authorizationClient on iModelHost being defined, otherwise this will fail
       await this.targetDb.pushChanges({
         description,
       });
     }
     if (this.isReverseSynchronization && this.sourceDb.isBriefcaseDb()) {
+      // This relies on authorizationClient on iModelHost being defined, otherwise this will fail
       await this.sourceDb.pushChanges({
         description:
           options?.reverseSyncBranchChangesetDescription ??
