@@ -1954,16 +1954,9 @@ export class IModelTransformer extends IModelExportHandler {
     const targetModeledElementId: Id64String = this.context.findTargetElementId(
       sourceModel.id
     );
-    if (
-      sourceModel.id === IModel.repositoryModelId &&
-      targetModeledElementId != sourceModel.id
-    ) {
-      /**
-       * The repositoryModel should not be directly imported if its targetModeledElementId is different than the sourceModel.id, since this means the repositoryModel/rootSubject was remapped.
-       * There can only be one repositoryModel per database so we will return early and not import it.
-       */
-      return;
-    }
+    // there can only be one repositoryModel per database, so ignore the repo model on remapped subjects
+    const isRemappedRootSubject = sourceModel.id === IModel.repositoryModelId && targetModeledElementId != sourceModel.id;
+    if (isRemappedRootSubject) return;
     const targetModelProps: ModelProps = this.onTransformModel(
       sourceModel,
       targetModeledElementId
