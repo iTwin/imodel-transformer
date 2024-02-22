@@ -3257,6 +3257,7 @@ describe("IModelTransformerHub", () => {
 
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
+    let targetScopeElementId: Id64String | undefined;
     const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
       transformer: IModelTransformer
     ) =>
@@ -3292,6 +3293,8 @@ describe("IModelTransformerHub", () => {
             }),
           } as ExternalSourceAspectProps);
           targetScopeProvenanceProps = targetScopeProvenance;
+
+          targetScopeElementId = targetScopeProvenanceProps.scope.id;
         },
       },
       {
@@ -3380,20 +3383,30 @@ describe("IModelTransformerHub", () => {
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
-          /**
-           * We expect 11 ESAs since we are passing forceExternalSourceAspectProvenance: true which puts an ESA on each element.
-           * There are 10 elements in our database at this point in time so that accounts for 10 of 11 ESAs.
-           * The 10 Elements:
-           * 0x1 (RootSubject)
-           * 0xe (RealityDataSourcesLinkPartition)
-           * 0x10 (DefinitionPartition)
-           * 1 for each PhysicalObject added to the db in timelinetestutil.ts (we added 4)
-           * In order for PhysicalObjects to exist, our db also needs a SpatialCategory,SubCategory, and a PhysicalPartition, so one ESA for each of those elements (3 ESAs)
-           * The 11th ESA is the scoping ESA which describes the sync relationship between master and branch, and this lives on the [[IModelTransformOptions.targetScopeElementId]]
-           */
-          expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            11
+
+          const externalAspectCounts = (db: IModelDb) =>
+            db.withPreparedStatement(
+              `
+          SELECT e.ECInstanceId as elementId, COUNT(*) as aspectCount FROM bis.ExternalSourceAspect esa
+          JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
+          GROUP BY e.ECInstanceId
+          `,
+              (s: ECSqlStatement) => [...s]
+            );
+
+          expect(count(branch.db, "bis.ExternalSourceAspect")).to.be.equal(
+            count(master.db, "bis.Element") + 1
           );
+          expect(count(branch.db, "bis.Element")).to.be.equal(
+            count(master.db, "bis.Element")
+          );
+
+          externalAspectCounts(branch.db).forEach((value) => {
+            const { elementId, aspectCount } = value;
+            if (elementId === targetScopeElementId)
+              expect(aspectCount).to.equal(2);
+            else expect(aspectCount).to.equal(1);
+          });
 
           const scopeProvenanceCandidates = branch.db.elements
             .getAspects(
