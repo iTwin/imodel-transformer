@@ -731,7 +731,6 @@ export class IModelTransformer extends IModelExportHandler {
     ) {
       const errMessage =
         "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.";
-      Logger.logError(loggerCategory, errMessage);
       throw new Error(errMessage);
     }
     if (
@@ -740,7 +739,6 @@ export class IModelTransformer extends IModelExportHandler {
     ) {
       const errMessage =
         "A custom importer was passed as a target but its 'skipPropagateChangesToRootElements' option is out of sync with the transformer's option.";
-      Logger.logError(loggerCategory, errMessage);
       throw new Error(errMessage);
     }
   }
