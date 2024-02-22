@@ -376,6 +376,10 @@ export interface InitOptions {
 export type ProcessChangesOptions = ExportChangesOptions &
   FinalizeTransformationOptions;
 
+/**
+ * Options which modify the behavior of [[IModelTransformer.finalizeTransformation]], called at the end of [[IModelTransformer.processAll]] and [[IModelTransformer.processChanges]].
+ * @beta
+ */
 export interface FinalizeTransformationOptions {
   /**
    * This description will be used when the transformer needs to push changes to the branch during a reverse sync.
