@@ -1155,6 +1155,7 @@ export class IModelTransformer extends IModelExportHandler {
     targetScopeElementId: Id64String;
     isReverseSynchronization: boolean;
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
+    skipPropagateChangesToRootElements: boolean;
   }): void {
     if (args.provenanceDb === args.provenanceSourceDb) return;
 
@@ -1172,11 +1173,15 @@ export class IModelTransformer extends IModelExportHandler {
       ? args.provenanceSourceDb
       : args.provenanceDb;
 
-    // FIXME<NICK>: I removed the where e.ecinstanceId not in (0x1, 0xe, 0x10) here. I wonder if we need to special case it for the propagatechangesoption.
     // query for provenanceDb
     const elementIdByFedGuidQuery = `
       SELECT e.ECInstanceId, FederationGuid
       FROM bis.Element e
+      ${
+        args.skipPropagateChangesToRootElements
+          ? "WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements"
+          : ""
+      }
       ORDER BY FederationGuid
     `;
 
@@ -1272,6 +1277,8 @@ export class IModelTransformer extends IModelExportHandler {
       targetScopeElementId: this.targetScopeElementId,
       isReverseSynchronization: this.isReverseSynchronization,
       fn,
+      skipPropagateChangesToRootElements:
+        this._options.skipPropagateChangesToRootElements ?? false,
     });
   }
 
