@@ -990,7 +990,10 @@ describe("IModelTransformer", () => {
       const transformerA2S = new IModelTransformer(
         iModelExporterA,
         iModelShared,
-        { targetScopeElementId: subjectId }
+        {
+          targetScopeElementId: subjectId,
+          danglingReferencesBehavior: "ignore",
+        }
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
       await transformerA2S.processAll();
@@ -1024,7 +1027,10 @@ describe("IModelTransformer", () => {
       const transformerB2S = new IModelTransformer(
         iModelExporterB,
         iModelShared,
-        { targetScopeElementId: subjectId }
+        {
+          targetScopeElementId: subjectId,
+          danglingReferencesBehavior: "ignore",
+        }
       );
       transformerB2S.context.remapElement(IModel.rootSubjectId, subjectId);
       await transformerB2S.processAll();

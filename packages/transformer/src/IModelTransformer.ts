@@ -2209,16 +2209,15 @@ export class IModelTransformer extends IModelExportHandler {
     this.updateSynchronizationVersion();
 
     if (this._partiallyCommittedEntities.size > 0) {
-      // FIXME: throw in this case if danglingReferenceBehavior === reject
-      Logger.logWarning(
-        loggerCategory,
-        [
-          "The following elements were never fully resolved:",
-          [...this._partiallyCommittedEntities.keys()].join(","),
-          "This indicates that either some references were excluded from the transformation",
-          "or the source has dangling references.",
-        ].join("\n")
-      );
+      const message = [
+        "The following elements were never fully resolved:",
+        [...this._partiallyCommittedEntities.keys()].join(","),
+        "This indicates that either some references were excluded from the transformation",
+        "or the source has dangling references.",
+      ].join("\n");
+      if (this._options.danglingReferencesBehavior === "reject")
+        throw new Error(message);
+      Logger.logWarning(loggerCategory, message);
       for (const partiallyCommittedElem of this._partiallyCommittedEntities.values()) {
         partiallyCommittedElem.forceComplete();
       }
