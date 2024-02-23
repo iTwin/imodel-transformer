@@ -70,6 +70,11 @@ export interface IModelImportOptions {
    * @default false
    */
   simplifyElementGeometry?: boolean;
+  /**
+   * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
+   * @default false
+   */
+  skipPropagateChangesToRootElements?: boolean;
 }
 
 /** Base class for importing data into an iModel.
@@ -78,7 +83,7 @@ export interface IModelImportOptions {
  * @see [IModelTransformer]($transformer)
  * @beta
  */
-export class IModelImporter implements Required<IModelImportOptions> {
+export class IModelImporter {
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
 
@@ -86,43 +91,6 @@ export class IModelImporter implements Required<IModelImportOptions> {
    * @beta
    */
   public readonly options: Required<IModelImportOptions>;
-
-  /** If `true` (the default), compute the projectExtents of the target iModel after elements are imported.
-   * The computed projectExtents will either include or exclude *outliers* depending on the `excludeOutliers` flag that defaults to `false`.
-   * @see [[IModelImportOptions.autoExtendProjectExtents]]
-   * @see [IModelImporter Options]($docs/learning/transformer/index.md#IModelImporter)
-   * @deprecated in 3.x. Use [[IModelImporter.options.autoExtendProjectExtents]] instead
-   */
-  public get autoExtendProjectExtents(): Required<IModelImportOptions>["autoExtendProjectExtents"] {
-    return this.options.autoExtendProjectExtents;
-  }
-  public set autoExtendProjectExtents(
-    val: Required<IModelImportOptions>["autoExtendProjectExtents"]
-  ) {
-    this.options.autoExtendProjectExtents = val;
-  }
-
-  /**
-   * See [IModelTransformOptions.preserveElementIdsForFiltering]($transformer)
-   * @deprecated in 3.x. Use [[IModelImporter.options.preserveElementIdsForFiltering]] instead
-   */
-  public get preserveElementIdsForFiltering(): boolean {
-    return this.options.preserveElementIdsForFiltering;
-  }
-  public set preserveElementIdsForFiltering(val: boolean) {
-    this.options.preserveElementIdsForFiltering = val;
-  }
-
-  /**
-   * See [[IModelImportOptions.simplifyElementGeometry]]
-   * @deprecated in 3.x. Use [[IModelImporter.options.simplifyElementGeometry]] instead
-   */
-  public get simplifyElementGeometry(): boolean {
-    return this.options.simplifyElementGeometry;
-  }
-  public set simplifyElementGeometry(val: boolean) {
-    this.options.simplifyElementGeometry = val;
-  }
 
   private static _realityDataSourceLinkPartitionStaticId: Id64String = "0xe";
 
@@ -136,14 +104,18 @@ export class IModelImporter implements Required<IModelImportOptions> {
   private _duplicateCodeValueMap: Map<Id64String, string>;
 
   /** The set of elements that should not be updated by this IModelImporter.
-   * Defaults to the elements that are always present (even in an "empty" iModel) and therefore do not need to be updated
+   * Defaults to an empty set.
    * @note Adding an element to this set is typically necessary when remapping a source element to one that already exists in the target and already has the desired properties.
    */
-  public readonly doNotUpdateElementIds = new Set<Id64String>([
+  public readonly doNotUpdateElementIds = new Set<Id64String>([]);
+
+  /** This set is ONLY used for elements that are always present even in an "empty" iModel. We will use this set to filter out changes to root elements if [[IModelTransformOptions.skipPropagateChangesToRootElements]] is false. */
+  private readonly rootElementIds = new Set<Id64String>([
     IModel.rootSubjectId,
     IModel.dictionaryId,
     IModelImporter._realityDataSourceLinkPartitionStaticId,
   ]);
+
   /** The number of entity changes before incremental progress should be reported via the [[onProgress]] callback. */
   public progressInterval: number = 1000;
   /** Tracks the current total number of entity changes. */
@@ -164,8 +136,23 @@ export class IModelImporter implements Required<IModelImportOptions> {
       preserveElementIdsForFiltering:
         options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
+      skipPropagateChangesToRootElements:
+        options?.skipPropagateChangesToRootElements ?? false,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
+  }
+
+  /**
+   * Checks [[IModelImportOptions.skipPropagateChangesToRootElements]], [[IModelImporter.rootElementIds]], and [[IModelImporter.doNotUpdateElementIds]] and returns true for 'do not update', false for do 'update'.
+   */
+  private doNotUpdateElement(elementId: Id64String): boolean {
+    if (
+      this.options.skipPropagateChangesToRootElements &&
+      this.rootElementIds.has(elementId)
+    )
+      return true;
+    if (this.doNotUpdateElementIds.has(elementId)) return true;
+    return false;
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
@@ -176,7 +163,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
         "Model Id not provided, should be the same as the ModeledElementId"
       );
 
-    if (this.doNotUpdateElementIds.has(modelProps.id)) {
+    if (this.doNotUpdateElement(modelProps.id)) {
       Logger.logInfo(
         loggerCategory,
         `Do not update target model ${modelProps.id}`
@@ -244,7 +231,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
   public importElement(elementProps: ElementProps): Id64String {
     if (
       undefined !== elementProps.id &&
-      this.doNotUpdateElementIds.has(elementProps.id)
+      this.doNotUpdateElement(elementProps.id)
     ) {
       Logger.logInfo(
         loggerCategory,
@@ -262,8 +249,12 @@ export class IModelImporter implements Required<IModelImportOptions> {
       // Categories are the only element that onInserted will immediately insert a new element (their default subcategory)
       // since default subcategories always exist and always will be inserted after their categories, we treat them as an update
       // to prevent duplicate inserts.
+      // Always present elements (0xe, 0x1, 0x10) also will be updated to prevent duplicate inserts.
       // Otherwise we always insert during a preserveElementIdsForFiltering operation
-      if (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) {
+      if (
+        (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) ||
+        this.rootElementIds.has(elementProps.id)
+      ) {
         this.onUpdateElement(elementProps);
       } else {
         this.onInsertElement(elementProps);
@@ -377,7 +368,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
 
   /** Delete the specified Element from the target iModel. */
   public deleteElement(elementId: Id64String): void {
-    if (this.doNotUpdateElementIds.has(elementId)) {
+    if (this.doNotUpdateElement(elementId)) {
       Logger.logInfo(
         loggerCategory,
         `Do not delete target element ${elementId}`

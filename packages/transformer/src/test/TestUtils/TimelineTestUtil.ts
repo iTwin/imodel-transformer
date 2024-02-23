@@ -25,6 +25,7 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
+  FinalizeTransformationOptions,
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
@@ -251,6 +252,10 @@ export type TimelineStateChange =
           since?: number;
           initTransformer?: (transformer: IModelTransformer) => void;
           expectThrow?: boolean;
+          assert?: {
+            afterProcessChanges?: (transformer: IModelTransformer) => void;
+          };
+          finalizeTransformationOptions?: FinalizeTransformationOptions;
         },
       ];
     }
@@ -352,6 +357,10 @@ export async function runTimeline(
             since?: number;
             initTransformer?: (transformer: IModelTransformer) => void;
             expectThrow?: boolean;
+            assert?: {
+              afterProcessChanges?: (transformer: IModelTransformer) => void;
+            };
+            finalizeTransformationOptions?: FinalizeTransformationOptions;
           },
         ]
       | undefined;
@@ -481,7 +490,13 @@ export async function runTimeline(
       } else if ("sync" in event) {
         const [
           syncSource,
-          { since: startIndex, initTransformer, expectThrow },
+          {
+            since: startIndex,
+            initTransformer,
+            expectThrow,
+            assert,
+            finalizeTransformationOptions,
+          },
         ] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
         const isForwardSync = masterOfBranch.get(iModelName) === syncSource;
@@ -501,11 +516,13 @@ export async function runTimeline(
           await syncer.processChanges({
             accessToken,
             startChangeset: startIndex ? { index: startIndex } : undefined,
+            ...finalizeTransformationOptions,
           });
           expect(
             expectThrow === false || expectThrow === undefined,
             "expectThrow was set to true and transformer succeeded."
           ).to.be.true;
+          assert?.afterProcessChanges?.(syncer);
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
