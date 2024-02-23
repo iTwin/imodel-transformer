@@ -1222,12 +1222,6 @@ describe("IModelTransformerHub", () => {
   it("should not include 'initialized branch provenance' changeset in a reverse sync", async () => {
     const validateCsFileProps = (transformer: IModelTransformer) => {
       const csFileProps = transformer["_csFileProps"];
-      const targetScopeProvenanceProps =
-        transformer["_targetScopeProvenanceProps"];
-      const csWithInitBranchProvenance = csFileProps?.find((csFileProp) =>
-        csFileProp.description.includes("initialized branch provenance")
-      );
-      // expect((targetScopeProvenanceProps.jsonProperties as TargetScopeProvenanceJsonProps).pendingReverseSyncChangesetIndices.)
       expect(
         csFileProps?.some((csFileProp) =>
           csFileProp.description.includes("initialized branch provenance")
@@ -1235,16 +1229,14 @@ describe("IModelTransformerHub", () => {
       ).to.be.false;
     };
     const timeline: Timeline = [
-      { master: { 1: 1 } },
-      { master: { 2: 2 } },
-      { master: { 3: 1 } },
+      { master: { 1: 1, 2: 2, 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
       {
         master: {
           sync: [
             "branch",
-            { assertStatePostProcessChanges: validateCsFileProps },
+            { assert: { afterProcessChanges: validateCsFileProps } },
           ],
         },
       },
