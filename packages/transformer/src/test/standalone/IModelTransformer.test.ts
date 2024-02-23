@@ -367,7 +367,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 0);
       // TODO: explain which elements are updated
-      assert.equal(targetImporter.numElementsUpdated, 38);
+      assert.equal(targetImporter.numElementsUpdated, 41);
       assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
@@ -421,7 +421,7 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 1);
-      assert.equal(targetImporter.numElementsUpdated, 33);
+      assert.equal(targetImporter.numElementsUpdated, 36);
       /**
        * There are 5 elements deleted in TransformerExtensiveTestScenario.updateDb, but only 4 detected.
        * This is because PhysicalObject6's code is scoped to PhysicalObject5. When PhysicalObject5 is deleted, PhysicalObject6 is also deleted in the superclasses

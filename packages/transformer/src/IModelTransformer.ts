@@ -3483,6 +3483,8 @@ export class IModelTransformer extends IModelExportHandler {
   private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
     if (!this._isSynchronization) return {};
     return {
+      skipPropagateChangesToRootElements:
+        this._options.skipPropagateChangesToRootElements ?? false,
       accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }

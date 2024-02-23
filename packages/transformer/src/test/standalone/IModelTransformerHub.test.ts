@@ -68,6 +68,7 @@ import {
   ModelProps,
   PhysicalElementProps,
   Placement3d,
+  RootSubjectProps,
   SpatialViewDefinitionProps,
   SubCategoryAppearance,
   SubjectProps,
@@ -3783,6 +3784,89 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
+  it("should allow custom changeset descriptions", async () => {
+    const pushChangeset = sinon.spy(HubMock, "pushChangeset");
+    const csDescriptions: FinalizeTransformationOptions = {
+      forwardSyncBranchChangesetDescription:
+        "this is a test forward sync on the branch",
+      reverseSyncBranchChangesetDescription:
+        "this is a test reverse sync on the branch",
+      reverseSyncMasterChangesetDescription:
+        "this is a test reverse sync on the master",
+    };
+    const makeCsPropsDescriptionMatcher = (description: string) => {
+      return sinon.match.has(
+        "changesetProps",
+        sinon.match.has("description", description)
+      );
+    };
+    const timeline: Timeline = [
+      { master: { 1: 1, 2: 2, 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      {
+        master: {
+          sync: ["branch", { finalizeTransformationOptions: csDescriptions }],
+        },
+      },
+      {
+        assert() {
+          expect(
+            pushChangeset.calledWith(
+              makeCsPropsDescriptionMatcher(
+                csDescriptions.reverseSyncBranchChangesetDescription!
+              )
+            )
+          ).to.be.true;
+          expect(
+            pushChangeset.calledWith(
+              makeCsPropsDescriptionMatcher(
+                csDescriptions.reverseSyncMasterChangesetDescription!
+              )
+            )
+          ).to.be.true;
+
+          // We haven't passed csDescriptions to a forward sync yet so expect false
+          expect(
+            pushChangeset.calledWith(
+              makeCsPropsDescriptionMatcher(
+                csDescriptions.forwardSyncBranchChangesetDescription!
+              )
+            )
+          ).to.be.false;
+        },
+      },
+      { master: { 5: 1 } },
+      {
+        branch: {
+          sync: ["master", { finalizeTransformationOptions: csDescriptions }],
+        },
+      },
+      {
+        assert() {
+          expect(
+            pushChangeset.calledWith(
+              makeCsPropsDescriptionMatcher(
+                csDescriptions.forwardSyncBranchChangesetDescription!
+              )
+            )
+          ).to.be.true;
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      transformerOpts: {
+        // force aspects so that reverse sync has to edit the target
+        forceExternalSourceAspectProvenance: true,
+      },
+    });
+
+    await tearDown();
+  });
+
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
     const masterIModelName = "MasterDeleteRelAndEnds";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
@@ -4698,7 +4782,7 @@ describe("IModelTransformerHub", () => {
             0
           );
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            9
+            10
           );
 
           const scopeProvenanceCandidates = branch.db.elements

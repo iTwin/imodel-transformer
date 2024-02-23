@@ -25,6 +25,7 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
+  FinalizeTransformationOptions,
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
