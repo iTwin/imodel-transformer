@@ -240,14 +240,16 @@ describe("IModelTransformer", () => {
         "=============="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter);
+      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
+        forceExternalSourceAspectProvenance: true,
+      });
       assert.isTrue(transformer.context.isBetweenIModels);
       await transformer.processAll();
       assert.isAtLeast(targetImporter.numModelsInserted, 1);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.isAtLeast(targetImporter.numElementsInserted, 1);
       assert.isAtLeast(targetImporter.numElementsUpdated, 1);
-      assert.equal(targetImporter.numElementsDeleted, 0);
+      assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
       assert.isAtLeast(targetImporter.numElementAspectsInserted, 1);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.isAtLeast(targetImporter.numRelationshipsInserted, 1);
@@ -282,7 +284,8 @@ describe("IModelTransformer", () => {
       targetDb.saveChanges();
       TransformerExtensiveTestScenario.assertTargetDbContents(
         sourceDb,
-        targetDb
+        targetDb,
+        { expectEsas: true }
       );
       transformer.context.dump(`${targetDbFile}.context.txt`);
       transformer.dispose();
@@ -350,14 +353,16 @@ describe("IModelTransformer", () => {
         "================="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter);
+      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
+        forceExternalSourceAspectProvenance: true,
+      });
       await transformer.processAll();
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 0);
       // TODO: explain which elements are updated
       assert.equal(targetImporter.numElementsUpdated, 38);
-      assert.equal(targetImporter.numElementsDeleted, 0);
+      assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.equal(targetImporter.numRelationshipsInserted, 0);
@@ -373,6 +378,10 @@ describe("IModelTransformer", () => {
         numTargetRelationships,
         count(targetDb, ElementRefersToElements.classFullName),
         "Second import should not add relationships"
+      );
+      assert.equal(
+        3,
+        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
       );
       assert.equal(
         3,
@@ -399,28 +408,29 @@ describe("IModelTransformer", () => {
         "==============================="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter);
+      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
+        forceExternalSourceAspectProvenance: true,
+      });
       await transformer.processAll();
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 1);
       assert.equal(targetImporter.numElementsUpdated, 33);
-      // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
-      // use the new force old detect deletes behavior flag here
-      // assert.equal(targetImporter.numElementsDeleted, 5);
+      /**
+       * There are 5 elements deleted in TransformerExtensiveTestScenario.updateDb, but only 4 detected.
+       * This is because PhysicalObject6's code is scoped to PhysicalObject5. When PhysicalObject5 is deleted, PhysicalObject6 is also deleted in the superclasses
+       * of the RecordingIModelImporter and therefore can't be detected by the RecordingIModelImporter.
+       * The deletion of PhysicalObject6 is asserted in [[TransformerExtensiveTestScenario.assertUpdatesInDb]] when assertDeletes is true.
+       */
+      assert.equal(targetImporter.numElementsExplicitlyDeleted, 4);
       assert.equal(targetImporter.numElementAspectsInserted, 0);
       assert.equal(targetImporter.numElementAspectsUpdated, 2);
       assert.equal(targetImporter.numRelationshipsInserted, 2);
       assert.equal(targetImporter.numRelationshipsUpdated, 1);
-      // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
-      // assert.equal(targetImporter.numRelationshipsDeleted, 0);
+
+      assert.equal(targetImporter.numRelationshipsDeleted, 1);
       targetDb.saveChanges();
-      // FIXME: upgrade this test to use a briefcase so that we can detect element deletes
-      TransformerExtensiveTestScenario.assertUpdatesInDb(
-        targetDb,
-        /* FIXME: */ false
-      ); // Switch back to true once we have the old detect deltes behavior flag here. also enable force old provenance method.
-      // which is only used in in-imodel transformations.
+      TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, true);
 
       assert.equal(
         numTargetRelationships +
@@ -428,10 +438,13 @@ describe("IModelTransformer", () => {
           targetImporter.numRelationshipsDeleted,
         count(targetDb, ElementRefersToElements.classFullName)
       );
-      // FIXME: why?
+      // We deleted one of the 3 SourceInformationRecords in TransformerExtensiveTestScenario.updateDb, so expect to find 2 now.
       expect(
         count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
-      ).to.equal(3);
+      ).to.equal(2);
+      expect(
+        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
+      ).to.equal(2);
       transformer.dispose();
     }
 
@@ -589,7 +602,7 @@ describe("IModelTransformer", () => {
     TransformerExtensiveTestScenario.assertTargetDbContents(
       sourceDb,
       targetDb,
-      "Target Subject"
+      { targetSubjectName: "Target Subject" }
     );
     const targetSubject: Subject =
       targetDb.elements.getElement<Subject>(targetSubjectId);
