@@ -3576,260 +3576,153 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it("should not propagate changes to rootSubject, repositoryModel, realityDataSourcesModel when skipPropagateChangesToRootElements is true", async () => {
-    const timeline: Timeline = [
-      { master: { 1: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Update models
-            const dictionaryId = IModelDb.dictionaryId;
-            const dict = branch.models.getModelProps(dictionaryId);
-            branch.models.updateModel({ ...dict, jsonProperties: { test: 1 } });
+  for (const propagateRootElems of [true, false]) {
+    it(`${
+      propagateRootElems ? "should" : "shouldn't"
+    } propagate changes to rootSubject, repositoryModel, realityDataSourcesModel when skipPropagateChangesToRootElements is set to ${!propagateRootElems}`, async () => {
+      const timeline: Timeline = [
+        { master: { 1: 1 } },
+        { branch: { branch: "master" } },
+        { branch: { 1: 2, 4: 1 } },
+        // eslint-disable-next-line @typescript-eslint/no-shadow
+        {
+          branch: {
+            manualUpdate(branch) {
+              // Update models
+              const dictionaryId = IModelDb.dictionaryId;
+              const dict = branch.models.getModelProps(dictionaryId);
+              branch.models.updateModel({
+                ...dict,
+                jsonProperties: { test: 1 },
+              });
 
-            const repositoryModel = branch.models.getModelProps(
-              IModelDb.repositoryModelId
-            );
-            branch.models.updateModel({
-              ...repositoryModel,
-              jsonProperties: { test: 2 },
-            });
+              const repositoryModel = branch.models.getModelProps(
+                IModelDb.repositoryModelId
+              );
+              branch.models.updateModel({
+                ...repositoryModel,
+                jsonProperties: { test: 2 },
+              });
 
-            const realityDataSourcesModel = branch.models.getModelProps("0xe");
-            branch.models.updateModel({
-              ...realityDataSourcesModel,
-              jsonProperties: { test: 3 },
-            });
+              const realityDataSourcesModel =
+                branch.models.getModelProps("0xe");
+              branch.models.updateModel({
+                ...realityDataSourcesModel,
+                jsonProperties: { test: 3 },
+              });
 
-            // Update Elements now.
-            const rootSubjectFromBranch =
-              branch.elements.getElementProps<SubjectProps>(
-                "0x1"
-              ) as SubjectProps;
-            branch.elements.updateElement({
-              ...rootSubjectFromBranch,
-              description: "test description",
-              jsonProperties: { test: 4 },
-            } as SubjectProps);
+              // Update Elements now.
+              const rootSubjectFromBranch =
+                branch.elements.getElementProps<SubjectProps>(
+                  "0x1"
+                ) as SubjectProps;
+              branch.elements.updateElement({
+                ...rootSubjectFromBranch,
+                description: "test description",
+                jsonProperties: { test: 4 },
+              } as SubjectProps);
 
-            const realityDataSourcesElement =
-              branch.elements.getElementProps("0xe");
-            branch.elements.updateElement({
-              ...realityDataSourcesElement,
-              jsonProperties: { test: 5 },
-            });
+              const realityDataSourcesElement =
+                branch.elements.getElementProps("0xe");
+              branch.elements.updateElement({
+                ...realityDataSourcesElement,
+                jsonProperties: { test: 5 },
+              });
 
-            const dictionaryElement = branch.elements.getElementProps(
-              IModelDb.dictionaryId
-            );
-            branch.elements.updateElement({
-              ...dictionaryElement,
-              jsonProperties: { test: 6 },
-            });
+              const dictionaryElement = branch.elements.getElementProps(
+                IModelDb.dictionaryId
+              );
+              branch.elements.updateElement({
+                ...dictionaryElement,
+                jsonProperties: { test: 6 },
+              });
+            },
           },
         },
-      },
-      { master: { sync: ["branch"] } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
-      {
-        assert({ master, branch }) {
-          const dictionaryModelMaster = master.db.models.getModel(
-            IModelDb.dictionaryId
-          );
-          const dictionaryModelBranch = branch.db.models.getModel(
-            IModelDb.dictionaryId
-          );
-          expect(dictionaryModelMaster.jsonProperties.test).to.equal(undefined);
-          expect(dictionaryModelBranch.jsonProperties.test).to.equal(1);
-
-          const repositoryModelMaster = master.db.models.getModel(
-            IModelDb.repositoryModelId
-          );
-          const repositoryModelBranch = branch.db.models.getModel(
-            IModelDb.repositoryModelId
-          );
-          expect(repositoryModelMaster.jsonProperties.test).to.equal(undefined);
-          expect(repositoryModelBranch.jsonProperties.test).to.equal(2);
-
-          const realityDataSourcesModelMaster =
-            master.db.models.getModel("0xe");
-          const realityDataSourcesModelBranch =
-            branch.db.models.getModel("0xe");
-          expect(realityDataSourcesModelMaster.jsonProperties.test).to.equal(
-            undefined
-          );
-          expect(realityDataSourcesModelBranch.jsonProperties.test).to.equal(3);
-
-          const rootSubjectMaster = master.db.elements.getRootSubject();
-          const rootSubjectBranch = branch.db.elements.getRootSubject();
-          expect(rootSubjectMaster.description).to.equal("");
-          expect(rootSubjectBranch.description).to.equal("test description");
-          expect(rootSubjectMaster.jsonProperties.test).to.equal(undefined);
-          expect(rootSubjectBranch.jsonProperties.test).to.equal(4);
-
-          const realityDataSourcesElementMaster =
-            master.db.elements.getElementProps("0xe");
-          const realityDataSourcesElementBranch =
-            branch.db.elements.getElementProps("0xe");
-          expect(realityDataSourcesElementMaster.jsonProperties?.test).to.equal(
-            undefined
-          );
-          expect(realityDataSourcesElementBranch.jsonProperties.test).to.equal(
-            5
-          );
-
-          const dictionaryElementMaster = master.db.elements.getElementProps(
-            IModelDb.dictionaryId
-          );
-          const dictionaryElementBranch = branch.db.elements.getElementProps(
-            IModelDb.dictionaryId
-          );
-          expect(dictionaryElementMaster.jsonProperties?.test).to.equal(
-            undefined
-          );
-          expect(dictionaryElementBranch.jsonProperties.test).to.equal(6);
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-      transformerOpts: {
-        skipPropagateChangesToRootElements: true,
-      },
-    });
-
-    await tearDown();
-  });
-
-  it("should propagate changes to elements and models of rootSubject, dictionary, and realityDataSourcesElement", async () => {
-    const timeline: Timeline = [
-      { master: { 1: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
-      {
-        branch: {
-          manualUpdate(branch) {
-            // Update models
-            const dictionaryId = IModelDb.dictionaryId;
-            const dict = branch.models.getModelProps(dictionaryId);
-            branch.models.updateModel({ ...dict, jsonProperties: { test: 1 } });
-
-            const repositoryModel = branch.models.getModelProps(
-              IModelDb.repositoryModelId
-            );
-            branch.models.updateModel({
-              ...repositoryModel,
-              jsonProperties: { test: 2 },
-            });
-
-            const realityDataSourcesModel = branch.models.getModelProps("0xe");
-            branch.models.updateModel({
-              ...realityDataSourcesModel,
-              jsonProperties: { test: 3 },
-            });
-
-            // Update Elements now.
-            const rootSubjectFromBranch =
-              branch.elements.getElementProps<SubjectProps>(
-                "0x1"
-              ) as SubjectProps;
-            branch.elements.updateElement({
-              ...rootSubjectFromBranch,
-              description: "test description",
-              jsonProperties: { test: 4 },
-            } as SubjectProps);
-
-            const realityDataSourcesElement =
-              branch.elements.getElementProps("0xe");
-            branch.elements.updateElement({
-              ...realityDataSourcesElement,
-              jsonProperties: { test: 5 },
-            });
-
-            const dictionaryElement = branch.elements.getElementProps(
+        { master: { sync: ["branch"] } },
+        // eslint-disable-next-line @typescript-eslint/no-shadow
+        {
+          assert({ master, branch }) {
+            const dictionaryModelMaster = master.db.models.getModel(
               IModelDb.dictionaryId
             );
-            branch.elements.updateElement({
-              ...dictionaryElement,
-              jsonProperties: { test: 6 },
-            });
+            const dictionaryModelBranch = branch.db.models.getModel(
+              IModelDb.dictionaryId
+            );
+            expect(dictionaryModelMaster.jsonProperties.test).to.equal(
+              propagateRootElems ? 1 : undefined
+            );
+            expect(dictionaryModelBranch.jsonProperties.test).to.equal(1);
+
+            const repositoryModelMaster = master.db.models.getModel(
+              IModelDb.repositoryModelId
+            );
+            const repositoryModelBranch = branch.db.models.getModel(
+              IModelDb.repositoryModelId
+            );
+            expect(repositoryModelMaster.jsonProperties.test).to.equal(
+              propagateRootElems ? 2 : undefined
+            );
+            expect(repositoryModelBranch.jsonProperties.test).to.equal(2);
+
+            const realityDataSourcesModelMaster =
+              master.db.models.getModel("0xe");
+            const realityDataSourcesModelBranch =
+              branch.db.models.getModel("0xe");
+            expect(realityDataSourcesModelMaster.jsonProperties.test).to.equal(
+              propagateRootElems ? 3 : undefined
+            );
+            expect(realityDataSourcesModelBranch.jsonProperties.test).to.equal(
+              3
+            );
+
+            const rootSubjectMaster = master.db.elements.getRootSubject();
+            const rootSubjectBranch = branch.db.elements.getRootSubject();
+            expect(rootSubjectMaster.description).to.equal(
+              propagateRootElems ? "test description" : ""
+            );
+            expect(rootSubjectBranch.description).to.equal("test description");
+            expect(rootSubjectMaster.jsonProperties.test).to.equal(
+              propagateRootElems ? 4 : undefined
+            );
+            expect(rootSubjectBranch.jsonProperties.test).to.equal(4);
+
+            const realityDataSourcesElementMaster =
+              master.db.elements.getElementProps("0xe");
+            const realityDataSourcesElementBranch =
+              branch.db.elements.getElementProps("0xe");
+            expect(
+              realityDataSourcesElementMaster.jsonProperties?.test
+            ).to.equal(propagateRootElems ? 5 : undefined);
+            expect(
+              realityDataSourcesElementBranch.jsonProperties.test
+            ).to.equal(5);
+
+            const dictionaryElementMaster = master.db.elements.getElementProps(
+              IModelDb.dictionaryId
+            );
+            const dictionaryElementBranch = branch.db.elements.getElementProps(
+              IModelDb.dictionaryId
+            );
+            expect(dictionaryElementMaster.jsonProperties?.test).to.equal(
+              propagateRootElems ? 6 : undefined
+            );
+            expect(dictionaryElementBranch.jsonProperties.test).to.equal(6);
           },
         },
-      },
-      { master: { sync: ["branch"] } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
-      {
-        assert({ master, branch }) {
-          const dictionaryModelMaster = master.db.models.getModel(
-            IModelDb.dictionaryId
-          );
-          const dictionaryModelBranch = branch.db.models.getModel(
-            IModelDb.dictionaryId
-          );
-          expect(dictionaryModelMaster.jsonProperties.test).to.equal(1);
-          expect(dictionaryModelBranch.jsonProperties.test).to.equal(1);
+      ];
 
-          const repositoryModelMaster = master.db.models.getModel(
-            IModelDb.repositoryModelId
-          );
-          const repositoryModelBranch = branch.db.models.getModel(
-            IModelDb.repositoryModelId
-          );
-          expect(repositoryModelMaster.jsonProperties.test).to.equal(2);
-          expect(repositoryModelBranch.jsonProperties.test).to.equal(2);
-
-          const realityDataSourcesModelMaster =
-            master.db.models.getModel("0xe");
-          const realityDataSourcesModelBranch =
-            branch.db.models.getModel("0xe");
-          expect(realityDataSourcesModelMaster.jsonProperties.test).to.equal(3);
-          expect(realityDataSourcesModelBranch.jsonProperties.test).to.equal(3);
-
-          const rootSubjectMaster = master.db.elements.getRootSubject();
-          const rootSubjectBranch = branch.db.elements.getRootSubject();
-          expect(rootSubjectMaster.description).to.equal(
-            rootSubjectBranch.description
-          );
-          expect(rootSubjectBranch.description).to.equal("test description");
-          expect(rootSubjectMaster.jsonProperties.test).to.equal(4);
-          expect(rootSubjectBranch.jsonProperties.test).to.equal(4);
-
-          const realityDataSourcesElementMaster =
-            master.db.elements.getElementProps("0xe");
-          const realityDataSourcesElementBranch =
-            branch.db.elements.getElementProps("0xe");
-          expect(realityDataSourcesElementMaster.jsonProperties.test).to.equal(
-            5
-          );
-          expect(realityDataSourcesElementBranch.jsonProperties.test).to.equal(
-            5
-          );
-
-          const dictionaryElementMaster = master.db.elements.getElementProps(
-            IModelDb.dictionaryId
-          );
-          const dictionaryElementBranch = branch.db.elements.getElementProps(
-            IModelDb.dictionaryId
-          );
-          expect(dictionaryElementMaster.jsonProperties.test).to.equal(6);
-          expect(dictionaryElementBranch.jsonProperties.test).to.equal(6);
+      const { tearDown } = await runTimeline(timeline, {
+        iTwinId,
+        accessToken,
+        transformerOpts: {
+          skipPropagateChangesToRootElements: !propagateRootElems,
         },
-      },
-    ];
+      });
 
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
+      await tearDown();
     });
-
-    await tearDown();
-  });
+  }
 
   // FIXME: As a side effect of fixing a bug in findRangeContaining, we error out with no changesummary data because we now properly skip changesetindices
   // i.e. a range [4,4] with skip 4 now properly gets skipped. so we have no changesummary data. We need to revisit this after switching to affan's new API
