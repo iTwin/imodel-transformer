@@ -7,6 +7,7 @@
  * utilities that unify operations, especially CRUD operations, on entities
  * for entity-generic operations in the transformer
  */
+
 import * as assert from "assert";
 import {
   ConcreteEntityTypes,

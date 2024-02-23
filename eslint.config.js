@@ -71,6 +71,12 @@ module.exports = [
         }
     },
     {
+      files: ["packages/transformer/test/**/*.ts"],
+      rules: {
+        "@itwin/no-internal-barrel-imports": "off"
+      }
+    },
+    {
         files: ["packages/performance-tests/**/*.ts"],
         rules: {
             "@typescript-eslint/naming-convention": [

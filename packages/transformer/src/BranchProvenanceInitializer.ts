@@ -105,7 +105,7 @@ export async function initializeBranchProvenance(
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
     args.branch.saveChanges();
-    args.branch.withSqliteStatement(`DETACH DATABASE master`, (s) => {
+    args.branch.withSqliteStatement("DETACH DATABASE master", (s) => {
       const res = s.step();
       if (res !== DbResult.BE_SQLITE_DONE)
         Logger.logTrace(

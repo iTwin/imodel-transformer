@@ -137,8 +137,8 @@ Assertion.addMethod(
         ...options,
         useSubsetEquality: true,
       }),
-      `expected #{act} to contain as a subset #{exp}`,
-      `expected #{act} not to contain as a subset #{exp}`,
+      "expected #{act} to contain as a subset #{exp}",
+      "expected #{act} not to contain as a subset #{exp}",
       expected,
       actual
     );

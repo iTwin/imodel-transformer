@@ -140,7 +140,7 @@ import {
   DownloadAndOpenArgs,
   RpcBriefcaseUtility,
 } from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility";
-import { KnownTestLocations } from "../TestUtils";
+import { KnownTestLocations } from "./KnownTestLocations";
 
 chai.use(chaiAsPromised);
 
@@ -258,7 +258,7 @@ export class HubWrappers {
         accessToken,
         iTwinId,
         iModelName,
-        description: `Description for iModel`,
+        description: "Description for iModel",
       });
     return iModelId;
   }
@@ -1176,7 +1176,7 @@ export class IModelTestUtils {
     IModelJsFs.appendFileSync(outputFileName, `${iModelDb.pathName}\n`);
     IModelJsFs.appendFileSync(outputFileName, "\n=== CodeSpecs ===\n");
     iModelDb.withPreparedStatement(
-      `SELECT ECInstanceId,Name FROM BisCore:CodeSpec ORDER BY ECInstanceId`,
+      "SELECT ECInstanceId,Name FROM BisCore:CodeSpec ORDER BY ECInstanceId",
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const codeSpecId = statement.getValue(0).getId();
@@ -1190,7 +1190,7 @@ export class IModelTestUtils {
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Schemas ===\n");
     iModelDb.withPreparedStatement(
-      `SELECT Name FROM ECDbMeta.ECSchemaDef ORDER BY ECInstanceId`,
+      "SELECT Name FROM ECDbMeta.ECSchemaDef ORDER BY ECInstanceId",
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const schemaName: string = statement.getValue(0).getString();

@@ -88,7 +88,7 @@ import {
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
 } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { IModelTestUtils } from "../TestUtils";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
@@ -100,7 +100,6 @@ import {
   Timeline,
   TimelineIModelElemState,
   TimelineIModelState,
-  TimelineStateChange,
 } from "../TestUtils/TimelineTestUtil";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
@@ -1819,7 +1818,7 @@ describe("IModelTransformerHub", () => {
       subject2.federationGuid = Guid.empty; // Empty guid will force the element to have an undefined federation guid.
       subject1.insert();
       const subject2Id = subject2.insert();
-      PhysicalModel.insert(sourceDb, subject2Id, `PM1`);
+      PhysicalModel.insert(sourceDb, subject2Id, "PM1");
 
       sourceDb.saveChanges();
       await sourceDb.pushChanges({
@@ -1837,7 +1836,7 @@ describe("IModelTransformerHub", () => {
       targetDb.saveChanges();
       transformer.dispose();
 
-      PhysicalModel.insert(sourceDb, subject2Id, `PM2`);
+      PhysicalModel.insert(sourceDb, subject2Id, "PM2");
       sourceDb.saveChanges();
       await sourceDb.pushChanges({
         accessToken,
@@ -1900,7 +1899,7 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
-    const seedFileName = path.join(outputDir, `seed.bim`);
+    const seedFileName = path.join(outputDir, "seed.bim");
     if (IModelJsFs.existsSync(seedFileName))
       IModelJsFs.removeSync(seedFileName);
 
@@ -2930,7 +2929,7 @@ describe("IModelTransformerHub", () => {
       const addedAspectProps: ExternalSourceAspectProps = {
         classFullName: ExternalSourceAspect.classFullName,
         element: new ElementOwnsExternalSourceAspects(elementIds[0]),
-        identifier: `aspectAddedAfterFirstTransformation`,
+        identifier: "aspectAddedAfterFirstTransformation",
         kind: "Document",
         scope: {
           id: IModel.rootSubjectId,

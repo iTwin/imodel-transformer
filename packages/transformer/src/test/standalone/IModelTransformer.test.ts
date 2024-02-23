@@ -18,7 +18,6 @@ import {
   DrawingModel,
   ECSqlStatement,
   Element,
-  ElementGroupsMembers,
   ElementMultiAspect,
   ElementOwnsChildElements,
   ElementOwnsExternalSourceAspects,
@@ -99,13 +98,12 @@ import {
   Transform,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
+import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
 import {
-  IModelExporter,
-  IModelExportHandler,
   IModelTransformer,
   IModelTransformOptions,
-  TransformerLoggerCategory,
-} from "../../transformer";
+} from "../../IModelTransformer";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -2503,7 +2501,7 @@ describe("IModelTransformer", () => {
       model: myPhysicalModelId,
       category: mySpatialCategId,
       code: Code.createEmpty(),
-      userLabel: `MyPhysicalObject`,
+      userLabel: "MyPhysicalObject",
       geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
       placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
     } as PhysicalElementProps);
@@ -2829,7 +2827,7 @@ describe("IModelTransformer", () => {
       model: myPhysicalModelId,
       category: mySpatialCategId,
       code: Code.createEmpty(),
-      userLabel: `MyPhysicalObject`,
+      userLabel: "MyPhysicalObject",
       geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
       placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
     } as PhysicalElementProps);
@@ -3819,7 +3817,7 @@ describe("IModelTransformer", () => {
       },
       scope: { id: "0x1" },
       source: { id: sourceExternalSourceId },
-      identifier: `0x333`,
+      identifier: "0x333",
       kind: ExternalSourceAspect.Kind.Element,
     };
 
@@ -4065,7 +4063,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     targetDb.withPreparedStatement(
-      `SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'`,
+      "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'",
       (statement) => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           assert(statement.getValue(0).isNull);
@@ -4348,7 +4346,7 @@ describe("IModelTransformer", () => {
         model: sourceModelId,
         category: categoryId,
         code: Code.createEmpty(),
-        userLabel: `PhysicalObject`,
+        userLabel: "PhysicalObject",
         geom: IModelTransformerTestUtils.createBox(
           Point3d.create(1, 1, 1),
           categoryId,

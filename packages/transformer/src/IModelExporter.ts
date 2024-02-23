@@ -567,8 +567,8 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportCodeSpecs(): Promise<void> {
-    Logger.logTrace(loggerCategory, `exportCodeSpecs()`);
-    const sql = `SELECT Name FROM BisCore:CodeSpec ORDER BY ECInstanceId`;
+    Logger.logTrace(loggerCategory, "exportCodeSpecs()");
+    const sql = "SELECT Name FROM BisCore:CodeSpec ORDER BY ECInstanceId";
     await this.sourceDb.withPreparedStatement(
       sql,
       async (statement: ECSqlStatement): Promise<void> => {
@@ -624,7 +624,7 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportFonts(): Promise<void> {
-    Logger.logTrace(loggerCategory, `exportFonts()`);
+    Logger.logTrace(loggerCategory, "exportFonts()");
     for (const font of this.sourceDb.fontMap.fonts.values()) {
       await this.exportFontByNumber(font.id);
     }
@@ -909,7 +909,7 @@ export class IModelExporter {
     if (!this.visitRelationships) {
       Logger.logTrace(
         loggerCategory,
-        `visitRelationships=false, skipping exportRelationships()`
+        "visitRelationships=false, skipping exportRelationships()"
       );
       return;
     }
@@ -1344,7 +1344,7 @@ export class ChangedInstanceIds {
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of opts.iModel.createQueryReader(
-      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)`
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)"
     )) {
       relationshipECClassIdsToSkip.add(row.ECInstanceId);
     }
