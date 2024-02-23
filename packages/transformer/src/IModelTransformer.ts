@@ -258,6 +258,16 @@ export interface IModelTransformOptions {
    * @default false
    */
   ignoreMissingChangesetsInSynchronizations?: boolean;
+
+  /**
+   * Do not error out if a scoping ESA @see ExternalSourceAspectProps is found without a version or jsonProperties defined on that scoping ESA.
+   * If true, the version and jsonproperties will be properly set on the scoping ESA @see TargetScopeProvenanceJsonProps after the transformer is complete.
+   * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to 'unsafe-migrate' is not without risk.
+   * Depending on the state of the branching relationship at the time of using this option, some data may be lost.
+   * @note This should only need to be set to 'unsafe-migrate' at most once for a branching relationship. For future transformations on the branching relationship, the @see TargetScopeProvenanceJsonProps will be present.
+   * @default "reject"
+   */
+  branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
 }
 
 /**
@@ -289,8 +299,19 @@ class PartiallyCommittedEntity {
  * @beta
  */
 export interface TargetScopeProvenanceJsonProps {
+  /** An array of changeset indices to ignore when doing a reverse sync. This array gets appended to during a forward sync and cleared
+   *  during a reverse sync. Since a forward sync pushes a changeset to the branch db, the changeset pushed to the branch db
+   *  by the forward sync isn't considered part of the changes made on the branch db and therefore doesn't need to be synced back to master
+   *  during a forward sync.
+   */
   pendingReverseSyncChangesetIndices: number[];
+  /** An array of changeset indices to ignore when doing a forward sync. This array gets appended to during a reverse sync and cleared
+   *  during a forward sync. Since a reverse sync pushes a changeset to the master db, the changeset pushed to the master db
+   *  by the reverse sync isn't considered part of the changes made on the master db and therefore doesn't need to be synced back to the branch
+   *  during a forward sync.
+   */
   pendingSyncChangesetIndices: number[];
+  /** the latest changesetid/index reverse synced into master */
   reverseSyncVersion: string;
 }
 
@@ -436,7 +457,7 @@ export class IModelTransformer extends IModelExportHandler {
   ):
     | {
         aspectId: Id64String;
-        version: string;
+        version?: string;
         /** stringified json */
         jsonProperties?: string;
       }
@@ -458,7 +479,10 @@ export class IModelTransformer extends IModelExportHandler {
       statement.bindString("identifier", aspectProps.identifier);
       if (DbResult.BE_SQLITE_ROW !== statement.step()) return undefined;
       const aspectId = statement.getValue(0).getId();
-      const version = statement.getValue(1).getString();
+      const versionValue = statement.getValue(1);
+      const version = versionValue.isNull
+        ? undefined
+        : versionValue.getString();
       const jsonPropsValue = statement.getValue(2);
       const jsonProperties = jsonPropsValue.isNull
         ? undefined
@@ -601,6 +625,8 @@ export class IModelTransformer extends IModelExportHandler {
         options?.danglingReferencesBehavior ??
         options?.danglingPredecessorsBehavior ??
         "reject",
+      branchRelationshipDataBehavior:
+        options?.branchRelationshipDataBehavior ?? "reject",
     };
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
@@ -838,7 +864,6 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
-  // FIXME: add test transforming using this, then switching to new transform method
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
    * It should (and now by default does) instead insert provenance pointing to the provenanceSource
@@ -921,7 +946,7 @@ export class IModelTransformer extends IModelExportHandler {
         "_targetScopeProvenanceProps was not set yet"
       );
       const version = this.isReverseSynchronization
-        ? this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion
+        ? this._targetScopeProvenanceProps.jsonProperties?.reverseSyncVersion
         : this._targetScopeProvenanceProps.version;
 
       nodeAssert(version !== undefined, "no version contained in target scope");
@@ -1010,8 +1035,6 @@ export class IModelTransformer extends IModelExportHandler {
       jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
 
-    // FIXME: handle older transformed iModels which do NOT have the version. Add test where we don't set those and then start setting them.
-    // or reverseSyncVersion set correctly
     const foundEsaProps = IModelTransformer.queryScopeExternalSourceAspect(
       this.provenanceDb,
       aspectProps
@@ -1059,11 +1082,22 @@ export class IModelTransformer extends IModelExportHandler {
         aspectProps.id = id;
       }
     } else {
+      // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version = foundEsaProps.version;
+      aspectProps.version =
+        foundEsaProps.version ??
+        (this._options.branchRelationshipDataBehavior === "unsafe-migrate"
+          ? ""
+          : undefined);
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : {};
+        : this._options.branchRelationshipDataBehavior === "unsafe-migrate"
+          ? {
+              pendingReverseSyncChangesetIndices: [],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: "",
+            }
+          : undefined;
     }
 
     this._targetScopeProvenanceProps =
@@ -2056,7 +2090,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** called at the end ([[finalizeTransformation]]) of a transformation,
    * updates the target scope element to say that transformation up through the
    * source's changeset has been performed. Also stores all changesets that occurred
-   * during the transformation as "pending synchronization changeset indices"
+   * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
    *
    * You generally should not call this function yourself and use [[processChanges]] instead.
    * It is public for unsupported use cases of custom synchronization transforms.
@@ -2064,12 +2098,11 @@ export class IModelTransformer extends IModelExportHandler {
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
-    if (
+    const notForcedAndHasNoChangesAndIsntProvenanceInit =
       !force &&
       this._sourceChangeDataState !== "has-changes" &&
-      !this._isProvenanceInitTransform
-    )
-      return;
+      !this._isProvenanceInitTransform;
+    if (notForcedAndHasNoChangesAndIsntProvenanceInit) return;
 
     nodeAssert(this._targetScopeProvenanceProps);
 
@@ -2130,7 +2163,7 @@ export class IModelTransformer extends IModelExportHandler {
       // transformation finalization, the work will be saved immediately, otherwise we've
       // just marked this changeset as a synchronization to ignore, and the user can add other
       // stuff to it which would break future synchronizations
-      // FIXME: force save for the user to prevent that
+      // FIXME: force push for the user to prevent that
       for (
         let i = this._startingChangesetIndices.target + 1;
         i <= this.targetDb.changeset.index + 1;

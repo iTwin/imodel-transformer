@@ -3760,7 +3760,7 @@ packages:
     dev: true
 
   /glob2base@0.0.12:
-    resolution: {integrity: sha512-ZyqlgowMbfj2NPjxaZZ/EtsXlOch28FRXgMd64vqZWk1bT9+wvSRLYD1om9M7QfQru51zJPAT17qXm4/zd+9QA==}
+    resolution: {integrity: sha1-nUGbPijxLoOjYhZKJ3BVkiycDVY=}
     engines: {node: '>= 0.10'}
     dependencies:
       find-index: 0.1.1
