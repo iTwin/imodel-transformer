@@ -2159,20 +2159,6 @@ export class IModelTransformer extends IModelExportHandler {
       this._targetScopeProvenanceProps.version = sourceVersion;
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         targetVersion;
-      if (this._startingChangesetIndices) {
-        nodeAssert(
-          this.targetDb.changeset.index !== undefined,
-          "changeset didn't exist"
-        );
-        for (
-          let i = this._startingChangesetIndices.target + 1;
-          i <= this.targetDb.changeset.index + 1;
-          i++
-        )
-          this._targetScopeProvenanceProps.jsonProperties.pendingReverseSyncChangesetIndices.push(
-            i
-          );
-      }
     } else if (this.isReverseSynchronization) {
       const oldVersion =
         this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
@@ -2191,7 +2177,10 @@ export class IModelTransformer extends IModelExportHandler {
       this._targetScopeProvenanceProps.version = sourceVersion;
     }
 
-    if (this._isSynchronization) {
+    if (
+      this._isSynchronization ||
+      (this._startingChangesetIndices && this._isProvenanceInitTransform)
+    ) {
       nodeAssert(
         this.targetDb.changeset.index !== undefined &&
           this._startingChangesetIndices !== undefined,
