@@ -313,6 +313,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
 
   public override loadStateFromDb(db: SQLiteDb): void {
     super.loadStateFromDb(db);
+    // FIXME<NICK>: Can I remove this fixme, since this is related to TransformerResumption?
     // FIXME: test this
     db.withSqliteStatement(
       `SELECT Source, Target FROM ${IModelCloneContext.aspectRemapTableName}`,

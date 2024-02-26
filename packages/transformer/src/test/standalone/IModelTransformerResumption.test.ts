@@ -496,6 +496,7 @@ describe.skip("test resuming transformations", () => {
   });
 
   // FIXME: not (yet?) implemented for federation guid optimization branch
+  // FIXME<NICK>: Can I remove both the fixme and possibly even this test file?
   it.skip("should fail to resume from an old target", async () => {
     const sourceDbId = await IModelHost.hubAccess.createNewIModel({
       iTwinId,
@@ -741,6 +742,7 @@ describe.skip("test resuming transformations", () => {
   });
 
   // FIXME: not (yet?) implemented for federation guid optimization branch
+  // FIXME<NICK>: Can I remove both the fixme and possibly even this test file?
   it.skip("should fail to resume from an old target while processing relationships", async () => {
     const sourceDb = seedDb;
 

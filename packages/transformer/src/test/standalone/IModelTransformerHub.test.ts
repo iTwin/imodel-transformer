@@ -886,7 +886,6 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should be able to handle relationship delete using fedguids", async () => {
-    // FIXME: This test should be removed once we have more structured testing with a case matrix
     const masterIModelName = "MasterNewRelProvenanceFedGuids";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -973,7 +972,6 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should be able to handle relationship delete using new relationship provenance method with no fedguids", async () => {
-    // FIXME: This test should be removed once we have more structured testing with a case matrix
     // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
     /** This test does the following:
      *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
@@ -1090,7 +1088,6 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should be able to handle relationship delete using old relationship provenance method with no fedguids", async () => {
-    // FIXME: This test should be removed once we have more structured testing with a case matrix
     // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
     /** This test does the following:
      *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
@@ -3724,9 +3721,6 @@ describe("IModelTransformerHub", () => {
     });
   }
 
-  // FIXME: As a side effect of fixing a bug in findRangeContaining, we error out with no changesummary data because we now properly skip changesetindices
-  // i.e. a range [4,4] with skip 4 now properly gets skipped. so we have no changesummary data. We need to revisit this after switching to affan's new API
-  // to read changesets directly.
   it("should skip provenance changesets made to branch during reverse sync", async () => {
     const timeline: Timeline = [
       { master: { 1: 1 } },
