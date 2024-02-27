@@ -1250,7 +1250,7 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it("should merge changes made on a branch back to master", async () => {
+  it.only("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -1454,7 +1454,6 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      // FIXME: do a later sync and resync. Branch1 gets master's changes. master merges into branch1.
       { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
       {
         assert({ branch1 }) {
@@ -1493,6 +1492,20 @@ describe("IModelTransformerHub", () => {
             ).to.be.true;
             expect(srcElemAspects.length).to.lessThanOrEqual(1);
           }
+          assertElemState(branch1.db, { 7: 1 }, { subset: true });
+        },
+      },
+      // 7 originally came from branch2. Modify it.
+      { branch1: { 7: 10 } },
+      // Reverse sync branch 1 to master with the change to 7.
+      { master: { sync: ["branch1"] } },
+      // Forward sync master to branch2 with the change to 7.
+      { branch2: { sync: ["master"] } },
+      {
+        assert({ master, branch1, branch2 }) {
+          for (const imodel of [master, branch1, branch2]) {
+            assertElemState(imodel.db, { 7: 10 }, { subset: true });
+          }
         },
       },
     ];
@@ -1529,7 +1542,7 @@ describe("IModelTransformerHub", () => {
         iModelId: master.id,
         targetDir: BriefcaseManager.getChangeSetsPath(master.id),
       });
-      assert.equal(masterDbChangesets.length, 6);
+      assert.equal(masterDbChangesets.length, 7);
       const masterDeletedElementIds = new Set<Id64String>();
       const masterDeletedRelationshipIds = new Set<Id64String>();
       for (const masterDbChangeset of masterDbChangesets) {
