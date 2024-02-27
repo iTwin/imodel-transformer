@@ -89,7 +89,7 @@ import {
   ViewDetails3dProps,
 } from "@itwin/core-common";
 import { IModelExporter, IModelExportHandler } from "../IModelExporter";
-import { IModelImportOptions, IModelImporter } from "../IModelImporter";
+import { IModelImporter, IModelImportOptions } from "../IModelImporter";
 import {
   IModelTransformer,
   IModelTransformOptions,
