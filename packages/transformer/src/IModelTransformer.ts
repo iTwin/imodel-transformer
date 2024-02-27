@@ -2426,9 +2426,6 @@ export class IModelTransformer extends IModelExportHandler {
         targetId: deletedRelData.targetIdInTarget,
       } as SourceAndTarget);
 
-    // FIXME: make importer.deleteRelationship not need full props
-    // FIXME<NICK>: Do we care that its possible an importer may want the full relationshipProps or should we just have them query for the full relationshipProps if they wanted them?
-    // This seems like it would cause that specific type of importer to be slower if it needed to get all the relationshipProps anyways.
     const targetRelationship = this.targetDb.relationships.tryGetInstance(
       deletedRelData.classFullName,
       relArg
