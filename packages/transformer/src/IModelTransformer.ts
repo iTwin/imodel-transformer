@@ -2414,22 +2414,16 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
-    const relArg =
+    const id =
       deletedRelData.relId ??
-      ({
+      this.targetDb.relationships.tryGetInstance(deletedRelData.classFullName, {
         sourceId: deletedRelData.sourceIdInTarget,
         targetId: deletedRelData.targetIdInTarget,
-      } as SourceAndTarget);
-
-    const targetRelationship = this.targetDb.relationships.tryGetInstance(
-      deletedRelData.classFullName,
-      relArg
-    );
-
-    if (targetRelationship) {
+      } as SourceAndTarget)?.id;
+    if (id) {
       this.importer.deleteRelationship({
-        id: targetRelationship.id,
-        classFullName: targetRelationship.classFullName,
+        id,
+        classFullName: deletedRelData.classFullName,
       });
     }
 
@@ -2491,14 +2485,9 @@ export class IModelTransformer extends IModelExportHandler {
             const targetRelInstanceId =
               json.targetRelInstanceId ?? json.provenanceRelInstanceId;
             if (targetRelInstanceId) {
-              const targetRelationship: Relationship =
-                this.targetDb.relationships.getInstance(
-                  ElementRefersToElements.classFullName,
-                  targetRelInstanceId
-                );
               this.importer.deleteRelationship({
-                id: targetRelationship.id,
-                classFullName: targetRelationship.classFullName,
+                id: targetRelInstanceId,
+                classFullName: ElementRefersToElements.classFullName,
               });
             }
             aspectDeleteIds.push(statement.getValue(0).getId());
