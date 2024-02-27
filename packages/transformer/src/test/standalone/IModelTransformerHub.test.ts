@@ -1250,7 +1250,7 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it.only("should merge changes made on a branch back to master", async () => {
+  it("should merge changes made on a branch back to master", async () => {
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
