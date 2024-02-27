@@ -1,7 +1,7 @@
 {
-  "type": "none",
-  "comment": "change version to 1.0.0",
+  "type": "major",
+  "comment": "try 1.0.0",
   "packageName": "@itwin/imodel-transformer",
   "email": "22119573+nick4598@users.noreply.github.com",
-  "dependentChangeType": "none"
+  "dependentChangeType": "patch"
 }
