@@ -38,7 +38,10 @@ import {
   SourceAndTarget,
   SubCategory,
 } from "@itwin/core-backend";
-import type { IModelTransformOptions } from "./IModelTransformer";
+import type {
+  IModelTransformOptions,
+  RelationshipPropsForDelete,
+} from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 
@@ -636,7 +639,9 @@ export class IModelImporter {
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  protected onDeleteRelationship(relationshipProps: RelationshipProps): void {
+  protected onDeleteRelationship(
+    relationshipProps: RelationshipPropsForDelete
+  ): void {
     // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
     this.targetDb.relationships.deleteInstance({
       id: relationshipProps.id,
@@ -644,15 +649,15 @@ export class IModelImporter {
     } as RelationshipProps);
     Logger.logInfo(
       loggerCategory,
-      `Deleted relationship ${this.formatRelationshipForLogger(
-        relationshipProps
-      )}`
+      `Deleted relationship ${relationshipProps.classFullName} id=${relationshipProps.id}`
     );
     this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  public deleteRelationship(relationshipProps: RelationshipProps): void {
+  public deleteRelationship(
+    relationshipProps: RelationshipPropsForDelete
+  ): void {
     this.onDeleteRelationship(relationshipProps);
   }
 

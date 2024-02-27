@@ -421,6 +421,11 @@ type ChangeDataState =
  */
 export type InitFromExternalSourceAspectsArgs = InitOptions;
 
+export interface RelationshipPropsForDelete {
+  id: Id64String;
+  classFullName: string;
+}
+
 type SyncType = "not-sync" | "forward" | "reverse";
 
 /** Base class used to transform a source iModel into a different target iModel.
@@ -2430,7 +2435,10 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     if (targetRelationship) {
-      this.importer.deleteRelationship(targetRelationship.toJSON());
+      this.importer.deleteRelationship({
+        id: targetRelationship.id,
+        classFullName: targetRelationship.classFullName,
+      });
     }
 
     if (deletedRelData.provenanceAspectId) {
@@ -2496,7 +2504,10 @@ export class IModelTransformer extends IModelExportHandler {
                   ElementRefersToElements.classFullName,
                   targetRelInstanceId
                 );
-              this.importer.deleteRelationship(targetRelationship.toJSON());
+              this.importer.deleteRelationship({
+                id: targetRelationship.id,
+                classFullName: targetRelationship.classFullName,
+              });
             }
             aspectDeleteIds.push(statement.getValue(0).getId());
           }
