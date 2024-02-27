@@ -1933,6 +1933,145 @@ describe("IModelTransformerHub", () => {
     }
   });
 
+  it("should be able to synchronize iModel that is not at the tip", async () => {
+    const pushChangesets = async (
+      db: BriefcaseDb,
+      category: Id64String,
+      model: Id64String,
+      numChangesets: number
+    ) => {
+      for (let i = 0; i < numChangesets; i++) {
+        const physicalElementProps: PhysicalElementProps = {
+          category,
+          model,
+          classFullName: PhysicalObject.classFullName,
+          code: Code.createEmpty(),
+        };
+        db.elements.insertElement(physicalElementProps);
+        db.saveChanges();
+        await db.pushChanges({
+          description: `Inserted ${i} PhysicalObject`,
+        });
+      }
+    };
+
+    const seedFileName = path.join(outputDir, "notAtTipTestSeed.bim");
+    if (IModelJsFs.existsSync(seedFileName))
+      IModelJsFs.removeSync(seedFileName);
+
+    const seedDb = SnapshotDb.createEmpty(seedFileName, {
+      rootSubject: { name: "TransformerSource" },
+    });
+    const subjectId1 = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
+    const modelId1 = PhysicalModel.insert(seedDb, subjectId1, "PM1");
+    const categoryId1 = SpatialCategory.insert(
+      seedDb,
+      IModel.dictionaryId,
+      "C1",
+      {}
+    );
+    const physicalElementProps1: PhysicalElementProps = {
+      category: categoryId1,
+      model: modelId1,
+      classFullName: PhysicalObject.classFullName,
+      code: Code.createEmpty(),
+    };
+    seedDb.elements.insertElement(physicalElementProps1);
+    seedDb.saveChanges();
+    seedDb.close();
+
+    let sourceIModelId: string | undefined;
+    let targetIModelId: string | undefined;
+
+    sourceIModelId = await IModelHost.hubAccess.createNewIModel({
+      iTwinId,
+      iModelName: "TransformerSource",
+      description: "source",
+      version0: seedFileName,
+      noLocks: true,
+    });
+
+    // open/upgrade sourceDb
+    const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: sourceIModelId,
+    });
+    // creating changesets for source
+    await pushChangesets(sourceDb, categoryId1, modelId1, 1);
+    sourceDb.performCheckpoint(); // so we can use as a seed
+
+    // forking target
+    targetIModelId = await IModelHost.hubAccess.createNewIModel({
+      iTwinId,
+      iModelName: "TransformerTarget",
+      description: "target",
+      version0: sourceDb.pathName,
+      noLocks: true,
+    });
+    const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: targetIModelId,
+    });
+
+    // fork provenance init
+    let transformer = new IModelTransformer(sourceDb, targetDb, {
+      wasSourceIModelCopiedToTarget: true,
+    });
+    await transformer.processAll();
+    targetDb.saveChanges();
+    await targetDb.pushChanges({ description: "fork init" });
+    const catIdInTarget = transformer.context.findTargetElementId(categoryId1);
+    const modelIdInTarget = transformer.context.findTargetElementId(modelId1);
+    transformer.dispose();
+
+    // Push change to target db so we have changes to process during our reverse sync.
+    await pushChangesets(targetDb, catIdInTarget, modelIdInTarget, 1);
+    targetDb.performCheckpoint();
+
+    // Push changesets twice to sourcedb, I only want to sync up to the first changeset I'm adding.
+    await pushChangesets(sourceDb, categoryId1, modelId1, 1);
+    const sourceDbChangesetNotAtTip = sourceDb.changeset;
+    await pushChangesets(sourceDb, categoryId1, modelId1, 1);
+    sourceDb.performCheckpoint();
+
+    // Reverse Sync to add a pendingsyncchangesetindex
+    transformer = new IModelTransformer(targetDb, sourceDb);
+    await transformer.processChanges({ accessToken });
+    let scopingEsa = transformer["_targetScopeProvenanceProps"];
+    expect(
+      scopingEsa?.jsonProperties.pendingSyncChangesetIndices.length
+    ).to.equal(1);
+    expect(scopingEsa?.jsonProperties.pendingSyncChangesetIndices[0]).to.equal(
+      4
+    );
+    transformer.dispose();
+
+    // Open sourceDb not at tip
+    const tipChangesetOfSourceDb = sourceDb.changeset;
+    sourceDb.close();
+    const sourceDbNotAtTip = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: sourceIModelId,
+      asOf: { afterChangeSetId: sourceDbChangesetNotAtTip.id },
+    });
+    expect(sourceDbNotAtTip.changeset).to.deep.equal(sourceDbChangesetNotAtTip);
+    expect(sourceDbNotAtTip.changeset.index!).to.be.lessThan(
+      tipChangesetOfSourceDb.index!
+    );
+
+    // Forward Sync. We expect 4 is still there because we didnt process it (as a result of our sourceDb not being at the tip)
+    transformer = new IModelTransformer(sourceDbNotAtTip, targetDb);
+    await transformer.processChanges({ accessToken });
+    scopingEsa = transformer["_targetScopeProvenanceProps"];
+    expect(
+      scopingEsa?.jsonProperties.pendingSyncChangesetIndices
+    ).to.deep.equal([4]);
+    transformer.dispose();
+  });
+
   it("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
     const seedFileName = path.join(outputDir, "seed.bim");
     if (IModelJsFs.existsSync(seedFileName))

@@ -2222,9 +2222,14 @@ export class IModelTransformer extends IModelExportHandler {
         i++
       )
         syncChangesetsToUpdate.push(i);
-      // FIXME: add test to synchronize an iModel that is not at the tip, since then clearning syncChangesets is
-      // probably wrong, and we should filter it instead
-      syncChangesetsToClear.length = 0;
+      // Only keep the changeset indices which are greater than the source, this means they haven't been processed yet.
+      syncChangesetsToClear.splice(
+        0,
+        syncChangesetsToClear.length,
+        ...syncChangesetsToClear.filter((csIndex) => {
+          return csIndex > this._startingChangesetIndices!.source;
+        })
+      );
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
       if (this.isReverseSynchronization) {
@@ -2972,6 +2977,8 @@ export class IModelTransformer extends IModelExportHandler {
         (sourceElemFedGuid &&
           this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid)) ||
         // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
+        // FIXME<NICK>: Is it safe to assume nothing has been deleted in provenanceDb because the provenanceDb is (most likely?) the targetDb if we've made it to this line of code? And we're processing changes
+        // in the context of the sourceDb implying there are no changes in the targetDb to process therefore no deletes in provenanceDb?
         this._queryProvenanceForElement(instId);
 
       // since we are processing one changeset at a time, we can see local source deletes
@@ -3039,6 +3046,8 @@ export class IModelTransformer extends IModelExportHandler {
         });
       } else {
         // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
+        // FIXME<NICK>: Is it safe to assume nothing has been deleted in provenanceDb because the provenanceDb is (most likely?) the targetDb if we've made it to this line of code? And we're processing changes
+        // in the context of the sourceDb implying there are no changes in the targetDb to process therefore no deletes in provenanceDb?
         const relProvenance = this._queryProvenanceForRelationship(instId, {
           classFullName: classFullName ?? "",
           sourceId: sourceIdOfRelationshipInSource,
