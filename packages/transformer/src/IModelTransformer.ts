@@ -2205,15 +2205,20 @@ export class IModelTransformer extends IModelExportHandler {
         `previous pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
       );
 
-      const [syncChangesetsToClear, syncChangesetsToUpdate] = this
+      const pendingSyncChangesetIndicesKey =
+        "pendingSyncChangesetIndices" as const;
+      const pendingReverseSyncChangesetIndicesKey =
+        "pendingReverseSyncChangesetIndices" as const;
+
+      const [syncChangesetsToClearKey, syncChangesetsToUpdateKey] = this
         .isReverseSynchronization
         ? [
-            jsonProps.pendingReverseSyncChangesetIndices,
-            jsonProps.pendingSyncChangesetIndices,
+            pendingReverseSyncChangesetIndicesKey,
+            pendingSyncChangesetIndicesKey,
           ]
         : [
-            jsonProps.pendingSyncChangesetIndices,
-            jsonProps.pendingReverseSyncChangesetIndices,
+            pendingSyncChangesetIndicesKey,
+            pendingReverseSyncChangesetIndicesKey,
           ];
 
       for (
@@ -2221,15 +2226,13 @@ export class IModelTransformer extends IModelExportHandler {
         i <= this.targetDb.changeset.index + 1;
         i++
       )
-        syncChangesetsToUpdate.push(i);
+        jsonProps[syncChangesetsToUpdateKey].push(i);
       // Only keep the changeset indices which are greater than the source, this means they haven't been processed yet.
-      syncChangesetsToClear.splice(
-        0,
-        syncChangesetsToClear.length,
-        ...syncChangesetsToClear.filter((csIndex) => {
-          return csIndex > this._startingChangesetIndices!.source;
-        })
-      );
+      jsonProps[syncChangesetsToClearKey] = jsonProps[
+        syncChangesetsToClearKey
+      ].filter((csIndex) => {
+        return csIndex > this._startingChangesetIndices!.source;
+      });
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
       if (this.isReverseSynchronization) {
