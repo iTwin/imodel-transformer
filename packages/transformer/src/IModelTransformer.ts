@@ -410,6 +410,11 @@ export interface RelationshipPropsForDelete {
 
 type SyncType = "not-sync" | "forward" | "reverse";
 
+export interface RelationshipPropsForDelete {
+  id: Id64String;
+  classFullName: string;
+}
+
 type SyncType = "not-sync" | "forward" | "reverse";
 
 /** Base class used to transform a source iModel into a different target iModel.
