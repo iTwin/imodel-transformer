@@ -3015,7 +3015,7 @@ export class IModelTransformer extends IModelExportHandler {
                 QueryBinder.from([
                   this.targetScopeElementId,
                   ExternalSourceAspect.Kind.Element,
-                  instId,
+                  id,
                 ])
               )) {
                 identifierValue = row.Identifier;
