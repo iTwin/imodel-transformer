@@ -38,7 +38,10 @@ import {
   SourceAndTarget,
   SubCategory,
 } from "@itwin/core-backend";
-import type { IModelTransformOptions } from "./IModelTransformer";
+import type {
+  IModelTransformOptions,
+  RelationshipPropsForDelete,
+} from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 
@@ -636,7 +639,9 @@ export class IModelImporter {
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  protected onDeleteRelationship(relationshipProps: RelationshipProps): void {
+  protected onDeleteRelationship(
+    relationshipProps: RelationshipPropsForDelete
+  ): void {
     // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
     this.targetDb.relationships.deleteInstance({
       id: relationshipProps.id,
@@ -644,15 +649,15 @@ export class IModelImporter {
     } as RelationshipProps);
     Logger.logInfo(
       loggerCategory,
-      `Deleted relationship ${this.formatRelationshipForLogger(
-        relationshipProps
-      )}`
+      `Deleted relationship ${relationshipProps.classFullName} id=${relationshipProps.id}`
     );
     this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  public deleteRelationship(relationshipProps: RelationshipProps): void {
+  public deleteRelationship(
+    relationshipProps: RelationshipPropsForDelete
+  ): void {
     this.onDeleteRelationship(relationshipProps);
   }
 
@@ -763,67 +768,6 @@ export class IModelImporter {
     }
   }
 
-  /**
-   * You may override this to store arbitrary json state in a exporter state dump, useful for some resumptions
-   * @see [[IModelTransformer.saveStateToFile]]
-   */
-  protected getAdditionalStateJson(): any {
-    return {};
-  }
-
-  /**
-   * You may override this to load arbitrary json state in a transformer state dump, useful for some resumptions
-   * @see [[IModelTransformer.loadStateFromFile]]
-   */
-  protected loadAdditionalStateJson(_additionalState: any): void {}
-
-  /**
-   * Reload our state from a JSON object
-   * Intended for [[IModelTransformer.resumeTransformation]]
-   * @internal
-   * You can load custom json from the importer save state for custom importers by overriding [[IModelImporter.loadAdditionalStateJson]]
-   */
-  public loadStateFromJson(state: IModelImporterState): void {
-    if (state.importerClass !== this.constructor.name)
-      throw Error(
-        "resuming from a differently named importer class, it is not necessarily valid to resume with a different importer class"
-      );
-    // ignore readonly since this runs right after construction in [[IModelTransformer.resumeTransformation]]
-    (this.options as IModelTransformOptions) = state.options;
-    if (this.targetDb.iModelId !== state.targetDbId)
-      throw Error(
-        "can only load importer state when the same target is reused"
-      );
-    // TODO: fix upstream, looks like a bad case for the linter rule when casting away readonly for this generic
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    (this.doNotUpdateElementIds as Set<Id64String>) =
-      CompressedId64Set.decompressSet(state.doNotUpdateElementIds);
-    this._duplicateCodeValueMap = new Map(
-      Object.entries(state.duplicateCodeValueMap)
-    );
-    this.loadAdditionalStateJson(state.additionalState);
-  }
-
-  /**
-   * Serialize state to a JSON object
-   * Intended for [[IModelTransformer.resumeTransformation]]
-   * @internal
-   * You can add custom json to the importer save state for custom importers by overriding [[IModelImporter.getAdditionalStateJson]]
-   */
-  public saveStateToJson(): IModelImporterState {
-    return {
-      importerClass: this.constructor.name,
-      options: this.options,
-      targetDbId:
-        this.targetDb.iModelId || this.targetDb.nativeDb.getFilePath(),
-      doNotUpdateElementIds: CompressedId64Set.compressSet(
-        this.doNotUpdateElementIds
-      ),
-      duplicateCodeValueMap: Object.fromEntries(this._duplicateCodeValueMap),
-      additionalState: this.getAdditionalStateJson(),
-    };
-  }
-
   private resolveDuplicateCodeValues(): void {
     for (const [elementId, codeValue] of this._duplicateCodeValueMap) {
       const element = this.targetDb.elements.getElement(elementId);
@@ -842,23 +786,6 @@ export class IModelImporter {
   public finalize(): void {
     this.resolveDuplicateCodeValues();
   }
-}
-
-/**
- * The JSON format of a serialized IModelimporter instance
- * Used for starting an importer in the middle of an imxport operation,
- * such as resuming a crashed transformation
- *
- * @note Must be kept synchronized with IModelImxporter
- * @internal
- */
-export interface IModelImporterState {
-  importerClass: string;
-  options: IModelImportOptions;
-  targetDbId: string;
-  doNotUpdateElementIds: CompressedId64Set;
-  duplicateCodeValueMap: Record<Id64String, string>;
-  additionalState?: any;
 }
 
 /** Returns true if a change within an Entity is detected.

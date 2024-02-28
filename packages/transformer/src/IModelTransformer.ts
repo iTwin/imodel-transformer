@@ -98,14 +98,9 @@ import {
   ExporterInitOptions,
   ExportSchemaResult,
   IModelExporter,
-  IModelExporterState,
   IModelExportHandler,
 } from "./IModelExporter";
-import {
-  IModelImporter,
-  IModelImporterState,
-  OptimizeGeometryOptions,
-} from "./IModelImporter";
+import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { PendingReference, PendingReferenceMap } from "./PendingReferenceMap";
 import { EntityKey, EntityMap } from "./EntityMap";
@@ -420,6 +415,11 @@ type ChangeDataState =
  * @deprecated in 0.1.0. Use [[InitOptions]] (and [[IModelTransformer.initialize]]) instead.
  */
 export type InitFromExternalSourceAspectsArgs = InitOptions;
+
+export interface RelationshipPropsForDelete {
+  id: Id64String;
+  classFullName: string;
+}
 
 type SyncType = "not-sync" | "forward" | "reverse";
 
@@ -2414,21 +2414,17 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
-    const relArg =
+    const id =
       deletedRelData.relId ??
-      ({
+      this.targetDb.relationships.tryGetInstance(deletedRelData.classFullName, {
         sourceId: deletedRelData.sourceIdInTarget,
         targetId: deletedRelData.targetIdInTarget,
-      } as SourceAndTarget);
-
-    // FIXME: make importer.deleteRelationship not need full props
-    const targetRelationship = this.targetDb.relationships.tryGetInstance(
-      deletedRelData.classFullName,
-      relArg
-    );
-
-    if (targetRelationship) {
-      this.importer.deleteRelationship(targetRelationship.toJSON());
+      } as SourceAndTarget)?.id;
+    if (id) {
+      this.importer.deleteRelationship({
+        id,
+        classFullName: deletedRelData.classFullName,
+      });
     }
 
     if (deletedRelData.provenanceAspectId) {
@@ -2489,12 +2485,10 @@ export class IModelTransformer extends IModelExportHandler {
             const targetRelInstanceId =
               json.targetRelInstanceId ?? json.provenanceRelInstanceId;
             if (targetRelInstanceId) {
-              const targetRelationship: Relationship =
-                this.targetDb.relationships.getInstance(
-                  ElementRefersToElements.classFullName,
-                  targetRelInstanceId
-                );
-              this.importer.deleteRelationship(targetRelationship.toJSON());
+              this.importer.deleteRelationship({
+                id: targetRelInstanceId,
+                classFullName: ElementRefersToElements.classFullName,
+              });
             }
             aspectDeleteIds.push(statement.getValue(0).getId());
           }
@@ -3160,7 +3154,6 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportFonts();
 
     if (this._options.skipPropagateChangesToRootElements) {
-      // FIXME<NICK>: This option in exportAll was a maybe.
       // The RepositoryModel and root Subject of the target iModel should not be transformed.
       await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
       await this.exporter.exportModelContents(
@@ -3211,269 +3204,6 @@ export class IModelTransformer extends IModelExportHandler {
               ? ExternalSourceAspect.Kind.Relationship
               : ExternalSourceAspect.Kind.Element,
           };
-  }
-
-  /** @internal the name of the table where javascript state of the transformer is serialized in transformer state dumps */
-  public static readonly jsStateTable = "TransformerJsState";
-
-  /** @internal the name of the table where the target state heuristics is serialized in transformer state dumps */
-  public static readonly lastProvenanceEntityInfoTable =
-    "LastProvenanceEntityInfo";
-
-  /**
-   * Load the state of the active transformation from an open SQLiteDb
-   * You can override this if you'd like to load from custom tables in the resumable dump state, but you should call
-   * this super implementation
-   * @note the SQLiteDb must be open
-   */
-  protected loadStateFromDb(db: SQLiteDb): void {
-    const lastProvenanceEntityInfo: IModelTransformer["_lastProvenanceEntityInfo"] =
-      db.withSqliteStatement(
-        `SELECT entityId, aspectId, aspectVersion, aspectKind FROM ${IModelTransformer.lastProvenanceEntityInfoTable}`,
-        (stmt) => {
-          if (DbResult.BE_SQLITE_ROW !== stmt.step())
-            throw Error(
-              "expected row when getting lastProvenanceEntityId from target state table"
-            );
-          const entityId = stmt.getValueString(0);
-          const isGuidOrGuidPair = entityId.includes("-");
-          return isGuidOrGuidPair
-            ? entityId
-            : {
-                entityId,
-                aspectId: stmt.getValueString(1),
-                aspectVersion: stmt.getValueString(2),
-                aspectKind: stmt.getValueString(3) as ExternalSourceAspect.Kind,
-              };
-        }
-      );
-
-    /*
-    // TODO: maybe save transformer state resumption state based on target changset and require calls
-    // to saveChanges
-    if () {
-      const [sourceFedGuid, targetFedGuid, relClassFullName] = lastProvenanceEntityInfo.split("/");
-      const isRelProvenance = targetFedGuid !== undefined;
-      const instanceId = isRelProvenance
-        ? this.targetDb.elements.getElement({federationGuid: sourceFedGuid})
-        : "";
-      //const classId =
-      if (isRelProvenance) {
-      }
-    }
-    */
-
-    const targetHasCorrectLastProvenance =
-      typeof lastProvenanceEntityInfo === "string" ||
-      // ignore provenance check if it's null since we can't bind those ids
-      !Id64.isValidId64(lastProvenanceEntityInfo.entityId) ||
-      !Id64.isValidId64(lastProvenanceEntityInfo.aspectId) ||
-      this.provenanceDb.withPreparedStatement(
-        `
-        SELECT Version FROM ${ExternalSourceAspect.classFullName}
-        WHERE Scope.Id=:scopeId
-          AND ECInstanceId=:aspectId
-          AND Kind=:kind
-          AND Element.Id=:entityId
-      `,
-        (statement: ECSqlStatement): boolean => {
-          statement.bindId("scopeId", this.targetScopeElementId);
-          statement.bindId("aspectId", lastProvenanceEntityInfo.aspectId);
-          statement.bindString("kind", lastProvenanceEntityInfo.aspectKind);
-          statement.bindId("entityId", lastProvenanceEntityInfo.entityId);
-          const stepResult = statement.step();
-          switch (stepResult) {
-            case DbResult.BE_SQLITE_ROW:
-              const version = statement.getValue(0).getString();
-              return version === lastProvenanceEntityInfo.aspectVersion;
-            case DbResult.BE_SQLITE_DONE:
-              return false;
-            default:
-              throw new IModelError(
-                IModelStatus.SQLiteError,
-                `got sql error ${stepResult}`
-              );
-          }
-        }
-      );
-
-    if (!targetHasCorrectLastProvenance)
-      throw Error(
-        [
-          "Target for resuming from does not have the expected provenance ",
-          "from the target that the resume state was made with",
-        ].join("\n")
-      );
-    this._lastProvenanceEntityInfo = lastProvenanceEntityInfo;
-
-    const state = db.withSqliteStatement(
-      `SELECT data FROM ${IModelTransformer.jsStateTable}`,
-      (stmt) => {
-        if (DbResult.BE_SQLITE_ROW !== stmt.step())
-          throw Error("expected row when getting data from js state table");
-        return JSON.parse(stmt.getValueString(0)) as TransformationJsonState;
-      }
-    );
-    if (state.transformerClass !== this.constructor.name)
-      throw Error(
-        "resuming from a differently named transformer class, it is not necessarily valid to resume with a different transformer class"
-      );
-    // force assign to readonly options since we do not know how the transformer subclass takes options to pass to the superclass
-    (this as any)._options = state.options;
-    this.context.loadStateFromDb(db);
-    this.importer.loadStateFromJson(state.importerState);
-    this.exporter.loadStateFromJson(state.exporterState);
-    this._elementsWithExplicitlyTrackedProvenance =
-      CompressedId64Set.decompressSet(state.explicitlyTrackedElements);
-    this.loadAdditionalStateJson(state.additionalState);
-  }
-
-  /**
-   * @deprecated in 0.1.x, this is buggy, and it is now equivalently efficient to simply restart the transformation
-   * from the original changeset
-   *
-   * Return a new transformer instance with the same remappings state as saved from a previous [[IModelTransformer.saveStateToFile]] call.
-   * This allows you to "resume" an iModel transformation, you will have to call [[IModelTransformer.processChanges]]/[[IModelTransformer.processAll]]
-   * again but the remapping state will cause already mapped elements to be skipped.
-   * To "resume" an iModel Transformation you need:
-   * - the sourceDb at the same changeset
-   * - the same targetDb in the state in which it was before
-   * @param statePath the path to the serialized state of the transformer, use [[IModelTransformer.saveStateToFile]] to get this from an existing transformer instance
-   * @param constructorArgs remaining arguments that you would normally pass to the Transformer subclass you are using, usually (sourceDb, targetDb)
-   * @note custom transformers with custom state may need to override this method in order to handle loading their own custom state somewhere
-   */
-  public static resumeTransformation<
-    SubClass extends new (
-      ...a: any[]
-    ) => IModelTransformer = typeof IModelTransformer,
-  >(
-    this: SubClass,
-    statePath: string,
-    ...constructorArgs: ConstructorParameters<SubClass>
-  ): InstanceType<SubClass> {
-    const transformer = new this(...constructorArgs);
-    const db = new SQLiteDb();
-    db.openDb(statePath, OpenMode.Readonly);
-    try {
-      transformer.loadStateFromDb(db);
-    } finally {
-      db.closeDb();
-    }
-    return transformer as InstanceType<SubClass>;
-  }
-
-  /**
-   * You may override this to store arbitrary json state in a transformer state dump, useful for some resumptions
-   * @see [[IModelTransformer.saveStateToFile]]
-   */
-  protected getAdditionalStateJson(): any {
-    return {};
-  }
-
-  /**
-   * You may override this to load arbitrary json state in a transformer state dump, useful for some resumptions
-   * @see [[IModelTransformer.loadStateFromFile]]
-   */
-  protected loadAdditionalStateJson(_additionalState: any): void {}
-
-  /**
-   * Save the state of the active transformation to an open SQLiteDb
-   * You can override this if you'd like to write custom tables to the resumable dump state, but you should call
-   * this super implementation
-   * @note the SQLiteDb must be open
-   */
-  protected saveStateToDb(db: SQLiteDb): void {
-    const jsonState: TransformationJsonState = {
-      transformerClass: this.constructor.name,
-      options: this._options,
-      explicitlyTrackedElements: CompressedId64Set.compressSet(
-        this._elementsWithExplicitlyTrackedProvenance
-      ),
-      importerState: this.importer.saveStateToJson(),
-      exporterState: this.exporter.saveStateToJson(),
-      additionalState: this.getAdditionalStateJson(),
-    };
-
-    this.context.saveStateToDb(db);
-    if (
-      DbResult.BE_SQLITE_DONE !==
-      db.executeSQL(
-        `CREATE TABLE ${IModelTransformer.jsStateTable} (data TEXT)`
-      )
-    )
-      throw Error("Failed to create the js state table in the state database");
-
-    if (
-      DbResult.BE_SQLITE_DONE !==
-      db.executeSQL(`
-      CREATE TABLE ${IModelTransformer.lastProvenanceEntityInfoTable} (
-        -- either the invalid id for null provenance state, federation guid (or pair for rels) of the entity, or a hex element id
-        entityId TEXT,
-        -- the following are only valid if the above entityId is a hex id representation
-        aspectId TEXT,
-        aspectVersion TEXT,
-        aspectKind TEXT
-      )
-    `)
-    )
-      throw Error(
-        "Failed to create the target state table in the state database"
-      );
-
-    db.saveChanges();
-    db.withSqliteStatement(
-      `INSERT INTO ${IModelTransformer.jsStateTable} (data) VALUES (?)`,
-      (stmt) => {
-        stmt.bindString(1, JSON.stringify(jsonState));
-        if (DbResult.BE_SQLITE_DONE !== stmt.step())
-          throw Error("Failed to insert options into the state database");
-      }
-    );
-
-    db.withSqliteStatement(
-      `INSERT INTO ${IModelTransformer.lastProvenanceEntityInfoTable} (entityId, aspectId, aspectVersion, aspectKind) VALUES (?,?,?,?)`,
-      (stmt) => {
-        const lastProvenanceEntityInfo = this
-          ._lastProvenanceEntityInfo as LastProvenanceEntityInfo;
-        stmt.bindString(
-          1,
-          lastProvenanceEntityInfo?.entityId ??
-            (this._lastProvenanceEntityInfo as string)
-        );
-        stmt.bindString(2, lastProvenanceEntityInfo?.aspectId ?? "");
-        stmt.bindString(3, lastProvenanceEntityInfo?.aspectVersion ?? "");
-        stmt.bindString(4, lastProvenanceEntityInfo?.aspectKind ?? "");
-        if (DbResult.BE_SQLITE_DONE !== stmt.step())
-          throw Error("Failed to insert options into the state database");
-      }
-    );
-
-    db.saveChanges();
-  }
-
-  /**
-   * @deprecated in 0.1.x, this is buggy, and it is now equivalently efficient to simply restart the transformation
-   * from the original changeset
-   *
-   * Save the state of the active transformation to a file path, if a file at the path already exists, it will be overwritten
-   * This state can be used by [[IModelTransformer.resumeTransformation]] to resume a transformation from this point.
-   * The serialization format is a custom sqlite database.
-   * @note custom transformers with custom state may override [[IModelTransformer.saveStateToDb]] or [[IModelTransformer.getAdditionalStateJson]]
-   *       and [[IModelTransformer.loadStateFromDb]] (with a super call) or [[IModelTransformer.loadAdditionalStateJson]]
-   *       if they have custom state that needs to be stored with
-   *       potentially inside the same sqlite file in separate tables
-   */
-  public saveStateToFile(nativeStatePath: string): void {
-    const db = new SQLiteDb();
-    if (IModelJsFs.existsSync(nativeStatePath))
-      IModelJsFs.unlinkSync(nativeStatePath);
-    db.createDb(nativeStatePath);
-    try {
-      this.saveStateToDb(db);
-      db.saveChanges();
-    } finally {
-      db.closeDb();
-    }
   }
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
@@ -3539,16 +3269,6 @@ export class IModelTransformer extends IModelExportHandler {
       this._elementsWithExplicitlyTrackedProvenance.add(elementId);
     }
   }
-}
-
-/** @internal the json part of a transformation's state */
-interface TransformationJsonState {
-  transformerClass: string;
-  options: IModelTransformOptions;
-  importerState: IModelImporterState;
-  exporterState: IModelExporterState;
-  explicitlyTrackedElements: CompressedId64Set;
-  additionalState?: any;
 }
 
 /** IModelTransformer that clones the contents of a template model.

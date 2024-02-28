@@ -89,10 +89,11 @@ import {
   ViewDetails3dProps,
 } from "@itwin/core-common";
 import { IModelExporter, IModelExportHandler } from "../IModelExporter";
-import { IModelImportOptions, IModelImporter } from "../IModelImporter";
+import { IModelImporter, IModelImportOptions } from "../IModelImporter";
 import {
   IModelTransformer,
   IModelTransformOptions,
+  RelationshipPropsForDelete,
 } from "../IModelTransformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
@@ -1967,7 +1968,7 @@ export class CountingIModelImporter extends IModelImporter {
     super.onUpdateRelationship(relationshipProps);
   }
   protected override onDeleteRelationship(
-    relationshipProps: RelationshipProps
+    relationshipProps: RelationshipPropsForDelete
   ): void {
     this.numRelationshipsDeleted++;
     super.onDeleteRelationship(relationshipProps);
