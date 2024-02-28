@@ -90,6 +90,7 @@ import {
   Placement3d,
   PrimitiveTypeCode,
   PropertyMetaData,
+  QueryBinder,
   RelatedElement,
   SourceAndTarget,
 } from "@itwin/core-common";
@@ -2906,7 +2907,7 @@ export class IModelTransformer extends IModelExportHandler {
           relationshipECClassIdsToSkip.has(ecClassId)
         )
           continue;
-        this.processDeletedOp(
+        await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
           relationshipECClassIds.has(ecClassId ?? ""),
@@ -2930,7 +2931,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    * @returns void
    */
-  private processDeletedOp(
+  private async processDeletedOp(
     change: ChangedECInstance,
     mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
     isRelationship: boolean,
@@ -2952,26 +2953,21 @@ export class IModelTransformer extends IModelExportHandler {
       const sourceElemFedGuid = change.FederationGuid;
       let identifierValue: string | undefined;
       if (queryCanAccessProvenance) {
-        const aspects: ExternalSourceAspect[] =
-          this.sourceDb.elements.getAspects(
+        for await (const row of this.sourceDb.createQueryReader(
+          `SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId`,
+          QueryBinder.from([
+            this.targetScopeElementId,
+            ExternalSourceAspect.Kind.Element,
             instId,
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
-        for (const aspect of aspects) {
-          // look for aspect where the ecInstanceId = the aspect.element.id
-          if (
-            aspect.element.id === instId &&
-            aspect.scope.id === this.targetScopeElementId
-          )
-            identifierValue = aspect.identifier;
+          ])
+        )) {
+          identifierValue = row.Identifier;
         }
-        // Think I need to query the esas given the instId.. not sure what db to do it on though.. soruce or target.. or provenance?
-        // I need to know the id of the element dpeneding on which db its stored in.
-      }
-      if (queryCanAccessProvenance && !identifierValue) {
-        if (mapOfDeletedElemIdToScopeEsas.get(instId) !== undefined)
-          identifierValue =
-            mapOfDeletedElemIdToScopeEsas.get(instId)!.Identifier;
+        if (identifierValue === undefined) {
+          if (mapOfDeletedElemIdToScopeEsas.get(instId) !== undefined)
+            identifierValue =
+              mapOfDeletedElemIdToScopeEsas.get(instId)!.Identifier;
+        }
       }
       const targetId =
         (queryCanAccessProvenance && identifierValue) ||
@@ -3002,44 +2998,44 @@ export class IModelTransformer extends IModelExportHandler {
       const classFullName = change.$meta?.classFullName;
       const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
       const targetIdOfRelationshipInSource = change.TargetECInstanceId;
-      const [sourceIdInTarget, targetIdInTarget] = [
-        sourceIdOfRelationshipInSource,
-        targetIdOfRelationshipInSource,
-      ].map((id) => {
-        let element;
-        try {
-          element = this.sourceDb.elements.getElement(id);
-        } catch (err) {
-          return undefined;
-        }
-        const fedGuid = element.federationGuid;
-        let identifierValue: string | undefined;
-        if (queryCanAccessProvenance) {
-          const aspects: ExternalSourceAspect[] =
-            this.sourceDb.elements.getAspects(
-              id,
-              ExternalSourceAspect.classFullName
-            ) as ExternalSourceAspect[];
-          for (const aspect of aspects) {
-            if (
-              aspect.element.id === id &&
-              aspect.scope.id === this.targetScopeElementId
-            )
-              identifierValue = aspect.identifier;
+      const [sourceIdInTarget, targetIdInTarget] = await Promise.all(
+        [sourceIdOfRelationshipInSource, targetIdOfRelationshipInSource].map(
+          async (id) => {
+            let element;
+            try {
+              element = this.sourceDb.elements.getElement(id);
+            } catch (err) {
+              return undefined;
+            }
+            const fedGuid = element.federationGuid;
+            let identifierValue: string | undefined;
+            if (queryCanAccessProvenance) {
+              for await (const row of this.sourceDb.createQueryReader(
+                `SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId`,
+                QueryBinder.from([
+                  this.targetScopeElementId,
+                  ExternalSourceAspect.Kind.Element,
+                  instId,
+                ])
+              )) {
+                identifierValue = row.Identifier;
+              }
+
+              if (identifierValue === undefined) {
+                if (mapOfDeletedElemIdToScopeEsas.get(id) !== undefined)
+                  identifierValue =
+                    mapOfDeletedElemIdToScopeEsas.get(id)!.Identifier;
+              }
+            }
+            return (
+              (queryCanAccessProvenance && identifierValue) ||
+              // maybe batching these queries would perform better but we should
+              // try to attach the second db and query both together anyway
+              (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid))
+            );
           }
-          if (identifierValue === undefined) {
-            if (mapOfDeletedElemIdToScopeEsas.get(id) !== undefined)
-              identifierValue =
-                mapOfDeletedElemIdToScopeEsas.get(id)!.Identifier;
-          }
-        }
-        return (
-          (queryCanAccessProvenance && identifierValue) ||
-          // maybe batching these queries would perform better but we should
-          // try to attach the second db and query both together anyway
-          (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid))
-        );
-      });
+        )
+      );
 
       if (sourceIdInTarget && targetIdInTarget) {
         this._deletedSourceRelationshipData!.set(instId, {
