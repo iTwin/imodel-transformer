@@ -1007,15 +1007,19 @@ describe("IModelTransformer", () => {
         }
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      transformerA2S.importer.doNotUpdateElementIds.add(subjectId);
       await transformerA2S.processAll();
       transformerA2S.dispose();
+      // Make sure some properties, for example, description, can persist
+      const teamIModelA: Subject = iModelA.elements.getElement<Subject>(IModel.rootSubjectId);
+      const sharedIModelA: Subject= iModelShared.elements.getElement<Subject>(subjectId);
+      assert.equal(teamIModelA.description, sharedIModelA.description);
       IModelTransformerTestUtils.dumpIModelInfo(iModelA);
       iModelA.close();
       iModelShared.saveChanges("Imported A");
       IModelTransformerTestUtils.assertSharedIModelContents(iModelShared, [
         "A",
       ]);
+
     }
 
     if (true) {
@@ -1045,7 +1049,6 @@ describe("IModelTransformer", () => {
         }
       );
       transformerB2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      transformerB2S.importer.doNotUpdateElementIds.add(subjectId);
       await transformerB2S.processAll();
       transformerB2S.dispose();
       IModelTransformerTestUtils.dumpIModelInfo(iModelB);
