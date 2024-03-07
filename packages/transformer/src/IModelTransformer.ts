@@ -2944,10 +2944,8 @@ export class IModelTransformer extends IModelExportHandler {
       this._synchronizationVersion.index === this.sourceDb.changeset.index;
     if (notConnectedModel || noChanges) return;
 
-    // optimization: if we have provenance, use it to avoid more querying later
-    // eventually when itwin.js supports attaching a second iModelDb in JS,
-    // this won't have to be a conditional part of the query, and we can always have it by attaching
-    const queryCanAccessProvenance = this.sourceDb === this.provenanceDb;
+    // if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs
+    const changeDataInProvenanceDb = this.sourceDb === this.provenanceDb;
 
     const changedInstanceId = change.ECInstanceId;
     const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
@@ -2961,18 +2959,15 @@ export class IModelTransformer extends IModelExportHandler {
         let identifierValue: string | undefined;
         let element;
         if (isRelationship) {
-          try {
-            element = this.sourceDb.elements.getElement(id);
-          } catch (err) {
-            return undefined;
-          }
+          element = this.sourceDb.elements.tryGetElement(id);
         }
         const fedGuid = isRelationship
           ? element?.federationGuid
           : change.FederationGuid;
-        if (queryCanAccessProvenance) {
+        if (changeDataInProvenanceDb) {
+          // TODO: clarify what happens if there are multiple (e.g. elements were merged)
           for await (const row of this.sourceDb.createQueryReader(
-            `SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId`,
+            "SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId LIMIT 1",
             QueryBinder.from([
               this.targetScopeElementId,
               ExternalSourceAspect.Kind.Element,
@@ -2986,7 +2981,7 @@ export class IModelTransformer extends IModelExportHandler {
             mapOfDeletedElemIdToScopeEsas.get(id)?.Identifier;
         }
         const targetId =
-          (queryCanAccessProvenance && identifierValue) ||
+          (changeDataInProvenanceDb && identifierValue) ||
           // maybe batching these queries would perform better but we should
           // try to attach the second db and query both together anyway
           (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid)) ||
