@@ -1283,6 +1283,13 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
+  /**
+   * Queries the provenanceDb for an ESA whose identifier is equal to the provided 'entityInProvenanceSourceId'.
+   * The identifier on the ESA is the id of the element in the [[IModelTransformer.provenanceSourceDb]]
+   * Therefore it only makes sense to call this function when you have an id in the provenanceSourceDb.
+   * @param entityInProvenanceSourceId
+   * @returns the elementId that the ESA is stored on, esa.Element.Id
+   */
   private _queryProvenanceForElement(
     entityInProvenanceSourceId: Id64String
   ): Id64String | undefined {
@@ -3007,10 +3014,8 @@ export class IModelTransformer extends IModelExportHandler {
           sourceIdInTarget: sourceIdOfRelationshipInTarget,
           targetIdInTarget: targetIdOfRelationshipInTarget,
         });
-      } else {
-        // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
-        // FIXME<NICK>: Is it safe to assume nothing has been deleted in provenanceDb because the provenanceDb is (most likely?) the targetDb if we've made it to this line of code? And we're processing changes
-        // in the context of the sourceDb implying there are no changes in the targetDb to process therefore no deletes in provenanceDb?
+      } else if (this.sourceDb === this.provenanceSourceDb) {
+        // It is only appropriate to call this function if the changedInstanceId belongs to the provenanceSourceDb.
         const relProvenance = this._queryProvenanceForRelationship(
           changedInstanceId,
           {
@@ -3027,22 +3032,24 @@ export class IModelTransformer extends IModelExportHandler {
           });
       }
     } else {
-      const targetId =
-        (await getTargetIdFromSourceId(changedInstanceId)) ??
-        this._queryProvenanceForElement(changedInstanceId);
+      let targetId = await getTargetIdFromSourceId(changedInstanceId);
+      if (targetId === undefined && this.sourceDb === this.provenanceSourceDb) {
+        // It is only appropriate to call this function if the changedInstanceId belongs to the provenanceSourceDb.
+        targetId = this._queryProvenanceForElement(changedInstanceId);
+      }
       // since we are processing one changeset at a time, we can see local source deletes
       // of entities that were never synced and can be safely ignored
       const deletionNotInTarget = !targetId;
       if (deletionNotInTarget) return;
-      this.context.remapElement(changedInstanceId, targetId);
+      this.context.remapElement(changedInstanceId, targetId!);
       // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
       // In such case an entity update will be triggered and we no longer need to delete the entity.
-      if (alreadyImportedElementInserts.has(targetId)) {
+      if (alreadyImportedElementInserts.has(targetId!)) {
         this.exporter.sourceDbChanges?.element.deleteIds.delete(
           changedInstanceId
         );
       }
-      if (alreadyImportedModelInserts.has(targetId)) {
+      if (alreadyImportedModelInserts.has(targetId!)) {
         this.exporter.sourceDbChanges?.model.deleteIds.delete(
           changedInstanceId
         );
