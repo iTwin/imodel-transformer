@@ -2944,7 +2944,10 @@ export class IModelTransformer extends IModelExportHandler {
       this._synchronizationVersion.index === this.sourceDb.changeset.index;
     if (notConnectedModel || noChanges) return;
 
-    // if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs
+    /**
+     * if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs.
+     * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
+     */
     const changeDataInProvenanceDb = this.sourceDb === this.provenanceDb;
 
     const getTargetIdFromSourceId = async (id: Id64String) => {
