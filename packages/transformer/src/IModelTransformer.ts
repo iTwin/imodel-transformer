@@ -2947,60 +2947,62 @@ export class IModelTransformer extends IModelExportHandler {
     // if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs
     const changeDataInProvenanceDb = this.sourceDb === this.provenanceDb;
 
-    const changedInstanceId = change.ECInstanceId;
-    const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
-    const targetIdOfRelationshipInSource = change.TargetECInstanceId;
-    const classFullName = change.$meta?.classFullName;
-    const idsInSourceDb = isRelationship
-      ? [sourceIdOfRelationshipInSource, targetIdOfRelationshipInSource]
-      : [changedInstanceId];
-    const idsInTargetDb = await Promise.all(
-      idsInSourceDb.map(async (id) => {
-        let identifierValue: string | undefined;
-        let element;
-        if (isRelationship) {
-          element = this.sourceDb.elements.tryGetElement(id);
+    const getTargetIdFromSourceId = async (id: Id64String) => {
+      let identifierValue: string | undefined;
+      let element;
+      if (isRelationship) {
+        element = this.sourceDb.elements.tryGetElement(id);
+      }
+      const fedGuid = isRelationship
+        ? element?.federationGuid
+        : change.FederationGuid;
+      if (changeDataInProvenanceDb) {
+        // TODO: clarify what happens if there are multiple (e.g. elements were merged)
+        for await (const row of this.sourceDb.createQueryReader(
+          "SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId LIMIT 1",
+          QueryBinder.from([
+            this.targetScopeElementId,
+            ExternalSourceAspect.Kind.Element,
+            id,
+          ])
+        )) {
+          identifierValue = row.Identifier;
         }
-        const fedGuid = isRelationship
-          ? element?.federationGuid
-          : change.FederationGuid;
-        if (changeDataInProvenanceDb) {
-          // TODO: clarify what happens if there are multiple (e.g. elements were merged)
-          for await (const row of this.sourceDb.createQueryReader(
-            "SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId LIMIT 1",
-            QueryBinder.from([
-              this.targetScopeElementId,
-              ExternalSourceAspect.Kind.Element,
-              id,
-            ])
-          )) {
-            identifierValue = row.Identifier;
-          }
-          identifierValue =
-            identifierValue ??
-            mapOfDeletedElemIdToScopeEsas.get(id)?.Identifier;
-        }
-        const targetId =
-          (changeDataInProvenanceDb && identifierValue) ||
-          // maybe batching these queries would perform better but we should
-          // try to attach the second db and query both together anyway
-          (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid)) ||
-          // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
-          // FIXME<NICK>: Is it safe to assume nothing has been deleted in provenanceDb because the provenanceDb is (most likely?) the targetDb if we've made it to this line of code? And we're processing changes
-          // in the context of the sourceDb implying there are no changes in the targetDb to process therefore no deletes in provenanceDb?
-          (!isRelationship && this._queryProvenanceForElement(id));
-        return targetId;
-      })
-    );
+        identifierValue =
+          identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.Identifier;
+      }
 
+      // Check for targetId by an esa first
+      if (changeDataInProvenanceDb && identifierValue) {
+        const targetId = identifierValue;
+        return targetId;
+      }
+
+      // Check for targetId using sourceId's fedguid if we didn't find an esa.
+      if (fedGuid) {
+        const targetId = this._queryElemIdByFedGuid(this.targetDb, fedGuid);
+        return targetId;
+      }
+      return undefined;
+    };
+
+    const changedInstanceId = change.ECInstanceId;
     if (isRelationship) {
-      const sourceIdInTarget = idsInTargetDb[0];
-      const targetIdInTarget = idsInTargetDb[1];
-      if (sourceIdInTarget && targetIdInTarget) {
+      const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
+      const targetIdOfRelationshipInSource = change.TargetECInstanceId;
+      const classFullName = change.$meta?.classFullName;
+
+      const sourceIdOfRelationshipInTarget = await getTargetIdFromSourceId(
+        sourceIdOfRelationshipInSource
+      );
+      const targetIdOfRelationshipInTarget = await getTargetIdFromSourceId(
+        targetIdOfRelationshipInSource
+      );
+      if (sourceIdOfRelationshipInTarget && targetIdOfRelationshipInTarget) {
         this._deletedSourceRelationshipData!.set(changedInstanceId, {
           classFullName: classFullName ?? "",
-          sourceIdInTarget,
-          targetIdInTarget,
+          sourceIdInTarget: sourceIdOfRelationshipInTarget,
+          targetIdInTarget: targetIdOfRelationshipInTarget,
         });
       } else {
         // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
@@ -3022,7 +3024,9 @@ export class IModelTransformer extends IModelExportHandler {
           });
       }
     } else {
-      const targetId = idsInTargetDb[0];
+      const targetId =
+        (await getTargetIdFromSourceId(changedInstanceId)) ??
+        this._queryProvenanceForElement(changedInstanceId);
       // since we are processing one changeset at a time, we can see local source deletes
       // of entities that were never synced and can be safely ignored
       const deletionNotInTarget = !targetId;
