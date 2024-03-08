@@ -978,14 +978,19 @@ describe("IModelTransformer", () => {
 
   it("should sync Team iModels into Shared", async () => {
     const iModelShared: SnapshotDb =
-      IModelTransformerTestUtils.createSharedIModel(outputDir, ["A", "B"]);
+      IModelTransformerTestUtils.createSharedIModel(
+        outputDir,
+        ["A", "B"],
+        "shared"
+      );
 
     if (true) {
       const iModelA: SnapshotDb = IModelTransformerTestUtils.createTeamIModel(
         outputDir,
         "A",
         Point3d.create(0, 0, 0),
-        ColorDef.green
+        ColorDef.green,
+        "team"
       );
       IModelTransformerTestUtils.assertTeamIModelContents(iModelA, "A");
       const iModelExporterA = new IModelExporter(iModelA);
@@ -1010,8 +1015,11 @@ describe("IModelTransformer", () => {
       await transformerA2S.processAll();
       transformerA2S.dispose();
       // Make sure some properties, for example, description, can persist
-      const teamIModelA: Subject = iModelA.elements.getElement<Subject>(IModel.rootSubjectId);
-      const sharedIModelA: Subject= iModelShared.elements.getElement<Subject>(subjectId);
+      const teamIModelA: Subject = iModelA.elements.getElement<Subject>(
+        IModel.rootSubjectId
+      );
+      const sharedIModelA: Subject =
+        iModelShared.elements.getElement<Subject>(subjectId);
       assert.equal(teamIModelA.description, sharedIModelA.description);
       IModelTransformerTestUtils.dumpIModelInfo(iModelA);
       iModelA.close();
@@ -1019,7 +1027,6 @@ describe("IModelTransformer", () => {
       IModelTransformerTestUtils.assertSharedIModelContents(iModelShared, [
         "A",
       ]);
-
     }
 
     if (true) {
@@ -1137,6 +1144,74 @@ describe("IModelTransformer", () => {
 
     IModelTransformerTestUtils.dumpIModelInfo(iModelShared);
     iModelShared.close();
+  });
+
+  it("should remapping subjects carry parents and codes over", async () => {
+    const iModelNameSource: string = "source";
+    const iModelNameTarget: string = "target";
+    const iModelFileSource: string = path.join(
+      outputDir,
+      `${iModelNameSource}.bim`
+    );
+    const iModelFileTarget: string = path.join(
+      outputDir,
+      `${iModelNameTarget}.bim`
+    );
+    if (IModelJsFs.existsSync(iModelFileSource)) {
+      IModelJsFs.removeSync(iModelFileSource);
+    }
+    if (IModelJsFs.existsSync(iModelFileTarget)) {
+      IModelJsFs.removeSync(iModelFileTarget);
+    }
+    const iModelDbSource: SnapshotDb = SnapshotDb.createEmpty(
+      iModelFileSource,
+      {
+        rootSubject: { name: "rootSource" },
+        createClassViews: true,
+      }
+    );
+    const iModelDbTarget: SnapshotDb = SnapshotDb.createEmpty(
+      iModelFileTarget,
+      {
+        rootSubject: { name: "rootTarget" },
+        createClassViews: true,
+      }
+    );
+    assert.exists(iModelDbSource);
+    assert.exists(iModelDbTarget);
+
+    const subjectIdSource: Id64String = Subject.insert(
+      iModelDbSource,
+      IModel.rootSubjectId,
+      "source"
+    );
+    const subjectIdTarget: Id64String = Subject.insert(
+      iModelDbTarget,
+      IModel.rootSubjectId,
+      "target"
+    );
+    const transformer = new IModelTransformer(iModelDbSource, iModelDbTarget);
+    transformer.context.remapElement(subjectIdSource, subjectIdTarget);
+    await transformer.processAll();
+    transformer.dispose();
+    // make sure remapping other than root subject carries parents and codes (especially their scopes) over properly
+    const sourceIModelSubject: Subject =
+      iModelDbSource.elements.getElement<Subject>(subjectIdSource);
+    const targetIModelSubject: Subject =
+      iModelDbTarget.elements.getElement<Subject>(subjectIdTarget);
+    sourceIModelSubject.parent?.id;
+    assert.equal(
+      sourceIModelSubject.parent?.id,
+      targetIModelSubject.parent?.id
+    );
+    assert.equal(
+      sourceIModelSubject.code.scope,
+      targetIModelSubject.code.scope
+    );
+    IModelTransformerTestUtils.dumpIModelInfo(iModelDbSource);
+    iModelDbSource.close();
+    IModelTransformerTestUtils.dumpIModelInfo(iModelDbTarget);
+    iModelDbTarget.close();
   });
 
   it("should detect conflicting provenance scopes", async () => {

@@ -115,14 +115,15 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
     outputDir: string,
     teamName: string,
     teamOrigin: Point3d,
-    teamColor: ColorDef
+    teamColor: ColorDef,
+    teamDescription?: string
   ): SnapshotDb {
     const teamFile: string = path.join(outputDir, `Team${teamName}.bim`);
     if (IModelJsFs.existsSync(teamFile)) {
       IModelJsFs.removeSync(teamFile);
     }
     const iModelDb: SnapshotDb = SnapshotDb.createEmpty(teamFile, {
-      rootSubject: { name: teamName },
+      rootSubject: { name: teamName, description: teamDescription },
       createClassViews: true,
     });
     assert.exists(iModelDb);
@@ -217,7 +218,8 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
 
   public static createSharedIModel(
     outputDir: string,
-    teamNames: string[]
+    teamNames: string[],
+    iModelDescription?: string
   ): SnapshotDb {
     const iModelName: string = `Shared${teamNames.join("")}`;
     const iModelFile: string = path.join(outputDir, `${iModelName}.bim`);
@@ -225,7 +227,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       IModelJsFs.removeSync(iModelFile);
     }
     const iModelDb: SnapshotDb = SnapshotDb.createEmpty(iModelFile, {
-      rootSubject: { name: iModelName },
+      rootSubject: { name: iModelName, description: iModelDescription },
     });
     assert.exists(iModelDb);
     teamNames.forEach((teamName: string) => {
