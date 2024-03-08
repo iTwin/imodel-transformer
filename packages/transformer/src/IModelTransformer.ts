@@ -1312,6 +1312,13 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
+  /**
+   * Queries the provenanceDb for an ESA whose identifier is equal to the provided 'entityInProvenanceSourceId'.
+   * The identifier on the ESA is the id of the relationship in the [[IModelTransformer.provenanceSourceDb]]
+   * Therefore it only makes sense to call this function when you have an id in the provenanceSourceDb.
+   * @param entityInProvenanceSourceId
+   * @returns
+   */
   private _queryProvenanceForRelationship(
     entityInProvenanceSourceId: Id64String,
     sourceRelInfo: {
@@ -3015,7 +3022,6 @@ export class IModelTransformer extends IModelExportHandler {
           targetIdInTarget: targetIdOfRelationshipInTarget,
         });
       } else if (this.sourceDb === this.provenanceSourceDb) {
-        // It is only appropriate to call this function if the changedInstanceId belongs to the provenanceSourceDb.
         const relProvenance = this._queryProvenanceForRelationship(
           changedInstanceId,
           {
@@ -3034,7 +3040,6 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       let targetId = await getTargetIdFromSourceId(changedInstanceId);
       if (targetId === undefined && this.sourceDb === this.provenanceSourceDb) {
-        // It is only appropriate to call this function if the changedInstanceId belongs to the provenanceSourceDb.
         targetId = this._queryProvenanceForElement(changedInstanceId);
       }
       // since we are processing one changeset at a time, we can see local source deletes
