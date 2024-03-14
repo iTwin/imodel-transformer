@@ -1146,72 +1146,246 @@ describe("IModelTransformer", () => {
     iModelShared.close();
   });
 
-  it("should remapping subjects carry parents and codes over", async () => {
-    const iModelNameSource: string = "source";
-    const iModelNameTarget: string = "target";
-    const iModelFileSource: string = path.join(
+  it("remap root subject to root subject", async () => {
+    const sourceIModelName: string = "source";
+    const targetIModelName: string = "target";
+    const sourceIModelFile: string = path.join(
       outputDir,
-      `${iModelNameSource}.bim`
+      `${sourceIModelName}.bim`
     );
-    const iModelFileTarget: string = path.join(
+    const targetIModelFile: string = path.join(
       outputDir,
-      `${iModelNameTarget}.bim`
+      `${targetIModelName}.bim`
     );
-    if (IModelJsFs.existsSync(iModelFileSource)) {
-      IModelJsFs.removeSync(iModelFileSource);
+    if (IModelJsFs.existsSync(sourceIModelFile)) {
+      IModelJsFs.removeSync(sourceIModelFile);
     }
-    if (IModelJsFs.existsSync(iModelFileTarget)) {
-      IModelJsFs.removeSync(iModelFileTarget);
+    if (IModelJsFs.existsSync(targetIModelFile)) {
+      IModelJsFs.removeSync(targetIModelFile);
     }
-    const iModelDbSource: SnapshotDb = SnapshotDb.createEmpty(
-      iModelFileSource,
+    const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      sourceIModelFile,
       {
         rootSubject: { name: "rootSource" },
         createClassViews: true,
       }
     );
-    const iModelDbTarget: SnapshotDb = SnapshotDb.createEmpty(
-      iModelFileTarget,
+    const targetIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      targetIModelFile,
       {
         rootSubject: { name: "rootTarget" },
         createClassViews: true,
       }
     );
-    assert.exists(iModelDbSource);
-    assert.exists(iModelDbTarget);
+    assert.exists(sourceIModelDb);
+    assert.exists(targetIModelDb);
 
-    const subjectIdSource: Id64String = Subject.insert(
-      iModelDbSource,
+    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb);
+    transformer.context.remapElement(
+      IModel.rootSubjectId,
+      IModel.rootSubjectId
+    );
+    await transformer.processAll();
+    transformer.dispose();
+    const sourceIModelSubject: Subject =
+      sourceIModelDb.elements.getElement<Subject>(IModel.rootSubjectId);
+    const targetIModelSubject: Subject =
+      targetIModelDb.elements.getElement<Subject>(IModel.rootSubjectId);
+    expect(sourceIModelSubject).to.have.property("parent").that.is.undefined;
+    expect(sourceIModelSubject.code.scope).to.eq(IModel.rootSubjectId);
+    // rootSubjectId's parent still doesn't exist after the clone
+    expect(targetIModelSubject).to.have.property("parent").that.is.undefined;
+    // the scope on its code is still itself.
+    expect(targetIModelSubject.code.scope).to.eq(IModel.rootSubjectId);
+    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
+    sourceIModelDb.close();
+    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
+    targetIModelDb.close();
+  });
+
+  it("remap non-root subject to non-root subject", async () => {
+    const sourceIModelName: string = "source";
+    const targetIModelName: string = "target";
+    const sourceIModelFile: string = path.join(
+      outputDir,
+      `${sourceIModelName}.bim`
+    );
+    const targetIModelFile: string = path.join(
+      outputDir,
+      `${targetIModelName}.bim`
+    );
+    if (IModelJsFs.existsSync(sourceIModelFile)) {
+      IModelJsFs.removeSync(sourceIModelFile);
+    }
+    if (IModelJsFs.existsSync(targetIModelFile)) {
+      IModelJsFs.removeSync(targetIModelFile);
+    }
+    const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      sourceIModelFile,
+      {
+        rootSubject: { name: "rootSource" },
+        createClassViews: true,
+      }
+    );
+    const targetIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      targetIModelFile,
+      {
+        rootSubject: { name: "rootTarget" },
+        createClassViews: true,
+      }
+    );
+    assert.exists(sourceIModelDb);
+    assert.exists(targetIModelDb);
+
+    const sourceSubjectId: Id64String = Subject.insert(
+      sourceIModelDb,
       IModel.rootSubjectId,
       "source"
     );
-    const subjectIdTarget: Id64String = Subject.insert(
-      iModelDbTarget,
+    const targetSubjectId: Id64String = Subject.insert(
+      targetIModelDb,
       IModel.rootSubjectId,
       "target"
     );
-    const transformer = new IModelTransformer(iModelDbSource, iModelDbTarget);
-    transformer.context.remapElement(subjectIdSource, subjectIdTarget);
+    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb);
+    transformer.context.remapElement(sourceSubjectId, targetSubjectId);
     await transformer.processAll();
     transformer.dispose();
-    // make sure remapping other than root subject carries parents and codes (especially their scopes) over properly
     const sourceIModelSubject: Subject =
-      iModelDbSource.elements.getElement<Subject>(subjectIdSource);
+      sourceIModelDb.elements.getElement<Subject>(sourceSubjectId);
     const targetIModelSubject: Subject =
-      iModelDbTarget.elements.getElement<Subject>(subjectIdTarget);
-    sourceIModelSubject.parent?.id;
-    assert.equal(
-      sourceIModelSubject.parent?.id,
-      targetIModelSubject.parent?.id
+      targetIModelDb.elements.getElement<Subject>(targetSubjectId);
+    // ParentId of non root-subject == rootSubjectId
+    expect(sourceIModelSubject.parent?.id).to.eq(IModel.rootSubjectId);
+    expect(targetIModelSubject.parent?.id).to.eq(IModel.rootSubjectId);
+    // rootSubjectId == scope on the code of non root-subject
+    expect(sourceIModelSubject.code.scope).to.eq(IModel.rootSubjectId);
+    expect(targetIModelSubject.code.scope).to.eq(IModel.rootSubjectId);
+    // Remapping a non root-subject to a non root-subject keeps its parent and code as expected
+    expect(sourceIModelSubject.parent).to.deep.eq(targetIModelSubject.parent);
+    expect(sourceIModelSubject.code).to.deep.eq(targetIModelSubject.code);
+    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
+    sourceIModelDb.close();
+    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
+    targetIModelDb.close();
+  });
+
+  it("remap root subject to non-root subject", async () => {
+    const sourceIModelName: string = "source";
+    const targetIModelName: string = "target";
+    const sourceIModelFile: string = path.join(
+      outputDir,
+      `${sourceIModelName}.bim`
     );
-    assert.equal(
-      sourceIModelSubject.code.scope,
-      targetIModelSubject.code.scope
+    const targetIModelFile: string = path.join(
+      outputDir,
+      `${targetIModelName}.bim`
     );
-    IModelTransformerTestUtils.dumpIModelInfo(iModelDbSource);
-    iModelDbSource.close();
-    IModelTransformerTestUtils.dumpIModelInfo(iModelDbTarget);
-    iModelDbTarget.close();
+    if (IModelJsFs.existsSync(sourceIModelFile)) {
+      IModelJsFs.removeSync(sourceIModelFile);
+    }
+    if (IModelJsFs.existsSync(targetIModelFile)) {
+      IModelJsFs.removeSync(targetIModelFile);
+    }
+    const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      sourceIModelFile,
+      {
+        rootSubject: { name: "rootSource" },
+        createClassViews: true,
+      }
+    );
+    const targetIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      targetIModelFile,
+      {
+        rootSubject: { name: "rootTarget" },
+        createClassViews: true,
+      }
+    );
+    assert.exists(sourceIModelDb);
+    assert.exists(targetIModelDb);
+    const targetSubjectId: Id64String = Subject.insert(
+      targetIModelDb,
+      IModel.rootSubjectId,
+      "target"
+    );
+    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb, {
+      danglingReferencesBehavior: "ignore",
+    });
+    transformer.context.remapElement(IModel.rootSubjectId, targetSubjectId);
+    await transformer.processAll();
+    transformer.dispose();
+    const targetIModelSubject: Subject =
+      targetIModelDb.elements.getElement<Subject>(targetSubjectId);
+    expect(targetIModelSubject.parent?.id).eq(IModel.rootSubjectId);
+    expect(targetIModelSubject.code.scope).eq(IModel.rootSubjectId);
+    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
+    sourceIModelDb.close();
+    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
+    targetIModelDb.close();
+  });
+
+  it("remap root subject to non-root subject with non-root parent", async () => {
+    const sourceIModelName: string = "source";
+    const targetIModelName: string = "target";
+    const sourceIModelFile: string = path.join(
+      outputDir,
+      `${sourceIModelName}.bim`
+    );
+    const targetIModelFile: string = path.join(
+      outputDir,
+      `${targetIModelName}.bim`
+    );
+    if (IModelJsFs.existsSync(sourceIModelFile)) {
+      IModelJsFs.removeSync(sourceIModelFile);
+    }
+    if (IModelJsFs.existsSync(targetIModelFile)) {
+      IModelJsFs.removeSync(targetIModelFile);
+    }
+    const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      sourceIModelFile,
+      {
+        rootSubject: { name: "rootSource" },
+        createClassViews: true,
+      }
+    );
+    const targetIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      targetIModelFile,
+      {
+        rootSubject: { name: "rootTarget" },
+        createClassViews: true,
+      }
+    );
+    assert.exists(sourceIModelDb);
+    assert.exists(targetIModelDb);
+    const targetParentSubjectId: Id64String = Subject.insert(
+      targetIModelDb,
+      IModel.rootSubjectId,
+      "targetParent"
+    );
+    const targetChildSubjectId: Id64String = Subject.insert(
+      targetIModelDb,
+      targetParentSubjectId,
+      "targetChild"
+    );
+    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb, {
+      danglingReferencesBehavior: "ignore",
+    });
+    transformer.context.remapElement(
+      IModel.rootSubjectId,
+      targetChildSubjectId
+    );
+    await transformer.processAll();
+    transformer.dispose();
+    const targetChildIModelSubject: Subject =
+      targetIModelDb.elements.getElement<Subject>(targetChildSubjectId);
+    // child's parent should still be its original parent after remapping
+    expect(targetChildIModelSubject.parent?.id).eq(targetParentSubjectId);
+    // child's code scope should still be its parent after remapping
+    expect(targetChildIModelSubject.code.scope).eq(targetParentSubjectId);
+    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
+    sourceIModelDb.close();
+    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
+    targetIModelDb.close();
   });
 
   it("should detect conflicting provenance scopes", async () => {

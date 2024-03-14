@@ -1511,6 +1511,25 @@ export class IModelTransformer extends IModelExportHandler {
       sourceElement,
       { binaryGeometry: this._options.cloneUsingBinaryGeometry }
     );
+    // Special case: source element is the root subject
+    if (sourceElement.id === IModel.rootSubjectId) {
+      const targetElementId: string = this.context.findTargetElementId(
+        sourceElement.id
+      );
+      const targetElement = this.targetDb.elements.getElement(targetElementId);
+      // If target element's parent is the root subject, set code scope to be root subject id
+      // This is the case where a root subject in source is remapping to a non-root subject with root subject parent in target
+      if (targetElement.parent?.id === IModel.rootSubjectId) {
+        targetElementProps.code.scope = IModel.rootSubjectId;
+      } else if (targetElement.parent !== undefined) {
+        // If target element's parent is not the root subject, make sure that:
+        // 1. the cloned element's parent is the same as the original target element's parent
+        // 2. the cloned element's code scope is the same as the original target element's code scope
+        // This is the case where a root subject in source is remapping to a non-root subject with non-root subject parent in target
+        targetElementProps.parent = targetElement.parent;
+        targetElementProps.code.scope = targetElement.code.scope;
+      }
+    }
     if (sourceElement instanceof Subject) {
       if (targetElementProps.jsonProperties?.Subject?.Job) {
         // don't propagate source channels into target (legacy bridge case)
