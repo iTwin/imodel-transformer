@@ -541,9 +541,7 @@ export class IModelTestUtils {
     if (!IModelJsFs.existsSync(outputDir)) IModelJsFs.mkdirSync(outputDir);
 
     const outputFile = path.join(outputDir, fileName);
-    if (IModelJsFs.existsSync(outputFile)) {
-      IModelJsFs.unlinkSync(outputFile);
-    }
+    if (IModelJsFs.existsSync(outputFile)) IModelJsFs.unlinkSync(outputFile);
 
     return outputFile;
   }
