@@ -1197,9 +1197,7 @@ describe("IModelTransformer", () => {
     expect(targetIModelSubject).to.have.property("parent").that.is.undefined;
     // the scope on its code is still itself.
     expect(targetIModelSubject.code.scope).to.eq(IModel.rootSubjectId);
-    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
     sourceIModelDb.close();
-    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
     targetIModelDb.close();
   });
 
@@ -1214,12 +1212,20 @@ describe("IModelTransformer", () => {
       outputDir,
       `${targetIModelName}.bim`
     );
-    if (IModelJsFs.existsSync(sourceIModelFile)) {
-      IModelJsFs.removeSync(sourceIModelFile);
-    }
-    if (IModelJsFs.existsSync(targetIModelFile)) {
-      IModelJsFs.removeSync(targetIModelFile);
-    }
+    // if (IModelJsFs.existsSync(sourceIModelFile)) {
+    //   IModelJsFs.removeSync(sourceIModelFile);
+    // }
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      sourceIModelFile
+    );
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      targetIModelFile
+    );
+    // if (IModelJsFs.existsSync(targetIModelFile)) {
+    //   IModelJsFs.removeSync(targetIModelFile);
+    // }
     const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
       sourceIModelFile,
       {
@@ -1264,9 +1270,7 @@ describe("IModelTransformer", () => {
     // Remapping a non root-subject to a non root-subject keeps its parent and code as expected
     expect(sourceIModelSubject.parent).to.deep.eq(targetIModelSubject.parent);
     expect(sourceIModelSubject.code).to.deep.eq(targetIModelSubject.code);
-    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
     sourceIModelDb.close();
-    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
     targetIModelDb.close();
   });
 
@@ -1318,9 +1322,7 @@ describe("IModelTransformer", () => {
       targetIModelDb.elements.getElement<Subject>(targetSubjectId);
     expect(targetIModelSubject.parent?.id).eq(IModel.rootSubjectId);
     expect(targetIModelSubject.code.scope).eq(IModel.rootSubjectId);
-    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
     sourceIModelDb.close();
-    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
     targetIModelDb.close();
   });
 
@@ -1382,9 +1384,7 @@ describe("IModelTransformer", () => {
     expect(targetChildIModelSubject.parent?.id).eq(targetParentSubjectId);
     // child's code scope should still be its parent after remapping
     expect(targetChildIModelSubject.code.scope).eq(targetParentSubjectId);
-    IModelTransformerTestUtils.dumpIModelInfo(sourceIModelDb);
     sourceIModelDb.close();
-    IModelTransformerTestUtils.dumpIModelInfo(targetIModelDb);
     targetIModelDb.close();
   });
 
