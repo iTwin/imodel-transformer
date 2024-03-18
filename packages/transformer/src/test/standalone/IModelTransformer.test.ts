@@ -1147,22 +1147,18 @@ describe("IModelTransformer", () => {
   });
 
   it("remap root subject to root subject", async () => {
-    const sourceIModelName: string = "source";
-    const targetIModelName: string = "target";
-    const sourceIModelFile: string = path.join(
-      outputDir,
-      `${sourceIModelName}.bim`
+    const sourceIModelName: string = "source.bim";
+    const targetIModelName: string = "target.bim";
+    const sourceIModelFile: string = path.join(outputDir, sourceIModelName);
+    const targetIModelFile: string = path.join(outputDir, targetIModelName);
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      sourceIModelName
     );
-    const targetIModelFile: string = path.join(
-      outputDir,
-      `${targetIModelName}.bim`
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      targetIModelName
     );
-    if (IModelJsFs.existsSync(sourceIModelFile)) {
-      IModelJsFs.removeSync(sourceIModelFile);
-    }
-    if (IModelJsFs.existsSync(targetIModelFile)) {
-      IModelJsFs.removeSync(targetIModelFile);
-    }
     const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
       sourceIModelFile,
       {
@@ -1202,30 +1198,18 @@ describe("IModelTransformer", () => {
   });
 
   it("remap non-root subject to non-root subject", async () => {
-    const sourceIModelName: string = "source";
-    const targetIModelName: string = "target";
-    const sourceIModelFile: string = path.join(
-      outputDir,
-      `${sourceIModelName}.bim`
-    );
-    const targetIModelFile: string = path.join(
-      outputDir,
-      `${targetIModelName}.bim`
-    );
-    // if (IModelJsFs.existsSync(sourceIModelFile)) {
-    //   IModelJsFs.removeSync(sourceIModelFile);
-    // }
+    const sourceIModelName: string = "source.bim";
+    const targetIModelName: string = "target.bim";
+    const sourceIModelFile: string = path.join(outputDir, sourceIModelName);
+    const targetIModelFile: string = path.join(outputDir, targetIModelName);
     IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
-      sourceIModelFile
+      sourceIModelName
     );
     IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
-      targetIModelFile
+      targetIModelName
     );
-    // if (IModelJsFs.existsSync(targetIModelFile)) {
-    //   IModelJsFs.removeSync(targetIModelFile);
-    // }
     const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
       sourceIModelFile,
       {
@@ -1275,22 +1259,18 @@ describe("IModelTransformer", () => {
   });
 
   it("remap root subject to non-root subject", async () => {
-    const sourceIModelName: string = "source";
-    const targetIModelName: string = "target";
-    const sourceIModelFile: string = path.join(
-      outputDir,
-      `${sourceIModelName}.bim`
+    const sourceIModelName: string = "source.bim";
+    const targetIModelName: string = "target.bim";
+    const sourceIModelFile: string = path.join(outputDir, sourceIModelName);
+    const targetIModelFile: string = path.join(outputDir, targetIModelName);
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      sourceIModelName
     );
-    const targetIModelFile: string = path.join(
-      outputDir,
-      `${targetIModelName}.bim`
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      targetIModelName
     );
-    if (IModelJsFs.existsSync(sourceIModelFile)) {
-      IModelJsFs.removeSync(sourceIModelFile);
-    }
-    if (IModelJsFs.existsSync(targetIModelFile)) {
-      IModelJsFs.removeSync(targetIModelFile);
-    }
     const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
       sourceIModelFile,
       {
@@ -1327,22 +1307,18 @@ describe("IModelTransformer", () => {
   });
 
   it("remap root subject to non-root subject with non-root parent", async () => {
-    const sourceIModelName: string = "source";
-    const targetIModelName: string = "target";
-    const sourceIModelFile: string = path.join(
-      outputDir,
-      `${sourceIModelName}.bim`
+    const sourceIModelName: string = "source.bim";
+    const targetIModelName: string = "target.bim";
+    const sourceIModelFile: string = path.join(outputDir, sourceIModelName);
+    const targetIModelFile: string = path.join(outputDir, targetIModelName);
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      sourceIModelName
     );
-    const targetIModelFile: string = path.join(
-      outputDir,
-      `${targetIModelName}.bim`
+    IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      targetIModelName
     );
-    if (IModelJsFs.existsSync(sourceIModelFile)) {
-      IModelJsFs.removeSync(sourceIModelFile);
-    }
-    if (IModelJsFs.existsSync(targetIModelFile)) {
-      IModelJsFs.removeSync(targetIModelFile);
-    }
     const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
       sourceIModelFile,
       {
