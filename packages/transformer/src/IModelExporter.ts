@@ -846,6 +846,13 @@ export class IModelExporter {
       return;
     }
 
+    // Optimization to not load the element unless we are exporting it.
+    if (this._excludedElementIds.has(elementId)) {
+      Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
+      this.handler.onSkipElement(elementId);
+      return;
+    }
+
     // are we processing changes?
     const isUpdate = this._sourceDbChanges?.element.insertIds.has(elementId)
       ? false
