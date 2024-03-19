@@ -846,7 +846,7 @@ export class IModelExporter {
       return;
     }
 
-    // Optimization to not load the element unless we are exporting it.
+    // Return early if the elementId is already in the excludedElementIds, that way we don't need to load the element from the db.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
       this.handler.onSkipElement(elementId);
