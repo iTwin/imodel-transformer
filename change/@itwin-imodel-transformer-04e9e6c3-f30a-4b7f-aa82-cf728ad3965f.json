@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "fed guid optimization test",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "patch"
-}

@@ -886,7 +886,6 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should be able to handle relationship delete using fedguids", async () => {
-    // FIXME: This test should be removed once we have more structured testing with a case matrix
     const masterIModelName = "MasterNewRelProvenanceFedGuids";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -973,7 +972,6 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should be able to handle relationship delete using new relationship provenance method with no fedguids", async () => {
-    // FIXME: This test should be removed once we have more structured testing with a case matrix
     // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
     /** This test does the following:
      *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
@@ -1090,7 +1088,6 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should be able to handle relationship delete using old relationship provenance method with no fedguids", async () => {
-    // FIXME: This test should be removed once we have more structured testing with a case matrix
     // SEE: https://github.com/iTwin/imodel-transformer/issues/54 for the scenario this test exercises
     /** This test does the following:
      *  sync master to branch with two elements, x and y, with NULL fed guid to force ESAs to be generated (For future relationship)
@@ -1454,7 +1451,6 @@ describe("IModelTransformerHub", () => {
           },
         },
       },
-      // FIXME: do a later sync and resync. Branch1 gets master's changes. master merges into branch1.
       { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
       {
         assert({ branch1 }) {
@@ -1493,6 +1489,20 @@ describe("IModelTransformerHub", () => {
             ).to.be.true;
             expect(srcElemAspects.length).to.lessThanOrEqual(1);
           }
+          assertElemState(branch1.db, { 7: 1 }, { subset: true });
+        },
+      },
+      // 7 originally came from branch2. Modify it.
+      { branch1: { 7: 10 } },
+      // Reverse sync branch 1 to master with the change to 7.
+      { master: { sync: ["branch1"] } },
+      // Forward sync master to branch2 with the change to 7.
+      { branch2: { sync: ["master"] } },
+      {
+        assert({ master, branch1, branch2 }) {
+          for (const imodel of [master, branch1, branch2]) {
+            assertElemState(imodel.db, { 7: 10 }, { subset: true });
+          }
         },
       },
     ];
@@ -1529,7 +1539,7 @@ describe("IModelTransformerHub", () => {
         iModelId: master.id,
         targetDir: BriefcaseManager.getChangeSetsPath(master.id),
       });
-      assert.equal(masterDbChangesets.length, 6);
+      assert.equal(masterDbChangesets.length, 7);
       const masterDeletedElementIds = new Set<Id64String>();
       const masterDeletedRelationshipIds = new Set<Id64String>();
       for (const masterDbChangeset of masterDbChangesets) {
@@ -3863,9 +3873,6 @@ describe("IModelTransformerHub", () => {
     });
   }
 
-  // FIXME: As a side effect of fixing a bug in findRangeContaining, we error out with no changesummary data because we now properly skip changesetindices
-  // i.e. a range [4,4] with skip 4 now properly gets skipped. so we have no changesummary data. We need to revisit this after switching to affan's new API
-  // to read changesets directly.
   it("should skip provenance changesets made to branch during reverse sync", async () => {
     const timeline: Timeline = [
       { master: { 1: 1 } },

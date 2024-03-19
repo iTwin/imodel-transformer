@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "rerelease again",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "mike.belousov@bentley.com",
-  "dependentChangeType": "patch"
-}
