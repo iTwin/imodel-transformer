@@ -88,6 +88,7 @@ import {
   ProfileOptions,
   QueryRowFormat,
   RelatedElement,
+  RelatedElementProps,
   RelationshipProps,
   RepositoryLinkProps,
 } from "@itwin/core-common";
@@ -1144,6 +1145,105 @@ describe("IModelTransformer", () => {
 
     IModelTransformerTestUtils.dumpIModelInfo(iModelShared);
     iModelShared.close();
+  });
+
+  it.only("remap intermediate subject", async () => {
+    const sourceIModelFile: string =
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        "source.bim"
+      );
+    const targetIModelFile: string =
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        "target.bim"
+      );
+    const sourceIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      sourceIModelFile,
+      {
+        rootSubject: { name: "rootSource" },
+        createClassViews: true,
+      }
+    );
+    const targetIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      targetIModelFile,
+      {
+        rootSubject: { name: "rootTarget" },
+        createClassViews: true,
+      }
+    );
+    const nonRootSubjectId = Subject.insert(
+      targetIModelDb,
+      IModel.rootSubjectId,
+      "nonRootSubject",
+      "nonRootSubject"
+    );
+    targetIModelDb.saveChanges();
+    assert.exists(sourceIModelDb);
+    assert.exists(targetIModelDb);
+
+    let transformer = new IModelTransformer(sourceIModelDb, targetIModelDb, {
+      danglingReferencesBehavior: "ignore",
+    });
+    transformer.context.remapElement(IModel.rootSubjectId, nonRootSubjectId);
+    await transformer.processAll();
+    transformer.dispose();
+    let sourceIModelSubject: Subject =
+      sourceIModelDb.elements.getElement<Subject>(IModel.rootSubjectId);
+    let targetIModelSubject: Subject =
+      targetIModelDb.elements.getElement<Subject>(nonRootSubjectId);
+    expect(sourceIModelSubject).to.have.property("parent").that.is.undefined;
+    expect(sourceIModelSubject.code.scope).to.eq(IModel.rootSubjectId);
+    expect(targetIModelSubject.parent?.id).to.eq(IModel.rootSubjectId);
+    expect(targetIModelSubject.code.scope).to.eq(IModel.rootSubjectId);
+
+    const intermediateSubjectId = Subject.insert(
+      targetIModelDb,
+      IModelDb.rootSubjectId,
+      "intermediateSubject",
+      "intermediateSubject"
+    );
+    targetIModelDb.elements.updateElement({
+      ...targetIModelSubject,
+      parent: { id: intermediateSubjectId },
+      description: "changed description",
+    } as any);
+
+    // reverse sync the intermediatesubject change
+    transformer = new IModelTransformer(targetIModelDb, sourceIModelDb);
+    // remapping with target element as rotsubject is a problem because we clone the nonroot and get a parent. if its root subject as target we should special case that as well.
+    // I.e. delete the parent and properly adjust the scope of the code. kind of the inverse of what we're doing.
+    // The reason I remapped though is because I wanted to take any changes to the 'team' subject in the shared back to the individula team imodel.
+    transformer.context.remapElement(nonRootSubjectId, IModel.rootSubjectId);
+
+    await transformer.processAll();
+    const intermediateSubjectIdInMaster =
+      transformer.context.findTargetElementId(intermediateSubjectId);
+    expect(intermediateSubjectIdInMaster).to.not.be.undefined;
+    const intermediateSubjectInMaster =
+      sourceIModelDb.elements.getElement<Subject>(
+        intermediateSubjectIdInMaster
+      );
+    expect(intermediateSubjectInMaster.description).to.eq(
+      "intermediateSubject"
+    );
+    transformer.dispose();
+
+    sourceIModelSubject = sourceIModelDb.elements.getElement<Subject>(
+      IModel.rootSubjectId
+    );
+    expect(sourceIModelSubject.parent).to.be.undefined;
+    expect(sourceIModelSubject.description).to.eq("changed description");
+
+    targetIModelSubject =
+      targetIModelDb.elements.getElement<Subject>(nonRootSubjectId);
+
+    // What does it mean for source's rootS to change? I guess we would want those chanegs to find their way into the target'sversion of rootS, but we don't really care about
+    // changes making it back to the source's rootS. But I guess we could care.
+    // expect()
+
+    sourceIModelDb.close();
+    targetIModelDb.close();
   });
 
   it("remap root subject to root subject", async () => {
