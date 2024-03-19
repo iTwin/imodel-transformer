@@ -90,6 +90,7 @@ import {
   Placement3d,
   PrimitiveTypeCode,
   PropertyMetaData,
+  QueryBinder,
   RelatedElement,
   SourceAndTarget,
 } from "@itwin/core-common";
@@ -1282,6 +1283,13 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
+  /**
+   * Queries the provenanceDb for an ESA whose identifier is equal to the provided 'entityInProvenanceSourceId'.
+   * The identifier on the ESA is the id of the element in the [[IModelTransformer.provenanceSourceDb]]
+   * Therefore it only makes sense to call this function when you have an id in the provenanceSourceDb.
+   * @param entityInProvenanceSourceId
+   * @returns the elementId that the ESA is stored on, esa.Element.Id
+   */
   private _queryProvenanceForElement(
     entityInProvenanceSourceId: Id64String
   ): Id64String | undefined {
@@ -1304,6 +1312,13 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
+  /**
+   * Queries the provenanceDb for an ESA whose identifier is equal to the provided 'entityInProvenanceSourceId'.
+   * The identifier on the ESA is the id of the relationship in the [[IModelTransformer.provenanceSourceDb]]
+   * Therefore it only makes sense to call this function when you have an id in the provenanceSourceDb.
+   * @param entityInProvenanceSourceId
+   * @returns
+   */
   private _queryProvenanceForRelationship(
     entityInProvenanceSourceId: Id64String,
     sourceRelInfo: {
@@ -2224,15 +2239,20 @@ export class IModelTransformer extends IModelExportHandler {
         `previous pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
       );
 
-      const [syncChangesetsToClear, syncChangesetsToUpdate] = this
+      const pendingSyncChangesetIndicesKey =
+        "pendingSyncChangesetIndices" as const;
+      const pendingReverseSyncChangesetIndicesKey =
+        "pendingReverseSyncChangesetIndices" as const;
+
+      const [syncChangesetsToClearKey, syncChangesetsToUpdateKey] = this
         .isReverseSynchronization
         ? [
-            jsonProps.pendingReverseSyncChangesetIndices,
-            jsonProps.pendingSyncChangesetIndices,
+            pendingReverseSyncChangesetIndicesKey,
+            pendingSyncChangesetIndicesKey,
           ]
         : [
-            jsonProps.pendingSyncChangesetIndices,
-            jsonProps.pendingReverseSyncChangesetIndices,
+            pendingSyncChangesetIndicesKey,
+            pendingReverseSyncChangesetIndicesKey,
           ];
 
       for (
@@ -2240,10 +2260,13 @@ export class IModelTransformer extends IModelExportHandler {
         i <= this.targetDb.changeset.index + 1;
         i++
       )
-        syncChangesetsToUpdate.push(i);
-      // FIXME: add test to synchronize an iModel that is not at the tip, since then clearning syncChangesets is
-      // probably wrong, and we should filter it instead
-      syncChangesetsToClear.length = 0;
+        jsonProps[syncChangesetsToUpdateKey].push(i);
+      // Only keep the changeset indices which are greater than the source, this means they haven't been processed yet.
+      jsonProps[syncChangesetsToClearKey] = jsonProps[
+        syncChangesetsToClearKey
+      ].filter((csIndex) => {
+        return csIndex > this._startingChangesetIndices!.source;
+      });
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
       if (this.isReverseSynchronization) {
@@ -2911,7 +2934,7 @@ export class IModelTransformer extends IModelExportHandler {
           relationshipECClassIdsToSkip.has(ecClassId)
         )
           continue;
-        this.processDeletedOp(
+        await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
           relationshipECClassIds.has(ecClassId ?? ""),
@@ -2935,7 +2958,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
    * @returns void
    */
-  private processDeletedOp(
+  private async processDeletedOp(
     change: ChangedECInstance,
     mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
     isRelationship: boolean,
@@ -2948,121 +2971,106 @@ export class IModelTransformer extends IModelExportHandler {
       this._synchronizationVersion.index === this.sourceDb.changeset.index;
     if (notConnectedModel || noChanges) return;
 
-    // optimization: if we have provenance, use it to avoid more querying later
-    // eventually when itwin.js supports attaching a second iModelDb in JS,
-    // this won't have to be a conditional part of the query, and we can always have it by attaching
-    const queryCanAccessProvenance = this.sourceDb === this.provenanceDb;
-    const instId = change.ECInstanceId;
-    if (!isRelationship) {
-      const sourceElemFedGuid = change.FederationGuid;
-      let identifierValue: string | undefined;
-      if (queryCanAccessProvenance) {
-        const aspects: ExternalSourceAspect[] =
-          this.sourceDb.elements.getAspects(
-            instId,
-            ExternalSourceAspect.classFullName
-          ) as ExternalSourceAspect[];
-        for (const aspect of aspects) {
-          // look for aspect where the ecInstanceId = the aspect.element.id
-          if (
-            aspect.element.id === instId &&
-            aspect.scope.id === this.targetScopeElementId
-          )
-            identifierValue = aspect.identifier;
-        }
-        // Think I need to query the esas given the instId.. not sure what db to do it on though.. soruce or target.. or provenance?
-        // I need to know the id of the element dpeneding on which db its stored in.
-      }
-      if (queryCanAccessProvenance && !identifierValue) {
-        if (mapOfDeletedElemIdToScopeEsas.get(instId) !== undefined)
-          identifierValue =
-            mapOfDeletedElemIdToScopeEsas.get(instId)!.Identifier;
-      }
-      const targetId =
-        (queryCanAccessProvenance && identifierValue) ||
-        // maybe batching these queries would perform better but we should
-        // try to attach the second db and query both together anyway
-        (sourceElemFedGuid &&
-          this._queryElemIdByFedGuid(this.targetDb, sourceElemFedGuid)) ||
-        // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
-        this._queryProvenanceForElement(instId);
+    /**
+     * if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs.
+     * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
+     */
+    const changeDataInProvenanceDb = this.sourceDb === this.provenanceDb;
 
-      // since we are processing one changeset at a time, we can see local source deletes
-      // of entities that were never synced and can be safely ignored
-      const deletionNotInTarget = !targetId;
-      if (deletionNotInTarget) return;
-      this.context.remapElement(instId, targetId);
-      // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
-      // In such case an entity update will be triggered and we no longer need to delete the entity.
-      if (alreadyImportedElementInserts.has(targetId)) {
-        this.exporter.sourceDbChanges?.element.deleteIds.delete(instId);
+    const getTargetIdFromSourceId = async (id: Id64String) => {
+      let identifierValue: string | undefined;
+      let element;
+      if (isRelationship) {
+        element = this.sourceDb.elements.tryGetElement(id);
       }
-      if (alreadyImportedModelInserts.has(targetId)) {
-        this.exporter.sourceDbChanges?.model.deleteIds.delete(instId);
+      const fedGuid = isRelationship
+        ? element?.federationGuid
+        : change.FederationGuid;
+      if (changeDataInProvenanceDb) {
+        // TODO: clarify what happens if there are multiple (e.g. elements were merged)
+        for await (const row of this.sourceDb.createQueryReader(
+          "SELECT esa.Identifier FROM bis.ExternalSourceAspect esa WHERE Scope.Id=:scopeId AND Kind=:kind AND Element.Id=:relatedElementId LIMIT 1",
+          QueryBinder.from([
+            this.targetScopeElementId,
+            ExternalSourceAspect.Kind.Element,
+            id,
+          ])
+        )) {
+          identifierValue = row.Identifier;
+        }
+        identifierValue =
+          identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.Identifier;
       }
-    } else {
-      // is deleted relationship
-      const classFullName = change.$meta?.classFullName;
+
+      // Check for targetId by an esa first
+      if (changeDataInProvenanceDb && identifierValue) {
+        const targetId = identifierValue;
+        return targetId;
+      }
+
+      // Check for targetId using sourceId's fedguid if we didn't find an esa.
+      if (fedGuid) {
+        const targetId = this._queryElemIdByFedGuid(this.targetDb, fedGuid);
+        return targetId;
+      }
+      return undefined;
+    };
+
+    const changedInstanceId = change.ECInstanceId;
+    if (isRelationship) {
       const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
       const targetIdOfRelationshipInSource = change.TargetECInstanceId;
-      const [sourceIdInTarget, targetIdInTarget] = [
-        sourceIdOfRelationshipInSource,
-        targetIdOfRelationshipInSource,
-      ].map((id) => {
-        let element;
-        try {
-          element = this.sourceDb.elements.getElement(id);
-        } catch (err) {
-          return undefined;
-        }
-        const fedGuid = element.federationGuid;
-        let identifierValue: string | undefined;
-        if (queryCanAccessProvenance) {
-          const aspects: ExternalSourceAspect[] =
-            this.sourceDb.elements.getAspects(
-              id,
-              ExternalSourceAspect.classFullName
-            ) as ExternalSourceAspect[];
-          for (const aspect of aspects) {
-            if (
-              aspect.element.id === id &&
-              aspect.scope.id === this.targetScopeElementId
-            )
-              identifierValue = aspect.identifier;
-          }
-          if (identifierValue === undefined) {
-            if (mapOfDeletedElemIdToScopeEsas.get(id) !== undefined)
-              identifierValue =
-                mapOfDeletedElemIdToScopeEsas.get(id)!.Identifier;
-          }
-        }
-        return (
-          (queryCanAccessProvenance && identifierValue) ||
-          // maybe batching these queries would perform better but we should
-          // try to attach the second db and query both together anyway
-          (fedGuid && this._queryElemIdByFedGuid(this.targetDb, fedGuid))
-        );
-      });
+      const classFullName = change.$meta?.classFullName;
 
-      if (sourceIdInTarget && targetIdInTarget) {
-        this._deletedSourceRelationshipData!.set(instId, {
+      const sourceIdOfRelationshipInTarget = await getTargetIdFromSourceId(
+        sourceIdOfRelationshipInSource
+      );
+      const targetIdOfRelationshipInTarget = await getTargetIdFromSourceId(
+        targetIdOfRelationshipInSource
+      );
+      if (sourceIdOfRelationshipInTarget && targetIdOfRelationshipInTarget) {
+        this._deletedSourceRelationshipData!.set(changedInstanceId, {
           classFullName: classFullName ?? "",
-          sourceIdInTarget,
-          targetIdInTarget,
+          sourceIdInTarget: sourceIdOfRelationshipInTarget,
+          targetIdInTarget: targetIdOfRelationshipInTarget,
         });
-      } else {
-        // FIXME<MIKE>: describe why it's safe to assume nothing has been deleted in provenanceDb
-        const relProvenance = this._queryProvenanceForRelationship(instId, {
-          classFullName: classFullName ?? "",
-          sourceId: sourceIdOfRelationshipInSource,
-          targetId: targetIdOfRelationshipInSource,
-        });
+      } else if (this.sourceDb === this.provenanceSourceDb) {
+        const relProvenance = this._queryProvenanceForRelationship(
+          changedInstanceId,
+          {
+            classFullName: classFullName ?? "",
+            sourceId: sourceIdOfRelationshipInSource,
+            targetId: targetIdOfRelationshipInSource,
+          }
+        );
         if (relProvenance && relProvenance.relationshipId)
-          this._deletedSourceRelationshipData!.set(instId, {
+          this._deletedSourceRelationshipData!.set(changedInstanceId, {
             classFullName: classFullName ?? "",
             relId: relProvenance.relationshipId,
             provenanceAspectId: relProvenance.aspectId,
           });
+      }
+    } else {
+      let targetId = await getTargetIdFromSourceId(changedInstanceId);
+      if (targetId === undefined && this.sourceDb === this.provenanceSourceDb) {
+        targetId = this._queryProvenanceForElement(changedInstanceId);
+      }
+      // since we are processing one changeset at a time, we can see local source deletes
+      // of entities that were never synced and can be safely ignored
+      const deletionNotInTarget = !targetId;
+      if (deletionNotInTarget) return;
+      this.context.remapElement(changedInstanceId, targetId!);
+      // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
+      // In such case an entity update will be triggered and we no longer need to delete the entity.
+      if (alreadyImportedElementInserts.has(targetId!)) {
+        this.exporter.sourceDbChanges?.element.deleteIds.delete(
+          changedInstanceId
+        );
+      }
+      if (alreadyImportedModelInserts.has(targetId!)) {
+        this.exporter.sourceDbChanges?.model.deleteIds.delete(
+          changedInstanceId
+        );
       }
     }
   }
