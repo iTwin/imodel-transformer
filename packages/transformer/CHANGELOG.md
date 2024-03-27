@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 26 Sep 2023 16:19:57 GMT and should not be manually modified.
+This log was last generated on Wed, 06 Dec 2023 15:24:30 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 0.4.3
+
+Wed, 06 Dec 2023 15:24:30 GMT
+
+### Patches
+
+- Handle max path limit on windows for schema names ([commit](https://github.com/iTwin/transformer/commit/30ca2d43bdfbbfe1f7713fb82ecaaa4ea95f7b4c))
 
 ## 0.4.2
 
