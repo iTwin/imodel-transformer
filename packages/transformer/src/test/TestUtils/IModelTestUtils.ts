@@ -382,7 +382,7 @@ export class HubWrappers {
     );
     while (true) {
       try {
-        return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb;
+        return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb; // eslint-disable-line deprecation/deprecation
       } catch (error) {
         if (!(error instanceof RpcPendingResponse))
           // eslint-disable-line deprecation/deprecation
@@ -450,7 +450,7 @@ export class HubWrappers {
 
     while (true) {
       try {
-        return await RpcBriefcaseUtility.open(openArgs);
+        return await RpcBriefcaseUtility.open(openArgs); // eslint-disable-line deprecation/deprecation
       } catch (error) {
         if (!(error instanceof RpcPendingResponse))
           // eslint-disable-line deprecation/deprecation
@@ -1784,6 +1784,7 @@ export class ExtensiveTestScenario {
       StandardViewIndex.Iso
     );
     assert.isTrue(Id64.isValidId64(viewId));
+    // eslint-disable-next-line deprecation/deprecation
     sourceDb.views.setDefaultViewId(viewId);
     const drawingViewRange = new Range2d(0, 0, 100, 100);
     const drawingViewId = DrawingViewDefinition.insert(

@@ -2,6 +2,21 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Wed, 06 Dec 2023 15:24:30 GMT",
+      "tag": "@itwin/imodel-transformer_v0.4.3",
+      "version": "0.4.3",
+      "comments": {
+        "patch": [
+          {
+            "author": "25615181+mindaugasdirg@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "30ca2d43bdfbbfe1f7713fb82ecaaa4ea95f7b4c",
+            "comment": "Handle max path limit on windows for schema names"
+          }
+        ]
+      }
+    },
+    {
       "date": "Tue, 26 Sep 2023 16:19:57 GMT",
       "tag": "@itwin/imodel-transformer_v0.4.2",
       "version": "0.4.2",

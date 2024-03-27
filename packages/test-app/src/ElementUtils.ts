@@ -166,6 +166,7 @@ export namespace ElementUtils {
         iModelDb.projectExtents
       );
       if (makeDefault) {
+        // eslint-disable-next-line deprecation/deprecation
         iModelDb.views.setDefaultViewId(viewId);
       }
       iModelDb.saveChanges("Inserted ViewDefinition");
