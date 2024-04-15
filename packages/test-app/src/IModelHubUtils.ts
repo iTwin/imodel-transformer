@@ -22,7 +22,6 @@ import {
   ChangesetId,
   ChangesetIndex,
   ChangesetProps,
-  LocalBriefcaseProps,
 } from "@itwin/core-common";
 import { IModelsClient, NamedVersion } from "@itwin/imodels-client-authoring";
 import { loggerCategory } from "./Transformer";

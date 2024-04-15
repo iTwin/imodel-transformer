@@ -6,7 +6,6 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as Yargs from "yargs";
-import * as nodeAssert from "assert";
 import { assert, Guid, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
@@ -27,6 +26,7 @@ import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { NamedVersion } from "@itwin/imodels-client-authoring";
 import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
 import * as dotenv from "dotenv";
 import * as dotenvExpand from "dotenv-expand";
@@ -388,7 +388,7 @@ void (async () => {
             : args.sourceStandalone
               ? StandaloneDb.openFile.bind(StandaloneDb)
               : args.sourceBriefcasePath
-                ? (file: string) => BriefcaseDb.open({ fileName: file })
+                ? async (file: string) => BriefcaseDb.open({ fileName: file })
                 : (assert(
                     false,
                     "No remote iModel id arguments, nor local iModel path arguments"

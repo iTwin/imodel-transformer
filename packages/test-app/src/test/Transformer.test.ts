@@ -8,6 +8,7 @@ import * as path from "path";
 import {
   Category,
   ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   GeometricElement2d,
   GeometricElement3d,
@@ -23,6 +24,7 @@ import {
 import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
 import { Code, PhysicalElementProps, QueryBinder } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer } from "../Transformer";
 
 describe("imodel-transformer", () => {
@@ -147,8 +149,8 @@ describe("imodel-transformer", () => {
             GeometricElement2d.classFullName,
             GeometricElement3d.classFullName,
           ].map(async (className) => {
-            // eslint-disable-next-line deprecation/deprecation
             const queryResult = await db
+              // eslint-disable-next-line deprecation/deprecation
               .query(
                 `SELECT COUNT(*) FROM ${className} e JOIN bis.Category c ON e.category.id=c.ECInstanceId WHERE c.CodeValue=:category`,
                 QueryBinder.from({ category: testCategory })
@@ -201,7 +203,8 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="SomeNumber" typeName="string" />
             ${
               version === "01.01"
-                ? `<ECProperty propertyName="NewProperty" typeName="string" />`
+                ? // eslint-disable-next-line @typescript-eslint/quotes
+                  `<ECProperty propertyName="NewProperty" typeName="string" />`
                 : ""
             }
           </ECStructClass >
@@ -210,7 +213,8 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="MyProp" typeName="string"/>
             ${
               version === "01.01"
-                ? `<ECProperty propertyName="MyProp2" typeName="string" />`
+                ? // eslint-disable-next-line @typescript-eslint/quotes
+                  `<ECProperty propertyName="MyProp2" typeName="string" />`
                 : ""
             }
             <ECStructArrayProperty propertyName="MyArray" typeName="TestStruct" minOccurs="0" maxOccurs="unbounded" />

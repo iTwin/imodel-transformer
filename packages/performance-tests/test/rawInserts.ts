@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import { ChangesetFileProps } from "@itwin/core-common";
 import {
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
   IModelDb,
@@ -40,7 +41,7 @@ export default async function rawInserts(
     testIModel = generateTestIModel({
       numElements: 100_000,
       fedGuids: true,
-      fileName: `RawInserts-source.bim`,
+      fileName: "RawInserts-source.bim",
     });
   });
 
@@ -75,7 +76,7 @@ export default async function rawInserts(
   );
 
   const changeset1 = createChangeset(sourceDb);
-  const changesetDbPath = initOutputFile(`RawInsertsApply.bim`, outputDir);
+  const changesetDbPath = initOutputFile("RawInsertsApply.bim", outputDir);
   if (fs.existsSync(changesetDbPath)) fs.unlinkSync(changesetDbPath);
   const changesetDb = StandaloneDb.createEmpty(changesetDbPath, {
     rootSubject: { name: "RawInsertsApply" },
@@ -108,7 +109,7 @@ export default async function rawInserts(
     "Done. Starting with-provenance transformation of same content"
   );
 
-  const targetPath = initOutputFile(`RawInserts-Target.bim`, outputDir);
+  const targetPath = initOutputFile("RawInserts-Target.bim", outputDir);
   const targetDb = SnapshotDb.createEmpty(targetPath, {
     rootSubject: { name: "RawInsertsTarget" },
   });
@@ -144,7 +145,7 @@ export default async function rawInserts(
   );
 
   const targetNoProvPath = initOutputFile(
-    `RawInserts-TargetNoProv.bim`,
+    "RawInserts-TargetNoProv.bim",
     outputDir
   );
   const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, {

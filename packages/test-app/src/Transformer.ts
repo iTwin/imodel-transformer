@@ -19,6 +19,7 @@ import {
   DisplayStyle,
   DisplayStyle3d,
   ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementRefersToElements,
   GeometricModel3d,
@@ -51,6 +52,7 @@ export interface TransformerOptions extends IModelTransformOptions {
   excludeCategories?: string[];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 export class Transformer extends IModelTransformer {
   private _numSourceElements = 0;
   private _numSourceElementsProcessed = 0;

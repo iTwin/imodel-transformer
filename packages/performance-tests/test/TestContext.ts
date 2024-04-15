@@ -77,12 +77,12 @@ export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
   yield generateTestIModel({
     numElements: 100_000,
     fedGuids: true,
-    fileName: `testIModel-fedguids-true.bim`,
+    fileName: "testIModel-fedguids-true.bim",
   });
   yield generateTestIModel({
     numElements: 100_000,
     fedGuids: false,
-    fileName: `testIModel-fedguids-false.bim`,
+    fileName: "testIModel-fedguids-false.bim",
   });
 }
 
