@@ -27,8 +27,7 @@ import {
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
-import { IModelExportHandler } from "../../IModelExporter";
-import { IModelExporter } from "../../IModelExporter";
+import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";

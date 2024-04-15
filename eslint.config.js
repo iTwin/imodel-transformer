@@ -71,7 +71,7 @@ module.exports = [
         }
     },
     {
-      files: ["packages/transformer/test/**/*.ts"],
+      files: ["packages/transformer/src/test/**/*.ts"],
       rules: {
         "@itwin/no-internal-barrel-imports": "off"
       }

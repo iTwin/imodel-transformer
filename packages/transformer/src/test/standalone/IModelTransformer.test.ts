@@ -55,6 +55,7 @@ import {
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
+
 import * as TestUtils from "../TestUtils";
 import {
   DbResult,
@@ -310,6 +311,7 @@ describe("IModelTransformer", () => {
       targetDb,
       ElementRefersToElements.classFullName
     );
+    assert.isAtLeast(numTargetElements, 1);
     assert.isAtLeast(numTargetUniqueAspects, 1);
     assert.isAtLeast(numTargetMultiAspects, 1);
     assert.isAtLeast(numTargetRelationships, 1);

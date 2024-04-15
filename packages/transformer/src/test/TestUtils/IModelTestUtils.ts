@@ -1267,6 +1267,7 @@ export class IModelTestUtils {
   }
 
   public static count(
+    this: void,
     iModelDb: IModelDb,
     classFullName: string,
     whereClause?: string

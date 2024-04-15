@@ -27,7 +27,6 @@ import {
   EntityReferences,
   IModelElementCloneContext,
   IModelJsNative,
-  SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";

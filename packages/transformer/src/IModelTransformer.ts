@@ -11,7 +11,6 @@ import * as nodeAssert from "assert";
 import {
   AccessToken,
   assert,
-  CompressedId64Set,
   DbResult,
   Guid,
   GuidString,
@@ -21,7 +20,6 @@ import {
   IModelStatus,
   Logger,
   MarkRequired,
-  OpenMode,
   YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
@@ -65,7 +63,6 @@ import {
   Schema,
   SqliteChangeOp,
   SqliteChangesetReader,
-  SQLiteDb,
   Subject,
   SynchronizationConfigLink,
 } from "@itwin/core-backend";
@@ -194,21 +191,6 @@ export interface IModelTransformOptions {
    * @beta
    */
   preserveElementIdsForFiltering?: boolean;
-
-  /** The behavior to use when an element reference (id) is found stored as a reference on an element in the source,
-   * but the referenced element does not actually exist in the source.
-   * It is possible to craft an iModel with dangling references/invalidated relationships by, e.g., deleting certain
-   * elements without fixing up references.
-   *
-   * @note "reject" will throw an error and reject the transformation upon finding this case.
-   * @note "ignore" passes the issue down to consuming applications, iModels that have invalid element references
-   *       like this can cause errors, and you should consider adding custom logic in your transformer to remove the
-   *       reference depending on your use case.
-   * @default "reject"
-   * @beta
-   * @deprecated in 3.x. use [[danglingReferencesBehavior]] instead, the use of the term *predecessors* was confusing and became inaccurate when the transformer could handle cycles
-   */
-  danglingPredecessorsBehavior?: "reject" | "ignore";
 
   /** The behavior to use when an element reference (id) is found stored as a reference on an element in the source,
    * but the referenced element does not actually exist in the source.
@@ -655,9 +637,7 @@ export class IModelTransformer extends IModelExportHandler {
         options?.targetScopeElementId ?? IModel.rootSubjectId,
       // eslint-disable-next-line deprecation/deprecation
       danglingReferencesBehavior:
-        options?.danglingReferencesBehavior ??
-        options?.danglingPredecessorsBehavior ??
-        "reject",
+        options?.danglingReferencesBehavior ?? "reject",
       branchRelationshipDataBehavior:
         options?.branchRelationshipDataBehavior ?? "reject",
     };
@@ -794,6 +774,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
     Logger.logInfo(
       loggerCategory,
+      // eslint-disable-next-line deprecation/deprecation
       `this._isReverseSynchronization=${this._options.isReverseSynchronization}`
     );
     Logger.logInfo(
@@ -1998,7 +1979,7 @@ export class IModelTransformer extends IModelExportHandler {
     // there can only be one repositoryModel per database, so ignore the repo model on remapped subjects
     const isRemappedRootSubject =
       sourceModel.id === IModel.repositoryModelId &&
-      targetModeledElementId != sourceModel.id;
+      targetModeledElementId !== sourceModel.id;
     if (isRemappedRootSubject) return;
     const targetModelProps: ModelProps = this.onTransformModel(
       sourceModel,
@@ -3207,7 +3188,9 @@ export class IModelTransformer extends IModelExportHandler {
       this._options.forceExternalSourceAspectProvenance &&
       this.shouldDetectDeletes()
     ) {
+      // eslint-disable-next-line deprecation/deprecation
       await this.detectElementDeletes();
+      // eslint-disable-next-line deprecation/deprecation
       await this.detectRelationshipDeletes();
     }
 

@@ -6,7 +6,6 @@
  * @module iModels
  */
 import {
-  CompressedId64Set,
   Guid,
   Id64,
   Id64String,
@@ -38,10 +37,7 @@ import {
   SourceAndTarget,
   SubCategory,
 } from "@itwin/core-backend";
-import type {
-  IModelTransformOptions,
-  RelationshipPropsForDelete,
-} from "./IModelTransformer";
+import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 
@@ -113,7 +109,7 @@ export class IModelImporter {
   public readonly doNotUpdateElementIds = new Set<Id64String>([]);
 
   /** This set is ONLY used for elements that are always present even in an "empty" iModel. We will use this set to filter out changes to root elements if [[IModelTransformOptions.skipPropagateChangesToRootElements]] is false. */
-  private readonly rootElementIds = new Set<Id64String>([
+  private readonly _rootElementIds = new Set<Id64String>([
     IModel.rootSubjectId,
     IModel.dictionaryId,
     IModelImporter._realityDataSourceLinkPartitionStaticId,
@@ -151,7 +147,7 @@ export class IModelImporter {
   private doNotUpdateElement(elementId: Id64String): boolean {
     if (
       this.options.skipPropagateChangesToRootElements &&
-      this.rootElementIds.has(elementId)
+      this._rootElementIds.has(elementId)
     )
       return true;
     if (this.doNotUpdateElementIds.has(elementId)) return true;
@@ -256,7 +252,7 @@ export class IModelImporter {
       // Otherwise we always insert during a preserveElementIdsForFiltering operation
       if (
         (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) ||
-        this.rootElementIds.has(elementProps.id)
+        this._rootElementIds.has(elementProps.id)
       ) {
         this.onUpdateElement(elementProps);
       } else {
