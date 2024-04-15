@@ -36,6 +36,7 @@ import {
   DefinitionPartition,
   ECSchemaXmlContext,
   ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
   ElementMultiAspect,

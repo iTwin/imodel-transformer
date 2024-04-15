@@ -18,6 +18,7 @@ import {
   deleteElementTree,
   DisplayStyle3d,
   ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
   ElementOwnsChildElements,

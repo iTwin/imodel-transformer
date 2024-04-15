@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementRefersToElements,
   GeometryPart,
