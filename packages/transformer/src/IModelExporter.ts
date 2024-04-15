@@ -13,6 +13,7 @@ import {
   ChangesetECAdaptor,
   DefinitionModel,
   ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
   ElementMultiAspect,
@@ -32,7 +33,6 @@ import {
 import {
   AccessToken,
   assert,
-  CompressedId64Set,
   DbResult,
   Id64String,
   IModelStatus,

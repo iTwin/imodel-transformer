@@ -92,6 +92,7 @@ import {
   DrawingModel,
   DrawingViewDefinition,
   ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
   ElementDrivesElement,
@@ -1267,6 +1268,7 @@ export class IModelTestUtils {
   }
 
   public static count(
+    this: void,
     iModelDb: IModelDb,
     classFullName: string,
     whereClause?: string

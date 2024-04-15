@@ -18,6 +18,7 @@ import {
   deleteElementTree,
   DisplayStyle3d,
   ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
   ElementOwnsChildElements,
@@ -68,7 +69,6 @@ import {
   ModelProps,
   PhysicalElementProps,
   Placement3d,
-  RootSubjectProps,
   SpatialViewDefinitionProps,
   SubCategoryAppearance,
   SubjectProps,
@@ -79,7 +79,6 @@ import {
   IModelExporter,
   IModelImporter,
   IModelTransformer,
-  TargetScopeProvenanceJsonProps,
   TransformerLoggerCategory,
 } from "../../transformer";
 import {
@@ -127,6 +126,7 @@ describe("IModelTransformerHub", () => {
     accessToken = await HubWrappers.getAccessToken(
       TestUtils.TestUserType.Regular
     );
+
     saveAndPushChanges = IModelTestUtils.saveAndPushChanges.bind(
       IModelTestUtils,
       accessToken
@@ -1990,10 +1990,7 @@ describe("IModelTransformerHub", () => {
     seedDb.saveChanges();
     seedDb.close();
 
-    let sourceIModelId: string | undefined;
-    let targetIModelId: string | undefined;
-
-    sourceIModelId = await IModelHost.hubAccess.createNewIModel({
+    const sourceIModelId = await IModelHost.hubAccess.createNewIModel({
       iTwinId,
       iModelName: "TransformerSource",
       description: "source",
@@ -2012,7 +2009,7 @@ describe("IModelTransformerHub", () => {
     sourceDb.performCheckpoint(); // so we can use as a seed
 
     // forking target
-    targetIModelId = await IModelHost.hubAccess.createNewIModel({
+    const targetIModelId = await IModelHost.hubAccess.createNewIModel({
       iTwinId,
       iModelName: "TransformerTarget",
       description: "target",
@@ -3762,9 +3759,7 @@ describe("IModelTransformerHub", () => {
 
               // Update Elements now.
               const rootSubjectFromBranch =
-                branch.elements.getElementProps<SubjectProps>(
-                  "0x1"
-                ) as SubjectProps;
+                branch.elements.getElementProps<SubjectProps>("0x1");
               branch.elements.updateElement({
                 ...rootSubjectFromBranch,
                 description: "test description",

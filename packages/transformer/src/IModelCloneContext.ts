@@ -22,12 +22,12 @@ import {
   RelatedElementProps,
 } from "@itwin/core-common";
 import {
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
   EntityReferences,
   IModelElementCloneContext,
   IModelJsNative,
-  SQLiteDb,
 } from "@itwin/core-backend";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";

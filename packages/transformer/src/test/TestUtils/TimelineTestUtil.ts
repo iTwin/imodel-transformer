@@ -36,7 +36,11 @@ import {
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
 
-const { saveAndPushChanges } = IModelTestUtils;
+const saveAndPushChanges = async (
+  accessToken: string,
+  briefcase: BriefcaseDb,
+  description: string
+) => IModelTestUtils.saveAndPushChanges(accessToken, briefcase, description);
 
 export const deleted = Symbol("DELETED");
 
@@ -494,7 +498,7 @@ export async function runTimeline(
             since: startIndex,
             initTransformer,
             expectThrow,
-            assert,
+            assert: assertFxns,
             finalizeTransformationOptions,
           },
         ] = getSync(event)!;
@@ -522,7 +526,7 @@ export async function runTimeline(
             expectThrow === false || expectThrow === undefined,
             "expectThrow was set to true and transformer succeeded."
           ).to.be.true;
-          assert?.afterProcessChanges?.(syncer);
+          assertFxns?.afterProcessChanges?.(syncer);
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
