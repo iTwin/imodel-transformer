@@ -68,7 +68,6 @@ import {
   ModelProps,
   PhysicalElementProps,
   Placement3d,
-  RootSubjectProps,
   SpatialViewDefinitionProps,
   SubCategoryAppearance,
   SubjectProps,
