@@ -6,6 +6,7 @@
 /** given a discrete inclusive range [start, end] e.g. [-10, 12] and several "skipped" values", e.g.
  * (-10, 1, -3, 5, 15), return the ordered set of subranges of the original range that exclude
  * those values
+ * @internal
  */
 export function rangesFromRangeAndSkipped(
   start: number,
