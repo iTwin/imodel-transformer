@@ -33,10 +33,10 @@ importers:
   packages/performance-scripts:
     devDependencies:
       '@itwin/build-tools':
-        specifier: 4.3.5
+        specifier: ^4.3.5
         version: 4.3.5(@types/node@18.16.14)
       '@itwin/core-backend':
-        specifier: 4.3.5
+        specifier: ^4.3.5
         version: 4.3.5
       '@types/node':
         specifier: ^18.11.5
