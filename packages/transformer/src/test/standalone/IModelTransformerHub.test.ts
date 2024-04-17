@@ -3843,6 +3843,7 @@ describe("IModelTransformerHub", () => {
         iTwinId,
         iModelId: targetIModelId,
       });
+      transformer["_allowNoScopingESA"] = true;
 
       const exporter = new IModelExporter(
         sourceDb,

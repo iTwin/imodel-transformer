@@ -286,6 +286,28 @@ export interface TargetScopeProvenanceJsonProps {
 }
 
 /**
+ * Data type for persisting change version information within provenance Scope ExternalSourceAspect.
+ * Additionally, forward synchronization version is stored in Scope aspect's 'version' field.
+ * @beta
+ */
+export interface TargetScopeProvenanceJsonProps {
+  /** An array of changeset indices to ignore when doing a reverse sync. This array gets appended to during a forward sync and cleared
+   *  during a reverse sync. Since a forward sync pushes a changeset to the branch db, the changeset pushed to the branch db
+   *  by the forward sync isn't considered part of the changes made on the branch db and therefore doesn't need to be synced back to master
+   *  during a forward sync.
+   */
+  pendingReverseSyncChangesetIndices: number[];
+  /** An array of changeset indices to ignore when doing a forward sync. This array gets appended to during a reverse sync and cleared
+   *  during a forward sync. Since a reverse sync pushes a changeset to the master db, the changeset pushed to the master db
+   *  by the reverse sync isn't considered part of the changes made on the master db and therefore doesn't need to be synced back to the branch
+   *  during a forward sync.
+   */
+  pendingSyncChangesetIndices: number[];
+  /** the latest changesetid/index reverse synced into master */
+  reverseSyncVersion: string;
+}
+
+/**
  * Apply a function to each Id64 in a supported container type of Id64s.
  * Currently only supports raw Id64String or RelatedElement-like objects containing an `id` property that is a Id64String,
  * which matches the possible containers of references in [Element.requiredReferenceKeys]($backend).
