@@ -2156,7 +2156,7 @@ export class IModelTransformer extends IModelExportHandler {
     _numRetries: number = 3
   ): Promise<void> {}
 
-  /** called at the end ([[finalizeTransformation]]) of a transformation,
+  /** called at the end of a transformation,
    * updates the target scope element to say that transformation up through the
    * source's changeset has been performed. Also stores all changesets that occurred
    * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
