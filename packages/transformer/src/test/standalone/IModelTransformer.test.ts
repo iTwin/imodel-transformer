@@ -91,6 +91,7 @@ import {
   ProfileOptions,
   QueryRowFormat,
   RelatedElement,
+  RelatedElementProps,
   RelationshipProps,
   RepositoryLinkProps,
 } from "@itwin/core-common";
@@ -1151,6 +1152,150 @@ describe("IModelTransformer", () => {
 
     IModelTransformerTestUtils.dumpIModelInfo(iModelShared);
     iModelShared.close();
+  });
+
+  it("remap intermediate subject in team->shared transformations", async () => {
+    const teamIModelFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "source.bim"
+    );
+    const sharedIModelFile: string =
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        "target.bim"
+      );
+    const teamIModelDb: SnapshotDb = SnapshotDb.createEmpty(teamIModelFile, {
+      rootSubject: { name: "teamRoot", description: "teamRoot" },
+      createClassViews: true,
+    });
+    const sharedIModelDb: SnapshotDb = SnapshotDb.createEmpty(
+      sharedIModelFile,
+      {
+        rootSubject: { name: "rootTarget" },
+        createClassViews: true,
+      }
+    );
+    const subjectIdToHoldTeamInSharedIModel = Subject.insert(
+      sharedIModelDb,
+      IModel.rootSubjectId,
+      "nonRootSubject",
+      "nonRootSubject"
+    );
+    sharedIModelDb.saveChanges();
+
+    let transformer = new IModelTransformer(teamIModelDb, sharedIModelDb, {
+      danglingReferencesBehavior: "ignore",
+    });
+    transformer.context.remapElement(
+      IModel.rootSubjectId,
+      subjectIdToHoldTeamInSharedIModel
+    );
+    await transformer.processAll();
+    sharedIModelDb.saveChanges();
+    transformer.dispose();
+
+    let teamIModelRootSubject: Subject =
+      teamIModelDb.elements.getElement<Subject>(IModel.rootSubjectId);
+    let subjectToHoldTeamInSharedIModel: Subject =
+      sharedIModelDb.elements.getElement<Subject>(
+        subjectIdToHoldTeamInSharedIModel
+      );
+    expect(teamIModelRootSubject).to.have.property("parent").that.is.undefined;
+    expect(teamIModelRootSubject.code.scope).to.eq(IModel.rootSubjectId);
+    expect(subjectToHoldTeamInSharedIModel.description).to.eq("teamRoot");
+    expect(subjectToHoldTeamInSharedIModel.parent?.id).to.eq(
+      IModel.rootSubjectId
+    );
+    expect(subjectToHoldTeamInSharedIModel.code.scope).to.eq(
+      IModel.rootSubjectId
+    );
+
+    const intermediateSharedSubjectId = Subject.insert(
+      sharedIModelDb,
+      IModelDb.rootSubjectId,
+      "intermediateSubject",
+      "intermediateSubject"
+    );
+    // Reparent subjectToHoldTeamInSharedIModel so its parent is the intermediateSubjectId
+    sharedIModelDb.elements.updateElement({
+      ...subjectToHoldTeamInSharedIModel,
+      parent: { id: intermediateSharedSubjectId },
+      code: {
+        spec: subjectToHoldTeamInSharedIModel.code.spec,
+        scope: intermediateSharedSubjectId,
+        value: subjectToHoldTeamInSharedIModel.code.value,
+      },
+      description: "changed description",
+    } as any);
+
+    // reverse sync the addition of intermediate subject, and the reparenting of subjectToHoldTeamInSharedIModel.
+    transformer = new IModelTransformer(sharedIModelDb, teamIModelDb);
+    // Remap to take any changes to the subject which holds the team imodel's elements in the shared iModel back to the individual team imodel.
+    transformer.context.remapElement(
+      subjectIdToHoldTeamInSharedIModel,
+      IModel.rootSubjectId
+    );
+    await transformer.processAll();
+
+    const intermediateSubjectIdInTeam = transformer.context.findTargetElementId(
+      intermediateSharedSubjectId
+    );
+    transformer.dispose();
+
+    expect(intermediateSubjectIdInTeam).to.not.be.undefined;
+    const intermediateSubjectInTeam = teamIModelDb.elements.getElement<Subject>(
+      intermediateSubjectIdInTeam
+    );
+    expect(intermediateSubjectInTeam.description).to.eq("intermediateSubject");
+    expect(intermediateSubjectInTeam.parent?.id).to.eq(IModel.rootSubjectId);
+    teamIModelRootSubject = teamIModelDb.elements.getRootSubject();
+    expect(teamIModelRootSubject.parent).to.be.undefined;
+    expect(teamIModelRootSubject.code.scope).to.eq(IModel.rootSubjectId);
+    expect(teamIModelRootSubject.description).to.eq("changed description");
+
+    teamIModelDb.elements.updateElement({
+      ...teamIModelRootSubject,
+      description: "changed description 2",
+    } as any);
+
+    transformer = new IModelTransformer(teamIModelDb, sharedIModelDb, {
+      danglingReferencesBehavior: "ignore",
+    });
+    // 1) IntermediateSubject in both team and shared have parentid of root subject.
+    // 2) subjectIdToHoldTeamInSharedIModel has a parent of intermediateSubject in the shared iModel.
+    // 3) We remapped rootSubject to subjectIdToHoldTeamInSharedIModel below.
+    // 4) While cloning intermediateSubject in processAll, intermediateSubject's parent which used to be rootSubject gets remapped to subjectIdToHoldTEamInSharedIModel due to 3).
+    // 5) intermediateSubject's parent becomes subjectIdToHOldTeamInsharedIModel, and subjectIdToHoldTeamInSharedIModel's parent is intermediateSubject. So we fail to update the element or atleast I assume that to be the reason.
+    // Add intermediate shared subject to doNotUpdateElementIds for now, but not sure how we could get around this. I guess we would prefer that intermediatesubject's parent stays rootSubject in our shared iModel?
+    // Or should it be that the sharedTeamSubject gets promoted back to child of rootSubject, and intermediate stays child of rootSubject? Probably not.
+    // But not sure how to make that happen cleanly, and whether or not we should assume as much.
+    transformer.importer.doNotUpdateElementIds.add(intermediateSharedSubjectId);
+    transformer.context.remapElement(
+      IModel.rootSubjectId,
+      subjectIdToHoldTeamInSharedIModel
+    );
+    await transformer.processAll();
+
+    subjectToHoldTeamInSharedIModel =
+      sharedIModelDb.elements.getElement<Subject>(
+        subjectIdToHoldTeamInSharedIModel
+      );
+    expect(subjectToHoldTeamInSharedIModel.parent?.id).to.eq(
+      intermediateSharedSubjectId
+    );
+    expect(subjectToHoldTeamInSharedIModel.code.scope).to.eq(
+      intermediateSharedSubjectId
+    );
+    expect(subjectToHoldTeamInSharedIModel.description).to.eq(
+      "changed description 2"
+    );
+
+    // What does it mean for source's rootS to change? I guess we would want those chanegs to find their way into the target'sversion of rootS, but we don't really care about
+    // changes making it back to the source's rootS. But I guess we could care.
+    // expect()
+
+    teamIModelDb.close();
+    sharedIModelDb.close();
   });
 
   it("remap root subject to root subject", async () => {

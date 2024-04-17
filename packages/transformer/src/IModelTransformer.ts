@@ -1508,24 +1508,24 @@ export class IModelTransformer extends IModelExportHandler {
       sourceElement,
       { binaryGeometry: this._options.cloneUsingBinaryGeometry }
     );
+
+    const targetElementId = this.context.findTargetElementId(sourceElement.id);
     // Special case: source element is the root subject
-    if (sourceElement.id === IModel.rootSubjectId) {
-      const targetElementId: string = this.context.findTargetElementId(
-        sourceElement.id
-      );
-      // When remapping rootSubject from source to non root subject in target, the code.scope gets remapped incorrectly.
-      // This is because the rootSubject has no parent and its code.scope is unique in that it is the id of itself.
-      // For all other subjects which do have parents the code.scope and its parent should be in agreement.
-      if (
-        targetElementId !== Id64.invalid &&
-        targetElementId !== IModel.rootSubjectId
-      ) {
-        const targetElement =
-          this.targetDb.elements.getElement(targetElementId);
-        targetElementProps.parent =
-          targetElement.parent ?? targetElementProps.parent;
-        targetElementProps.code.scope = targetElement.code.scope;
-      }
+    // When remapping rootSubject from source to non root subject in target, the code.scope gets remapped incorrectly.
+    // This is because the rootSubject has no parent and its code.scope is unique in that it is the id of itself.
+    // For all other subjects which do have parents the code.scope and its parent should be in agreement.
+    if (
+      sourceElement.id === IModel.rootSubjectId &&
+      targetElementId !== Id64.invalid &&
+      targetElementId !== IModel.rootSubjectId
+    ) {
+      const targetElement = this.targetDb.elements.getElement(targetElementId);
+      targetElementProps.parent =
+        targetElement.parent ?? targetElementProps.parent;
+      targetElementProps.code.scope = targetElement.code.scope;
+    } else if (targetElementId === IModel.rootSubjectId) {
+      targetElementProps.parent = undefined;
+      targetElementProps.code.scope = IModel.rootSubjectId;
     }
     if (sourceElement instanceof Subject) {
       if (targetElementProps.jsonProperties?.Subject?.Job) {
