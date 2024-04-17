@@ -1,18 +1,36 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
-import { Element, ElementRefersToElements, GeometryPart, GraphicalElement3dRepresentsElement, IModelJsFs, PhysicalModel, PhysicalObject, SnapshotDb, SpatialCategory } from "@itwin/core-backend";
+import {
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
+  Element,
+  ElementRefersToElements,
+  GeometryPart,
+  GraphicalElement3dRepresentsElement,
+  IModelJsFs,
+  PhysicalModel,
+  PhysicalObject,
+  SnapshotDb,
+  SpatialCategory,
+} from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
-import { Code, GeometryPartProps, GeometryStreamBuilder, IModel, PhysicalElementProps, RelationshipProps, SubCategoryAppearance } from "@itwin/core-common";
+import {
+  Code,
+  GeometryPartProps,
+  GeometryStreamBuilder,
+  IModel,
+  PhysicalElementProps,
+  RelationshipProps,
+  SubCategoryAppearance,
+} from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
-import { IModelExportHandler } from "../../IModelExporter";
-import { IModelExporter } from "../../transformer";
+import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { createBRepDataProps } from "../TestUtils";
+import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
@@ -30,11 +48,21 @@ describe("IModelExporter", () => {
   });
 
   it("export element with brep geometry", async () => {
-    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelExporter", "RoundtripBrep.bim");
-    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "brep-roundtrip" } });
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "RoundtripBrep.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "brep-roundtrip" },
+    });
 
     const builder = new GeometryStreamBuilder();
-    builder.appendBRepData(createBRepDataProps(Point3d.create(5, 10, 0), YawPitchRollAngles.createDegrees(45, 0, 0)));
+    builder.appendBRepData(
+      createBRepDataProps(
+        Point3d.create(5, 10, 0),
+        YawPitchRollAngles.createDegrees(45, 0, 0)
+      )
+    );
 
     const geomPartId = sourceDb.elements.insertElement({
       classFullName: GeometryPart.classFullName,
@@ -44,13 +72,21 @@ describe("IModelExporter", () => {
     } as GeometryPartProps);
 
     assert(Id64.isValidId64(geomPartId));
-    const geomPartInSource = sourceDb.elements.getElement<GeometryPart>({ id: geomPartId, wantGeometry: true, wantBRepData: true }, GeometryPart);
+    const geomPartInSource = sourceDb.elements.getElement<GeometryPart>(
+      { id: geomPartId, wantGeometry: true, wantBRepData: true },
+      GeometryPart
+    );
     assert(geomPartInSource.geom?.[1]?.brep?.data !== undefined);
 
     sourceDb.saveChanges();
 
-    const flatTargetDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelExporter", "RoundtripBrepTarget.bim");
-    const flatTargetDb = SnapshotDb.createEmpty(flatTargetDbPath, { rootSubject: sourceDb.rootSubject });
+    const flatTargetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "RoundtripBrepTarget.bim"
+    );
+    const flatTargetDb = SnapshotDb.createEmpty(flatTargetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
 
     class TestFlatImportHandler extends IModelExportHandler {
       public override onExportElement(elem: Element): void {
@@ -64,7 +100,10 @@ describe("IModelExporter", () => {
     exporter.wantGeometry = true;
     await expect(exporter.exportAll()).to.eventually.be.fulfilled;
 
-    const geomPartInTarget = flatTargetDb.elements.getElement<GeometryPart>({ id: geomPartId, wantGeometry: true, wantBRepData: true }, GeometryPart);
+    const geomPartInTarget = flatTargetDb.elements.getElement<GeometryPart>(
+      { id: geomPartId, wantGeometry: true, wantBRepData: true },
+      GeometryPart
+    );
     assert(geomPartInTarget.geom?.[1]?.brep?.data !== undefined);
 
     sourceDb.close();
@@ -72,21 +111,39 @@ describe("IModelExporter", () => {
 
   describe("exportRelationships", () => {
     it("should not export invalid relationships", async () => {
-      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile("IModelExporter", "InvalidRelationship.bim");
-      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, { rootSubject: { name: "invalid-relationships" } });
+      const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "InvalidRelationship.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+        rootSubject: { name: "invalid-relationships" },
+      });
 
-      const categoryId = SpatialCategory.insert(sourceDb, IModel.dictionaryId, "SpatialCategory", new SubCategoryAppearance());
-      const sourceModelId = PhysicalModel.insert(sourceDb, IModel.rootSubjectId, `PhysicalModel`);
+      const categoryId = SpatialCategory.insert(
+        sourceDb,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        new SubCategoryAppearance()
+      );
+      const sourceModelId = PhysicalModel.insert(
+        sourceDb,
+        IModel.rootSubjectId,
+        "PhysicalModel"
+      );
       const physicalObjectProps: PhysicalElementProps = {
         classFullName: PhysicalObject.classFullName,
         model: sourceModelId,
         category: categoryId,
         code: Code.createEmpty(),
       };
-      const physicalObject1 = sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject2 = sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject3 = sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject4 = sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject1 =
+        sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject2 =
+        sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject3 =
+        sourceDb.elements.insertElement(physicalObjectProps);
+      const physicalObject4 =
+        sourceDb.elements.insertElement(physicalObjectProps);
 
       const invalidRelationshipsProps: RelationshipProps[] = [
         // target element will be deleted
@@ -115,22 +172,43 @@ describe("IModelExporter", () => {
         },
       ];
 
-      invalidRelationshipsProps.forEach((props) => sourceDb.relationships.insertInstance(props));
+      invalidRelationshipsProps.forEach((props) =>
+        sourceDb.relationships.insertInstance(props)
+      );
       // this is used to substitute low level C++ functions the connectors would used to introduce invalid relationships.
-      sourceDb.withSqliteStatement(`DELETE FROM bis_Element WHERE Id = ${physicalObject1}`, (stmt) => stmt.next());
+      sourceDb.withSqliteStatement(
+        `DELETE FROM bis_Element WHERE Id = ${physicalObject1}`,
+        (stmt) => stmt.next()
+      );
       sourceDb.saveChanges();
 
-      const sourceRelationships = sourceDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => [...stmt]);
+      const sourceRelationships = sourceDb.withStatement(
+        "SELECT ECInstanceId FROM bis.ElementRefersToElements",
+        (stmt) => [...stmt]
+      );
       expect(sourceRelationships.length).to.be.equal(4);
 
-      const targetDbFile = IModelTransformerTestUtils.prepareOutputFile("IModelTransformer", "relationships-Target.bim");
-      const targetDb = SnapshotDb.createEmpty(targetDbFile, { rootSubject: { name: "relationships-Target" } });
+      const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        "relationships-Target.bim"
+      );
+      const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+        rootSubject: { name: "relationships-Target" },
+      });
 
       const exporter = new IModelExporter(sourceDb);
-      await expect(exporter.exportRelationships(ElementRefersToElements.classFullName)).to.eventually.be.fulfilled;
+      await expect(
+        exporter.exportRelationships(ElementRefersToElements.classFullName)
+      ).to.eventually.be.fulfilled;
 
-      const targetRelationships = targetDb.withStatement("SELECT ECInstanceId FROM bis.ElementRefersToElements", (stmt) => [...stmt]);
-      expect(targetRelationships.length, "TargetDb should not contain any invalid relationships").to.be.equal(0);
+      const targetRelationships = targetDb.withStatement(
+        "SELECT ECInstanceId FROM bis.ElementRefersToElements",
+        (stmt) => [...stmt]
+      );
+      expect(
+        targetRelationships.length,
+        "TargetDb should not contain any invalid relationships"
+      ).to.be.equal(0);
 
       sourceDb.close();
     });

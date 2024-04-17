@@ -1,28 +1,39 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 /** @packageDocumentation
  * @module Utils
  * utilities that unify operations, especially CRUD operations, on entities
  * for entity-generic operations in the transformer
  */
+
 import * as assert from "assert";
-import { ConcreteEntityTypes, DbResult,  EntityReference, IModelError } from "@itwin/core-common";
-import { ConcreteEntity, ConcreteEntityProps, Element, ElementAspect, EntityReferences, IModelDb, Relationship } from "@itwin/core-backend";
+import {
+  ConcreteEntityTypes,
+  DbResult,
+  EntityReference,
+  IModelError,
+} from "@itwin/core-common";
+import {
+  ConcreteEntity,
+  ConcreteEntityProps,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
+  Element,
+  ElementAspect,
+  EntityReferences,
+  IModelDb,
+  Relationship,
+} from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
 
 /** @internal */
 export namespace EntityUnifier {
   export function getReadableType(entity: ConcreteEntity) {
-    if (entity instanceof Element)
-      return "element";
-    else if (entity instanceof ElementAspect)
-      return "element aspect";
-    else if (entity instanceof Relationship)
-      return "relationship";
-    else
-      return "unknown entity type";
+    if (entity instanceof Element) return "element";
+    else if (entity instanceof ElementAspect) return "element aspect";
+    else if (entity instanceof Relationship) return "relationship";
+    else return "unknown entity type";
   }
 
   type EntityUpdater = (entityProps: ConcreteEntityProps) => void;
@@ -32,43 +43,42 @@ export namespace EntityUnifier {
     if (entity instanceof Element)
       return db.elements.updateElement.bind(db.elements) as EntityUpdater;
     else if (entity instanceof Relationship)
-      return db.relationships.updateInstance.bind(db.relationships) as EntityUpdater;
+      return db.relationships.updateInstance.bind(
+        db.relationships
+      ) as EntityUpdater;
     else if (entity instanceof ElementAspect)
       return db.elements.updateAspect.bind(db.elements) as EntityUpdater;
     else
-      assert(false, `unreachable; entity was '${entity.constructor.name}' not an Element, Relationship, or ElementAspect`);
+      assert(
+        false,
+        `unreachable; entity was '${entity.constructor.name}' not an Element, Relationship, or ElementAspect`
+      );
   }
 
-  export function exists(db: IModelDb, arg: { entity: ConcreteEntity } | { entityReference: EntityReference }) {
-    if ("entityReference" in arg) {
-      const [type, id] = EntityReferences.split(arg.entityReference);
-      // FIXME: add a test with a deleted reference that triggers this
-      if (id === undefined || Id64.isInvalid(id))
-        return false;
-      const bisCoreRootClassName = ConcreteEntityTypes.toBisCoreRootClassFullName(type);
-      return db.withPreparedStatement(`SELECT 1 FROM ${bisCoreRootClassName} WHERE ECInstanceId=?`, (stmt) => {
+  export function exists(
+    db: IModelDb,
+    arg: { entity: ConcreteEntity } | { entityReference: EntityReference }
+  ) {
+    const [type, id] =
+      "entityReference" in arg
+        ? EntityReferences.split(arg.entityReference)
+        : [undefined, arg.entity.id];
+    const classFullName =
+      "entityReference" in arg
+        ? ConcreteEntityTypes.toBisCoreRootClassFullName(type!)
+        : `[${arg.entity.schemaName}].[${arg.entity.className}]`;
+
+    if (id === undefined || Id64.isInvalid(id)) return false;
+
+    return db.withPreparedStatement(
+      `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
+      (stmt) => {
         stmt.bindId(1, id);
         const matchesResult = stmt.step();
-        if (matchesResult === DbResult.BE_SQLITE_ROW)
-          return true;
-        if (matchesResult === DbResult.BE_SQLITE_DONE)
-          return false;
-        else
-          throw new IModelError(matchesResult, "query failed");
-      });
-    } else {
-      if (arg.entity.id === undefined || Id64.isInvalid(arg.entity.id))
-        return false;
-      return db.withPreparedStatement(`SELECT 1 FROM [${arg.entity.schemaName}].[${arg.entity.className}] WHERE ECInstanceId=?`, (stmt) => {
-        stmt.bindId(1, arg.entity.id);
-        const matchesResult = stmt.step();
-        if (matchesResult === DbResult.BE_SQLITE_ROW)
-          return true;
-        if (matchesResult === DbResult.BE_SQLITE_DONE)
-          return false;
-        else
-          throw new IModelError(matchesResult, "query failed");
-      });
-    }
+        if (matchesResult === DbResult.BE_SQLITE_ROW) return true;
+        if (matchesResult === DbResult.BE_SQLITE_DONE) return false;
+        else throw new IModelError(matchesResult, "query failed");
+      }
+    );
   }
 }

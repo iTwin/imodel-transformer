@@ -1,15 +1,44 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
-import { AccessToken, assert, DbResult, Id64, Id64Array, Id64Set, Id64String, Logger } from "@itwin/core-bentley";
 import {
-  Category, CategorySelector, DisplayStyle, DisplayStyle3d, ECSqlStatement, Element, ElementRefersToElements, GeometricModel3d, GeometryPart,
-  IModelDb, ModelSelector, PhysicalModel, PhysicalPartition, Relationship, SpatialCategory,
-  SpatialViewDefinition, SubCategory, ViewDefinition,
+  AccessToken,
+  assert,
+  DbResult,
+  Id64,
+  Id64Array,
+  Id64Set,
+  Id64String,
+  Logger,
+} from "@itwin/core-bentley";
+import {
+  Category,
+  CategorySelector,
+  DisplayStyle,
+  DisplayStyle3d,
+  ECSqlStatement,
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
+  Element,
+  ElementRefersToElements,
+  GeometricModel3d,
+  GeometryPart,
+  IModelDb,
+  ModelSelector,
+  PhysicalModel,
+  PhysicalPartition,
+  Relationship,
+  SpatialCategory,
+  SpatialViewDefinition,
+  SubCategory,
+  ViewDefinition,
 } from "@itwin/core-backend";
-import { IModelImporter, IModelTransformer, IModelTransformOptions } from "@itwin/imodel-transformer";
+import {
+  IModelImporter,
+  IModelTransformer,
+  IModelTransformOptions,
+} from "@itwin/imodel-transformer";
 import { ElementProps, IModel } from "@itwin/core-common";
 
 export const loggerCategory = "imodel-transformer";
@@ -23,6 +52,7 @@ export interface TransformerOptions extends IModelTransformOptions {
   excludeCategories?: string[];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 export class Transformer extends IModelTransformer {
   private _numSourceElements = 0;
   private _numSourceElementsProcessed = 0;
@@ -31,7 +61,11 @@ export class Transformer extends IModelTransformer {
   private _startTime = new Date();
   private _targetPhysicalModelId = Id64.invalid; // will be valid when PhysicalModels are being combined
 
-  public static async transformAll(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions): Promise<void> {
+  public static async transformAll(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    options?: TransformerOptions
+  ): Promise<void> {
     // might need to inject RequestContext for schemaExport.
     const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
@@ -46,7 +80,13 @@ export class Transformer extends IModelTransformer {
     transformer.logElapsedTime();
   }
 
-  public static async transformChanges(accessToken: AccessToken, sourceDb: IModelDb, targetDb: IModelDb, sourceStartChangesetId: string, options?: TransformerOptions): Promise<void> {
+  public static async transformChanges(
+    accessToken: AccessToken,
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    sourceStartChangesetId: string,
+    options?: TransformerOptions
+  ): Promise<void> {
     if ("" === sourceDb.changeset.id) {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
@@ -54,7 +94,10 @@ export class Transformer extends IModelTransformer {
     const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
-    await transformer.processChanges({ accessToken, startChangeset: { id: sourceStartChangesetId } });
+    await transformer.processChanges({
+      accessToken,
+      startChangeset: { id: sourceStartChangesetId },
+    });
     await transformer.saveChanges("processChanges");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
@@ -77,19 +120,23 @@ export class Transformer extends IModelTransformer {
   ): Promise<IModelTransformer> {
     class IsolateElementsTransformer extends Transformer {
       public override shouldExportElement(sourceElement: Element) {
-        if (!includeChildren
-          && (isolatedElementIds.some((id) => sourceElement.parent?.id === id)
-            || isolatedElementIds.some((id) => sourceElement.model === id))
+        if (
+          !includeChildren &&
+          (isolatedElementIds.some((id) => sourceElement.parent?.id === id) ||
+            isolatedElementIds.some((id) => sourceElement.model === id))
         )
           return false;
         return super.shouldExportElement(sourceElement);
       }
     }
-    const transformer = new IsolateElementsTransformer(sourceDb, targetDb, options);
+    const transformer = new IsolateElementsTransformer(
+      sourceDb,
+      targetDb,
+      options
+    );
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
-    for (const id of isolatedElementIds)
-      await transformer.processElement(id);
+    for (const id of isolatedElementIds) await transformer.processElement(id);
     await transformer.saveChanges("process isolated elements");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
@@ -99,8 +146,18 @@ export class Transformer extends IModelTransformer {
     return transformer;
   }
 
-  private constructor(sourceDb: IModelDb, targetDb: IModelDb, options?: TransformerOptions) {
-    super(sourceDb, new IModelImporter(targetDb, { simplifyElementGeometry: options?.simplifyElementGeometry }), options);
+  private constructor(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    options?: TransformerOptions
+  ) {
+    super(
+      sourceDb,
+      new IModelImporter(targetDb, {
+        simplifyElementGeometry: options?.simplifyElementGeometry,
+      }),
+      options
+    );
 
     Logger.logInfo(loggerCategory, `sourceDb=${this.sourceDb.pathName}`);
     Logger.logInfo(loggerCategory, `targetDb=${this.targetDb.pathName}`);
@@ -108,14 +165,32 @@ export class Transformer extends IModelTransformer {
 
     // customize transformer using the specified options
     if (options?.combinePhysicalModels) {
-      this._targetPhysicalModelId = PhysicalModel.insert(this.targetDb, IModel.rootSubjectId, "CombinedPhysicalModel"); // WIP: Id should be passed in, not inserted here
+      this._targetPhysicalModelId = PhysicalModel.insert(
+        this.targetDb,
+        IModel.rootSubjectId,
+        "CombinedPhysicalModel"
+      ); // WIP: Id should be passed in, not inserted here
       this.importer.doNotUpdateElementIds.add(this._targetPhysicalModelId);
     }
     if (options?.exportViewDefinition) {
-      const spatialViewDefinition = this.sourceDb.elements.getElement<SpatialViewDefinition>(options.exportViewDefinition, SpatialViewDefinition);
-      const categorySelector = this.sourceDb.elements.getElement<CategorySelector>(spatialViewDefinition.categorySelectorId, CategorySelector);
-      const modelSelector = this.sourceDb.elements.getElement<ModelSelector>(spatialViewDefinition.modelSelectorId, ModelSelector);
-      const displayStyle = this.sourceDb.elements.getElement<DisplayStyle3d>(spatialViewDefinition.displayStyleId, DisplayStyle3d);
+      const spatialViewDefinition =
+        this.sourceDb.elements.getElement<SpatialViewDefinition>(
+          options.exportViewDefinition,
+          SpatialViewDefinition
+        );
+      const categorySelector =
+        this.sourceDb.elements.getElement<CategorySelector>(
+          spatialViewDefinition.categorySelectorId,
+          CategorySelector
+        );
+      const modelSelector = this.sourceDb.elements.getElement<ModelSelector>(
+        spatialViewDefinition.modelSelectorId,
+        ModelSelector
+      );
+      const displayStyle = this.sourceDb.elements.getElement<DisplayStyle3d>(
+        spatialViewDefinition.displayStyleId,
+        DisplayStyle3d
+      );
       // Exclude all ViewDefinition-related classes because a new view will be generated in the target iModel
       this.exporter.excludeElementClass(ViewDefinition.classFullName);
       this.exporter.excludeElementClass(CategorySelector.classFullName);
@@ -126,11 +201,13 @@ export class Transformer extends IModelTransformer {
       // Exclude models not in the ModelSelector
       this.excludeModelsExcept(Id64.toIdSet(modelSelector.models));
       // Exclude elements excluded by the DisplayStyle
-      for (const excludedElementId of displayStyle.settings.excludedElementIds) {
+      for (const excludedElementId of displayStyle.settings
+        .excludedElementIds) {
         this.exporter.excludeElement(excludedElementId);
       }
       // Exclude SubCategories that are not visible in the DisplayStyle
-      for (const [subCategoryId, subCategoryOverride] of displayStyle.settings.subCategoryOverrides) {
+      for (const [subCategoryId, subCategoryOverride] of displayStyle.settings
+        .subCategoryOverrides) {
         if (subCategoryOverride.invisible) {
           this.excludeSubCategory(subCategoryId);
         }
@@ -144,16 +221,32 @@ export class Transformer extends IModelTransformer {
     }
 
     // query for and log the number of source Elements that will be processed
-    this._numSourceElements = this.sourceDb.withPreparedStatement(`SELECT COUNT(*) FROM ${Element.classFullName}`, (statement: ECSqlStatement): number => {
-      return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
-    });
-    Logger.logInfo(loggerCategory, `numSourceElements=${this._numSourceElements}`);
+    this._numSourceElements = this.sourceDb.withPreparedStatement(
+      `SELECT COUNT(*) FROM ${Element.classFullName}`,
+      (statement: ECSqlStatement): number => {
+        return DbResult.BE_SQLITE_ROW === statement.step()
+          ? statement.getValue(0).getInteger()
+          : 0;
+      }
+    );
+    Logger.logInfo(
+      loggerCategory,
+      `numSourceElements=${this._numSourceElements}`
+    );
 
     // query for and log the number of source Relationships that will be processed
-    this._numSourceRelationships = this.sourceDb.withPreparedStatement(`SELECT COUNT(*) FROM ${ElementRefersToElements.classFullName}`, (statement: ECSqlStatement): number => {
-      return DbResult.BE_SQLITE_ROW === statement.step() ? statement.getValue(0).getInteger() : 0;
-    });
-    Logger.logInfo(loggerCategory, `numSourceRelationships=${this._numSourceRelationships}`);
+    this._numSourceRelationships = this.sourceDb.withPreparedStatement(
+      `SELECT COUNT(*) FROM ${ElementRefersToElements.classFullName}`,
+      (statement: ECSqlStatement): number => {
+        return DbResult.BE_SQLITE_ROW === statement.step()
+          ? statement.getValue(0).getInteger()
+          : 0;
+      }
+    );
+    Logger.logInfo(
+      loggerCategory,
+      `numSourceRelationships=${this._numSourceRelationships}`
+    );
   }
 
   /** Initialize IModelTransformer to exclude SubCategory Elements and geometry entries in a SubCategory from the target iModel.
@@ -163,12 +256,15 @@ export class Transformer extends IModelTransformer {
   private excludeSubCategories(subCategoryNames: string[]): void {
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:subCategoryName`;
     for (const subCategoryName of subCategoryNames) {
-      this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-        statement.bindString("subCategoryName", subCategoryName);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          this.excludeSubCategory(statement.getValue(0).getId());
+      this.sourceDb.withPreparedStatement(
+        sql,
+        (statement: ECSqlStatement): void => {
+          statement.bindString("subCategoryName", subCategoryName);
+          while (DbResult.BE_SQLITE_ROW === statement.step()) {
+            this.excludeSubCategory(statement.getValue(0).getId());
+          }
         }
-      });
+      );
     }
   }
 
@@ -177,9 +273,13 @@ export class Transformer extends IModelTransformer {
    * @note The SubCategory element itself is only excluded if it is not the default SubCategory.
    */
   private excludeSubCategory(subCategoryId: Id64String): void {
-    const subCategory = this.sourceDb.elements.getElement<SubCategory>(subCategoryId, SubCategory);
+    const subCategory = this.sourceDb.elements.getElement<SubCategory>(
+      subCategoryId,
+      SubCategory
+    );
     this.context.filterSubCategory(subCategoryId); // filter out geometry entries in this SubCategory from the target iModel
-    if (!subCategory.isDefaultSubCategory) { // cannot exclude a default SubCategory
+    if (!subCategory.isDefaultSubCategory) {
+      // cannot exclude a default SubCategory
       this.exporter.excludeElement(subCategoryId); // exclude the SubCategory Element itself from the target iModel
     }
   }
@@ -191,54 +291,67 @@ export class Transformer extends IModelTransformer {
   private excludeCategories(categoryNames: string[]): void {
     const sql = `SELECT ECInstanceId FROM ${Category.classFullName} WHERE CodeValue=:categoryName`;
     for (const categoryName of categoryNames) {
-      this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-        statement.bindString("categoryName", categoryName);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const categoryId = statement.getValue(0).getId();
-          this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
-          this.exporter.excludeElement(categoryId); // exclude the category element itself
+      this.sourceDb.withPreparedStatement(
+        sql,
+        (statement: ECSqlStatement): void => {
+          statement.bindString("categoryName", categoryName);
+          while (DbResult.BE_SQLITE_ROW === statement.step()) {
+            const categoryId = statement.getValue(0).getId();
+            this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
+            this.exporter.excludeElement(categoryId); // exclude the category element itself
+          }
         }
-      });
+      );
     }
   }
 
   /** Excludes categories not referenced by the specified Id64Set. */
   private excludeCategoriesExcept(categoryIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const categoryId = statement.getValue(0).getId();
-        if (!categoryIds.has(categoryId)) {
-          this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
-          this.exporter.excludeElement(categoryId); // exclude the category element itself
+    this.sourceDb.withPreparedStatement(
+      sql,
+      (statement: ECSqlStatement): void => {
+        while (DbResult.BE_SQLITE_ROW === statement.step()) {
+          const categoryId = statement.getValue(0).getId();
+          if (!categoryIds.has(categoryId)) {
+            this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
+            this.exporter.excludeElement(categoryId); // exclude the category element itself
+          }
         }
       }
-    });
+    );
   }
 
   /** Excludes models not referenced by the specified Id64Set.
    * @note This really excludes the *modeled element* (which also excludes the model) since we don't want *modeled elements* without a sub-model.
-  */
+   */
   private excludeModelsExcept(modelIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${GeometricModel3d.classFullName}`;
-    this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const modelId = statement.getValue(0).getId();
-        if (!modelIds.has(modelId)) {
-          this.exporter.excludeElement(modelId); // exclude the category element itself
+    this.sourceDb.withPreparedStatement(
+      sql,
+      (statement: ECSqlStatement): void => {
+        while (DbResult.BE_SQLITE_ROW === statement.step()) {
+          const modelId = statement.getValue(0).getId();
+          if (!modelIds.has(modelId)) {
+            this.exporter.excludeElement(modelId); // exclude the category element itself
+          }
         }
       }
-    });
+    );
   }
 
   /** Override that counts elements processed and optionally remaps PhysicalPartitions.
    * @note Override of IModelExportHandler.shouldExportElement
    */
   public override shouldExportElement(sourceElement: Element): boolean {
-    if (this._numSourceElementsProcessed < this._numSourceElements) { // with deferred element processing, the number processed can be more than the total
+    if (this._numSourceElementsProcessed < this._numSourceElements) {
+      // with deferred element processing, the number processed can be more than the total
       ++this._numSourceElementsProcessed;
     }
-    if (Id64.isValidId64(this._targetPhysicalModelId) && (sourceElement instanceof PhysicalPartition)) {
+    if (
+      Id64.isValidId64(this._targetPhysicalModelId) &&
+      sourceElement instanceof PhysicalPartition
+    ) {
       this.context.remapElement(sourceElement.id, this._targetPhysicalModelId); // combine all source PhysicalModels into a single target PhysicalModel
       // NOTE: must allow export to continue so the PhysicalModel sub-modeling the PhysicalPartition is processed
     }
@@ -253,7 +366,9 @@ export class Transformer extends IModelTransformer {
     return super.onTransformElement(sourceElement);
   }
 
-  public override shouldExportRelationship(relationship: Relationship): boolean {
+  public override shouldExportRelationship(
+    relationship: Relationship
+  ): boolean {
     if (this._numSourceRelationshipsProcessed < this._numSourceRelationships) {
       ++this._numSourceRelationshipsProcessed;
     }
@@ -263,16 +378,30 @@ export class Transformer extends IModelTransformer {
   public override async onProgress(): Promise<void> {
     if (this._numSourceElementsProcessed > 0) {
       if (this._numSourceElementsProcessed >= this._numSourceElements) {
-        Logger.logInfo(loggerCategory, `Processed all ${this._numSourceElements} elements`);
+        Logger.logInfo(
+          loggerCategory,
+          `Processed all ${this._numSourceElements} elements`
+        );
       } else {
-        Logger.logInfo(loggerCategory, `Processed ${this._numSourceElementsProcessed} of ${this._numSourceElements} elements`);
+        Logger.logInfo(
+          loggerCategory,
+          `Processed ${this._numSourceElementsProcessed} of ${this._numSourceElements} elements`
+        );
       }
     }
     if (this._numSourceRelationshipsProcessed > 0) {
-      if (this._numSourceRelationshipsProcessed >= this._numSourceRelationships) {
-        Logger.logInfo(loggerCategory, `Processed all ${this._numSourceRelationships} relationships`);
+      if (
+        this._numSourceRelationshipsProcessed >= this._numSourceRelationships
+      ) {
+        Logger.logInfo(
+          loggerCategory,
+          `Processed all ${this._numSourceRelationships} relationships`
+        );
       } else {
-        Logger.logInfo(loggerCategory, `Processed ${this._numSourceRelationshipsProcessed} of ${this._numSourceRelationships} relationships`);
+        Logger.logInfo(
+          loggerCategory,
+          `Processed ${this._numSourceRelationshipsProcessed} of ${this._numSourceRelationships} relationships`
+        );
       }
     }
     this.logElapsedTime();
@@ -286,26 +415,36 @@ export class Transformer extends IModelTransformer {
   }
 
   private logElapsedTime(): void {
-    const elapsedTimeMinutes: number = (new Date().valueOf() - this._startTime.valueOf()) / 60000.0;
-    Logger.logInfo(loggerCategory, `Elapsed time: ${Math.round(100 * elapsedTimeMinutes) / 100.0} minutes`);
+    const elapsedTimeMinutes: number =
+      (new Date().valueOf() - this._startTime.valueOf()) / 60000.0;
+    Logger.logInfo(
+      loggerCategory,
+      `Elapsed time: ${Math.round(100 * elapsedTimeMinutes) / 100.0} minutes`
+    );
   }
 
   public logChangeTrackingMemoryUsed(): void {
     if (this.targetDb.isBriefcase) {
       const bytesUsed = this.targetDb.nativeDb.getChangeTrackingMemoryUsed(); // can't call this internal method unless targetDb has change tracking enabled
       const mbUsed = Math.round((bytesUsed * 100) / (1024 * 1024)) / 100;
-      Logger.logInfo(loggerCategory, `Change Tracking Memory Used: ${mbUsed} MB`);
+      Logger.logInfo(
+        loggerCategory,
+        `Change Tracking Memory Used: ${mbUsed} MB`
+      );
     }
   }
 
   private deleteUnusedGeometryParts(): void {
     const geometryPartIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${GeometryPart.classFullName}`;
-    this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        geometryPartIds.push(statement.getValue(0).getId());
+    this.sourceDb.withPreparedStatement(
+      sql,
+      (statement: ECSqlStatement): void => {
+        while (DbResult.BE_SQLITE_ROW === statement.step()) {
+          geometryPartIds.push(statement.getValue(0).getId());
+        }
       }
-    });
+    );
     this.targetDb.elements.deleteDefinitionElements(geometryPartIds); // will delete only if unused
   }
 }
