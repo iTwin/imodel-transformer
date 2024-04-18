@@ -1117,6 +1117,7 @@ export class ChangedInstanceIds {
   private _elementSubclassIds?: Set<string>;
   private _aspectSubclassIds?: Set<string>;
   private _relationshipSubclassIds?: Set<string>;
+  private _relationshipSubclassIdsToSkip?: Set<string>;
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
@@ -1128,6 +1129,7 @@ export class ChangedInstanceIds {
     this._elementSubclassIds = new Set<string>();
     this._aspectSubclassIds = new Set<string>();
     this._relationshipSubclassIds = new Set<string>();
+    this._relationshipSubclassIdsToSkip = new Set<string>();
 
     const addECClassIdsToSet = async (
       setToModify: Set<string>,
@@ -1152,6 +1154,10 @@ export class ChangedInstanceIds {
         this._relationshipSubclassIds,
         "BisCore.ElementRefersToElements"
       ),
+      addECClassIdsToSet(
+        this._relationshipSubclassIdsToSkip,
+        "BisCore.ElementDrivesElement"
+      ),
     ];
     await Promise.all(promises);
   }
@@ -1162,7 +1168,8 @@ export class ChangedInstanceIds {
       this._modelSubclassIds &&
       this._elementSubclassIds &&
       this._aspectSubclassIds &&
-      this._relationshipSubclassIds
+      this._relationshipSubclassIds &&
+      this._relationshipSubclassIdsToSkip
     );
   }
 
@@ -1204,6 +1211,7 @@ export class ChangedInstanceIds {
       throw new Error(
         `ChangeType was undefined for id: ${change.ECInstanceId}.`
       );
+    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
 
     if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
@@ -1297,15 +1305,13 @@ export class ChangedInstanceIds {
           ? opts.csFileProps
           : undefined;
 
-    if (csFileProps === undefined) return undefined;
+    if (csFileProps === undefined) return new ChangedInstanceIds(opts.iModel); // Could just return empty ChangedInstanceIds object to them here, no relationshipECClassIdsToSkip. That might cause some bugs.
+    // They would have to know what to skip on their end so I would probably want to move relationshipECClassIdsToSkip as part of the actual implementation of ChangedInstanceIds.
+    // Nevermind they expect to also always process changes.
+    // Always processing changes, but may also decide to add your own ids (I think this is the most complex option as opposed to one or the other.)
+    // But if we have to support multiple things then thats more difficult.
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    const relationshipECClassIdsToSkip = new Set<string>();
-    for await (const row of opts.iModel.createQueryReader(
-      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)"
-    )) {
-      relationshipECClassIdsToSkip.add(row.ECInstanceId);
-    }
 
     for (const csFile of csFileProps) {
       const csReader = SqliteChangesetReader.openFile({
@@ -1321,11 +1327,6 @@ export class ChangedInstanceIds {
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {
-        if (
-          change.ECClassId !== undefined &&
-          relationshipECClassIdsToSkip.has(change.ECClassId)
-        )
-          continue;
         await changedInstanceIds.addChange(change);
       }
       csReader.close();
