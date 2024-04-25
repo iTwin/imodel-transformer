@@ -10,12 +10,12 @@
 # review when someone opens a pull request.
 
 # TODO: make an admin group
-* @MichaelBelousov @ColinKerr
+* @MichaelBelousov @ColinKerr @nick4598
 
 # These are at the end to override all previous reviews
 
 ## Updates to the package.json or changelog should avoid requesting review by everyone
-/**/package.json    @MichaelBelousov @ColinKerr
-/**/CHANGELOG.json  @MichaelBelousov @ColinKerr
-/**/CHANGELOG.md    @MichaelBelousov @ColinKerr
-/**/LICENSE.md      @MichaelBelousov @ColinKerr
+/**/package.json    @MichaelBelousov @ColinKerr @nick4598
+/**/CHANGELOG.json  @MichaelBelousov @ColinKerr @nick4598
+/**/CHANGELOG.md    @MichaelBelousov @ColinKerr @nick4598
+/**/LICENSE.md      @MichaelBelousov @ColinKerr @nick4598

@@ -1416,10 +1416,6 @@ export class ChangedInstanceIds {
           : undefined;
 
     if (csFileProps === undefined) return undefined;
-    // They would have to know what to skip on their end so I would probably want to move relationshipECClassIdsToSkip as part of the actual implementation of ChangedInstanceIds.
-    // Nevermind they expect to also always process changes.
-    // Always processing changes, but may also decide to add your own ids (I think this is the most complex option as opposed to one or the other.)
-    // But if we have to support multiple things then thats more difficult.
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
 
