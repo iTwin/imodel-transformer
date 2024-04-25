@@ -28,6 +28,7 @@ import {
   FinalizeTransformationOptions,
   IModelTransformer,
   IModelTransformOptions,
+  InitOptions,
 } from "../../IModelTransformer";
 import {
   HubWrappers,
@@ -35,6 +36,7 @@ import {
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
+import { IModelExporter } from "../../IModelExporter";
 
 const saveAndPushChanges = async (
   accessToken: string,
@@ -254,7 +256,10 @@ export type TimelineStateChange =
         source: string,
         opts?: {
           since?: number;
-          initTransformer?: (transformer: IModelTransformer) => void;
+          init?: {
+            initTransformer?: (transformer: IModelTransformer) => void;
+            initExporter?: (exporter: IModelExporter) => void;
+          };
           expectThrow?: boolean;
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
@@ -358,7 +363,10 @@ export async function runTimeline(
           src: string,
           opts: {
             since?: number;
-            initTransformer?: (transformer: IModelTransformer) => void;
+            init?: {
+              initExporter?: (exporter: IModelExporter) => void;
+              initTransformer?: (transformer: IModelTransformer) => void;
+            };
             expectThrow?: boolean;
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
@@ -494,7 +502,7 @@ export async function runTimeline(
           syncSource,
           {
             since: startIndex,
-            initTransformer,
+            init: initFxns,
             expectThrow,
             assert: assertFxns,
           },
@@ -516,7 +524,26 @@ export async function runTimeline(
               : { index: undefined },
           },
         });
-        initTransformer?.(syncer);
+        const args: InitOptions = {
+          accessToken,
+          startChangeset: startIndex ? { index: startIndex } : undefined,
+          ...finalizeTransformationOptions,
+        };
+        if (initFxns?.initExporter) {
+          /**
+           * The code to support initFxns.initExporter is a bit hacky and is called to setup the transformer without calling transformer.initialize().
+           * Thats because transformer.initialize while calling [[initScopeProvenance]], [[tryInitChangesetData]] also currently calls [[processChangesets]].
+           * At the time of calling this.processChangesets we want to already have setup our exporter's sourceDbChanges with customChanges which is what I'm using initExporter to do.
+           * Thats because currently custom changes get processedd during [[processChangesets]].
+           */
+          syncer["_isSynchronization"] = true;
+          syncer["initScopeProvenance"]();
+          await syncer["_tryInitChangesetData"](args);
+          await syncer.exporter.initialize(syncer["getExportInitOpts"](args));
+          initFxns?.initExporter(syncer.exporter);
+        }
+
+        initFxns?.initTransformer?.(syncer);
         try {
           await syncer.process();
           expect(
