@@ -258,7 +258,7 @@ export type TimelineStateChange =
           since?: number;
           init?: {
             initTransformer?: (transformer: IModelTransformer) => void;
-            initExporter?: (exporter: IModelExporter) => void;
+            initExporter?: (exporter: IModelExporter) => Promise<void>;
           };
           expectThrow?: boolean;
           assert?: {
@@ -364,7 +364,7 @@ export async function runTimeline(
           opts: {
             since?: number;
             init?: {
-              initExporter?: (exporter: IModelExporter) => void;
+              initExporter?: (exporter: IModelExporter) => Promise<void>;
               initTransformer?: (transformer: IModelTransformer) => void;
             };
             expectThrow?: boolean;
@@ -540,7 +540,7 @@ export async function runTimeline(
           syncer["initScopeProvenance"]();
           await syncer["_tryInitChangesetData"](args);
           await syncer.exporter.initialize(syncer["getExportInitOpts"](args));
-          initFxns?.initExporter(syncer.exporter);
+          await initFxns?.initExporter(syncer.exporter);
         }
 
         initFxns?.initTransformer?.(syncer);

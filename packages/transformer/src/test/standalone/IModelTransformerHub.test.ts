@@ -2075,8 +2075,8 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should propagate custom inserts and custom deletes", async () => {
-    let ecClassIdOfRel: Id64String | undefined = undefined;
-    let ecClassIdOfElement: Id64String | undefined = undefined;
+    let ecClassIdOfRel: Id64String | undefined;
+    let ecClassIdOfElement: Id64String | undefined;
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -2106,10 +2106,10 @@ describe("IModelTransformerHub", () => {
       state: masterSeedState,
     };
 
-    let relId: Id64String | undefined = undefined;
-    let sourceIdOfRel: Id64String | undefined = undefined;
-    let targetIdOfRel: Id64String | undefined = undefined;
-    let elementIdInSource: Id64String | undefined = undefined;
+    let relId: Id64String | undefined;
+    let sourceIdOfRel: Id64String | undefined;
+    let targetIdOfRel: Id64String | undefined;
+    let elementIdInSource: Id64String | undefined;
     const timeline: Timeline = [
       { master: { seed: masterSeed } }, // masterSeedState is above
       { branch1: { branch: "master" } },
@@ -2180,16 +2180,16 @@ describe("IModelTransformerHub", () => {
             "master",
             {
               init: {
-                initExporter: (exporter) => {
+                initExporter: async (exporter) => {
                   // Add custom changes to re-insert relationship and element
-                  exporter.sourceDbChanges?.addCustomRelationshipChange(
+                  await exporter.sourceDbChanges?.addCustomRelationshipChange(
                     ecClassIdOfRel!,
                     "Inserted",
                     relId!,
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  exporter.sourceDbChanges?.addCustomChange(
+                  await exporter.sourceDbChanges?.addCustomChange(
                     ecClassIdOfElement!,
                     "Inserted",
                     "100"
@@ -2231,16 +2231,16 @@ describe("IModelTransformerHub", () => {
             "master",
             {
               init: {
-                initExporter: (exporter) => {
+                initExporter: async (exporter) => {
                   // Add custom changes to delete relationship and element
-                  exporter.sourceDbChanges?.addCustomRelationshipChange(
+                  await exporter.sourceDbChanges?.addCustomRelationshipChange(
                     ecClassIdOfRel!,
                     "Deleted",
                     relId!,
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  exporter.sourceDbChanges?.addCustomChange(
+                  await exporter.sourceDbChanges?.addCustomChange(
                     ecClassIdOfElement!,
                     "Deleted",
                     elementIdInSource!
