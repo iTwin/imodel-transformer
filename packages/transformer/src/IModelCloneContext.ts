@@ -128,7 +128,17 @@ export class IModelCloneContext extends IModelElementCloneContext {
     if (Id64.isValid(rawId)) {
       switch (type) {
         case ConcreteEntityTypes.Model: {
-          const targetId = `m${this.findTargetElementId(rawId)}` as const;
+          let targetId;
+          /**
+           * The repository model is a singleton container which exists in all iModels which has a modelId of 0x1.
+           * It is possible to remap the root subject (id 0x1) to some other non root subject, but this is not possible for the repository model.
+           * Since there is a chance that the root subject is remapped to some other subject which has the same id as the repositoryModel, we need to ignore the remapping for the repository model.
+           */
+          if (rawId === IModel.repositoryModelId) {
+            targetId = `m${IModel.repositoryModelId}` as const;
+          } else {
+            targetId = `m${this.findTargetElementId(rawId)}` as const;
+          }
           // Check if the model exists, `findTargetElementId` may have worked because the element exists when the model doesn't.
           // That can occur in the transformer since a submodeled element is imported before its submodel.
           if (
