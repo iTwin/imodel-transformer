@@ -306,7 +306,7 @@ export interface TargetScopeProvenanceJsonProps {
  * @internal
  */
 function mapId64<R>(
-  idContainer: Id64String | { id: Id64String } | undefined,
+  idContainer: Id64String | RelatedElement | undefined,
   func: (id: Id64String) => R
 ): R[] {
   const isId64String = (arg: any): arg is Id64String => {
@@ -315,8 +315,8 @@ function mapId64<R>(
     return isString;
   };
   const isRelatedElem = (arg: any): arg is RelatedElement =>
-    arg && typeof arg === "object" && "id" in arg;
-
+    arg && typeof arg === "object" && "id" in arg && typeof arg.id === "string" && Id64.isValidId64(arg.id);
+  
   const results = [];
 
   // is a string if compressed or singular id64, but check for singular just checks if it's a string so do this test first
@@ -329,7 +329,7 @@ function mapId64<R>(
   } else {
     throw Error(
       [
-        `Id64 container '${idContainer.id}' is unsupported.`,
+        `Id64 container '${JSON.stringify(idContainer)}' is unsupported.`,
         "Currently only singular Id64 strings or prop-like objects containing an 'id' property are supported.",
       ].join("\n")
     );
