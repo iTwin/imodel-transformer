@@ -21,6 +21,7 @@ export function initOutputFile(fileBaseName: string, outputDir: string) {
 
 type PromiseInnerType<T> = T extends Promise<infer R> ? R : never;
 
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 export function timed<R extends any | Promise<any>>(
   f: () => R
 ): R extends Promise<any>

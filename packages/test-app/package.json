@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@itwin/build-tools": "4.6.0-dev.27",
-    "@itwin/eslint-plugin": "4.0.0-dev.48",
+    "@itwin/eslint-plugin": "4.0.2-dev.0",
     "@itwin/projects-client": "^0.6.0",
     "@types/chai": "4.3.1",
     "@types/fs-extra": "^4.0.12",
