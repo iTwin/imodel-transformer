@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@itwin/build-tools": "4.6.0-dev.27",
-    "@itwin/eslint-plugin": "4.0.2-dev.0",
+    "@itwin/eslint-plugin": "^4.0.2",
     "@itwin/oidc-signin-tool": "^4.3.2",
     "@itwin/itwins-client": "^1.2.1",
     "@types/chai": "^4.1.4",
