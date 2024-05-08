@@ -153,27 +153,18 @@ importers:
       '@itwin/core-geometry':
         specifier: 4.3.5
         version: 4.3.5
-      '@itwin/core-quantity':
-        specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)
-      '@itwin/ecschema-metadata':
-        specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-quantity@4.3.5)
       '@itwin/imodel-transformer':
         specifier: workspace:*
         version: link:../transformer
       '@itwin/imodels-access-backend':
-        specifier: ^4.1.4
-        version: 4.1.6(@itwin/core-backend@4.3.5)(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5)(inversify@6.0.2)(reflect-metadata@0.1.13)
+        specifier: ^2.3.0
+        version: 2.3.0(@itwin/core-backend@4.3.5)(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5)
       '@itwin/imodels-client-authoring':
-        specifier: 4.4.0
-        version: 4.4.0(inversify@6.0.2)(reflect-metadata@0.1.13)
+        specifier: ^2.3.0
+        version: 2.3.0
       '@itwin/node-cli-authorization':
-        specifier: ~0.9.0
+        specifier: ~0.9.2
         version: 0.9.2(@itwin/core-bentley@4.3.5)
-      '@itwin/perf-tools':
-        specifier: 3.7.2
-        version: 3.7.2
       dotenv:
         specifier: ^10.0.0
         version: 10.0.0
@@ -184,39 +175,36 @@ importers:
         specifier: ^8.1.0
         version: 8.1.0
       yargs:
-        specifier: ^16.0.0
-        version: 16.2.0
+        specifier: ^17.7.2
+        version: 17.7.2
     devDependencies:
       '@itwin/build-tools':
         specifier: 4.6.0-dev.27
-        version: 4.6.0-dev.27(@types/node@14.14.31)
+        version: 4.6.0-dev.27(@types/node@18.16.16)
       '@itwin/eslint-plugin':
-        specifier: ^4.0.2
+        specifier: 4.0.2
         version: 4.0.2(eslint@8.56.0)(typescript@5.3.3)
-      '@itwin/itwins-client':
-        specifier: ^1.2.1
-        version: 1.2.1
-      '@itwin/oidc-signin-tool':
-        specifier: ^4.3.2
-        version: 4.3.4(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+      '@itwin/projects-client':
+        specifier: ^0.6.0
+        version: 0.6.0
       '@types/chai':
-        specifier: ^4.1.4
+        specifier: 4.3.1
         version: 4.3.1
       '@types/fs-extra':
-        specifier: ^4.0.7
+        specifier: ^4.0.12
         version: 4.0.15
       '@types/mocha':
-        specifier: ^8.2.2
+        specifier: ^8.2.3
         version: 8.2.3
       '@types/node':
-        specifier: 14.14.31
-        version: 14.14.31
+        specifier: ^18.16.14
+        version: 18.16.16
       '@types/yargs':
-        specifier: ^12.0.5
-        version: 12.0.20
-      chai:
-        specifier: ^4.3.6
-        version: 4.3.7
+        specifier: 17.0.19
+        version: 17.0.19
+      cross-env:
+        specifier: ^5.2.1
+        version: 5.2.1
       eslint:
         specifier: ^8.36.0
         version: 8.56.0
@@ -224,7 +212,7 @@ importers:
         specifier: ^9.1.0
         version: 9.1.0(eslint@8.56.0)
       mocha:
-        specifier: ^10.0.0
+        specifier: ^10.2.0
         version: 10.2.0
       prettier:
         specifier: ^3.1.1
@@ -232,11 +220,11 @@ importers:
       rimraf:
         specifier: ^3.0.2
         version: 3.0.2
-      ts-node:
-        specifier: ^10.7.0
-        version: 10.9.2(@types/node@14.14.31)(typescript@5.3.3)
+      source-map-support:
+        specifier: ^0.5.21
+        version: 0.5.21
       typescript:
-        specifier: ~5.3.3
+        specifier: ^5.3.3
         version: 5.3.3
 
   packages/transformer:
@@ -364,6 +352,29 @@ packages:
       '@azure/abort-controller': 1.1.0
       tslib: 2.5.3
 
+  /@azure/core-http@2.3.2:
+    resolution: {integrity: sha512-Z4dfbglV9kNZO177CNx4bo5ekFuYwwsvjLiKdZI4r84bYGv3irrbQz7JC3/rUfFH2l4T/W6OFleJaa2X0IaQqw==}
+    engines: {node: '>=14.0.0'}
+    dependencies:
+      '@azure/abort-controller': 1.1.0
+      '@azure/core-auth': 1.4.0
+      '@azure/core-tracing': 1.0.0-preview.13
+      '@azure/core-util': 1.3.2
+      '@azure/logger': 1.0.4
+      '@types/node-fetch': 2.6.11
+      '@types/tunnel': 0.0.3
+      form-data: 4.0.0
+      node-fetch: 2.6.11
+      process: 0.11.10
+      tough-cookie: 4.1.4
+      tslib: 2.5.3
+      tunnel: 0.0.6
+      uuid: 8.3.2
+      xml2js: 0.5.0
+    transitivePeerDependencies:
+      - encoding
+    dev: false
+
   /@azure/core-http@3.0.2:
     resolution: {integrity: sha512-o1wR9JrmoM0xEAa0Ue7Sp8j+uJvmqYaGoHOCT5qaVYmvgmnZDC0OvQimPA/JR3u77Sz6D1y3Xmk1y69cDU9q9A==}
     engines: {node: '>=14.0.0'}
@@ -420,6 +431,22 @@ packages:
     dependencies:
       tslib: 2.5.3
 
+  /@azure/storage-blob@12.13.0:
+    resolution: {integrity: sha512-t3Q2lvBMJucgTjQcP5+hvEJMAsJSk0qmAnjDLie2td017IiduZbbC9BOcFfmwzR6y6cJdZOuewLCNFmEx9IrXA==}
+    engines: {node: '>=14.0.0'}
+    dependencies:
+      '@azure/abort-controller': 1.1.0
+      '@azure/core-http': 3.0.2
+      '@azure/core-lro': 2.5.3
+      '@azure/core-paging': 1.5.0
+      '@azure/core-tracing': 1.0.0-preview.13
+      '@azure/logger': 1.0.4
+      events: 3.3.0
+      tslib: 2.5.3
+    transitivePeerDependencies:
+      - encoding
+    dev: false
+
   /@azure/storage-blob@12.17.0:
     resolution: {integrity: sha512-sM4vpsCpcCApagRW5UIjQNlNylo02my2opgp0Emi8x888hZUvJ3dN69Oq20cEGXkMUWnoCrBaB0zyS3yeB87sQ==}
     engines: {node: '>=14.0.0'}
@@ -434,6 +461,22 @@ packages:
       tslib: 2.5.3
     transitivePeerDependencies:
       - encoding
+
+  /@azure/storage-blob@12.7.0:
+    resolution: {integrity: sha512-7YEWEx03Us/YBxthzBv788R7jokwpCD5KcIsvtE5xRaijNX9o80KXpabhEwLR9DD9nmt/AlU/c1R+aXydgCduQ==}
+    engines: {node: '>=8.0.0'}
+    dependencies:
+      '@azure/abort-controller': 1.1.0
+      '@azure/core-http': 2.3.2
+      '@azure/core-lro': 2.5.3
+      '@azure/core-paging': 1.5.0
+      '@azure/core-tracing': 1.0.0-preview.13
+      '@azure/logger': 1.0.4
+      events: 3.3.0
+      tslib: 2.5.3
+    transitivePeerDependencies:
+      - encoding
+    dev: false
 
   /@babel/code-frame@7.22.5:
     resolution: {integrity: sha512-Xmwn266vad+6DAqEB2A6V/CcZVp62BbwVmcOJc2RPuwih1kw02TjQvWVWlcKGbBPd+8/0V5DEkOcizRGYsspYQ==}
@@ -838,6 +881,14 @@ packages:
       - utf-8-validate
     dev: true
 
+  /@itwin/cloud-agnostic-core@1.6.0:
+    resolution: {integrity: sha512-IKj3lxaVQqGezz7bkFjKEf9g7Bk4i2cu2aCJsd9HnV2gn79lo8oU0UiPJ+kuVtMsEcN/yRq/EXk/IR/VnNkLKA==}
+    engines: {node: '>=12.20 <19.0.0'}
+    dependencies:
+      inversify: 5.0.5
+      reflect-metadata: 0.1.13
+    dev: false
+
   /@itwin/cloud-agnostic-core@2.2.3(inversify@6.0.2)(reflect-metadata@0.1.13):
     resolution: {integrity: sha512-OL1kGQgI241M3mUvOIkPGvOZkQm7qQUjt2GOvknSTUB9cnMVs+vASMUD3e5xEchKdMOdepxKS1YpaFWAS8WKxQ==}
     peerDependencies:
@@ -954,6 +1005,24 @@ packages:
       - supports-color
     dev: true
 
+  /@itwin/imodels-access-backend@2.3.0(@itwin/core-backend@4.3.5)(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5):
+    resolution: {integrity: sha512-g2Bygiu6Is/Xa6OWUxXN/BZwGU2M4izFl8fdgL1cFWxhoWSYL169bN3V4zvRTUJIqtsNaTyOeRu2mjkRgHY9KQ==}
+    peerDependencies:
+      '@itwin/core-backend': ^3.3.0
+      '@itwin/core-bentley': ^3.3.0
+      '@itwin/core-common': ^3.3.0
+    dependencies:
+      '@azure/abort-controller': 1.1.0
+      '@itwin/core-backend': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5)(@itwin/core-geometry@4.3.5)
+      '@itwin/core-bentley': 4.3.5
+      '@itwin/core-common': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+      '@itwin/imodels-client-authoring': 2.3.0
+      axios: 0.21.4
+    transitivePeerDependencies:
+      - debug
+      - encoding
+    dev: false
+
   /@itwin/imodels-access-backend@4.1.6(@itwin/core-backend@4.3.5)(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5)(inversify@6.0.2)(reflect-metadata@0.1.13):
     resolution: {integrity: sha512-8POEp9Cu/ynTVSIq4T1LLAiaZJPRclpxzITwN6oPukFrzPq+0nGmdnXsi0HSSHjEgMY6c6Rk9+4oMQTOrlZpTg==}
     peerDependencies:
@@ -988,6 +1057,18 @@ packages:
       - debug
     dev: false
 
+  /@itwin/imodels-client-authoring@2.3.0:
+    resolution: {integrity: sha512-wsG6TRv+Ss/L9U5T9/nYwlvQBR5mipDqoaKlFcUwxeivTtB9K3YbeUEPdY2TaDsoFwwuM5cQSqcNr6K21GZ0cQ==}
+    dependencies:
+      '@azure/storage-blob': 12.7.0
+      '@itwin/imodels-client-management': 2.3.0
+      '@itwin/object-storage-azure': 1.6.0
+      '@itwin/object-storage-core': 1.6.0
+    transitivePeerDependencies:
+      - debug
+      - encoding
+    dev: false
+
   /@itwin/imodels-client-authoring@4.4.0(inversify@6.0.2)(reflect-metadata@0.1.13):
     resolution: {integrity: sha512-l3LL26ZuSIMjcfDi2ne9326i6mqdJdzvQfQ431fX0iHO7ISAVBn1nQ4roEhXRdIPgnWJsMKFD0FhAJuMSCyBJA==}
     dependencies:
@@ -1000,6 +1081,14 @@ packages:
       - encoding
       - inversify
       - reflect-metadata
+    dev: false
+
+  /@itwin/imodels-client-management@2.3.0:
+    resolution: {integrity: sha512-dKR5fGaJU66PcQ2H7v4kY9zRGBlH9X1wWuEWNkBiIaSjfsoJ0VXIF0xupD0wa6fHT0jgRlHzvV2qgasxJ3oapg==}
+    dependencies:
+      axios: 0.21.4
+    transitivePeerDependencies:
+      - debug
     dev: false
 
   /@itwin/imodels-client-management@4.4.0:
@@ -1032,6 +1121,21 @@ packages:
       - debug
     dev: false
 
+  /@itwin/object-storage-azure@1.6.0:
+    resolution: {integrity: sha512-b0rxhn0NAFY1alOEGMAUaJtK8WG7xoJPDOVjuA8nC7zFcxxtP2VOsSOauuie2zzL3GDi9OU6vywR3gAcJcTZww==}
+    engines: {node: '>=12.20 <19.0.0'}
+    dependencies:
+      '@azure/core-paging': 1.5.0
+      '@azure/storage-blob': 12.13.0
+      '@itwin/cloud-agnostic-core': 1.6.0
+      '@itwin/object-storage-core': 1.6.0
+      inversify: 5.0.5
+      reflect-metadata: 0.1.13
+    transitivePeerDependencies:
+      - debug
+      - encoding
+    dev: false
+
   /@itwin/object-storage-azure@2.2.3(inversify@6.0.2)(reflect-metadata@0.1.13):
     resolution: {integrity: sha512-Y61HBUyUWc4QZXGWsG0h8tcQUqAI3O1VyG8fRaxVtsAniwfqjyB7ZA5xXhilC5WbUeLyeZI8hzT9SvwcEGblYg==}
     peerDependencies:
@@ -1047,6 +1151,18 @@ packages:
     transitivePeerDependencies:
       - debug
       - encoding
+
+  /@itwin/object-storage-core@1.6.0:
+    resolution: {integrity: sha512-6X6YZ5E/kSJJlKQm7+xluzBGBGPILlEmEfzBgEcDqEwABS214OcKU74kW5mfrB6AiNXKZ2RkxfafW/ZpYi24fg==}
+    engines: {node: '>=12.20 <19.0.0'}
+    dependencies:
+      '@itwin/cloud-agnostic-core': 1.6.0
+      axios: 0.27.2
+      inversify: 5.0.5
+      reflect-metadata: 0.1.13
+    transitivePeerDependencies:
+      - debug
+    dev: false
 
   /@itwin/object-storage-core@2.2.3(inversify@6.0.2)(reflect-metadata@0.1.13):
     resolution: {integrity: sha512-oBPkyZN1gVCRdK2KJlF782skWf/pudkDQr8e6LArj0ixtsgUNPTCeA+suLuEWGrVOaywafFbYxS57tEARvR7wg==}
@@ -1089,6 +1205,14 @@ packages:
     dependencies:
       fs-extra: 8.1.0
     dev: false
+
+  /@itwin/projects-client@0.6.0:
+    resolution: {integrity: sha512-uA8lqjNLIpmpdldoOa/EwQfaV+F2yflxoi1aEZSb+R+dlCyvlsE/hLM7oTzYwmYmFzdezKNbFjwN2PvWLBWaBg==}
+    dependencies:
+      axios: 0.25.0
+    transitivePeerDependencies:
+      - debug
+    dev: true
 
   /@itwin/service-authorization@1.2.0(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5):
     resolution: {integrity: sha512-Mq3eGtPChVE5ANA8kIqz6lzCzZJq5hdyZ30XCxBMR+qL47kFBIf6MUYIBs1JP6S1j8WY+k42i+DRTjvMkQPuPw==}
@@ -1655,8 +1779,18 @@ packages:
     dependencies:
       '@types/node': 18.16.16
 
+  /@types/yargs-parser@21.0.3:
+    resolution: {integrity: sha512-I4q9QU9MQv4oEOz4tAHJtNz1cwuLxn2F3xcc2iV5WdqLPpUnj30aUuxt1mAxYTG+oe8CZMV/+6rU4S4gRDzqtQ==}
+    dev: true
+
   /@types/yargs@12.0.20:
     resolution: {integrity: sha512-MjOKUoDmNattFOBJvAZng7X9KXIKSGy6XHoXY9mASkKwCn35X4Ckh+Ugv1DewXZXrWYXMNtLiXhlCfWlpcAV+Q==}
+    dev: true
+
+  /@types/yargs@17.0.19:
+    resolution: {integrity: sha512-cAx3qamwaYX9R0fzOIZAlFpo4A+1uBVCxqpKz9D26uTF4srRXaGTTsikQmaotCtNdbhzyUH7ft6p9ktz9s6UNQ==}
+    dependencies:
+      '@types/yargs-parser': 21.0.3
     dev: true
 
   /@types/yauzl@2.10.3:
@@ -2166,6 +2300,31 @@ packages:
     engines: {node: '>=4'}
     dev: true
 
+  /axios@0.21.4:
+    resolution: {integrity: sha512-ut5vewkiu8jjGBdqpM44XxjuCjq9LAKeHVmoVfHVzy8eHgxxq8SbAVQNovDA8mVi05kP0Ea/n/UzcSHcTJQfNg==}
+    dependencies:
+      follow-redirects: 1.15.6
+    transitivePeerDependencies:
+      - debug
+    dev: false
+
+  /axios@0.25.0:
+    resolution: {integrity: sha512-cD8FOb0tRH3uuEe6+evtAbgJtfxr7ly3fQjYcMcuPlgkwVS9xboaVIpcDV+cYQe+yGykgwZCs1pzjntcGa6l5g==}
+    dependencies:
+      follow-redirects: 1.15.6
+    transitivePeerDependencies:
+      - debug
+    dev: true
+
+  /axios@0.27.2:
+    resolution: {integrity: sha512-t+yRIyySRTp/wua5xEr+z1q60QmLq8ABsS5O9Me1AsE5dfKqgnCFzwiCZZ/cGNd1lq4/7akDWMxdhVlucjmnOQ==}
+    dependencies:
+      follow-redirects: 1.15.6
+      form-data: 4.0.0
+    transitivePeerDependencies:
+      - debug
+    dev: false
+
   /axios@1.6.8:
     resolution: {integrity: sha512-v/ZHtJDU39mDpyBoFVkETcd/uNdxrWRrg3bKpOKzXFA6Bvqopts6ALSMU3y6ijYxbw2B+wPrIv46egTzJXCLGQ==}
     dependencies:
@@ -2495,7 +2654,6 @@ packages:
       string-width: 4.2.3
       strip-ansi: 6.0.1
       wrap-ansi: 7.0.0
-    dev: true
 
   /co@4.6.0:
     resolution: {integrity: sha512-QVb0dM5HvG+uaxitm8wONl7jltx8dqhfU33DcqtOZcLSVIKSDDLDi7+0LbAKiyI8hD9u42m2YxXSkMGWThaecQ==}
@@ -4216,6 +4374,10 @@ packages:
       side-channel: 1.0.6
     dev: true
 
+  /inversify@5.0.5:
+    resolution: {integrity: sha512-60QsfPz8NAU/GZqXu8hJ+BhNf/C/c+Hp0eDc6XMIJTxBiP36AQyyQKpBkOVTLWBFDQWYVHpbbEuIsHu9dLuJDA==}
+    dev: false
+
   /inversify@6.0.2:
     resolution: {integrity: sha512-i9m8j/7YIv4mDuYXUAcrpKPSaju/CIly9AHK5jvCBeoiM/2KEsuCQTTP+rzSWWpLYWRukdXFSl6ZTk2/uumbiA==}
 
@@ -5858,6 +6020,10 @@ packages:
     resolution: {integrity: sha512-b/YwNhb8lk1Zz2+bXXpS/LK9OisiZZ1SNsSLxN1x2OXVEhW2Ckr/7mWE5vrC1ZTiJlD9g19jWszTmJsB+oEpFQ==}
     dev: true
 
+  /psl@1.9.0:
+    resolution: {integrity: sha512-E/ZsdU4HLs/68gYzgGTkMicWTLPdAftJLfJFlLUAAKZGkStNU72sZjT66SnMDVOfOWY/YAoiD7Jxa9iHvngcag==}
+    dev: false
+
   /pump@3.0.0:
     resolution: {integrity: sha512-LwZy+p3SFs1Pytd/jYct4wpv49HiYCqd9Rlc5ZVdk0V+8Yzv6jR5Blk3TRmPL1ft69TxP0IMZGJ+WPFU2BFhww==}
     dependencies:
@@ -5867,7 +6033,6 @@ packages:
   /punycode@2.3.0:
     resolution: {integrity: sha512-rRV+zQD8tVFys26lAGR9WUuS4iUAngJScM+ZRSKtvl5tKeZ2t5bvdNFdNHBW9FWR4guGHlgmsZ1G7BSm2wTbuA==}
     engines: {node: '>=6'}
-    dev: true
 
   /puppeteer@15.5.0:
     resolution: {integrity: sha512-+vZPU8iBSdCx1Kn5hHas80fyo0TiVyMeqLGv/1dygX2HKhAZjO9YThadbRTCoTYq0yWw+w/CysldPsEekDtjDQ==}
@@ -5900,6 +6065,10 @@ packages:
     dependencies:
       side-channel: 1.0.4
     dev: true
+
+  /querystringify@2.2.0:
+    resolution: {integrity: sha512-FIqgj2EUvTa7R50u0rGsyTftzjYmv/a3hO345bZNrqabNqjtgiDMgmo4mkUjd+nzU5oF3dClKqFIPUKybUyqoQ==}
+    dev: false
 
   /queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
@@ -6031,6 +6200,10 @@ packages:
     resolution: {integrity: sha512-LBnkqsDE7BZKvqylbmn7lTIVdpx4K/QCduRATpO5R+wtPmky/a8pN1bO2D6wXppn1497AJF9mNjqAXr6bdl9jg==}
     engines: {node: '>=0.10.5'}
     dev: true
+
+  /requires-port@1.0.0:
+    resolution: {integrity: sha512-KigOCHcocU3XODJxsu8i/j8T9tzT4adHiecwORRQ0ZZFcp7ahwXuRU1m+yuO90C5ZUyGeGfocHDI14M3L3yDAQ==}
+    dev: false
 
   /resolve-alpn@1.2.1:
     resolution: {integrity: sha512-0a1F4l73/ZFZOakJnQ3FvkJ2+gSTQWz/r2KE5OdDY0TxPm5h4GkqkWWfM47T7HsbnOtcJVEF4epCVy6u7Q3K+g==}
@@ -6695,6 +6868,16 @@ packages:
     dependencies:
       nopt: 1.0.10
 
+  /tough-cookie@4.1.4:
+    resolution: {integrity: sha512-Loo5UUvLD9ScZ6jh8beX1T6sO1w2/MpCRpEP7V280GKMVUQ0Jzar2U3UJPsrdbziLEMMhu3Ujnq//rhiFuIeag==}
+    engines: {node: '>=6'}
+    dependencies:
+      psl: 1.9.0
+      punycode: 2.3.0
+      universalify: 0.2.0
+      url-parse: 1.5.10
+    dev: false
+
   /tr46@0.0.3:
     resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
 
@@ -6926,6 +7109,11 @@ packages:
     resolution: {integrity: sha512-rBJeI5CXAlmy1pV+617WB9J63U6XcazHHF2f2dbJix4XzpUF0RS3Zbj0FGIOCAva5P/d/GBOYaACQ1w+0azUkg==}
     engines: {node: '>= 4.0.0'}
 
+  /universalify@0.2.0:
+    resolution: {integrity: sha512-CJ1QgKmNg3CwvAv/kOFmtnEN05f0D/cn9QntgNOQlQF9dgvVTHj3t+8JPdjqawCHk7V/KA+fbUqzZ9XWhcqPUg==}
+    engines: {node: '>= 4.0.0'}
+    dev: false
+
   /universalify@2.0.0:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
@@ -6952,6 +7140,13 @@ packages:
     dependencies:
       punycode: 2.3.0
     dev: true
+
+  /url-parse@1.5.10:
+    resolution: {integrity: sha512-WypcfiRhfeUP9vvF0j6rw0J3hrWrw6iZv3+22h6iRMJ/8z1Tj6XfLP4DsUix5MhMPnXpiHDoKyoZ/bdCkwBCiQ==}
+    dependencies:
+      querystringify: 2.2.0
+      requires-port: 1.0.0
+    dev: false
 
   /username@5.1.0:
     resolution: {integrity: sha512-PCKbdWw85JsYMvmCv5GH3kXmM66rCd9m1hBEDutPNv94b/pqCMT4NtcKyeWYvLFiE8b+ha1Jdl8XAaUdPn5QTg==}
@@ -7248,7 +7443,6 @@ packages:
   /yargs-parser@21.1.1:
     resolution: {integrity: sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw==}
     engines: {node: '>=12'}
-    dev: true
 
   /yargs-unparser@2.0.0:
     resolution: {integrity: sha512-7pRTIA9Qc1caZ0bZ6RYRGbHJthJWuakf+WmHK0rVeLkNrrGhfoabBNdue6kdINI6r4if7ocq9aD/n7xwKOdzOA==}
@@ -7300,7 +7494,6 @@ packages:
       string-width: 4.2.3
       y18n: 5.0.8
       yargs-parser: 21.1.1
-    dev: true
 
   /yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
