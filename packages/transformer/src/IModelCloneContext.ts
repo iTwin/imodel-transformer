@@ -132,6 +132,10 @@ export class IModelCloneContext extends IModelElementCloneContext {
           /**
            * The repository model is a singleton container which exists in all iModels which has a modelId of 0x1.
            * It is possible to remap the root subject (id 0x1) to some other non root subject, but this is not possible for the repository model.
+           * The RepositoryModel only contains bis:Subject elements and bis:InformationpartitionElement instances (https://www.itwinjs.org/bis/domains/biscore.ecschema/#repositorymodel)
+           * The system handler for both bis:InformationPartitionElement and bis:Subject will only permit instances to be inserted into the RepositoryModel.
+           * https://www.itwinjs.org/bis/domains/biscore.ecschema/#informationpartitionelement
+           * https://www.itwinjs.org/bis/domains/biscore.ecschema/#subject
            * Since there is a chance that the root subject is remapped to some other subject which has the same id as the repositoryModel, we need to ignore the remapping for the repository model.
            */
           if (rawId === IModel.repositoryModelId) {
