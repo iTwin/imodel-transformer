@@ -315,8 +315,7 @@ function mapId64<R>(
     return isString;
   };
   const isRelatedElem = (arg: any): arg is RelatedElement =>
-    arg && typeof arg === "object" && "id" in arg && typeof arg.id === "string" && Id64.isValidId64(arg.id);
-  
+    arg && typeof arg === "object" && "id" in arg;
   const results = [];
 
   // is a string if compressed or singular id64, but check for singular just checks if it's a string so do this test first
