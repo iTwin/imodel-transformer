@@ -79,6 +79,7 @@ export namespace IModelHubUtils {
     iTwinId: GuidString,
     iModelName: string
   ): Promise<GuidString | undefined> {
+    // eslint-disable-next-line @itwin/no-internal
     return IModelHost.hubAccess.queryIModelByName({
       accessToken,
       iTwinId,
@@ -95,6 +96,7 @@ export namespace IModelHubUtils {
     changesetIndex: ChangesetIndex
   ): Promise<ChangesetId> {
     return (
+      // eslint-disable-next-line @itwin/no-internal
       await IModelHost.hubAccess.queryChangeset({
         accessToken,
         iModelId,
@@ -199,6 +201,7 @@ export namespace IModelHubUtils {
     return BriefcaseDb.open({
       fileName: briefcaseProps.fileName,
       readonly: briefcaseArg.briefcaseId
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
         ? briefcaseArg.briefcaseId === BriefcaseIdValue.Unassigned
         : false,
     });

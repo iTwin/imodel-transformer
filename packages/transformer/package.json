@@ -66,14 +66,14 @@
     "NOTE: All tools used by scripts in this package must be listed as devDependencies"
   ],
   "devDependencies": {
-    "@itwin/build-tools": "4.3.5",
+    "@itwin/build-tools": "4.6.0-dev.27",
     "@itwin/core-backend": "4.3.5",
     "@itwin/core-bentley": "4.3.5",
     "@itwin/core-common": "4.3.5",
     "@itwin/core-geometry": "4.3.5",
     "@itwin/core-quantity": "4.3.5",
     "@itwin/ecschema-metadata": "4.3.5",
-    "@itwin/eslint-plugin": "4.0.0-dev.48",
+    "@itwin/eslint-plugin": "^4.0.2",
     "@types/chai": "4.3.1",
     "@types/chai-as-promised": "^7.1.5",
     "@types/mocha": "^8.2.3",
@@ -95,7 +95,7 @@
     "rimraf": "^3.0.2",
     "sinon": "^9.2.4",
     "source-map-support": "^0.5.21",
-    "typescript": "^5.0.4"
+    "typescript": "^5.3.3"
   },
   "dependencies": {
     "semver": "^7.5.1"

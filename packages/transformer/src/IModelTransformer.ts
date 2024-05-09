@@ -306,7 +306,7 @@ export interface TargetScopeProvenanceJsonProps {
  * @internal
  */
 function mapId64<R>(
-  idContainer: Id64String | { id: Id64String } | undefined,
+  idContainer: Id64String | RelatedElement | undefined,
   func: (id: Id64String) => R
 ): R[] {
   const isId64String = (arg: any): arg is Id64String => {
@@ -316,7 +316,6 @@ function mapId64<R>(
   };
   const isRelatedElem = (arg: any): arg is RelatedElement =>
     arg && typeof arg === "object" && "id" in arg;
-
   const results = [];
 
   // is a string if compressed or singular id64, but check for singular just checks if it's a string so do this test first
@@ -329,7 +328,7 @@ function mapId64<R>(
   } else {
     throw Error(
       [
-        `Id64 container '${idContainer}' is unsupported.`,
+        `Id64 container '${JSON.stringify(idContainer)}' is unsupported.`,
         "Currently only singular Id64 strings or prop-like objects containing an 'id' property are supported.",
       ].join("\n")
     );
@@ -780,7 +779,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
     Logger.logInfo(
       TransformerLoggerCategory.IModelImporter,
-      `this.importer.autoExtendProjectExtents=${this.importer.options.autoExtendProjectExtents}`
+      `this.importer.autoExtendProjectExtents=${JSON.stringify(this.importer.options.autoExtendProjectExtents)}`
     );
     Logger.logInfo(
       TransformerLoggerCategory.IModelImporter,
@@ -2016,7 +2015,7 @@ export class IModelTransformer extends IModelExportHandler {
             case DbResult.BE_SQLITE_DONE:
               return false;
             default:
-              assert(false, `unexpected db result: '${stmt}'`);
+              assert(false, `unexpected db result: '${JSON.stringify(stmt)}'`);
           }
         }
       );

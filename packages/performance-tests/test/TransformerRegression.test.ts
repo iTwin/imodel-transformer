@@ -143,6 +143,7 @@ const setupTestData = async () => {
       baseUrl: `https://${process.env.IMJS_URL_PREFIX}api.bentley.com/imodels`,
     },
   });
+  // eslint-disable-next-line @itwin/no-internal
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 

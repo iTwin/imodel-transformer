@@ -478,7 +478,7 @@ export async function runTimeline(
         await saveAndPushChanges(
           accessToken,
           newIModelDb,
-          `new with state [${newIModelEvent}] at point ${i}`
+          `new with state [${JSON.stringify(newIModelEvent)}] at point ${i}`
         );
       }
 
