@@ -2964,10 +2964,9 @@ export class IModelTransformer extends IModelExportHandler {
         ) {
           elemIdToScopeEsa.set(change.Element.Id, change);
         } else if (
-          changeType === "Inserted" ||
-          (changeType === "Updated" &&
-            change.ECClassId !== undefined &&
-            elementECClassIds.has(change.ECClassId))
+          (changeType === "Inserted" || changeType === "Updated") &&
+          change.ECClassId !== undefined &&
+          elementECClassIds.has(change.ECClassId)
         )
           hasElementChangedCache.add(change.ECInstanceId);
       }
