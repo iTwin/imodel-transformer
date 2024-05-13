@@ -117,17 +117,26 @@ jobs:
         const fs = require("fs");
         const workspacePkgJsonPath = "./package.json";
         const workspacePkgJson = require(workspacePkgJsonPath);
-        workspacePkgJson.pnpm.overrides = {
-          ...workspacePkgJson.pnpm.overrides,
-          ...Object.fromEntries([
-            // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
-            "@itwin/core-backend",
-            "@itwin/core-bentley",
-            "@itwin/core-common",
-            "@itwin/core-geometry",
-            "@itwin/core-quantity",
-            "@itwin/ecschema-metadata",
-          ].map(pkg => [pkg, "$CORE_VERSION"]))
+        let pnpm = {}
+        let overrides = {}
+        
+        if (workspacePkgJson.pnpm) pnpm = workspacePkgJson.pnpm
+        if (pnpm?.overrides) overrides = pnpm.overrides
+
+        workspacePkgJson.pnpm = {
+        ...pnpm,
+          overrides: {
+          ...overrides,
+            ...Object.fromEntries([
+              // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
+              "@itwin/core-backend",
+              "@itwin/core-bentley",
+              "@itwin/core-common",
+              "@itwin/core-geometry",
+              "@itwin/core-quantity",
+              "@itwin/ecschema-metadata",
+            ].map(pkg => [pkg, "$CORE_VERSION"]))
+          }
         };
         fs.writeFileSync(workspacePkgJsonPath, JSON.stringify(workspacePkgJson));
         EOF

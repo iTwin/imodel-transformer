@@ -62,6 +62,9 @@ module.exports = [
     },
     {
         files: ["packages/transformer/**/*.ts"],
+        rules: {
+          "@typescript-eslint/no-unsafe-enum-comparison": "off",
+        },
         languageOptions: {
             parserOptions: {
                 project: "packages/transformer/tsconfig.json",
