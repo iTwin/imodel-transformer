@@ -24,6 +24,7 @@ import {
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
+import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import {
   BriefcaseManager,
   ChangedECInstance,
@@ -448,6 +449,9 @@ export class IModelTransformer extends IModelExportHandler {
     "targetScopeElementId" | "danglingReferencesBehavior"
   >;
 
+  /** @see hasDefinitionContainerDeletionFeature */
+  private _hasDefinitionContainerDeletionFeature?: boolean;
+
   private _isSynchronization = false;
 
   /**
@@ -779,7 +783,9 @@ export class IModelTransformer extends IModelExportHandler {
     );
     Logger.logInfo(
       TransformerLoggerCategory.IModelImporter,
-      `this.importer.autoExtendProjectExtents=${JSON.stringify(this.importer.options.autoExtendProjectExtents)}`
+      `this.importer.autoExtendProjectExtents=${JSON.stringify(
+        this.importer.options.autoExtendProjectExtents
+      )}`
     );
     Logger.logInfo(
       TransformerLoggerCategory.IModelImporter,
@@ -980,6 +986,20 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
     return this._cachedSynchronizationVersion;
+  }
+
+  /**
+   * As of itwinjs 4.6.0, definitionContainers are now deleted as if they were DefinitionPartitions as opposed to Definitions.
+   * This variable being true will be used to special case the deletion of DefinitionContainers the same way DefinitionPartitions are deleted.
+   */
+  protected get hasDefinitionContainerDeletionFeature(): boolean {
+    if (this._hasDefinitionContainerDeletionFeature === undefined) {
+      this._hasDefinitionContainerDeletionFeature = Semver.satisfies(
+        coreBackendPkgJson.version,
+        "^4.6.0"
+      );
+    }
+    return this._hasDefinitionContainerDeletionFeature;
   }
 
   /** the changeset in the scoping element's source version found for this transformation
@@ -1994,6 +2014,24 @@ export class IModelTransformer extends IModelExportHandler {
     // It is possible and apparently occasionally sensical to delete a model without deleting its underlying element.
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceEntities]] will find and remap the deleted element making this operation valid
+    let sql: string;
+    if (this.hasDefinitionContainerDeletionFeature) {
+      sql = `
+      SELECT 1
+      FROM bis.DefinitionPartition
+      WHERE ECInstanceId=?
+      UNION
+      SELECT 1
+      FROM bis.DefinitionContainer
+      WHERE ECInstanceId=?
+    `;
+    } else {
+      sql = `
+      SELECT 1
+      FROM bis.DefinitionPartition
+      WHERE ECInstanceId=?
+    `;
+    }
     const targetModelId: Id64String =
       this.context.findTargetElementId(sourceModelId);
 
@@ -2001,13 +2039,10 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
       const isDefinitionPartition = this.targetDb.withPreparedStatement(
-        `
-        SELECT 1
-        FROM bis.DefinitionPartition
-        WHERE ECInstanceId=?
-      `,
+        sql,
         (stmt) => {
           stmt.bindId(1, targetModelId);
+          stmt.bindId(2, targetModelId);
           const val: DbResult = stmt.step();
           switch (val) {
             case DbResult.BE_SQLITE_ROW:
