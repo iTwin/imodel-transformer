@@ -11,6 +11,7 @@
     "test": "pnpm -r test --filter !transformer-performance-tests",
     "docs": "pnpm -r docs",
     "lint": "pnpm -r lint",
+    "format": "pnpm -r format",
     "cover": "pnpm -r cover",
     "lint:copyright": "node scripts/copyrightLinter.js",
     "change": "beachball change",
@@ -19,31 +20,26 @@
     "version-bump-dev": "beachball bump --config beachball.config.dev.js --keep-change-files",
     "publish-packages": "beachball publish",
     "publish-packages-dev": "beachball publish --config beachball.config.dev.js --keep-change-files",
-    "pre-commit": "lint-staged"
+    "pre-commit": "lint-staged",
+    "prepare": "husky install"
   },
   "license": "MIT",
   "devDependencies": {
     "beachball": "^2.33.3",
     "fast-glob": "^3.2.12",
     "husky": "^8.0.3",
-    "lint-staged": "^13.2.2"
+    "lint-staged": "^13.2.2",
+    "prettier": "^3.1.1"
   },
   "lint-staged": {
     "*.{ts,html}": [
-      "pnpm lint:copyright --fix"
+      "pnpm lint:copyright --fix",
+      "prettier --write -u"
     ]
   },
   "engines": {
     "pnpm": ">=6",
     "npm": "<0",
     "node": ">=16"
-  },
-  "pnpm": {
-    "overrides": {
-      "typedoc": "^0.23.28",
-      "typedoc-plugin-merge-modules": "^4.0.1",
-      "typescript": "^5.0.2",
-      "@typescript-eslint/eslint-plugin": "^5.62.0"
-    }
   }
 }

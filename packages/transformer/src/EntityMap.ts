@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 /** @packageDocumentation
  * @module Utils
  */
@@ -25,8 +25,7 @@ export class EntityMap<V> {
   }
 
   public has(entity: ConcreteEntity) {
-    return this._map.has(EntityMap.makeKey(entity)
-    );
+    return this._map.has(EntityMap.makeKey(entity));
   }
 
   public set(entity: ConcreteEntity, val: V): EntityMap<V> {
@@ -74,4 +73,3 @@ export class EntityMap<V> {
     return this._map.size;
   }
 }
-

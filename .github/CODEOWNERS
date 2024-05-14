@@ -9,13 +9,14 @@
 # @global-owner1 and @global-owner2 will be requested for
 # review when someone opens a pull request.
 
-# TODO: make an admin group
-* @MichaelBelousov @ColinKerr
+* @iTwin/itwinjs-core-transformer @iTwin/transformation-service
+
+.github/CODEOWNERS @nick4598 @ColinKerr
 
 # These are at the end to override all previous reviews
 
 ## Updates to the package.json or changelog should avoid requesting review by everyone
-/**/package.json    @MichaelBelousov @ColinKerr
-/**/CHANGELOG.json  @MichaelBelousov @ColinKerr
-/**/CHANGELOG.md    @MichaelBelousov @ColinKerr
-/**/LICENSE.md      @MichaelBelousov @ColinKerr
+/**/package.json    @iTwin/itwinjs-core-transformer
+/**/CHANGELOG.json  @iTwin/itwinjs-core-transformer
+/**/CHANGELOG.md    @iTwin/itwinjs-core-transformer
+/**/LICENSE.md      @iTwin/itwinjs-core-transformer

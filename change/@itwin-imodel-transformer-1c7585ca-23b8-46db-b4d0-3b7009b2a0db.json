@@ -1,0 +1,7 @@
+{
+  "type": "prerelease",
+  "comment": "1.0.0-dev.0",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "22119573+nick4598@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

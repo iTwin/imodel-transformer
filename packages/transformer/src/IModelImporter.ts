@@ -1,18 +1,43 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 /** @packageDocumentation
  * @module iModels
  */
-import { CompressedId64Set, Id64, Id64String, IModelStatus, Logger } from "@itwin/core-bentley";
 import {
-  AxisAlignedBox3d, Base64EncodedString, ElementAspectProps, ElementProps, EntityProps, IModel, IModelError, ModelProps, PrimitiveTypeCode,
-  PropertyMetaData, RelatedElement, SubCategoryProps,
+  Guid,
+  Id64,
+  Id64String,
+  IModelStatus,
+  Logger,
+} from "@itwin/core-bentley";
+import {
+  AxisAlignedBox3d,
+  Base64EncodedString,
+  ElementAspectProps,
+  ElementProps,
+  EntityProps,
+  IModel,
+  IModelError,
+  ModelProps,
+  PrimitiveTypeCode,
+  PropertyMetaData,
+  RelatedElement,
+  SubCategoryProps,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { ElementAspect, ElementMultiAspect, Entity, IModelDb, Relationship, RelationshipProps, SourceAndTarget, SubCategory } from "@itwin/core-backend";
-import type { IModelTransformOptions } from "./IModelTransformer";
+import {
+  ElementAspect,
+  ElementMultiAspect,
+  Entity,
+  IModelDb,
+  Relationship,
+  RelationshipProps,
+  SourceAndTarget,
+  SubCategory,
+} from "@itwin/core-backend";
+import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 
@@ -44,6 +69,11 @@ export interface IModelImportOptions {
    * @default false
    */
   simplifyElementGeometry?: boolean;
+  /**
+   * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
+   * @default false
+   */
+  skipPropagateChangesToRootElements?: boolean;
 }
 
 /** Base class for importing data into an iModel.
@@ -52,7 +82,7 @@ export interface IModelImportOptions {
  * @see [IModelTransformer]($transformer)
  * @beta
  */
-export class IModelImporter implements Required<IModelImportOptions> {
+export class IModelImporter {
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
 
@@ -61,52 +91,30 @@ export class IModelImporter implements Required<IModelImportOptions> {
    */
   public readonly options: Required<IModelImportOptions>;
 
-  /** If `true` (the default), compute the projectExtents of the target iModel after elements are imported.
-   * The computed projectExtents will either include or exclude *outliers* depending on the `excludeOutliers` flag that defaults to `false`.
-   * @see [[IModelImportOptions.autoExtendProjectExtents]]
-   * @see [IModelImporter Options]($docs/learning/transformer/index.md#IModelImporter)
-   * @deprecated in 3.x. Use [[IModelImporter.options.autoExtendProjectExtents]] instead
-   */
-  public get autoExtendProjectExtents(): Required<IModelImportOptions>["autoExtendProjectExtents"] {
-    return this.options.autoExtendProjectExtents;
-  }
-  public set autoExtendProjectExtents(val: Required<IModelImportOptions>["autoExtendProjectExtents"]) {
-    this.options.autoExtendProjectExtents = val;
-  }
-
-  /**
-   * See [IModelTransformOptions.preserveElementIdsForFiltering]($transformer)
-   * @deprecated in 3.x. Use [[IModelImporter.options.preserveElementIdsForFiltering]] instead
-   */
-  public get preserveElementIdsForFiltering(): boolean {
-    return this.options.preserveElementIdsForFiltering;
-  }
-  public set preserveElementIdsForFiltering(val: boolean) {
-    this.options.preserveElementIdsForFiltering = val;
-  }
-
-  /**
-   * See [[IModelImportOptions.simplifyElementGeometry]]
-   * @deprecated in 3.x. Use [[IModelImporter.options.simplifyElementGeometry]] instead
-   */
-  public get simplifyElementGeometry(): boolean {
-    return this.options.simplifyElementGeometry;
-  }
-  public set simplifyElementGeometry(val: boolean) {
-    this.options.simplifyElementGeometry = val;
-  }
-
   private static _realityDataSourceLinkPartitionStaticId: Id64String = "0xe";
 
+  /**
+   * A map of conflicting element code values.
+   * In cases where updating an element's code value results in a codeValue conflict, the element's code value will instead be updated to a random guid.
+   * The actual codeValue will be stored in this ElementId->CodeValue map.
+   * This is needed in cases where the duplicate target element is set to be deleted in the future, or when elements are switching code values with one another and we need a temporary code value.
+   * To resolve code values to their intended values call [[IModelImporter.resolveDuplicateCodeValues]].
+   */
+  private _duplicateCodeValueMap: Map<Id64String, string>;
+
   /** The set of elements that should not be updated by this IModelImporter.
-   * Defaults to the elements that are always present (even in an "empty" iModel) and therefore do not need to be updated
+   * Defaults to an empty set.
    * @note Adding an element to this set is typically necessary when remapping a source element to one that already exists in the target and already has the desired properties.
    */
-  public readonly doNotUpdateElementIds = new Set<Id64String>([
+  public readonly doNotUpdateElementIds = new Set<Id64String>([]);
+
+  /** This set is ONLY used for elements that are always present even in an "empty" iModel. We will use this set to filter out changes to root elements if [[IModelTransformOptions.skipPropagateChangesToRootElements]] is false. */
+  private readonly _rootElementIds = new Set<Id64String>([
     IModel.rootSubjectId,
     IModel.dictionaryId,
     IModelImporter._realityDataSourceLinkPartitionStaticId,
   ]);
+
   /** The number of entity changes before incremental progress should be reported via the [[onProgress]] callback. */
   public progressInterval: number = 1000;
   /** Tracks the current total number of entity changes. */
@@ -124,18 +132,41 @@ export class IModelImporter implements Required<IModelImportOptions> {
     this.targetDb = targetDb;
     this.options = {
       autoExtendProjectExtents: options?.autoExtendProjectExtents ?? true,
-      preserveElementIdsForFiltering: options?.preserveElementIdsForFiltering ?? false,
+      preserveElementIdsForFiltering:
+        options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
+      skipPropagateChangesToRootElements:
+        options?.skipPropagateChangesToRootElements ?? false,
     };
+    this._duplicateCodeValueMap = new Map<Id64String, string>();
+  }
+
+  /**
+   * Checks [[IModelImportOptions.skipPropagateChangesToRootElements]], [[IModelImporter.rootElementIds]], and [[IModelImporter.doNotUpdateElementIds]] and returns true for 'do not update', false for do 'update'.
+   */
+  private doNotUpdateElement(elementId: Id64String): boolean {
+    if (
+      this.options.skipPropagateChangesToRootElements &&
+      this._rootElementIds.has(elementId)
+    )
+      return true;
+    if (this.doNotUpdateElementIds.has(elementId)) return true;
+    return false;
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
   public importModel(modelProps: ModelProps): void {
-    if ((undefined === modelProps.id) || !Id64.isValidId64(modelProps.id))
-      throw new IModelError(IModelStatus.InvalidId, "Model Id not provided, should be the same as the ModeledElementId");
+    if (undefined === modelProps.id || !Id64.isValidId64(modelProps.id))
+      throw new IModelError(
+        IModelStatus.InvalidId,
+        "Model Id not provided, should be the same as the ModeledElementId"
+      );
 
-    if (this.doNotUpdateElementIds.has(modelProps.id)) {
-      Logger.logInfo(loggerCategory, `Do not update target model ${modelProps.id}`);
+    if (this.doNotUpdateElement(modelProps.id)) {
+      Logger.logInfo(
+        loggerCategory,
+        `Do not update target model ${modelProps.id}`
+      );
       return;
     }
     try {
@@ -145,7 +176,10 @@ export class IModelImporter implements Required<IModelImportOptions> {
       }
     } catch (error) {
       // catch NotFound error and insertModel
-      if (error instanceof IModelError && error.errorNumber === IModelStatus.NotFound) {
+      if (
+        error instanceof IModelError &&
+        error.errorNumber === IModelStatus.NotFound
+      ) {
         this.onInsertModel(modelProps);
         return;
       }
@@ -159,7 +193,10 @@ export class IModelImporter implements Required<IModelImportOptions> {
   protected onInsertModel(modelProps: ModelProps): Id64String {
     try {
       const modelId: Id64String = this.targetDb.models.insertModel(modelProps);
-      Logger.logInfo(loggerCategory, `Inserted ${this.formatModelForLogger(modelProps)}`);
+      Logger.logInfo(
+        loggerCategory,
+        `Inserted ${this.formatModelForLogger(modelProps)}`
+      );
       this.trackProgress();
       return modelId;
     } catch (error) {
@@ -177,7 +214,10 @@ export class IModelImporter implements Required<IModelImportOptions> {
    */
   protected onUpdateModel(modelProps: ModelProps): void {
     this.targetDb.models.updateModel(modelProps);
-    Logger.logInfo(loggerCategory, `Updated ${this.formatModelForLogger(modelProps)}`);
+    Logger.logInfo(
+      loggerCategory,
+      `Updated ${this.formatModelForLogger(modelProps)}`
+    );
     this.trackProgress();
   }
 
@@ -188,26 +228,57 @@ export class IModelImporter implements Required<IModelImportOptions> {
 
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
   public importElement(elementProps: ElementProps): Id64String {
-    if (undefined !== elementProps.id && this.doNotUpdateElementIds.has(elementProps.id)) {
-      Logger.logInfo(loggerCategory, `Do not update target element ${elementProps.id}`);
+    if (
+      undefined !== elementProps.id &&
+      this.doNotUpdateElement(elementProps.id)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Do not update target element ${elementProps.id}`
+      );
       return elementProps.id;
     }
     if (this.options.preserveElementIdsForFiltering) {
       if (elementProps.id === undefined) {
-        throw new IModelError(IModelStatus.BadElement, `elementProps.id must be defined during a preserveIds operation`);
+        throw new IModelError(
+          IModelStatus.BadElement,
+          "elementProps.id must be defined during a preserveIds operation"
+        );
       }
       // Categories are the only element that onInserted will immediately insert a new element (their default subcategory)
       // since default subcategories always exist and always will be inserted after their categories, we treat them as an update
       // to prevent duplicate inserts.
+      // Always present elements (0xe, 0x1, 0x10) also will be updated to prevent duplicate inserts.
       // Otherwise we always insert during a preserveElementIdsForFiltering operation
-      if (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) {
+      if (
+        (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) ||
+        this._rootElementIds.has(elementProps.id)
+      ) {
         this.onUpdateElement(elementProps);
       } else {
         this.onInsertElement(elementProps);
       }
     } else {
       if (undefined !== elementProps.id) {
-        this.onUpdateElement(elementProps);
+        try {
+          this.onUpdateElement(elementProps);
+        } catch (err) {
+          if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
+            assert(
+              elementProps.code.value !== undefined,
+              "NULL code values are always considered unique and cannot clash"
+            );
+            this._duplicateCodeValueMap.set(
+              elementProps.id,
+              elementProps.code.value
+            );
+            // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
+            elementProps.code.value = Guid.createValue();
+            this.onUpdateElement(elementProps);
+          } else {
+            throw err;
+          }
+        }
       } else {
         this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
@@ -221,17 +292,27 @@ export class IModelImporter implements Required<IModelImportOptions> {
    */
   protected onInsertElement(elementProps: ElementProps): Id64String {
     try {
-      const elementId = this.targetDb.nativeDb.insertElement(
-        elementProps,
-        { forceUseId: this.options.preserveElementIdsForFiltering },
-      );
+      const elementId = this.targetDb.nativeDb.insertElement(elementProps, {
+        forceUseId: this.options.preserveElementIdsForFiltering,
+      });
       // set the id like [IModelDb.insertElement]($backend), does, the raw nativeDb method does not
       elementProps.id = elementId;
-      Logger.logInfo(loggerCategory, `Inserted ${this.formatElementForLogger(elementProps)}`);
+      Logger.logInfo(
+        loggerCategory,
+        `Inserted ${this.formatElementForLogger(elementProps)}`
+      );
       this.trackProgress();
       if (this.options.simplifyElementGeometry) {
-        this.targetDb.nativeDb.simplifyElementGeometry({ id: elementId, convertBReps: true });
-        Logger.logInfo(loggerCategory, `Simplified element geometry for ${this.formatElementForLogger(elementProps)}`);
+        this.targetDb.nativeDb.simplifyElementGeometry({
+          id: elementId,
+          convertBReps: true,
+        });
+        Logger.logInfo(
+          loggerCategory,
+          `Simplified element geometry for ${this.formatElementForLogger(
+            elementProps
+          )}`
+        );
       }
       return elementId;
     } catch (error) {
@@ -252,11 +333,22 @@ export class IModelImporter implements Required<IModelImportOptions> {
       throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
     }
     this.targetDb.elements.updateElement(elementProps);
-    Logger.logInfo(loggerCategory, `Updated ${this.formatElementForLogger(elementProps)}`);
+    Logger.logInfo(
+      loggerCategory,
+      `Updated ${this.formatElementForLogger(elementProps)}`
+    );
     this.trackProgress();
     if (this.options.simplifyElementGeometry) {
-      this.targetDb.nativeDb.simplifyElementGeometry({ id: elementProps.id, convertBReps: true });
-      Logger.logInfo(loggerCategory, `Simplified element geometry for ${this.formatElementForLogger(elementProps)}`);
+      this.targetDb.nativeDb.simplifyElementGeometry({
+        id: elementProps.id,
+        convertBReps: true,
+      });
+      Logger.logInfo(
+        loggerCategory,
+        `Simplified element geometry for ${this.formatElementForLogger(
+          elementProps
+        )}`
+      );
     }
   }
 
@@ -266,14 +358,20 @@ export class IModelImporter implements Required<IModelImportOptions> {
    */
   protected onDeleteElement(elementId: Id64String): void {
     deleteElementTreeCascade(this.targetDb, elementId);
-    Logger.logInfo(loggerCategory, `Deleted element ${elementId} and its descendants`);
+    Logger.logInfo(
+      loggerCategory,
+      `Deleted element ${elementId} and its descendants`
+    );
     this.trackProgress();
   }
 
   /** Delete the specified Element from the target iModel. */
   public deleteElement(elementId: Id64String): void {
-    if (this.doNotUpdateElementIds.has(elementId)) {
-      Logger.logInfo(loggerCategory, `Do not delete target element ${elementId}`);
+    if (this.doNotUpdateElement(elementId)) {
+      Logger.logInfo(
+        loggerCategory,
+        `Do not delete target element ${elementId}`
+      );
       return;
     }
     this.onDeleteElement(elementId);
@@ -295,13 +393,22 @@ export class IModelImporter implements Required<IModelImportOptions> {
 
   /** Format an Element for the Logger. */
   private formatElementForLogger(elementProps: ElementProps): string {
-    const namePiece: string = elementProps.code.value ? `${elementProps.code.value} ` : elementProps.userLabel ? `${elementProps.userLabel} ` : "";
+    const namePiece: string = elementProps.code.value
+      ? `${elementProps.code.value} `
+      : elementProps.userLabel
+        ? `${elementProps.userLabel} `
+        : "";
     return `${elementProps.classFullName} ${namePiece}[${elementProps.id}]`;
   }
 
   /** Import an ElementUniqueAspect into the target iModel. */
-  public importElementUniqueAspect(aspectProps: ElementAspectProps): Id64String {
-    const aspects: ElementAspect[] = this.targetDb.elements.getAspects(aspectProps.element.id, aspectProps.classFullName);
+  public importElementUniqueAspect(
+    aspectProps: ElementAspectProps
+  ): Id64String {
+    const aspects: ElementAspect[] = this.targetDb.elements.getAspects(
+      aspectProps.element.id,
+      aspectProps.classFullName
+    );
     if (aspects.length === 0) {
       return this.onInsertElementAspect(aspectProps);
     } else if (hasEntityChanged(aspects[0], aspectProps)) {
@@ -322,7 +429,9 @@ export class IModelImporter implements Required<IModelImportOptions> {
     /** caller must use this to enforce any aspects added by IModelTransformer are not considered for update */
     filterFunc: (a: ElementMultiAspect) => boolean = () => true
   ): Id64String[] {
-    const result = new Array<Id64String | undefined>(aspectPropsArray.length).fill(undefined);
+    const result = new Array<Id64String | undefined>(
+      aspectPropsArray.length
+    ).fill(undefined);
 
     if (aspectPropsArray.length === 0) {
       return result as Id64String[];
@@ -339,15 +448,15 @@ export class IModelImporter implements Required<IModelImportOptions> {
     aspectClassFullNames.forEach((aspectClassFullName: string) => {
       const proposedAspects = aspectPropsArray
         .map((props, index) => ({ props, index }))
-        .filter(({props}) => aspectClassFullName === props.classFullName);
+        .filter(({ props }) => aspectClassFullName === props.classFullName);
 
       const currentAspects = this.targetDb.elements
         .getAspects(elementId, aspectClassFullName)
         .map((props, index) => ({ props, index }) as const)
-        .filter(({props}) => filterFunc(props));
+        .filter(({ props }) => filterFunc(props));
 
       if (proposedAspects.length >= currentAspects.length) {
-        proposedAspects.forEach(({props, index: resultIndex}, index) => {
+        proposedAspects.forEach(({ props, index: resultIndex }, index) => {
           let id: Id64String;
           if (index < currentAspects.length) {
             id = currentAspects[index].props.id;
@@ -362,7 +471,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
           result[resultIndex] = id;
         });
       } else {
-        currentAspects.forEach(({props, index: resultIndex}, index) => {
+        currentAspects.forEach(({ props, index: resultIndex }, index) => {
           let id: Id64String;
           if (index < proposedAspects.length) {
             id = props.id;
@@ -388,7 +497,10 @@ export class IModelImporter implements Required<IModelImportOptions> {
   protected onInsertElementAspect(aspectProps: ElementAspectProps): Id64String {
     try {
       const id = this.targetDb.elements.insertAspect(aspectProps);
-      Logger.logInfo(loggerCategory, `Inserted ${this.formatElementAspectForLogger(aspectProps)}`);
+      Logger.logInfo(
+        loggerCategory,
+        `Inserted ${this.formatElementAspectForLogger(aspectProps)}`
+      );
       this.trackProgress();
       return id;
     } catch (error) {
@@ -406,7 +518,10 @@ export class IModelImporter implements Required<IModelImportOptions> {
    */
   protected onUpdateElementAspect(aspectProps: ElementAspectProps): void {
     this.targetDb.elements.updateAspect(aspectProps);
-    Logger.logInfo(loggerCategory, `Updated ${this.formatElementAspectForLogger(aspectProps)}`);
+    Logger.logInfo(
+      loggerCategory,
+      `Updated ${this.formatElementAspectForLogger(aspectProps)}`
+    );
     this.trackProgress();
   }
 
@@ -415,12 +530,17 @@ export class IModelImporter implements Required<IModelImportOptions> {
    */
   protected onDeleteElementAspect(targetElementAspect: ElementAspect): void {
     this.targetDb.elements.deleteAspect(targetElementAspect.id);
-    Logger.logInfo(loggerCategory, `Deleted ${this.formatElementAspectForLogger(targetElementAspect)}`);
+    Logger.logInfo(
+      loggerCategory,
+      `Deleted ${this.formatElementAspectForLogger(targetElementAspect)}`
+    );
     this.trackProgress();
   }
 
   /** Format an ElementAspect for the Logger. */
-  private formatElementAspectForLogger(elementAspectProps: ElementAspectProps | ElementAspect): string {
+  private formatElementAspectForLogger(
+    elementAspectProps: ElementAspectProps | ElementAspect
+  ): string {
     return `${elementAspectProps.classFullName} elementId=[${elementAspectProps.element.id}]`;
   }
 
@@ -428,18 +548,38 @@ export class IModelImporter implements Required<IModelImportOptions> {
    * @returns The instance Id of the inserted or updated Relationship.
    */
   public importRelationship(relationshipProps: RelationshipProps): Id64String {
-    if ((undefined === relationshipProps.sourceId) || !Id64.isValidId64(relationshipProps.sourceId)) {
-      Logger.logInfo(loggerCategory, `Ignoring ${relationshipProps.classFullName} instance because of invalid RelationshipProps.sourceId`);
+    if (
+      undefined === relationshipProps.sourceId ||
+      !Id64.isValidId64(relationshipProps.sourceId)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Ignoring ${relationshipProps.classFullName} instance because of invalid RelationshipProps.sourceId`
+      );
       return Id64.invalid;
     }
-    if ((undefined === relationshipProps.targetId) || !Id64.isValidId64(relationshipProps.targetId)) {
-      Logger.logInfo(loggerCategory, `Ignoring ${relationshipProps.classFullName} instance because of invalid RelationshipProps.targetId`);
+    if (
+      undefined === relationshipProps.targetId ||
+      !Id64.isValidId64(relationshipProps.targetId)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Ignoring ${relationshipProps.classFullName} instance because of invalid RelationshipProps.targetId`
+      );
       return Id64.invalid;
     }
     // check for an existing relationship
-    const relSourceAndTarget: SourceAndTarget = { sourceId: relationshipProps.sourceId, targetId: relationshipProps.targetId };
-    const relationship: Relationship | undefined = this.targetDb.relationships.tryGetInstance(relationshipProps.classFullName, relSourceAndTarget);
-    if (undefined !== relationship) { // if relationship found, update it
+    const relSourceAndTarget: SourceAndTarget = {
+      sourceId: relationshipProps.sourceId,
+      targetId: relationshipProps.targetId,
+    };
+    const relationship: Relationship | undefined =
+      this.targetDb.relationships.tryGetInstance(
+        relationshipProps.classFullName,
+        relSourceAndTarget
+      );
+    if (undefined !== relationship) {
+      // if relationship found, update it
       relationshipProps.id = relationship.id;
       if (hasEntityChanged(relationship, relationshipProps)) {
         this.onUpdateRelationship(relationshipProps);
@@ -454,10 +594,16 @@ export class IModelImporter implements Required<IModelImportOptions> {
    * @returns The instance Id of the newly inserted relationship.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertRelationship`.
    */
-  protected onInsertRelationship(relationshipProps: RelationshipProps): Id64String {
+  protected onInsertRelationship(
+    relationshipProps: RelationshipProps
+  ): Id64String {
     try {
-      const targetRelInstanceId: Id64String = this.targetDb.relationships.insertInstance(relationshipProps);
-      Logger.logInfo(loggerCategory, `Inserted ${this.formatRelationshipForLogger(relationshipProps)}`);
+      const targetRelInstanceId: Id64String =
+        this.targetDb.relationships.insertInstance(relationshipProps);
+      Logger.logInfo(
+        loggerCategory,
+        `Inserted ${this.formatRelationshipForLogger(relationshipProps)}`
+      );
       this.trackProgress();
       return targetRelInstanceId;
     } catch (error) {
@@ -475,22 +621,39 @@ export class IModelImporter implements Required<IModelImportOptions> {
    */
   protected onUpdateRelationship(relationshipProps: RelationshipProps): void {
     if (!relationshipProps.id) {
-      throw new IModelError(IModelStatus.InvalidId, "Relationship instance Id not provided");
+      throw new IModelError(
+        IModelStatus.InvalidId,
+        "Relationship instance Id not provided"
+      );
     }
     this.targetDb.relationships.updateInstance(relationshipProps);
-    Logger.logInfo(loggerCategory, `Updated ${this.formatRelationshipForLogger(relationshipProps)}`);
+    Logger.logInfo(
+      loggerCategory,
+      `Updated ${this.formatRelationshipForLogger(relationshipProps)}`
+    );
     this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  protected onDeleteRelationship(relationshipProps: RelationshipProps): void {
-    this.targetDb.relationships.deleteInstance(relationshipProps);
-    Logger.logInfo(loggerCategory, `Deleted relationship ${this.formatRelationshipForLogger(relationshipProps)}`);
+  protected onDeleteRelationship(
+    relationshipProps: RelationshipPropsForDelete
+  ): void {
+    // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
+    this.targetDb.relationships.deleteInstance({
+      id: relationshipProps.id,
+      classFullName: relationshipProps.classFullName,
+    } as RelationshipProps);
+    Logger.logInfo(
+      loggerCategory,
+      `Deleted relationship ${relationshipProps.classFullName} id=${relationshipProps.id}`
+    );
     this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  public deleteRelationship(relationshipProps: RelationshipProps): void {
+  public deleteRelationship(
+    relationshipProps: RelationshipPropsForDelete
+  ): void {
     this.onDeleteRelationship(relationshipProps);
   }
 
@@ -502,7 +665,7 @@ export class IModelImporter implements Required<IModelImportOptions> {
   /** Tracks incremental progress */
   private trackProgress(): void {
     this._progressCounter++;
-    if (0 === (this._progressCounter % this.progressInterval)) {
+    if (0 === this._progressCounter % this.progressInterval) {
       this.onProgress();
     }
   }
@@ -510,33 +673,79 @@ export class IModelImporter implements Required<IModelImportOptions> {
   /** This method is called when IModelImporter has made incremental progress based on the [[progressInterval]] setting.
    * @note A subclass may override this method to report custom progress but should call `super.onProgress`.
    */
-  protected onProgress(): void { }
+  protected onProgress(): void {}
 
   /** Optionally compute the projectExtents for the target iModel depending on the options for this IModelImporter.
    * @note This method is automatically called from [IModelTransformer.processChanges]($transformer) and [IModelTransformer.processAll]($transformer).
    * @see [IModelDb.computeProjectExtents]($backend), [[autoExtendProjectExtents]]
    */
   public computeProjectExtents(): void {
-    const computedProjectExtents = this.targetDb.computeProjectExtents({ reportExtentsWithOutliers: true, reportOutliers: true });
-    Logger.logInfo(loggerCategory, `Current projectExtents=${JSON.stringify(this.targetDb.projectExtents)}`);
-    Logger.logInfo(loggerCategory, `Computed projectExtents without outliers=${JSON.stringify(computedProjectExtents.extents)}`);
-    Logger.logInfo(loggerCategory, `Computed projectExtents with outliers=${JSON.stringify(computedProjectExtents.extentsWithOutliers)}`);
+    const computedProjectExtents = this.targetDb.computeProjectExtents({
+      reportExtentsWithOutliers: true,
+      reportOutliers: true,
+    });
+    Logger.logInfo(
+      loggerCategory,
+      `Current projectExtents=${JSON.stringify(this.targetDb.projectExtents)}`
+    );
+    Logger.logInfo(
+      loggerCategory,
+      `Computed projectExtents without outliers=${JSON.stringify(
+        computedProjectExtents.extents
+      )}`
+    );
+    Logger.logInfo(
+      loggerCategory,
+      `Computed projectExtents with outliers=${JSON.stringify(
+        computedProjectExtents.extentsWithOutliers
+      )}`
+    );
     if (this.options.autoExtendProjectExtents) {
-      const excludeOutliers: boolean = typeof this.options.autoExtendProjectExtents === "object" ? this.options.autoExtendProjectExtents.excludeOutliers : false;
-      const newProjectExtents: AxisAlignedBox3d = excludeOutliers ? computedProjectExtents.extents : computedProjectExtents.extentsWithOutliers!;
+      const excludeOutliers: boolean =
+        typeof this.options.autoExtendProjectExtents === "object"
+          ? this.options.autoExtendProjectExtents.excludeOutliers
+          : false;
+      const newProjectExtents: AxisAlignedBox3d = excludeOutliers
+        ? computedProjectExtents.extents
+        : computedProjectExtents.extentsWithOutliers!;
       if (!newProjectExtents.isAlmostEqual(this.targetDb.projectExtents)) {
         this.targetDb.updateProjectExtents(newProjectExtents);
-        Logger.logInfo(loggerCategory, `Updated projectExtents=${JSON.stringify(this.targetDb.projectExtents)}`);
+        Logger.logInfo(
+          loggerCategory,
+          `Updated projectExtents=${JSON.stringify(
+            this.targetDb.projectExtents
+          )}`
+        );
       }
-      if (!excludeOutliers && computedProjectExtents.outliers && computedProjectExtents.outliers.length > 0) {
-        Logger.logInfo(loggerCategory, `${computedProjectExtents.outliers.length} outliers detected within projectExtents`);
+      if (
+        !excludeOutliers &&
+        computedProjectExtents.outliers &&
+        computedProjectExtents.outliers.length > 0
+      ) {
+        Logger.logInfo(
+          loggerCategory,
+          `${computedProjectExtents.outliers.length} outliers detected within projectExtents`
+        );
       }
     } else {
-      if (!this.targetDb.projectExtents.containsRange(computedProjectExtents.extents)) {
-        Logger.logWarning(loggerCategory, "Current project extents may be too small");
+      if (
+        !this.targetDb.projectExtents.containsRange(
+          computedProjectExtents.extents
+        )
+      ) {
+        Logger.logWarning(
+          loggerCategory,
+          "Current project extents may be too small"
+        );
       }
-      if (computedProjectExtents.outliers && computedProjectExtents.outliers.length > 0) {
-        Logger.logInfo(loggerCategory, `${computedProjectExtents.outliers.length} outliers detected within projectExtents`);
+      if (
+        computedProjectExtents.outliers &&
+        computedProjectExtents.outliers.length > 0
+      ) {
+        Logger.logInfo(
+          loggerCategory,
+          `${computedProjectExtents.outliers.length} outliers detected within projectExtents`
+        );
       }
     }
   }
@@ -548,74 +757,31 @@ export class IModelImporter implements Required<IModelImportOptions> {
   public optimizeGeometry(options: OptimizeGeometryOptions): void {
     if (options.inlineUniqueGeometryParts) {
       const result = this.targetDb.nativeDb.inlineGeometryPartReferences();
-      Logger.logInfo(loggerCategory, `Inlined ${result.numRefsInlined} references to ${result.numCandidateParts} geometry parts and deleted ${result.numPartsDeleted} parts.`);
+      Logger.logInfo(
+        loggerCategory,
+        `Inlined ${result.numRefsInlined} references to ${result.numCandidateParts} geometry parts and deleted ${result.numPartsDeleted} parts.`
+      );
     }
   }
 
-  /**
-   * You may override this to store arbitrary json state in a exporter state dump, useful for some resumptions
-   * @see [[IModelTransformer.saveStateToFile]]
-   */
-  protected getAdditionalStateJson(): any {
-    return {};
+  private resolveDuplicateCodeValues(): void {
+    for (const [elementId, codeValue] of this._duplicateCodeValueMap) {
+      const element = this.targetDb.elements.getElement(elementId);
+      element.code.value = codeValue;
+      element.update();
+    }
+    this._duplicateCodeValueMap.clear();
   }
 
   /**
-   * You may override this to load arbitrary json state in a transformer state dump, useful for some resumptions
-   * @see [[IModelTransformer.loadStateFromFile]]
+   * Needs to be called to perform necessary cleanup operations.
+   * By not calling `finalize` there is a risk that data imported into targetDb will not be as expected.
+   *
+   * @note No need to call this If using [[IModelTransformer]] as it automatically invokes this method.
    */
-  protected loadAdditionalStateJson(_additionalState: any): void {}
-
-  /**
-   * Reload our state from a JSON object
-   * Intended for [[IModelTransformer.resumeTransformation]]
-   * @internal
-   * You can load custom json from the importer save state for custom importers by overriding [[IModelImporter.loadAdditionalStateJson]]
-   */
-  public loadStateFromJson(state: IModelImporterState): void {
-    if (state.importerClass !== this.constructor.name)
-      throw Error("resuming from a differently named importer class, it is not necessarily valid to resume with a different importer class");
-    // ignore readonly since this runs right after construction in [[IModelTransformer.resumeTransformation]]
-    (this.options as IModelTransformOptions) = state.options;
-    if (this.targetDb.iModelId !== state.targetDbId)
-      throw Error("can only load importer state when the same target is reused");
-    // TODO: fix upstream, looks like a bad case for the linter rule when casting away readonly for this generic
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    (this.doNotUpdateElementIds as Set<Id64String>) = CompressedId64Set.decompressSet(state.doNotUpdateElementIds);
-    this.loadAdditionalStateJson(state.additionalState);
+  public finalize(): void {
+    this.resolveDuplicateCodeValues();
   }
-
-  /**
-   * Serialize state to a JSON object
-   * Intended for [[IModelTransformer.resumeTransformation]]
-   * @internal
-   * You can add custom json to the importer save state for custom importers by overriding [[IModelImporter.getAdditionalStateJson]]
-   */
-  public saveStateToJson(): IModelImporterState {
-    return {
-      importerClass: this.constructor.name,
-      options: this.options,
-      targetDbId: this.targetDb.iModelId || this.targetDb.nativeDb.getFilePath(),
-      doNotUpdateElementIds: CompressedId64Set.compressSet(this.doNotUpdateElementIds),
-      additionalState: this.getAdditionalStateJson(),
-    };
-  }
-}
-
-/**
- * The JSON format of a serialized IModelimporter instance
- * Used for starting an importer in the middle of an imxport operation,
- * such as resuming a crashed transformation
- *
- * @note Must be kept synchronized with IModelImxporter
- * @internal
- */
-export interface IModelImporterState {
-  importerClass: string;
-  options: IModelImportOptions;
-  targetDbId: string;
-  doNotUpdateElementIds: CompressedId64Set;
-  additionalState?: any;
 }
 
 /** Returns true if a change within an Entity is detected.
@@ -624,33 +790,60 @@ export interface IModelImporterState {
  * @note This method should only be called if changeset information is not available.
  * @internal
  */
-export function hasEntityChanged(entity: Entity, entityProps: EntityProps, namesToIgnore?: Set<string>): boolean {
+export function hasEntityChanged(
+  entity: Entity,
+  entityProps: EntityProps,
+  namesToIgnore?: Set<string>
+): boolean {
   let changed: boolean = false;
-  entity.forEachProperty((propertyName: string, propertyMeta: PropertyMetaData) => {
-    if (!changed) {
-      if (namesToIgnore && namesToIgnore.has(propertyName)) {
-        // skip
-      } else if (PrimitiveTypeCode.Binary === propertyMeta.primitiveType) {
-        changed = hasBinaryValueChanged(entity.asAny[propertyName], (entityProps as any)[propertyName]);
-      } else if (propertyMeta.isNavigation) {
-        changed = hasNavigationValueChanged(entity.asAny[propertyName], (entityProps as any)[propertyName]);
-      } else {
-        changed = hasValueChanged(entity.asAny[propertyName], (entityProps as any)[propertyName]);
+  entity.forEachProperty(
+    (propertyName: string, propertyMeta: PropertyMetaData) => {
+      if (!changed) {
+        if (namesToIgnore && namesToIgnore.has(propertyName)) {
+          // skip
+        } else if (PrimitiveTypeCode.Binary === propertyMeta.primitiveType) {
+          changed = hasBinaryValueChanged(
+            entity.asAny[propertyName],
+            (entityProps as any)[propertyName]
+          );
+        } else if (propertyMeta.isNavigation) {
+          changed = hasNavigationValueChanged(
+            entity.asAny[propertyName],
+            (entityProps as any)[propertyName]
+          );
+        } else {
+          changed = hasValueChanged(
+            entity.asAny[propertyName],
+            (entityProps as any)[propertyName]
+          );
+        }
       }
     }
-  });
+  );
   return changed;
 }
 
 /** Returns true if the specified binary values are different. */
-function hasBinaryValueChanged(binaryProperty1: any, binaryProperty2: any): boolean {
-  const jsonString1 = JSON.stringify(binaryProperty1, Base64EncodedString.replacer);
-  const jsonString2 = JSON.stringify(binaryProperty2, Base64EncodedString.replacer);
+function hasBinaryValueChanged(
+  binaryProperty1: any,
+  binaryProperty2: any
+): boolean {
+  const jsonString1 = JSON.stringify(
+    binaryProperty1,
+    Base64EncodedString.replacer
+  );
+  const jsonString2 = JSON.stringify(
+    binaryProperty2,
+    Base64EncodedString.replacer
+  );
   return jsonString1 !== jsonString2;
 }
 
 /** Returns true if the specified navigation property values are different. */
-function hasNavigationValueChanged(navigationProperty1: any, navigationProperty2: any): boolean {
+function hasNavigationValueChanged(
+  navigationProperty1: any,
+  navigationProperty2: any
+): boolean {
   const relatedElement1 = RelatedElement.fromJSON(navigationProperty1);
   const relatedElement2 = RelatedElement.fromJSON(navigationProperty2);
   const jsonString1 = JSON.stringify(relatedElement1);
@@ -670,12 +863,17 @@ function isSubCategory(props: ElementProps): props is SubCategoryProps {
 
 /** check if element props are a subcategory without loading the element */
 function isDefaultSubCategory(props: SubCategoryProps): boolean {
-  if (props.id === undefined)
-    return false;
+  if (props.id === undefined) return false;
 
   if (!Id64.isId64(props.id))
-    throw new IModelError(IModelStatus.BadElement, `subcategory had invalid id`);
+    throw new IModelError(
+      IModelStatus.BadElement,
+      "subcategory had invalid id"
+    );
   if (props.parent?.id === undefined)
-    throw new IModelError(IModelStatus.BadElement, `subcategory with id ${props.id} had no parent`);
+    throw new IModelError(
+      IModelStatus.BadElement,
+      `subcategory with id ${props.id} had no parent`
+    );
   return props.id === IModelDb.getDefaultSubCategoryId(props.parent.id);
 }

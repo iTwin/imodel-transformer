@@ -1,5 +1,16 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 import { ChangesetFileProps } from "@itwin/core-common";
-import { Element, ElementGroupsMembers, IModelDb, SnapshotDb, StandaloneDb } from "@itwin/core-backend";
+import {
+  // eslint-disable-next-line @typescript-eslint/no-redeclare
+  Element,
+  ElementGroupsMembers,
+  IModelDb,
+  SnapshotDb,
+  StandaloneDb,
+} from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import { Logger, OpenMode } from "@itwin/core-bentley";
@@ -19,13 +30,19 @@ const iModelName = "Many PhysicalObjects and Relationships";
 const ELEM_COUNT = 100_000;
 assert(ELEM_COUNT % 2 === 0, "elem count must be divisible by 2");
 
-export default async function rawInserts(reporter: Reporter, branchName: string) {
-
+export default async function rawInserts(
+  reporter: Reporter,
+  branchName: string
+) {
   Logger.logInfo(loggerCategory, "starting 150k entity inserts");
 
   let testIModel: TestIModel | undefined;
   const [insertsTimer] = timed(() => {
-    testIModel = generateTestIModel({ numElements: 100_000, fedGuids: true, fileName: `RawInserts-source.bim` });
+    testIModel = generateTestIModel({
+      numElements: 100_000,
+      fedGuids: true,
+      fileName: "RawInserts-source.bim",
+    });
   });
 
   if (testIModel === undefined)
@@ -39,23 +56,34 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
-      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
+      "Element Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        Element.classFullName
+      ),
+      "Relationship Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      ),
       "Branch Name": branchName,
     }
   );
 
   sourceDb.saveChanges();
 
-  Logger.logInfo(loggerCategory, "Done. Starting changeset application of same content");
+  Logger.logInfo(
+    loggerCategory,
+    "Done. Starting changeset application of same content"
+  );
 
   const changeset1 = createChangeset(sourceDb);
-  const changesetDbPath = initOutputFile(`RawInsertsApply.bim`, outputDir);
-  if (fs.existsSync(changesetDbPath))
-    fs.unlinkSync(changesetDbPath);
-  const changesetDb = StandaloneDb.createEmpty(changesetDbPath, { rootSubject: { name: "RawInsertsApply" } });
+  const changesetDbPath = initOutputFile("RawInsertsApply.bim", outputDir);
+  if (fs.existsSync(changesetDbPath)) fs.unlinkSync(changesetDbPath);
+  const changesetDb = StandaloneDb.createEmpty(changesetDbPath, {
+    rootSubject: { name: "RawInsertsApply" },
+  });
 
   const [applyChangeSetTimer] = timed(() => {
+    // eslint-disable-next-line @itwin/no-internal
     changesetDb.nativeDb.applyChangeset(changeset1);
   });
 
@@ -65,17 +93,30 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     applyChangeSetTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
-      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
+      "Element Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        Element.classFullName
+      ),
+      "Relationship Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      ),
       "Branch Name": branchName,
     }
   );
 
-  Logger.logInfo(loggerCategory, "Done. Starting with-provenance transformation of same content");
+  Logger.logInfo(
+    loggerCategory,
+    "Done. Starting with-provenance transformation of same content"
+  );
 
-  const targetPath = initOutputFile(`RawInserts-Target.bim`, outputDir);
-  const targetDb = SnapshotDb.createEmpty(targetPath, { rootSubject: { name: "RawInsertsTarget" } });
-  const transformerWithProv = new IModelTransformer(sourceDb, targetDb, { noProvenance: false });
+  const targetPath = initOutputFile("RawInserts-Target.bim", outputDir);
+  const targetDb = SnapshotDb.createEmpty(targetPath, {
+    rootSubject: { name: "RawInsertsTarget" },
+  });
+  const transformerWithProv = new IModelTransformer(sourceDb, targetDb, {
+    noProvenance: false,
+  });
 
   const [transformWithProvTimer] = await timed(async () => {
     await transformerWithProv.processAll();
@@ -87,17 +128,33 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
-      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
+      "Element Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        Element.classFullName
+      ),
+      "Relationship Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      ),
       "Branch Name": branchName,
     }
   );
 
-  Logger.logInfo(loggerCategory, "Done. Starting without-provenance transformation of same content");
+  Logger.logInfo(
+    loggerCategory,
+    "Done. Starting without-provenance transformation of same content"
+  );
 
-  const targetNoProvPath = initOutputFile(`RawInserts-TargetNoProv.bim`, outputDir);
-  const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, { rootSubject: { name: "RawInsertsTarget" } });
-  const transformerNoProv = new IModelTransformer(sourceDb, targetNoProvDb, { noProvenance: true });
+  const targetNoProvPath = initOutputFile(
+    "RawInserts-TargetNoProv.bim",
+    outputDir
+  );
+  const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, {
+    rootSubject: { name: "RawInsertsTarget" },
+  });
+  const transformerNoProv = new IModelTransformer(sourceDb, targetNoProvDb, {
+    noProvenance: true,
+  });
 
   const [transformNoProvTimer] = await timed(async () => {
     await transformerNoProv.processAll();
@@ -109,8 +166,14 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(sourceDb, Element.classFullName),
-      "Relationship Count": IModelTransformerTestUtils.count(sourceDb, ElementGroupsMembers.classFullName),
+      "Element Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        Element.classFullName
+      ),
+      "Relationship Count": IModelTransformerTestUtils.count(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      ),
       "Branch Name": branchName,
     }
   );
@@ -123,6 +186,7 @@ export default async function rawInserts(reporter: Reporter, branchName: string)
 
 // stolen from itwinjs-core: core/backend/src/test/changesets/ChangeMerging.test.ts
 function createChangeset(imodel: IModelDb): ChangesetFileProps {
+  // eslint-disable-next-line @itwin/no-internal
   const changeset = imodel.nativeDb.startCreateChangeset();
 
   // completeCreateChangeset deletes the file that startCreateChangeSet created.
@@ -131,6 +195,7 @@ function createChangeset(imodel: IModelDb): ChangesetFileProps {
   fs.copyFileSync(changeset.pathname, csFileName);
   changeset.pathname = csFileName;
 
+  // eslint-disable-next-line @itwin/no-internal
   imodel.nativeDb.completeCreateChangeset({ index: 0 });
   return changeset as any; // FIXME: bad peer deps
 }
