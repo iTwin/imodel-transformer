@@ -2042,7 +2042,8 @@ export class IModelTransformer extends IModelExportHandler {
         sql,
         (stmt) => {
           stmt.bindId(1, targetModelId);
-          stmt.bindId(2, targetModelId);
+          if (this.hasDefinitionContainerDeletionFeature)
+            stmt.bindId(2, targetModelId);
           const val: DbResult = stmt.step();
           switch (val) {
             case DbResult.BE_SQLITE_ROW:
