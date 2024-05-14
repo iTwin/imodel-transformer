@@ -254,7 +254,7 @@ export interface IModelTransformOptions {
    * @note This value is ignored if the version property on the scoping ESA is NOT undefined or empty string.
    * @default ""
    */
-  unsafeSyncVersion?: string;
+  unsafeFallbackSyncVersion?: string;
 
   /**
    * The reverse sync version to set on the scoping ESA @see TargetScopeProvenanceJsonProps upon startup, if the reverseSync property on the scoping ESA is undefined or empty string.
@@ -262,7 +262,7 @@ export interface IModelTransformOptions {
    * @note This value is ignored if the reverseSyncVersion property on the scoping ESA is NOT undefined or empty string.
    * @default ""
    */
-  unsafeReverseSyncVersion?: string;
+  unsafeFallbackReverseSyncVersion?: string;
 
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
@@ -1144,11 +1144,11 @@ export class IModelTransformer extends IModelExportHandler {
         // Note that in the unsafe-migrate case these may have just been set to empty string, if they were previously undefined.
         aspectProps.version =
           aspectProps.version === ""
-            ? this._options.unsafeSyncVersion ?? ""
+            ? this._options.unsafeFallbackSyncVersion ?? ""
             : aspectProps.version;
         aspectProps.jsonProperties!.reverseSyncVersion =
           aspectProps.jsonProperties!.reverseSyncVersion === ""
-            ? this._options.unsafeReverseSyncVersion ?? ""
+            ? this._options.unsafeFallbackReverseSyncVersion ?? ""
             : aspectProps.jsonProperties!.reverseSyncVersion;
       }
 
