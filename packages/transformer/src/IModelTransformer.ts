@@ -964,6 +964,20 @@ export class IModelTransformer extends IModelExportHandler {
     return this._cachedSynchronizationVersion;
   }
 
+  /**
+   * As of itwinjs 4.6.0, definitionContainers are now deleted as if they were DefinitionPartitions as opposed to Definitions.
+   * This variable being true will be used to special case the deletion of DefinitionContainers the same way DefinitionPartitions are deleted.
+   */
+  protected get hasDefinitionContainerDeletionFeature(): boolean {
+    if (this._hasDefinitionContainerDeletionFeature === undefined) {
+      this._hasDefinitionContainerDeletionFeature = Semver.satisfies(
+        coreBackendPkgJson.version,
+        "^4.6.0"
+      );
+    }
+    return this._hasDefinitionContainerDeletionFeature;
+  }
+
   /** the changeset in the scoping element's source version found for this transformation
    * @note: the version depends on whether this is a reverse synchronization or not, as
    * it is stored separately for both synchronization directions.
