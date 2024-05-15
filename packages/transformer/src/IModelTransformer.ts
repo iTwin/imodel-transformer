@@ -1124,70 +1124,69 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version =
-        foundEsaProps.version ??
-        (this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? ""
-          : undefined);
+      aspectProps.version = foundEsaProps.version;
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? {
-              pendingReverseSyncChangesetIndices: [],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: "",
-            }
-          : undefined;
-
-      if (this._options.branchRelationshipDataBehavior === "unsafe-migrate") {
-        // Only propagate the unsafeSyncVersion and unsafeReverseSyncVersion if the currently stored versions are empty string.
-        // Note that in the unsafe-migrate case these may have just been set to empty string, if they were previously undefined.
-        aspectProps.version =
-          aspectProps.version === ""
-            ? this._options.unsafeFallbackSyncVersion ?? ""
-            : aspectProps.version;
-        aspectProps.jsonProperties!.reverseSyncVersion =
-          aspectProps.jsonProperties!.reverseSyncVersion === ""
-            ? this._options.unsafeFallbackReverseSyncVersion ?? ""
-            : aspectProps.jsonProperties!.reverseSyncVersion;
-      }
-
-      /**
-       * This case will only be hit when:
-       *  - first transformation was performed on pre-fedguid transformer.
-       *  - a second processAll transformation was performed on the same target-source iModels post-fedguid transformer.
-       *  - change processing was invoked on for the second 'initial' transformation.
-       *  NOTE: This case likely does not exist anymore, but we will keep it just to be sure.
-       */
-
-      if (
-        aspectProps.jsonProperties !== undefined &&
-        this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-      ) {
-        if (
-          aspectProps.jsonProperties.pendingReverseSyncChangesetIndices ===
-          undefined
-        ) {
-          Logger.logWarning(
-            loggerCategory,
-            "Property pendingReverseSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
-          );
-          aspectProps.jsonProperties.pendingReverseSyncChangesetIndices = [];
-        }
-        if (
-          aspectProps.jsonProperties.pendingSyncChangesetIndices === undefined
-        ) {
-          Logger.logWarning(
-            loggerCategory,
-            "Property pendingSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
-          );
-          aspectProps.jsonProperties.pendingSyncChangesetIndices = [];
-        }
-      }
+        : undefined;
+      this.handleUnsafeMigrate(aspectProps);
     }
 
     this._targetScopeProvenanceProps =
       aspectProps as typeof this._targetScopeProvenanceProps;
+  }
+
+  private handleUnsafeMigrate(aspectProps: {
+    version?: string;
+    jsonProperties?: TargetScopeProvenanceJsonProps;
+  }): void {
+    if (this._options.branchRelationshipDataBehavior !== "unsafe-migrate")
+      return;
+    const fallbackSyncVersionToUse =
+      this._options.unsafeFallbackSyncVersion ?? "";
+    const fallbackReverseSyncVersionToUse =
+      this._options.unsafeFallbackReverseSyncVersion ?? "";
+
+    if (aspectProps.version === undefined || aspectProps.version === "")
+      aspectProps.version = fallbackSyncVersionToUse;
+
+    if (aspectProps.jsonProperties === undefined) {
+      aspectProps.jsonProperties = {
+        pendingReverseSyncChangesetIndices: [],
+        pendingSyncChangesetIndices: [],
+        reverseSyncVersion: fallbackReverseSyncVersionToUse,
+      };
+    } else if (
+      aspectProps.jsonProperties.reverseSyncVersion === undefined ||
+      aspectProps.jsonProperties.reverseSyncVersion === ""
+    ) {
+      aspectProps.jsonProperties.reverseSyncVersion =
+        fallbackReverseSyncVersionToUse;
+    }
+
+    /**
+     * This case will only be hit when:
+     *  - first transformation was performed on pre-fedguid transformer.
+     *  - a second processAll transformation was performed on the same target-source iModels post-fedguid transformer.
+     *  - change processing was invoked on for the second 'initial' transformation.
+     *  NOTE: This case likely does not exist anymore, but we will keep it just to be sure.
+     */
+    if (
+      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices ===
+      undefined
+    ) {
+      Logger.logWarning(
+        loggerCategory,
+        "Property pendingReverseSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
+      );
+      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices = [];
+    }
+    if (aspectProps.jsonProperties.pendingSyncChangesetIndices === undefined) {
+      Logger.logWarning(
+        loggerCategory,
+        "Property pendingSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
+      );
+      aspectProps.jsonProperties.pendingSyncChangesetIndices = [];
+    }
   }
 
   /**
