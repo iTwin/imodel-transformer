@@ -2014,36 +2014,35 @@ export class IModelTransformer extends IModelExportHandler {
     // It is possible and apparently occasionally sensical to delete a model without deleting its underlying element.
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceEntities]] will find and remap the deleted element making this operation valid
-    let sql: string;
-    if (this.hasDefinitionContainerDeletionFeature) {
-      sql = `
-      SELECT 1
-      FROM bis.DefinitionPartition
-      WHERE ECInstanceId=?
-      UNION
-      SELECT 1
-      FROM bis.DefinitionContainer
-      WHERE ECInstanceId=?
-    `;
-    } else {
-      sql = `
-      SELECT 1
-      FROM bis.DefinitionPartition
-      WHERE ECInstanceId=?
-    `;
-    }
     const targetModelId: Id64String =
       this.context.findTargetElementId(sourceModelId);
 
     if (!Id64.isValidId64(targetModelId)) return;
 
+    let sql: string;
+    if (this.hasDefinitionContainerDeletionFeature) {
+      sql = `
+      SELECT 1
+      FROM bis.DefinitionPartition
+      WHERE ECInstanceId=:targetModelId
+      UNION
+      SELECT 1
+      FROM bis.DefinitionContainer
+      WHERE ECInstanceId=:targetModelId
+    `;
+    } else {
+      sql = `
+      SELECT 1
+      FROM bis.DefinitionPartition
+      WHERE ECInstanceId=:targetModelId
+    `;
+    }
+
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
       const isDefinitionPartition = this.targetDb.withPreparedStatement(
         sql,
         (stmt) => {
-          stmt.bindId(1, targetModelId);
-          if (this.hasDefinitionContainerDeletionFeature)
-            stmt.bindId(2, targetModelId);
+          stmt.bindId("targetModelId", targetModelId);
           const val: DbResult = stmt.step();
           switch (val) {
             case DbResult.BE_SQLITE_ROW:
