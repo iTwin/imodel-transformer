@@ -52,7 +52,7 @@ jobs:
       run: |
         git config --local user.email imodeljs-admin@users.noreply.github.com
         git config --local user.name imodeljs-admin
-        if [ ${{inputs.shouldPush }} ]; then
+        if [ "$SHOULD_PUSH" = "true" ]; then
         pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --message "Version bump [skip actions]"
         else
         pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --no-push
@@ -60,3 +60,4 @@ jobs:
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_ITWIN }}
         SPECIAL_TAG: ${{ github.event.inputs.specialReleaseTag }}
+        SHOULD_PUSH: ${{ github.event.inputs.shouldPush }}
