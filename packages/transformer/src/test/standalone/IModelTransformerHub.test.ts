@@ -3518,6 +3518,262 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.close();
   });
 
+  it("should throw when pendingSyncChangesetIndices and pendingReverseSyncChangesetIndices are undefined and then not throw when they're undefined, but 'unsafe-migrate' is set.", async () => {
+    let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
+    const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
+      transformer: IModelTransformer
+    ) =>
+      (transformer["_options"]["branchRelationshipDataBehavior"] =
+        "unsafe-migrate");
+
+    const timeline: Timeline = [
+      { master: { 1: 1, 2: 2, 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+
+          expect(targetScopeProvenance).to.deep.subsetEqual({
+            identifier: master.db.iModelId,
+            version: `${master.db.changeset.id};${master.db.changeset.index}`,
+            jsonProperties: JSON.stringify({
+              pendingReverseSyncChangesetIndices: [1],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: ";0", // not synced yet
+            }),
+          } as ExternalSourceAspectProps);
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without pendingReverseSync and pendingSync
+            const missingPendings = JSON.stringify({
+              pendingReverseSyncChangesetIndices: undefined,
+              pendingSyncChangesetIndices: undefined,
+              reverseSyncVersion: ";0",
+            });
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              jsonProperties: missingPendings as any,
+            });
+          },
+        },
+      },
+      {
+        master: {
+          // Our pendingReverseSyncChangesetIndices are undefined, so we expect to throw when we try to read them.
+          sync: ["branch", { expectThrow: true }],
+        },
+      },
+      {
+        assert({ branch }) {
+          const aspect = branch.db.elements.getAspect(
+            targetScopeProvenanceProps!.id!
+          );
+          expect(aspect).to.not.be.undefined;
+          expect((aspect as ExternalSourceAspect).jsonProperties).to.equal(
+            JSON.stringify({
+              pendingReverseSyncChangesetIndices: undefined,
+              pendingSyncChangesetIndices: undefined,
+              reverseSyncVersion: ";0",
+            })
+          );
+        },
+      },
+      {
+        master: {
+          // Our pendingReverseSyncChangesetIndices are undefined, but our branchrelationshipdatabehavior is 'unsafe-migrate' so we expect the transformer to correct the issue.
+          sync: [
+            "branch",
+            {
+              expectThrow: false,
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+            },
+          ],
+        },
+      },
+      {
+        assert({ branch }) {
+          const aspect = branch.db.elements.getAspect(
+            targetScopeProvenanceProps!.id!
+          );
+          expect(aspect).to.not.be.undefined;
+          const jsonProps = JSON.parse(
+            (aspect as ExternalSourceAspect).jsonProperties!
+          );
+          expect((aspect as any).version).to.match(/;1$/);
+          expect(jsonProps.reverseSyncVersion).to.match(/;3$/);
+          expect(jsonProps).to.deep.subsetEqual({
+            pendingReverseSyncChangesetIndices: [4],
+            pendingSyncChangesetIndices: [2],
+          });
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    await tearDown();
+  });
+
+  it("should set unsafeVersions correctly when branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
+    let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
+    const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
+      transformer: IModelTransformer
+    ) => {
+      transformer["_options"]["branchRelationshipDataBehavior"] =
+        "unsafe-migrate";
+      transformer["_options"]["unsafeFallbackReverseSyncVersion"] = ";2";
+      transformer["_options"]["unsafeFallbackSyncVersion"] = ";3";
+    };
+
+    const timeline: Timeline = [
+      { master: { 1: 1, 2: 2, 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      { branch: { 5: 1 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+
+          expect(targetScopeProvenance).to.deep.subsetEqual({
+            identifier: master.db.iModelId,
+            version: `${master.db.changeset.id};${master.db.changeset.index}`,
+            jsonProperties: JSON.stringify({
+              pendingReverseSyncChangesetIndices: [1],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: ";0", // not synced yet
+            }),
+          } as ExternalSourceAspectProps);
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without version now.
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              jsonProperties: undefined,
+            } as ExternalSourceAspectProps);
+          },
+        },
+      },
+      {
+        master: {
+          // Reverse sync passing along our unsafeReverseSyncVersion which intentionally skips the changeset that added the element with userlabel 4.
+          sync: [
+            "branch",
+            {
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+            },
+          ],
+        },
+      },
+      {
+        assert({ master, branch }) {
+          // Assert that we skipped the changeset: { branch: { 1: 2, 4: 1 } } during our reverse sync.
+          const expectedState = { 1: 1, 2: 2, 3: 1, 5: 1 };
+          expect(master.state).to.deep.equal(expectedState);
+          expect(branch.state).to.deep.equal({ ...expectedState, 1: 2, 4: 1 });
+          assertElemState(master.db, expectedState);
+          assertElemState(branch.db, { ...expectedState, 1: 2, 4: 1 });
+        },
+      },
+      // repeat all above for forward sync scenario!
+      { master: { 2: 4, 6: 1 } },
+      { master: { 7: 1 } },
+      // Update our targetscopeprovenanceprops
+      {
+        assert({ master, branch }) {
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without version now.
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              version: undefined,
+            } as ExternalSourceAspectProps);
+          },
+        },
+      },
+      {
+        branch: {
+          // Reverse sync passing along our unsafeReverseSyncVersion which intentionally skips the changeset that added the element with userlabel 4.
+          sync: [
+            "master",
+            {
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+            },
+          ],
+        },
+      },
+      {
+        assert({ master, branch }) {
+          // Assert that we skipped the changeset: { master: { 2: 4, 6: 1, } }, during our forward sync.. making it so those properties didn't make it to the branch.
+          const expectedMasterState = { 1: 1, 2: 4, 3: 1, 5: 1, 6: 1, 7: 1 };
+          const expectedBranchState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1, 7: 1 };
+          expect(master.state).to.deep.equal(expectedMasterState);
+          expect(branch.state).to.deep.equal(expectedBranchState);
+          assertElemState(master.db, expectedMasterState);
+          assertElemState(branch.db, expectedBranchState);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    await tearDown();
+  });
+
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
     let targetScopeElementId: Id64String | undefined;

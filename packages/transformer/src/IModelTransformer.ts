@@ -248,6 +248,23 @@ export interface IModelTransformOptions {
    * @default "reject"
    */
   branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
+
+  /**
+   * The forward sync 'version' to set on the scoping ESA @see ExternalSourceAspectProps upon startup, if the version property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the version property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackSyncVersion?: string;
+
+  /**
+   * The reverse sync version to set on the scoping ESA @see TargetScopeProvenanceJsonProps upon startup, if the reverseSync property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the reverseSyncVersion property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackReverseSyncVersion?: string;
+
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
    * @default false
@@ -1125,24 +1142,69 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version =
-        foundEsaProps.version ??
-        (this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? ""
-          : undefined);
+      aspectProps.version = foundEsaProps.version;
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? {
-              pendingReverseSyncChangesetIndices: [],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: "",
-            }
-          : undefined;
+        : undefined;
+      this.handleUnsafeMigrate(aspectProps);
     }
 
     this._targetScopeProvenanceProps =
       aspectProps as typeof this._targetScopeProvenanceProps;
+  }
+
+  private handleUnsafeMigrate(aspectProps: {
+    version?: string;
+    jsonProperties?: TargetScopeProvenanceJsonProps;
+  }): void {
+    if (this._options.branchRelationshipDataBehavior !== "unsafe-migrate")
+      return;
+    const fallbackSyncVersionToUse =
+      this._options.unsafeFallbackSyncVersion ?? "";
+    const fallbackReverseSyncVersionToUse =
+      this._options.unsafeFallbackReverseSyncVersion ?? "";
+
+    if (aspectProps.version === undefined || aspectProps.version === "")
+      aspectProps.version = fallbackSyncVersionToUse;
+
+    if (aspectProps.jsonProperties === undefined) {
+      aspectProps.jsonProperties = {
+        pendingReverseSyncChangesetIndices: [],
+        pendingSyncChangesetIndices: [],
+        reverseSyncVersion: fallbackReverseSyncVersionToUse,
+      };
+    } else if (
+      aspectProps.jsonProperties.reverseSyncVersion === undefined ||
+      aspectProps.jsonProperties.reverseSyncVersion === ""
+    ) {
+      aspectProps.jsonProperties.reverseSyncVersion =
+        fallbackReverseSyncVersionToUse;
+    }
+
+    /**
+     * This case will only be hit when:
+     *  - first transformation was performed on pre-fedguid transformer.
+     *  - a second processAll transformation was performed on the same target-source iModels post-fedguid transformer.
+     *  - change processing was invoked on for the second 'initial' transformation.
+     *  NOTE: This case likely does not exist anymore, but we will keep it just to be sure.
+     */
+    if (
+      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices ===
+      undefined
+    ) {
+      Logger.logWarning(
+        loggerCategory,
+        "Property pendingReverseSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
+      );
+      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices = [];
+    }
+    if (aspectProps.jsonProperties.pendingSyncChangesetIndices === undefined) {
+      Logger.logWarning(
+        loggerCategory,
+        "Property pendingSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
+      );
+      aspectProps.jsonProperties.pendingSyncChangesetIndices = [];
+    }
   }
 
   /**
@@ -1570,13 +1632,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Returns true if a change within sourceElement is detected.
    * @param sourceElement The Element from the source iModel
-   * @param targetElementId The Element from the target iModel to compare against.
    * @note A subclass can override this method to provide custom change detection behavior.
    */
-  protected hasElementChanged(
-    sourceElement: Element,
-    _targetElementId: Id64String
-  ): boolean {
+  protected hasElementChanged(sourceElement: Element): boolean {
     if (this._sourceChangeDataState === "no-changes") return false;
     if (this._sourceChangeDataState === "unconnected") return true;
     nodeAssert(
@@ -1902,11 +1960,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    if (
-      Id64.isValid(targetElementId) &&
-      !this.hasElementChanged(sourceElement, targetElementId)
-    )
-      return;
+    if (!this.hasElementChanged(sourceElement)) return;
 
     this.collectUnmappedReferences(sourceElement);
 
@@ -2883,6 +2937,12 @@ export class IModelTransformer extends IModelExportHandler {
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
     }
+    const elementECClassIds = new Set<string>();
+    for await (const row of this.sourceDb.createQueryReader(
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.Element)"
+    )) {
+      elementECClassIds.add(row.ECInstanceId);
+    }
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String>();
@@ -2935,7 +2995,11 @@ export class IModelTransformer extends IModelExportHandler {
           change.Scope.Id === this.targetScopeElementId
         ) {
           elemIdToScopeEsa.set(change.Element.Id, change);
-        } else if (changeType === "Inserted" || changeType === "Updated")
+        } else if (
+          (changeType === "Inserted" || changeType === "Updated") &&
+          change.ECClassId !== undefined &&
+          elementECClassIds.has(change.ECClassId)
+        )
           hasElementChangedCache.add(change.ECInstanceId);
       }
 
