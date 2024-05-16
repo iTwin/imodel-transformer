@@ -1,0 +1,7 @@
+{
+  "type": "prerelease",
+  "comment": "Support setting the reversesync and sync version when unsafe-migrate is set. Also fix bug with haselementchangedcache",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "22119573+nick4598@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

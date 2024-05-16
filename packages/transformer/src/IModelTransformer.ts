@@ -1278,20 +1278,11 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version =
-        foundEsaProps.version ??
-        (this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? ""
-          : undefined);
+      aspectProps.version = foundEsaProps.version;
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? {
-              pendingReverseSyncChangesetIndices: [],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: "",
-            }
-          : undefined;
+        : undefined;
+      this.handleUnsafeMigrate(aspectProps);
     }
 
     this._targetScopeProvenanceProps =
