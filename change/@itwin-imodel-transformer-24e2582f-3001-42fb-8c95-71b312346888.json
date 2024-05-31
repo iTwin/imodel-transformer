@@ -1,0 +1,7 @@
+{
+  "type": "prerelease",
+  "comment": "move to one getter for synchronizationVersion, bust a potential cached synchronizationVersion whenever we make changes to targetscopeprovenance, and only save changes if handleUnsafeMigrate makes changes not just if unsafe migrate is enabled",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "22119573+nick4598@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
