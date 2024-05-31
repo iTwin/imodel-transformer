@@ -2373,6 +2373,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._targetScopeProvenanceProps.jsonProperties
       ) as any,
     });
+    this._cachedSynchronizationVersion = undefined;
   }
 
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
