@@ -453,6 +453,11 @@ export async function runTimeline(
         });
         await provenanceInserter.processAll();
         provenanceInserter.dispose();
+        await saveAndPushChanges(
+          accessToken,
+          branchDb,
+          "initialized branch provenance"
+        );
       } else if ("seed" in newIModelEvent) {
         await saveAndPushChanges(
           accessToken,
@@ -558,6 +563,12 @@ export async function runTimeline(
         }
 
         target.state = getIModelState(target.db); // update the tracking state
+
+        if (!expectThrow) {
+          if (!isForwardSync)
+            await saveAndPushChanges(accessToken, source.db, stateMsg);
+          await saveAndPushChanges(accessToken, target.db, stateMsg);
+        }
       } else {
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
         let stateMsg: string;
