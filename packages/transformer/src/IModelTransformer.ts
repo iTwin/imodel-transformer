@@ -2302,7 +2302,6 @@ export class IModelTransformer extends IModelExportHandler {
       // transformation finalization, the work will be saved immediately, otherwise we've
       // just marked this changeset as a synchronization to ignore, and the user can add other
       // stuff to it which would break future synchronizations
-      // FIXME: force push for the user to prevent that
       for (
         let i = this._startingChangesetIndices.target + 1;
         i <= this.targetDb.changeset.index + 1;
