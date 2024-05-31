@@ -25,7 +25,6 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
-  FinalizeTransformationOptions,
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
@@ -259,7 +258,6 @@ export type TimelineStateChange =
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
           };
-          finalizeTransformationOptions?: FinalizeTransformationOptions;
         },
       ];
     }
@@ -364,7 +362,6 @@ export async function runTimeline(
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
             };
-            finalizeTransformationOptions?: FinalizeTransformationOptions;
           },
         ]
       | undefined;
@@ -504,7 +501,6 @@ export async function runTimeline(
             initTransformer,
             expectThrow,
             assert: assertFxns,
-            finalizeTransformationOptions,
           },
         ] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
@@ -525,7 +521,6 @@ export async function runTimeline(
           await syncer.processChanges({
             accessToken,
             startChangeset: startIndex ? { index: startIndex } : undefined,
-            ...finalizeTransformationOptions,
           });
           expect(
             expectThrow === false || expectThrow === undefined,
