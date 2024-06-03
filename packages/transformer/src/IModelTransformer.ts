@@ -1128,8 +1128,14 @@ export class IModelTransformer extends IModelExportHandler {
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
         : undefined;
+      // Clone oldProps incase they're changed for logging purposes
+      const oldProps = JSON.parse(JSON.stringify(aspectProps));
       if (this.handleUnsafeMigrate(aspectProps)) {
-        // We only update the aspect if handleUnsafeMigrate made a change.
+        Logger.logInfo(
+          loggerCategory,
+          "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
+          { oldProps, newProps: aspectProps }
+        );
         this.provenanceDb.elements.updateAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
