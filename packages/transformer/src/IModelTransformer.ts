@@ -994,6 +994,7 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * We cache the synchronization version to avoid querying the target scoping ESA multiple times.
    * If the target scoping ESA is ever updated we need to clear any potentially cached sync version otherwise we will get stale values.
+   * Sets this._cachedSynchronizationVersion to undefined.
    */
   private clearCachedSynchronizationVersion() {
     this._cachedSynchronizationVersion = undefined;
