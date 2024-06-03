@@ -3264,11 +3264,8 @@ export class IModelTransformer extends IModelExportHandler {
     this._csFileProps = csFileProps;
 
     /** Theres a possibility that our csFileProps length is still 0 here, since we skip cs indices found in the pendingSync and pendingReverseSync indices arrays. */
-    if (this._csFileProps.length === 0) {
-      this._sourceChangeDataState = "no-changes";
-    } else {
-      this._sourceChangeDataState = "has-changes";
-    }
+    this._sourceChangeDataState =
+      this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
