@@ -991,6 +991,14 @@ export class IModelTransformer extends IModelExportHandler {
     return this._hasDefinitionContainerDeletionFeature;
   }
 
+  /**
+   * We cache the synchronization version to avoid querying the target scoping ESA multiple times.
+   * If the target scoping ESA is ever updated we need to clear any potentially cached sync version otherwise we will get stale values.
+   */
+  private clearCachedSynchronizationVersion() {
+    this._cachedSynchronizationVersion = undefined;
+  }
+
   /** the changeset in the scoping element's source version found for this transformation
    * @note the version depends on whether this is a reverse synchronization or not, as
    * it is stored separately for both synchronization directions.
@@ -1119,7 +1127,7 @@ export class IModelTransformer extends IModelExportHandler {
         });
         aspectProps.id = id;
         // Busting a potential cached version
-        this._cachedSynchronizationVersion = undefined;
+        this.clearCachedSynchronizationVersion();
       }
     } else {
       // foundEsaProps is defined.
@@ -1141,7 +1149,7 @@ export class IModelTransformer extends IModelExportHandler {
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
         // Busting a potential cached version
-        this._cachedSynchronizationVersion = undefined;
+        this.clearCachedSynchronizationVersion();
       }
     }
 
@@ -2379,7 +2387,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._targetScopeProvenanceProps.jsonProperties
       ) as any,
     });
-    this._cachedSynchronizationVersion = undefined;
+    this.clearCachedSynchronizationVersion();
   }
 
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
