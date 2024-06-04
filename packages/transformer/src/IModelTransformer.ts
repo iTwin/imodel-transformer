@@ -936,34 +936,6 @@ export class IModelTransformer extends IModelExportHandler {
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
     undefined;
 
-  /** the changeset in the scoping element's source version found for this transformation
-   * @note: the version depends on whether this is a reverse synchronization or not, as
-   * it is stored separately for both synchronization directions.
-   * @note: must call [[initScopeProvenance]] before using this property.
-   * @note: empty string and -1 for changeset and index if it has never been transformed or was transformed before federation guid update (pre 1.x).
-   */
-  private get _synchronizationVersion(): ChangesetIndexAndId {
-    if (!this._cachedSynchronizationVersion) {
-      nodeAssert(
-        this._targetScopeProvenanceProps,
-        "_targetScopeProvenanceProps was not set yet"
-      );
-      const version = this.isReverseSynchronization
-        ? this._targetScopeProvenanceProps.jsonProperties?.reverseSyncVersion
-        : this._targetScopeProvenanceProps.version;
-
-      nodeAssert(version !== undefined, "no version contained in target scope");
-
-      const [id, index] = version === "" ? ["", -1] : version.split(";");
-      this._cachedSynchronizationVersion = { index: Number(index), id };
-      nodeAssert(
-        !Number.isNaN(this._cachedSynchronizationVersion.index),
-        "bad parse: invalid index in version"
-      );
-    }
-    return this._cachedSynchronizationVersion;
-  }
-
   /**
    * As of itwinjs 4.6.0, definitionContainers are now deleted as if they were DefinitionPartitions as opposed to Definitions.
    * This variable being true will be used to special case the deletion of DefinitionContainers the same way DefinitionPartitions are deleted.
@@ -978,10 +950,21 @@ export class IModelTransformer extends IModelExportHandler {
     return this._hasDefinitionContainerDeletionFeature;
   }
 
+  /**
+   * We cache the synchronization version to avoid querying the target scoping ESA multiple times.
+   * If the target scoping ESA is ever updated we need to clear any potentially cached sync version otherwise we will get stale values.
+   * Sets this._cachedSynchronizationVersion to undefined.
+   */
+  private clearCachedSynchronizationVersion() {
+    this._cachedSynchronizationVersion = undefined;
+  }
+
   /** the changeset in the scoping element's source version found for this transformation
-   * @note: the version depends on whether this is a reverse synchronization or not, as
+   * @note the version depends on whether this is a reverse synchronization or not, as
    * it is stored separately for both synchronization directions.
-   * @note: empty string and -1 for changeset and index if it has never been transformed, or was transformed before federation guid update (pre 1.x).
+   * @note empty string and -1 for changeset and index if it has never been transformed
+   * @note empty string and -1 for changeset and index if it was transformed before federation guid update (pre 1.x) and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] === "unsafe-migrate".
+   * @throws if the version is not found in a preexisting scope aspect and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] !== "unsafe-migrate"
    */
   protected get synchronizationVersion(): ChangesetIndexAndId {
     if (this._cachedSynchronizationVersion === undefined) {
@@ -997,11 +980,17 @@ export class IModelTransformer extends IModelExportHandler {
             ) as TargetScopeProvenanceJsonProps
           ).reverseSyncVersion
         : provenanceScopeAspect.version;
-      if (!version) {
+      if (
+        !version &&
+        this._options.branchRelationshipDataBehavior === "unsafe-migrate"
+      ) {
         return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
       }
-
-      const [id, index] = version.split(";");
+      if (version === undefined) {
+        throw new Error(`Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.
+         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'`);
+      }
+      const [id, index] = version === "" ? ["", -1] : version.split(";");
       if (Number.isNaN(Number(index)))
         throw new Error("Could not parse version data from scope aspect");
       this._cachedSynchronizationVersion = { index: Number(index), id }; // synchronization version found and cached.
@@ -1282,7 +1271,21 @@ export class IModelTransformer extends IModelExportHandler {
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
         : undefined;
-      this.handleUnsafeMigrate(aspectProps);
+      // Clone oldProps incase they're changed for logging purposes
+      const oldProps = JSON.parse(JSON.stringify(aspectProps));
+      if (this.handleUnsafeMigrate(aspectProps)) {
+        Logger.logInfo(
+          loggerCategory,
+          "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
+          { oldProps, newProps: aspectProps }
+        );
+        this.provenanceDb.elements.updateAspect({
+          ...aspectProps,
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
+        });
+        // Busting a potential cached version
+        this.clearCachedSynchronizationVersion();
+      }
     }
 
     this._targetScopeProvenanceProps =
@@ -3593,7 +3596,7 @@ export class IModelTransformer extends IModelExportHandler {
             ? { startChangeset: opts.startChangeset }
             : {
                 startChangeset: {
-                  index: this._synchronizationVersion.index + 1,
+                  index: this.synchronizationVersion.index + 1,
                 },
               }),
     };
