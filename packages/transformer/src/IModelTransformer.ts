@@ -364,34 +364,7 @@ export interface InitOptions {
  * Arguments used during [[IModelTransformer.process]] if provided in [[IModelTransformOptions.argsForProcessChanges]].
  * @beta
  */
-export type ProcessChangesOptions = ExportChangesOptions &
-  FinalizeTransformationOptions;
-
-/**
- * Options which modify the behavior of [[IModelTransformer.finalizeTransformation]], called at the end of [[IModelTransformer.processAll]] and [[IModelTransformer.processChanges]].
- * @beta
- */
-export interface FinalizeTransformationOptions {
-  /**
-   * This description will be used when the transformer needs to push changes to the branch during a reverse sync.
-   * @default `Update provenance in response to a reverse sync to iModel: ${this.targetDb.iModelId}`
-   */
-  reverseSyncBranchChangesetDescription?: string;
-  /**
-   * This description will be used when the transformer needs to push changes to master during a reverse sync.
-   * @default `Reverse sync of iModel: ${this.sourceDb.iModelId}`
-   */
-  reverseSyncMasterChangesetDescription?: string;
-  /**
-   * This description will be used when the transformer needs to push changes to the branch during a forward sync.
-   * @default `Forward sync of iModel: ${this.sourceDb.iModelId}`
-   */
-  forwardSyncBranchChangesetDescription?: string;
-  /**
-   * This description will be used when the transformer needs to push changes to the branch during a provenance init transform.
-   * @default `initialized branch provenance with master iModel: ${this.sourceDb.iModelId}`
-   */
-  provenanceInitTransformChangesetDescription?: string;
+export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
   saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>;
   /**
@@ -2492,9 +2465,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
-  private async finalizeTransformation(
-    options?: FinalizeTransformationOptions
-  ) {
+  private finalizeTransformation() {
     this.importer.finalize();
     this.updateSynchronizationVersion({
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
@@ -2513,36 +2484,6 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
     }
     /* eslint-enable @itwin/no-internal */
-
-    const defaultSaveTargetChanges = () => this.targetDb.saveChanges();
-    await (options?.saveTargetChanges ?? defaultSaveTargetChanges)(this);
-    if (this.isReverseSynchronization) this.sourceDb.saveChanges();
-
-    const description = `${
-      this._isProvenanceInitTransform
-        ? options?.provenanceInitTransformChangesetDescription ??
-          `initialized branch provenance with master iModel: ${this.sourceDb.iModelId}`
-        : this.isForwardSynchronization
-          ? options?.forwardSyncBranchChangesetDescription ??
-            `Forward sync of iModel: ${this.sourceDb.iModelId}`
-          : options?.reverseSyncMasterChangesetDescription ??
-            `Reverse sync of iModel: ${this.sourceDb.iModelId}`
-    }`;
-
-    if (this.targetDb.isBriefcaseDb()) {
-      // This relies on authorizationClient on iModelHost being defined, otherwise this will fail
-      await this.targetDb.pushChanges({
-        description,
-      });
-    }
-    if (this.isReverseSynchronization && this.sourceDb.isBriefcaseDb()) {
-      // This relies on authorizationClient on iModelHost being defined, otherwise this will fail
-      await this.sourceDb.pushChanges({
-        description:
-          options?.reverseSyncBranchChangesetDescription ??
-          `Update provenance in response to a reverse sync to iModel: ${this.targetDb.iModelId}`,
-      });
-    }
   }
 
   /** Imports all relationships that subclass from the specified base class.
@@ -3510,7 +3451,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
-    await this.finalizeTransformation(options);
+    this.finalizeTransformation();
   }
 
   /** previous provenance, either a federation guid, a `${sourceFedGuid}/${targetFedGuid}` pair, or required aspect props */
@@ -3536,7 +3477,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
-   * @note the transformer saves and pushes changes when its work is complete.
+   * @note the transformer assumes that you saveChanges after processing changes. You should not
+   * modify the iModel after processChanges until saveChanges, failure to do so may result in corrupted
+   * data loss in future branch operations
    * @note if no startChangesetId or startChangeset option is provided as part of the ProcessChangesOptions, the next unsynchronized changeset
    * will automatically be determined and used
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
@@ -3551,8 +3494,13 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
+    this.finalizeTransformation();
 
-    await this.finalizeTransformation(options);
+    const defaultSaveTargetChanges = () => {
+      this.targetDb.saveChanges();
+    };
+
+    await (options.saveTargetChanges ?? defaultSaveTargetChanges)(this);
   }
 
   /** Changeset data must be initialized in order to build correct changeOptions.

@@ -402,6 +402,8 @@ describe("IModelTransformerHub", () => {
         transformer["_allowNoScopingESA"] = true;
         await transformer.process();
         transformer.dispose();
+        targetDb.saveChanges();
+        await targetDb.pushChanges({ accessToken, description: "Import #1" });
         TransformerExtensiveTestScenario.assertTargetDbContents(
           sourceDb,
           targetDb
@@ -468,8 +470,6 @@ describe("IModelTransformerHub", () => {
           targetDb,
           ElementRefersToElements.classFullName
         );
-        const changesetIndexOfTargetDbBeforeChangelessTransform =
-          targetDb.changeset.index;
         const targetImporter = new CountingIModelImporter(targetDb);
         const transformer = new TestIModelTransformer(
           sourceDb,
@@ -504,13 +504,10 @@ describe("IModelTransformerHub", () => {
         targetDb.saveChanges();
         // eslint-disable-next-line deprecation/deprecation
         assert.isFalse(targetDb.nativeDb.hasPendingTxns());
-        // Validate same changeset index, because there were no changes in this run of the transform.
-        expect(changesetIndexOfTargetDbBeforeChangelessTransform).to.not.be
-          .undefined;
-        expect(targetDb.changeset.index).to.equal(
-          changesetIndexOfTargetDbBeforeChangelessTransform
-        );
-
+        await targetDb.pushChanges({
+          accessToken,
+          description: "Should not actually push because there are no changes",
+        });
         transformer.dispose();
       }
 
@@ -565,6 +562,8 @@ describe("IModelTransformerHub", () => {
         });
         await transformer.process();
         transformer.dispose();
+        targetDb.saveChanges();
+        await targetDb.pushChanges({ accessToken, description: "Import #2" });
         TestUtils.ExtensiveTestScenario.assertUpdatesInDb(targetDb);
 
         // Use IModelExporter.exportChanges to verify the changes to the targetDb
@@ -3997,89 +3996,6 @@ describe("IModelTransformerHub", () => {
 
     await tearDown();
     sinon.restore();
-  });
-
-  it("should allow custom changeset descriptions", async () => {
-    const pushChangeset = sinon.spy(HubMock, "pushChangeset");
-    const csDescriptions: FinalizeTransformationOptions = {
-      forwardSyncBranchChangesetDescription:
-        "this is a test forward sync on the branch",
-      reverseSyncBranchChangesetDescription:
-        "this is a test reverse sync on the branch",
-      reverseSyncMasterChangesetDescription:
-        "this is a test reverse sync on the master",
-    };
-    const makeCsPropsDescriptionMatcher = (description: string) => {
-      return sinon.match.has(
-        "changesetProps",
-        sinon.match.has("description", description)
-      );
-    };
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      {
-        master: {
-          sync: ["branch", { finalizeTransformationOptions: csDescriptions }],
-        },
-      },
-      {
-        assert() {
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.reverseSyncBranchChangesetDescription!
-              )
-            )
-          ).to.be.true;
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.reverseSyncMasterChangesetDescription!
-              )
-            )
-          ).to.be.true;
-
-          // We haven't passed csDescriptions to a forward sync yet so expect false
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.forwardSyncBranchChangesetDescription!
-              )
-            )
-          ).to.be.false;
-        },
-      },
-      { master: { 5: 1 } },
-      {
-        branch: {
-          sync: ["master", { finalizeTransformationOptions: csDescriptions }],
-        },
-      },
-      {
-        assert() {
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.forwardSyncBranchChangesetDescription!
-              )
-            )
-          ).to.be.true;
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-      transformerOpts: {
-        // force aspects so that reverse sync has to edit the target
-        forceExternalSourceAspectProvenance: true,
-      },
-    });
-
-    await tearDown();
   });
 
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
