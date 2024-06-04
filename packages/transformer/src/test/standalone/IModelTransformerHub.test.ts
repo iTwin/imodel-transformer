@@ -3774,6 +3774,103 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
+  it("reverseSyncs should not push extra changesets if the only changeset to process is one found in the pendingReverseSyncIndices, even when handleUnsafeMigrate is true", async () => {
+    const timeline: Timeline = [
+      { master: { 1: 1, 2: 2, 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      {
+        master: {
+          sync: ["branch"],
+        },
+      },
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(2);
+          expect(branch.db.changeset.index).to.equal(3);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
+            pendingSyncChangesetIndices: [2],
+            pendingReverseSyncChangesetIndices: [3],
+            syncVersionIndex: "1",
+            reverseSyncVersionIndex: "2",
+          };
+          IModelTestUtils.findAndAssertTargetScopeProvenance(
+            master,
+            branch,
+            expectedProps
+          );
+        },
+      },
+      {
+        master: {
+          sync: ["branch"], // Sync again with no real changes in branch except for the ones made to update targetScopeProvenance
+        },
+      },
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(2);
+          expect(branch.db.changeset.index).to.equal(3);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
+            pendingSyncChangesetIndices: [2],
+            pendingReverseSyncChangesetIndices: [3],
+            syncVersionIndex: "1",
+            reverseSyncVersionIndex: "2",
+          };
+          IModelTestUtils.findAndAssertTargetScopeProvenance(
+            master,
+            branch,
+            expectedProps
+          );
+        },
+      },
+      {
+        master: {
+          sync: [
+            "branch",
+            {
+              initTransformer: (transformer) =>
+                (transformer["_options"]["branchRelationshipDataBehavior"] =
+                  "unsafe-migrate"),
+            },
+          ], // Sync again with no changes except for ones which may get made by unsafe-migrate.
+        },
+      },
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(2);
+          expect(branch.db.changeset.index).to.equal(3);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
+            pendingSyncChangesetIndices: [2],
+            pendingReverseSyncChangesetIndices: [3],
+            syncVersionIndex: "1",
+            reverseSyncVersionIndex: "2",
+          };
+          IModelTestUtils.findAndAssertTargetScopeProvenance(
+            master,
+            branch,
+            expectedProps
+          );
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    await tearDown();
+  });
+
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
     let targetScopeElementId: Id64String | undefined;

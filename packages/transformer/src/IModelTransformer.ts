@@ -977,34 +977,6 @@ export class IModelTransformer extends IModelExportHandler {
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
     undefined;
 
-  /** the changeset in the scoping element's source version found for this transformation
-   * @note: the version depends on whether this is a reverse synchronization or not, as
-   * it is stored separately for both synchronization directions.
-   * @note: must call [[initScopeProvenance]] before using this property.
-   * @note: empty string and -1 for changeset and index if it has never been transformed or was transformed before federation guid update (pre 1.x).
-   */
-  private get _synchronizationVersion(): ChangesetIndexAndId {
-    if (!this._cachedSynchronizationVersion) {
-      nodeAssert(
-        this._targetScopeProvenanceProps,
-        "_targetScopeProvenanceProps was not set yet"
-      );
-      const version = this.isReverseSynchronization
-        ? this._targetScopeProvenanceProps.jsonProperties?.reverseSyncVersion
-        : this._targetScopeProvenanceProps.version;
-
-      nodeAssert(version !== undefined, "no version contained in target scope");
-
-      const [id, index] = version === "" ? ["", -1] : version.split(";");
-      this._cachedSynchronizationVersion = { index: Number(index), id };
-      nodeAssert(
-        !Number.isNaN(this._cachedSynchronizationVersion.index),
-        "bad parse: invalid index in version"
-      );
-    }
-    return this._cachedSynchronizationVersion;
-  }
-
   /**
    * As of itwinjs 4.6.0, definitionContainers are now deleted as if they were DefinitionPartitions as opposed to Definitions.
    * This variable being true will be used to special case the deletion of DefinitionContainers the same way DefinitionPartitions are deleted.
@@ -1019,10 +991,21 @@ export class IModelTransformer extends IModelExportHandler {
     return this._hasDefinitionContainerDeletionFeature;
   }
 
+  /**
+   * We cache the synchronization version to avoid querying the target scoping ESA multiple times.
+   * If the target scoping ESA is ever updated we need to clear any potentially cached sync version otherwise we will get stale values.
+   * Sets this._cachedSynchronizationVersion to undefined.
+   */
+  private clearCachedSynchronizationVersion() {
+    this._cachedSynchronizationVersion = undefined;
+  }
+
   /** the changeset in the scoping element's source version found for this transformation
-   * @note: the version depends on whether this is a reverse synchronization or not, as
+   * @note the version depends on whether this is a reverse synchronization or not, as
    * it is stored separately for both synchronization directions.
-   * @note: empty string and -1 for changeset and index if it has never been transformed, or was transformed before federation guid update (pre 1.x).
+   * @note empty string and -1 for changeset and index if it has never been transformed
+   * @note empty string and -1 for changeset and index if it was transformed before federation guid update (pre 1.x) and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] === "unsafe-migrate".
+   * @throws if the version is not found in a preexisting scope aspect and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] !== "unsafe-migrate"
    */
   protected get synchronizationVersion(): ChangesetIndexAndId {
     if (this._cachedSynchronizationVersion === undefined) {
@@ -1038,11 +1021,17 @@ export class IModelTransformer extends IModelExportHandler {
             ) as TargetScopeProvenanceJsonProps
           ).reverseSyncVersion
         : provenanceScopeAspect.version;
-      if (!version) {
+      if (
+        !version &&
+        this._options.branchRelationshipDataBehavior === "unsafe-migrate"
+      ) {
         return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
       }
-
-      const [id, index] = version.split(";");
+      if (version === undefined) {
+        throw new Error(`Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.
+         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'`);
+      }
+      const [id, index] = version === "" ? ["", -1] : version.split(";");
       if (Number.isNaN(Number(index)))
         throw new Error("Could not parse version data from scope aspect");
       this._cachedSynchronizationVersion = { index: Number(index), id }; // synchronization version found and cached.
@@ -1138,6 +1127,8 @@ export class IModelTransformer extends IModelExportHandler {
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
         aspectProps.id = id;
+        // Busting a potential cached version
+        this.clearCachedSynchronizationVersion();
       }
     } else {
       // foundEsaProps is defined.
@@ -1146,26 +1137,48 @@ export class IModelTransformer extends IModelExportHandler {
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
         : undefined;
-      this.handleUnsafeMigrate(aspectProps);
+      // Clone oldProps incase they're changed for logging purposes
+      const oldProps = JSON.parse(JSON.stringify(aspectProps));
+      if (this.handleUnsafeMigrate(aspectProps)) {
+        Logger.logInfo(
+          loggerCategory,
+          "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
+          { oldProps, newProps: aspectProps }
+        );
+        this.provenanceDb.elements.updateAspect({
+          ...aspectProps,
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
+        });
+        // Busting a potential cached version
+        this.clearCachedSynchronizationVersion();
+      }
     }
 
     this._targetScopeProvenanceProps =
       aspectProps as typeof this._targetScopeProvenanceProps;
   }
 
+  /** Returns true if a change was made to the aspectProps. */
   private handleUnsafeMigrate(aspectProps: {
     version?: string;
     jsonProperties?: TargetScopeProvenanceJsonProps;
-  }): void {
+  }): boolean {
+    let madeChange = false;
     if (this._options.branchRelationshipDataBehavior !== "unsafe-migrate")
-      return;
+      return madeChange;
     const fallbackSyncVersionToUse =
       this._options.unsafeFallbackSyncVersion ?? "";
     const fallbackReverseSyncVersionToUse =
       this._options.unsafeFallbackReverseSyncVersion ?? "";
 
-    if (aspectProps.version === undefined || aspectProps.version === "")
+    if (
+      aspectProps.version === undefined ||
+      (aspectProps.version === "" &&
+        aspectProps.version !== fallbackSyncVersionToUse)
+    ) {
       aspectProps.version = fallbackSyncVersionToUse;
+      madeChange = true;
+    }
 
     if (aspectProps.jsonProperties === undefined) {
       aspectProps.jsonProperties = {
@@ -1173,12 +1186,16 @@ export class IModelTransformer extends IModelExportHandler {
         pendingSyncChangesetIndices: [],
         reverseSyncVersion: fallbackReverseSyncVersionToUse,
       };
+      madeChange = true;
     } else if (
       aspectProps.jsonProperties.reverseSyncVersion === undefined ||
-      aspectProps.jsonProperties.reverseSyncVersion === ""
+      (aspectProps.jsonProperties.reverseSyncVersion === "" &&
+        aspectProps.jsonProperties.reverseSyncVersion !==
+          fallbackReverseSyncVersionToUse)
     ) {
       aspectProps.jsonProperties.reverseSyncVersion =
         fallbackReverseSyncVersionToUse;
+      madeChange = true;
     }
 
     /**
@@ -1197,6 +1214,7 @@ export class IModelTransformer extends IModelExportHandler {
         "Property pendingReverseSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
       );
       aspectProps.jsonProperties.pendingReverseSyncChangesetIndices = [];
+      madeChange = true;
     }
     if (aspectProps.jsonProperties.pendingSyncChangesetIndices === undefined) {
       Logger.logWarning(
@@ -1204,7 +1222,9 @@ export class IModelTransformer extends IModelExportHandler {
         "Property pendingSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
       );
       aspectProps.jsonProperties.pendingSyncChangesetIndices = [];
+      madeChange = true;
     }
+    return madeChange;
   }
 
   /**
@@ -2368,6 +2388,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._targetScopeProvenanceProps.jsonProperties
       ) as any,
     });
+    this.clearCachedSynchronizationVersion();
   }
 
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
@@ -3054,7 +3075,7 @@ export class IModelTransformer extends IModelExportHandler {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
-      this._synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index;
     if (notConnectedModel || noChanges) return;
 
     /**
@@ -3172,7 +3193,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     const noChanges =
-      this._synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
       this._sourceChangeDataState = "no-changes";
       this._csFileProps = [];
@@ -3184,7 +3205,7 @@ export class IModelTransformer extends IModelExportHandler {
     const startChangesetIndexOrId =
       args.startChangeset?.index ??
       args.startChangeset?.id ??
-      this._synchronizationVersion.index + 1;
+      this.synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
     const [startChangesetIndex, endChangesetIndex] = await Promise.all(
@@ -3203,20 +3224,20 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     const missingChangesets =
-      startChangesetIndex > this._synchronizationVersion.index + 1;
+      startChangesetIndex > this.synchronizationVersion.index + 1;
     if (
       !this._options.ignoreMissingChangesetsInSynchronizations &&
-      startChangesetIndex !== this._synchronizationVersion.index + 1 &&
-      this._synchronizationVersion.index !== -1
+      startChangesetIndex !== this.synchronizationVersion.index + 1 &&
+      this.synchronizationVersion.index !== -1
     ) {
       throw Error(
         `synchronization is ${missingChangesets ? "missing changesets" : ""},` +
           " startChangesetId should be" +
           " exactly the first changeset *after* the previous synchronization to not miss data." +
           ` You specified '${startChangesetIndexOrId}' which is changeset #${startChangesetIndex}` +
-          ` but the previous synchronization for this targetScopeElement was '${this._synchronizationVersion.id}'` +
-          ` which is changeset #${this._synchronizationVersion.index}. The transformer expected` +
-          ` #${this._synchronizationVersion.index + 1}.`
+          ` but the previous synchronization for this targetScopeElement was '${this.synchronizationVersion.id}'` +
+          ` which is changeset #${this.synchronizationVersion.index}. The transformer expected` +
+          ` #${this.synchronizationVersion.index + 1}.`
       );
     }
 
@@ -3251,7 +3272,9 @@ export class IModelTransformer extends IModelExportHandler {
     }
     this._csFileProps = csFileProps;
 
-    this._sourceChangeDataState = "has-changes";
+    /** Theres a possibility that our csFileProps length is still 0 here, since we skip cs indices found in the pendingSync and pendingReverseSync indices arrays. */
+    this._sourceChangeDataState =
+      this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
@@ -3364,7 +3387,7 @@ export class IModelTransformer extends IModelExportHandler {
             ? { startChangeset: opts.startChangeset }
             : {
                 startChangeset: {
-                  index: this._synchronizationVersion.index + 1,
+                  index: this.synchronizationVersion.index + 1,
                 },
               }),
     };
