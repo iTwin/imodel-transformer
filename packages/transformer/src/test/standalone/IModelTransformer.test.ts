@@ -1016,6 +1016,7 @@ describe("IModelTransformer", () => {
         {
           targetScopeElementId: subjectId,
           danglingReferencesBehavior: "ignore",
+          skipPropagateChangesToRootElements: false,
         }
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
