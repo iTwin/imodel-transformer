@@ -3184,8 +3184,10 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  for (const skipPropagateChangesToRootElementsTrueByDefault of [true, false]) {
-    it("should not update root elements when skipPropagateChangesToRootElements is set to true", async () => {
+  for (const skipPropagateChangesToRootElements of [true, undefined, false]) {
+    it(`should ${
+      skipPropagateChangesToRootElements === false ? "update" : "not update"
+    } root elements when skipPropagateChangesToRootElements is set to ${skipPropagateChangesToRootElements}`, async () => {
       const iModelShared: SnapshotDb =
         IModelTransformerTestUtils.createSharedIModel(outputDir, ["A", "B"]);
       const iModelA: SnapshotDb = IModelTransformerTestUtils.createTeamIModel(
@@ -3201,33 +3203,38 @@ describe("IModelTransformer", () => {
         iModelShared,
         "A"
       );
-      let transformerA2S: IModelTransformer;
-      if (skipPropagateChangesToRootElementsTrueByDefault) {
-        transformerA2S = new IModelTransformer(iModelExporterA, iModelShared, {
+      const transformerA2S = new IModelTransformer(
+        iModelExporterA,
+        iModelShared,
+        {
           targetScopeElementId: subjectId,
           danglingReferencesBehavior: "ignore",
-        });
-      } else {
-        transformerA2S = new IModelTransformer(iModelExporterA, iModelShared, {
-          targetScopeElementId: subjectId,
-          danglingReferencesBehavior: "ignore",
-          skipPropagateChangesToRootElements: true,
-        });
-      }
+          skipPropagateChangesToRootElements,
+        }
+      );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
-
       // Act
       await transformerA2S.processAll();
-
       // Assert
       const rootElements = ["0x10", "0xe"];
       rootElements.forEach((rootElementId) => {
-        const dictionary = iModelShared.elements.getElement(rootElementId);
-        assert.equal(
-          dictionary.parent?.id,
-          "0x1",
-          `Root element '${rootElementId}' parent should not be remapped to '${dictionary.parent?.id}'.`
-        );
+        const rootElement = iModelShared.elements.getElement(rootElementId);
+        if (
+          skipPropagateChangesToRootElements === undefined ||
+          skipPropagateChangesToRootElements === true
+        ) {
+          assert.equal(
+            rootElement.parent?.id,
+            "0x1",
+            `Root element '${rootElementId}' parent should not be remapped to '${rootElement.parent?.id}'.`
+          );
+        } else {
+          assert.equal(
+            rootElement.parent?.id,
+            subjectId,
+            `Root element '${rootElementId}' parent should be remapped to '${rootElement.parent?.id}'.`
+          );
+        }
       });
 
       transformerA2S.dispose();
