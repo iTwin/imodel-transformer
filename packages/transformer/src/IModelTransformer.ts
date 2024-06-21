@@ -267,7 +267,7 @@ export interface IModelTransformOptions {
 
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
-   * If it is set to false, changes to root elements are propagated, that root subject name gets changed and leads to the iModelDb.name property being updated in .initializeiModelDb
+   * If it is set to false, changes to root elements are propagated, the root subject name gets changed and leads to the iModelDb.name property being updated in .initializeiModelDb
    * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
