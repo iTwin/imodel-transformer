@@ -3534,7 +3534,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this._isSynchronization) return {};
     return {
       skipPropagateChangesToRootElements:
-        this._options.skipPropagateChangesToRootElements ?? false,
+        this._options.skipPropagateChangesToRootElements,
       accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
