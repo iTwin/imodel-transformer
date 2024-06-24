@@ -4153,7 +4153,7 @@ describe("IModelTransformerHub", () => {
             0
           );
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            10
+            9
           );
 
           const scopeProvenanceCandidates = branch.db.elements
@@ -4191,7 +4191,7 @@ describe("IModelTransformerHub", () => {
           );
           // added because the root was modified
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            11
+            10
           );
 
           const scopeProvenanceCandidates = branch.db.elements

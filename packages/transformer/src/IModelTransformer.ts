@@ -267,7 +267,8 @@ export interface IModelTransformOptions {
 
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
-   * @default false
+   * If it is set to false, changes to root elements are propagated, the root subject name gets changed and leads to the iModelDb.name property being updated in .initializeiModelDb
+   * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
 }
@@ -634,6 +635,8 @@ export class IModelTransformer extends IModelExportHandler {
         options?.danglingReferencesBehavior ?? "reject",
       branchRelationshipDataBehavior:
         options?.branchRelationshipDataBehavior ?? "reject",
+      skipPropagateChangesToRootElements:
+        options?.skipPropagateChangesToRootElements ?? true,
     };
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
@@ -1335,7 +1338,7 @@ export class IModelTransformer extends IModelExportHandler {
       isReverseSynchronization: this.isReverseSynchronization,
       fn,
       skipPropagateChangesToRootElements:
-        this._options.skipPropagateChangesToRootElements ?? false,
+        this._options.skipPropagateChangesToRootElements ?? true,
     });
   }
 
@@ -3327,7 +3330,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this._isSynchronization) return {};
     return {
       skipPropagateChangesToRootElements:
-        this._options.skipPropagateChangesToRootElements ?? false,
+        this._options.skipPropagateChangesToRootElements,
       accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
