@@ -1057,7 +1057,7 @@ describe("IModelTransformerHub", () => {
       assert.equal(7, count(sourceDb, PhysicalModel.classFullName));
       // 60 elements added
       assert.equal(185, count(sourceDb, PhysicalObject.classFullName));
-
+      transformer.exporter["_initialized"] = false;
       await transformer.processChanges({
         accessToken,
         startChangeset: sourceDb.changeset,

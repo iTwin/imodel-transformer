@@ -350,11 +350,16 @@ export class IModelExporter {
   private _progressCounter: number = 0;
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
+
+  private _initialized = false;
   /**
    * Retrieve the cached entity change information.
    * @note This will only be initialized after [IModelExporter.exportChanges] is invoked.
    */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
+    if (this._sourceDbChanges === undefined && !this._initialized) {
+      this._sourceDbChanges = new ChangedInstanceIds(this.sourceDb);
+    }
     return this._sourceDbChanges;
   }
   /** The handler called by this IModelExporter. */
@@ -416,12 +421,14 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    if (!this.sourceDb.isBriefcaseDb() || this._sourceDbChanges) return;
+    if (!this.sourceDb.isBriefcaseDb() || this._initialized) return;
 
     this._sourceDbChanges = await ChangedInstanceIds.initialize({
       iModel: this.sourceDb,
       ...options,
+      sourceDbChanges: this._sourceDbChanges,
     });
+    this._initialized = true;
     if (this._sourceDbChanges === undefined) return;
 
     this._exportElementAspectsStrategy.setAspectChanges(
@@ -1077,6 +1084,8 @@ export class IModelExporter {
  */
 export type ChangedInstanceIdsInitOptions = ExportChangesOptions & {
   iModel: BriefcaseDb;
+  /** If an instance of ChangedInstanceIds is provided, we will add any changes found to the instance.  */
+  sourceDbChanges?: ChangedInstanceIds;
 };
 
 /** Class for holding change information.
@@ -1480,7 +1489,10 @@ export class ChangedInstanceIds {
     // Always processing changes, but may also decide to add your own ids (I think this is the most complex option as opposed to one or the other.)
     // But if we have to support multiple things then thats more difficult.
 
-    const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
+    const changedInstanceIds =
+      opts?.sourceDbChanges !== undefined
+        ? opts.sourceDbChanges
+        : new ChangedInstanceIds(opts.iModel);
 
     for (const csFile of csFileProps) {
       const csReader = SqliteChangesetReader.openFile({
