@@ -24,6 +24,7 @@ import {
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
+import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import {
   BriefcaseManager,
   ChangedECInstance,
@@ -248,9 +249,27 @@ export interface IModelTransformOptions {
    * @default "reject"
    */
   branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
+
+  /**
+   * The forward sync 'version' to set on the scoping ESA @see ExternalSourceAspectProps upon startup, if the version property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the version property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackSyncVersion?: string;
+
+  /**
+   * The reverse sync version to set on the scoping ESA @see TargetScopeProvenanceJsonProps upon startup, if the reverseSync property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the reverseSyncVersion property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackReverseSyncVersion?: string;
+
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
-   * @default false
+   * If it is set to false, changes to root elements are propagated, the root subject name gets changed and leads to the iModelDb.name property being updated in .initializeiModelDb
+   * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
 }
@@ -357,37 +376,10 @@ export interface InitOptions {
 /**
  * Arguments for [[IModelTransformer.processChanges]]
  */
-export type ProcessChangesOptions = ExportChangesOptions &
-  FinalizeTransformationOptions;
-
-/**
- * Options which modify the behavior of [[IModelTransformer.finalizeTransformation]], called at the end of [[IModelTransformer.processAll]] and [[IModelTransformer.processChanges]].
- * @beta
- */
-export interface FinalizeTransformationOptions {
-  /**
-   * This description will be used when the transformer needs to push changes to the branch during a reverse sync.
-   * @default `Update provenance in response to a reverse sync to iModel: ${this.targetDb.iModelId}`
-   */
-  reverseSyncBranchChangesetDescription?: string;
-  /**
-   * This description will be used when the transformer needs to push changes to master during a reverse sync.
-   * @default `Reverse sync of iModel: ${this.sourceDb.iModelId}`
-   */
-  reverseSyncMasterChangesetDescription?: string;
-  /**
-   * This description will be used when the transformer needs to push changes to the branch during a forward sync.
-   * @default `Forward sync of iModel: ${this.sourceDb.iModelId}`
-   */
-  forwardSyncBranchChangesetDescription?: string;
-  /**
-   * This description will be used when the transformer needs to push changes to the branch during a provenance init transform.
-   * @default `initialized branch provenance with master iModel: ${this.sourceDb.iModelId}`
-   */
-  provenanceInitTransformChangesetDescription?: string;
+export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
   saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>;
-}
+};
 
 type ChangeDataState =
   | "uninited"
@@ -448,6 +440,9 @@ export class IModelTransformer extends IModelExportHandler {
     IModelTransformOptions,
     "targetScopeElementId" | "danglingReferencesBehavior"
   >;
+
+  /** @see hasDefinitionContainerDeletionFeature */
+  private _hasDefinitionContainerDeletionFeature?: boolean;
 
   private _isSynchronization = false;
 
@@ -641,6 +636,8 @@ export class IModelTransformer extends IModelExportHandler {
         options?.danglingReferencesBehavior ?? "reject",
       branchRelationshipDataBehavior:
         options?.branchRelationshipDataBehavior ?? "reject",
+      skipPropagateChangesToRootElements:
+        options?.skipPropagateChangesToRootElements ?? true,
     };
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
@@ -957,38 +954,35 @@ export class IModelTransformer extends IModelExportHandler {
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
     undefined;
 
-  /** the changeset in the scoping element's source version found for this transformation
-   * @note: the version depends on whether this is a reverse synchronization or not, as
-   * it is stored separately for both synchronization directions.
-   * @note: must call [[initScopeProvenance]] before using this property.
-   * @note: empty string and -1 for changeset and index if it has never been transformed or was transformed before federation guid update (pre 1.x).
+  /**
+   * As of itwinjs 4.6.0, definitionContainers are now deleted as if they were DefinitionPartitions as opposed to Definitions.
+   * This variable being true will be used to special case the deletion of DefinitionContainers the same way DefinitionPartitions are deleted.
    */
-  private get _synchronizationVersion(): ChangesetIndexAndId {
-    if (!this._cachedSynchronizationVersion) {
-      nodeAssert(
-        this._targetScopeProvenanceProps,
-        "_targetScopeProvenanceProps was not set yet"
-      );
-      const version = this.isReverseSynchronization
-        ? this._targetScopeProvenanceProps.jsonProperties?.reverseSyncVersion
-        : this._targetScopeProvenanceProps.version;
-
-      nodeAssert(version !== undefined, "no version contained in target scope");
-
-      const [id, index] = version === "" ? ["", -1] : version.split(";");
-      this._cachedSynchronizationVersion = { index: Number(index), id };
-      nodeAssert(
-        !Number.isNaN(this._cachedSynchronizationVersion.index),
-        "bad parse: invalid index in version"
+  protected get hasDefinitionContainerDeletionFeature(): boolean {
+    if (this._hasDefinitionContainerDeletionFeature === undefined) {
+      this._hasDefinitionContainerDeletionFeature = Semver.satisfies(
+        coreBackendPkgJson.version,
+        "^4.6.0"
       );
     }
-    return this._cachedSynchronizationVersion;
+    return this._hasDefinitionContainerDeletionFeature;
+  }
+
+  /**
+   * We cache the synchronization version to avoid querying the target scoping ESA multiple times.
+   * If the target scoping ESA is ever updated we need to clear any potentially cached sync version otherwise we will get stale values.
+   * Sets this._cachedSynchronizationVersion to undefined.
+   */
+  private clearCachedSynchronizationVersion() {
+    this._cachedSynchronizationVersion = undefined;
   }
 
   /** the changeset in the scoping element's source version found for this transformation
-   * @note: the version depends on whether this is a reverse synchronization or not, as
+   * @note the version depends on whether this is a reverse synchronization or not, as
    * it is stored separately for both synchronization directions.
-   * @note: empty string and -1 for changeset and index if it has never been transformed, or was transformed before federation guid update (pre 1.x).
+   * @note empty string and -1 for changeset and index if it has never been transformed
+   * @note empty string and -1 for changeset and index if it was transformed before federation guid update (pre 1.x) and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] === "unsafe-migrate".
+   * @throws if the version is not found in a preexisting scope aspect and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] !== "unsafe-migrate"
    */
   protected get synchronizationVersion(): ChangesetIndexAndId {
     if (this._cachedSynchronizationVersion === undefined) {
@@ -1004,11 +998,17 @@ export class IModelTransformer extends IModelExportHandler {
             ) as TargetScopeProvenanceJsonProps
           ).reverseSyncVersion
         : provenanceScopeAspect.version;
-      if (!version) {
+      if (
+        !version &&
+        this._options.branchRelationshipDataBehavior === "unsafe-migrate"
+      ) {
         return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
       }
-
-      const [id, index] = version.split(";");
+      if (version === undefined) {
+        throw new Error(`Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.
+         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'`);
+      }
+      const [id, index] = version === "" ? ["", -1] : version.split(";");
       if (Number.isNaN(Number(index)))
         throw new Error("Could not parse version data from scope aspect");
       this._cachedSynchronizationVersion = { index: Number(index), id }; // synchronization version found and cached.
@@ -1104,28 +1104,104 @@ export class IModelTransformer extends IModelExportHandler {
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
         aspectProps.id = id;
+        // Busting a potential cached version
+        this.clearCachedSynchronizationVersion();
       }
     } else {
       // foundEsaProps is defined.
       aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version =
-        foundEsaProps.version ??
-        (this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? ""
-          : undefined);
+      aspectProps.version = foundEsaProps.version;
       aspectProps.jsonProperties = foundEsaProps.jsonProperties
         ? JSON.parse(foundEsaProps.jsonProperties)
-        : this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-          ? {
-              pendingReverseSyncChangesetIndices: [],
-              pendingSyncChangesetIndices: [],
-              reverseSyncVersion: "",
-            }
-          : undefined;
+        : undefined;
+      // Clone oldProps incase they're changed for logging purposes
+      const oldProps = JSON.parse(JSON.stringify(aspectProps));
+      if (this.handleUnsafeMigrate(aspectProps)) {
+        Logger.logInfo(
+          loggerCategory,
+          "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
+          { oldProps, newProps: aspectProps }
+        );
+        this.provenanceDb.elements.updateAspect({
+          ...aspectProps,
+          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
+        });
+        // Busting a potential cached version
+        this.clearCachedSynchronizationVersion();
+      }
     }
 
     this._targetScopeProvenanceProps =
       aspectProps as typeof this._targetScopeProvenanceProps;
+  }
+
+  /** Returns true if a change was made to the aspectProps. */
+  private handleUnsafeMigrate(aspectProps: {
+    version?: string;
+    jsonProperties?: TargetScopeProvenanceJsonProps;
+  }): boolean {
+    let madeChange = false;
+    if (this._options.branchRelationshipDataBehavior !== "unsafe-migrate")
+      return madeChange;
+    const fallbackSyncVersionToUse =
+      this._options.unsafeFallbackSyncVersion ?? "";
+    const fallbackReverseSyncVersionToUse =
+      this._options.unsafeFallbackReverseSyncVersion ?? "";
+
+    if (
+      aspectProps.version === undefined ||
+      (aspectProps.version === "" &&
+        aspectProps.version !== fallbackSyncVersionToUse)
+    ) {
+      aspectProps.version = fallbackSyncVersionToUse;
+      madeChange = true;
+    }
+
+    if (aspectProps.jsonProperties === undefined) {
+      aspectProps.jsonProperties = {
+        pendingReverseSyncChangesetIndices: [],
+        pendingSyncChangesetIndices: [],
+        reverseSyncVersion: fallbackReverseSyncVersionToUse,
+      };
+      madeChange = true;
+    } else if (
+      aspectProps.jsonProperties.reverseSyncVersion === undefined ||
+      (aspectProps.jsonProperties.reverseSyncVersion === "" &&
+        aspectProps.jsonProperties.reverseSyncVersion !==
+          fallbackReverseSyncVersionToUse)
+    ) {
+      aspectProps.jsonProperties.reverseSyncVersion =
+        fallbackReverseSyncVersionToUse;
+      madeChange = true;
+    }
+
+    /**
+     * This case will only be hit when:
+     *  - first transformation was performed on pre-fedguid transformer.
+     *  - a second processAll transformation was performed on the same target-source iModels post-fedguid transformer.
+     *  - change processing was invoked on for the second 'initial' transformation.
+     *  NOTE: This case likely does not exist anymore, but we will keep it just to be sure.
+     */
+    if (
+      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices ===
+      undefined
+    ) {
+      Logger.logWarning(
+        loggerCategory,
+        "Property pendingReverseSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
+      );
+      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices = [];
+      madeChange = true;
+    }
+    if (aspectProps.jsonProperties.pendingSyncChangesetIndices === undefined) {
+      Logger.logWarning(
+        loggerCategory,
+        "Property pendingSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
+      );
+      aspectProps.jsonProperties.pendingSyncChangesetIndices = [];
+      madeChange = true;
+    }
+    return madeChange;
   }
 
   /**
@@ -1263,7 +1339,7 @@ export class IModelTransformer extends IModelExportHandler {
       isReverseSynchronization: this.isReverseSynchronization,
       fn,
       skipPropagateChangesToRootElements:
-        this._options.skipPropagateChangesToRootElements ?? false,
+        this._options.skipPropagateChangesToRootElements ?? true,
     });
   }
 
@@ -1553,13 +1629,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Returns true if a change within sourceElement is detected.
    * @param sourceElement The Element from the source iModel
-   * @param targetElementId The Element from the target iModel to compare against.
    * @note A subclass can override this method to provide custom change detection behavior.
    */
-  protected hasElementChanged(
-    sourceElement: Element,
-    _targetElementId: Id64String
-  ): boolean {
+  protected hasElementChanged(sourceElement: Element): boolean {
     if (this._sourceChangeDataState === "no-changes") return false;
     if (this._sourceChangeDataState === "unconnected") return true;
     nodeAssert(
@@ -1885,11 +1957,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    if (
-      Id64.isValid(targetElementId) &&
-      !this.hasElementChanged(sourceElement, targetElementId)
-    )
-      return;
+    if (!this.hasElementChanged(sourceElement)) return;
 
     this.collectUnmappedReferences(sourceElement);
 
@@ -2002,15 +2070,30 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (!Id64.isValidId64(targetModelId)) return;
 
+    let sql: string;
+    if (this.hasDefinitionContainerDeletionFeature) {
+      sql = `
+      SELECT 1
+      FROM bis.DefinitionPartition
+      WHERE ECInstanceId=:targetModelId
+      UNION
+      SELECT 1
+      FROM bis.DefinitionContainer
+      WHERE ECInstanceId=:targetModelId
+    `;
+    } else {
+      sql = `
+      SELECT 1
+      FROM bis.DefinitionPartition
+      WHERE ECInstanceId=:targetModelId
+    `;
+    }
+
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
       const isDefinitionPartition = this.targetDb.withPreparedStatement(
-        `
-        SELECT 1
-        FROM bis.DefinitionPartition
-        WHERE ECInstanceId=?
-      `,
+        sql,
         (stmt) => {
-          stmt.bindId(1, targetModelId);
+          stmt.bindId("targetModelId", targetModelId);
           const val: DbResult = stmt.step();
           switch (val) {
             case DbResult.BE_SQLITE_ROW:
@@ -2239,6 +2322,10 @@ export class IModelTransformer extends IModelExportHandler {
             pendingReverseSyncChangesetIndicesKey,
           ];
 
+      // NOTE that as documented in [[processChanges]], this assumes that right after
+      // transformation finalization, the work will be saved immediately, otherwise we've
+      // just marked this changeset as a synchronization to ignore, and the user can add other
+      // stuff to it which would break future synchronizations
       for (
         let i = this._startingChangesetIndices.target + 1;
         i <= this.targetDb.changeset.index + 1;
@@ -2282,12 +2369,11 @@ export class IModelTransformer extends IModelExportHandler {
         this._targetScopeProvenanceProps.jsonProperties
       ) as any,
     });
+    this.clearCachedSynchronizationVersion();
   }
 
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
-  private async finalizeTransformation(
-    options?: FinalizeTransformationOptions
-  ) {
+  private finalizeTransformation() {
     this.importer.finalize();
     this.updateSynchronizationVersion();
 
@@ -2319,36 +2405,6 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "trim-unicode-whitespace";
     }
     /* eslint-enable @itwin/no-internal */
-
-    const defaultSaveTargetChanges = () => this.targetDb.saveChanges();
-    await (options?.saveTargetChanges ?? defaultSaveTargetChanges)(this);
-    if (this.isReverseSynchronization) this.sourceDb.saveChanges();
-
-    const description = `${
-      this._isProvenanceInitTransform
-        ? options?.provenanceInitTransformChangesetDescription ??
-          `initialized branch provenance with master iModel: ${this.sourceDb.iModelId}`
-        : this.isForwardSynchronization
-          ? options?.forwardSyncBranchChangesetDescription ??
-            `Forward sync of iModel: ${this.sourceDb.iModelId}`
-          : options?.reverseSyncMasterChangesetDescription ??
-            `Reverse sync of iModel: ${this.sourceDb.iModelId}`
-    }`;
-
-    if (this.targetDb.isBriefcaseDb()) {
-      // This relies on authorizationClient on iModelHost being defined, otherwise this will fail
-      await this.targetDb.pushChanges({
-        description,
-      });
-    }
-    if (this.isReverseSynchronization && this.sourceDb.isBriefcaseDb()) {
-      // This relies on authorizationClient on iModelHost being defined, otherwise this will fail
-      await this.sourceDb.pushChanges({
-        description:
-          options?.reverseSyncBranchChangesetDescription ??
-          `Update provenance in response to a reverse sync to iModel: ${this.targetDb.iModelId}`,
-      });
-    }
   }
 
   /** Imports all relationships that subclass from the specified base class.
@@ -2851,6 +2907,12 @@ export class IModelTransformer extends IModelExportHandler {
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
     }
+    const elementECClassIds = new Set<string>();
+    for await (const row of this.sourceDb.createQueryReader(
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.Element)"
+    )) {
+      elementECClassIds.add(row.ECInstanceId);
+    }
 
     // For later use when processing deletes.
     const alreadyImportedElementInserts = new Set<Id64String>();
@@ -2926,7 +2988,11 @@ export class IModelTransformer extends IModelExportHandler {
           change.Scope.Id === this.targetScopeElementId
         ) {
           elemIdToScopeEsa.set(change.Element.Id, change);
-        } else if (changeType === "Inserted" || changeType === "Updated")
+        } else if (
+          (changeType === "Inserted" || changeType === "Updated") &&
+          change.ECClassId !== undefined &&
+          elementECClassIds.has(change.ECClassId)
+        )
           hasElementChangedCache.add(change.ECInstanceId);
       }
 
@@ -3030,7 +3096,7 @@ export class IModelTransformer extends IModelExportHandler {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
-      this._synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index;
     if (notConnectedModel || noChanges) return;
 
     /**
@@ -3142,7 +3208,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     const noChanges =
-      this._synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
       this._sourceChangeDataState = "no-changes";
       this._csFileProps = [];
@@ -3154,7 +3220,7 @@ export class IModelTransformer extends IModelExportHandler {
     const startChangesetIndexOrId =
       args.startChangeset?.index ??
       args.startChangeset?.id ??
-      this._synchronizationVersion.index + 1;
+      this.synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
     const [startChangesetIndex, endChangesetIndex] = await Promise.all(
@@ -3173,20 +3239,20 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     const missingChangesets =
-      startChangesetIndex > this._synchronizationVersion.index + 1;
+      startChangesetIndex > this.synchronizationVersion.index + 1;
     if (
       !this._options.ignoreMissingChangesetsInSynchronizations &&
-      startChangesetIndex !== this._synchronizationVersion.index + 1 &&
-      this._synchronizationVersion.index !== -1
+      startChangesetIndex !== this.synchronizationVersion.index + 1 &&
+      this.synchronizationVersion.index !== -1
     ) {
       throw Error(
         `synchronization is ${missingChangesets ? "missing changesets" : ""},` +
           " startChangesetId should be" +
           " exactly the first changeset *after* the previous synchronization to not miss data." +
           ` You specified '${startChangesetIndexOrId}' which is changeset #${startChangesetIndex}` +
-          ` but the previous synchronization for this targetScopeElement was '${this._synchronizationVersion.id}'` +
-          ` which is changeset #${this._synchronizationVersion.index}. The transformer expected` +
-          ` #${this._synchronizationVersion.index + 1}.`
+          ` but the previous synchronization for this targetScopeElement was '${this.synchronizationVersion.id}'` +
+          ` which is changeset #${this.synchronizationVersion.index}. The transformer expected` +
+          ` #${this.synchronizationVersion.index + 1}.`
       );
     }
 
@@ -3221,15 +3287,15 @@ export class IModelTransformer extends IModelExportHandler {
     }
     this._csFileProps = csFileProps;
 
-    this._sourceChangeDataState = "has-changes";
+    /** Theres a possibility that our csFileProps length is still 0 here, since we skip cs indices found in the pendingSync and pendingReverseSync indices arrays. */
+    this._sourceChangeDataState =
+      this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
    * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    */
-  public async processAll(
-    options?: FinalizeTransformationOptions
-  ): Promise<void> {
+  public async processAll(): Promise<void> {
     this.logSettings();
     this.initScopeProvenance();
     await this.initialize();
@@ -3267,7 +3333,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
-    await this.finalizeTransformation(options);
+    this.finalizeTransformation();
   }
 
   /** previous provenance, either a federation guid, a `${sourceFedGuid}/${targetFedGuid}` pair, or required aspect props */
@@ -3293,7 +3359,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
-   * @note the transformer saves and pushes changes when its work is complete.
+   * @note the transformer assumes that you saveChanges after processing changes. You should not
+   * modify the iModel after processChanges until saveChanges, failure to do so may result in corrupted
+   * data loss in future branch operations
    * @note if no startChangesetId or startChangeset option is provided as part of the ProcessChangesOptions, the next unsynchronized changeset
    * will automatically be determined and used
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
@@ -3313,8 +3381,13 @@ export class IModelTransformer extends IModelExportHandler {
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
 
     this.importer.computeProjectExtents();
+    this.finalizeTransformation();
 
-    await this.finalizeTransformation(options);
+    const defaultSaveTargetChanges = () => {
+      this.targetDb.saveChanges();
+    };
+
+    await (options.saveTargetChanges ?? defaultSaveTargetChanges)(this);
   }
 
   /** Changeset data must be initialized in order to build correct changeOptions.
@@ -3324,7 +3397,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this._isSynchronization) return {};
     return {
       skipPropagateChangesToRootElements:
-        this._options.skipPropagateChangesToRootElements ?? false,
+        this._options.skipPropagateChangesToRootElements,
       accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
@@ -3334,7 +3407,7 @@ export class IModelTransformer extends IModelExportHandler {
             ? { startChangeset: opts.startChangeset }
             : {
                 startChangeset: {
-                  index: this._synchronizationVersion.index + 1,
+                  index: this.synchronizationVersion.index + 1,
                 },
               }),
     };

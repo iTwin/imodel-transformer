@@ -8,11 +8,6 @@ on:
           Prefix to put on the prerelease version tag, e.g. dev -> 1.1.1-dev.0.
           If 'dev', it is a nightly release.
         default: 'dev'
-      shouldPush:
-        description: |
-          Whether beachball should push a version bump or not before releasing packages.
-        type: boolean
-        default: true
       
   push:
     branches: ["main"]
@@ -52,11 +47,7 @@ jobs:
       run: |
         git config --local user.email imodeljs-admin@users.noreply.github.com
         git config --local user.name imodeljs-admin
-        if [ ${{inputs.shouldPush }} ]; then
         pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --message "Version bump [skip actions]"
-        else
-        pnpm publish-packages-dev -y --branch ${{ github.ref_name }} --no-push
-        fi
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_ITWIN }}
         SPECIAL_TAG: ${{ github.event.inputs.specialReleaseTag }}

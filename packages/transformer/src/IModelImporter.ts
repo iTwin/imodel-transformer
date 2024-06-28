@@ -71,7 +71,8 @@ export interface IModelImportOptions {
   simplifyElementGeometry?: boolean;
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
-   * @default false
+   * If it is set to false, changes to root elements are propagated, the root subject name gets changed and leads to the iModelDb.name property being updated in .initializeiModelDb
+   * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
 }
@@ -136,7 +137,7 @@ export class IModelImporter {
         options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
       skipPropagateChangesToRootElements:
-        options?.skipPropagateChangesToRootElements ?? false,
+        options?.skipPropagateChangesToRootElements ?? true,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
   }
