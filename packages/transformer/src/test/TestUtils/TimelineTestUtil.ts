@@ -528,19 +528,7 @@ export async function runTimeline(
           startChangeset: startIndex ? { index: startIndex } : undefined,
           ...finalizeTransformationOptions,
         };
-        if (initFxns?.initExporter) {
-          /**
-           * The code to support initFxns.initExporter is a bit hacky and is called to setup the transformer without calling transformer.initialize().
-           * Thats because transformer.initialize while calling [[initScopeProvenance]], [[tryInitChangesetData]] also currently calls [[processChangesets]].
-           * At the time of calling this.processChangesets we want to already have setup our exporter's sourceDbChanges with customChanges which is what I'm using initExporter to do.
-           * Thats because currently custom changes get processed during [[processChangesets]].
-           */
-          syncer["_isSynchronization"] = true;
-          syncer["initScopeProvenance"]();
-          await syncer["_tryInitChangesetData"](args);
-          await syncer.exporter.initialize(syncer["getExportInitOpts"](args));
-          await initFxns?.initExporter(syncer.exporter);
-        }
+        await initFxns?.initExporter?.(syncer.exporter);
 
         initFxns?.initTransformer?.(syncer);
         try {
