@@ -3733,7 +3733,10 @@ describe("IModelTransformerHub", () => {
             "branch",
             {
               expectThrow: false,
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
@@ -3826,7 +3829,10 @@ describe("IModelTransformerHub", () => {
           sync: [
             "branch",
             {
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
@@ -3879,7 +3885,10 @@ describe("IModelTransformerHub", () => {
           sync: [
             "master",
             {
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
@@ -3965,9 +3974,11 @@ describe("IModelTransformerHub", () => {
           sync: [
             "branch",
             {
-              initTransformer: (transformer) =>
-                (transformer["_options"]["branchRelationshipDataBehavior"] =
-                  "unsafe-migrate"),
+              init: {
+                initTransformer: (transformer) =>
+                  (transformer["_options"]["branchRelationshipDataBehavior"] =
+                    "unsafe-migrate"),
+              },
             },
           ], // Sync again with no changes except for ones which may get made by unsafe-migrate.
         },
