@@ -27,6 +27,7 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   IModelTransformer,
   IModelTransformOptions,
+  InitOptions,
 } from "../../IModelTransformer";
 import {
   HubWrappers,
@@ -34,6 +35,7 @@ import {
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
+import { IModelExporter } from "../../IModelExporter";
 
 const saveAndPushChanges = async (
   accessToken: string,
@@ -253,7 +255,10 @@ export type TimelineStateChange =
         source: string,
         opts?: {
           since?: number;
-          initTransformer?: (transformer: IModelTransformer) => void;
+          init?: {
+            initTransformer?: (transformer: IModelTransformer) => void;
+            initExporter?: (exporter: IModelExporter) => Promise<void>;
+          };
           expectThrow?: boolean;
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
@@ -357,7 +362,10 @@ export async function runTimeline(
           src: string,
           opts: {
             since?: number;
-            initTransformer?: (transformer: IModelTransformer) => void;
+            init?: {
+              initExporter?: (exporter: IModelExporter) => Promise<void>;
+              initTransformer?: (transformer: IModelTransformer) => void;
+            };
             expectThrow?: boolean;
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
@@ -498,7 +506,7 @@ export async function runTimeline(
           syncSource,
           {
             since: startIndex,
-            initTransformer,
+            init: initFxns,
             expectThrow,
             assert: assertFxns,
           },
@@ -516,12 +524,15 @@ export async function runTimeline(
           ...transformerOpts,
           isReverseSynchronization: !isForwardSync,
         });
-        initTransformer?.(syncer);
+        const args: InitOptions = {
+          accessToken,
+          startChangeset: startIndex ? { index: startIndex } : undefined,
+        };
+        await initFxns?.initExporter?.(syncer.exporter);
+
+        initFxns?.initTransformer?.(syncer);
         try {
-          await syncer.processChanges({
-            accessToken,
-            startChangeset: startIndex ? { index: startIndex } : undefined,
-          });
+          await syncer.processChanges(args);
           expect(
             expectThrow === false || expectThrow === undefined,
             "expectThrow was set to true and transformer succeeded."
