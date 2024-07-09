@@ -3237,6 +3237,28 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
+  /**
+   * The behavior of process is influenced by the value of [[IModelTransformOptions.isSynchronization]] passed to the constructor of the IModelTransformer.
+   * @section When isSynchronization is true:
+   *
+   * Export changes from the source iModel and import the transformed entities into the target iModel.
+   * Inserts, updates, and deletes are determined by inspecting the changeset(s).
+   *
+   * Notes:
+   * - the transformer assumes that you saveChanges after processing changes. You should not modify the iModel after processChanges until saveChanges,
+   * failure to do so may result in corrupted
+   * data loss in future branch operations
+   * - if no startChangesetId or startChangeset option is provided as part of the ProcessChangesOptions, the next unsynchronized changeset
+   * will automatically be determined and used
+   * - To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   *
+   * @section When isSynchronization is false:
+   *
+   * Export everything from the source iModel and import the transformed entities into the target iModel.
+   *
+   * Notes:
+   * - [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
+   */
   public async process(options?: ProcessChangesOptions): Promise<void> {
     if (!this._initialized) {
       await this.initialize(options);
