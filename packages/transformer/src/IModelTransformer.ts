@@ -135,7 +135,7 @@ export interface IModelTransformOptions {
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
-   * Provenance tracks a target element back to its corresponding source element and is essential for [[IModelTransformer.processChanges]] to work properly.
+   * Provenance tracks a target element back to its corresponding source element and is essential for [[IModelTransformer.process]] to work properly when [[IModelTransformOptions.isSynchronization]] is set to true.
    * Turning off IModelTransformer provenance is really only relevant for producing snapshots or another one time transformations.
    * @note See the [[includeSourceProvenance]] option for determining whether existing source provenance is cloned into the target.
    * @note The default is `false` which means that new IModelTransformer provenance will be recorded.
@@ -158,7 +158,7 @@ export interface IModelTransformOptions {
   /** Flag that indicates that the current source and target iModels are now synchronizing in the reverse direction from a prior synchronization.
    * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
    * This means that the provenance on the (current) source is used instead.
-   * @note This also means that only [[IModelTransformer.processChanges]] can detect deletes.
+   * @note This also means that [[IModelTransformer.process]] can only detect deletes when [[IModelTransformOptions.isSynchronization]] is set to true.
    * @deprecated in 1.x this option is ignored and the transformer now detects synchronization direction using the target scope element
    */
   isReverseSynchronization?: boolean;
@@ -208,7 +208,7 @@ export interface IModelTransformOptions {
    */
   danglingReferencesBehavior?: "reject" | "ignore";
 
-  /** If defined, options to be supplied to [[IModelImporter.optimizeGeometry]] by [[IModelTransformer.processChanges]] and [[IModelTransformer.processAll]]
+  /** If defined, options to be supplied to [[IModelImporter.optimizeGeometry]] by [[IModelTransformer.process]]
    * as a post-processing step to optimize the geometry in the iModel.
    * @beta
    */
@@ -232,7 +232,7 @@ export interface IModelTransformOptions {
   noDetachChangeCache?: boolean;
 
   /**
-   * Do not check that processChanges is called from the next changeset index.
+   * Do not check that process (with [[IModelTransformOptions.isSynchronization]] set to true) is called from the next changeset index.
    * This is an unsafe option (e.g. it can cause data loss in future branch operations)
    * and you should not use it.
    * @default false
@@ -379,7 +379,7 @@ export interface InitOptions {
 }
 
 /**
- * Arguments for [[IModelTransformer.processChanges]]
+ * Arguments for [[IModelTransformer.process]] when [[IModelTransformOptions.isSynchronization]] is set to true.
  */
 export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
@@ -1516,7 +1516,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Returns `true` if *brute force* delete detections should be run.
    * @note This is only called if [[IModelTransformOptions.forceExternalSourceAspectProvenance]] option is true
-   * @note Not relevant for processChanges when change history is known.
+   * @note Not relevant for [[process]] when [[IModelTransformOptions.isSynchronization]] is set to true when change history is known.
    */
   protected shouldDetectDeletes(): boolean {
     nodeAssert(this._syncType !== undefined);
@@ -1530,7 +1530,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
    * This method is only called during [[processAll]] when the option
    * [[IModelTransformOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
-   * necessary when using [[processChanges]] since changeset information is sufficient.
+   * necessary when calling [[process]] with [[IModelTransformOptions.isSynchronization]] set to true, since changeset information is sufficient.
    * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
@@ -1766,7 +1766,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Cause the specified Element and its child Elements (if applicable) to be exported from the source iModel and imported into the target iModel.
    * @param sourceElementId Identifies the Element from the source iModel to import.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processElement(sourceElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -1781,7 +1781,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Import child elements into the target IModelDb
    * @param sourceElementId Import the child elements of this element in the source IModelDb.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processChildElements(
     sourceElementId: Id64String
@@ -2146,7 +2146,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Cause the model container, contents, and sub-models to be exported from the source iModel and imported into the target iModel.
    * @param sourceModeledElementId Import this [Model]($backend) from the source IModelDb.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -2157,7 +2157,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param sourceModelId Import the contents of this model from the source IModelDb.
    * @param targetModelId Import into this model in the target IModelDb. The target model must exist prior to this call.
    * @param elementClassFullName Optional classFullName of an element subclass to limit import query against the source model.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processModelContents(
     sourceModelId: Id64String,
@@ -2252,9 +2252,9 @@ export class IModelTransformer extends IModelExportHandler {
    * source's changeset has been performed. Also stores all changesets that occurred
    * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
    *
-   * You generally should not call this function yourself and use [[processChanges]] instead.
+   * You generally should not call this function yourself and use [[process]] with [[IModelTransformOptions.isSynchronization]] set to true instead.
    * It is public for unsupported use cases of custom synchronization transforms.
-   * @note if you are not running processChanges in this transformation, this will fail
+   * @note if [[IModelTransformOptions.isSynchronization]] is not set to true in this transformation, this will fail
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
@@ -2415,7 +2415,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Imports all relationships that subclass from the specified base class.
    * @param baseRelClassFullName The specified base relationship class.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processRelationships(
     baseRelClassFullName: string
@@ -2532,8 +2532,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Detect Relationship deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against relationships in the source iModel.
    * @deprecated in 1.x. Don't use this anymore
-   * @see processChanges
-   * @note This method is called from [[processAll]] and is not needed by [[processChanges]], so it only needs to be called directly when processing a subset of an iModel.
+   * @see [[process]] with [[IModelTransformOptions.isSynchronization]] is set to true.
+   * @note This method is called from [[process]] when [[IModelTransformOptions.isSynchronization]] is set to false, so it only needs to be called directly when processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
   public async detectRelationshipDeletes(): Promise<void> {
@@ -2799,7 +2799,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processFonts(): Promise<void> {
     // we do not need to initialize for this since no entities are exported
@@ -2816,7 +2816,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Cause all CodeSpecs to be exported from the source iModel and imported into the target iModel.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpecs(): Promise<void> {
     await this.initialize();
@@ -2824,7 +2824,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Cause a single CodeSpec to be exported from the source iModel and imported into the target iModel.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpec(codeSpecName: string): Promise<void> {
     await this.initialize();
@@ -2865,7 +2865,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
-   * are intending to process changes, but prefer using [[processChanges]] explicitly since it calls this.
+   * are intending to process changes, but prefer using [[process]] explicitly since it calls this. TODO: Are we forcing manual initialization?
    * @note Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
