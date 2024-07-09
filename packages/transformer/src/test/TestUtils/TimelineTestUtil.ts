@@ -448,7 +448,7 @@ export async function runTimeline(
           ...transformerOpts,
           wasSourceIModelCopiedToTarget: true,
         });
-        await provenanceInserter.processAll();
+        await provenanceInserter.process();
         provenanceInserter.dispose();
         await saveAndPushChanges(
           accessToken,
@@ -515,10 +515,15 @@ export async function runTimeline(
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
           isReverseSynchronization: !isForwardSync,
+          isSynchronization: true,
         });
         initTransformer?.(syncer);
         try {
-          await syncer.processChanges({
+          await syncer.initialize({
+            accessToken,
+            startChangeset: startIndex ? { index: startIndex } : undefined,
+          });
+          await syncer.process({
             accessToken,
             startChangeset: startIndex ? { index: startIndex } : undefined,
           });

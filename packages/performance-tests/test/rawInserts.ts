@@ -119,7 +119,7 @@ export default async function rawInserts(
   });
 
   const [transformWithProvTimer] = await timed(async () => {
-    await transformerWithProv.processAll();
+    await transformerWithProv.process();
   });
 
   reporter.addEntry(
@@ -157,7 +157,7 @@ export default async function rawInserts(
   });
 
   const [transformNoProvTimer] = await timed(async () => {
-    await transformerNoProv.processAll();
+    await transformerNoProv.process();
   });
 
   reporter.addEntry(

@@ -407,7 +407,7 @@ async function classicalTransformerBranchInit(
     targetScopeElementId: masterExternalSourceId,
   });
 
-  await branchInitializer.processAll();
+  await branchInitializer.process();
   // save+push our changes to whatever hub we're using
   const description = "initialized branch iModel";
   args.branch.saveChanges(description);

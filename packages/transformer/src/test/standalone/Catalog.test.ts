@@ -1556,7 +1556,7 @@ describe("Catalog", () => {
     }); // WIP: how should a catalog handle projectExtents?
     const cloner = new IModelTransformer(sourceDb, target);
     await cloner.processSchemas();
-    await cloner.processAll();
+    await cloner.process();
     cloner.dispose();
 
     const containerIds = queryContainerIds(targetDb);

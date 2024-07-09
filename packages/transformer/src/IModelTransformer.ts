@@ -271,6 +271,12 @@ export interface IModelTransformOptions {
    * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
+
+  /**
+   * Whether or not this transformation is a synchronization. We'll call processChanges if it is, and processAll if it is not.
+   * @default false
+   */
+  isSynchronization?: boolean;
 }
 
 /**
@@ -638,6 +644,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
     };
+    this._isSynchronization = this._options.isSynchronization ?? false;
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
       ? true
@@ -2865,6 +2872,11 @@ export class IModelTransformer extends IModelExportHandler {
   public async initialize(args?: InitOptions): Promise<void> {
     if (this._initialized) return;
 
+    this.initScopeProvenance();
+    // if (args === undefined && this._isSynchronization) {
+    //   // throw if we're in a synchronization and no args are provided?? The args are already all optional sooo idk
+    // }
+
     await this._tryInitChangesetData(args);
     await this.context.initialize();
 
@@ -2872,7 +2884,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    await this.processChangesets();
+    await this.processChangesets(); // TODO: Should this be a part of initialize?? Not sure it has to be.
 
     this._initialized = true;
   }
@@ -3225,13 +3237,27 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
+  public async process(options?: ProcessChangesOptions): Promise<void> {
+    if (!this._initialized) {
+      await this.initialize(options);
+      // throw new Error("Transformer must be initialized before calling process."); todo: throw?
+    }
+    this.logSettings();
+    if (this._isSynchronization) {
+      if (options === undefined) {
+        throw new Error(
+          "ProcessChangesOptions must be provided when isSynchronization is set to true during construction of IModelTransformer."
+        );
+      }
+      return this.processChanges(options);
+    }
+    return this.processAll();
+  }
+
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
    * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    */
-  public async processAll(): Promise<void> {
-    this.logSettings();
-    this.initScopeProvenance();
-    await this.initialize();
+  private async processAll(): Promise<void> {
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
@@ -3299,13 +3325,7 @@ export class IModelTransformer extends IModelExportHandler {
    * will automatically be determined and used
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async processChanges(options: ProcessChangesOptions): Promise<void> {
-    this._isSynchronization = true;
-    this.initScopeProvenance();
-
-    this.logSettings();
-
-    await this.initialize(options);
+  private async processChanges(options: ProcessChangesOptions): Promise<void> {
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(options));
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation

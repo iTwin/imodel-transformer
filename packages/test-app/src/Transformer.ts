@@ -70,7 +70,7 @@ export class Transformer extends IModelTransformer {
     const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
-    await transformer.processAll();
+    await transformer.process();
     await transformer.saveChanges("processAll");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
@@ -91,10 +91,13 @@ export class Transformer extends IModelTransformer {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
     }
-    const transformer = new Transformer(sourceDb, targetDb, options);
+    const transformer = new Transformer(sourceDb, targetDb, {
+      ...options,
+      isSynchronization: true,
+    });
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
-    await transformer.processChanges({
+    await transformer.process({
       accessToken,
       startChangeset: { id: sourceStartChangesetId },
     });

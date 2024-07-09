@@ -1539,9 +1539,12 @@ export class PhysicalModelConsolidator extends IModelTransformer {
   public constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
-    targetModelId: Id64String
+    targetModelId: Id64String,
+    isSynchronization?: boolean
   ) {
-    super(sourceDb, targetDb);
+    super(sourceDb, targetDb, {
+      isSynchronization: isSynchronization ? true : false,
+    });
     this._targetModelId = targetModelId;
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }
@@ -1900,8 +1903,8 @@ export class AssertOrderTransformer extends IModelTransformer {
     return super.onExportElement(elem);
   }
 
-  public override async processAll() {
-    await super.processAll();
+  public override async process() {
+    await super.process();
     if (this._exportOrderQueue.length > 0)
       throw Error(`${this.errPrologue}. ${this.errEpilogue}`);
   }
