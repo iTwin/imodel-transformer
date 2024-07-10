@@ -273,7 +273,7 @@ export interface IModelTransformOptions {
   skipPropagateChangesToRootElements?: boolean;
 
   /**
-   * Whether or not this transformation is a synchronization. We'll call processChanges if it is, and processAll if it is not.
+   * Whether or not this transformation is a synchronization. This influences the behavior of @see [[IModelTransformer.process]].
    * @default false
    */
   isSynchronization?: boolean;
