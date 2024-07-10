@@ -449,8 +449,6 @@ export class IModelTransformer extends IModelExportHandler {
   /** @see hasDefinitionContainerDeletionFeature */
   private _hasDefinitionContainerDeletionFeature?: boolean;
 
-  private _isSynchronization = false;
-
   /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
    * The exception to this is the first transform aka the provenance initializing transform which requires that the master imodel and the branch imodel are identical at the time of provenance initialization.
@@ -559,7 +557,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._isProvenanceInitTransform) {
       return "forward";
     }
-    if (!this._isSynchronization) {
+    if (!this._options.isSynchronization) {
       return "not-sync";
     }
     try {
@@ -644,7 +642,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
     };
-    this._isSynchronization = this._options.isSynchronization ?? false;
+    this._options.isSynchronization = this._options.isSynchronization ?? false;
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
       ? true
@@ -2292,7 +2290,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (
-      this._isSynchronization ||
+      this._options.isSynchronization ||
       (this._startingChangesetIndices && this._isProvenanceInitTransform)
     ) {
       nodeAssert(
@@ -2873,7 +2871,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._initialized) return;
 
     this.initScopeProvenance();
-    // if (args === undefined && this._isSynchronization) {
+    // if (args === undefined && this._options.isSynchronization) {
     //   // throw if we're in a synchronization and no args are provided?? The args are already all optional sooo idk
     // }
 
@@ -3261,11 +3259,11 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async process(options?: ProcessChangesOptions): Promise<void> {
     if (!this._initialized) {
-      await this.initialize(options);
+      await this.initialize(options); // Should I enforce that
       // throw new Error("Transformer must be initialized before calling process."); todo: throw?
     }
     this.logSettings();
-    if (this._isSynchronization) {
+    if (this._options.isSynchronization) {
       if (options === undefined) {
         throw new Error(
           "ProcessChangesOptions must be provided when isSynchronization is set to true during construction of IModelTransformer."
@@ -3369,7 +3367,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
    */
   private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
-    if (!this._isSynchronization) return {};
+    if (!this._options.isSynchronization) return {};
     return {
       skipPropagateChangesToRootElements:
         this._options.skipPropagateChangesToRootElements,
