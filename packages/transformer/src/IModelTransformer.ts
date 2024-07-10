@@ -2863,17 +2863,20 @@ export class IModelTransformer extends IModelExportHandler {
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
-   * are intending to process changes, but prefer using [[process]] explicitly since it calls this. TODO: Are we forcing manual initialization?
+   * are intending to process changes. Callers may wish to explicitly call initialize if they need to execute code after initialize but before [[process]] is called.
    * @note Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
+   * @throws if [[IModelTransformOptions.isSynchronization]] is true and [[InitOptions]] is not provided.
    */
   public async initialize(args?: InitOptions): Promise<void> {
     if (this._initialized) return;
+    if (args === undefined && this._options.isSynchronization) {
+      throw new Error(
+        "Must provide InitOptions when isSynchronization is set to true."
+      );
+    }
 
     this.initScopeProvenance();
-    // if (args === undefined && this._options.isSynchronization) {
-    //   // throw if we're in a synchronization and no args are provided?? The args are already all optional sooo idk
-    // }
 
     await this._tryInitChangesetData(args);
     await this.context.initialize();
@@ -2882,7 +2885,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    await this.processChangesets(); // TODO: Should this be a part of initialize?? Not sure it has to be.
+    await this.processChangesets();
 
     this._initialized = true;
   }
@@ -3256,11 +3259,12 @@ export class IModelTransformer extends IModelExportHandler {
    *
    * Notes:
    * - [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
+   *
+   * @throws if [[IModelTransformOptions.isSynchronization]] is true and [[ProcessChangesOptions]] is not provided.
    */
   public async process(options?: ProcessChangesOptions): Promise<void> {
     if (!this._initialized) {
-      await this.initialize(options); // Should I enforce that
-      // throw new Error("Transformer must be initialized before calling process."); todo: throw?
+      await this.initialize(options);
     }
     this.logSettings();
     if (this._options.isSynchronization) {
