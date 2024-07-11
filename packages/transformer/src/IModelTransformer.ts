@@ -3261,21 +3261,34 @@ export class IModelTransformer extends IModelExportHandler {
    * - [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    *
    * @throws if [[IModelTransformOptions.isSynchronization]] is true and [[ProcessChangesOptions]] is not provided.
+   * @throws if [[IModelTransformOptions.isSynchronization]] is false / undefined and [[ProcessChangesOptions]] is provided.
    */
   public async process(options?: ProcessChangesOptions): Promise<void> {
+    this.validateOptionsPassedToProcess(options);
     if (!this._initialized) {
       await this.initialize(options);
     }
+
     this.logSettings();
-    if (this._options.isSynchronization) {
-      if (options === undefined) {
-        throw new Error(
-          "ProcessChangesOptions must be provided when isSynchronization is set to true during construction of IModelTransformer."
-        );
-      }
-      return this.processChanges(options);
+
+    // validateOptionsPassedToProcess throws if options is undefined and isSynchronization is true.
+    return this._options.isSynchronization
+      ? this.processChanges(options!)
+      : this.processAll();
+  }
+
+  private validateOptionsPassedToProcess(options?: ProcessChangesOptions) {
+    if (options === undefined && this._options.isSynchronization) {
+      throw new Error(
+        "ProcessChangesOptions must be provided when isSynchronization is set to true during construction of IModelTransformer."
+      );
     }
-    return this.processAll();
+    if (options && !this._options.isSynchronization) {
+      throw new Error(
+        "ProcessChangesOptions should not be provided when isSynchronization is set to false or not provided during construction of IModelTransformer."
+      );
+    }
+    return;
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
