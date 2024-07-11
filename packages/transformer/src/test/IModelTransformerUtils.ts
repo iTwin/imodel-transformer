@@ -94,6 +94,7 @@ import { IModelImporter, IModelImportOptions } from "../IModelImporter";
 import {
   IModelTransformer,
   IModelTransformOptions,
+  ProcessChangesOptions,
   RelationshipPropsForDelete,
 } from "../IModelTransformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
@@ -1540,10 +1541,10 @@ export class PhysicalModelConsolidator extends IModelTransformer {
     sourceDb: IModelDb,
     targetDb: IModelDb,
     targetModelId: Id64String,
-    isSynchronization?: boolean
+    argsForProcessChanges?: ProcessChangesOptions
   ) {
     super(sourceDb, targetDb, {
-      isSynchronization: isSynchronization ? true : false,
+      argsForProcessChanges,
     });
     this._targetModelId = targetModelId;
     this.importer.doNotUpdateElementIds.add(targetModelId);

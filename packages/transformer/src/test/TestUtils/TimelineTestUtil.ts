@@ -515,18 +515,14 @@ export async function runTimeline(
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
           isReverseSynchronization: !isForwardSync,
-          isSynchronization: true,
+          argsForProcessChanges: {
+            accessToken,
+            startChangeset: startIndex ? { index: startIndex } : undefined,
+          },
         });
         initTransformer?.(syncer);
         try {
-          await syncer.initialize({
-            accessToken,
-            startChangeset: startIndex ? { index: startIndex } : undefined,
-          });
-          await syncer.process({
-            accessToken,
-            startChangeset: startIndex ? { index: startIndex } : undefined,
-          });
+          await syncer.process();
           expect(
             expectThrow === false || expectThrow === undefined,
             "expectThrow was set to true and transformer succeeded."

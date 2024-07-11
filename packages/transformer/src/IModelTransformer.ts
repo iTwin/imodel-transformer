@@ -135,7 +135,7 @@ export interface IModelTransformOptions {
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
-   * Provenance tracks a target element back to its corresponding source element and is essential for [[IModelTransformer.process]] to work properly when [[IModelTransformOptions.isSynchronization]] is set to true.
+   * Provenance tracks a target element back to its corresponding source element and is essential for [[IModelTransformer.process]] to work properly when [[IModelTransformOptions.argsForProcessChanges]] are provided.
    * Turning off IModelTransformer provenance is really only relevant for producing snapshots or another one time transformations.
    * @note See the [[includeSourceProvenance]] option for determining whether existing source provenance is cloned into the target.
    * @note The default is `false` which means that new IModelTransformer provenance will be recorded.
@@ -158,7 +158,7 @@ export interface IModelTransformOptions {
   /** Flag that indicates that the current source and target iModels are now synchronizing in the reverse direction from a prior synchronization.
    * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
    * This means that the provenance on the (current) source is used instead.
-   * @note This also means that [[IModelTransformer.process]] can only detect deletes when [[IModelTransformOptions.isSynchronization]] is set to true.
+   * @note This also means that [[IModelTransformer.process]] can only detect deletes when [[IModelTransformOptions.argsForProcessChanges]] are provided.
    * @deprecated in 1.x this option is ignored and the transformer now detects synchronization direction using the target scope element
    */
   isReverseSynchronization?: boolean;
@@ -232,7 +232,7 @@ export interface IModelTransformOptions {
   noDetachChangeCache?: boolean;
 
   /**
-   * Do not check that process (with [[IModelTransformOptions.isSynchronization]] set to true) is called from the next changeset index.
+   * Do not check that process (with [[IModelTransformOptions.argsForProcessChanges]] provided) is called from the next changeset index.
    * This is an unsafe option (e.g. it can cause data loss in future branch operations)
    * and you should not use it.
    * @default false
@@ -276,7 +276,7 @@ export interface IModelTransformOptions {
    * Whether or not this transformation is a synchronization. This influences the behavior of @see [[IModelTransformer.process]].
    * @default false
    */
-  isSynchronization?: boolean;
+  argsForProcessChanges?: ProcessChangesOptions;
 }
 
 /**
@@ -379,7 +379,7 @@ export interface InitOptions {
 }
 
 /**
- * Arguments for [[IModelTransformer.process]] when [[IModelTransformOptions.isSynchronization]] is set to true.
+ * Arguments used during [[IModelTransformer.process]] if provided in [[IModelTransformOptions.argsForProcessChanges]].
  */
 export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
@@ -557,7 +557,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._isProvenanceInitTransform) {
       return "forward";
     }
-    if (!this._options.isSynchronization) {
+    if (!this._options.argsForProcessChanges) {
       return "not-sync";
     }
     try {
@@ -642,7 +642,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
     };
-    this._options.isSynchronization = this._options.isSynchronization ?? false;
+
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
       ? true
@@ -1514,7 +1514,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Returns `true` if *brute force* delete detections should be run.
    * @note This is only called if [[IModelTransformOptions.forceExternalSourceAspectProvenance]] option is true
-   * @note Not relevant for [[process]] when [[IModelTransformOptions.isSynchronization]] is set to true when change history is known.
+   * @note Not relevant for [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are provided when change history is known.
    */
   protected shouldDetectDeletes(): boolean {
     nodeAssert(this._syncType !== undefined);
@@ -1528,7 +1528,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
    * This method is only called during [[processAll]] when the option
    * [[IModelTransformOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
-   * necessary when calling [[process]] with [[IModelTransformOptions.isSynchronization]] set to true, since changeset information is sufficient.
+   * necessary when calling [[process]] with [[IModelTransformOptions.argsForProcessChanges]] set to true, since changeset information is sufficient.
    * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
@@ -2250,9 +2250,9 @@ export class IModelTransformer extends IModelExportHandler {
    * source's changeset has been performed. Also stores all changesets that occurred
    * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
    *
-   * You generally should not call this function yourself and use [[process]] with [[IModelTransformOptions.isSynchronization]] set to true instead.
+   * You generally should not call this function yourself and use [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided instead.
    * It is public for unsupported use cases of custom synchronization transforms.
-   * @note if [[IModelTransformOptions.isSynchronization]] is not set to true in this transformation, this will fail
+   * @note if [[IModelTransformOptions.argsForProcessChanges]] are not defined in this transformation, this will fail
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
@@ -2290,7 +2290,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (
-      this._options.isSynchronization ||
+      this._options.argsForProcessChanges ||
       (this._startingChangesetIndices && this._isProvenanceInitTransform)
     ) {
       nodeAssert(
@@ -2530,8 +2530,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Detect Relationship deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against relationships in the source iModel.
    * @deprecated in 1.x. Don't use this anymore
-   * @see [[process]] with [[IModelTransformOptions.isSynchronization]] is set to true.
-   * @note This method is called from [[process]] when [[IModelTransformOptions.isSynchronization]] is set to false, so it only needs to be called directly when processing a subset of an iModel.
+   * @see [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided.
+   * @note This method is called from [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are undefined, so it only needs to be called directly when processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
   public async detectRelationshipDeletes(): Promise<void> {
@@ -2866,23 +2866,19 @@ export class IModelTransformer extends IModelExportHandler {
    * are intending to process changes. Callers may wish to explicitly call initialize if they need to execute code after initialize but before [[process]] is called.
    * @note Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
-   * @throws if [[IModelTransformOptions.isSynchronization]] is true and [[InitOptions]] is not provided.
    */
-  public async initialize(args?: InitOptions): Promise<void> {
+  public async initialize(): Promise<void> {
     if (this._initialized) return;
-    if (args === undefined && this._options.isSynchronization) {
-      throw new Error(
-        "Must provide InitOptions when isSynchronization is set to true."
-      );
-    }
 
     this.initScopeProvenance();
 
-    await this._tryInitChangesetData(args);
+    await this._tryInitChangesetData(this._options.argsForProcessChanges);
     await this.context.initialize();
 
     // need exporter initialized to do remapdeletedsourceentities.
-    await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
+    await this.exporter.initialize(
+      this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
+    );
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
     await this.processChangesets();
@@ -3239,8 +3235,8 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * The behavior of process is influenced by the value of [[IModelTransformOptions.isSynchronization]] passed to the constructor of the IModelTransformer.
-   * @section When isSynchronization is true:
+   * The behavior of process is influenced by [[IModelTransformOptions.argsForProcessChanges]] being defined or not defined during construction passed of the IModelTransformer.
+   * @section When argsForProcessChanges are defined:
    *
    * Export changes from the source iModel and import the transformed entities into the target iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
@@ -3253,42 +3249,24 @@ export class IModelTransformer extends IModelExportHandler {
    * will automatically be determined and used
    * - To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    *
-   * @section When isSynchronization is false:
+   * @section When argsForProcessChanges are undefined:
    *
    * Export everything from the source iModel and import the transformed entities into the target iModel.
    *
    * Notes:
    * - [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    *
-   * @throws if [[IModelTransformOptions.isSynchronization]] is true and [[ProcessChangesOptions]] is not provided.
-   * @throws if [[IModelTransformOptions.isSynchronization]] is false / undefined and [[ProcessChangesOptions]] is provided.
    */
-  public async process(options?: ProcessChangesOptions): Promise<void> {
-    this.validateOptionsPassedToProcess(options);
+  public async process(): Promise<void> {
     if (!this._initialized) {
-      await this.initialize(options);
+      await this.initialize();
     }
 
     this.logSettings();
 
-    // validateOptionsPassedToProcess throws if options is undefined and isSynchronization is true, so we can confidently assert options is defined.
-    return this._options.isSynchronization
-      ? this.processChanges(options!)
+    return this._options.argsForProcessChanges !== undefined
+      ? this.processChanges(this._options.argsForProcessChanges)
       : this.processAll();
-  }
-
-  private validateOptionsPassedToProcess(options?: ProcessChangesOptions) {
-    if (options === undefined && this._options.isSynchronization) {
-      throw new Error(
-        "ProcessChangesOptions must be provided when isSynchronization is set to true during construction of IModelTransformer."
-      );
-    }
-    if (options && !this._options.isSynchronization) {
-      throw new Error(
-        "ProcessChangesOptions should not be provided when isSynchronization is set to false or not provided during construction of IModelTransformer."
-      );
-    }
-    return;
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
@@ -3384,7 +3362,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
    */
   private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
-    if (!this._options.isSynchronization) return {};
+    if (!this._options.argsForProcessChanges) return {};
     return {
       skipPropagateChangesToRootElements:
         this._options.skipPropagateChangesToRootElements,
