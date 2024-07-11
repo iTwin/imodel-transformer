@@ -3271,7 +3271,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.logSettings();
 
-    // validateOptionsPassedToProcess throws if options is undefined and isSynchronization is true.
+    // validateOptionsPassedToProcess throws if options is undefined and isSynchronization is true, so we can confidently assert options is defined.
     return this._options.isSynchronization
       ? this.processChanges(options!)
       : this.processAll();
