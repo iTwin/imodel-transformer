@@ -1519,9 +1519,9 @@ export class IModelTransformer extends IModelExportHandler {
    * Detect Element deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against Elements
    * in the source iModel.
    * @deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
-   * This method is only called during [[processAll]] when the option
+   * This method is only called during [[process]] when [[IModelTransformOptions.argsForProcessChanges]] is undefined and the option
    * [[IModelTransformOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
-   * necessary when calling [[process]] with [[IModelTransformOptions.argsForProcessChanges]] set to true, since changeset information is sufficient.
+   * necessary when calling [[process]] with [[IModelTransformOptions.argsForProcessChanges]] defined, since changeset information is sufficient.
    * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
