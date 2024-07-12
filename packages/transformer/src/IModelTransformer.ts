@@ -3258,9 +3258,7 @@ export class IModelTransformer extends IModelExportHandler {
    *
    */
   public async process(): Promise<void> {
-    if (!this._initialized) {
-      await this.initialize();
-    }
+    await this.initialize();
 
     this.logSettings();
 
