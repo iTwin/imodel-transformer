@@ -155,14 +155,6 @@ export interface IModelTransformOptions {
    */
   wasSourceIModelCopiedToTarget?: boolean;
 
-  /** Flag that indicates that the current source and target iModels are now synchronizing in the reverse direction from a prior synchronization.
-   * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
-   * This means that the provenance on the (current) source is used instead.
-   * @note This also means that [[IModelTransformer.process]] can only detect deletes when [[IModelTransformOptions.argsForProcessChanges]] are provided.
-   * @deprecated in 1.x this option is ignored and the transformer now detects synchronization direction using the target scope element
-   */
-  isReverseSynchronization?: boolean;
-
   /** Flag that indicates whether or not the transformation process needs to consider the source geometry before cloning/transforming.
    * For standard cases, it is not required to load the source GeometryStream in JavaScript since the cloning happens in native code.
    * Also, the target GeometryStream will be available in JavaScript prior to insert.
@@ -773,11 +765,6 @@ export class IModelTransformer extends IModelExportHandler {
     Logger.logInfo(
       loggerCategory,
       `this._wasSourceIModelCopiedToTarget=${this._options.wasSourceIModelCopiedToTarget}`
-    );
-    Logger.logInfo(
-      loggerCategory,
-      // eslint-disable-next-line deprecation/deprecation
-      `this._isReverseSynchronization=${this._options.isReverseSynchronization}`
     );
     Logger.logInfo(
       TransformerLoggerCategory.IModelImporter,

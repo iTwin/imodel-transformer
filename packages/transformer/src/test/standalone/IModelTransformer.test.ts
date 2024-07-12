@@ -535,7 +535,7 @@ describe("IModelTransformer", () => {
     const branchToMasterTransformer = new IModelTransformer(
       branchDb,
       masterDb,
-      { isReverseSynchronization: true, noProvenance: true }
+      { noProvenance: true }
     );
     await branchToMasterTransformer.process();
     branchToMasterTransformer.dispose();

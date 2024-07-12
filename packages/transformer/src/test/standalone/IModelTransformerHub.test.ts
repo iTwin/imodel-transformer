@@ -2220,7 +2220,6 @@ describe("IModelTransformerHub", () => {
 
       // running reverse synchronization
       transformer = new IModelTransformer(targetDb, sourceDb, {
-        isReverseSynchronization: true,
         argsForProcessChanges: { accessToken },
       });
 
@@ -2521,7 +2520,6 @@ describe("IModelTransformerHub", () => {
 
       const synchronizer = new IModelTransformer(branchDb, masterDb, {
         // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
-        isReverseSynchronization: true,
         argsForProcessChanges: { accessToken },
       });
       await synchronizer.process();
@@ -2609,7 +2607,6 @@ describe("IModelTransformerHub", () => {
     });
 
     const syncer = new IModelTransformer(branchAt2, master.db, {
-      isReverseSynchronization: true,
       argsForProcessChanges: {
         accessToken,
         startChangeset: branchAt2Changeset,
@@ -2706,7 +2703,6 @@ describe("IModelTransformerHub", () => {
       });
 
       transformer = new IModelTransformer(targetDb, sourceDb, {
-        isReverseSynchronization: true,
         argsForProcessChanges: { startChangeset: targetDb.changeset },
       });
       await transformer.process();
