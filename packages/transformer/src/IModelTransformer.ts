@@ -357,6 +357,12 @@ function mapId64<R>(
  * @beta
  */
 export interface InitOptions {
+  /**
+   * Access token to use during run of transformer. If not provided, the transformer will call [[IModelHost.authorizationClient.getAccessToken]] in order to get a token.
+   * @note Consumers should always prefer to pass an authorizationClient to [[IModelHost.startup]] and NOT pass a token as part of the InitOptions.
+   * An authorizationClient allows the transformer to refresh the token as needed, minimizing the risk that a token expires and the transformer fails while performing
+   * operations such as downloading changesets.
+   */
   accessToken?: AccessToken;
   /**
    * Include changes from this changeset up through and including the current changeset.
