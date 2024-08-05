@@ -265,8 +265,8 @@ export interface IModelTransformOptions {
   skipPropagateChangesToRootElements?: boolean;
 
   /**
-   * Whether or not this transformation is a synchronization. This influences the behavior of @see [[IModelTransformer.process]].
-   * @default false
+   * Arguments to use for the processing of changes. The args being defined or not defined will influence the behavior of @see [[IModelTransformer.process]].
+   * @default undefined
    */
   argsForProcessChanges?: ProcessChangesOptions;
 }
