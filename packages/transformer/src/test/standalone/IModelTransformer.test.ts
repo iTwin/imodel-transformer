@@ -2163,6 +2163,7 @@ describe("IModelTransformer", () => {
 
   // for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
   function setToStandalone(iModelName: string) {
+    // eslint-disable-next-line deprecation/deprecation
     const nativeDb = new IModelHost.platform.DgnDb();
     nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
     nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
@@ -3579,6 +3580,7 @@ describe("IModelTransformer", () => {
     assert(biscoreVersion !== undefined);
     const fakeSchemaVersion = "1.0.99";
     expect(Semver.lt(biscoreVersion, fakeSchemaVersion)).to.be.true;
+    // eslint-disable-next-line deprecation/deprecation
     const biscoreText = sourceDb.nativeDb.schemaToXmlString("BisCore");
     assert(biscoreText !== undefined);
     const fakeBisCoreUpdateText = biscoreText
