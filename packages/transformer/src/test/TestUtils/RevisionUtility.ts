@@ -29,6 +29,7 @@ export interface ChangesetSizeInfo {
   prefixSize?: number;
 }
 
+/* eslint-disable deprecation/deprecation */
 export class RevisionUtility {
   public static readonly DEFAULT: LzmaParams = {
     algo: 1,
@@ -55,6 +56,7 @@ export class RevisionUtility {
   ): BentleyStatus {
     if (!IModelJsFs.existsSync(sourceFile))
       throw new Error("SourceFile does not exists");
+
     return IModelHost.platform.RevisionUtility.recompressRevision(
       sourceFile,
       targetFile,

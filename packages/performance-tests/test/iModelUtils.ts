@@ -31,7 +31,7 @@ export interface IModelParams {
 // TODO: dedup with other packages
 // for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
 export function setToStandalone(iModelPath: string) {
-  // eslint-disable-next-line @itwin/no-internal
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   const nativeDb = new IModelHost.platform.DgnDb();
   nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
   nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
