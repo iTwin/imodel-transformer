@@ -2103,7 +2103,6 @@ describe("IModelTransformerHub", () => {
       id: "master-seed",
       state: masterSeedState,
     };
-    let relIdInBranch: string | undefined;
     const timeline: Timeline = [
       { master: { seed: masterSeed } }, // masterSeedState is above
       { branch1: { branch: "master" } },
@@ -2117,26 +2116,10 @@ describe("IModelTransformerHub", () => {
             const targetId2 = IModelTestUtils.queryByUserLabel(db, "1");
             const targetId3 = IModelTestUtils.queryByUserLabel(db, "4");
             const targetId4 = IModelTestUtils.queryByUserLabel(db, "5");
-            const rel = ElementGroupsMembers.create(
-              db,
-              sourceId,
-              targetId
-            ).insert();
-            const rel2 = ElementGroupsMembers.create(
-              db,
-              sourceId,
-              targetId2
-            ).insert();
-            const rel3 = ElementGroupsMembers.create(
-              db,
-              sourceId,
-              targetId3
-            ).insert();
-            const rel4 = ElementGroupsMembers.create(
-              db,
-              sourceId,
-              targetId4
-            ).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId2).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId3).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId4).insert();
           },
         },
       },
