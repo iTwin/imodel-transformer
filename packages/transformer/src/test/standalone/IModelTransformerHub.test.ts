@@ -2078,7 +2078,7 @@ describe("IModelTransformerHub", () => {
     transformer.dispose();
   });
 
-  it("should not get confused by multiple ESAs of different kinds", async () => {
+  it("should properly delete element in master when element in branch is deleted alongside all of its ESAs.", async () => {
     // This test exercises elemIdToScopeESAs map in IModelTransformer.
     // create masterdb
     // create branch
