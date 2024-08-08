@@ -2961,7 +2961,8 @@ export class IModelTransformer extends IModelExportHandler {
         if (
           changeType === "Deleted" &&
           change?.$meta?.classFullName === ExternalSourceAspect.classFullName &&
-          change.Scope.Id === this.targetScopeElementId
+          change.Scope.Id === this.targetScopeElementId &&
+          change.Kind === ExternalSourceAspect.Kind.Element
         ) {
           elemIdToScopeEsa.set(change.Element.Id, change);
         } else if (
