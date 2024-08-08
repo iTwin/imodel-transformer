@@ -2130,12 +2130,6 @@ describe("IModelTransformerHub", () => {
       }, // first master->branch1 forward sync picking up new relationship from master imodel
       {
         assert({ branch1 }) {
-          const sourceId = IModelTestUtils.queryByUserLabel(branch1.db, "3");
-          const targetId = IModelTestUtils.queryByUserLabel(branch1.db, "2");
-          relIdInBranch = branch1.db.relationships.getInstance(
-            ElementGroupsMembers.classFullName,
-            { sourceId, targetId }
-          ).id;
           const elemId = IModelTestUtils.queryByUserLabel(branch1.db, "3");
           const aspects = branch1.db.elements.getAspects(
             elemId,
