@@ -497,6 +497,7 @@ void (async () => {
       if (args.targetStandaloneDestination) {
         fs.copyFileSync(fileName, args.targetStandaloneDestination);
         function setToStandalone(iModelPath: string) {
+          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
           const nativeDb = new IModelHost.platform.DgnDb();
           nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
           nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
