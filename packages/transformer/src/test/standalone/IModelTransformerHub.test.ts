@@ -360,6 +360,7 @@ describe("IModelTransformerHub", () => {
           "Second import should not add relationships"
         );
         targetDb.saveChanges();
+        // eslint-disable-next-line deprecation/deprecation
         assert.isFalse(targetDb.nativeDb.hasPendingTxns());
         await targetDb.pushChanges({
           accessToken,
@@ -780,6 +781,7 @@ describe("IModelTransformerHub", () => {
         seedBisCoreVersion !== updatedBisCoreVersion;
 
       // push sourceDb schema changes
+      /* eslint-disable deprecation/deprecation */
       assert.equal(
         sourceDb.nativeDb.hasPendingTxns(),
         expectedHasPendingTxns,
@@ -807,6 +809,7 @@ describe("IModelTransformerHub", () => {
         sourceDb.nativeDb.hasUnsavedChanges(),
         "Expect importSchemas to be a no-op"
       );
+      /* eslint-enable deprecation/deprecation */
       sourceDb.saveChanges(); // will be no changes to save in this case
       await sourceDb.pushChanges({
         accessToken,
@@ -893,6 +896,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -988,6 +992,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1104,6 +1109,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1255,6 +1261,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -1547,6 +1554,7 @@ describe("IModelTransformerHub", () => {
         const changesetPath = masterDbChangeset.pathname;
         assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
+        // eslint-disable-next-line deprecation/deprecation
         const statusOrResult =
           master.db.nativeDb.extractChangedInstanceIdsFromChangeSets([
             changesetPath,
@@ -1624,6 +1632,7 @@ describe("IModelTransformerHub", () => {
         const changesetPath = replayedDbChangeset.pathname;
         assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
+        // eslint-disable-next-line deprecation/deprecation
         const statusOrResult =
           replayedDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
             changesetPath,
@@ -1756,6 +1765,7 @@ describe("IModelTransformerHub", () => {
       });
       expect(sourceDbChangesets).to.have.length(2);
       const latestChangeset = sourceDbChangesets[1];
+      // eslint-disable-next-line deprecation/deprecation
       const extractedChangedIds =
         sourceDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
           latestChangeset.pathname,
@@ -2449,6 +2459,7 @@ describe("IModelTransformerHub", () => {
       });
       expect(branchDbChangesets).to.have.length(2);
       const latestChangeset = branchDbChangesets[1];
+      // eslint-disable-next-line deprecation/deprecation
       const extractedChangedIds =
         branchDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
           latestChangeset.pathname,
@@ -3257,6 +3268,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 

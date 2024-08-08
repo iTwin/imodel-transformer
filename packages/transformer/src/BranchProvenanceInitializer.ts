@@ -96,6 +96,7 @@ export async function initializeBranchProvenance(
         FROM master.bis_Element m
         WHERE m.Id=main.bis_Element.Id
       )`,
+      /* eslint-disable deprecation/deprecation */
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
         assert(
@@ -119,6 +120,7 @@ export async function initializeBranchProvenance(
         args.branch.nativeDb.getLastError()
       );
     });
+    /* eslint-enable deprecation/deprecation */
     args.branch.performCheckpoint();
 
     const reopenBranch = makeDbReopener(args.branch);
