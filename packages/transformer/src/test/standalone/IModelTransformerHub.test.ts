@@ -1554,11 +1554,12 @@ describe("IModelTransformerHub", () => {
         const changesetPath = masterDbChangeset.pathname;
         assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
-        // eslint-disable-next-line deprecation/deprecation
+        /* eslint-disable deprecation/deprecation */
         const statusOrResult =
           master.db.nativeDb.extractChangedInstanceIdsFromChangeSets([
             changesetPath,
           ]);
+        /* eslint-enable deprecation/deprecation */
         assert.isUndefined(statusOrResult.error);
         const result = statusOrResult.result;
         if (result === undefined) throw Error("expected to be defined");
@@ -1632,11 +1633,12 @@ describe("IModelTransformerHub", () => {
         const changesetPath = replayedDbChangeset.pathname;
         assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
-        // eslint-disable-next-line deprecation/deprecation
+        /* eslint-disable deprecation/deprecation */
         const statusOrResult =
           replayedDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
             changesetPath,
           ]);
+        /* eslint-enable deprecation/deprecation */
         const result = statusOrResult.result;
         if (result === undefined) throw Error("expected to be defined");
 
@@ -1765,11 +1767,12 @@ describe("IModelTransformerHub", () => {
       });
       expect(sourceDbChangesets).to.have.length(2);
       const latestChangeset = sourceDbChangesets[1];
-      // eslint-disable-next-line deprecation/deprecation
+      /* eslint-disable deprecation/deprecation */
       const extractedChangedIds =
         sourceDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
           latestChangeset.pathname,
         ]);
+      /* eslint-enable deprecation/deprecation */
       const expectedChangedIds: IModelJsNative.ChangedInstanceIdsProps = {
         element: { update: [modelSelectorId] },
         model: { update: [IModel.dictionaryId] }, // containing model will also get last modification time updated
@@ -2459,11 +2462,12 @@ describe("IModelTransformerHub", () => {
       });
       expect(branchDbChangesets).to.have.length(2);
       const latestChangeset = branchDbChangesets[1];
-      // eslint-disable-next-line deprecation/deprecation
+      /* eslint-disable deprecation/deprecation */
       const extractedChangedIds =
         branchDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
           latestChangeset.pathname,
         ]);
+      /* eslint-enable deprecation/deprecation */
       const aspectDeletions = [
         ...modelToDeleteWithElem.aspects,
         ...childSubject.aspects,
