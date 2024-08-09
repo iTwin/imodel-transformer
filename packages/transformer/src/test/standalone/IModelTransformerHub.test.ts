@@ -2091,6 +2091,112 @@ describe("IModelTransformerHub", () => {
     transformer.dispose();
   });
 
+  it("should properly delete element in master when element in branch is deleted alongside all of its ESAs.", async () => {
+    // This test exercises elemIdToScopeESAs map in IModelTransformer.
+    // create masterdb
+    // create branch
+    // insert multiple elements and relationships into master.
+    // forward sync causing ESAs to be created for the elements and relationships.
+    // delete all the aspects and the element that had those aspects on them in the branch
+    // reverse sync.
+    // expect that the correct element in master db was deleted.
+    const masterIModelName = "MasterMultipleESAsDifferentKinds";
+    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
+    if (IModelJsFs.existsSync(masterSeedFileName))
+      IModelJsFs.removeSync(masterSeedFileName);
+    const masterSeedState = { 1: 1, 2: 1 };
+    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+      rootSubject: { name: masterIModelName },
+    });
+    // eslint-disable-next-line deprecation/deprecation
+    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    populateTimelineSeed(masterSeedDb, masterSeedState);
+    const masterSeed: TimelineIModelState = {
+      // HACK: we know this will only be used for seeding via its path and performCheckpoint
+      db: masterSeedDb as any as BriefcaseDb,
+      id: "master-seed",
+      state: masterSeedState,
+    };
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } }, // masterSeedState is above
+      { branch1: { branch: "master" } },
+      { master: { 3: 3, 4: 4, 5: 5 } },
+      {
+        master: {
+          manualUpdate(db) {
+            // Create relationships in master iModel. Each one will introduce a new aspect of kind "Relationship".
+            const sourceId = IModelTestUtils.queryByUserLabel(db, "3");
+            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+            const targetId2 = IModelTestUtils.queryByUserLabel(db, "1");
+            const targetId3 = IModelTestUtils.queryByUserLabel(db, "4");
+            const targetId4 = IModelTestUtils.queryByUserLabel(db, "5");
+            ElementGroupsMembers.create(db, sourceId, targetId).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId2).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId3).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId4).insert();
+          },
+        },
+      },
+      {
+        branch1: {
+          sync: ["master"],
+        },
+      }, // first master->branch1 forward sync picking up new relationship from master imodel
+      {
+        assert({ branch1 }) {
+          const elemId = IModelTestUtils.queryByUserLabel(branch1.db, "3");
+          const aspects = branch1.db.elements.getAspects(
+            elemId,
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[];
+          expect(aspects.length).to.be.equal(5); // 4 relationships + 1 element.
+          aspects.forEach((a, index) => {
+            if (index === 0)
+              expect(a.kind).to.be.equal(ExternalSourceAspect.Kind.Element);
+            else
+              expect(a.kind).to.be.equal(
+                ExternalSourceAspect.Kind.Relationship
+              );
+          });
+        },
+      },
+      {
+        branch1: {
+          manualUpdate(db) {
+            const elemId = IModelTestUtils.queryByUserLabel(db, "3");
+            const aspects = db.elements.getAspects(
+              elemId
+            ) as ExternalSourceAspect[];
+            aspects.forEach((a) => db.elements.deleteAspect(a.id));
+            db.elements.deleteElement(elemId);
+          },
+        },
+      },
+      {
+        master: {
+          sync: ["branch1"],
+        },
+      }, // sync branch1 into master picking up deletes
+      {
+        assert({ master, branch1 }) {
+          const elem = IModelTestUtils.queryByUserLabel(branch1.db, "3");
+          expect(elem).to.be.equal(Id64.invalid);
+          const elemInMaster = IModelTestUtils.queryByUserLabel(master.db, "3");
+          expect(elemInMaster).to.be.equal(Id64.invalid);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      transformerOpts: {
+        forceExternalSourceAspectProvenance: true,
+      },
+    });
+    await tearDown();
+  });
+
   it("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
     const seedFileName = path.join(outputDir, "seed.bim");
     if (IModelJsFs.existsSync(seedFileName))
