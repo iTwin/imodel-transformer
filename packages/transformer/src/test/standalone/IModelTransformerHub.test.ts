@@ -3586,12 +3586,12 @@ describe("IModelTransformerHub", () => {
     ) => {
       transformer["_options"]["branchRelationshipDataBehavior"] =
         "unsafe-migrate";
-      transformer["_options"][
-        "argsForProcessChanges"
-      ]!.unsafeFallbackReverseSyncVersion = ";2";
-      transformer["_options"][
-        "argsForProcessChanges"
-      ]!.unsafeFallbackSyncVersion = ";3";
+      transformer["_options"]["argsForProcessChanges"]![
+        "unsafeFallbackReverseSyncVersion"
+      ] = ";2";
+      transformer["_options"]["argsForProcessChanges"]![
+        "unsafeFallbackSyncVersion"
+      ] = ";3";
     };
 
     const timeline: Timeline = [
