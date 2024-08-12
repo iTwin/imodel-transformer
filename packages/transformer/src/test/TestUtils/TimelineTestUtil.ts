@@ -515,8 +515,9 @@ export async function runTimeline(
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
           argsForProcessChanges: {
-            accessToken,
-            startChangeset: startIndex ? { index: startIndex } : undefined,
+            startChangeset: startIndex
+              ? { index: startIndex }
+              : { index: undefined },
           },
         });
         initTransformer?.(syncer);

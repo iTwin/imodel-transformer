@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  AccessToken,
   assert,
   DbResult,
   Id64,
@@ -81,7 +80,6 @@ export class Transformer extends IModelTransformer {
   }
 
   public static async transformChanges(
-    accessToken: AccessToken,
     sourceDb: IModelDb,
     targetDb: IModelDb,
     sourceStartChangesetId: string,
@@ -94,7 +92,6 @@ export class Transformer extends IModelTransformer {
     const transformer = new Transformer(sourceDb, targetDb, {
       ...options,
       argsForProcessChanges: {
-        accessToken,
         startChangeset: { id: sourceStartChangesetId },
       },
     });

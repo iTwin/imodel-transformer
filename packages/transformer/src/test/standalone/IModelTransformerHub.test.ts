@@ -260,7 +260,6 @@ describe("IModelTransformerHub", () => {
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb, {
           argsForProcessChanges: {
-            accessToken,
             startChangeset: { id: sourceDb.changeset.id },
           },
         });
@@ -339,7 +338,7 @@ describe("IModelTransformerHub", () => {
         const transformer = new TestIModelTransformer(
           sourceDb,
           targetImporter,
-          { argsForProcessChanges: { accessToken } }
+          { argsForProcessChanges: {} }
         );
         await transformer.process();
         assert.equal(targetImporter.numModelsInserted, 0);
@@ -422,7 +421,7 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
 
         const transformer = new TestIModelTransformer(sourceDb, targetDb, {
-          argsForProcessChanges: { accessToken },
+          argsForProcessChanges: {},
         });
         await transformer.process();
         transformer.dispose();
@@ -675,7 +674,6 @@ describe("IModelTransformerHub", () => {
         targetDb,
         targetModelId,
         {
-          accessToken,
           startChangeset: sourceDb.changeset,
         }
       );
@@ -1615,7 +1613,6 @@ describe("IModelTransformerHub", () => {
           toIndex: masterDbChangeset.index,
         });
         const replayTransformer = makeReplayTransformer({
-          accessToken,
           startChangeset: sourceDb.changeset,
         });
         await replayTransformer.process();
@@ -1805,7 +1802,7 @@ describe("IModelTransformerHub", () => {
       const synchronizer = new IModelTransformerInjected(
         sourceDb,
         new IModelImporterInjected(targetDb),
-        { argsForProcessChanges: { accessToken } }
+        { argsForProcessChanges: {} }
       );
       await synchronizer.process();
       expect(didExportModelSelector).to.be.true;
@@ -1908,7 +1905,6 @@ describe("IModelTransformerHub", () => {
 
       transformer = new IModelTransformer(sourceDb, targetDb, {
         argsForProcessChanges: {
-          accessToken,
           startChangeset: { id: sourceDb.changeset.id },
         },
       });
@@ -2065,7 +2061,7 @@ describe("IModelTransformerHub", () => {
 
     // Reverse Sync to add a pendingsyncchangesetindex
     transformer = new IModelTransformer(targetDb, sourceDb, {
-      argsForProcessChanges: { accessToken },
+      argsForProcessChanges: {},
     });
     await transformer.process();
     let scopingEsa = transformer["_targetScopeProvenanceProps"];
@@ -2093,7 +2089,7 @@ describe("IModelTransformerHub", () => {
 
     // Forward Sync. We expect 4 is still there because we didnt process it (as a result of our sourceDb not being at the tip)
     transformer = new IModelTransformer(sourceDbNotAtTip, targetDb, {
-      argsForProcessChanges: { accessToken },
+      argsForProcessChanges: {},
     });
     await transformer.process();
     scopingEsa = transformer["_targetScopeProvenanceProps"];
@@ -2220,7 +2216,7 @@ describe("IModelTransformerHub", () => {
 
       // running reverse synchronization
       transformer = new IModelTransformer(targetDb, sourceDb, {
-        argsForProcessChanges: { accessToken },
+        argsForProcessChanges: {},
       });
 
       await transformer.process();
@@ -2520,7 +2516,7 @@ describe("IModelTransformerHub", () => {
 
       const synchronizer = new IModelTransformer(branchDb, masterDb, {
         // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
-        argsForProcessChanges: { accessToken },
+        argsForProcessChanges: {},
       });
       await synchronizer.process();
       branchDb.saveChanges();
@@ -2608,7 +2604,6 @@ describe("IModelTransformerHub", () => {
 
     const syncer = new IModelTransformer(branchAt2, master.db, {
       argsForProcessChanges: {
-        accessToken,
         startChangeset: branchAt2Changeset,
       },
     });
@@ -2616,7 +2611,6 @@ describe("IModelTransformerHub", () => {
     await syncer.process();
     expect(
       queryChangeset.alwaysCalledWith({
-        accessToken,
         iModelId: branch.id,
         changeset: {
           id: branchAt2Changeset.id,
@@ -3130,7 +3124,7 @@ describe("IModelTransformerHub", () => {
       );
       const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
-        argsForProcessChanges: { accessToken },
+        argsForProcessChanges: {},
       });
       transformer["_allowNoScopingESA"] = true;
 
@@ -3155,7 +3149,6 @@ describe("IModelTransformerHub", () => {
       const transformer2 = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
         argsForProcessChanges: {
-          accessToken,
           startChangeset: sourceDb.changeset,
         },
       });
@@ -3593,8 +3586,12 @@ describe("IModelTransformerHub", () => {
     ) => {
       transformer["_options"]["branchRelationshipDataBehavior"] =
         "unsafe-migrate";
-      transformer["_options"]["unsafeFallbackReverseSyncVersion"] = ";2";
-      transformer["_options"]["unsafeFallbackSyncVersion"] = ";3";
+      transformer["_options"][
+        "argsForProcessChanges"
+      ]!.unsafeFallbackReverseSyncVersion = ";2";
+      transformer["_options"][
+        "argsForProcessChanges"
+      ]!.unsafeFallbackSyncVersion = ";3";
     };
 
     const timeline: Timeline = [

@@ -9,7 +9,6 @@ import * as path from "path";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
-  AccessToken,
   assert,
   DbResult,
   Guid,
@@ -224,14 +223,6 @@ export interface IModelTransformOptions {
   noDetachChangeCache?: boolean;
 
   /**
-   * Do not check that process (with [[IModelTransformOptions.argsForProcessChanges]] provided) is called from the next changeset index.
-   * This is an unsafe option (e.g. it can cause data loss in future branch operations)
-   * and you should not use it.
-   * @default false
-   */
-  ignoreMissingChangesetsInSynchronizations?: boolean;
-
-  /**
    * Do not error out if a scoping ESA @see ExternalSourceAspectProps is found without a version or jsonProperties defined on that scoping ESA.
    * If true, the version and jsonproperties will be properly set on the scoping ESA @see TargetScopeProvenanceJsonProps after the transformer is complete.
    * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to 'unsafe-migrate' is not without risk.
@@ -240,22 +231,6 @@ export interface IModelTransformOptions {
    * @default "reject"
    */
   branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
-
-  /**
-   * The forward sync 'version' to set on the scoping ESA @see ExternalSourceAspectProps upon startup, if the version property on the scoping ESA is undefined or empty string.
-   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
-   * @note This value is ignored if the version property on the scoping ESA is NOT undefined or empty string.
-   * @default ""
-   */
-  unsafeFallbackSyncVersion?: string;
-
-  /**
-   * The reverse sync version to set on the scoping ESA @see TargetScopeProvenanceJsonProps upon startup, if the reverseSync property on the scoping ESA is undefined or empty string.
-   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
-   * @note This value is ignored if the reverseSyncVersion property on the scoping ESA is NOT undefined or empty string.
-   * @default ""
-   */
-  unsafeFallbackReverseSyncVersion?: string;
 
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
@@ -363,7 +338,6 @@ export interface InitOptions {
    * An authorizationClient allows the transformer to refresh the token as needed, minimizing the risk that a token expires and the transformer fails while performing
    * operations such as downloading changesets.
    */
-  accessToken?: AccessToken;
   /**
    * Include changes from this changeset up through and including the current changeset.
    * @note To form a range of versions to process, set `startChangeset` for the start (inclusive)
@@ -382,6 +356,27 @@ export interface InitOptions {
 export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
   saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>;
+  /**
+   * The forward sync 'version' to set on the scoping ESA @see ExternalSourceAspectProps upon startup, if the version property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the version property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackSyncVersion?: string;
+  /**
+   * The reverse sync version to set on the scoping ESA @see TargetScopeProvenanceJsonProps upon startup, if the reverseSync property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the reverseSyncVersion property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackReverseSyncVersion?: string;
+  /**
+   * Do not check that process (with [[IModelTransformOptions.argsForProcessChanges]] provided) is called from the next changeset index.
+   * This is an unsafe option (e.g. it can cause data loss in future branch operations)
+   * and you should not use it.
+   * @default false
+   */
+  ignoreMissingChangesetsInSynchronizations?: boolean;
 };
 
 type ChangeDataState =
@@ -640,7 +635,10 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
     };
-
+    // check if authorization client is defined
+    if (IModelHost.authorizationClient === undefined) {
+      Logger.logWarning(loggerCategory, "No authorization client provided");
+    }
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
       ? true
@@ -1141,9 +1139,10 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._options.branchRelationshipDataBehavior !== "unsafe-migrate")
       return madeChange;
     const fallbackSyncVersionToUse =
-      this._options.unsafeFallbackSyncVersion ?? "";
+      this._options.argsForProcessChanges?.unsafeFallbackSyncVersion ?? "";
     const fallbackReverseSyncVersionToUse =
-      this._options.unsafeFallbackReverseSyncVersion ?? "";
+      this._options.argsForProcessChanges?.unsafeFallbackReverseSyncVersion ??
+      "";
 
     if (
       aspectProps.version === undefined ||
@@ -3132,7 +3131,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private async _tryInitChangesetData(args?: InitOptions) {
+  private async _tryInitChangesetData(args?: ProcessChangesOptions) {
     if (
       !args ||
       this.sourceDb.iTwinId === undefined ||
@@ -3149,12 +3148,14 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps = [];
       return;
     }
+    const startChangeset =
+      "startChangeset" in args ? args.startChangeset : undefined;
 
     // NOTE: that we do NOT download the changesummary for the last transformed version, we want
     // to ignore those already processed changes
     const startChangesetIndexOrId =
-      args.startChangeset?.index ??
-      args.startChangeset?.id ??
+      startChangeset?.index ??
+      startChangeset?.id ??
       this.synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
@@ -3167,7 +3168,6 @@ export class IModelTransformer extends IModelExportHandler {
                 iModelId: this.sourceDb.iModelId,
                 // eslint-disable-next-line deprecation/deprecation
                 changeset: { id: indexOrId },
-                accessToken: args.accessToken,
               })
               .then((changeset) => changeset.index)
       )
@@ -3176,7 +3176,8 @@ export class IModelTransformer extends IModelExportHandler {
     const missingChangesets =
       startChangesetIndex > this.synchronizationVersion.index + 1;
     if (
-      !this._options.ignoreMissingChangesetsInSynchronizations &&
+      !this._options.argsForProcessChanges
+        ?.ignoreMissingChangesetsInSynchronizations &&
       startChangesetIndex !== this.synchronizationVersion.index + 1 &&
       this.synchronizationVersion.index !== -1
     ) {
@@ -3352,18 +3353,19 @@ export class IModelTransformer extends IModelExportHandler {
   /** Changeset data must be initialized in order to build correct changeOptions.
    * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
    */
-  private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
+  private getExportInitOpts(opts: ExportChangesOptions): ExporterInitOptions {
     if (!this._options.argsForProcessChanges) return {};
+    const startChangeset =
+      "startChangeset" in opts ? opts.startChangeset : undefined;
     return {
       skipPropagateChangesToRootElements:
         this._options.skipPropagateChangesToRootElements,
-      accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
         : this._changesetRanges
           ? { changesetRanges: this._changesetRanges }
-          : opts.startChangeset
-            ? { startChangeset: opts.startChangeset }
+          : startChangeset
+            ? { startChangeset }
             : {
                 startChangeset: {
                   index: this.synchronizationVersion.index + 1,
