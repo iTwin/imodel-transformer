@@ -292,6 +292,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
   protected onInsertElement(elementProps: ElementProps): Id64String {
+    /* eslint-disable deprecation/deprecation */
     try {
       const elementId = this.targetDb.nativeDb.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
@@ -324,6 +325,7 @@ export class IModelImporter {
       }
       throw error; // throw original error
     }
+    /* eslint-enable deprecation/deprecation */
   }
 
   /** Update an existing Element in the target iModel from the specified ElementProps.
@@ -340,6 +342,7 @@ export class IModelImporter {
     );
     this.trackProgress();
     if (this.options.simplifyElementGeometry) {
+      /* eslint-disable-next-line deprecation/deprecation */
       this.targetDb.nativeDb.simplifyElementGeometry({
         id: elementProps.id,
         convertBReps: true,
@@ -757,6 +760,7 @@ export class IModelImporter {
    */
   public optimizeGeometry(options: OptimizeGeometryOptions): void {
     if (options.inlineUniqueGeometryParts) {
+      /* eslint-disable-next-line deprecation/deprecation */
       const result = this.targetDb.nativeDb.inlineGeometryPartReferences();
       Logger.logInfo(
         loggerCategory,

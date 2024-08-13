@@ -2742,6 +2742,7 @@ export class IModelTransformer extends IModelExportHandler {
       );
       this._longNamedSchemasMap.set(schema.name, schemaFileName);
     }
+    /* eslint-disable-next-line deprecation/deprecation */
     this.sourceDb.nativeDb.exportSchema(
       schema.name,
       this._schemaExportDir,
@@ -2962,7 +2963,8 @@ export class IModelTransformer extends IModelExportHandler {
         if (
           changeType === "Deleted" &&
           change?.$meta?.classFullName === ExternalSourceAspect.classFullName &&
-          change.Scope.Id === this.targetScopeElementId
+          change.Scope.Id === this.targetScopeElementId &&
+          change.Kind === ExternalSourceAspect.Kind.Element
         ) {
           elemIdToScopeEsa.set(change.Element.Id, change);
         } else if (
