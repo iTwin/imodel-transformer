@@ -425,8 +425,6 @@ export class IModelExporter {
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
    *       for consecutive calls
    */
-  public async exportChanges(args?: ExportChangesOptions): Promise<void>;
-
   public async exportChanges(args?: ExportChangesOptions): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb())
       throw new IModelError(
@@ -440,7 +438,7 @@ export class IModelExporter {
     }
 
     const startChangeset =
-      "startChangeset" in args! ? args.startChangeset : undefined;
+      args && "startChangeset" in args ? args.startChangeset : undefined;
 
     const initOpts: ExporterInitOptions = {
       accessToken: args!.accessToken,
