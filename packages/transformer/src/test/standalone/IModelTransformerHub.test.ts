@@ -227,7 +227,7 @@ describe("IModelTransformerHub", () => {
           sourceExportFileName
         );
         sourceExporter.exporter["_resetChangeDataOnExport"] = false;
-        await sourceExporter.exportChanges(accessToken);
+        await sourceExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges = (sourceExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
@@ -283,7 +283,7 @@ describe("IModelTransformerHub", () => {
           targetExportFileName
         );
         targetExporter.exporter["_resetChangeDataOnExport"] = false;
-        await targetExporter.exportChanges(accessToken);
+        await targetExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
@@ -390,7 +390,7 @@ describe("IModelTransformerHub", () => {
           sourceExportFileName
         );
         sourceExporter.exporter["_resetChangeDataOnExport"] = false;
-        await sourceExporter.exportChanges(accessToken);
+        await sourceExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges: any = (sourceExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
@@ -434,7 +434,7 @@ describe("IModelTransformerHub", () => {
           targetExportFileName
         );
         targetExporter.exporter["_resetChangeDataOnExport"] = false;
-        await targetExporter.exportChanges(accessToken);
+        await targetExporter.exportChanges({ accessToken });
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
