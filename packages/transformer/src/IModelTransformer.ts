@@ -3420,7 +3420,7 @@ export class TemplateModelCloner extends IModelTransformer {
   /** Cloning from a template requires this override of onTransformElement. */
   public override onTransformElement(sourceElement: Element): ElementProps {
     // eslint-disable-next-line deprecation/deprecation
-    const referenceIds = sourceElement.getReferenceConcreteIds();
+    const referenceIds = sourceElement.getReferenceIds();
     referenceIds.forEach((referenceId) => {
       // TODO: consider going through all definition elements at once and remapping them to themselves
       if (
