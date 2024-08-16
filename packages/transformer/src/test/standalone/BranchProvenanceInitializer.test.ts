@@ -422,6 +422,7 @@ async function classicalTransformerBranchInit(
 }
 
 function setToStandalone(iModelName: string) {
+  // eslint-disable-next-line deprecation/deprecation
   const nativeDb = new IModelHost.platform.DgnDb();
   nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
   nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"

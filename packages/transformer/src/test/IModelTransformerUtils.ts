@@ -549,8 +549,9 @@ export async function assertIdentityTransformation(
           remapper.findTargetCodeSpecId,
           remapper.findTargetAspectId,
         ];
-
+  /* eslint-disable-next-line deprecation/deprecation */
   expect(sourceDb.nativeDb.hasUnsavedChanges()).to.be.false;
+  /* eslint-disable-next-line deprecation/deprecation */
   expect(targetDb.nativeDb.hasUnsavedChanges()).to.be.false;
 
   const sourceToTargetElemsMap = new Map<Element, Element | undefined>();
