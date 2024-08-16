@@ -333,12 +333,6 @@ function mapId64<R>(
  */
 export interface InitOptions {
   /**
-   * Access token to use during run of transformer. If not provided, the transformer will call [[IModelHost.authorizationClient.getAccessToken]] in order to get a token.
-   * @note Consumers should always prefer to pass an authorizationClient to [[IModelHost.startup]] and NOT pass a token as part of the InitOptions.
-   * An authorizationClient allows the transformer to refresh the token as needed, minimizing the risk that a token expires and the transformer fails while performing
-   * operations such as downloading changesets.
-   */
-  /**
    * Include changes from this changeset up through and including the current changeset.
    * @note To form a range of versions to process, set `startChangeset` for the start (inclusive)
    * of the desired range and open the source iModel as of the end (inclusive) of the desired range.
@@ -637,7 +631,10 @@ export class IModelTransformer extends IModelExportHandler {
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
-      Logger.logWarning(loggerCategory, "No authorization client provided");
+      Logger.logWarning(
+        loggerCategory,
+        "Authorization client is not set in IModelHost. If the transformer needs an accessToken, then it will fail."
+      );
     }
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
@@ -1506,7 +1503,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Returns `true` if *brute force* delete detections should be run.
    * @note This is only called if [[IModelTransformOptions.forceExternalSourceAspectProvenance]] option is true
-   * @note Not relevant for [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are provided when change history is known.
+   * @note Not relevant for [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are provided and change history is known.
    */
   protected shouldDetectDeletes(): boolean {
     nodeAssert(this._syncType !== undefined);
