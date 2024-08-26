@@ -436,16 +436,12 @@ export class IModelExporter {
       return;
     }
 
+    const startChangeset =
+      args && "startChangeset" in args ? args.startChangeset : undefined;
+
     const initOpts: ExporterInitOptions = {
-      accessToken: args!.accessToken,
       startChangeset: { id: startChangeset?.id },
     };
-    const initOpts: ExporterInitOptions =
-      typeof accessTokenOrOpts === "object"
-        ? accessTokenOrOpts
-        : {
-            startChangeset: { id: startChangesetId },
-          };
 
     await this.initialize(initOpts);
     // _sourceDbChanges are initialized in this.initialize
