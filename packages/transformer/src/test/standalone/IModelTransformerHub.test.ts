@@ -78,6 +78,7 @@ import {
   IModelExporter,
   IModelImporter,
   IModelTransformer,
+  ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../transformer";
 import {
@@ -257,12 +258,13 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.updateIds.size, 0);
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        transformer["_allowNoScopingESA"] = true;
-        await transformer.processChanges({
-          accessToken,
-          startChangeset: { id: sourceDb.changeset.id },
+        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
+          argsForProcessChanges: {
+            startChangeset: { id: sourceDb.changeset.id },
+          },
         });
+        transformer["_allowNoScopingESA"] = true;
+        await transformer.process();
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
@@ -333,8 +335,12 @@ describe("IModelTransformerHub", () => {
           ElementRefersToElements.classFullName
         );
         const targetImporter = new CountingIModelImporter(targetDb);
-        const transformer = new TestIModelTransformer(sourceDb, targetImporter);
-        await transformer.processChanges({ accessToken });
+        const transformer = new TestIModelTransformer(
+          sourceDb,
+          targetImporter,
+          { argsForProcessChanges: {} }
+        );
+        await transformer.process();
         assert.equal(targetImporter.numModelsInserted, 0);
         assert.equal(targetImporter.numModelsUpdated, 0);
         assert.equal(targetImporter.numElementsInserted, 0);
@@ -415,8 +421,10 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.codeSpec.deleteIds.size, 0);
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        await transformer.processChanges({ accessToken });
+        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
+          argsForProcessChanges: {},
+        });
+        await transformer.process();
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #2" });
@@ -603,12 +611,12 @@ describe("IModelTransformerHub", () => {
       assert.isTrue(Id64.isValidId64(targetModelId));
       targetDb.saveChanges();
 
-      const transformer = new PhysicalModelConsolidator(
+      let transformer = new PhysicalModelConsolidator(
         sourceDb,
         targetDb,
         targetModelId
       );
-      await transformer.processAll();
+      await transformer.process();
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
       const targetPartition =
@@ -662,11 +670,15 @@ describe("IModelTransformerHub", () => {
       assert.equal(7, count(sourceDb, PhysicalModel.classFullName));
       // 60 elements added
       assert.equal(185, count(sourceDb, PhysicalObject.classFullName));
-
-      await transformer.processChanges({
-        accessToken,
-        startChangeset: sourceDb.changeset,
-      });
+      transformer = new PhysicalModelConsolidator(
+        sourceDb,
+        targetDb,
+        targetModelId,
+        {
+          startChangeset: sourceDb.changeset,
+        }
+      );
+      await transformer.process();
       transformer.dispose();
 
       const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
@@ -857,7 +869,7 @@ describe("IModelTransformerHub", () => {
         new IModelExporter(sourceDb),
         targetDb
       );
-      await transformer.processAll();
+      await transformer.process();
       transformer.dispose();
       IModelTransformerTestUtils.assertTeamIModelContents(targetDb, "Test");
       targetDb.saveChanges();
@@ -1585,8 +1597,12 @@ describe("IModelTransformerHub", () => {
         iModelId: master.id,
         asOf: IModelVersion.first().toJSON(),
       });
-      const makeReplayTransformer = () => {
-        const result = new IModelTransformer(sourceDb, replayedDb);
+      const makeReplayTransformer = (
+        argsForProcessChanges?: ProcessChangesOptions
+      ) => {
+        const result = new IModelTransformer(sourceDb, replayedDb, {
+          argsForProcessChanges,
+        });
         // this replay strategy pretends that deleted elements never existed
         for (const elementId of masterDeletedElementIds) {
           result.exporter.excludeElement(elementId);
@@ -1596,20 +1612,19 @@ describe("IModelTransformerHub", () => {
 
       // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
       const replayInitTransformer = makeReplayTransformer();
-      await replayInitTransformer.processAll(); // process any elements that were part of the "seed"
+      await replayInitTransformer.process(); // process any elements that were part of the "seed"
       replayInitTransformer.dispose();
 
       await saveAndPushChanges(replayedDb, "changes from source seed");
       for (const masterDbChangeset of masterDbChangesets) {
-        const replayTransformer = makeReplayTransformer();
         await sourceDb.pullChanges({
           accessToken,
           toIndex: masterDbChangeset.index,
         });
-        await replayTransformer.processChanges({
-          accessToken,
+        const replayTransformer = makeReplayTransformer({
           startChangeset: sourceDb.changeset,
         });
+        await replayTransformer.process();
         await saveAndPushChanges(
           replayedDb,
           masterDbChangeset.description ?? ""
@@ -1732,7 +1747,7 @@ describe("IModelTransformerHub", () => {
         wasSourceIModelCopiedToTarget: true,
       });
       await provenanceInitializer.processSchemas();
-      await provenanceInitializer.processAll();
+      await provenanceInitializer.process();
       provenanceInitializer.dispose();
 
       // update source (add model2 to model selector)
@@ -1799,9 +1814,10 @@ describe("IModelTransformerHub", () => {
 
       const synchronizer = new IModelTransformerInjected(
         sourceDb,
-        new IModelImporterInjected(targetDb)
+        new IModelImporterInjected(targetDb),
+        { argsForProcessChanges: {} }
       );
-      await synchronizer.processChanges({ accessToken });
+      await synchronizer.process();
       expect(didExportModelSelector).to.be.true;
       expect(didImportModelSelector).to.be.true;
       synchronizer.dispose();
@@ -1889,7 +1905,7 @@ describe("IModelTransformerHub", () => {
         iModelId: targetIModelId,
       });
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       targetDb.saveChanges();
       transformer.dispose();
 
@@ -1900,11 +1916,12 @@ describe("IModelTransformerHub", () => {
         description: "PhysicalPartition",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({
-        accessToken,
-        startChangeset: { id: sourceDb.changeset.id },
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: {
+          startChangeset: { id: sourceDb.changeset.id },
+        },
       });
+      await transformer.process();
 
       const elementCodeValueMap = new Map<Id64String, string>();
       targetDb.withStatement(
@@ -2038,7 +2055,7 @@ describe("IModelTransformerHub", () => {
     let transformer = new IModelTransformer(sourceDb, targetDb, {
       wasSourceIModelCopiedToTarget: true,
     });
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
     await targetDb.pushChanges({ description: "fork init" });
     const catIdInTarget = transformer.context.findTargetElementId(categoryId1);
@@ -2056,8 +2073,10 @@ describe("IModelTransformerHub", () => {
     sourceDb.performCheckpoint();
 
     // Reverse Sync to add a pendingsyncchangesetindex
-    transformer = new IModelTransformer(targetDb, sourceDb);
-    await transformer.processChanges({ accessToken });
+    transformer = new IModelTransformer(targetDb, sourceDb, {
+      argsForProcessChanges: {},
+    });
+    await transformer.process();
     let scopingEsa = transformer["_targetScopeProvenanceProps"];
     expect(
       scopingEsa?.jsonProperties.pendingSyncChangesetIndices.length
@@ -2082,8 +2101,10 @@ describe("IModelTransformerHub", () => {
     );
 
     // Forward Sync. We expect 4 is still there because we didnt process it (as a result of our sourceDb not being at the tip)
-    transformer = new IModelTransformer(sourceDbNotAtTip, targetDb);
-    await transformer.processChanges({ accessToken });
+    transformer = new IModelTransformer(sourceDbNotAtTip, targetDb, {
+      argsForProcessChanges: {},
+    });
+    await transformer.process();
     scopingEsa = transformer["_targetScopeProvenanceProps"];
     expect(
       scopingEsa?.jsonProperties.pendingSyncChangesetIndices
@@ -2275,7 +2296,7 @@ describe("IModelTransformerHub", () => {
       let transformer = new IModelTransformer(sourceDb, targetDb, {
         wasSourceIModelCopiedToTarget: true,
       });
-      await transformer.processAll();
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "fork init" });
       transformer.dispose();
@@ -2314,10 +2335,10 @@ describe("IModelTransformerHub", () => {
 
       // running reverse synchronization
       transformer = new IModelTransformer(targetDb, sourceDb, {
-        isReverseSynchronization: true,
+        argsForProcessChanges: {},
       });
 
-      await transformer.processChanges({ accessToken });
+      await transformer.process();
       transformer.dispose();
 
       expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(7);
@@ -2495,7 +2516,7 @@ describe("IModelTransformerHub", () => {
         wasSourceIModelCopiedToTarget: true,
       });
       await provenanceInitializer.processSchemas();
-      await provenanceInitializer.processAll();
+      await provenanceInitializer.process();
       provenanceInitializer.dispose();
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "setup branch" });
@@ -2616,9 +2637,9 @@ describe("IModelTransformerHub", () => {
 
       const synchronizer = new IModelTransformer(branchDb, masterDb, {
         // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
-        isReverseSynchronization: true,
+        argsForProcessChanges: {},
       });
-      await synchronizer.processChanges({ accessToken });
+      await synchronizer.process();
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
@@ -2703,16 +2724,14 @@ describe("IModelTransformerHub", () => {
     });
 
     const syncer = new IModelTransformer(branchAt2, master.db, {
-      isReverseSynchronization: true,
+      argsForProcessChanges: {
+        startChangeset: branchAt2Changeset,
+      },
     });
     const queryChangeset = sinon.spy(HubMock, "queryChangeset");
-    await syncer.processChanges({
-      accessToken,
-      startChangeset: branchAt2Changeset,
-    });
+    await syncer.process();
     expect(
       queryChangeset.alwaysCalledWith({
-        accessToken,
         iModelId: branch.id,
         changeset: {
           id: branchAt2Changeset.id,
@@ -2782,7 +2801,7 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "insert physical element" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       const forkedElementId =
         transformer.context.findTargetElementId(originalElementId);
       expect(forkedElementId).not.to.be.undefined;
@@ -2799,9 +2818,9 @@ describe("IModelTransformerHub", () => {
       });
 
       transformer = new IModelTransformer(targetDb, sourceDb, {
-        isReverseSynchronization: true,
+        argsForProcessChanges: { startChangeset: targetDb.changeset },
       });
-      await transformer.processChanges({ startChangeset: targetDb.changeset });
+      await transformer.process();
       sourceDb.saveChanges();
       await sourceDb.pushChanges({
         description: "change processing transformation",
@@ -2892,7 +2911,7 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       transformer.dispose();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "initial transformation" });
@@ -2950,8 +2969,10 @@ describe("IModelTransformerHub", () => {
         description: "recreated elements & models",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({ startChangeset: sourceDb.changeset });
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: { startChangeset: sourceDb.changeset },
+      });
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({
         description: "change processing transformation",
@@ -3012,8 +3033,10 @@ describe("IModelTransformerHub", () => {
         description: "inserted a third copy of the subject with userLabel C",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({ startChangeset });
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: { startChangeset },
+      });
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "transformation" });
 
@@ -3094,7 +3117,7 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       transformer.dispose();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "initial transformation" });
@@ -3132,8 +3155,10 @@ describe("IModelTransformerHub", () => {
         description: "recreated elements & models",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({ startChangeset: sourceDb.changeset });
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: { startChangeset: sourceDb.changeset },
+      });
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({
         description: "change processing transformation",
@@ -3220,11 +3245,12 @@ describe("IModelTransformerHub", () => {
       );
       const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
+        argsForProcessChanges: {},
       });
       transformer["_allowNoScopingESA"] = true;
 
       // run first transformation
-      await transformer.processChanges({ accessToken });
+      await transformer.process();
       await saveAndPushChanges(targetDb, "First transformation");
 
       const addedAspectProps: ExternalSourceAspectProps = {
@@ -3241,10 +3267,13 @@ describe("IModelTransformerHub", () => {
 
       await saveAndPushChanges(sourceDb, "Update source");
 
-      await transformer.processChanges({
-        accessToken,
-        startChangeset: sourceDb.changeset,
+      const transformer2 = new IModelTransformer(exporter, targetDb, {
+        includeSourceProvenance: true,
+        argsForProcessChanges: {
+          startChangeset: sourceDb.changeset,
+        },
       });
+      await transformer2.process();
       await saveAndPushChanges(targetDb, "Second transformation");
 
       const targetElementIds = targetDb.queryEntityIds({
@@ -3679,8 +3708,12 @@ describe("IModelTransformerHub", () => {
     ) => {
       transformer["_options"]["branchRelationshipDataBehavior"] =
         "unsafe-migrate";
-      transformer["_options"]["unsafeFallbackReverseSyncVersion"] = ";2";
-      transformer["_options"]["unsafeFallbackSyncVersion"] = ";3";
+      transformer["_options"]["argsForProcessChanges"]![
+        "unsafeFallbackReverseSyncVersion"
+      ] = ";2";
+      transformer["_options"]["argsForProcessChanges"]![
+        "unsafeFallbackSyncVersion"
+      ] = ";3";
     };
 
     const timeline: Timeline = [

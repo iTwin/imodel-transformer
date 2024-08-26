@@ -118,7 +118,7 @@ describe("IModelCloneContext", () => {
       });
       // Import from beneath source Subject into target Subject
       const transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       targetDb.saveChanges();
 
       // Assertion

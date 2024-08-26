@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  AccessToken,
   assert,
   DbResult,
   Id64,
@@ -70,7 +69,7 @@ export class Transformer extends IModelTransformer {
     const transformer = new Transformer(sourceDb, targetDb, options);
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
-    await transformer.processAll();
+    await transformer.process();
     await transformer.saveChanges("processAll");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();
@@ -81,7 +80,6 @@ export class Transformer extends IModelTransformer {
   }
 
   public static async transformChanges(
-    accessToken: AccessToken,
     sourceDb: IModelDb,
     targetDb: IModelDb,
     sourceStartChangesetId: string,
@@ -91,13 +89,15 @@ export class Transformer extends IModelTransformer {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
     }
-    const transformer = new Transformer(sourceDb, targetDb, options);
+    const transformer = new Transformer(sourceDb, targetDb, {
+      ...options,
+      argsForProcessChanges: {
+        startChangeset: { id: sourceStartChangesetId },
+      },
+    });
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
-    await transformer.processChanges({
-      accessToken,
-      startChangeset: { id: sourceStartChangesetId },
-    });
+    await transformer.process();
     await transformer.saveChanges("processChanges");
     if (options?.deleteUnusedGeometryParts) {
       transformer.deleteUnusedGeometryParts();

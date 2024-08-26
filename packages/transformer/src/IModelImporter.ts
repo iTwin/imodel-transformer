@@ -680,7 +680,7 @@ export class IModelImporter {
   protected onProgress(): void {}
 
   /** Optionally compute the projectExtents for the target iModel depending on the options for this IModelImporter.
-   * @note This method is automatically called from [IModelTransformer.processChanges]($transformer) and [IModelTransformer.processAll]($transformer).
+   * @note This method is automatically called from [IModelTransformer.process]($transformer).
    * @see [IModelDb.computeProjectExtents]($backend), [[autoExtendProjectExtents]]
    */
   public computeProjectExtents(): void {
@@ -755,7 +755,7 @@ export class IModelImporter {
   }
 
   /** Examine the geometry streams of every [GeometricElement3d]($backend) in the target iModel and apply the specified optimizations.
-   * @note This method is automatically called from [[IModelTransformer.processChanges]] and [[IModelTransformer.processAll]] if
+   * @note This method is automatically called from [[IModelTransformer.process]] if
    * [[IModelTransformOptions.optimizeGeometry]] is defined.
    */
   public optimizeGeometry(options: OptimizeGeometryOptions): void {

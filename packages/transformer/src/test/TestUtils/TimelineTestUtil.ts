@@ -448,7 +448,7 @@ export async function runTimeline(
           ...transformerOpts,
           wasSourceIModelCopiedToTarget: true,
         });
-        await provenanceInserter.processAll();
+        await provenanceInserter.process();
         provenanceInserter.dispose();
         await saveAndPushChanges(
           accessToken,
@@ -514,14 +514,15 @@ export async function runTimeline(
 
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
-          isReverseSynchronization: !isForwardSync,
+          argsForProcessChanges: {
+            startChangeset: startIndex
+              ? { index: startIndex }
+              : { index: undefined },
+          },
         });
         initTransformer?.(syncer);
         try {
-          await syncer.processChanges({
-            accessToken,
-            startChangeset: startIndex ? { index: startIndex } : undefined,
-          });
+          await syncer.process();
           expect(
             expectThrow === false || expectThrow === undefined,
             "expectThrow was set to true and transformer succeeded."
