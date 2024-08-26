@@ -379,11 +379,6 @@ type ChangeDataState =
   | "no-changes"
   | "unconnected";
 
-/** Arguments you can pass to [[IModelTransformer.initExternalSourceAspects]]
- * @deprecated in 0.1.0. Use [[InitOptions]] (and [[IModelTransformer.initialize]]) instead.
- */
-export type InitFromExternalSourceAspectsArgs = InitOptions;
-
 export interface RelationshipPropsForDelete {
   id: Id64String;
   classFullName: string;
@@ -1552,16 +1547,6 @@ export class IModelTransformer extends IModelExportHandler {
     });
   }
 
-  /**
-   * @deprecated in 3.x, this no longer has any effect except emitting a warning
-   */
-  protected skipElement(_sourceElement: Element): void {
-    Logger.logWarning(
-      loggerCategory,
-      "Tried to defer/skip an element, which is no longer necessary"
-    );
-  }
-
   /** Transform the specified sourceElement into ElementProps for the target iModel.
    * @param sourceElement The Element from the source iModel to transform.
    * @returns ElementProps for the target iModel.
@@ -2227,13 +2212,6 @@ export class IModelTransformer extends IModelExportHandler {
     return targetModelProps;
   }
 
-  /** Import elements that were deferred in a prior pass.
-   * @deprecated in 3.x. This method is no longer necessary since the transformer no longer needs to defer elements
-   */
-  public async processDeferredElements(
-    _numRetries: number = 3
-  ): Promise<void> {}
-
   /** called at the end of a transformation,
    * updates the target scope element to say that transformation up through the
    * source's changeset has been performed. Also stores all changesets that occurred
@@ -2842,7 +2820,6 @@ export class IModelTransformer extends IModelExportHandler {
     this.context.remapElement(sourceSubjectId, targetSubjectId);
     await this.processChildElements(sourceSubjectId);
     await this.processSubjectSubModels(sourceSubjectId);
-    return this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
   }
 
   /** state to prevent reinitialization, @see [[initialize]] */
@@ -3283,7 +3260,6 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName
     );
-    await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
     if (
       this._options.forceExternalSourceAspectProvenance &&
       this.shouldDetectDeletes()
@@ -3334,7 +3310,6 @@ export class IModelTransformer extends IModelExportHandler {
   private async processChanges(options: ProcessChangesOptions): Promise<void> {
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(options));
-    await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
 
     if (this._options.optimizeGeometry)
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
@@ -3469,8 +3444,7 @@ export class TemplateModelCloner extends IModelTransformer {
 
   /** Cloning from a template requires this override of onTransformElement. */
   public override onTransformElement(sourceElement: Element): ElementProps {
-    // eslint-disable-next-line deprecation/deprecation
-    const referenceIds = sourceElement.getReferenceConcreteIds();
+    const referenceIds = sourceElement.getReferenceIds();
     referenceIds.forEach((referenceId) => {
       // TODO: consider going through all definition elements at once and remapping them to themselves
       if (

@@ -31,7 +31,6 @@ import {
   SqliteChangesetReader,
 } from "@itwin/core-backend";
 import {
-  AccessToken,
   assert,
   DbResult,
   Id64String,
@@ -425,17 +424,7 @@ export class IModelExporter {
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
    *       for consecutive calls
    */
-  public async exportChanges(args?: ExportChangesOptions): Promise<void>;
-  /** @deprecated in 0.1.x, use a single [[ExportChangesOptions]] object instead */
-  public async exportChanges(
-    accessToken?: AccessToken,
-    startChangesetId?: string,
-    args?: ExportChangesOptions
-  ): Promise<void>;
-  public async exportChanges(
-    accessTokenOrOpts?: AccessToken | ExportChangesOptions,
-    startChangesetId?: string
-  ): Promise<void> {
+  public async exportChanges(args?: ExportChangesOptions): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb())
       throw new IModelError(
         IModelStatus.BadRequest,
@@ -447,12 +436,12 @@ export class IModelExporter {
       return;
     }
 
-    const initOpts: ExporterInitOptions =
-      typeof accessTokenOrOpts === "object"
-        ? accessTokenOrOpts
-        : {
-            startChangeset: { id: startChangesetId },
-          };
+    const startChangeset =
+      args && "startChangeset" in args ? args.startChangeset : undefined;
+
+    const initOpts: ExporterInitOptions = {
+      startChangeset: { id: startChangeset?.id },
+    };
 
     await this.initialize(initOpts);
     // _sourceDbChanges are initialized in this.initialize
