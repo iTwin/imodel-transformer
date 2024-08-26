@@ -1437,7 +1437,6 @@ export class ChangedInstanceIds {
     if ("changedInstanceIds" in opts) return opts.changedInstanceIds;
 
     const iModelId = opts.iModel.iModelId;
-    const accessToken = opts.accessToken;
 
     const startChangeset =
       "startChangeset" in opts ? opts.startChangeset : undefined;

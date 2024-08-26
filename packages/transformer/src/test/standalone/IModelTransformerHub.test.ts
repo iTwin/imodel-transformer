@@ -1002,7 +1002,7 @@ describe("IModelTransformerHub", () => {
         targetDb,
         targetModelId
       );
-      await transformer.processAll();
+      await transformer.process();
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
       const targetPartition =

@@ -3535,13 +3535,12 @@ export class IModelTransformer extends IModelExportHandler {
     return {
       skipPropagateChangesToRootElements:
         this._options.skipPropagateChangesToRootElements,
-      accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
         : this._changesetRanges
           ? { changesetRanges: this._changesetRanges }
-          : opts.startChangeset
-            ? { startChangeset: opts.startChangeset }
+          : startChangeset
+            ? { startChangeset }
             : {
                 startChangeset: {
                   index: this.synchronizationVersion.index + 1,
