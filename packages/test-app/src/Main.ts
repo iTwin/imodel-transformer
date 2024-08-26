@@ -578,7 +578,6 @@ void (async () => {
     if (processChanges) {
       assert(undefined !== args.sourceStartChangesetId);
       await Transformer.transformChanges(
-        await acquireAccessToken(),
         sourceDb,
         targetDb,
         args.sourceStartChangesetId,

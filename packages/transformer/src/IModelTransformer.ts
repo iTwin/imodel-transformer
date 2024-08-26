@@ -9,7 +9,6 @@ import * as path from "path";
 import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
-  AccessToken,
   assert,
   DbResult,
   Guid,
@@ -135,7 +134,7 @@ export interface IModelTransformOptions {
   targetScopeElementId?: Id64String;
 
   /** Set to `true` if IModelTransformer should not record its provenance.
-   * Provenance tracks a target element back to its corresponding source element and is essential for [[IModelTransformer.processChanges]] to work properly.
+   * Provenance tracks a target element back to its corresponding source element and is essential for [[IModelTransformer.process]] to work properly when [[IModelTransformOptions.argsForProcessChanges]] are provided.
    * Turning off IModelTransformer provenance is really only relevant for producing snapshots or another one time transformations.
    * @note See the [[includeSourceProvenance]] option for determining whether existing source provenance is cloned into the target.
    * @note The default is `false` which means that new IModelTransformer provenance will be recorded.
@@ -154,14 +153,6 @@ export interface IModelTransformOptions {
    * @note This *hint* is typically only set for the first synchronization after the iModel was copied since every other synchronization can utilize the provenance.
    */
   wasSourceIModelCopiedToTarget?: boolean;
-
-  /** Flag that indicates that the current source and target iModels are now synchronizing in the reverse direction from a prior synchronization.
-   * The most common example is to first synchronize master to branch, make changes to the branch, and then reverse directions to synchronize from branch to master.
-   * This means that the provenance on the (current) source is used instead.
-   * @note This also means that only [[IModelTransformer.processChanges]] can detect deletes.
-   * @deprecated in 1.x this option is ignored and the transformer now detects synchronization direction using the target scope element
-   */
-  isReverseSynchronization?: boolean;
 
   /** Flag that indicates whether or not the transformation process needs to consider the source geometry before cloning/transforming.
    * For standard cases, it is not required to load the source GeometryStream in JavaScript since the cloning happens in native code.
@@ -208,7 +199,7 @@ export interface IModelTransformOptions {
    */
   danglingReferencesBehavior?: "reject" | "ignore";
 
-  /** If defined, options to be supplied to [[IModelImporter.optimizeGeometry]] by [[IModelTransformer.processChanges]] and [[IModelTransformer.processAll]]
+  /** If defined, options to be supplied to [[IModelImporter.optimizeGeometry]] by [[IModelTransformer.process]]
    * as a post-processing step to optimize the geometry in the iModel.
    * @beta
    */
@@ -232,14 +223,6 @@ export interface IModelTransformOptions {
   noDetachChangeCache?: boolean;
 
   /**
-   * Do not check that processChanges is called from the next changeset index.
-   * This is an unsafe option (e.g. it can cause data loss in future branch operations)
-   * and you should not use it.
-   * @default false
-   */
-  ignoreMissingChangesetsInSynchronizations?: boolean;
-
-  /**
    * Do not error out if a scoping ESA @see ExternalSourceAspectProps is found without a version or jsonProperties defined on that scoping ESA.
    * If true, the version and jsonproperties will be properly set on the scoping ESA @see TargetScopeProvenanceJsonProps after the transformer is complete.
    * These properties not being defined are a sign that this branching relationship was created with an older version of the transformer, and setting this option to 'unsafe-migrate' is not without risk.
@@ -250,27 +233,17 @@ export interface IModelTransformOptions {
   branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
 
   /**
-   * The forward sync 'version' to set on the scoping ESA @see ExternalSourceAspectProps upon startup, if the version property on the scoping ESA is undefined or empty string.
-   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
-   * @note This value is ignored if the version property on the scoping ESA is NOT undefined or empty string.
-   * @default ""
-   */
-  unsafeFallbackSyncVersion?: string;
-
-  /**
-   * The reverse sync version to set on the scoping ESA @see TargetScopeProvenanceJsonProps upon startup, if the reverseSync property on the scoping ESA is undefined or empty string.
-   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
-   * @note This value is ignored if the reverseSyncVersion property on the scoping ESA is NOT undefined or empty string.
-   * @default ""
-   */
-  unsafeFallbackReverseSyncVersion?: string;
-
-  /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
    * If it is set to false, changes to root elements are propagated, the root subject name gets changed and leads to the iModelDb.name property being updated in .initializeiModelDb
    * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
+
+  /**
+   * Arguments to use for the processing of changes. The args being defined or not defined will influence the behavior of @see [[IModelTransformer.process]].
+   * @default undefined
+   */
+  argsForProcessChanges?: ProcessChangesOptions;
 }
 
 /**
@@ -359,7 +332,6 @@ function mapId64<R>(
  * @beta
  */
 export interface InitOptions {
-  accessToken?: AccessToken;
   /**
    * Include changes from this changeset up through and including the current changeset.
    * @note To form a range of versions to process, set `startChangeset` for the start (inclusive)
@@ -373,11 +345,32 @@ export interface InitOptions {
 }
 
 /**
- * Arguments for [[IModelTransformer.processChanges]]
+ * Arguments used during [[IModelTransformer.process]] if provided in [[IModelTransformOptions.argsForProcessChanges]].
  */
 export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
   saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>;
+  /**
+   * The forward sync 'version' to set on the scoping ESA @see ExternalSourceAspectProps upon startup, if the version property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the version property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackSyncVersion?: string;
+  /**
+   * The reverse sync version to set on the scoping ESA @see TargetScopeProvenanceJsonProps upon startup, if the reverseSync property on the scoping ESA is undefined or empty string.
+   * @note This option is not without risk! You must also set @see branchRelationshipDataBehavior to "unsafe-migrate".
+   * @note This value is ignored if the reverseSyncVersion property on the scoping ESA is NOT undefined or empty string.
+   * @default ""
+   */
+  unsafeFallbackReverseSyncVersion?: string;
+  /**
+   * Do not check that process (with [[IModelTransformOptions.argsForProcessChanges]] provided) is called from the next changeset index.
+   * This is an unsafe option (e.g. it can cause data loss in future branch operations)
+   * and you should not use it.
+   * @default false
+   */
+  ignoreMissingChangesetsInSynchronizations?: boolean;
 };
 
 type ChangeDataState =
@@ -442,8 +435,6 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** @see hasDefinitionContainerDeletionFeature */
   private _hasDefinitionContainerDeletionFeature?: boolean;
-
-  private _isSynchronization = false;
 
   /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
@@ -553,7 +544,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._isProvenanceInitTransform) {
       return "forward";
     }
-    if (!this._isSynchronization) {
+    if (!this._options.argsForProcessChanges) {
       return "not-sync";
     }
     try {
@@ -638,6 +629,13 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
     };
+    // check if authorization client is defined
+    if (IModelHost.authorizationClient === undefined) {
+      Logger.logWarning(
+        loggerCategory,
+        "Authorization client is not set in IModelHost. If the transformer needs an accessToken, then it will fail."
+      );
+    }
     this._isProvenanceInitTransform = this._options
       .wasSourceIModelCopiedToTarget
       ? true
@@ -768,11 +766,6 @@ export class IModelTransformer extends IModelExportHandler {
     Logger.logInfo(
       loggerCategory,
       `this._wasSourceIModelCopiedToTarget=${this._options.wasSourceIModelCopiedToTarget}`
-    );
-    Logger.logInfo(
-      loggerCategory,
-      // eslint-disable-next-line deprecation/deprecation
-      `this._isReverseSynchronization=${this._options.isReverseSynchronization}`
     );
     Logger.logInfo(
       TransformerLoggerCategory.IModelImporter,
@@ -1143,9 +1136,10 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._options.branchRelationshipDataBehavior !== "unsafe-migrate")
       return madeChange;
     const fallbackSyncVersionToUse =
-      this._options.unsafeFallbackSyncVersion ?? "";
+      this._options.argsForProcessChanges?.unsafeFallbackSyncVersion ?? "";
     const fallbackReverseSyncVersionToUse =
-      this._options.unsafeFallbackReverseSyncVersion ?? "";
+      this._options.argsForProcessChanges?.unsafeFallbackReverseSyncVersion ??
+      "";
 
     if (
       aspectProps.version === undefined ||
@@ -1509,7 +1503,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Returns `true` if *brute force* delete detections should be run.
    * @note This is only called if [[IModelTransformOptions.forceExternalSourceAspectProvenance]] option is true
-   * @note Not relevant for processChanges when change history is known.
+   * @note Not relevant for [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are provided and change history is known.
    */
   protected shouldDetectDeletes(): boolean {
     nodeAssert(this._syncType !== undefined);
@@ -1521,9 +1515,9 @@ export class IModelTransformer extends IModelExportHandler {
    * Detect Element deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against Elements
    * in the source iModel.
    * @deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
-   * This method is only called during [[processAll]] when the option
+   * This method is only called during [[process]] when [[IModelTransformOptions.argsForProcessChanges]] is undefined and the option
    * [[IModelTransformOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
-   * necessary when using [[processChanges]] since changeset information is sufficient.
+   * necessary when calling [[process]] with [[IModelTransformOptions.argsForProcessChanges]] defined, since changeset information is sufficient.
    * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
@@ -1759,7 +1753,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Cause the specified Element and its child Elements (if applicable) to be exported from the source iModel and imported into the target iModel.
    * @param sourceElementId Identifies the Element from the source iModel to import.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processElement(sourceElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -1774,7 +1768,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Import child elements into the target IModelDb
    * @param sourceElementId Import the child elements of this element in the source IModelDb.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processChildElements(
     sourceElementId: Id64String
@@ -2139,7 +2133,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Cause the model container, contents, and sub-models to be exported from the source iModel and imported into the target iModel.
    * @param sourceModeledElementId Import this [Model]($backend) from the source IModelDb.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
     await this.initialize();
@@ -2150,7 +2144,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @param sourceModelId Import the contents of this model from the source IModelDb.
    * @param targetModelId Import into this model in the target IModelDb. The target model must exist prior to this call.
    * @param elementClassFullName Optional classFullName of an element subclass to limit import query against the source model.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processModelContents(
     sourceModelId: Id64String,
@@ -2245,9 +2239,9 @@ export class IModelTransformer extends IModelExportHandler {
    * source's changeset has been performed. Also stores all changesets that occurred
    * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
    *
-   * You generally should not call this function yourself and use [[processChanges]] instead.
+   * You generally should not call this function yourself and use [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided instead.
    * It is public for unsupported use cases of custom synchronization transforms.
-   * @note if you are not running processChanges in this transformation, this will fail
+   * @note if [[IModelTransformOptions.argsForProcessChanges]] are not defined in this transformation, this will fail
    * without setting the `force` option to `true`
    */
   public updateSynchronizationVersion({ force = false } = {}) {
@@ -2285,7 +2279,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (
-      this._isSynchronization ||
+      this._options.argsForProcessChanges ||
       (this._startingChangesetIndices && this._isProvenanceInitTransform)
     ) {
       nodeAssert(
@@ -2408,7 +2402,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Imports all relationships that subclass from the specified base class.
    * @param baseRelClassFullName The specified base relationship class.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processRelationships(
     baseRelClassFullName: string
@@ -2525,8 +2519,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** Detect Relationship deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against relationships in the source iModel.
    * @deprecated in 1.x. Don't use this anymore
-   * @see processChanges
-   * @note This method is called from [[processAll]] and is not needed by [[processChanges]], so it only needs to be called directly when processing a subset of an iModel.
+   * @see [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided.
+   * @note This method is called from [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are undefined, so it only needs to be called directly when processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
   public async detectRelationshipDeletes(): Promise<void> {
@@ -2793,7 +2787,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processFonts(): Promise<void> {
     // we do not need to initialize for this since no entities are exported
@@ -2810,7 +2804,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Cause all CodeSpecs to be exported from the source iModel and imported into the target iModel.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpecs(): Promise<void> {
     await this.initialize();
@@ -2818,7 +2812,7 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Cause a single CodeSpec to be exported from the source iModel and imported into the target iModel.
-   * @note This method is called from [[processChanges]] and [[processAll]], so it only needs to be called directly when processing a subset of an iModel.
+   * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpec(codeSpecName: string): Promise<void> {
     await this.initialize();
@@ -2859,18 +2853,22 @@ export class IModelTransformer extends IModelExportHandler {
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
-   * are intending to process changes, but prefer using [[processChanges]] explicitly since it calls this.
+   * are intending to process changes. Callers may wish to explicitly call initialize if they need to execute code after initialize but before [[process]] is called.
    * @note Called by all `process*` functions implicitly.
    * Overriders must call `super.initialize()` first
    */
-  public async initialize(args?: InitOptions): Promise<void> {
+  public async initialize(): Promise<void> {
     if (this._initialized) return;
 
-    await this._tryInitChangesetData(args);
+    this.initScopeProvenance();
+
+    await this._tryInitChangesetData(this._options.argsForProcessChanges);
     await this.context.initialize();
 
     // need exporter initialized to do remapdeletedsourceentities.
-    await this.exporter.initialize(this.getExportInitOpts(args ?? {}));
+    await this.exporter.initialize(
+      this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
+    );
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
     await this.processChangesets();
@@ -3132,7 +3130,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private async _tryInitChangesetData(args?: InitOptions) {
+  private async _tryInitChangesetData(args?: ProcessChangesOptions) {
     if (
       !args ||
       this.sourceDb.iTwinId === undefined ||
@@ -3149,12 +3147,14 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps = [];
       return;
     }
+    const startChangeset =
+      "startChangeset" in args ? args.startChangeset : undefined;
 
     // NOTE: that we do NOT download the changesummary for the last transformed version, we want
     // to ignore those already processed changes
     const startChangesetIndexOrId =
-      args.startChangeset?.index ??
-      args.startChangeset?.id ??
+      startChangeset?.index ??
+      startChangeset?.id ??
       this.synchronizationVersion.index + 1;
     const endChangesetId = this.sourceDb.changeset.id;
 
@@ -3167,7 +3167,6 @@ export class IModelTransformer extends IModelExportHandler {
                 iModelId: this.sourceDb.iModelId,
                 // eslint-disable-next-line deprecation/deprecation
                 changeset: { id: indexOrId },
-                accessToken: args.accessToken,
               })
               .then((changeset) => changeset.index)
       )
@@ -3176,7 +3175,8 @@ export class IModelTransformer extends IModelExportHandler {
     const missingChangesets =
       startChangesetIndex > this.synchronizationVersion.index + 1;
     if (
-      !this._options.ignoreMissingChangesetsInSynchronizations &&
+      !this._options.argsForProcessChanges
+        ?.ignoreMissingChangesetsInSynchronizations &&
       startChangesetIndex !== this.synchronizationVersion.index + 1 &&
       this.synchronizationVersion.index !== -1
     ) {
@@ -3227,13 +3227,43 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
+  /**
+   * The behavior of process is influenced by [[IModelTransformOptions.argsForProcessChanges]] being defined or not defined during construction passed of the IModelTransformer.
+   * @section When argsForProcessChanges are defined:
+   *
+   * Export changes from the source iModel and import the transformed entities into the target iModel.
+   * Inserts, updates, and deletes are determined by inspecting the changeset(s).
+   *
+   * Notes:
+   * - the transformer assumes that you saveChanges after processing changes. You should not modify the iModel after processChanges until saveChanges,
+   * failure to do so may result in corrupted
+   * data loss in future branch operations
+   * - if no startChangesetId or startChangeset option is provided as part of the ProcessChangesOptions, the next unsynchronized changeset
+   * will automatically be determined and used
+   * - To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
+   *
+   * @section When argsForProcessChanges are undefined:
+   *
+   * Export everything from the source iModel and import the transformed entities into the target iModel.
+   *
+   * Notes:
+   * - [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
+   *
+   */
+  public async process(): Promise<void> {
+    await this.initialize();
+
+    this.logSettings();
+
+    return this._options.argsForProcessChanges !== undefined
+      ? this.processChanges(this._options.argsForProcessChanges)
+      : this.processAll();
+  }
+
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
    * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    */
-  public async processAll(): Promise<void> {
-    this.logSettings();
-    this.initScopeProvenance();
-    await this.initialize();
+  private async processAll(): Promise<void> {
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
@@ -3301,13 +3331,7 @@ export class IModelTransformer extends IModelExportHandler {
    * will automatically be determined and used
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
-  public async processChanges(options: ProcessChangesOptions): Promise<void> {
-    this._isSynchronization = true;
-    this.initScopeProvenance();
-
-    this.logSettings();
-
-    await this.initialize(options);
+  private async processChanges(options: ProcessChangesOptions): Promise<void> {
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(options));
     await this.processDeferredElements(); // eslint-disable-line deprecation/deprecation
@@ -3328,18 +3352,19 @@ export class IModelTransformer extends IModelExportHandler {
   /** Changeset data must be initialized in order to build correct changeOptions.
    * Call [[IModelTransformer.initialize]] for initialization of synchronization provenance data
    */
-  private getExportInitOpts(opts: InitOptions): ExporterInitOptions {
-    if (!this._isSynchronization) return {};
+  private getExportInitOpts(opts: ExportChangesOptions): ExporterInitOptions {
+    if (!this._options.argsForProcessChanges) return {};
+    const startChangeset =
+      "startChangeset" in opts ? opts.startChangeset : undefined;
     return {
       skipPropagateChangesToRootElements:
         this._options.skipPropagateChangesToRootElements,
-      accessToken: opts.accessToken,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
         : this._changesetRanges
           ? { changesetRanges: this._changesetRanges }
-          : opts.startChangeset
-            ? { startChangeset: opts.startChangeset }
+          : startChangeset
+            ? { startChangeset }
             : {
                 startChangeset: {
                   index: this.synchronizationVersion.index + 1,

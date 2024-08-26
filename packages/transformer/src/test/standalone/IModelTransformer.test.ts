@@ -248,7 +248,7 @@ describe("IModelTransformer", () => {
         forceExternalSourceAspectProvenance: true,
       });
       assert.isTrue(transformer.context.isBetweenIModels);
-      await transformer.processAll();
+      await transformer.process();
       assert.isAtLeast(targetImporter.numModelsInserted, 1);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.isAtLeast(targetImporter.numElementsInserted, 1);
@@ -361,7 +361,7 @@ describe("IModelTransformer", () => {
       const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
         forceExternalSourceAspectProvenance: true,
       });
-      await transformer.processAll();
+      await transformer.process();
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 0);
@@ -416,7 +416,7 @@ describe("IModelTransformer", () => {
       const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
         forceExternalSourceAspectProvenance: true,
       });
-      await transformer.processAll();
+      await transformer.process();
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.equal(targetImporter.numElementsInserted, 1);
@@ -497,7 +497,7 @@ describe("IModelTransformer", () => {
       branchDb,
       { wasSourceIModelCopiedToTarget: true }
     ); // Note use of `wasSourceIModelCopiedToTarget` flag
-    await masterToBranchTransformer.processAll();
+    await masterToBranchTransformer.process();
     masterToBranchTransformer.dispose();
     branchDb.saveChanges();
     assert.equal(numMasterElements, count(branchDb, Element.classFullName));
@@ -535,9 +535,9 @@ describe("IModelTransformer", () => {
     const branchToMasterTransformer = new IModelTransformer(
       branchDb,
       masterDb,
-      { isReverseSynchronization: true, noProvenance: true }
+      { noProvenance: true }
     );
-    await branchToMasterTransformer.processAll();
+    await branchToMasterTransformer.process();
     branchToMasterTransformer.dispose();
     masterDb.saveChanges();
     TransformerExtensiveTestScenario.assertUpdatesInDb(masterDb, false);
@@ -649,7 +649,7 @@ describe("IModelTransformer", () => {
     // import
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
     transformer.dispose();
     const numTargetElements = count(targetDb, Element.classFullName);
     assert.isAtLeast(numTargetElements, numSourceElements);
@@ -732,7 +732,7 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       includeSourceProvenance: true,
     });
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     // verify target contents
@@ -871,7 +871,7 @@ describe("IModelTransformer", () => {
       targetDb,
       transform3d
     );
-    await transformer.processAll();
+    await transformer.process();
     const targetModelId: Id64String =
       transformer.context.findTargetElementId(sourceModelId);
     const targetModel: PhysicalModel =
@@ -955,7 +955,7 @@ describe("IModelTransformer", () => {
       targetDb,
       targetModelId
     );
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     const targetElement11 = targetDb.elements.getElement(
@@ -1020,7 +1020,7 @@ describe("IModelTransformer", () => {
         }
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      await transformerA2S.processAll();
+      await transformerA2S.process();
       transformerA2S.dispose();
       // Make sure some properties, for example, description, can persist
       const teamIModelA: Subject = iModelA.elements.getElement<Subject>(
@@ -1064,7 +1064,7 @@ describe("IModelTransformer", () => {
         }
       );
       transformerB2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      await transformerB2S.processAll();
+      await transformerB2S.process();
       transformerB2S.dispose();
       IModelTransformerTestUtils.dumpIModelInfo(iModelB);
       iModelB.close();
@@ -1187,7 +1187,7 @@ describe("IModelTransformer", () => {
       IModel.rootSubjectId,
       IModel.rootSubjectId
     );
-    await transformer.processAll();
+    await transformer.process();
     transformer.dispose();
     const sourceIModelSubject: Subject =
       sourceIModelDb.elements.getElement<Subject>(IModel.rootSubjectId);
@@ -1243,7 +1243,7 @@ describe("IModelTransformer", () => {
     );
     const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb);
     transformer.context.remapElement(sourceSubjectId, targetSubjectId);
-    await transformer.processAll();
+    await transformer.process();
     transformer.dispose();
     const sourceIModelSubject: Subject =
       sourceIModelDb.elements.getElement<Subject>(sourceSubjectId);
@@ -1298,7 +1298,7 @@ describe("IModelTransformer", () => {
       danglingReferencesBehavior: "ignore",
     });
     transformer.context.remapElement(IModel.rootSubjectId, targetSubjectId);
-    await transformer.processAll();
+    await transformer.process();
     transformer.dispose();
     const targetIModelSubject: Subject =
       targetIModelDb.elements.getElement<Subject>(targetSubjectId);
@@ -1352,7 +1352,7 @@ describe("IModelTransformer", () => {
       IModel.rootSubjectId,
       targetChildSubjectId
     );
-    await transformer.processAll();
+    await transformer.process();
     transformer.dispose();
     const targetChildIModelSubject: Subject =
       targetIModelDb.elements.getElement<Subject>(targetChildSubjectId);
@@ -1413,7 +1413,7 @@ describe("IModelTransformer", () => {
     Logger.setLevelDefault(LogLevel.Warning);
 
     // Act
-    await transformerA2S.processAll();
+    await transformerA2S.process();
 
     // Collect expected ids
     const result = iModelA.queryEntityIds({
@@ -1465,10 +1465,10 @@ describe("IModelTransformer", () => {
     const transformer1 = new IModelTransformer(sourceDb1, targetDb); // did not set targetScopeElementId
     const transformer2 = new IModelTransformer(sourceDb2, targetDb); // did not set targetScopeElementId
 
-    await transformer1.processAll(); // first one succeeds using IModel.rootSubjectId as the default targetScopeElementId
+    await transformer1.process(); // first one succeeds using IModel.rootSubjectId as the default targetScopeElementId
 
     try {
-      await transformer2.processAll(); // expect IModelError to be thrown because of the targetScopeElementId conflict with second transformation
+      await transformer2.process(); // expect IModelError to be thrown because of the targetScopeElementId conflict with second transformation
       assert.fail("Expected provenance scope conflict");
     } catch (e) {
       assert.isTrue(e instanceof IModelError);
@@ -1783,7 +1783,7 @@ describe("IModelTransformer", () => {
       exportViewId
     );
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
     transformer.dispose();
 
     targetDb.saveChanges();
@@ -1993,7 +1993,7 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb);
 
     await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
-    await expect(transformer.processAll()).to.eventually.be.fulfilled;
+    await expect(transformer.process()).to.eventually.be.fulfilled;
 
     // check if target imodel has the elements that source imodel had
     expect(targetDb.codeSpecs.hasName("MyCodeSpec")).to.be.true;
@@ -2111,7 +2111,7 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb);
 
     await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
-    await expect(transformer.processAll()).to.eventually.be.fulfilled;
+    await expect(transformer.process()).to.eventually.be.fulfilled;
 
     // check if target imodel has the elements that source imodel had
     expect(targetDb.codeSpecs.hasName("ModelCodeSpec")).to.be.true;
@@ -2441,7 +2441,7 @@ describe("IModelTransformer", () => {
     const transformer = new FilterCategoryTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(
@@ -2498,7 +2498,7 @@ describe("IModelTransformer", () => {
       rootSubject: seedDb.rootSubject,
     });
     const seedTransformer = new IModelTransformer(seedDb, sourceDb);
-    await seedTransformer.processAll();
+    await seedTransformer.process();
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2512,7 +2512,7 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2681,7 +2681,7 @@ describe("IModelTransformer", () => {
       sourceDb,
       () => StandaloneDb.openFile(targetDbForRejectedPath)
     );
-    await expect(defaultTransformer.processAll()).to.be.rejectedWith(
+    await expect(defaultTransformer.process()).to.be.rejectedWith(
       /Found a reference to an element "[^"]*" that doesn't exist/
     );
     defaultTransformer.targetDb.close();
@@ -2693,7 +2693,7 @@ describe("IModelTransformer", () => {
         { danglingReferencesBehavior: "reject" }
       );
     await expect(
-      rejectDanglingReferencesTransformer.processAll()
+      rejectDanglingReferencesTransformer.process()
     ).to.be.rejectedWith(
       /Found a reference to an element "[^"]*" that doesn't exist/
     );
@@ -2716,7 +2716,7 @@ describe("IModelTransformer", () => {
         createTargetDb,
         opts
       );
-      await expect(transformer.processAll()).not.to.be.rejected;
+      await expect(transformer.process()).not.to.be.rejected;
       transformer.targetDb.saveChanges();
 
       expect(sourceDb.elements.tryGetElement(physicalObjects[1].id)).to.be
@@ -2871,7 +2871,7 @@ describe("IModelTransformer", () => {
     });
 
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
 
     targetDb.saveChanges();
 
@@ -2989,7 +2989,7 @@ describe("IModelTransformer", () => {
 
     const transformer = new ProcessTargetLastTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
 
     targetDb.saveChanges();
 
@@ -3062,7 +3062,7 @@ describe("IModelTransformer", () => {
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
 
     targetDb.saveChanges();
 
@@ -3168,7 +3168,7 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb);
 
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
 
     targetDb.saveChanges();
 
@@ -3215,7 +3215,7 @@ describe("IModelTransformer", () => {
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
       // Act
-      await transformerA2S.processAll();
+      await transformerA2S.process();
       // Assert
       const rootElements = ["0x10", "0xe"];
       rootElements.forEach((rootElementId) => {
@@ -3324,7 +3324,7 @@ describe("IModelTransformer", () => {
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
 
     targetDb.saveChanges();
 
@@ -3383,7 +3383,7 @@ describe("IModelTransformer", () => {
     );
 
     await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
-    await expect(transformer.processAll()).to.eventually.be.fulfilled;
+    await expect(transformer.process()).to.eventually.be.fulfilled;
 
     const elem1InTargetId = transformer.context.findTargetElementId(elem1Id);
     const elem1AspectsInTarget = targetDb.elements.getAspects(elem1InTargetId);
@@ -3477,7 +3477,7 @@ describe("IModelTransformer", () => {
     const importer = new AspectTrackingImporter(targetDb);
     const transformer = new AspectTrackingTransformer(sourceDb, importer);
     assert.isTrue(transformer.context.isBetweenIModels);
-    await transformer.processAll();
+    await transformer.process();
     transformer.dispose();
 
     const physicalObj1InTargetId = IModelTransformerTestUtils.queryByUserLabel(
@@ -3886,7 +3886,7 @@ describe("IModelTransformer", () => {
     });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processAll();
+    await transformer.process();
 
     const spatialCategoryInTargetId =
       transformer.context.findTargetElementId(spatialCategId);
@@ -4015,7 +4015,7 @@ describe("IModelTransformer", () => {
     });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await expect(transformer.processAll()).not.to.be.rejected;
+    await expect(transformer.process()).not.to.be.rejected;
     targetDb.saveChanges();
 
     const targetElement11 = targetDb.elements.getElement(
@@ -4084,7 +4084,7 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       forceExternalSourceAspectProvenance: true,
     });
-    await expect(transformer.processAll()).not.to.be.rejected;
+    await expect(transformer.process()).not.to.be.rejected;
     targetDb.saveChanges();
     const modelInTarget = transformer.context.findTargetElementId(model);
     const objInTarget = transformer.context.findTargetElementId(obj.id);
@@ -4100,7 +4100,7 @@ describe("IModelTransformer", () => {
 
     sourceDb.saveChanges();
 
-    await expect(transformer.processAll()).not.to.be.rejected;
+    await expect(transformer.process()).not.to.be.rejected;
     targetDb.saveChanges();
 
     expect(sourceDb.models.tryGetModel(modelInTarget)).to.be.undefined;
@@ -4204,7 +4204,7 @@ describe("IModelTransformer", () => {
       includeSourceProvenance: true,
       forceExternalSourceAspectProvenance: true,
     });
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     // verify target contents
@@ -4425,7 +4425,7 @@ describe("IModelTransformer", () => {
     const transformer = new SkipElementTransformer(sourceDb, targetDb);
     transformer.skippedElement = sourceReferencedElementId;
     await transformer.processSchemas();
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     targetDb.withPreparedStatement(
@@ -4491,7 +4491,7 @@ describe("IModelTransformer", () => {
     });
 
     // act
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     // assert
@@ -4575,7 +4575,7 @@ describe("IModelTransformer", () => {
     });
 
     // act
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
 
     // assert
@@ -4740,7 +4740,7 @@ describe("IModelTransformer", () => {
       sourceDb,
       createTargetDb
     );
-    await transformer.processAll();
+    await transformer.process();
 
     const texture1IdInTarget =
       transformer.context.findTargetElementId(texture1Id);
@@ -4856,7 +4856,7 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await runWithCpuProfiler(
       async () => {
-        await transformer.processAll();
+        await transformer.process();
       },
       {
         profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
