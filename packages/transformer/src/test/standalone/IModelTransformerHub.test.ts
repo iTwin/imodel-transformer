@@ -505,12 +505,8 @@ describe("IModelTransformerHub", () => {
       iTwinId,
       "source"
     );
-
-    const targetIModelId = await HubWrappers.createIModel(
-      accessToken,
-      iTwinId,
-      "target"
-    );
+    let targetIModelId!: GuidString;
+    assert.isTrue(Guid.isGuid(sourceIModelId));
 
     try {
       // download and open briefcase on source imodel
@@ -520,29 +516,12 @@ describe("IModelTransformerHub", () => {
         iModelId: sourceIModelId,
         asOf: IModelVersion.latest().toJSON(),
       });
-
       await sourceBriefcase.locks.acquireLocks({
         shared: "0x10",
         exclusive: "0x1",
       });
-
-      // download and open briefcase on target imodel
-      const targetBriefcase = await HubWrappers.downloadAndOpenBriefcase({
-        accessToken: await IModelHost.getAccessToken(),
-        iTwinId,
-        iModelId: targetIModelId,
-        asOf: IModelVersion.latest().toJSON(),
-      });
-
-      await targetBriefcase.locks.acquireLocks({
-        shared: "0x10",
-        exclusive: "0x1",
-      });
-
       assert.isTrue(sourceBriefcase.isBriefcaseDb());
-      assert.isTrue(targetBriefcase.isBriefcaseDb());
       assert.isFalse(sourceBriefcase.isSnapshot);
-      assert.isFalse(targetBriefcase.isSnapshot);
 
       // set up physical models
       const sourceCategoryId = SpatialCategory.insert(
@@ -605,11 +584,39 @@ describe("IModelTransformerHub", () => {
         retainLocks: true,
       });
 
+      sourceBriefcase.performCheckpoint(); // so we can use as a seed
+
+      targetIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: "target",
+        version0: sourceBriefcase.pathName,
+      });
+      assert.isTrue(Guid.isGuid(targetIModelId));
+
+      // download and open briefcase on target imodel
+      const targetBriefcase = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken: await IModelHost.getAccessToken(),
+        iTwinId,
+        iModelId: targetIModelId,
+        asOf: IModelVersion.latest().toJSON(),
+      });
+      assert.isTrue(targetBriefcase.isBriefcaseDb());
+      assert.isFalse(targetBriefcase.isSnapshot);
+
+      await targetBriefcase.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+
       const iModelExporterA = new IModelExporter(sourceBriefcase);
       const transformer1 = new IModelTransformer(
         iModelExporterA,
         targetBriefcase,
-        { danglingReferencesBehavior: "ignore" }
+        {
+          danglingReferencesBehavior: "ignore",
+          wasSourceIModelCopiedToTarget: true,
+        }
       );
 
       // Configure logger to capture warning message about unresolved references
@@ -681,7 +688,7 @@ describe("IModelTransformerHub", () => {
         targetBriefcase,
         {
           danglingReferencesBehavior: "ignore",
-          argsForProcessChanges: { startChangeset: sourceBriefcase.changeset },
+          argsForProcessChanges: {},
         }
       );
 
