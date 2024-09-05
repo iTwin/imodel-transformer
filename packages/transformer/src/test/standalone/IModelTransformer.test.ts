@@ -64,7 +64,6 @@ import {
   Id64,
   Id64String,
   Logger,
-  LoggingMetaData,
   LogLevel,
   OpenMode,
 } from "@itwin/core-bentley";
