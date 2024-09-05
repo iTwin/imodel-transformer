@@ -499,7 +499,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("should log unresolved references", async () => {
+  it("should log unresolved references", async () => {
     const sourceIModelId = await HubWrappers.createIModel(
       accessToken,
       iTwinId,
