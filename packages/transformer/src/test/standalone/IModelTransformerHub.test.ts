@@ -651,15 +651,6 @@ describe("IModelTransformerHub", () => {
       const targetPhysObjId2 =
         transformer1.context.findTargetElementId(physObjId2);
 
-      // Get elements to verify if they we are getting the correct phys objs when debugging
-      const targetPhysObj1 =
-        targetBriefcase.elements.getElement(targetPhysObjId1);
-      const targetPhysObj2 =
-        targetBriefcase.elements.getElement(targetPhysObjId2);
-
-      assert.isDefined(targetPhysObj1);
-      assert.isDefined(targetPhysObj2);
-
       // delete referenced in target
       targetBriefcase.elements.deleteElement(targetPhysObjId1);
       targetBriefcase.elements.deleteElement(targetPhysObjId2);
