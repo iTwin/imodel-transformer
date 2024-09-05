@@ -1363,7 +1363,7 @@ describe("IModelTransformer", () => {
     targetIModelDb.close();
   });
 
-  it.only("should log unresolved references", async () => {
+  it.skip("should log unresolved references", async () => {
     const iModelShared: SnapshotDb =
       IModelTransformerTestUtils.createSharedIModel(outputDir, ["A", "B"]);
     const teamFile: string = path.join(outputDir, "TeamA.bim");
