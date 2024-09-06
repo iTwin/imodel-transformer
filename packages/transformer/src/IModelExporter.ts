@@ -158,9 +158,6 @@ export abstract class IModelExportHandler {
     return true;
   }
 
-  /** Called when element is skipped instead of exported. */
-  public onSkipElement(_elementId: Id64String): void {}
-
   /** Called when an element should be exported.
    * @param element The element to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
@@ -836,7 +833,6 @@ export class IModelExporter {
     // Return early if the elementId is already in the excludedElementIds, that way we don't need to load the element from the db.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
-      this.handler.onSkipElement(elementId);
       return;
     }
 
@@ -867,8 +863,6 @@ export class IModelExporter {
         elementId
       );
       return this.exportChildElements(elementId);
-    } else {
-      this.handler.onSkipElement(element.id);
     }
   }
 
