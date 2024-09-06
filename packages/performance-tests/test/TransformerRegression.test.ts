@@ -182,7 +182,7 @@ async function runRegressionTests() {
             CAST(SUM(hasGuid) AS DOUBLE)/COUNT(*) ratio 
             FROM (
               SELECT IIF(FederationGuid IS NOT NULL, 1, 0) AS hasGuid,
-              1 AS total FROM bis.Element
+              1 AS [total] FROM bis.Element
             )`,
             (stmt) => {
               assert(stmt.step() === DbResult.BE_SQLITE_ROW);
