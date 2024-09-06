@@ -888,6 +888,42 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
+  it.only("handle reverse sync version", async () => {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "source-model.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "source" },
+    });
+    const sourceModelId1 = PhysicalModel.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "M1"
+    );
+    const sourceModelId2 = PhysicalModel.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "M2"
+    );
+    assert.isDefined(sourceModelId1);
+    assert.isDefined(sourceModelId2);
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "target-model.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "target" },
+    });
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.process();
+    transformer.updateSynchronizationVersion({ force: true });
+    const scopingEsa = transformer["_targetScopeProvenanceProps"];
+    const reverseSyncVersion = scopingEsa?.jsonProperties.reverseSyncVersion;
+    assert.isEmpty(reverseSyncVersion);
+  });
+
   it("should combine models", async () => {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
