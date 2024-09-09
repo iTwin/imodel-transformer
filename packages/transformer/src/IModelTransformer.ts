@@ -116,10 +116,6 @@ const nullLastProvenanceEntityInfo = {
 
 type LastProvenanceEntityInfo = typeof nullLastProvenanceEntityInfo;
 
-type EntityTransformHandler = (
-  entity: ConcreteEntity
-) => ElementProps | ModelProps | RelationshipProps | ElementAspectProps;
-
 /** Options provided to the [[IModelTransformer]] constructor.
  * @beta
  * @note if adding an option, you must explicitly add its serialization to [[IModelTransformer.saveStateToFile]]!
