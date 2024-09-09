@@ -278,7 +278,7 @@ export interface TargetScopeProvenanceJsonProps {
   /** An array of changeset indices to ignore when doing a reverse sync. This array gets appended to during a forward sync and cleared
    *  during a reverse sync. Since a forward sync pushes a changeset to the branch db, the changeset pushed to the branch db
    *  by the forward sync isn't considered part of the changes made on the branch db and therefore doesn't need to be synced back to master
-   *  during a forward sync.
+   *  during a reverse sync.
    */
   pendingReverseSyncChangesetIndices: number[];
   /** An array of changeset indices to ignore when doing a forward sync. This array gets appended to during a reverse sync and cleared
