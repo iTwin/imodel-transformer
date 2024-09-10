@@ -1,5 +1,5 @@
 {
-  "type": "major",
+  "type": "prerelease",
   "comment": "no longer track partially commited element references",
   "packageName": "@itwin/imodel-transformer",
   "email": "36619139+ViliusRuskys@users.noreply.github.com",
