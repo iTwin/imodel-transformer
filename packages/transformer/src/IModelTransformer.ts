@@ -2239,11 +2239,13 @@ export class IModelTransformer extends IModelExportHandler {
     const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
     const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
 
-    if (this._isProvenanceInitTransform) {
-      this._targetScopeProvenanceProps.version = sourceVersion;
+    if (saveReverseVersion) {
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         targetVersion;
-    } else if (saveReverseVersion) {
+    }
+
+    if (this._isProvenanceInitTransform) {
+      this._targetScopeProvenanceProps.version = sourceVersion;
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         targetVersion;
     } else if (this.isReverseSynchronization) {
