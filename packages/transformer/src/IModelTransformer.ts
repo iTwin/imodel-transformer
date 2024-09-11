@@ -2221,10 +2221,15 @@ export class IModelTransformer extends IModelExportHandler {
    * It is public for unsupported use cases of custom synchronization transforms.
    * @note if [[IModelTransformOptions.argsForProcessChanges]] are not defined in this transformation, this will fail
    * without setting the `force` option to `true`
+   * The saveReverseVersion is added to save the reverse sync version for processAll transformations, when set to `true`, reverse sync version is saved
    */
-  public updateSynchronizationVersion({ force = false } = {}) {
+  public updateSynchronizationVersion({
+    force = false,
+    saveReverseVersion = false,
+  } = {}) {
     const notForcedAndHasNoChangesAndIsntProvenanceInit =
       !force &&
+      !saveReverseVersion &&
       this._sourceChangeDataState !== "has-changes" &&
       !this._isProvenanceInitTransform;
     if (notForcedAndHasNoChangesAndIsntProvenanceInit) return;
@@ -2236,6 +2241,9 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (this._isProvenanceInitTransform) {
       this._targetScopeProvenanceProps.version = sourceVersion;
+      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
+        targetVersion;
+    } else if (saveReverseVersion) {
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         targetVersion;
     } else if (this.isReverseSynchronization) {
