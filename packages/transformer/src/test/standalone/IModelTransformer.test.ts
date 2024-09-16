@@ -888,7 +888,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it.only("save reverse sync version for processAll", async () => {
+  it("save reverse sync version for processAll", async () => {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "source-model.bim"
