@@ -249,6 +249,11 @@ describe("IModelTransformerHub", () => {
       const reverseSyncVersion1 =
         scopingEsa1?.jsonProperties.reverseSyncVersion;
       assert.isEmpty(reverseSyncVersion1);
+      targetBriefcase.saveChanges();
+      await targetBriefcase.pushChanges({
+        description: "target changes for transformation 1",
+        retainLocks: true,
+      });
 
       const sourceModelId2 = PhysicalModel.insert(
         sourceBriefcase,
@@ -269,13 +274,24 @@ describe("IModelTransformerHub", () => {
       );
       transformer2["_isProvenanceInitTransform"] = true;
       await transformer2.process();
-      transformer2.updateSynchronizationVersion({ force: true });
       const scopingEsa2 = transformer2["_targetScopeProvenanceProps"];
       const reverseSyncVersion2 =
         scopingEsa2?.jsonProperties.reverseSyncVersion;
       assert.isNotEmpty(reverseSyncVersion2);
       const expectedReverseSyncVersion1 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
       assert.equal(reverseSyncVersion2, expectedReverseSyncVersion1);
+      // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
+      const lastPendingReverseSyncIndex1 =
+        scopingEsa2?.jsonProperties.pendingReverseSyncChangesetIndices.pop();
+      assert.equal(
+        lastPendingReverseSyncIndex1,
+        (targetBriefcase.changeset.index ?? 0) + 1
+      );
+      targetBriefcase.saveChanges();
+      await targetBriefcase.pushChanges({
+        description: "target changes for transformation 2",
+        retainLocks: true,
+      });
 
       const sourceModelId3 = PhysicalModel.insert(
         sourceBriefcase,
@@ -305,6 +321,18 @@ describe("IModelTransformerHub", () => {
       assert.isNotEmpty(reverseSyncVersion3);
       const expectedReverseSyncVersion2 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
       assert.equal(reverseSyncVersion3, expectedReverseSyncVersion2);
+      // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
+      const lastPendingReverseSyncIndex2 =
+        scopingEsa3?.jsonProperties.pendingReverseSyncChangesetIndices.pop();
+      assert.equal(
+        lastPendingReverseSyncIndex2,
+        (targetBriefcase.changeset.index ?? 0) + 1
+      );
+      targetBriefcase.saveChanges();
+      await targetBriefcase.pushChanges({
+        description: "target changes for transformation 3",
+        retainLocks: true,
+      });
     } finally {
       try {
         await IModelHost.hubAccess.deleteIModel({

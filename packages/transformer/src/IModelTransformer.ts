@@ -2268,7 +2268,8 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (
       this._options.argsForProcessChanges ||
-      (this._startingChangesetIndices && this._isProvenanceInitTransform)
+      (this._startingChangesetIndices &&
+        (this._isProvenanceInitTransform || saveReverseVersion))
     ) {
       nodeAssert(
         this.targetDb.changeset.index !== undefined &&
