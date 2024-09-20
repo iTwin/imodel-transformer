@@ -2221,7 +2221,12 @@ export class IModelTransformer extends IModelExportHandler {
    * It is public for unsupported use cases of custom synchronization transforms.
    * @note if [[IModelTransformOptions.argsForProcessChanges]] are not defined in this transformation, this will fail
    * without setting the `initializeReverseSyncVersion` option to `true`
-   * The initializeReverseSyncVersion is added to save the reverse synchronization version for forward synchronization transformations. When set to `true`, reverse sync version is saved
+   * The `initializeReverseSyncVersion` is added to set the reverse synchronization version during a forward synchronization.
+   * When set to `true`, it saves the reverse sync version as the current changeset of the targetDb.
+   * Note that typically, the reverseSyncVersion is saved as the last changeset merged from the branch into master.
+   * This is also necessary for the initial transformation between a master and branch imodel.
+   * Setting it to `true` avoids having a reverseSyncVersion of "", which interferes with a fix for a now resolved bug.
+   * Since the fix cannot be easily removed, we must support the initialization of the reverseSyncVersion.
    */
   public updateSynchronizationVersion({
     initializeReverseSyncVersion = false,
