@@ -2220,35 +2220,23 @@ export class IModelTransformer extends IModelExportHandler {
    * You generally should not call this function yourself and use [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided instead.
    * It is public for unsupported use cases of custom synchronization transforms.
    * @note if [[IModelTransformOptions.argsForProcessChanges]] are not defined in this transformation, this will fail
-   * without setting the `force` option to `true`
-   * The saveReverseVersion is added to save the reverse sync version for processAll transformations, when set to `true`, reverse sync version is saved
+   * without setting the `initializeReverseSyncVersion` option to `true`
+   * The initializeReverseSyncVersion is added to save the reverse synchronization version for forward synchronization transformations. When set to `true`, reverse sync version is saved
    */
   public updateSynchronizationVersion({
-    force = false,
-    saveReverseVersion = false,
+    initializeReverseSyncVersion = false,
   } = {}) {
-    const notForcedAndHasNoChangesAndIsntProvenanceInit =
-      !force &&
-      !saveReverseVersion &&
-      this._sourceChangeDataState !== "has-changes" &&
-      !this._isProvenanceInitTransform;
-    if (notForcedAndHasNoChangesAndIsntProvenanceInit) return;
+    const shouldSkipSyncVersionUpdate =
+      !initializeReverseSyncVersion &&
+      this._sourceChangeDataState !== "has-changes";
+    if (shouldSkipSyncVersionUpdate) return;
 
     nodeAssert(this._targetScopeProvenanceProps);
 
     const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
     const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
 
-    if (saveReverseVersion) {
-      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
-        targetVersion;
-    }
-
-    if (this._isProvenanceInitTransform) {
-      this._targetScopeProvenanceProps.version = sourceVersion;
-      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
-        targetVersion;
-    } else if (this.isReverseSynchronization) {
+    if (this.isReverseSynchronization) {
       const oldVersion =
         this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
 
@@ -2258,18 +2246,27 @@ export class IModelTransformer extends IModelExportHandler {
       );
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         sourceVersion;
-    } else if (!this.isReverseSynchronization) {
+    } else {
       Logger.logInfo(
         loggerCategory,
         `updating sync version from ${this._targetScopeProvenanceProps.version} to ${sourceVersion}`
       );
       this._targetScopeProvenanceProps.version = sourceVersion;
+
+      // save reverse sync version
+      if (initializeReverseSyncVersion) {
+        Logger.logInfo(
+          loggerCategory,
+          `updating reverse sync version from ${this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion} to ${targetVersion}`
+        );
+        this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
+          targetVersion;
+      }
     }
 
     if (
       this._options.argsForProcessChanges ||
-      (this._startingChangesetIndices &&
-        (this._isProvenanceInitTransform || saveReverseVersion))
+      (this._startingChangesetIndices && initializeReverseSyncVersion)
     ) {
       nodeAssert(
         this.targetDb.changeset.index !== undefined &&
@@ -2293,16 +2290,17 @@ export class IModelTransformer extends IModelExportHandler {
       const pendingReverseSyncChangesetIndicesKey =
         "pendingReverseSyncChangesetIndices" as const;
 
-      const [syncChangesetsToClearKey, syncChangesetsToUpdateKey] = this
-        .isReverseSynchronization
-        ? [
-            pendingReverseSyncChangesetIndicesKey,
-            pendingSyncChangesetIndicesKey,
-          ]
-        : [
-            pendingSyncChangesetIndicesKey,
-            pendingReverseSyncChangesetIndicesKey,
-          ];
+      // Determine which keys to clear and update based on the synchronization direction
+      let syncChangesetsToClearKey;
+      let syncChangesetsToUpdateKey;
+
+      if (this.isReverseSynchronization) {
+        syncChangesetsToClearKey = pendingReverseSyncChangesetIndicesKey;
+        syncChangesetsToUpdateKey = pendingSyncChangesetIndicesKey;
+      } else {
+        syncChangesetsToClearKey = pendingSyncChangesetIndicesKey;
+        syncChangesetsToUpdateKey = pendingReverseSyncChangesetIndicesKey;
+      }
 
       // NOTE that as documented in [[processChanges]], this assumes that right after
       // transformation finalization, the work will be saved immediately, otherwise we've

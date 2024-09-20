@@ -174,7 +174,7 @@ describe("IModelTransformerHub", () => {
     return iModelId;
   };
 
-  it("save reverse sync version for processAll", async () => {
+  it("save reverse sync version for processAll transformations", async () => {
     const sourceIModelId = await HubWrappers.createIModel(
       accessToken,
       iTwinId,
@@ -238,13 +238,12 @@ describe("IModelTransformerHub", () => {
         exclusive: "0x1",
       });
 
-      // without setting isProvenanceInitTransform to true - we expect to not save reverse sync version
+      // we do not expect to save reverse sync version by default for processAll transformations
       const transformer1 = new IModelTransformer(
         sourceBriefcase,
         targetBriefcase
       );
       await transformer1.process();
-      transformer1.updateSynchronizationVersion({ force: true });
       const scopingEsa1 = transformer1["_targetScopeProvenanceProps"];
       const reverseSyncVersion1 =
         scopingEsa1?.jsonProperties.reverseSyncVersion;
@@ -267,13 +266,15 @@ describe("IModelTransformerHub", () => {
         retainLocks: true,
       });
 
-      // setting isProvenanceInitTransform to true - we expect to save reverse sync version
+      // when initializeReverseSyncVersion is set to true, we expect to save reverse sync version
       const transformer2 = new IModelTransformer(
         sourceBriefcase,
         targetBriefcase
       );
-      transformer2["_isProvenanceInitTransform"] = true;
       await transformer2.process();
+      transformer2.updateSynchronizationVersion({
+        initializeReverseSyncVersion: true,
+      });
       const scopingEsa2 = transformer2["_targetScopeProvenanceProps"];
       const reverseSyncVersion2 =
         scopingEsa2?.jsonProperties.reverseSyncVersion;
@@ -290,47 +291,6 @@ describe("IModelTransformerHub", () => {
       targetBriefcase.saveChanges();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 2",
-        retainLocks: true,
-      });
-
-      const sourceModelId3 = PhysicalModel.insert(
-        sourceBriefcase,
-        IModel.rootSubjectId,
-        "M3"
-      );
-      assert.isDefined(sourceModelId3);
-      sourceBriefcase.saveChanges();
-      await sourceBriefcase.pushChanges({
-        description: "source changes for inserting physical elements M3",
-        retainLocks: true,
-      });
-
-      // adding saveReverseVersion to true - we expect to save reverse sync version
-      const transformer3 = new IModelTransformer(
-        sourceBriefcase,
-        targetBriefcase
-      );
-      await transformer3.process();
-      transformer3.updateSynchronizationVersion({
-        force: true,
-        saveReverseVersion: true,
-      });
-      const scopingEsa3 = transformer3["_targetScopeProvenanceProps"];
-      const reverseSyncVersion3 =
-        scopingEsa3?.jsonProperties.reverseSyncVersion;
-      assert.isNotEmpty(reverseSyncVersion3);
-      const expectedReverseSyncVersion2 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
-      assert.equal(reverseSyncVersion3, expectedReverseSyncVersion2);
-      // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
-      const lastPendingReverseSyncIndex2 =
-        scopingEsa3?.jsonProperties.pendingReverseSyncChangesetIndices.pop();
-      assert.equal(
-        lastPendingReverseSyncIndex2,
-        (targetBriefcase.changeset.index ?? 0) + 1
-      );
-      targetBriefcase.saveChanges();
-      await targetBriefcase.pushChanges({
-        description: "target changes for transformation 3",
         retainLocks: true,
       });
     } finally {
