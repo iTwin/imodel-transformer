@@ -2355,7 +2355,9 @@ export class IModelTransformer extends IModelExportHandler {
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private finalizeTransformation() {
     this.importer.finalize();
-    this.updateSynchronizationVersion();
+    this.updateSynchronizationVersion({
+      initializeReverseSyncVersion: this._isProvenanceInitTransform,
+    });
 
     if (this._partiallyCommittedEntities.size > 0) {
       const message = [

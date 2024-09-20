@@ -449,9 +449,6 @@ export async function runTimeline(
           wasSourceIModelCopiedToTarget: true,
         });
         await provenanceInserter.process();
-        provenanceInserter.updateSynchronizationVersion({
-          initializeReverseSyncVersion: true,
-        });
         provenanceInserter.dispose();
         await saveAndPushChanges(
           accessToken,
