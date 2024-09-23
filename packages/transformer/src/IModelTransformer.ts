@@ -2212,7 +2212,8 @@ export class IModelTransformer extends IModelExportHandler {
     return targetModelProps;
   }
 
-  /** called at the end of a transformation,
+  /**
+   * Called at the end of a transformation,
    * updates the target scope element to say that transformation up through the
    * source's changeset has been performed. Also stores all changesets that occurred
    * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
@@ -2221,12 +2222,13 @@ export class IModelTransformer extends IModelExportHandler {
    * It is public for unsupported use cases of custom synchronization transforms.
    * @note If [[IModelTransformOptions.argsForProcessChanges]] is not defined in this transformation, this function will return early without updating the sync version,
    * unless the `initializeReverseSyncVersion` option is set to `true`
+   *
    * The `initializeReverseSyncVersion` is added to set the reverse synchronization version during a forward synchronization.
-   * When set to `true`, it saves the reverse sync version as the current changeset of the targetDb.
+   * When set to `true`, it saves the reverse sync version as the current changeset of the targetDb. This is typically used for the first transformation between a master and branch iModel.
+   * Setting `initializeReverseSyncVersion` to `true` has the effect of making it so any changesets in the branch iModel at the time of the first transformation will be ignored during any future reverse synchronizations from the branch to the master iModel.
+   *
    * Note that typically, the reverseSyncVersion is saved as the last changeset merged from the branch into master.
-   * This is also necessary for the initial transformation between a master and branch imodel.
-   * Setting it to `true` avoids having a reverseSyncVersion of "", which interferes with a fix for a now resolved bug.
-   * Since the fix cannot be easily removed, we must support the initialization of the reverseSyncVersion.
+   * Setting initializeReverseSyncVersion to true could overwrite this correct reverseSyncVersion and should only be done during the first transformation between a master and branch iModel.
    */
   public updateSynchronizationVersion({
     initializeReverseSyncVersion = false,
