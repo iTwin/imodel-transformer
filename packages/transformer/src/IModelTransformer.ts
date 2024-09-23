@@ -1593,7 +1593,7 @@ export class IModelTransformer extends IModelExportHandler {
       const targetId = this.context.findTargetElementId(sourceElementId);
       if (Id64.isInvalid(targetId)) {
         throw new Error(
-          "source-target element mapping not found when completing partially committed elements. This is a bug."
+          `source-target element mapping not found for element "${targetId}" when completing partially committed elements. This is a bug.`
         );
       }
 
@@ -1608,7 +1608,7 @@ export class IModelTransformer extends IModelExportHandler {
       const targetAspectId = this.context.findTargetAspectId(sourceAspectId);
       if (Id64.isInvalid(targetAspectId)) {
         throw new Error(
-          "source-target aspect mapping not found when completing partially committed aspects. This is a bug."
+          `source-target aspect mapping not found for aspect "${targetAspectId}" when completing partially committed aspects. This is a bug.`
         );
       }
       const targetAspectProps = this.onTransformElementAspect(sourceAspect);
@@ -1635,7 +1635,6 @@ export class IModelTransformer extends IModelExportHandler {
         allReferencesExist &&
         !EntityReferences.isValid(this.context.findTargetEntityId(referenceId))
       ) {
-        // TODO: do we ever care if the reference did not exist in master? why not just remove the reference if it already did nothing? is that option ever used or is useful in any way?
         // if we care about references existing then we cannot return early and must check all other references.
         if (this._options.danglingReferencesBehavior === "ignore") {
           return false;
@@ -1658,19 +1657,13 @@ export class IModelTransformer extends IModelExportHandler {
       entityReference: referenceId,
     });
     if (!referencedExistsInSource) {
-      // TODO: Not sure if the error message is correct. It implies that an invalid reference is carried to the target iModel.
-      //      If it is, what value is it set to? From what I have seen non existent references are stripped away during element cloning.
-      //      If a reference is crucial to the element (e.g. Category to a PhysicalElement) it will be processed in [[preExportElement]].
-      //      That said, I'm not sure that checking if references exist is in any way useful and it only complicates the code.
-      //      Also, it is very easy to create an "unprocessable" iModel if 'danglingReferencesBehavior' is "reject".
       throw new IModelError(
         IModelStatus.NotFound,
         [
           `Found a reference to an element "${referenceId}" that doesn't exist while looking for references of "${entity.id}".`,
           "This must have been caused by an upstream application that changed the iModel.",
-          "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this, but this will leave the iModel",
-          "in a state where downstream consuming applications will need to handle the invalidity themselves. In some cases, writing a custom",
-          "transformer to remove the reference and fix affected elements may be suitable.",
+          "You can set the IModelTransformOptions.danglingReferencesBehavior option to 'ignore' to ignore this,",
+          `and the referenceId found on "${entity.id}" will not be carried over to corresponding target element.`,
         ].join("\n")
       );
     }
