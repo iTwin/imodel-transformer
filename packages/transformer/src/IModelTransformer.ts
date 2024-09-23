@@ -2228,7 +2228,7 @@ export class IModelTransformer extends IModelExportHandler {
    * Setting `initializeReverseSyncVersion` to `true` has the effect of making it so any changesets in the branch iModel at the time of the first transformation will be ignored during any future reverse synchronizations from the branch to the master iModel.
    *
    * Note that typically, the reverseSyncVersion is saved as the last changeset merged from the branch into master.
-   * Setting initializeReverseSyncVersion to true could overwrite this correct reverseSyncVersion and should only be done during the first transformation between a master and branch iModel.
+   * Setting initializeReverseSyncVersion to true during a forward transformation could overwrite this correct reverseSyncVersion and should only be done during the first transformation between a master and branch iModel.
    */
   public updateSynchronizationVersion({
     initializeReverseSyncVersion = false,
