@@ -1593,7 +1593,7 @@ export class IModelTransformer extends IModelExportHandler {
       const targetId = this.context.findTargetElementId(sourceElementId);
       if (Id64.isInvalid(targetId)) {
         throw new Error(
-          `source-target element mapping not found for element "${targetId}" when completing partially committed elements. This is a bug.`
+          `source-target element mapping not found for element "${sourceElementId}" when completing partially committed elements. This is a bug.`
         );
       }
 
@@ -1608,7 +1608,7 @@ export class IModelTransformer extends IModelExportHandler {
       const targetAspectId = this.context.findTargetAspectId(sourceAspectId);
       if (Id64.isInvalid(targetAspectId)) {
         throw new Error(
-          `source-target aspect mapping not found for aspect "${targetAspectId}" when completing partially committed aspects. This is a bug.`
+          `source-target aspect mapping not found for aspect "${sourceAspectId}" when completing partially committed aspects. This is a bug.`
         );
       }
       const targetAspectProps = this.onTransformElementAspect(sourceAspect);
