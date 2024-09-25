@@ -15,7 +15,6 @@ import {
 import {
   AxisAlignedBox3d,
   Base64EncodedString,
-  Code,
   ElementAspectProps,
   ElementProps,
   EntityProps,
@@ -32,7 +31,6 @@ import {
   ElementAspect,
   ElementMultiAspect,
   Entity,
-  EntityReferences,
   IModelDb,
   Relationship,
   RelationshipProps,
@@ -42,7 +40,6 @@ import {
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
-import { EntityUnifier } from "./EntityUnifier";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
