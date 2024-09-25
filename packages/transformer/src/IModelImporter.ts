@@ -15,6 +15,7 @@ import {
 import {
   AxisAlignedBox3d,
   Base64EncodedString,
+  Code,
   ElementAspectProps,
   ElementProps,
   EntityProps,
@@ -31,6 +32,7 @@ import {
   ElementAspect,
   ElementMultiAspect,
   Entity,
+  EntityReferences,
   IModelDb,
   Relationship,
   RelationshipProps,
@@ -40,6 +42,7 @@ import {
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
+import { EntityUnifier } from "./EntityUnifier";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -227,6 +230,29 @@ export class IModelImporter {
     return `${modelProps.classFullName} [${modelProps.id!}]`;
   }
 
+  private doesElementExistInTarget(elementProps: ElementProps) {
+    const getElementById = this.targetDb.elements.tryGetElement(
+      elementProps.id!
+    );
+    const getElementIdByFedGuid =
+      this.targetDb.elements.getIdFromFederationGuid(
+        elementProps.federationGuid
+      );
+
+    if (getElementById && getElementIdByFedGuid) {
+      // if the same element in target have different ids
+      if (getElementById.id !== getElementIdByFedGuid) {
+        throw new Error(
+          "Element id cannot be preserved since this element exist but has a different id in target"
+        );
+      }
+    }
+    if (getElementById || getElementIdByFedGuid) {
+      return true;
+    }
+    return false;
+  }
+
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
   public importElement(elementProps: ElementProps): Id64String {
     if (
@@ -246,6 +272,7 @@ export class IModelImporter {
           "elementProps.id must be defined during a preserveIds operation"
         );
       }
+
       // Categories are the only element that onInserted will immediately insert a new element (their default subcategory)
       // since default subcategories always exist and always will be inserted after their categories, we treat them as an update
       // to prevent duplicate inserts.
@@ -257,7 +284,11 @@ export class IModelImporter {
       ) {
         this.onUpdateElement(elementProps);
       } else {
-        this.onInsertElement(elementProps);
+        if (this.doesElementExistInTarget(elementProps)) {
+          this.onUpdateElement(elementProps);
+        } else {
+          this.onInsertElement(elementProps);
+        }
       }
     } else {
       if (undefined !== elementProps.id) {

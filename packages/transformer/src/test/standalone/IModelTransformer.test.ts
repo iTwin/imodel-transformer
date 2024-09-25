@@ -2655,6 +2655,152 @@ describe("IModelTransformer", () => {
     }
   }
 
+  it("process() with preserveElementIdsForFiltering set to true should re-add deleted element with same id", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "iModelA" },
+    });
+    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Execute process() so that elements from source are copied to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    let sourceContent = await getAllElementsInvariants(sourceDb);
+    let targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    // Delete subject from target
+    const code = Subject.createCode(targetDb, IModel.rootSubjectId, "Subject1");
+    const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
+    expect(targetSubjectId).to.not.be.undefined;
+    targetDb.elements.deleteElement(targetSubjectId!);
+    targetDb.saveChanges();
+
+    // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
+    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await secondTransformer.process(); // should not throw error: duplicate code (65547)
+    targetDb.saveChanges();
+
+    sourceContent = await getAllElementsInvariants(sourceDb);
+    targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with preserveElementIdsForFiltering set to true should not throw when called on 2 identical iModels", async () => {
+    const seedDb = SnapshotDb.openFile(
+      TestUtils.IModelTestUtils.resolveAssetFile("CompatibilityTestSeed.bim")
+    );
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    // transforming the seed to an empty will update it to the latest bis from the new target
+    // which minimizes differences we'd otherwise need to filter later
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: seedDb.rootSubject,
+    });
+    const seedTransformer = new IModelTransformer(seedDb, sourceDb);
+    await seedTransformer.process();
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Calling process() for first time will add all elements from source to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    // should not throw error: duplicate code (65547)
+    const thirdTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await thirdTransformer.process();
+    targetDb.saveChanges();
+
+    const sourceContent = await getAllElementsInvariants(sourceDb);
+    const targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with preserveElementIdsForFiltering set to true should not throw when called on 2 identical iModels", async () => {
+    const seedDb = SnapshotDb.openFile(
+      TestUtils.IModelTestUtils.resolveAssetFile("CompatibilityTestSeed.bim")
+    );
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    // transforming the seed to an empty will update it to the latest bis from the new target
+    // which minimizes differences we'd otherwise need to filter later
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: seedDb.rootSubject,
+    });
+    const seedTransformer = new IModelTransformer(seedDb, sourceDb);
+    await seedTransformer.process();
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Calling process() for first time will add all elements from source to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    // should not throw error: duplicate code (65547)
+    const thirdTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await thirdTransformer.process();
+    targetDb.saveChanges();
+
+    const sourceContent = await getAllElementsInvariants(sourceDb);
+    const targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
   it("reference deletion is considered invalid when danglingReferencesBehavior='reject' and that is the default", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
