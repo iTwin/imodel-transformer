@@ -227,29 +227,6 @@ export class IModelImporter {
     return `${modelProps.classFullName} [${modelProps.id!}]`;
   }
 
-  private doesElementExistInTarget(elementProps: ElementProps) {
-    const getElementById = this.targetDb.elements.tryGetElement(
-      elementProps.id!
-    );
-    const getElementIdByFedGuid =
-      this.targetDb.elements.getIdFromFederationGuid(
-        elementProps.federationGuid
-      );
-
-    if (getElementById && getElementIdByFedGuid) {
-      // if the same element in target have different ids
-      if (getElementById.id !== getElementIdByFedGuid) {
-        throw new Error(
-          "Element id cannot be preserved since this element exist but has a different id in target"
-        );
-      }
-    }
-    if (getElementById || getElementIdByFedGuid) {
-      return true;
-    }
-    return false;
-  }
-
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
   public importElement(elementProps: ElementProps): Id64String {
     if (
@@ -281,7 +258,10 @@ export class IModelImporter {
       ) {
         this.onUpdateElement(elementProps);
       } else {
-        if (this.doesElementExistInTarget(elementProps)) {
+        const doesElementExistInTarget = this.targetDb.elements.tryGetElement(
+          elementProps.id
+        );
+        if (doesElementExistInTarget) {
           this.onUpdateElement(elementProps);
         } else {
           this.onInsertElement(elementProps);

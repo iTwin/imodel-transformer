@@ -1944,6 +1944,39 @@ export class IModelTransformer extends IModelExportHandler {
       ? targetElementId
       : undefined;
 
+    if (this._options.preserveElementIdsForFiltering) {
+      const elementInTargetId = this.context.findTargetElementId(
+        sourceElement.id
+      );
+      const isInvalid = !Id64.isValid(elementInTargetId);
+      const sourceInTargetElemProps = this.targetDb.elements.tryGetElementProps(
+        sourceElement.id
+      );
+      const sourceElemProps = this.sourceDb.elements.getElementProps(
+        sourceElement.id
+      );
+
+      if (isInvalid === false && elementInTargetId !== sourceElement.id) {
+        // we have found our element but it has a different id
+        throw new Error(
+          `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${elementInTargetId}) from source element`
+        );
+      }
+      // if we don't find source element in target(invalid) but an element with source id exists in target and ensure not the same element
+      else if (
+        isInvalid &&
+        sourceInTargetElemProps?.federationGuid &&
+        sourceInTargetElemProps &&
+        sourceElemProps?.federationGuid !==
+          sourceInTargetElemProps.federationGuid
+      ) {
+        // this element id is already taken by another element
+        throw new Error(
+          `Element id(${sourceElement.id}) cannot be preserved. Found a mapping that is already used by another element(${sourceInTargetElemProps.id}) in target db`
+        );
+      }
+    }
+
     if (!this._options.wasSourceIModelCopiedToTarget) {
       this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
