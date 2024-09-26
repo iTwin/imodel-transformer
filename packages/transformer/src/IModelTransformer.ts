@@ -1956,21 +1956,20 @@ export class IModelTransformer extends IModelExportHandler {
         sourceElement.id
       );
 
-      if (isInvalid === false && elementInTargetId !== sourceElement.id) {
-        // we have found our element but it has a different id
+      if (!isInvalid && elementInTargetId !== sourceElement.id) {
+        // Element found with different id
         throw new Error(
           `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${elementInTargetId}) from source element`
         );
       }
-      // if we don't find source element in target(invalid) but an element with source id exists in target and ensure not the same element
+      // if we don't find mapping for source element in target(invalid) but an element with source id exists in target and it is not the same as source element
       else if (
         isInvalid &&
         sourceInTargetElemProps?.federationGuid &&
-        sourceInTargetElemProps &&
         sourceElemProps?.federationGuid !==
           sourceInTargetElemProps.federationGuid
       ) {
-        // this element id is already taken by another element
+        // Element id is already taken by another element
         throw new Error(
           `Element id(${sourceElement.id}) cannot be preserved. Found a mapping that is already used by another element(${sourceInTargetElemProps.id}) in target db`
         );
