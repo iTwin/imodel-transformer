@@ -2234,33 +2234,38 @@ export class IModelTransformer extends IModelExportHandler {
     return targetModelProps;
   }
 
-  /** called at the end of a transformation,
+  /**
+   * Called at the end of a transformation,
    * updates the target scope element to say that transformation up through the
    * source's changeset has been performed. Also stores all changesets that occurred
    * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
    *
    * You generally should not call this function yourself and use [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided instead.
    * It is public for unsupported use cases of custom synchronization transforms.
-   * @note if [[IModelTransformOptions.argsForProcessChanges]] are not defined in this transformation, this will fail
-   * without setting the `force` option to `true`
+   * @note If [[IModelTransformOptions.argsForProcessChanges]] is not defined in this transformation, this function will return early without updating the sync version,
+   * unless the `initializeReverseSyncVersion` option is set to `true`
+   *
+   * The `initializeReverseSyncVersion` is added to set the reverse synchronization version during a forward synchronization.
+   * When set to `true`, it saves the reverse sync version as the current changeset of the targetDb. This is typically used for the first transformation between a master and branch iModel.
+   * Setting `initializeReverseSyncVersion` to `true` has the effect of making it so any changesets in the branch iModel at the time of the first transformation will be ignored during any future reverse synchronizations from the branch to the master iModel.
+   *
+   * Note that typically, the reverseSyncVersion is saved as the last changeset merged from the branch into master.
+   * Setting initializeReverseSyncVersion to true during a forward transformation could overwrite this correct reverseSyncVersion and should only be done during the first transformation between a master and branch iModel.
    */
-  public updateSynchronizationVersion({ force = false } = {}) {
-    const notForcedAndHasNoChangesAndIsntProvenanceInit =
-      !force &&
-      this._sourceChangeDataState !== "has-changes" &&
-      !this._isProvenanceInitTransform;
-    if (notForcedAndHasNoChangesAndIsntProvenanceInit) return;
+  public updateSynchronizationVersion({
+    initializeReverseSyncVersion = false,
+  } = {}) {
+    const shouldSkipSyncVersionUpdate =
+      !initializeReverseSyncVersion &&
+      this._sourceChangeDataState !== "has-changes";
+    if (shouldSkipSyncVersionUpdate) return;
 
     nodeAssert(this._targetScopeProvenanceProps);
 
     const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
     const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
 
-    if (this._isProvenanceInitTransform) {
-      this._targetScopeProvenanceProps.version = sourceVersion;
-      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
-        targetVersion;
-    } else if (this.isReverseSynchronization) {
+    if (this.isReverseSynchronization) {
       const oldVersion =
         this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
 
@@ -2270,17 +2275,27 @@ export class IModelTransformer extends IModelExportHandler {
       );
       this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
         sourceVersion;
-    } else if (!this.isReverseSynchronization) {
+    } else {
       Logger.logInfo(
         loggerCategory,
         `updating sync version from ${this._targetScopeProvenanceProps.version} to ${sourceVersion}`
       );
       this._targetScopeProvenanceProps.version = sourceVersion;
+
+      // save reverse sync version
+      if (initializeReverseSyncVersion) {
+        Logger.logInfo(
+          loggerCategory,
+          `updating reverse sync version from ${this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion} to ${targetVersion}`
+        );
+        this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
+          targetVersion;
+      }
     }
 
     if (
       this._options.argsForProcessChanges ||
-      (this._startingChangesetIndices && this._isProvenanceInitTransform)
+      (this._startingChangesetIndices && initializeReverseSyncVersion)
     ) {
       nodeAssert(
         this.targetDb.changeset.index !== undefined &&
@@ -2304,16 +2319,17 @@ export class IModelTransformer extends IModelExportHandler {
       const pendingReverseSyncChangesetIndicesKey =
         "pendingReverseSyncChangesetIndices" as const;
 
-      const [syncChangesetsToClearKey, syncChangesetsToUpdateKey] = this
-        .isReverseSynchronization
-        ? [
-            pendingReverseSyncChangesetIndicesKey,
-            pendingSyncChangesetIndicesKey,
-          ]
-        : [
-            pendingSyncChangesetIndicesKey,
-            pendingReverseSyncChangesetIndicesKey,
-          ];
+      // Determine which keys to clear and update based on the synchronization direction
+      let syncChangesetsToClearKey;
+      let syncChangesetsToUpdateKey;
+
+      if (this.isReverseSynchronization) {
+        syncChangesetsToClearKey = pendingReverseSyncChangesetIndicesKey;
+        syncChangesetsToUpdateKey = pendingSyncChangesetIndicesKey;
+      } else {
+        syncChangesetsToClearKey = pendingSyncChangesetIndicesKey;
+        syncChangesetsToUpdateKey = pendingReverseSyncChangesetIndicesKey;
+      }
 
       // NOTE that as documented in [[processChanges]], this assumes that right after
       // transformation finalization, the work will be saved immediately, otherwise we've
@@ -2368,7 +2384,9 @@ export class IModelTransformer extends IModelExportHandler {
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private finalizeTransformation() {
     this.importer.finalize();
-    this.updateSynchronizationVersion();
+    this.updateSynchronizationVersion({
+      initializeReverseSyncVersion: this._isProvenanceInitTransform,
+    });
 
     if (this._partiallyCommittedEntities.size > 0) {
       const message = [

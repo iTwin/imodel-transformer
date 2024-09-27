@@ -174,6 +174,142 @@ describe("IModelTransformerHub", () => {
     return iModelId;
   };
 
+  it("save reverse sync version for processAll transformations", async () => {
+    const sourceIModelId = await HubWrappers.createIModel(
+      accessToken,
+      iTwinId,
+      "source"
+    );
+
+    const targetIModelId = await HubWrappers.createIModel(
+      accessToken,
+      iTwinId,
+      "target"
+    );
+    assert.isTrue(Guid.isGuid(sourceIModelId));
+    assert.isTrue(Guid.isGuid(targetIModelId));
+    try {
+      // download and open briefcase on source imodel
+      const sourceBriefcase = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken: await IModelHost.getAccessToken(),
+        iTwinId,
+        iModelId: sourceIModelId,
+        asOf: IModelVersion.latest().toJSON(),
+      });
+      await sourceBriefcase.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+      assert.isTrue(sourceBriefcase.isBriefcaseDb());
+      assert.isFalse(sourceBriefcase.isSnapshot);
+
+      // set up physical models
+      const sourceModelId0 = PhysicalModel.insert(
+        sourceBriefcase,
+        IModel.rootSubjectId,
+        "M0"
+      );
+      const sourceModelId1 = PhysicalModel.insert(
+        sourceBriefcase,
+        IModel.rootSubjectId,
+        "M1"
+      );
+      assert.isDefined(sourceModelId0);
+      assert.isDefined(sourceModelId1);
+
+      sourceBriefcase.saveChanges();
+      await sourceBriefcase.pushChanges({
+        description: "source changes for inserting physical elements M0 and M1",
+        retainLocks: true,
+      });
+
+      // download and open briefcase on target imodel
+      const targetBriefcase = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken: await IModelHost.getAccessToken(),
+        iTwinId,
+        iModelId: targetIModelId,
+        asOf: IModelVersion.latest().toJSON(),
+      });
+      assert.isTrue(targetBriefcase.isBriefcaseDb());
+      assert.isFalse(targetBriefcase.isSnapshot);
+
+      await targetBriefcase.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+
+      // we do not expect to save reverse sync version by default for processAll transformations
+      const transformer1 = new IModelTransformer(
+        sourceBriefcase,
+        targetBriefcase
+      );
+      await transformer1.process();
+      const scopingEsa1 = transformer1["_targetScopeProvenanceProps"];
+      const reverseSyncVersion1 =
+        scopingEsa1?.jsonProperties.reverseSyncVersion;
+      assert.isEmpty(reverseSyncVersion1);
+      targetBriefcase.saveChanges();
+      await targetBriefcase.pushChanges({
+        description: "target changes for transformation 1",
+        retainLocks: true,
+      });
+
+      const sourceModelId2 = PhysicalModel.insert(
+        sourceBriefcase,
+        IModel.rootSubjectId,
+        "M2"
+      );
+      assert.isDefined(sourceModelId2);
+      sourceBriefcase.saveChanges();
+      await sourceBriefcase.pushChanges({
+        description: "source changes for inserting physical elements M2",
+        retainLocks: true,
+      });
+
+      // when initializeReverseSyncVersion is set to true, we expect to save reverse sync version
+      const transformer2 = new IModelTransformer(
+        sourceBriefcase,
+        targetBriefcase
+      );
+      await transformer2.process();
+      transformer2.updateSynchronizationVersion({
+        initializeReverseSyncVersion: true,
+      });
+      const scopingEsa2 = transformer2["_targetScopeProvenanceProps"];
+      const reverseSyncVersion2 =
+        scopingEsa2?.jsonProperties.reverseSyncVersion;
+      assert.isNotEmpty(reverseSyncVersion2);
+      const expectedReverseSyncVersion1 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
+      assert.equal(reverseSyncVersion2, expectedReverseSyncVersion1);
+      // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
+      const lastPendingReverseSyncIndex1 =
+        scopingEsa2?.jsonProperties.pendingReverseSyncChangesetIndices.pop();
+      assert.equal(
+        lastPendingReverseSyncIndex1,
+        (targetBriefcase.changeset.index ?? 0) + 1
+      );
+      targetBriefcase.saveChanges();
+      await targetBriefcase.pushChanges({
+        description: "target changes for transformation 2",
+        retainLocks: true,
+      });
+    } finally {
+      try {
+        await IModelHost.hubAccess.deleteIModel({
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost.hubAccess.deleteIModel({
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
   it("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",
