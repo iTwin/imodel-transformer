@@ -2754,53 +2754,6 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it("process() with preserveElementIdsForFiltering set to true should not throw when called on 2 identical iModels", async () => {
-    const seedDb = SnapshotDb.openFile(
-      TestUtils.IModelTestUtils.resolveAssetFile("CompatibilityTestSeed.bim")
-    );
-    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "PreserveIdOnTestModel-Source.bim"
-    );
-    // transforming the seed to an empty will update it to the latest bis from the new target
-    // which minimizes differences we'd otherwise need to filter later
-    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
-      rootSubject: seedDb.rootSubject,
-    });
-    const seedTransformer = new IModelTransformer(seedDb, sourceDb);
-    await seedTransformer.process();
-    sourceDb.saveChanges();
-
-    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "PreserveIdOnTestModel-Target.bim"
-    );
-    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
-      rootSubject: sourceDb.rootSubject,
-    });
-
-    // Calling process() for first time will add all elements from source to target
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-    });
-    await transformer.process();
-    targetDb.saveChanges();
-
-    // should not throw error: duplicate code (65547)
-    const thirdTransformer = new IModelTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-    });
-    await thirdTransformer.process();
-    targetDb.saveChanges();
-
-    const sourceContent = await getAllElementsInvariants(sourceDb);
-    const targetContent = await getAllElementsInvariants(targetDb);
-    expect(targetContent).to.deep.equal(sourceContent);
-
-    sourceDb.close();
-    targetDb.close();
-  });
-
   it("reference deletion is considered invalid when danglingReferencesBehavior='reject' and that is the default", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",

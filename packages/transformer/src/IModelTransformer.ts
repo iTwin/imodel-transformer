@@ -1882,10 +1882,7 @@ export class IModelTransformer extends IModelExportHandler {
   public override onExportElement(sourceElement: Element): void {
     let targetElementId: Id64String;
     let targetElementProps: ElementProps;
-    if (this._options.preserveElementIdsForFiltering) {
-      targetElementId = sourceElement.id;
-      targetElementProps = this.onTransformElement(sourceElement);
-    } else if (this._options.wasSourceIModelCopiedToTarget) {
+    if (this._options.wasSourceIModelCopiedToTarget) {
       targetElementId = sourceElement.id;
       targetElementProps =
         this.targetDb.elements.getElementProps(targetElementId);
@@ -1945,34 +1942,27 @@ export class IModelTransformer extends IModelExportHandler {
       : undefined;
 
     if (this._options.preserveElementIdsForFiltering) {
-      const elementInTargetId = this.context.findTargetElementId(
-        sourceElement.id
-      );
-      const isInvalid = !Id64.isValid(elementInTargetId);
+      const isInvalid = !Id64.isValid(targetElementId);
       const sourceInTargetElemProps = this.targetDb.elements.tryGetElementProps(
         sourceElement.id
       );
-      const sourceElemProps = this.sourceDb.elements.getElementProps(
-        sourceElement.id
-      );
 
-      if (!isInvalid && elementInTargetId !== sourceElement.id) {
+      if (!isInvalid && targetElementId !== sourceElement.id) {
         // Element found with different id
         throw new Error(
-          `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${elementInTargetId}) from source element`
+          `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${targetElementId}) from source element`
         );
       }
-      // if we don't find mapping for source element in target(invalid) but an element with source id exists in target and it is not the same as source element
-      else if (
-        isInvalid &&
-        sourceInTargetElemProps?.federationGuid &&
-        sourceElemProps?.federationGuid !==
-          sourceInTargetElemProps.federationGuid
-      ) {
+      // if we don't find mapping for source element in target(invalid) but another element with source id exists in target
+      else if (isInvalid && sourceInTargetElemProps) {
         // Element id is already taken by another element
         throw new Error(
           `Element id(${sourceElement.id}) cannot be preserved. Found a mapping that is already used by another element(${sourceInTargetElemProps.id}) in target db`
         );
+      }
+      // Element id in target is available to be remapped
+      else if (isInvalid) {
+        targetElementProps.id = sourceElement.id;
       }
     }
 
