@@ -2705,12 +2705,7 @@ describe("IModelTransformer", () => {
     );
     const targetSubjectId2 = sourceDb.elements.queryElementIdByCode(code2);
     const subject2 = sourceDb.elements.getElement<Subject>(targetSubjectId2!);
-    const updatedCode2 = Subject.createCode(
-      targetDb,
-      IModel.rootSubjectId,
-      "Subject2(Updated)"
-    );
-    subject2.code = updatedCode2;
+    subject2.description = "Subject2 Updated Description";
     sourceDb.elements.updateElement(subject2.toJSON());
     sourceDb.saveChanges();
 
