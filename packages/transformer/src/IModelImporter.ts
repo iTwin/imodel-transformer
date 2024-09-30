@@ -63,6 +63,11 @@ export interface IModelImportOptions {
    * @see [IModelImporter Options]($docs/learning/transformer/index.md#IModelImporter)
    */
   autoExtendProjectExtents?: boolean | { excludeOutliers: boolean };
+  /**
+   * Indicates whether the importer is derived from a transformation process.
+   * If `true`, the importer originates from a transformation.
+   */
+  fromTransformation?: boolean;
   /** See [IModelTransformOptions]($transformer) */
   preserveElementIdsForFiltering?: boolean;
   /** If `true`, simplify the element geometry for visualization purposes. For example, convert b-reps into meshes.
@@ -109,6 +114,12 @@ export class IModelImporter {
    */
   public readonly doNotUpdateElementIds = new Set<Id64String>([]);
 
+  /** The set of elements that are added during the export of element during transformation to keep track of which elements to update during an import
+   * Defaults to an empty set.
+   * @note This is used when preserveElementIdsForFiltering is set to true
+   */
+  public elementsToUpdate = new Set<Id64String>([]);
+
   /** This set is ONLY used for elements that are always present even in an "empty" iModel. We will use this set to filter out changes to root elements if [[IModelTransformOptions.skipPropagateChangesToRootElements]] is false. */
   private readonly _rootElementIds = new Set<Id64String>([
     IModel.rootSubjectId,
@@ -133,6 +144,7 @@ export class IModelImporter {
     this.targetDb = targetDb;
     this.options = {
       autoExtendProjectExtents: options?.autoExtendProjectExtents ?? true,
+      fromTransformation: options?.fromTransformation ?? false,
       preserveElementIdsForFiltering:
         options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
@@ -153,6 +165,16 @@ export class IModelImporter {
       return true;
     if (this.doNotUpdateElementIds.has(elementId)) return true;
     return false;
+  }
+
+  /**
+   * Marks an element so that it can be updated during import when [[IModelImportOptions.preserveElementIdsForFiltering]] is set to true
+   */
+  public markElementAsUpdate(elementId: Id64String) {
+    if (this._rootElementIds.has(elementId)) {
+      return;
+    }
+    this.elementsToUpdate.add(elementId);
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
@@ -277,11 +299,13 @@ export class IModelImporter {
       ) {
         this.onUpdateElement(elementProps);
       } else {
-        const doesElementExistInTarget = this.targetDb.elements.tryGetElement(
-          elementProps.id
-        );
-        if (doesElementExistInTarget) {
+        // if [[IModelImportOptions.fromTransformation]] is false, try and get the element (update if it exists)
+        const shouldUpdateElement =
+          !this.options.fromTransformation &&
+          this.targetDb.elements.tryGetElement(elementProps.id);
+        if (this.elementsToUpdate.has(elementProps.id) || shouldUpdateElement) {
           tryUpdateElement(elementProps);
+          this.elementsToUpdate.delete(elementProps.id);
         } else {
           this.onInsertElement(elementProps);
         }

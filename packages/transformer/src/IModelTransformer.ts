@@ -668,6 +668,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
+    this.importer.options.fromTransformation = true;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -1949,9 +1950,13 @@ export class IModelTransformer extends IModelExportHandler {
         throw new Error(
           `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${targetElementId}) from source element`
         );
+      } else if (!isInvalid && targetElementId === sourceElement.id) {
+        // targetElementId is valid (indicating update)
+        this.importer.markElementAsUpdate(sourceElement.id);
       } else if (isInvalid) {
         const sourceInTargetElemProps =
           this.targetDb.elements.tryGetElementProps(sourceElement.id);
+
         // if we don't find mapping for source element in target(invalid) but another element with source id exists in target
         if (sourceInTargetElemProps) {
           // Element id is already taken by another element
