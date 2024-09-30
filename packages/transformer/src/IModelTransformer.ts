@@ -1943,26 +1943,25 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (this._options.preserveElementIdsForFiltering) {
       const isInvalid = !Id64.isValid(targetElementId);
-      const sourceInTargetElemProps = this.targetDb.elements.tryGetElementProps(
-        sourceElement.id
-      );
 
       if (!isInvalid && targetElementId !== sourceElement.id) {
         // Element found with different id
         throw new Error(
           `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${targetElementId}) from source element`
         );
-      }
-      // if we don't find mapping for source element in target(invalid) but another element with source id exists in target
-      else if (isInvalid && sourceInTargetElemProps) {
-        // Element id is already taken by another element
-        throw new Error(
-          `Element id(${sourceElement.id}) cannot be preserved. An unrelated element in the target already uses id: ${sourceElement.id}`
-        );
-      }
-      // Element id in target is available to be remapped
-      else if (isInvalid) {
-        targetElementProps.id = sourceElement.id;
+      } else if (isInvalid) {
+        const sourceInTargetElemProps =
+          this.targetDb.elements.tryGetElementProps(sourceElement.id);
+        // if we don't find mapping for source element in target(invalid) but another element with source id exists in target
+        if (sourceInTargetElemProps) {
+          // Element id is already taken by another element
+          throw new Error(
+            `Element id(${sourceElement.id}) cannot be preserved. An unrelated element in the target already uses id: ${sourceElement.id}`
+          );
+        } else {
+          // Element id in target is available to be remapped
+          targetElementProps.id = sourceElement.id;
+        }
       }
     }
 
