@@ -2664,6 +2664,7 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "iModelA" },
     });
     Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2");
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2685,18 +2686,39 @@ describe("IModelTransformer", () => {
     let targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
 
-    // Delete subject from target
-    const code = Subject.createCode(targetDb, IModel.rootSubjectId, "Subject1");
-    const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
-    expect(targetSubjectId).to.not.be.undefined;
-    targetDb.elements.deleteElement(targetSubjectId!);
+    // Delete subject 1 from target
+    const code1 = Subject.createCode(
+      targetDb,
+      IModel.rootSubjectId,
+      "Subject1"
+    );
+    const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
+    expect(targetSubjectId1).to.not.be.undefined;
+    targetDb.elements.deleteElement(targetSubjectId1!);
     targetDb.saveChanges();
+
+    // update subject 2 in source
+    const code2 = Subject.createCode(
+      sourceDb,
+      IModel.rootSubjectId,
+      "Subject2"
+    );
+    const targetSubjectId2 = sourceDb.elements.queryElementIdByCode(code2);
+    const subject2 = sourceDb.elements.getElement<Subject>(targetSubjectId2!);
+    const updatedCode2 = Subject.createCode(
+      targetDb,
+      IModel.rootSubjectId,
+      "Subject2(Updated)"
+    );
+    subject2.code = updatedCode2;
+    sourceDb.elements.updateElement(subject2.toJSON());
+    sourceDb.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await secondTransformer.process(); // should not throw error: duplicate code (65547)
+    await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
     targetDb.saveChanges();
 
     sourceContent = await getAllElementsInvariants(sourceDb);
