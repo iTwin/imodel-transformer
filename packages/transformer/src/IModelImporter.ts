@@ -229,6 +229,25 @@ export class IModelImporter {
 
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
   public importElement(elementProps: ElementProps): Id64String {
+    const tryUpdateElement = (elemProps: ElementProps): void => {
+      try {
+        this.onUpdateElement(elemProps);
+      } catch (err) {
+        if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
+          assert(
+            elemProps.code.value !== undefined,
+            "NULL code values are always considered unique and cannot clash"
+          );
+          this._duplicateCodeValueMap.set(elemProps.id!, elemProps.code.value);
+          // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
+          elemProps.code.value = Guid.createValue();
+          this.onUpdateElement(elemProps);
+        } else {
+          throw err;
+        }
+      }
+    };
+
     if (
       undefined !== elementProps.id &&
       this.doNotUpdateElement(elementProps.id)
@@ -262,32 +281,14 @@ export class IModelImporter {
           elementProps.id
         );
         if (doesElementExistInTarget) {
-          this.onUpdateElement(elementProps);
+          tryUpdateElement(elementProps);
         } else {
           this.onInsertElement(elementProps);
         }
       }
     } else {
       if (undefined !== elementProps.id) {
-        try {
-          this.onUpdateElement(elementProps);
-        } catch (err) {
-          if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
-            assert(
-              elementProps.code.value !== undefined,
-              "NULL code values are always considered unique and cannot clash"
-            );
-            this._duplicateCodeValueMap.set(
-              elementProps.id,
-              elementProps.code.value
-            );
-            // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
-            elementProps.code.value = Guid.createValue();
-            this.onUpdateElement(elementProps);
-          } else {
-            throw err;
-          }
-        }
+        tryUpdateElement(elementProps);
       } else {
         this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
