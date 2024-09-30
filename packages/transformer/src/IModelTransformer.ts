@@ -1957,7 +1957,7 @@ export class IModelTransformer extends IModelExportHandler {
       else if (isInvalid && sourceInTargetElemProps) {
         // Element id is already taken by another element
         throw new Error(
-          `Element id(${sourceElement.id}) cannot be preserved. An unrelated element in the target already uses id: ${sourceElement.Id}`
+          `Element id(${sourceElement.id}) cannot be preserved. An unrelated element in the target already uses id: ${sourceElement.id}`
         );
       }
       // Element id in target is available to be remapped
