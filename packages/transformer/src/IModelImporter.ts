@@ -64,8 +64,8 @@ export interface IModelImportOptions {
    */
   autoExtendProjectExtents?: boolean | { excludeOutliers: boolean };
   /**
-   * Indicates whether the importer is derived from a transformation process.
-   * If `true`, the importer originates from a transformation.
+   * Indicates whether the importer is used in a transformation process.
+   * If `true`, the importer is passed into the transformer.
    */
   fromTransformation?: boolean;
   /** See [IModelTransformOptions]($transformer) */
@@ -108,17 +108,25 @@ export class IModelImporter {
    */
   private _duplicateCodeValueMap: Map<Id64String, string>;
 
+  /**
+   * The set of elements added during export of an element in transformation to track which elements to update during import.
+   * Defaults to an empty set.
+   * @note
+   *
+   * This is used as an optimization when `preserveElementIdsForFiltering` is set to `true`
+   * In normal cases where this option set to `false`,
+   * the importer determines whether to insert or update based off of whether the ID is defined on `elementProps`.
+   * However, with `preserveElementIdsForFiltering` set to `true`, IDs are always set, so we can't determine insert/update like the normal case.
+   * The transformer already knows if an element exists or not by the time `importElement` is called and pushes to this set with `markElementAsUpdate`.
+   *
+   */
+  private _elementsToUpdate = new Set<Id64String>([]);
+
   /** The set of elements that should not be updated by this IModelImporter.
    * Defaults to an empty set.
    * @note Adding an element to this set is typically necessary when remapping a source element to one that already exists in the target and already has the desired properties.
    */
   public readonly doNotUpdateElementIds = new Set<Id64String>([]);
-
-  /** The set of elements that are added during the export of element during transformation to keep track of which elements to update during an import
-   * Defaults to an empty set.
-   * @note This is used when preserveElementIdsForFiltering is set to true
-   */
-  public elementsToUpdate = new Set<Id64String>([]);
 
   /** This set is ONLY used for elements that are always present even in an "empty" iModel. We will use this set to filter out changes to root elements if [[IModelTransformOptions.skipPropagateChangesToRootElements]] is false. */
   private readonly _rootElementIds = new Set<Id64String>([
@@ -174,7 +182,7 @@ export class IModelImporter {
     if (this._rootElementIds.has(elementId)) {
       return;
     }
-    this.elementsToUpdate.add(elementId);
+    this._elementsToUpdate.add(elementId);
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
@@ -303,9 +311,12 @@ export class IModelImporter {
         const shouldUpdateElement =
           !this.options.fromTransformation &&
           this.targetDb.elements.tryGetElement(elementProps.id);
-        if (this.elementsToUpdate.has(elementProps.id) || shouldUpdateElement) {
+        if (
+          this._elementsToUpdate.has(elementProps.id) ||
+          shouldUpdateElement
+        ) {
           tryUpdateElement(elementProps);
-          this.elementsToUpdate.delete(elementProps.id);
+          this._elementsToUpdate.delete(elementProps.id);
         } else {
           this.onInsertElement(elementProps);
         }
