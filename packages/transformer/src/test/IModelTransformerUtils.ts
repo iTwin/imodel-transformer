@@ -1785,12 +1785,10 @@ export class TestIModelTransformer extends IModelTransformer {
 
   /** Override transformElementAspect to remap Source*Aspect --> Target*Aspect */
   public override onTransformElementAspect(
-    sourceElementAspect: ElementAspect,
-    targetElementId: Id64String
+    sourceElementAspect: ElementAspect
   ): ElementAspectProps {
     const targetElementAspectProps: any = super.onTransformElementAspect(
-      sourceElementAspect,
-      targetElementId
+      sourceElementAspect
     );
     if (
       "ExtensiveTestScenario:SourceUniqueAspect" ===
