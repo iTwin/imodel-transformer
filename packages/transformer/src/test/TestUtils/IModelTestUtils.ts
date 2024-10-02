@@ -32,6 +32,7 @@ import {
   ElementAspectProps,
   ElementProps,
   Environment,
+  ExternalSourceAspectProps,
   ExternalSourceProps,
   GeometricElement2dProps,
   GeometryParams,
@@ -101,6 +102,7 @@ import {
   ElementOwnsUniqueAspect,
   ElementUniqueAspect,
   ExternalSource,
+  ExternalSourceAspect,
   ExternalSourceIsInRepository,
   FunctionalModel,
   FunctionalSchema,
@@ -142,6 +144,8 @@ import {
   RpcBriefcaseUtility,
 } from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility";
 import { KnownTestLocations } from "./KnownTestLocations";
+import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
+import { TimelineIModelState } from "./TimelineTestUtil";
 
 chai.use(chaiAsPromised);
 
@@ -189,6 +193,15 @@ export class TestElementDrivesElement extends ElementDrivesElement {
   ): void {
     this.deletedDependency.raiseEvent(props, imodel);
   }
+}
+
+export interface ExpectedTargetScopeProvenanceProps {
+  syncVersionIndex: string;
+  reverseSyncVersionIndex: string;
+  pendingSyncChangesetIndices: number[];
+  pendingReverseSyncChangesetIndices: number[];
+  syncVersionId?: string;
+  reverseSyncVersionId?: string;
 }
 export interface TestPhysicalObjectProps extends PhysicalElementProps {
   intProperty: number;
@@ -881,6 +894,7 @@ export class IModelTestUtils {
 
   /** Flushes the Txns in the TxnTable - this allows importing of schemas */
   public static flushTxns(iModelDb: IModelDb): boolean {
+    /* eslint-disable-next-line deprecation/deprecation */
     iModelDb.nativeDb.deleteAllTxns();
     return true;
   }
@@ -1115,6 +1129,68 @@ export class IModelTestUtils {
           : Id64.invalid;
       }
     );
+  }
+
+  public static findAndAssertTargetScopeProvenance(
+    master: TimelineIModelState,
+    branch: TimelineIModelState,
+    expectedProps: ExpectedTargetScopeProvenanceProps
+  ) {
+    const scopeProvenanceCandidates = branch.db.elements
+      .getAspects(IModelDb.rootSubjectId, ExternalSourceAspect.classFullName)
+      .filter(
+        (a) => (a as ExternalSourceAspect).identifier === master.db.iModelId
+      );
+    expect(scopeProvenanceCandidates).to.have.length(1);
+    const targetScopeProvenance =
+      scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+    const targetScopeJsonProps = JSON.parse(
+      targetScopeProvenance.jsonProperties
+    ) as TargetScopeProvenanceJsonProps;
+
+    if (expectedProps.syncVersionId === undefined) {
+      const regex = new RegExp(`;${expectedProps.syncVersionIndex}$`);
+      expect(
+        targetScopeProvenance.version,
+        `Incorrect sync version index: actual ${targetScopeProvenance.version}`
+      ).to.match(regex);
+    } else {
+      expect(
+        targetScopeProvenance.version,
+        "Incorrect syncVersionId/syncVersionIndex"
+      ).to.equal(
+        `${expectedProps.syncVersionId};${expectedProps.syncVersionIndex}`
+      );
+    }
+    if (expectedProps.reverseSyncVersionId === undefined) {
+      const regex = new RegExp(`;${expectedProps.reverseSyncVersionIndex}$`);
+      expect(
+        targetScopeJsonProps.reverseSyncVersion,
+        `Incorrect reverseSyncVersion index: actual ${targetScopeJsonProps.reverseSyncVersion}`
+      ).to.match(regex);
+    } else {
+      expect(
+        targetScopeJsonProps.reverseSyncVersion,
+        "Incorrect reverseSyncVersionId/reverseSyncVersionIndex"
+      ).to.equal(
+        `${expectedProps.reverseSyncVersionId};${expectedProps.reverseSyncVersionIndex}`
+      );
+    }
+
+    expect(targetScopeProvenance.identifier).to.equal(master.db.iModelId);
+    expect(
+      targetScopeJsonProps.pendingReverseSyncChangesetIndices,
+      "Incorrect pending reverseSyncIndices."
+    ).to.deep.equal(expectedProps.pendingReverseSyncChangesetIndices);
+    expect(
+      targetScopeJsonProps.pendingSyncChangesetIndices,
+      "Incorrect pending syncIndices."
+    ).to.deep.equal(expectedProps.pendingSyncChangesetIndices);
+
+    return {
+      targetScopeElementId: targetScopeProvenance.scope.id,
+      targetScopeProvenanceProps: targetScopeProvenance,
+    };
   }
 
   public static queryByCodeValue(

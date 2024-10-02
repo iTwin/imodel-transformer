@@ -1,0 +1,7 @@
+{
+  "type": "prerelease",
+  "comment": "save reverse sync version for process all transformations",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "Daniel.Erbynn@bentley.com",
+  "dependentChangeType": "patch"
+}

@@ -75,10 +75,10 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
-  FinalizeTransformationOptions,
   IModelExporter,
   IModelImporter,
   IModelTransformer,
+  ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../transformer";
 import {
@@ -174,6 +174,142 @@ describe("IModelTransformerHub", () => {
     return iModelId;
   };
 
+  it("save reverse sync version for processAll transformations", async () => {
+    const sourceIModelId = await HubWrappers.createIModel(
+      accessToken,
+      iTwinId,
+      "source"
+    );
+
+    const targetIModelId = await HubWrappers.createIModel(
+      accessToken,
+      iTwinId,
+      "target"
+    );
+    assert.isTrue(Guid.isGuid(sourceIModelId));
+    assert.isTrue(Guid.isGuid(targetIModelId));
+    try {
+      // download and open briefcase on source imodel
+      const sourceBriefcase = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken: await IModelHost.getAccessToken(),
+        iTwinId,
+        iModelId: sourceIModelId,
+        asOf: IModelVersion.latest().toJSON(),
+      });
+      await sourceBriefcase.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+      assert.isTrue(sourceBriefcase.isBriefcaseDb());
+      assert.isFalse(sourceBriefcase.isSnapshot);
+
+      // set up physical models
+      const sourceModelId0 = PhysicalModel.insert(
+        sourceBriefcase,
+        IModel.rootSubjectId,
+        "M0"
+      );
+      const sourceModelId1 = PhysicalModel.insert(
+        sourceBriefcase,
+        IModel.rootSubjectId,
+        "M1"
+      );
+      assert.isDefined(sourceModelId0);
+      assert.isDefined(sourceModelId1);
+
+      sourceBriefcase.saveChanges();
+      await sourceBriefcase.pushChanges({
+        description: "source changes for inserting physical elements M0 and M1",
+        retainLocks: true,
+      });
+
+      // download and open briefcase on target imodel
+      const targetBriefcase = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken: await IModelHost.getAccessToken(),
+        iTwinId,
+        iModelId: targetIModelId,
+        asOf: IModelVersion.latest().toJSON(),
+      });
+      assert.isTrue(targetBriefcase.isBriefcaseDb());
+      assert.isFalse(targetBriefcase.isSnapshot);
+
+      await targetBriefcase.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+
+      // we do not expect to save reverse sync version by default for processAll transformations
+      const transformer1 = new IModelTransformer(
+        sourceBriefcase,
+        targetBriefcase
+      );
+      await transformer1.process();
+      const scopingEsa1 = transformer1["_targetScopeProvenanceProps"];
+      const reverseSyncVersion1 =
+        scopingEsa1?.jsonProperties.reverseSyncVersion;
+      assert.isEmpty(reverseSyncVersion1);
+      targetBriefcase.saveChanges();
+      await targetBriefcase.pushChanges({
+        description: "target changes for transformation 1",
+        retainLocks: true,
+      });
+
+      const sourceModelId2 = PhysicalModel.insert(
+        sourceBriefcase,
+        IModel.rootSubjectId,
+        "M2"
+      );
+      assert.isDefined(sourceModelId2);
+      sourceBriefcase.saveChanges();
+      await sourceBriefcase.pushChanges({
+        description: "source changes for inserting physical elements M2",
+        retainLocks: true,
+      });
+
+      // when initializeReverseSyncVersion is set to true, we expect to save reverse sync version
+      const transformer2 = new IModelTransformer(
+        sourceBriefcase,
+        targetBriefcase
+      );
+      await transformer2.process();
+      transformer2.updateSynchronizationVersion({
+        initializeReverseSyncVersion: true,
+      });
+      const scopingEsa2 = transformer2["_targetScopeProvenanceProps"];
+      const reverseSyncVersion2 =
+        scopingEsa2?.jsonProperties.reverseSyncVersion;
+      assert.isNotEmpty(reverseSyncVersion2);
+      const expectedReverseSyncVersion1 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
+      assert.equal(reverseSyncVersion2, expectedReverseSyncVersion1);
+      // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
+      const lastPendingReverseSyncIndex1 =
+        scopingEsa2?.jsonProperties.pendingReverseSyncChangesetIndices.pop();
+      assert.equal(
+        lastPendingReverseSyncIndex1,
+        (targetBriefcase.changeset.index ?? 0) + 1
+      );
+      targetBriefcase.saveChanges();
+      await targetBriefcase.pushChanges({
+        description: "target changes for transformation 2",
+        retainLocks: true,
+      });
+    } finally {
+      try {
+        await IModelHost.hubAccess.deleteIModel({
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost.hubAccess.deleteIModel({
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
   it("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",
@@ -228,7 +364,7 @@ describe("IModelTransformerHub", () => {
           sourceExportFileName
         );
         sourceExporter.exporter["_resetChangeDataOnExport"] = false;
-        await sourceExporter.exportChanges(accessToken);
+        await sourceExporter.exportChanges({});
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges = (sourceExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
@@ -258,13 +394,16 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.updateIds.size, 0);
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        transformer["_allowNoScopingESA"] = true;
-        await transformer.processChanges({
-          accessToken,
-          startChangeset: { id: sourceDb.changeset.id },
+        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
+          argsForProcessChanges: {
+            startChangeset: { id: sourceDb.changeset.id },
+          },
         });
+        transformer["_allowNoScopingESA"] = true;
+        await transformer.process();
         transformer.dispose();
+        targetDb.saveChanges();
+        await targetDb.pushChanges({ accessToken, description: "Import #1" });
         TransformerExtensiveTestScenario.assertTargetDbContents(
           sourceDb,
           targetDb
@@ -282,7 +421,7 @@ describe("IModelTransformerHub", () => {
           targetExportFileName
         );
         targetExporter.exporter["_resetChangeDataOnExport"] = false;
-        await targetExporter.exportChanges(accessToken);
+        await targetExporter.exportChanges({});
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
@@ -331,11 +470,13 @@ describe("IModelTransformerHub", () => {
           targetDb,
           ElementRefersToElements.classFullName
         );
-        const changesetIndexOfTargetDbBeforeChangelessTransform =
-          targetDb.changeset.index;
         const targetImporter = new CountingIModelImporter(targetDb);
-        const transformer = new TestIModelTransformer(sourceDb, targetImporter);
-        await transformer.processChanges({ accessToken });
+        const transformer = new TestIModelTransformer(
+          sourceDb,
+          targetImporter,
+          { argsForProcessChanges: {} }
+        );
+        await transformer.process();
         assert.equal(targetImporter.numModelsInserted, 0);
         assert.equal(targetImporter.numModelsUpdated, 0);
         assert.equal(targetImporter.numElementsInserted, 0);
@@ -360,14 +501,13 @@ describe("IModelTransformerHub", () => {
           count(targetDb, ElementRefersToElements.classFullName),
           "Second import should not add relationships"
         );
+        targetDb.saveChanges();
+        // eslint-disable-next-line deprecation/deprecation
         assert.isFalse(targetDb.nativeDb.hasPendingTxns());
-        // Validate same changeset index, because there were no changes in this run of the transform.
-        expect(changesetIndexOfTargetDbBeforeChangelessTransform).to.not.be
-          .undefined;
-        expect(targetDb.changeset.index).to.equal(
-          changesetIndexOfTargetDbBeforeChangelessTransform
-        );
-
+        await targetDb.pushChanges({
+          accessToken,
+          description: "Should not actually push because there are no changes",
+        });
         transformer.dispose();
       }
 
@@ -392,7 +532,7 @@ describe("IModelTransformerHub", () => {
           sourceExportFileName
         );
         sourceExporter.exporter["_resetChangeDataOnExport"] = false;
-        await sourceExporter.exportChanges(accessToken);
+        await sourceExporter.exportChanges({});
         assert.isTrue(IModelJsFs.existsSync(sourceExportFileName));
         const sourceDbChanges: any = (sourceExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
@@ -417,9 +557,13 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.codeSpec.deleteIds.size, 0);
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb);
-        await transformer.processChanges({ accessToken });
+        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
+          argsForProcessChanges: {},
+        });
+        await transformer.process();
         transformer.dispose();
+        targetDb.saveChanges();
+        await targetDb.pushChanges({ accessToken, description: "Import #2" });
         TestUtils.ExtensiveTestScenario.assertUpdatesInDb(targetDb);
 
         // Use IModelExporter.exportChanges to verify the changes to the targetDb
@@ -434,7 +578,7 @@ describe("IModelTransformerHub", () => {
           targetExportFileName
         );
         targetExporter.exporter["_resetChangeDataOnExport"] = false;
-        await targetExporter.exportChanges(accessToken);
+        await targetExporter.exportChanges({});
         assert.isTrue(IModelJsFs.existsSync(targetExportFileName));
         const targetDbChanges: any = (targetExporter.exporter as any)
           ._sourceDbChanges; // access private member for testing purposes
@@ -603,12 +747,12 @@ describe("IModelTransformerHub", () => {
       assert.isTrue(Id64.isValidId64(targetModelId));
       targetDb.saveChanges();
 
-      const transformer = new PhysicalModelConsolidator(
+      let transformer = new PhysicalModelConsolidator(
         sourceDb,
         targetDb,
         targetModelId
       );
-      await transformer.processAll();
+      await transformer.process();
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
       const targetPartition =
@@ -662,11 +806,15 @@ describe("IModelTransformerHub", () => {
       assert.equal(7, count(sourceDb, PhysicalModel.classFullName));
       // 60 elements added
       assert.equal(185, count(sourceDb, PhysicalObject.classFullName));
-
-      await transformer.processChanges({
-        accessToken,
-        startChangeset: sourceDb.changeset,
-      });
+      transformer = new PhysicalModelConsolidator(
+        sourceDb,
+        targetDb,
+        targetModelId,
+        {
+          startChangeset: sourceDb.changeset,
+        }
+      );
+      await transformer.process();
       transformer.dispose();
 
       const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
@@ -781,6 +929,7 @@ describe("IModelTransformerHub", () => {
         seedBisCoreVersion !== updatedBisCoreVersion;
 
       // push sourceDb schema changes
+      /* eslint-disable deprecation/deprecation */
       assert.equal(
         sourceDb.nativeDb.hasPendingTxns(),
         expectedHasPendingTxns,
@@ -808,6 +957,7 @@ describe("IModelTransformerHub", () => {
         sourceDb.nativeDb.hasUnsavedChanges(),
         "Expect importSchemas to be a no-op"
       );
+      /* eslint-enable deprecation/deprecation */
       sourceDb.saveChanges(); // will be no changes to save in this case
       await sourceDb.pushChanges({
         accessToken,
@@ -855,7 +1005,7 @@ describe("IModelTransformerHub", () => {
         new IModelExporter(sourceDb),
         targetDb
       );
-      await transformer.processAll();
+      await transformer.process();
       transformer.dispose();
       IModelTransformerTestUtils.assertTeamIModelContents(targetDb, "Test");
       targetDb.saveChanges();
@@ -894,6 +1044,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -989,6 +1140,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1105,6 +1257,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1256,6 +1409,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -1548,10 +1702,12 @@ describe("IModelTransformerHub", () => {
         const changesetPath = masterDbChangeset.pathname;
         assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
+        /* eslint-disable deprecation/deprecation */
         const statusOrResult =
           master.db.nativeDb.extractChangedInstanceIdsFromChangeSets([
             changesetPath,
           ]);
+        /* eslint-enable deprecation/deprecation */
         assert.isUndefined(statusOrResult.error);
         const result = statusOrResult.result;
         if (result === undefined) throw Error("expected to be defined");
@@ -1577,8 +1733,12 @@ describe("IModelTransformerHub", () => {
         iModelId: master.id,
         asOf: IModelVersion.first().toJSON(),
       });
-      const makeReplayTransformer = () => {
-        const result = new IModelTransformer(sourceDb, replayedDb);
+      const makeReplayTransformer = (
+        argsForProcessChanges?: ProcessChangesOptions
+      ) => {
+        const result = new IModelTransformer(sourceDb, replayedDb, {
+          argsForProcessChanges,
+        });
         // this replay strategy pretends that deleted elements never existed
         for (const elementId of masterDeletedElementIds) {
           result.exporter.excludeElement(elementId);
@@ -1588,20 +1748,19 @@ describe("IModelTransformerHub", () => {
 
       // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
       const replayInitTransformer = makeReplayTransformer();
-      await replayInitTransformer.processAll(); // process any elements that were part of the "seed"
+      await replayInitTransformer.process(); // process any elements that were part of the "seed"
       replayInitTransformer.dispose();
 
       await saveAndPushChanges(replayedDb, "changes from source seed");
       for (const masterDbChangeset of masterDbChangesets) {
-        const replayTransformer = makeReplayTransformer();
         await sourceDb.pullChanges({
           accessToken,
           toIndex: masterDbChangeset.index,
         });
-        await replayTransformer.processChanges({
-          accessToken,
+        const replayTransformer = makeReplayTransformer({
           startChangeset: sourceDb.changeset,
         });
+        await replayTransformer.process();
         await saveAndPushChanges(
           replayedDb,
           masterDbChangeset.description ?? ""
@@ -1625,10 +1784,12 @@ describe("IModelTransformerHub", () => {
         const changesetPath = replayedDbChangeset.pathname;
         assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
+        /* eslint-disable deprecation/deprecation */
         const statusOrResult =
           replayedDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
             changesetPath,
           ]);
+        /* eslint-enable deprecation/deprecation */
         const result = statusOrResult.result;
         if (result === undefined) throw Error("expected to be defined");
 
@@ -1722,7 +1883,7 @@ describe("IModelTransformerHub", () => {
         wasSourceIModelCopiedToTarget: true,
       });
       await provenanceInitializer.processSchemas();
-      await provenanceInitializer.processAll();
+      await provenanceInitializer.process();
       provenanceInitializer.dispose();
 
       // update source (add model2 to model selector)
@@ -1757,10 +1918,12 @@ describe("IModelTransformerHub", () => {
       });
       expect(sourceDbChangesets).to.have.length(2);
       const latestChangeset = sourceDbChangesets[1];
+      /* eslint-disable deprecation/deprecation */
       const extractedChangedIds =
         sourceDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
           latestChangeset.pathname,
         ]);
+      /* eslint-enable deprecation/deprecation */
       const expectedChangedIds: IModelJsNative.ChangedInstanceIdsProps = {
         element: { update: [modelSelectorId] },
         model: { update: [IModel.dictionaryId] }, // containing model will also get last modification time updated
@@ -1787,9 +1950,10 @@ describe("IModelTransformerHub", () => {
 
       const synchronizer = new IModelTransformerInjected(
         sourceDb,
-        new IModelImporterInjected(targetDb)
+        new IModelImporterInjected(targetDb),
+        { argsForProcessChanges: {} }
       );
-      await synchronizer.processChanges({ accessToken });
+      await synchronizer.process();
       expect(didExportModelSelector).to.be.true;
       expect(didImportModelSelector).to.be.true;
       synchronizer.dispose();
@@ -1877,7 +2041,7 @@ describe("IModelTransformerHub", () => {
         iModelId: targetIModelId,
       });
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       targetDb.saveChanges();
       transformer.dispose();
 
@@ -1888,11 +2052,12 @@ describe("IModelTransformerHub", () => {
         description: "PhysicalPartition",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({
-        accessToken,
-        startChangeset: { id: sourceDb.changeset.id },
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: {
+          startChangeset: { id: sourceDb.changeset.id },
+        },
       });
+      await transformer.process();
 
       const elementCodeValueMap = new Map<Id64String, string>();
       targetDb.withStatement(
@@ -2026,7 +2191,7 @@ describe("IModelTransformerHub", () => {
     let transformer = new IModelTransformer(sourceDb, targetDb, {
       wasSourceIModelCopiedToTarget: true,
     });
-    await transformer.processAll();
+    await transformer.process();
     targetDb.saveChanges();
     await targetDb.pushChanges({ description: "fork init" });
     const catIdInTarget = transformer.context.findTargetElementId(categoryId1);
@@ -2044,8 +2209,10 @@ describe("IModelTransformerHub", () => {
     sourceDb.performCheckpoint();
 
     // Reverse Sync to add a pendingsyncchangesetindex
-    transformer = new IModelTransformer(targetDb, sourceDb);
-    await transformer.processChanges({ accessToken });
+    transformer = new IModelTransformer(targetDb, sourceDb, {
+      argsForProcessChanges: {},
+    });
+    await transformer.process();
     let scopingEsa = transformer["_targetScopeProvenanceProps"];
     expect(
       scopingEsa?.jsonProperties.pendingSyncChangesetIndices.length
@@ -2070,13 +2237,121 @@ describe("IModelTransformerHub", () => {
     );
 
     // Forward Sync. We expect 4 is still there because we didnt process it (as a result of our sourceDb not being at the tip)
-    transformer = new IModelTransformer(sourceDbNotAtTip, targetDb);
-    await transformer.processChanges({ accessToken });
+    transformer = new IModelTransformer(sourceDbNotAtTip, targetDb, {
+      argsForProcessChanges: {},
+    });
+    await transformer.process();
     scopingEsa = transformer["_targetScopeProvenanceProps"];
     expect(
       scopingEsa?.jsonProperties.pendingSyncChangesetIndices
     ).to.deep.equal([4]);
     transformer.dispose();
+  });
+
+  it("should properly delete element in master when element in branch is deleted alongside all of its ESAs.", async () => {
+    // This test exercises elemIdToScopeESAs map in IModelTransformer.
+    // create masterdb
+    // create branch
+    // insert multiple elements and relationships into master.
+    // forward sync causing ESAs to be created for the elements and relationships.
+    // delete all the aspects and the element that had those aspects on them in the branch
+    // reverse sync.
+    // expect that the correct element in master db was deleted.
+    const masterIModelName = "MasterMultipleESAsDifferentKinds";
+    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
+    if (IModelJsFs.existsSync(masterSeedFileName))
+      IModelJsFs.removeSync(masterSeedFileName);
+    const masterSeedState = { 1: 1, 2: 1 };
+    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+      rootSubject: { name: masterIModelName },
+    });
+    // eslint-disable-next-line deprecation/deprecation
+    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    populateTimelineSeed(masterSeedDb, masterSeedState);
+    const masterSeed: TimelineIModelState = {
+      // HACK: we know this will only be used for seeding via its path and performCheckpoint
+      db: masterSeedDb as any as BriefcaseDb,
+      id: "master-seed",
+      state: masterSeedState,
+    };
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } }, // masterSeedState is above
+      { branch1: { branch: "master" } },
+      { master: { 3: 3, 4: 4, 5: 5 } },
+      {
+        master: {
+          manualUpdate(db) {
+            // Create relationships in master iModel. Each one will introduce a new aspect of kind "Relationship".
+            const sourceId = IModelTestUtils.queryByUserLabel(db, "3");
+            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+            const targetId2 = IModelTestUtils.queryByUserLabel(db, "1");
+            const targetId3 = IModelTestUtils.queryByUserLabel(db, "4");
+            const targetId4 = IModelTestUtils.queryByUserLabel(db, "5");
+            ElementGroupsMembers.create(db, sourceId, targetId).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId2).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId3).insert();
+            ElementGroupsMembers.create(db, sourceId, targetId4).insert();
+          },
+        },
+      },
+      {
+        branch1: {
+          sync: ["master"],
+        },
+      }, // first master->branch1 forward sync picking up new relationship from master imodel
+      {
+        assert({ branch1 }) {
+          const elemId = IModelTestUtils.queryByUserLabel(branch1.db, "3");
+          const aspects = branch1.db.elements.getAspects(
+            elemId,
+            ExternalSourceAspect.classFullName
+          ) as ExternalSourceAspect[];
+          expect(aspects.length).to.be.equal(5); // 4 relationships + 1 element.
+          aspects.forEach((a, index) => {
+            if (index === 0)
+              expect(a.kind).to.be.equal(ExternalSourceAspect.Kind.Element);
+            else
+              expect(a.kind).to.be.equal(
+                ExternalSourceAspect.Kind.Relationship
+              );
+          });
+        },
+      },
+      {
+        branch1: {
+          manualUpdate(db) {
+            const elemId = IModelTestUtils.queryByUserLabel(db, "3");
+            const aspects = db.elements.getAspects(
+              elemId
+            ) as ExternalSourceAspect[];
+            aspects.forEach((a) => db.elements.deleteAspect(a.id));
+            db.elements.deleteElement(elemId);
+          },
+        },
+      },
+      {
+        master: {
+          sync: ["branch1"],
+        },
+      }, // sync branch1 into master picking up deletes
+      {
+        assert({ master, branch1 }) {
+          const elem = IModelTestUtils.queryByUserLabel(branch1.db, "3");
+          expect(elem).to.be.equal(Id64.invalid);
+          const elemInMaster = IModelTestUtils.queryByUserLabel(master.db, "3");
+          expect(elemInMaster).to.be.equal(Id64.invalid);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+      transformerOpts: {
+        forceExternalSourceAspectProvenance: true,
+      },
+    });
+    await tearDown();
   });
 
   it("should correctly reverse synchronize changes when targetDb was a clone of sourceDb", async () => {
@@ -2157,7 +2432,7 @@ describe("IModelTransformerHub", () => {
       let transformer = new IModelTransformer(sourceDb, targetDb, {
         wasSourceIModelCopiedToTarget: true,
       });
-      await transformer.processAll();
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "fork init" });
       transformer.dispose();
@@ -2196,10 +2471,10 @@ describe("IModelTransformerHub", () => {
 
       // running reverse synchronization
       transformer = new IModelTransformer(targetDb, sourceDb, {
-        isReverseSynchronization: true,
+        argsForProcessChanges: {},
       });
 
-      await transformer.processChanges({ accessToken });
+      await transformer.process();
       transformer.dispose();
 
       expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(7);
@@ -2377,7 +2652,7 @@ describe("IModelTransformerHub", () => {
         wasSourceIModelCopiedToTarget: true,
       });
       await provenanceInitializer.processSchemas();
-      await provenanceInitializer.processAll();
+      await provenanceInitializer.process();
       provenanceInitializer.dispose();
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "setup branch" });
@@ -2450,10 +2725,12 @@ describe("IModelTransformerHub", () => {
       });
       expect(branchDbChangesets).to.have.length(2);
       const latestChangeset = branchDbChangesets[1];
+      /* eslint-disable deprecation/deprecation */
       const extractedChangedIds =
         branchDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
           latestChangeset.pathname,
         ]);
+      /* eslint-enable deprecation/deprecation */
       const aspectDeletions = [
         ...modelToDeleteWithElem.aspects,
         ...childSubject.aspects,
@@ -2496,9 +2773,9 @@ describe("IModelTransformerHub", () => {
 
       const synchronizer = new IModelTransformer(branchDb, masterDb, {
         // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
-        isReverseSynchronization: true,
+        argsForProcessChanges: {},
       });
-      await synchronizer.processChanges({ accessToken });
+      await synchronizer.process();
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
@@ -2583,16 +2860,14 @@ describe("IModelTransformerHub", () => {
     });
 
     const syncer = new IModelTransformer(branchAt2, master.db, {
-      isReverseSynchronization: true,
+      argsForProcessChanges: {
+        startChangeset: branchAt2Changeset,
+      },
     });
     const queryChangeset = sinon.spy(HubMock, "queryChangeset");
-    await syncer.processChanges({
-      accessToken,
-      startChangeset: branchAt2Changeset,
-    });
+    await syncer.process();
     expect(
       queryChangeset.alwaysCalledWith({
-        accessToken,
         iModelId: branch.id,
         changeset: {
           id: branchAt2Changeset.id,
@@ -2662,7 +2937,7 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "insert physical element" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       const forkedElementId =
         transformer.context.findTargetElementId(originalElementId);
       expect(forkedElementId).not.to.be.undefined;
@@ -2679,9 +2954,9 @@ describe("IModelTransformerHub", () => {
       });
 
       transformer = new IModelTransformer(targetDb, sourceDb, {
-        isReverseSynchronization: true,
+        argsForProcessChanges: { startChangeset: targetDb.changeset },
       });
-      await transformer.processChanges({ startChangeset: targetDb.changeset });
+      await transformer.process();
       sourceDb.saveChanges();
       await sourceDb.pushChanges({
         description: "change processing transformation",
@@ -2772,7 +3047,7 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       transformer.dispose();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "initial transformation" });
@@ -2830,8 +3105,10 @@ describe("IModelTransformerHub", () => {
         description: "recreated elements & models",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({ startChangeset: sourceDb.changeset });
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: { startChangeset: sourceDb.changeset },
+      });
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({
         description: "change processing transformation",
@@ -2892,8 +3169,10 @@ describe("IModelTransformerHub", () => {
         description: "inserted a third copy of the subject with userLabel C",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({ startChangeset });
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: { startChangeset },
+      });
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "transformation" });
 
@@ -2974,7 +3253,7 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processAll();
+      await transformer.process();
       transformer.dispose();
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "initial transformation" });
@@ -3012,8 +3291,10 @@ describe("IModelTransformerHub", () => {
         description: "recreated elements & models",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb);
-      await transformer.processChanges({ startChangeset: sourceDb.changeset });
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: { startChangeset: sourceDb.changeset },
+      });
+      await transformer.process();
       targetDb.saveChanges();
       await targetDb.pushChanges({
         description: "change processing transformation",
@@ -3100,11 +3381,12 @@ describe("IModelTransformerHub", () => {
       );
       const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
+        argsForProcessChanges: {},
       });
       transformer["_allowNoScopingESA"] = true;
 
       // run first transformation
-      await transformer.processChanges({ accessToken });
+      await transformer.process();
       await saveAndPushChanges(targetDb, "First transformation");
 
       const addedAspectProps: ExternalSourceAspectProps = {
@@ -3121,10 +3403,13 @@ describe("IModelTransformerHub", () => {
 
       await saveAndPushChanges(sourceDb, "Update source");
 
-      await transformer.processChanges({
-        accessToken,
-        startChangeset: sourceDb.changeset,
+      const transformer2 = new IModelTransformer(exporter, targetDb, {
+        includeSourceProvenance: true,
+        argsForProcessChanges: {
+          startChangeset: sourceDb.changeset,
+        },
       });
+      await transformer2.process();
       await saveAndPushChanges(targetDb, "Second transformation");
 
       const targetElementIds = targetDb.queryEntityIds({
@@ -3244,89 +3529,6 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
-  it("should allow custom changeset descriptions", async () => {
-    const pushChangeset = sinon.spy(HubMock, "pushChangeset");
-    const csDescriptions: FinalizeTransformationOptions = {
-      forwardSyncBranchChangesetDescription:
-        "this is a test forward sync on the branch",
-      reverseSyncBranchChangesetDescription:
-        "this is a test reverse sync on the branch",
-      reverseSyncMasterChangesetDescription:
-        "this is a test reverse sync on the master",
-    };
-    const makeCsPropsDescriptionMatcher = (description: string) => {
-      return sinon.match.has(
-        "changesetProps",
-        sinon.match.has("description", description)
-      );
-    };
-    const timeline: Timeline = [
-      { master: { 1: 1, 2: 2, 3: 1 } },
-      { branch: { branch: "master" } },
-      { branch: { 1: 2, 4: 1 } },
-      {
-        master: {
-          sync: ["branch", { finalizeTransformationOptions: csDescriptions }],
-        },
-      },
-      {
-        assert() {
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.reverseSyncBranchChangesetDescription!
-              )
-            )
-          ).to.be.true;
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.reverseSyncMasterChangesetDescription!
-              )
-            )
-          ).to.be.true;
-
-          // We haven't passed csDescriptions to a forward sync yet so expect false
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.forwardSyncBranchChangesetDescription!
-              )
-            )
-          ).to.be.false;
-        },
-      },
-      { master: { 5: 1 } },
-      {
-        branch: {
-          sync: ["master", { finalizeTransformationOptions: csDescriptions }],
-        },
-      },
-      {
-        assert() {
-          expect(
-            pushChangeset.calledWith(
-              makeCsPropsDescriptionMatcher(
-                csDescriptions.forwardSyncBranchChangesetDescription!
-              )
-            )
-          ).to.be.true;
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-      transformerOpts: {
-        // force aspects so that reverse sync has to edit the target
-        forceExternalSourceAspectProvenance: true,
-      },
-    });
-
-    await tearDown();
-  });
-
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
     const masterIModelName = "MasterDeleteRelAndEnds";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
@@ -3341,6 +3543,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -3516,6 +3719,363 @@ describe("IModelTransformerHub", () => {
 
     await tearDown();
     masterSeedDb.close();
+  });
+
+  it("should throw when pendingSyncChangesetIndices and pendingReverseSyncChangesetIndices are undefined and then not throw when they're undefined, but 'unsafe-migrate' is set.", async () => {
+    let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
+    const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
+      transformer: IModelTransformer
+    ) =>
+      (transformer["_options"]["branchRelationshipDataBehavior"] =
+        "unsafe-migrate");
+
+    const timeline: Timeline = [
+      { master: { 1: 1, 2: 2, 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+
+          expect(targetScopeProvenance).to.deep.subsetEqual({
+            identifier: master.db.iModelId,
+            version: `${master.db.changeset.id};${master.db.changeset.index}`,
+            jsonProperties: JSON.stringify({
+              pendingReverseSyncChangesetIndices: [1],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: ";0", // not synced yet
+            }),
+          } as ExternalSourceAspectProps);
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without pendingReverseSync and pendingSync
+            const missingPendings = JSON.stringify({
+              pendingReverseSyncChangesetIndices: undefined,
+              pendingSyncChangesetIndices: undefined,
+              reverseSyncVersion: ";0",
+            });
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              jsonProperties: missingPendings as any,
+            });
+          },
+        },
+      },
+      {
+        master: {
+          // Our pendingReverseSyncChangesetIndices are undefined, so we expect to throw when we try to read them.
+          sync: ["branch", { expectThrow: true }],
+        },
+      },
+      {
+        assert({ branch }) {
+          const aspect = branch.db.elements.getAspect(
+            targetScopeProvenanceProps!.id!
+          );
+          expect(aspect).to.not.be.undefined;
+          expect((aspect as ExternalSourceAspect).jsonProperties).to.equal(
+            JSON.stringify({
+              pendingReverseSyncChangesetIndices: undefined,
+              pendingSyncChangesetIndices: undefined,
+              reverseSyncVersion: ";0",
+            })
+          );
+        },
+      },
+      {
+        master: {
+          // Our pendingReverseSyncChangesetIndices are undefined, but our branchrelationshipdatabehavior is 'unsafe-migrate' so we expect the transformer to correct the issue.
+          sync: [
+            "branch",
+            {
+              expectThrow: false,
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+            },
+          ],
+        },
+      },
+      {
+        assert({ branch }) {
+          const aspect = branch.db.elements.getAspect(
+            targetScopeProvenanceProps!.id!
+          );
+          expect(aspect).to.not.be.undefined;
+          const jsonProps = JSON.parse(
+            (aspect as ExternalSourceAspect).jsonProperties!
+          );
+          expect((aspect as any).version).to.match(/;1$/);
+          expect(jsonProps.reverseSyncVersion).to.match(/;3$/);
+          expect(jsonProps).to.deep.subsetEqual({
+            pendingReverseSyncChangesetIndices: [4],
+            pendingSyncChangesetIndices: [2],
+          });
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    await tearDown();
+  });
+
+  it("should set unsafeVersions correctly when branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
+    let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
+    const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
+      transformer: IModelTransformer
+    ) => {
+      transformer["_options"]["branchRelationshipDataBehavior"] =
+        "unsafe-migrate";
+      transformer["_options"]["argsForProcessChanges"]![
+        "unsafeFallbackReverseSyncVersion"
+      ] = ";2";
+      transformer["_options"]["argsForProcessChanges"]![
+        "unsafeFallbackSyncVersion"
+      ] = ";3";
+    };
+
+    const timeline: Timeline = [
+      { master: { 1: 1, 2: 2, 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      { branch: { 5: 1 } },
+      // eslint-disable-next-line @typescript-eslint/no-shadow
+      {
+        assert({ master, branch }) {
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+
+          expect(targetScopeProvenance).to.deep.subsetEqual({
+            identifier: master.db.iModelId,
+            version: `${master.db.changeset.id};${master.db.changeset.index}`,
+            jsonProperties: JSON.stringify({
+              pendingReverseSyncChangesetIndices: [1],
+              pendingSyncChangesetIndices: [],
+              reverseSyncVersion: ";0", // not synced yet
+            }),
+          } as ExternalSourceAspectProps);
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without version now.
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              jsonProperties: undefined,
+            } as ExternalSourceAspectProps);
+          },
+        },
+      },
+      {
+        master: {
+          // Reverse sync passing along our unsafeReverseSyncVersion which intentionally skips the changeset that added the element with userlabel 4.
+          sync: [
+            "branch",
+            {
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+            },
+          ],
+        },
+      },
+      {
+        assert({ master, branch }) {
+          // Assert that we skipped the changeset: { branch: { 1: 2, 4: 1 } } during our reverse sync.
+          const expectedState = { 1: 1, 2: 2, 3: 1, 5: 1 };
+          expect(master.state).to.deep.equal(expectedState);
+          expect(branch.state).to.deep.equal({ ...expectedState, 1: 2, 4: 1 });
+          assertElemState(master.db, expectedState);
+          assertElemState(branch.db, { ...expectedState, 1: 2, 4: 1 });
+        },
+      },
+      // repeat all above for forward sync scenario!
+      { master: { 2: 4, 6: 1 } },
+      { master: { 7: 1 } },
+      // Update our targetscopeprovenanceprops
+      {
+        assert({ master, branch }) {
+          const scopeProvenanceCandidates = branch.db.elements
+            .getAspects(
+              IModelDb.rootSubjectId,
+              ExternalSourceAspect.classFullName
+            )
+            .filter(
+              (a) =>
+                (a as ExternalSourceAspect).identifier === master.db.iModelId
+            );
+          expect(scopeProvenanceCandidates).to.have.length(1);
+          const targetScopeProvenance =
+            scopeProvenanceCandidates[0].toJSON() as ExternalSourceAspectProps;
+          targetScopeProvenanceProps = targetScopeProvenance;
+        },
+      },
+      {
+        branch: {
+          manualUpdate(branch) {
+            // Check it fails without version now.
+            branch.elements.updateAspect({
+              ...targetScopeProvenanceProps!,
+              version: undefined,
+            } as ExternalSourceAspectProps);
+          },
+        },
+      },
+      {
+        branch: {
+          // Reverse sync passing along our unsafeReverseSyncVersion which intentionally skips the changeset that added the element with userlabel 4.
+          sync: [
+            "master",
+            {
+              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+            },
+          ],
+        },
+      },
+      {
+        assert({ master, branch }) {
+          // Assert that we skipped the changeset: { master: { 2: 4, 6: 1, } }, during our forward sync.. making it so those properties didn't make it to the branch.
+          const expectedMasterState = { 1: 1, 2: 4, 3: 1, 5: 1, 6: 1, 7: 1 };
+          const expectedBranchState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1, 7: 1 };
+          expect(master.state).to.deep.equal(expectedMasterState);
+          expect(branch.state).to.deep.equal(expectedBranchState);
+          assertElemState(master.db, expectedMasterState);
+          assertElemState(branch.db, expectedBranchState);
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    await tearDown();
+  });
+
+  it("reverseSyncs should not push extra changesets if the only changeset to process is one found in the pendingReverseSyncIndices, even when handleUnsafeMigrate is true", async () => {
+    const timeline: Timeline = [
+      { master: { 1: 1, 2: 2, 3: 1 } },
+      { branch: { branch: "master" } },
+      { branch: { 1: 2, 4: 1 } },
+      {
+        master: {
+          sync: ["branch"],
+        },
+      },
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(2);
+          expect(branch.db.changeset.index).to.equal(3);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
+            pendingSyncChangesetIndices: [2],
+            pendingReverseSyncChangesetIndices: [3],
+            syncVersionIndex: "1",
+            reverseSyncVersionIndex: "2",
+          };
+          IModelTestUtils.findAndAssertTargetScopeProvenance(
+            master,
+            branch,
+            expectedProps
+          );
+        },
+      },
+      {
+        master: {
+          sync: ["branch"], // Sync again with no real changes in branch except for the ones made to update targetScopeProvenance
+        },
+      },
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(2);
+          expect(branch.db.changeset.index).to.equal(3);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
+            pendingSyncChangesetIndices: [2],
+            pendingReverseSyncChangesetIndices: [3],
+            syncVersionIndex: "1",
+            reverseSyncVersionIndex: "2",
+          };
+          IModelTestUtils.findAndAssertTargetScopeProvenance(
+            master,
+            branch,
+            expectedProps
+          );
+        },
+      },
+      {
+        master: {
+          sync: [
+            "branch",
+            {
+              initTransformer: (transformer) =>
+                (transformer["_options"]["branchRelationshipDataBehavior"] =
+                  "unsafe-migrate"),
+            },
+          ], // Sync again with no changes except for ones which may get made by unsafe-migrate.
+        },
+      },
+      {
+        assert({ master, branch }) {
+          expect(master.db.changeset.index).to.equal(2);
+          expect(branch.db.changeset.index).to.equal(3);
+          expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
+            0
+          );
+          const expectedProps: TestUtils.ExpectedTargetScopeProvenanceProps = {
+            pendingSyncChangesetIndices: [2],
+            pendingReverseSyncChangesetIndices: [3],
+            syncVersionIndex: "1",
+            reverseSyncVersionIndex: "2",
+          };
+          IModelTestUtils.findAndAssertTargetScopeProvenance(
+            master,
+            branch,
+            expectedProps
+          );
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    await tearDown();
   });
 
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
@@ -3884,7 +4444,7 @@ describe("IModelTransformerHub", () => {
             0
           );
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            10
+            9
           );
 
           const scopeProvenanceCandidates = branch.db.elements
@@ -3922,7 +4482,7 @@ describe("IModelTransformerHub", () => {
           );
           // added because the root was modified
           expect(count(branch.db, ExternalSourceAspect.classFullName)).to.equal(
-            11
+            10
           );
 
           const scopeProvenanceCandidates = branch.db.elements

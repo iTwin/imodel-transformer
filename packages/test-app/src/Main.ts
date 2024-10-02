@@ -497,6 +497,7 @@ void (async () => {
       if (args.targetStandaloneDestination) {
         fs.copyFileSync(fileName, args.targetStandaloneDestination);
         function setToStandalone(iModelPath: string) {
+          /* eslint-disable deprecation/deprecation */
           const nativeDb = new IModelHost.platform.DgnDb();
           nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
           nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
@@ -510,6 +511,7 @@ void (async () => {
           nativeDb.saveChanges(); // save change to briefcaseId
           nativeDb.closeFile();
         }
+        /* eslint-enable deprecation/deprecation */
         targetDb.close();
         setToStandalone(args.targetStandaloneDestination);
         await StandaloneDb.upgradeSchemas({ fileName });
@@ -576,7 +578,6 @@ void (async () => {
     if (processChanges) {
       assert(undefined !== args.sourceStartChangesetId);
       await Transformer.transformChanges(
-        await acquireAccessToken(),
         sourceDb,
         targetDb,
         args.sourceStartChangesetId,

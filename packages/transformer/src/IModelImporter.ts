@@ -71,7 +71,8 @@ export interface IModelImportOptions {
   simplifyElementGeometry?: boolean;
   /**
    * Skip propagating changes made to the root subject, dictionaryModel and IModelImporter._realityDataSourceLinkPartitionStaticId (0xe)
-   * @default false
+   * If it is set to false, changes to root elements are propagated, the root subject name gets changed and leads to the iModelDb.name property being updated in .initializeiModelDb
+   * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
 }
@@ -136,7 +137,7 @@ export class IModelImporter {
         options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
       skipPropagateChangesToRootElements:
-        options?.skipPropagateChangesToRootElements ?? false,
+        options?.skipPropagateChangesToRootElements ?? true,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
   }
@@ -291,6 +292,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
   protected onInsertElement(elementProps: ElementProps): Id64String {
+    /* eslint-disable deprecation/deprecation */
     try {
       const elementId = this.targetDb.nativeDb.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
@@ -323,6 +325,7 @@ export class IModelImporter {
       }
       throw error; // throw original error
     }
+    /* eslint-enable deprecation/deprecation */
   }
 
   /** Update an existing Element in the target iModel from the specified ElementProps.
@@ -339,6 +342,7 @@ export class IModelImporter {
     );
     this.trackProgress();
     if (this.options.simplifyElementGeometry) {
+      /* eslint-disable-next-line deprecation/deprecation */
       this.targetDb.nativeDb.simplifyElementGeometry({
         id: elementProps.id,
         convertBReps: true,
@@ -676,7 +680,7 @@ export class IModelImporter {
   protected onProgress(): void {}
 
   /** Optionally compute the projectExtents for the target iModel depending on the options for this IModelImporter.
-   * @note This method is automatically called from [IModelTransformer.processChanges]($transformer) and [IModelTransformer.processAll]($transformer).
+   * @note This method is automatically called from [IModelTransformer.process]($transformer).
    * @see [IModelDb.computeProjectExtents]($backend), [[autoExtendProjectExtents]]
    */
   public computeProjectExtents(): void {
@@ -751,11 +755,12 @@ export class IModelImporter {
   }
 
   /** Examine the geometry streams of every [GeometricElement3d]($backend) in the target iModel and apply the specified optimizations.
-   * @note This method is automatically called from [[IModelTransformer.processChanges]] and [[IModelTransformer.processAll]] if
+   * @note This method is automatically called from [[IModelTransformer.process]] if
    * [[IModelTransformOptions.optimizeGeometry]] is defined.
    */
   public optimizeGeometry(options: OptimizeGeometryOptions): void {
     if (options.inlineUniqueGeometryParts) {
+      /* eslint-disable-next-line deprecation/deprecation */
       const result = this.targetDb.nativeDb.inlineGeometryPartReferences();
       Logger.logInfo(
         loggerCategory,

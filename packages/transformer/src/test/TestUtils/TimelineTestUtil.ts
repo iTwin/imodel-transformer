@@ -25,7 +25,6 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
-  FinalizeTransformationOptions,
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
@@ -259,7 +258,6 @@ export type TimelineStateChange =
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
           };
-          finalizeTransformationOptions?: FinalizeTransformationOptions;
         },
       ];
     }
@@ -364,7 +362,6 @@ export async function runTimeline(
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
             };
-            finalizeTransformationOptions?: FinalizeTransformationOptions;
           },
         ]
       | undefined;
@@ -451,8 +448,13 @@ export async function runTimeline(
           ...transformerOpts,
           wasSourceIModelCopiedToTarget: true,
         });
-        await provenanceInserter.processAll();
+        await provenanceInserter.process();
         provenanceInserter.dispose();
+        await saveAndPushChanges(
+          accessToken,
+          branchDb,
+          "initialized branch provenance"
+        );
       } else if ("seed" in newIModelEvent) {
         await saveAndPushChanges(
           accessToken,
@@ -499,7 +501,6 @@ export async function runTimeline(
             initTransformer,
             expectThrow,
             assert: assertFxns,
-            finalizeTransformationOptions,
           },
         ] = getSync(event)!;
         // if the synchronization source is master, it's a normal sync
@@ -513,15 +514,15 @@ export async function runTimeline(
 
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
-          isReverseSynchronization: !isForwardSync,
+          argsForProcessChanges: {
+            startChangeset: startIndex
+              ? { index: startIndex }
+              : { index: undefined },
+          },
         });
         initTransformer?.(syncer);
         try {
-          await syncer.processChanges({
-            accessToken,
-            startChangeset: startIndex ? { index: startIndex } : undefined,
-            ...finalizeTransformationOptions,
-          });
+          await syncer.process();
           expect(
             expectThrow === false || expectThrow === undefined,
             "expectThrow was set to true and transformer succeeded."
@@ -558,6 +559,12 @@ export async function runTimeline(
         }
 
         target.state = getIModelState(target.db); // update the tracking state
+
+        if (!expectThrow) {
+          if (!isForwardSync)
+            await saveAndPushChanges(accessToken, source.db, stateMsg);
+          await saveAndPushChanges(accessToken, target.db, stateMsg);
+        }
       } else {
         const alreadySeenIModel = trackedIModels.get(iModelName)!;
         let stateMsg: string;

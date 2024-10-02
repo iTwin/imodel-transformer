@@ -83,7 +83,7 @@ export default async function rawInserts(
   });
 
   const [applyChangeSetTimer] = timed(() => {
-    // eslint-disable-next-line @itwin/no-internal
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     changesetDb.nativeDb.applyChangeset(changeset1);
   });
 
@@ -119,7 +119,7 @@ export default async function rawInserts(
   });
 
   const [transformWithProvTimer] = await timed(async () => {
-    await transformerWithProv.processAll();
+    await transformerWithProv.process();
   });
 
   reporter.addEntry(
@@ -157,7 +157,7 @@ export default async function rawInserts(
   });
 
   const [transformNoProvTimer] = await timed(async () => {
-    await transformerNoProv.processAll();
+    await transformerNoProv.process();
   });
 
   reporter.addEntry(
@@ -186,7 +186,7 @@ export default async function rawInserts(
 
 // stolen from itwinjs-core: core/backend/src/test/changesets/ChangeMerging.test.ts
 function createChangeset(imodel: IModelDb): ChangesetFileProps {
-  // eslint-disable-next-line @itwin/no-internal
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   const changeset = imodel.nativeDb.startCreateChangeset();
 
   // completeCreateChangeset deletes the file that startCreateChangeSet created.
@@ -195,7 +195,7 @@ function createChangeset(imodel: IModelDb): ChangesetFileProps {
   fs.copyFileSync(changeset.pathname, csFileName);
   changeset.pathname = csFileName;
 
-  // eslint-disable-next-line @itwin/no-internal
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   imodel.nativeDb.completeCreateChangeset({ index: 0 });
   return changeset as any; // FIXME: bad peer deps
 }
