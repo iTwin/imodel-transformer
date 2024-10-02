@@ -7,64 +7,31 @@ This example shows how to transform a sheet and all its content into a target iM
 ## Example Code
 
 ```typescript
-import fs from "fs";
-import path from "path";
-import stream from "stream";
-import { promisify } from "util";
 
-import { StudioHost } from "@bentley/studio-apps-backend-api";
 import {
-  CategorySelector,
-  DefinitionContainer,
-  DefinitionModel,
-  DisplayStyle3d,
-  DrawingCategory,
-  DrawingModel,
-  ECSqlStatement,
   Element,
   IModelDb,
-  IModelHost,
-  ModelSelector,
-  OrthographicViewDefinition,
-  PhysicalModel,
   Sheet,
   SheetModel,
   SnapshotDb,
-  SpatialCategory,
-  TemplateRecipe2d,
-  TemplateRecipe3d
 } from "@itwin/core-backend";
-import { DbResult, Guid, Id64Array, Id64String } from "@itwin/core-bentley";
+import { DbResult, Guid, Id64String } from "@itwin/core-bentley";
 import {
-  BisCodeSpec,
   Code,
-  CodeScopeSpec,
-  DefinitionElementProps,
   ElementProps,
   GeometricModel2dProps,
   IModel,
-  Placement2d,
-  Placement3d,
   RelatedElement,
   SheetProps,
-  SubCategoryAppearance
 } from "@itwin/core-common";
-import { Angle, Point2d, Point3d, Range2d, Range3d, StandardViewIndex, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
-  IModelExporter,
   IModelImporter,
-  IModelImportOptions,
   IModelTransformer,
-  IModelTransformOptions,
-  TemplateModelCloner
 } from "@itwin/imodel-transformer";
-import fetch from "node-fetch";
 
 import { CreateSheetProps, SHEET_CONSTANTS } from "../../common/SheetCommandIpc";
 import { logError } from "../util/ErrorUtility";
 import { DPChannelApi } from "./DPChannelApi";
-import { ElementManipApi } from "./ElementManipApi";
-import { ModelManipApi } from "./ModelManipApi";
 
 export namespace SheetApi {
 
