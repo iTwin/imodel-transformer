@@ -47,8 +47,12 @@ export namespace SheetApi {
       if (!sheetName) {
         throw new Error("A sheet must be named.");
       }
-
-      // This creates a [sheet](https://www.itwinjs.org/reference/core-backend/elements/sheet/)(a document element), [sheetModel](https://www.itwinjs.org/reference/core-backend/models/sheetmodel/), and [documentListModel]( https://www.itwinjs.org/reference/core-backend/models/documentlistmodel/) in the target iModel which will be updated using the contents of the sheet, sheetModel, and documentListModel in the seedFileName.
+   
+      // This creates a sheet(a document element), sheetModel, and documentListModel in the target iModel
+      // which will be updated using the contents of the sheet, sheetModel, and documentListModel in the seedFile
+      // sheet - https://www.itwinjs.org/reference/core-backend/elements/sheet/
+      // sheetModel - https://www.itwinjs.org/reference/core-backend/models/sheetmodel/
+      // documentListModel -  https://www.itwinjs.org/reference/core-backend/models/documentlistmodel/
       const [sheetModelId, documentListModelId] = await createSheetInternal(createSheetProps, iModel, sheetName);
       const seedFileName =
         "D:\\testmodels\\transformingSheetsIssue\\source.bim";
