@@ -65,7 +65,7 @@ export interface IModelImportOptions {
   autoExtendProjectExtents?: boolean | { excludeOutliers: boolean };
   /**
    * Indicates whether the importer is used in a transformation process.
-   * If `true`, the importer is passed into the transformer.
+   * If `true`, the importer was passed into the transformer, or the transformer constructed this instance of the importer
    */
   fromTransformation?: boolean;
   /** See [IModelTransformOptions]($transformer) */
