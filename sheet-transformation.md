@@ -49,6 +49,7 @@ export namespace SheetApi {
       }
 
       // create a blank sheetModelId(where we will insert the sheet data), create documentListModel (where we will insert list of document elements)
+      // This creates a sheet, sheetModel, and documentListModel in the target iModel which will be updated using the contents of the sheet, sheetModel, and documentListModel in the seedFileName.
       const [sheetModelId, documentListModelId] = await createSheetInternal(createSheetProps, iModel, sheetName);
       const seedFileName =
         "D:\\testmodels\\transformingSheetsIssue\\source.bim";
