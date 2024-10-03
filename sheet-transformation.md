@@ -114,6 +114,7 @@ export namespace SheetApi {
       const targetElementProps = super.onTransformElement(sourceElement);
       
       // Add userLabel, code, and federationGuid information for target props
+      // sheetName is user provided information.
       if (sourceElement instanceof Sheet && sourceElement.id === this._sheetIdInSource) {
         targetElementProps.userLabel = this._sheetName;
         targetElementProps.code = Sheet.createCode(this.targetDb, targetElementProps.model, this._sheetName);
