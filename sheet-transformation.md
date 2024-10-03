@@ -115,7 +115,7 @@ export namespace SheetApi {
         targetElementProps.userLabel = this._sheetName;
         targetElementProps.code = Sheet.createCode(this.targetDb, targetElementProps.model, this._sheetName);
       }
-      targetElementProps.federationGuid = Guid.createValue(); // We want each element to have a new federation guid, so that they are not considered the same as the source elements.
+      targetElementProps.federationGuid = Guid.createValue(); // We want each element to have a new federation guid, so that they are not considered the same as the source elements. This allows us to use the same sheet in the source and create many copies of it in the target if we so choose.
 
       return targetElementProps;
     }
