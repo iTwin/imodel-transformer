@@ -48,8 +48,7 @@ export namespace SheetApi {
         throw new Error("A sheet must be named.");
       }
 
-      // create a blank sheetModelId(where we will insert the sheet data), create documentListModel (where we will insert list of document elements)
-      // This creates a sheet, sheetModel, and documentListModel in the target iModel which will be updated using the contents of the sheet, sheetModel, and documentListModel in the seedFileName.
+      // This creates a [sheet](https://www.itwinjs.org/reference/core-backend/elements/sheet/)(a document element), [sheetModel](https://www.itwinjs.org/reference/core-backend/models/sheetmodel/), and [documentListModel]( https://www.itwinjs.org/reference/core-backend/models/documentlistmodel/) in the target iModel which will be updated using the contents of the sheet, sheetModel, and documentListModel in the seedFileName.
       const [sheetModelId, documentListModelId] = await createSheetInternal(createSheetProps, iModel, sheetName);
       const seedFileName =
         "D:\\testmodels\\transformingSheetsIssue\\source.bim";
@@ -69,14 +68,20 @@ export namespace SheetApi {
       });
 
       const importer = new IModelImporter(iModel);
-      importer.doNotUpdateElementIds.add(documentListModelId); // Do not update the documentListModelId, this is the one we've created for this iModel to receive the sheet template.
+
+      // Do not update the documentListModelId, this is the one we've created for this iModel to receive the sheet template.
+      // We do this in order to keep the properties of the documentListModel that we set in `createSheetInternal`. 
+      // Without this line the documentListModel's properties in the source iModel overwrite the target iModel's documentListModel.
+      importer.doNotUpdateElementIds.add(documentListModelId); 
+
       transformer = new SheetTransformer(seedDb, importer, arr[0].id, sheetName);
 
-      // Tell the transformer to treat the documentListModel id in the source `0x20000000009` as the same as the one we have created in the target. This allows for all children elements of the documentListModel in the source such as the sheetModel to also make their way into the target iModel under the `documentListModel`
+      // Tell the transformer to treat the documentListModel id in the source `0x20000000009` as the same as the one we have created in the target. 
+      // This allows for all children elements of the documentListModel in the source such as the sheetModel to also make their way into the target iModel under the `documentListModel`
       transformer.context.remapElement("0x20000000009", documentListModelId);
 
-      // bring all data(drawing graphics, line styles, etc) in arr[0] to the blank sheetModel.
-      This is a similar thought process to the documentListModel remapping, we want all children elements of the sheetModel in the source like drawing graphics, line styles etc to end up as children of the sheetModel that we created in the target.
+      // bring all data (drawing graphics, line styles, etc) in arr[0] to the blank sheetModel.
+      // This is a similar thought process to the documentListModel remapping, we want all children elements of the sheetModel in the source like drawing graphics, line styles etc to end up as children of the sheetModel that we created in the target.
       transformer.context.remapElement(arr[0].id, sheetModelId);
 
       // export contents and sub-models to the target iModel
@@ -119,7 +124,10 @@ export namespace SheetApi {
         targetElementProps.userLabel = this._sheetName;
         targetElementProps.code = Sheet.createCode(this.targetDb, targetElementProps.model, this._sheetName);
       }
-      targetElementProps.federationGuid = Guid.createValue(); // We want each element to have a new federation guid, so that they are not considered the same as the source elements. This allows us to use the same sheet in the source and create many copies of it in the target if we so choose.
+
+      // We want each element to have a new federation guid, so that they are not considered the same as the source elements. 
+      // This allows us to use the same sheet in the source and create many copies of it in the target if we so choose.
+      targetElementProps.federationGuid = Guid.createValue(); 
 
       return targetElementProps;
     }
