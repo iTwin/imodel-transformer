@@ -3,6 +3,7 @@
 ## Overview
 
 This example shows how to transform a sheet and all its content into a target iModel using the `SheetTransformer` classes. The goal of this transformation was to copy a 2d sheet and its contents from a bim file to another iModel using the `@itwin/imodel-transformer` client.
+This would be useful if an organization had created an empty sheet with a title block that they wanted to reuse.
 
 ## Example Code
 
