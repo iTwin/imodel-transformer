@@ -72,7 +72,7 @@ export namespace SheetApi {
       importer.doNotUpdateElementIds.add(documentListModelId); // Do not update the documentListModelId, this is the one we've created for this iModel to receive the sheet template.
       transformer = new SheetTransformer(seedDb, importer, arr[0].id, sheetName);
 
-      // bring all data from this source model into document list model
+      // Tell the transformer to treat the documentListModel id in the source `0x20000000009` as the same as the one we have created in the target. This allows for all children elements of the documentListModel in the source such as the sheetModel to also make their way into the target iModel under the `documentListModel`
       transformer.context.remapElement("0x20000000009", documentListModelId);
 
       // bring all data(drawing graphics, line styles, etc) in arr[0] to the blank sheetModel
