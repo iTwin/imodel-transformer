@@ -115,7 +115,7 @@ export class IModelImporter {
    *
    * This is used as an optimization when `preserveElementIdsForFiltering` is set to `true`
    * In normal cases where this option set to `false`,
-   * the importer determines whether to insert or update based off of whether the ID is defined on `elementProps`.
+   * the importer determines whether to insert or update based off of whether the ID is defined on the `elementProps` passed to `importElement`.
    * However, with `preserveElementIdsForFiltering` set to `true`, IDs are always set, so we can't determine insert/update like the normal case.
    * The transformer already knows if an element exists or not by the time `importElement` is called and pushes to this set with `markElementAsUpdate`.
    * @note This set should stay small, as right after the transformer pushes to it, the importer will remove from the set.
