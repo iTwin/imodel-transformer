@@ -109,7 +109,7 @@ export class IModelImporter {
   private _duplicateCodeValueMap: Map<Id64String, string>;
 
   /**
-   * The set of elements added during export of an element in transformation to track which elements to update during import.
+   * A set of elementIds that the transformer adds to while exporting elements to indicate that the element already exists in the target.
    * Defaults to an empty set.
    * @note
    *
