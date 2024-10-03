@@ -58,7 +58,7 @@ export namespace SheetApi {
         throw new Error("Failed to open snapshot iModel.");
       }
 
-      // Get the sheet data from the snapshot (this will contain the sheet data)
+      // Get the sheet data from the snapshot. Note this imodel has one sheet.
       const arr: any = [];
       const query = "SELECT * FROM BisCore.Sheet";
       seedDb.withPreparedStatement(query, (statement) => {
