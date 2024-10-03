@@ -118,7 +118,7 @@ export class IModelImporter {
    * the importer determines whether to insert or update based off of whether the ID is defined on `elementProps`.
    * However, with `preserveElementIdsForFiltering` set to `true`, IDs are always set, so we can't determine insert/update like the normal case.
    * The transformer already knows if an element exists or not by the time `importElement` is called and pushes to this set with `markElementAsUpdate`.
-   *
+   * @note This set should stay small, as right after the transformer pushes to it, the importer will remove from the set.
    */
   private _elementsToUpdate = new Set<Id64String>([]);
 
