@@ -2899,7 +2899,7 @@ describe("IModelTransformer", () => {
 
     // insert an unrelated element that uses same id as subject1
     // insertElement public api does not support forceUseId option
-    // eslint-disable-next-line @itwin/no-internal
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     const targetSubjectId3 = targetDb.nativeDb.insertElement(
       newPropsForSubject3,
       { forceUseId: true }
