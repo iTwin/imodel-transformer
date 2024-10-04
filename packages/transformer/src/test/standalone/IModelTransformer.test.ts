@@ -2716,6 +2716,15 @@ describe("IModelTransformer", () => {
     await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
     targetDb.saveChanges();
 
+    // verify that deleted element in target is added back - redundant check for explicitness
+    const sourceElementJSON = sourceDb.elements
+      .tryGetElement<Subject>(targetSubjectId1!)
+      ?.toJSON();
+    const deletedElementInTargetJSON = targetDb.elements
+      .tryGetElement<Subject>(targetSubjectId1!)
+      ?.toJSON();
+    expect(sourceElementJSON).to.be.deep.equal(deletedElementInTargetJSON);
+
     sourceContent = await getAllElementsInvariants(sourceDb);
     targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
