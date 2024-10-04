@@ -49,7 +49,7 @@ export namespace SheetApi {
       }
    
       // This creates a sheet(a document element), sheetModel, and documentListModel in the target iModel
-      // which will be updated using the contents of the sheet, sheetModel, and documentListModel in the seedFile
+      // which will be updated using the contents of the sheet, sheetModel, and documentListModel in the seedFile.
       // sheet - https://www.itwinjs.org/reference/core-backend/elements/sheet/
       // sheetModel - https://www.itwinjs.org/reference/core-backend/models/sheetmodel/
       // documentListModel -  https://www.itwinjs.org/reference/core-backend/models/documentlistmodel/
@@ -84,14 +84,14 @@ export namespace SheetApi {
       // This allows for all children elements of the documentListModel in the source such as the sheetModel to also make their way into the target iModel under the `documentListModel`
       transformer.context.remapElement("0x20000000009", documentListModelId);
 
-      // bring all data (drawing graphics, line styles, etc) in arr[0] to the blank sheetModel.
+      // Bring all data (drawing graphics, line styles, etc) in arr[0] to the blank sheetModel.
       // This is a similar thought process to the documentListModel remapping, we want all children elements of the sheetModel in the source like drawing graphics, line styles etc to end up as children of the sheetModel that we created in the target.
       transformer.context.remapElement(arr[0].id, sheetModelId);
 
-      // export contents and sub-models to the target iModel
+      // Export contents and sub-models to the target iModel.
       await transformer.processModel("0x20000000009");
 
-      // Save changes to DB
+      // Save changes to DB.
       iModel.saveChanges();
 
       return sheetModelId;
@@ -118,12 +118,12 @@ export namespace SheetApi {
       this._sheetName = sheetName;
     }
 
-    // Override to add sheet userLabel, code, federationGuid to the target element
+    // Override to add sheet userLabel, code, federationGuid to the target element.
     public override onTransformElement(sourceElement: Element): ElementProps {
       const targetElementProps = super.onTransformElement(sourceElement);
       
       // Add userLabel, code, and federationGuid information for target props
-      // sheetName is user provided information.
+      // SheetName is user provided information.
       if (sourceElement instanceof Sheet && sourceElement.id === this._sheetIdInSource) {
         targetElementProps.userLabel = this._sheetName;
         targetElementProps.code = Sheet.createCode(this.targetDb, targetElementProps.model, this._sheetName);
@@ -145,13 +145,13 @@ export namespace SheetApi {
       throw new Error("A sheet's height and width must be greater than 0.");
     }
 
-    // Get or create documentListModel
+    // Get or create documentListModel.
     const documentListModelId = await DPChannelApi.getOrCreateDocumentList(SHEET_CONSTANTS.documentListName);
 
-    // Acquire locks and create sheet
+    // Acquire locks and create sheet.
     await iModel.locks.acquireLocks({ shared: documentListModelId });
 
-    // insert sheet element into iModel
+    // Insert sheet element into iModel.
     const sheetElementProps: SheetProps = {
       ...createSheetProps,
       classFullName: Sheet.classFullName,
@@ -160,7 +160,7 @@ export namespace SheetApi {
     };
     const sheetElementId = iModel.elements.insertElement(sheetElementProps);
 
-    // insert sheet model into iModel
+    // Insert sheet model into iModel.
     const sheetModelProps: GeometricModel2dProps = {
       classFullName: SheetModel.classFullName,
       modeledElement: { id: sheetElementId, relClassName: "BisCore:ModelModelsElement" } as RelatedElement
