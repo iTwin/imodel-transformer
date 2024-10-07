@@ -1943,17 +1943,17 @@ export class IModelTransformer extends IModelExportHandler {
       : undefined;
 
     if (this._options.preserveElementIdsForFiltering) {
-      const isInvalid = !Id64.isValid(targetElementId);
+      const isValid = Id64.isValid(targetElementId);
 
-      if (!isInvalid && targetElementId !== sourceElement.id) {
+      if (isValid && targetElementId !== sourceElement.id) {
         // Element found with different id
         throw new Error(
           `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${targetElementId}) from source element`
         );
-      } else if (!isInvalid && targetElementId === sourceElement.id) {
+      } else if (isValid && targetElementId === sourceElement.id) {
         // targetElementId is valid (indicating update)
         this.importer.markElementAsUpdate(sourceElement.id);
-      } else if (isInvalid) {
+      } else if (!isValid) {
         const sourceInTargetElemProps =
           this.targetDb.elements.tryGetElementProps(sourceElement.id);
 
