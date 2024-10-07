@@ -2718,10 +2718,10 @@ describe("IModelTransformer", () => {
 
     // verify that deleted element in target is added back - redundant check for explicitness
     const sourceElementJSON = sourceDb.elements
-      .tryGetElement<Subject>(targetSubjectId1!)
+      .getElement<Subject>(targetSubjectId1!)
       ?.toJSON();
     const deletedElementInTargetJSON = targetDb.elements
-      .tryGetElement<Subject>(targetSubjectId1!)
+      .getElement<Subject>(targetSubjectId1!)
       ?.toJSON();
     expect(sourceElementJSON).to.be.deep.equal(deletedElementInTargetJSON);
 
