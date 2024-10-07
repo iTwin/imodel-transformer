@@ -2664,7 +2664,6 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "iModelA" },
     });
     Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2");
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2697,18 +2696,6 @@ describe("IModelTransformer", () => {
     targetDb.elements.deleteElement(targetSubjectId1!);
     targetDb.saveChanges();
 
-    // update subject 2 in source
-    const code2 = Subject.createCode(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Subject2"
-    );
-    const targetSubjectId2 = sourceDb.elements.queryElementIdByCode(code2);
-    const subject2 = sourceDb.elements.getElement<Subject>(targetSubjectId2!);
-    subject2.description = "Subject2 Updated Description";
-    sourceDb.elements.updateElement(subject2.toJSON());
-    sourceDb.saveChanges();
-
     // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
@@ -2724,6 +2711,70 @@ describe("IModelTransformer", () => {
       .getElement<Subject>(targetSubjectId1!)
       ?.toJSON();
     expect(sourceElementJSON).to.be.deep.equal(deletedElementInTargetJSON);
+
+    sourceContent = await getAllElementsInvariants(sourceDb);
+    targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with preserveElementIdsForFiltering set to true should update the element properties if element exists with desired id in target", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "iModelA" },
+    });
+    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Execute process() so that elements from source are copied to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    let sourceContent = await getAllElementsInvariants(sourceDb);
+    let targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    const code = Subject.createCode(targetDb, IModel.rootSubjectId, "Subject1");
+    const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
+    expect(targetSubjectId).to.not.be.undefined;
+
+    // update subject in source
+    const sourceSubject = sourceDb.elements.getElement<Subject>(
+      targetSubjectId!
+    );
+    const updatedDescription = "Subject1 Updated Description";
+    sourceSubject.description = updatedDescription;
+    sourceDb.elements.updateElement(sourceSubject.toJSON());
+    sourceDb.saveChanges();
+
+    // Calling process() for second time with option to preserve elements in hopes of updating element with desired id
+    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await secondTransformer.process(); // should update description for subject element
+    targetDb.saveChanges();
+
+    // target subject should have updated description
+    const targetSubjectDescription = sourceDb.elements.getElement<Subject>(
+      targetSubjectId!
+    ).description;
+    expect(targetSubjectDescription).to.equal(updatedDescription);
 
     sourceContent = await getAllElementsInvariants(sourceDb);
     targetContent = await getAllElementsInvariants(targetDb);
@@ -2830,7 +2881,7 @@ describe("IModelTransformer", () => {
     expect(newSubjectId).to.not.be.undefined;
     targetDb.saveChanges();
 
-    // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
+    // Calling process() for second time with option to preserve elements in hopes of throwing expected error
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
@@ -2907,7 +2958,7 @@ describe("IModelTransformer", () => {
     expect(targetSubjectId3).to.not.be.undefined;
     targetDb.saveChanges();
 
-    // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
+    // Calling process() for second time with option to preserve elements in hopes of of throwing expected error
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
