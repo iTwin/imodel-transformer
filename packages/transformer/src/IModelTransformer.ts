@@ -666,6 +666,8 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
+    this._options.preserveElementIdsForFiltering &&
+      this.importer.enablePreserveElementIds();
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -1932,11 +1934,6 @@ export class IModelTransformer extends IModelExportHandler {
       : undefined;
 
     if (this._options.preserveElementIdsForFiltering) {
-      // initialize set if undefined to indicate in importer that preserveElementIdsForFiltering option is true
-      if (!this.importer.elementIdsToUpdateForPreserveId) {
-        this.importer.elementIdsToUpdateForPreserveId = new Set<Id64String>([]);
-      }
-
       const isValid = Id64.isValid(targetElementId);
       if (isValid && targetElementId !== sourceElement.id) {
         // Element found with different id
@@ -1945,7 +1942,7 @@ export class IModelTransformer extends IModelExportHandler {
         );
       } else if (isValid && targetElementId === sourceElement.id) {
         // targetElementId is valid (indicating update)
-        this.importer.markElementToUpdateForPreserveId(sourceElement.id);
+        this.importer.markElementToUpdateDuringPreserveIds(sourceElement.id);
       } else if (!isValid) {
         const sourceInTargetElemProps =
           this.targetDb.elements.tryGetElementProps(sourceElement.id);

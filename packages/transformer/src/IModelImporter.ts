@@ -106,14 +106,14 @@ export class IModelImporter {
    * Defaults to undefined.
    * @note
    *
-   * This is used as an optimization when the transformer `preserveElementIdsForFiltering` option is set to `true`
+   * This is used as an optimization when `[[IModelTransformOptions.preserveElementIdsForFiltering]]` is set to `true`
    * In normal cases where this option set to `false`,
    * the importer determines whether to insert or update based off of whether the ID is defined on the `elementProps` passed to `importElement`.
    * However, with `preserveElementIdsForFiltering` set to `true`, IDs are always set, so we can't determine insert/update like the normal case.
    * The transformer already knows if an element exists or not by the time `importElement` is called and pushes to this set with `markElementToUpdateForPreserveId`.
    * @note This set should stay small, as right after the transformer pushes to it, the importer will remove from the set.
    */
-  public elementIdsToUpdateForPreserveId: Set<Id64String> | undefined;
+  private _elementsToUpdateDuringPreserveIds: Set<Id64String> | undefined;
 
   /** The set of elements that should not be updated by this IModelImporter.
    * Defaults to an empty set.
@@ -166,19 +166,26 @@ export class IModelImporter {
   }
 
   /**
+   * Initialize IModelImporter`elementsToUpdateDuringPreserveIds` set if `undefined` to indicate in importer that `[[IModelTransformOptions.preserveElementIdsForFiltering]]` is set to `true`
+   */
+  public enablePreserveElementIds() {
+    this._elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
+  }
+
+  /**
    * Marks an element so that it can be updated during import when [[IModelTransformOptions.preserveElementIdsForFiltering]] is set to true.
    */
-  public markElementToUpdateForPreserveId(elementId: Id64String) {
-    if (!this.elementIdsToUpdateForPreserveId) {
+  public markElementToUpdateDuringPreserveIds(elementId: Id64String) {
+    if (!this._elementsToUpdateDuringPreserveIds) {
       throw new Error(
-        "The elementIdsToUpdateForPreserveId set is not initialized. Ensure this set is initialized when `preserveElementIdsForFiltering` is set true"
+        "The elementsToUpdateDuringPreserveIds set is not initialized. Ensure this set is initialized when [[IModelTransformOptions.preserveElementIdsForFiltering]] is set true"
       );
     }
 
     if (this._rootElementIds.has(elementId)) {
       return;
     }
-    this.elementIdsToUpdateForPreserveId.add(elementId);
+    this._elementsToUpdateDuringPreserveIds.add(elementId);
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
@@ -256,12 +263,12 @@ export class IModelImporter {
   /**
    * Determines whether element IDs should be preserved for filtering.
    *
-   * This function checks if the `elementIdsToUpdateForPreserveId` set is defined.
+   * This getter checks if the `elementsToUpdateDuringPreserveIds` set is defined.
    * If it is undefined, the function returns `false`, indicating that element IDs should not be preserved.
    * Otherwise, it returns `true`.   *
    */
-  private shouldPreserveElementIdsForFiltering(): boolean {
-    if (this.elementIdsToUpdateForPreserveId === undefined) {
+  private get _shouldPreserveElementIds(): boolean {
+    if (this._elementsToUpdateDuringPreserveIds === undefined) {
       return false;
     }
     return true;
@@ -303,7 +310,7 @@ export class IModelImporter {
       return elementProps.id;
     }
 
-    if (this.shouldPreserveElementIdsForFiltering()) {
+    if (this._shouldPreserveElementIds) {
       if (elementProps.id === undefined) {
         throw new IModelError(
           IModelStatus.BadElement,
@@ -321,9 +328,9 @@ export class IModelImporter {
       ) {
         this.onUpdateElement(elementProps);
       } else {
-        if (this.elementIdsToUpdateForPreserveId?.has(elementProps.id)) {
+        if (this._elementsToUpdateDuringPreserveIds?.has(elementProps.id)) {
           this.tryUpdateElement(elementProps);
-          this.elementIdsToUpdateForPreserveId?.delete(elementProps.id);
+          this._elementsToUpdateDuringPreserveIds?.delete(elementProps.id);
         } else {
           this.onInsertElement(elementProps);
         }
@@ -346,7 +353,7 @@ export class IModelImporter {
     /* eslint-disable deprecation/deprecation */
     try {
       const elementId = this.targetDb.nativeDb.insertElement(elementProps, {
-        forceUseId: this.shouldPreserveElementIdsForFiltering(),
+        forceUseId: this._shouldPreserveElementIds,
       });
       // set the id like [IModelDb.insertElement]($backend), does, the raw nativeDb method does not
       elementProps.id = elementId;
