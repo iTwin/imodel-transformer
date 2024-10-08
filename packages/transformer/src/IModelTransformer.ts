@@ -658,8 +658,6 @@ export class IModelTransformer extends IModelExportHandler {
     // initialize importer and targetDb
     if (target instanceof IModelDb) {
       this.importer = new IModelImporter(target, {
-        preserveElementIdsForFiltering:
-          this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
           this._options.skipPropagateChangesToRootElements,
       });
@@ -668,7 +666,6 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
-    this.importer.options.fromTransformation = true;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -697,14 +694,6 @@ export class IModelTransformer extends IModelExportHandler {
    *  @note This expects that the importer is already set on the transformer.
    */
   private validateSharedOptionsMatch() {
-    if (
-      Boolean(this._options.preserveElementIdsForFiltering) !==
-      this.importer.options.preserveElementIdsForFiltering
-    ) {
-      const errMessage =
-        "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.";
-      throw new Error(errMessage);
-    }
     if (
       Boolean(this._options.skipPropagateChangesToRootElements) !==
       this.importer.options.skipPropagateChangesToRootElements
@@ -1943,8 +1932,12 @@ export class IModelTransformer extends IModelExportHandler {
       : undefined;
 
     if (this._options.preserveElementIdsForFiltering) {
-      const isValid = Id64.isValid(targetElementId);
+      // initialize set if undefined to indicate in importer that preserveElementIdsForFiltering option is true
+      if (!this.importer.elementIdsToUpdateForPreserveId) {
+        this.importer.elementIdsToUpdateForPreserveId = new Set<Id64String>([]);
+      }
 
+      const isValid = Id64.isValid(targetElementId);
       if (isValid && targetElementId !== sourceElement.id) {
         // Element found with different id
         throw new Error(
@@ -1952,7 +1945,7 @@ export class IModelTransformer extends IModelExportHandler {
         );
       } else if (isValid && targetElementId === sourceElement.id) {
         // targetElementId is valid (indicating update)
-        this.importer.markElementAsUpdate(sourceElement.id);
+        this.importer.markElementToUpdateForPreserveId(sourceElement.id);
       } else if (!isValid) {
         const sourceInTargetElemProps =
           this.targetDb.elements.tryGetElementProps(sourceElement.id);
