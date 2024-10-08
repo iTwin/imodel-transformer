@@ -166,7 +166,7 @@ export class IModelImporter {
   }
 
   /**
-   * Initialize IModelImporter`elementsToUpdateDuringPreserveIds` set if `undefined` to indicate in importer that `[[IModelTransformOptions.preserveElementIdsForFiltering]]` is set to `true`
+   * Initialize IModelImporter `elementsToUpdateDuringPreserveIds` set if `undefined` to indicate in importer that `[[IModelTransformOptions.preserveElementIdsForFiltering]]` is set to `true`
    */
   public enablePreserveElementIds() {
     this._elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
