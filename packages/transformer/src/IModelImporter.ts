@@ -166,7 +166,7 @@ export class IModelImporter {
   }
 
   /**
-   * Marks an element so that it can be updated during import when the [[IModelTransformOptions.preserveElementIdsForFiltering]] is set to true.
+   * Marks an element so that it can be updated during import when [[IModelTransformOptions.preserveElementIdsForFiltering]] is set to true.
    */
   public markElementToUpdateForPreserveId(elementId: Id64String) {
     if (!this.elementIdsToUpdateForPreserveId) {
