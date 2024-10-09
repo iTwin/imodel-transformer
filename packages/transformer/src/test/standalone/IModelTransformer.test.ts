@@ -2706,10 +2706,10 @@ describe("IModelTransformer", () => {
     // verify that deleted element in target is added back - redundant check for explicitness
     const sourceElementJSON = sourceDb.elements
       .getElement<Subject>(targetSubjectId1!)
-      ?.toJSON();
+      .toJSON();
     const deletedElementInTargetJSON = targetDb.elements
       .getElement<Subject>(targetSubjectId1!)
-      ?.toJSON();
+      .toJSON();
     expect(sourceElementJSON).to.be.deep.equal(deletedElementInTargetJSON);
 
     sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2728,7 +2728,11 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    const sourceSubjectId = Subject.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "Subject1"
+    );
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2750,14 +2754,9 @@ describe("IModelTransformer", () => {
     let targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
 
-    const code = Subject.createCode(targetDb, IModel.rootSubjectId, "Subject1");
-    const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
-    expect(targetSubjectId).to.not.be.undefined;
-
     // update subject in source
-    const sourceSubject = sourceDb.elements.getElement<Subject>(
-      targetSubjectId!
-    );
+    const sourceSubject =
+      sourceDb.elements.getElement<Subject>(sourceSubjectId);
     const updatedDescription = "Subject1 Updated Description";
     sourceSubject.description = updatedDescription;
     sourceDb.elements.updateElement(sourceSubject.toJSON());
@@ -2771,9 +2770,8 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     // target subject should have updated description
-    const targetSubjectDescription = sourceDb.elements.getElement<Subject>(
-      targetSubjectId!
-    ).description;
+    const targetSubjectDescription =
+      targetDb.elements.getElement<Subject>(sourceSubjectId).description;
     expect(targetSubjectDescription).to.equal(updatedDescription);
 
     sourceContent = await getAllElementsInvariants(sourceDb);
