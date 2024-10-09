@@ -658,6 +658,8 @@ export class IModelTransformer extends IModelExportHandler {
     // initialize importer and targetDb
     if (target instanceof IModelDb) {
       this.importer = new IModelImporter(target, {
+        preserveElementIdsForFiltering:
+          this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
           this._options.skipPropagateChangesToRootElements,
       });
@@ -666,8 +668,6 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
-    this._options.preserveElementIdsForFiltering &&
-      this.importer.enablePreserveElementIds();
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -696,6 +696,14 @@ export class IModelTransformer extends IModelExportHandler {
    *  @note This expects that the importer is already set on the transformer.
    */
   private validateSharedOptionsMatch() {
+    if (
+      Boolean(this._options.preserveElementIdsForFiltering) !==
+      this.importer.options.preserveElementIdsForFiltering
+    ) {
+      const errMessage =
+        "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.";
+      throw new Error(errMessage);
+    }
     if (
       Boolean(this._options.skipPropagateChangesToRootElements) !==
       this.importer.options.skipPropagateChangesToRootElements

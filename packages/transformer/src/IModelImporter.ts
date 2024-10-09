@@ -63,6 +63,8 @@ export interface IModelImportOptions {
    * @see [IModelImporter Options]($docs/learning/transformer/index.md#IModelImporter)
    */
   autoExtendProjectExtents?: boolean | { excludeOutliers: boolean };
+  /** See [IModelTransformOptions]($transformer) */
+  preserveElementIdsForFiltering?: boolean;
   /** If `true`, simplify the element geometry for visualization purposes. For example, convert b-reps into meshes.
    * @default false
    */
@@ -103,7 +105,7 @@ export class IModelImporter {
 
   /**
    * A set of elementIds that the transformer adds to while exporting elements to indicate that the element already exists in the target.
-   * Defaults to undefined.
+   * Defaults to an empty set.
    * @note
    *
    * This is used as an optimization when `[[IModelTransformOptions.preserveElementIdsForFiltering]]` is set to `true`
@@ -113,7 +115,7 @@ export class IModelImporter {
    * The transformer already knows if an element exists or not by the time `importElement` is called and pushes to this set with `markElementToUpdateForPreserveId`.
    * @note This set should stay small, as right after the transformer pushes to it, the importer will remove from the set.
    */
-  private _elementsToUpdateDuringPreserveIds: Set<Id64String> | undefined;
+  private _elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
 
   /** The set of elements that should not be updated by this IModelImporter.
    * Defaults to an empty set.
@@ -145,6 +147,8 @@ export class IModelImporter {
     this.targetDb = targetDb;
     this.options = {
       autoExtendProjectExtents: options?.autoExtendProjectExtents ?? true,
+      preserveElementIdsForFiltering:
+        options?.preserveElementIdsForFiltering ?? false,
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
@@ -166,22 +170,9 @@ export class IModelImporter {
   }
 
   /**
-   * Initialize IModelImporter `elementsToUpdateDuringPreserveIds` set if `undefined` to indicate in importer that `[[IModelTransformOptions.preserveElementIdsForFiltering]]` is set to `true`
-   */
-  public enablePreserveElementIds() {
-    this._elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
-  }
-
-  /**
    * Marks an element so that it can be updated during import when [[IModelTransformOptions.preserveElementIdsForFiltering]] is set to true.
    */
   public markElementToUpdateDuringPreserveIds(elementId: Id64String) {
-    if (!this._elementsToUpdateDuringPreserveIds) {
-      throw new Error(
-        "The elementsToUpdateDuringPreserveIds set is not initialized. Ensure this set is initialized when [[IModelTransformOptions.preserveElementIdsForFiltering]] is set true"
-      );
-    }
-
     if (this._rootElementIds.has(elementId)) {
       return;
     }
@@ -261,20 +252,6 @@ export class IModelImporter {
   }
 
   /**
-   * Determines whether element IDs should be preserved for filtering.
-   *
-   * This getter checks if the `elementsToUpdateDuringPreserveIds` set is defined.
-   * If it is undefined, the function returns `false`, indicating that element IDs should not be preserved.
-   * Otherwise, it returns `true`.   *
-   */
-  private get _shouldPreserveElementIds(): boolean {
-    if (this._elementsToUpdateDuringPreserveIds === undefined) {
-      return false;
-    }
-    return true;
-  }
-
-  /**
    * Tries to update an element with the specified element properties.
    * If a duplicate code error occurs, it assigns a new unique code value and retries the update
    */
@@ -310,7 +287,7 @@ export class IModelImporter {
       return elementProps.id;
     }
 
-    if (this._shouldPreserveElementIds) {
+    if (this.options.preserveElementIdsForFiltering) {
       if (elementProps.id === undefined) {
         throw new IModelError(
           IModelStatus.BadElement,
@@ -328,9 +305,9 @@ export class IModelImporter {
       ) {
         this.onUpdateElement(elementProps);
       } else {
-        if (this._elementsToUpdateDuringPreserveIds?.has(elementProps.id)) {
+        if (this._elementsToUpdateDuringPreserveIds.has(elementProps.id)) {
           this.tryUpdateElement(elementProps);
-          this._elementsToUpdateDuringPreserveIds?.delete(elementProps.id);
+          this._elementsToUpdateDuringPreserveIds.delete(elementProps.id);
         } else {
           this.onInsertElement(elementProps);
         }
@@ -353,7 +330,7 @@ export class IModelImporter {
     /* eslint-disable deprecation/deprecation */
     try {
       const elementId = this.targetDb.nativeDb.insertElement(elementProps, {
-        forceUseId: this._shouldPreserveElementIds,
+        forceUseId: this.options.preserveElementIdsForFiltering,
       });
       // set the id like [IModelDb.insertElement]($backend), does, the raw nativeDb method does not
       elementProps.id = elementId;
