@@ -41,9 +41,6 @@ export default async function prepareFork(context: TestCaseContext) {
     [timer] = await timed(async () => {
       await branchInitializer.run();
     });
-    // save+push our changes to whatever hub we're using
-    const description = "initialized branch iModel";
-    branchDb.saveChanges(description);
 
     Logger.logInfo(
       loggerCategory,
