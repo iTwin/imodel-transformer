@@ -1790,10 +1790,7 @@ export class IModelTransformer extends IModelExportHandler {
   public override onExportElement(sourceElement: Element): void {
     let targetElementId: Id64String;
     let targetElementProps: ElementProps;
-    if (this._options.preserveElementIdsForFiltering) {
-      targetElementId = sourceElement.id;
-      targetElementProps = this.onTransformElement(sourceElement);
-    } else if (this._options.wasSourceIModelCopiedToTarget) {
+    if (this._options.wasSourceIModelCopiedToTarget) {
       targetElementId = sourceElement.id;
       targetElementProps =
         this.targetDb.elements.getElementProps(targetElementId);
@@ -1853,6 +1850,33 @@ export class IModelTransformer extends IModelExportHandler {
     targetElementProps.id = Id64.isValid(targetElementId)
       ? targetElementId
       : undefined;
+
+    if (this._options.preserveElementIdsForFiltering) {
+      const isValid = Id64.isValid(targetElementId);
+      if (isValid && targetElementId !== sourceElement.id) {
+        // Element found with different id
+        throw new Error(
+          `Element id(${sourceElement.id}) cannot be preserved. Found a different mapping(${targetElementId}) from source element`
+        );
+      } else if (isValid && targetElementId === sourceElement.id) {
+        // targetElementId is valid (indicating update)
+        this.importer.markElementToUpdateDuringPreserveIds(sourceElement.id);
+      } else if (!isValid) {
+        const sourceInTargetElemProps =
+          this.targetDb.elements.tryGetElementProps(sourceElement.id);
+
+        // if we don't find mapping for source element in target(invalid) but another element with source id exists in target
+        if (sourceInTargetElemProps) {
+          // Element id is already taken by another element
+          throw new Error(
+            `Element id(${sourceElement.id}) cannot be preserved. An unrelated element in the target already uses id: ${sourceElement.id}`
+          );
+        } else {
+          // Element id in target is available to be remapped
+          targetElementProps.id = sourceElement.id;
+        }
+      }
+    }
 
     if (!this._options.wasSourceIModelCopiedToTarget) {
       this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
