@@ -31,6 +31,17 @@
         "skipFiles": [
           "<node_internals>/**"
         ]
+      },
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "Performance tests",
+        "runtimeExecutable": "npm",
+        "cwd": "${workspaceFolder}/packages/performance-tests/test",
+        "runtimeArgs": [
+          "run",
+          "test"
+        ],
       }
     ]
 }
