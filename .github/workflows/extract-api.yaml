@@ -41,11 +41,13 @@ jobs:
       - name: Pnpm build
         run: pnpm run build
 
-      - name: Install API Extractor
-        run: pnpm add --save-dev @microsoft/api-extractor -w
+      # - name: Install API Extractor
+      #   run: pnpm add --save-dev @microsoft/api-extractor -w
 
-      - name: Run API Extractor
-        run: npx api-extractor run
+      # - name: Run API Extractor
+      #   run: npx api-extractor run
+      - name: Run Extract API
+        run: pnpm betools extract-api
 
       - name: Assert no uncommitted changes (for extension api)
         shell: bash
