@@ -42,7 +42,7 @@ jobs:
         run: pnpm run build
 
       - name: Install API Extractor
-        run: pnpm add --save-dev @microsoft/api-extractor
+        run: pnpm add --save-dev @microsoft/api-extractor -w
 
       - name: Run API Extractor
         run: npx api-extractor run
