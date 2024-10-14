@@ -2655,6 +2655,320 @@ describe("IModelTransformer", () => {
     }
   }
 
+  it("process() with preserveElementIdsForFiltering set to true should re-add deleted element with same id", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "iModelA" },
+    });
+    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Execute process() so that elements from source are copied to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    let sourceContent = await getAllElementsInvariants(sourceDb);
+    let targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    // Delete subject 1 from target
+    const code1 = Subject.createCode(
+      targetDb,
+      IModel.rootSubjectId,
+      "Subject1"
+    );
+    const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
+    expect(targetSubjectId1).to.not.be.undefined;
+    targetDb.elements.deleteElement(targetSubjectId1!);
+    targetDb.saveChanges();
+
+    // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
+    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
+    targetDb.saveChanges();
+
+    // verify that deleted element in target is added back - redundant check for explicitness
+    const sourceElementJSON = sourceDb.elements
+      .getElement<Subject>(targetSubjectId1!)
+      .toJSON();
+    const deletedElementInTargetJSON = targetDb.elements
+      .getElement<Subject>(targetSubjectId1!)
+      .toJSON();
+    expect(sourceElementJSON).to.be.deep.equal(deletedElementInTargetJSON);
+
+    sourceContent = await getAllElementsInvariants(sourceDb);
+    targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with preserveElementIdsForFiltering set to true should update the element properties if element exists with desired id in target", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "iModelA" },
+    });
+    const sourceSubjectId = Subject.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "Subject1"
+    );
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Execute process() so that elements from source are copied to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    let sourceContent = await getAllElementsInvariants(sourceDb);
+    let targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    // update subject in source
+    const sourceSubject =
+      sourceDb.elements.getElement<Subject>(sourceSubjectId);
+    const updatedDescription = "Subject1 Updated Description";
+    sourceSubject.description = updatedDescription;
+    sourceDb.elements.updateElement(sourceSubject.toJSON());
+    sourceDb.saveChanges();
+
+    // Calling process() for second time with option to preserve elements in hopes of updating element with desired id
+    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await secondTransformer.process(); // should update description for subject element
+    targetDb.saveChanges();
+
+    // target subject should have updated description
+    const targetSubjectDescription =
+      targetDb.elements.getElement<Subject>(sourceSubjectId).description;
+    expect(targetSubjectDescription).to.equal(updatedDescription);
+
+    sourceContent = await getAllElementsInvariants(sourceDb);
+    targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with preserveElementIdsForFiltering set to true should not throw when called on 2 identical iModels", async () => {
+    const seedDb = SnapshotDb.openFile(
+      TestUtils.IModelTestUtils.resolveAssetFile("CompatibilityTestSeed.bim")
+    );
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    // transforming the seed to an empty will update it to the latest bis from the new target
+    // which minimizes differences we'd otherwise need to filter later
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: seedDb.rootSubject,
+    });
+    const seedTransformer = new IModelTransformer(seedDb, sourceDb);
+    await seedTransformer.process();
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Calling process() for first time will add all elements from source to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    // should not throw error: duplicate code (65547)
+    const thirdTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await thirdTransformer.process();
+    targetDb.saveChanges();
+
+    const sourceContent = await getAllElementsInvariants(sourceDb);
+    const targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with preserveElementIdsForFiltering set to true should throw error if element exists but has different id in target", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "iModelA" },
+    });
+    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Execute process() so that elements from source are copied to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    const sourceContent = await getAllElementsInvariants(sourceDb);
+    const targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    // Delete subject 1 from target
+    const code = Subject.createCode(targetDb, IModel.rootSubjectId, "Subject1");
+    const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
+    expect(targetSubjectId).to.not.be.undefined;
+
+    targetDb.elements.deleteElement(targetSubjectId!);
+    targetDb.saveChanges();
+
+    // save subject 1 element properties for new subject(it should have same fed guid and code)
+    const targetSubjectProps = sourceDb.elements.getElementProps(
+      targetSubjectId!
+    );
+    targetSubjectProps.id = undefined;
+    assert.isDefined(targetSubjectProps);
+
+    // create new subject that is the same as subject 1 but has a different Id
+    const newSubjectId = targetDb.elements.insertElement(targetSubjectProps);
+    expect(newSubjectId).to.not.be.undefined;
+    targetDb.saveChanges();
+
+    // Calling process() for second time with option to preserve elements in hopes of throwing expected error
+    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+
+    await expect(secondTransformer.process()).to.be.rejectedWith(
+      `Element id(${targetSubjectId}) cannot be preserved. Found a different mapping(${newSubjectId}) from source element`
+    );
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("process() with preserveElementIdsForFiltering set to true should throw error if an unrelated element in the target already uses id", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "iModelA" },
+    });
+    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    sourceDb.saveChanges();
+
+    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "PreserveIdOnTestModel-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
+      rootSubject: sourceDb.rootSubject,
+    });
+
+    // Execute process() so that elements from source are copied to target
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    const sourceContent = await getAllElementsInvariants(sourceDb);
+    const targetContent = await getAllElementsInvariants(targetDb);
+    expect(targetContent).to.deep.equal(sourceContent);
+
+    // Delete subject 1 from target
+    const code1 = Subject.createCode(
+      targetDb,
+      IModel.rootSubjectId,
+      "Subject1"
+    );
+    const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
+    expect(targetSubjectId1).to.not.be.undefined;
+
+    targetDb.elements.deleteElement(targetSubjectId1!);
+    targetDb.saveChanges();
+
+    // save subject 1 element properties but only use the same id
+    const newPropsForSubject3 = sourceDb.elements.getElementProps(
+      targetSubjectId1!
+    );
+    newPropsForSubject3.federationGuid = undefined;
+    const code3 = Subject.createCode(
+      targetDb,
+      IModel.rootSubjectId,
+      "Subject3"
+    );
+    newPropsForSubject3.code = code3;
+
+    // insert an unrelated element that uses same id as subject1
+    // insertElement public api does not support forceUseId option
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    const targetSubjectId3 = targetDb.nativeDb.insertElement(
+      newPropsForSubject3,
+      { forceUseId: true }
+    );
+    expect(targetSubjectId3).to.not.be.undefined;
+    targetDb.saveChanges();
+
+    // Calling process() for second time with option to preserve elements in hopes of of throwing expected error
+    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
+      preserveElementIdsForFiltering: true,
+    });
+
+    await expect(secondTransformer.process()).to.be.rejectedWith(
+      `Element id(${targetSubjectId1}) cannot be preserved. An unrelated element in the target already uses id: ${targetSubjectId1}`
+    );
+
+    sourceDb.close();
+    targetDb.close();
+  });
+
   it("reference deletion is considered invalid when danglingReferencesBehavior='reject' and that is the default", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
