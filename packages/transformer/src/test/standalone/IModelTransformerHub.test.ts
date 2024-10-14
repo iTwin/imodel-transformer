@@ -30,7 +30,6 @@ import {
   IModelDb,
   IModelHost,
   IModelJsFs,
-  IModelJsNative,
   ModelSelector,
   NativeLoggerCategory,
   PhysicalModel,
@@ -75,6 +74,7 @@ import {
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
+  ChangedInstanceIds,
   IModelExporter,
   IModelImporter,
   IModelTransformer,
@@ -1699,26 +1699,21 @@ describe("IModelTransformerHub", () => {
       for (const masterDbChangeset of masterDbChangesets) {
         assert.isDefined(masterDbChangeset.id);
         assert.isDefined(masterDbChangeset.description); // test code above always included a change description when pushChanges was called
-        const changesetPath = masterDbChangeset.pathname;
-        assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
-        /* eslint-disable deprecation/deprecation */
-        const statusOrResult =
-          master.db.nativeDb.extractChangedInstanceIdsFromChangeSets([
-            changesetPath,
-          ]);
-        /* eslint-enable deprecation/deprecation */
-        assert.isUndefined(statusOrResult.error);
-        const result = statusOrResult.result;
+        const changedInstanceIds = await ChangedInstanceIds.initialize({
+          iModel: master.db,
+          csFileProps: [masterDbChangeset],
+        });
+        const result = changedInstanceIds;
         if (result === undefined) throw Error("expected to be defined");
 
-        if (result.element?.delete) {
-          result.element.delete.forEach((id: Id64String) =>
+        if (result.element.deleteIds) {
+          result.element.deleteIds.forEach((id: Id64String) =>
             masterDeletedElementIds.add(id)
           );
         }
-        if (result.relationship?.delete) {
-          result.relationship.delete.forEach((id: Id64String) =>
+        if (result.relationship.deleteIds) {
+          result.relationship.deleteIds.forEach((id: Id64String) =>
             masterDeletedRelationshipIds.add(id)
           );
         }
@@ -1784,18 +1779,16 @@ describe("IModelTransformerHub", () => {
         const changesetPath = replayedDbChangeset.pathname;
         assert.isTrue(IModelJsFs.existsSync(changesetPath));
         // below is one way of determining the set of elements that were deleted in a specific changeset
-        /* eslint-disable deprecation/deprecation */
-        const statusOrResult =
-          replayedDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
-            changesetPath,
-          ]);
-        /* eslint-enable deprecation/deprecation */
-        const result = statusOrResult.result;
+        const changedInstanceIds = await ChangedInstanceIds.initialize({
+          iModel: replayedDb,
+          csFileProps: [replayedDbChangeset],
+        });
+        const result = changedInstanceIds;
         if (result === undefined) throw Error("expected to be defined");
 
         assert.isDefined(result.element);
-        if (result.element?.delete) {
-          result.element.delete.forEach((id: Id64String) =>
+        if (result.element.deleteIds) {
+          result.element.deleteIds.forEach((id: Id64String) =>
             replayedDeletedElementIds.add(id)
           );
         }
@@ -1918,17 +1911,17 @@ describe("IModelTransformerHub", () => {
       });
       expect(sourceDbChangesets).to.have.length(2);
       const latestChangeset = sourceDbChangesets[1];
-      /* eslint-disable deprecation/deprecation */
-      const extractedChangedIds =
-        sourceDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
-          latestChangeset.pathname,
-        ]);
-      /* eslint-enable deprecation/deprecation */
-      const expectedChangedIds: IModelJsNative.ChangedInstanceIdsProps = {
-        element: { update: [modelSelectorId] },
-        model: { update: [IModel.dictionaryId] }, // containing model will also get last modification time updated
-      };
-      expect(extractedChangedIds.result).to.deep.equal(expectedChangedIds);
+      const changedInstanceIds = await ChangedInstanceIds.initialize({
+        iModel: sourceDb,
+        csFileProps: [latestChangeset],
+      });
+      const result = changedInstanceIds;
+      if (result === undefined) throw Error("expected to be defined");
+      const expectedElementUpdateIds = new Set<Id64String>([modelSelectorId]);
+      const expectedModelUpdateIds = new Set<Id64String>([IModel.dictionaryId]); // containing model will also get last modification time updated
+
+      expect(result.element.updateIds).to.deep.equal(expectedElementUpdateIds);
+      expect(result.model.updateIds).to.deep.equal(expectedModelUpdateIds);
 
       // synchronize
       let didExportModelSelector = false,
@@ -2725,12 +2718,13 @@ describe("IModelTransformerHub", () => {
       });
       expect(branchDbChangesets).to.have.length(2);
       const latestChangeset = branchDbChangesets[1];
-      /* eslint-disable deprecation/deprecation */
-      const extractedChangedIds =
-        branchDb.nativeDb.extractChangedInstanceIdsFromChangeSets([
-          latestChangeset.pathname,
-        ]);
-      /* eslint-enable deprecation/deprecation */
+
+      const changedInstanceIds = await ChangedInstanceIds.initialize({
+        iModel: branchDb,
+        csFileProps: [latestChangeset],
+      });
+      const result = changedInstanceIds;
+      if (result === undefined) throw Error("expected to be defined");
       const aspectDeletions = [
         ...modelToDeleteWithElem.aspects,
         ...childSubject.aspects,
@@ -2741,35 +2735,33 @@ describe("IModelTransformerHub", () => {
         ...elemToDeleteWithChildren.aspects,
         ...childElemOfDeleted.aspects,
       ].map((a) => a.id);
+      const expectedAspectDeleteIds = aspectDeletions.length
+        ? new Set<Id64String>(aspectDeletions)
+        : new Set<Id64String>();
+      const expectedElementDeleteIds = new Set<Id64String>([
+        modelToDeleteWithElemId,
+        elemInModelToDeleteId,
+        elemToDeleteWithChildrenId,
+        childElemOfDeletedId,
+        childSubjectId,
+        modelInChildSubjectId,
+        childSubjectChildId,
+        modelInChildSubjectChildId,
+      ]);
+      const expectedModelDeleteIds = new Set<Id64String>([
+        modelToDeleteWithElemId,
+        modelInChildSubjectId,
+        modelInChildSubjectChildId,
+      ]);
+      const expectedModelUpdateIds = new Set<Id64String>([
+        IModelDb.rootSubjectId,
+        notDeletedModelId,
+      ]); // containing model will also get last modification time updated
 
-      const expectedChangedIds: IModelJsNative.ChangedInstanceIdsProps = {
-        ...(aspectDeletions.length > 0 && {
-          aspect: {
-            delete: aspectDeletions,
-          },
-        }),
-        element: {
-          delete: [
-            modelToDeleteWithElemId,
-            elemInModelToDeleteId,
-            elemToDeleteWithChildrenId,
-            childElemOfDeletedId,
-            childSubjectId,
-            modelInChildSubjectId,
-            childSubjectChildId,
-            modelInChildSubjectChildId,
-          ],
-        },
-        model: {
-          update: [IModelDb.rootSubjectId, notDeletedModelId], // containing model will also get last modification time updated
-          delete: [
-            modelToDeleteWithElemId,
-            modelInChildSubjectId,
-            modelInChildSubjectChildId,
-          ],
-        },
-      };
-      expect(extractedChangedIds.result).to.deep.equal(expectedChangedIds);
+      expect(result.aspect.deleteIds).to.deep.equal(expectedAspectDeleteIds);
+      expect(result.element.deleteIds).to.deep.equal(expectedElementDeleteIds);
+      expect(result.model.deleteIds).to.deep.equal(expectedModelDeleteIds);
+      expect(result.model.updateIds).to.deep.equal(expectedModelUpdateIds);
 
       const synchronizer = new IModelTransformer(branchDb, masterDb, {
         // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
