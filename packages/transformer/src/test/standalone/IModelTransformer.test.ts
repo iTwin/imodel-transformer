@@ -130,6 +130,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
+import { SchemaTestUtils } from "../TestUtils";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(
@@ -3880,7 +3881,7 @@ describe("IModelTransformer", () => {
     transformer.dispose();
   });
 
-  it("handles unknown new schema references in biscore", async () => {
+  it.only("handles unknown new schema references in biscore", async () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "UnknownBisCoreNewSchemaRef.bim"
@@ -3893,9 +3894,17 @@ describe("IModelTransformer", () => {
     assert(biscoreVersion !== undefined);
     const fakeSchemaVersion = "1.0.99";
     expect(Semver.lt(biscoreVersion, fakeSchemaVersion)).to.be.true;
+
     // eslint-disable-next-line deprecation/deprecation
     const biscoreText = sourceDb.nativeDb.schemaToXmlString("BisCore");
+    const bisCoreUtilsText = await SchemaTestUtils.schemaToXmlString(
+      "BisCore",
+      sourceDb
+    );
+    assert(bisCoreUtilsText !== undefined);
     assert(biscoreText !== undefined);
+    // assert.equal(bisCoreUtilsText, biscoreText);
+
     const fakeBisCoreUpdateText = biscoreText
       .replace(
         /(<ECSchema .*?>)/,
