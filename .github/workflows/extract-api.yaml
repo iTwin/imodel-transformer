@@ -19,21 +19,27 @@ jobs:
   extract-api:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
 
       - name: Configure git
         run: |
           git config --local user.email imodeljs-admin@users.noreply.github.com
           git config --local user.name imodeljs-admin
 
-      - name: Setup node
-        uses: actions/setup-node@v2
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          node-version: "18"
+          version: 7.27.0
 
-      - name: Enable and install pnpm with corepack
-        run: corepack enable && corepack prepare pnpm@latest --activate
+      - name: Use Node.js 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.16.0
+          cache: 'pnpm'
 
       - name: Pnpm install
         run: pnpm install
@@ -49,6 +55,9 @@ jobs:
       - name: Run Extract API
         run: pnpm run extract-api
         working-directory: ${{ github.workspace }}/packages/transformer
+
+      - name: git diff
+        run: git diff --exit-code
 
       - name: Assert no uncommitted changes (for extension api)
         shell: bash
