@@ -317,6 +317,7 @@ export interface InitOptions {
 
 /**
  * Arguments used during [[IModelTransformer.process]] if provided in [[IModelTransformOptions.argsForProcessChanges]].
+ * @beta
  */
 export type ProcessChangesOptions = ExportChangesOptions & {
   /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
@@ -350,6 +351,9 @@ type ChangeDataState =
   | "no-changes"
   | "unconnected";
 
+/**
+ * @beta
+ */
 export interface RelationshipPropsForDelete {
   id: Id64String;
   classFullName: string;
