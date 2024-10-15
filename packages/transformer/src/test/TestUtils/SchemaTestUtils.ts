@@ -22,7 +22,7 @@ export class SchemaTestUtils {
         throw new Error(`Schema with name ${schemaName} not found.`);
       }
 
-      // Writes a Schema to an xml string
+      // Writes a schema to an xml string
       const schemaXmlString = await SchemaXml.writeString(schema);
       return schemaXmlString;
     } catch (error) {

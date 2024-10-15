@@ -3881,7 +3881,7 @@ describe("IModelTransformer", () => {
     transformer.dispose();
   });
 
-  it.only("handles unknown new schema references in biscore", async () => {
+  it("handles unknown new schema references in biscore", async () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "UnknownBisCoreNewSchemaRef.bim"
@@ -3895,15 +3895,11 @@ describe("IModelTransformer", () => {
     const fakeSchemaVersion = "1.0.99";
     expect(Semver.lt(biscoreVersion, fakeSchemaVersion)).to.be.true;
 
-    // eslint-disable-next-line deprecation/deprecation
-    const biscoreText = sourceDb.nativeDb.schemaToXmlString("BisCore");
-    const bisCoreUtilsText = await SchemaTestUtils.schemaToXmlString(
+    const biscoreText = await SchemaTestUtils.schemaToXmlString(
       "BisCore",
       sourceDb
     );
-    assert(bisCoreUtilsText !== undefined);
     assert(biscoreText !== undefined);
-    // assert.equal(bisCoreUtilsText, biscoreText);
 
     const fakeBisCoreUpdateText = biscoreText
       .replace(
