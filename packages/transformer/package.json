@@ -20,7 +20,7 @@
     "docs:extract": "betools extract --fileExt=ts --extractFrom=./src/test --recursive --out=../../build/docs/extract",
     "copy:test-assets": "cpx \"./src/test/assets/**/*\" ./lib/cjs/test/assets",
     "cover": "nyc npm -s test",
-    "extract-api": "betools extract-api --entry=imodel-transformer --apiReportFolder=./api --apiReportTempFolder=./api/temp --apiSummaryFolder=./api",
+    "extract-api": "betools extract-api --entry=transformer --apiReportFolder=./api --apiReportTempFolder=./api/temp --apiSummaryFolder=./api",
     "lint": "eslint -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
     "lint:no-tests": "eslint -f visualstudio --quiet \"./src/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
