@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "1.0.0-dev.22",
+  "version": "1.0.0-dev.23",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/transformer.js",
   "typings": "lib/cjs/transformer",
@@ -73,6 +73,7 @@
     "@itwin/core-geometry": "4.3.5",
     "@itwin/core-quantity": "4.3.5",
     "@itwin/ecschema-metadata": "4.3.5",
+    "@itwin/ecschema-locaters": "4.3.5",
     "@itwin/eslint-plugin": "^4.0.2",
     "@types/chai": "4.3.1",
     "@types/chai-as-promised": "^7.1.5",

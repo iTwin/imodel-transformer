@@ -130,6 +130,7 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
+import { SchemaTestUtils } from "../TestUtils";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(
@@ -3893,9 +3894,13 @@ describe("IModelTransformer", () => {
     assert(biscoreVersion !== undefined);
     const fakeSchemaVersion = "1.0.99";
     expect(Semver.lt(biscoreVersion, fakeSchemaVersion)).to.be.true;
-    // eslint-disable-next-line deprecation/deprecation
-    const biscoreText = sourceDb.nativeDb.schemaToXmlString("BisCore");
+
+    const biscoreText = await SchemaTestUtils.schemaToXmlString(
+      "BisCore",
+      sourceDb
+    );
     assert(biscoreText !== undefined);
+
     const fakeBisCoreUpdateText = biscoreText
       .replace(
         /(<ECSchema .*?>)/,
