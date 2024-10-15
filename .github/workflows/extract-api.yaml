@@ -47,7 +47,8 @@ jobs:
       # - name: Run API Extractor
       #   run: npx api-extractor run
       - name: Run Extract API
-        run: pnpm betools extract-api
+        run: pnpm run extract-api
+        working-directory: ${{ github.workspace }}/packages/transformer
 
       - name: Assert no uncommitted changes (for extension api)
         shell: bash
