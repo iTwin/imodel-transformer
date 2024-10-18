@@ -80,7 +80,7 @@ import {
   IModelTransformer,
   ProcessChangesOptions,
   TransformerLoggerCategory,
-} from "../../transformer";
+} from "../../imodel-transformer";
 import {
   CountingIModelImporter,
   HubWrappers,
