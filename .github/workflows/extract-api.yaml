@@ -51,6 +51,11 @@ jobs:
         run: pnpm run extract-api
         working-directory: ${{ github.workspace }}/packages/transformer
 
+      - name: Test Git Diffs
+        run: |
+          git status --porcelain -u
+          git diff
+
       - name: Assert no uncommitted changes (for extension api)
         shell: bash
         run: |
