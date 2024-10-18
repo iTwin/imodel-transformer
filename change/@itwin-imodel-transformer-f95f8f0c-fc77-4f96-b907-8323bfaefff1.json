@@ -1,0 +1,7 @@
+{
+  "type": "prerelease",
+  "comment": "add extract-api.yaml",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "'DanRod1999@users.noreply.github.com'",
+  "dependentChangeType": "patch"
+}

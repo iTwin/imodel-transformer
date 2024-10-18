@@ -21,6 +21,7 @@ imjs_extensions
 
 # rush-specific
 /common/temp
+/**/api/temp
 package-deps.json
 /**/.rush
 *.build.log

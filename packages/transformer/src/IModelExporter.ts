@@ -998,14 +998,14 @@ export class IModelExporter {
 
 /**
  * Arguments for [[ChangedInstanceIds.initialize]]
- * @beta
+ * @public
  */
 export type ChangedInstanceIdsInitOptions = ExportChangesOptions & {
   iModel: BriefcaseDb;
 };
 
 /** Class for holding change information.
- * @beta
+ * @public
  */
 export class ChangedInstanceOps {
   public insertIds = new Set<Id64String>();
@@ -1031,7 +1031,7 @@ export class ChangedInstanceOps {
 
 /**
  * Class for discovering modified elements between 2 versions of an iModel.
- * @beta
+ * @public
  */
 export class ChangedInstanceIds {
   public codeSpec = new ChangedInstanceOps();
@@ -1172,6 +1172,7 @@ export class ChangedInstanceIds {
 
   /**
    * Initializes a new ChangedInstanceIds object with information taken from a range of changesets.
+   * @public
    */
   public static async initialize(
     opts: ChangedInstanceIdsInitOptions
