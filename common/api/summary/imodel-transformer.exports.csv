@@ -1,18 +1,25 @@
 sep=;
 Release Tag;API Item
-beta;ChangedInstanceIds
-beta;ChangedInstanceOps
+public;ChangedInstanceIds
+public;ChangedInstanceIdsInitOptions = ExportChangesOptions &
+public;ChangedInstanceOps
+public;ExportChangesOptions =
+beta;ExporterInitOptions = ExportChangesOptions
 beta;ExportSchemaResult
 internal;hasEntityChanged(entity: Entity, entityProps: EntityProps, namesToIgnore?: Set
 beta;IModelExporter
-internal;IModelExporterState
 beta;class IModelExportHandler
-beta;IModelImporter 
-internal;IModelImporterState
+beta;IModelImporter
 beta;IModelImportOptions
 beta;IModelTransformer 
 beta;IModelTransformOptions
-beta;InitFromExternalSourceAspectsArgs
+alpha;initializeBranchProvenance(args: ProvenanceInitArgs): Promise
+beta;InitOptions
 beta;OptimizeGeometryOptions
+beta;ProcessChangesOptions = ExportChangesOptions &
+alpha;ProvenanceInitArgs
+alpha;ProvenanceInitResult
+beta;RelationshipPropsForDelete
+beta;TargetScopeProvenanceJsonProps
 beta;TemplateModelCloner 
 public;TransformerLoggerCategory
