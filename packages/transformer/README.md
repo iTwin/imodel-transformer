@@ -36,11 +36,11 @@ EOF
 
 ### TRANSFORMER_NO_STRICT_DEP_CHECK
 
-Set this variable to `1` to disable strict dependency checks in `transformer.ts`.
+Set this variable to `1` to disable strict dependency checks in `packages/transformer/src/transformer.ts`.
 
 ### SUGGEST_TRANSFORMER_VERSIONS
 
-Set this variable to `1` to enable `transformer.ts` to suggest compatible versions if dependencies are not in the specified peer dependency range of this package.
+Set this variable to `1` to enable `packages/transformer/src/transformer.ts` to suggest compatible versions if dependencies are not in the specified peer dependency range of this package.
 
 ```dotenv
 # Disable strict dependency checks in transformer.ts
