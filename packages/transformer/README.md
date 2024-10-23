@@ -31,3 +31,20 @@ require("https").get("https://registry.npmjs.org/@itwin/imodel-transformer", r=>
 }))
 EOF
 ```
+
+## Environment Variables
+
+### TRANSFORMER_NO_STRICT_DEP_CHECK
+
+Set this variable to `1` to disable strict dependency checks in `transformer.ts`.
+
+### SUGGEST_TRANSFORMER_VERSIONS
+
+Set this variable to `1` to enable `transformer.ts` to suggest compatible versions if dependencies are not in the specified peer dependency range of this package.
+
+```dotenv
+# Disable strict dependency checks in transformer.ts
+TRANSFORMER_NO_STRICT_DEP_CHECK=1
+
+# Enable version suggestions in transformer.ts
+SUGGEST_TRANSFORMER_VERSIONS=1
