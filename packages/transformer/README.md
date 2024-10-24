@@ -36,7 +36,7 @@ EOF
 
 ### TRANSFORMER_NO_STRICT_DEP_CHECK
 
-Set this variable to `1` to disable strict dependency checks in `packages/transformer/src/transformer.ts`.
+Set this variable to `1` to disable strict dependency checks in `packages/transformer/src/transformer.ts`. The strict dependency check validates that the version of @itwinjs/core-backend provided falls in the range defined by the peerDependencies of the transformer package.
 
 ### SUGGEST_TRANSFORMER_VERSIONS
 
