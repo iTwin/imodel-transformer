@@ -24,9 +24,21 @@ const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
 const noStrictDepCheckEnvVar = "TRANSFORMER_NO_STRICT_DEP_CHECK";
 const suggestEnvVarName = "SUGGEST_TRANSFORMER_VERSIONS";
 
+// warn if using a prerelease or dev version
+if (semver.prerelease(iTwinCoreBackendVersion)) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `Warning: dev version detected (${iTwinCoreBackendVersion}). ` +
+      "This version is most likely fine, but it may introduce new behavior that could cause " +
+      "unexpected issues or changes in the transformer's functionality. Please proceed with caution."
+  );
+}
+
 if (
   process.env[noStrictDepCheckEnvVar] !== "1" &&
-  !semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange)
+  !semver.satisfies(iTwinCoreBackendVersion, ourITwinCoreBackendDepRange, {
+    includePrerelease: true,
+  })
 ) {
   const errHeader =
     `${ourName}@${ourVersion} only supports @itwin/core-backend@${ourITwinCoreBackendDepRange}, ` +
