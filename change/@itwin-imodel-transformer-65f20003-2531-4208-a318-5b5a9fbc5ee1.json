@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "In itwinjs versions 4.6.0 and greater DefinitionContainers are now deleted as if they were DefinitionPartitions. Made a change to onDeleteModel to treat definitinocontainers as if they were definitionpartitions",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "22119573+nick4598@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

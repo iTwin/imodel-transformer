@@ -1,7 +1,0 @@
-{
-  "type": "none",
-  "comment": "upgrade docs build tools; typescript",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "ben-polinsky@users.noreply.github.com",
-  "dependentChangeType": "none"
-}
