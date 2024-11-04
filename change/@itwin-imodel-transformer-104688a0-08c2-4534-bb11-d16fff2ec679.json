@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "remove deprecated for 3.x, 0.1.x, 0.1.0",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "Daniel.Erbynn@bentley.com",
-  "dependentChangeType": "patch"
-}

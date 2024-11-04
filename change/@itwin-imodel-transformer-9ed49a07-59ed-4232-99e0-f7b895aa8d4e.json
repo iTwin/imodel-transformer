@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "add alternative schemaToXmlString",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "Daniel.Erbynn@bentley.com",
-  "dependentChangeType": "patch"
-}

@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "in findTargetEntityId, special case the repositoryModel such that we ignore any remappings and just set the target to the repositoryModelId",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "22119573+nick4598@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

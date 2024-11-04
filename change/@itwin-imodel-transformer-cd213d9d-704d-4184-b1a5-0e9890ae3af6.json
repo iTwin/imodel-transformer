@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "improve error messages for mismatching peer dependencies",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "Daniel.Erbynn@bentley.com",
-  "dependentChangeType": "patch"
-}

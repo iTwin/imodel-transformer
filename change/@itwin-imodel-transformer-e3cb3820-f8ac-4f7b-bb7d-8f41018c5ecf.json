@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "Fixed BigMap class to implement Map (instead of extending it). Added missing method implementations.",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "Julija.Ramoskiene@bentley.com",
-  "dependentChangeType": "patch"
-}

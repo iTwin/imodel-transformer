@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "add more cases to support preserveElementIdsForFiltering options",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "Daniel.Erbynn@bentley.com",
-  "dependentChangeType": "patch"
-}

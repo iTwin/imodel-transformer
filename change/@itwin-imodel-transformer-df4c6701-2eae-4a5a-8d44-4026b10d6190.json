@@ -1,7 +1,0 @@
-{
-  "type": "prerelease",
-  "comment": "Make processAll and processChanges private, expose a public process function and let people pass isSync to constructor of imodeltransformer",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "22119573+nick4598@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

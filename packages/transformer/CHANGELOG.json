@@ -2,6 +2,133 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Mon, 04 Nov 2024 14:45:46 GMT",
+      "version": "1.0.0",
+      "tag": "@itwin/imodel-transformer_v1.0.0",
+      "comments": {
+        "prerelease": [
+          {
+            "author": "Daniel.Erbynn@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "save reverse sync version for process all transformations"
+          },
+          {
+            "author": "Daniel.Erbynn@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "remove deprecated for 3.x, 0.1.x, 0.1.0"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "1.0.0-dev.0"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "move to one getter for synchronizationVersion, bust a potential cached synchronizationVersion whenever we make changes to targetscopeprovenance, and only save changes if handleUnsafeMigrate makes changes not just if unsafe migrate is enabled"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "Revert \"save and push changes after transformer is complete (#153)\""
+          },
+          {
+            "author": "Daniel.Erbynn@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "add more cases to support preserveElementIdsForFiltering options"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "In itwinjs versions 4.6.0 and greater DefinitionContainers are now deleted as if they were DefinitionPartitions. Made a change to onDeleteModel to treat definitinocontainers as if they were definitionpartitions"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "Support setting the reversesync and sync version when unsafe-migrate is set. Also fix bug with haselementchangedcache"
+          },
+          {
+            "author": "Daniel.Erbynn@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "add alternative schemaToXmlString"
+          },
+          {
+            "author": "36619139+ViliusRuskys@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "no longer track partially commited element references"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "only store deleted ESAS of kind 'Element' in processChangesets"
+          },
+          {
+            "author": "Daniel.Erbynn@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "improve error messages for mismatching peer dependencies"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "Make processAll and processChanges private, expose a public process function and let people pass isSync to constructor of imodeltransformer"
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": ""
+          },
+          {
+            "author": "22119573+nick4598@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "in findTargetEntityId, special case the repositoryModel such that we ignore any remappings and just set the target to the repositoryModelId"
+          },
+          {
+            "author": "'DanRod1999@users.noreply.github.com'",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "add extract-api.yaml"
+          }
+        ],
+        "patch": [
+          {
+            "author": "91682445+jiaruiz717@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "skipPropagateChangesToRootElements should be default true"
+          },
+          {
+            "author": "Julija.Ramoskiene@bentley.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "Fixed BigMap class to implement Map (instead of extending it). Added missing method implementations."
+          }
+        ],
+        "none": [
+          {
+            "author": "ben-polinsky@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "f91dcaa8e6d560b288a7ea3ed9203182bb870740",
+            "comment": "upgrade docs build tools; typescript"
+          }
+        ]
+      }
+    },
+    {
       "date": "Wed, 06 Dec 2023 15:24:30 GMT",
       "tag": "@itwin/imodel-transformer_v0.4.3",
       "version": "0.4.3",
