@@ -27,12 +27,12 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   IModelTransformer,
   IModelTransformOptions,
-} from "../../IModelTransformer";
+} from "../../IModelTransformer.js";
 import {
   HubWrappers,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
-import { IModelTestUtils } from "./IModelTestUtils";
+} from "../IModelTransformerUtils.js";
+import { IModelTestUtils } from "./IModelTestUtils.js";
 import { omit } from "@itwin/core-bentley";
 
 const saveAndPushChanges = async (

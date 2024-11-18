@@ -3,9 +3,9 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as chai from "chai";
-import { assert, expect } from "chai";
-import * as chaiAsPromised from "chai-as-promised";
+// import chai from "chai";
+import { assert, expect, use } from "chai";
+import chaiAsPromised from "chai-as-promised";
 import { Base64 } from "js-base64";
 import * as path from "path";
 import {
@@ -142,12 +142,12 @@ import {
 import {
   DownloadAndOpenArgs,
   RpcBriefcaseUtility,
-} from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility";
-import { KnownTestLocations } from "./KnownTestLocations";
-import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
-import { TimelineIModelState } from "./TimelineTestUtil";
+} from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility.js";
+import { KnownTestLocations } from "./KnownTestLocations.js";
+import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer.js";
+import { TimelineIModelState } from "./TimelineTestUtil.js";
 
-chai.use(chaiAsPromised);
+use(chaiAsPromised);
 
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 
@@ -258,7 +258,7 @@ export class HubWrappers {
     iTwinId: GuidString,
     iModelName: string
   ): Promise<GuidString> {
-    assert.isTrue(
+    chai.assert.isTrue(
       this.hubMock.isValid,
       "Must use HubMock for tests that modify iModels"
     );

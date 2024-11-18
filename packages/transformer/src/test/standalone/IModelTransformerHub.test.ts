@@ -43,7 +43,7 @@ import {
   SubjectOwnsSubjects,
 } from "@itwin/core-backend";
 
-import * as TestUtils from "../TestUtils";
+import * as TestUtils from "../TestUtils/index.js";
 import {
   AccessToken,
   DbResult,
@@ -80,7 +80,7 @@ import {
   IModelTransformer,
   ProcessChangesOptions,
   TransformerLoggerCategory,
-} from "../../imodel-transformer";
+} from "../../imodel-transformer.js";
 import {
   CountingIModelImporter,
   HubWrappers,
@@ -89,11 +89,11 @@ import {
   PhysicalModelConsolidator,
   TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import "./TransformerTestStartup.js"; // calls startup/shutdown IModelHost before/after all tests
 import * as sinon from "sinon";
 import {
   assertElemState,
@@ -103,8 +103,8 @@ import {
   Timeline,
   TimelineIModelElemState,
   TimelineIModelState,
-} from "../TestUtils/TimelineTestUtil";
-import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
+} from "../TestUtils/TimelineTestUtil.js";
+import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy.js";
 
 const { count } = IModelTestUtils;
 

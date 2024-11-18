@@ -17,7 +17,7 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import * as assert from "assert";
-import { IModelTransformer } from "./IModelTransformer";
+import { IModelTransformer } from "./IModelTransformer.js";
 import { pathToFileURL } from "url";
 /**
  * @alpha
@@ -154,8 +154,8 @@ export async function initializeBranchProvenance(
     code: Code.createEmpty(),
     repository: new ExternalSourceIsInRepository(masterRepoLinkId),
     /* eslint-disable @typescript-eslint/no-var-requires */
-    connectorName: require("../../package.json").name,
-    connectorVersion: require("../../package.json").version,
+    connectorName: "name", // TODO: REVISIT
+    connectorVersion: "1", // TODO: REVISIT
     /* eslint-enable @typescript-eslint/no-var-requires */
   } as ExternalSourceProps);
 

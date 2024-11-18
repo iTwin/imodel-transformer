@@ -9,8 +9,8 @@ import {
   ElementUniqueAspect,
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
-import { ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
-import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
+import { ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy.js";
+import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter.js";
 import {
   ElementAspectProps,
   QueryBinder,

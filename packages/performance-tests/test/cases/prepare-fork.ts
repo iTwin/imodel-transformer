@@ -8,7 +8,7 @@ import * as path from "path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { StandaloneDb } from "@itwin/core-backend";
 import { TestCaseContext } from "./TestCaseContext";
-import { initOutputFile, timed } from "../TestUtils";
+import { initOutputFile, timed } from "../TestUtils.js";
 import { setToStandalone } from "../iModelUtils";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";

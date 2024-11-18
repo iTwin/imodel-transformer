@@ -25,11 +25,11 @@ import {
 } from "@itwin/core-common";
 import { expect } from "chai";
 import * as path from "path";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
-import { IModelTransformer } from "../../IModelTransformer";
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import { IModelTransformer } from "../../IModelTransformer.js";
+import "./TransformerTestStartup.js"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("IModelCloneContext", () => {
   const outputDir = path.join(

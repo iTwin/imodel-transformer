@@ -5,7 +5,7 @@
 /** @packageDocumentation
  * @module iModels
  */
-import * as assert from "assert";
+import assert from "assert";
 import { DbResult, Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,
@@ -29,9 +29,9 @@ import {
   IModelElementCloneContext,
   IModelJsNative,
 } from "@itwin/core-backend";
-import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
-import { EntityUnifier } from "./EntityUnifier";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { ECReferenceTypesCache } from "./ECReferenceTypesCache.js";
+import { EntityUnifier } from "./EntityUnifier.js";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 

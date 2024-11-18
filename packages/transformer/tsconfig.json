@@ -2,7 +2,11 @@
   "extends": "./node_modules/@itwin/build-tools/tsconfig-base.json",
   "compilerOptions": {
     "resolveJsonModule": true,
-    "rootDir": "src"
+    "rootDir": "src",
+    "module": "ESNext",
+    "target": "ESNext",
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "node",
   },
   "include": ["./src/**/*.ts"]
 }

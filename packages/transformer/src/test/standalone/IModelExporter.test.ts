@@ -28,12 +28,12 @@ import {
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
-import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+import { IModelExporter, IModelExportHandler } from "../../IModelExporter.js";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils.js";
+import { createBRepDataProps } from "../TestUtils/GeometryTestUtil.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import "./TransformerTestStartup.js"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("IModelExporter", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelExporter");

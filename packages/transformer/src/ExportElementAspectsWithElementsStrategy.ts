@@ -5,7 +5,7 @@
 
 import { ElementMultiAspect, ElementUniqueAspect } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
-import { ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
+import { ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy.js";
 
 /**
  * ElementAspect export strategy for [[IModelExporter]].

@@ -10,8 +10,8 @@ import {
   IModelDb,
 } from "@itwin/core-backend";
 import { Id64String, Logger } from "@itwin/core-bentley";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { ChangedInstanceOps } from "./IModelExporter";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
+import { ChangedInstanceOps } from "./IModelExporter.js";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 

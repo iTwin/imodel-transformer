@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { BigMap } from "../../BigMap";
+import { BigMap } from "../../BigMap.js";
 import { assert } from "chai";
 
 describe("BigMap", function () {

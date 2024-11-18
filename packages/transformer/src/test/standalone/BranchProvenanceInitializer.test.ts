@@ -20,22 +20,22 @@ import {
   initializeBranchProvenance,
   ProvenanceInitArgs,
   ProvenanceInitResult,
-} from "../../BranchProvenanceInitializer";
+} from "../../BranchProvenanceInitializer.js";
 import {
   assertIdentityTransformation,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+} from "../IModelTransformerUtils.js";
 import {
   BriefcaseIdValue,
   Code,
   ExternalSourceProps,
   RepositoryLinkProps,
 } from "@itwin/core-common";
-import { IModelTransformer } from "../../IModelTransformer";
+import { IModelTransformer } from "../../IModelTransformer.js";
 import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
 import { assert, expect } from "chai";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import "./TransformerTestStartup.js"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
   // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)
@@ -392,9 +392,9 @@ async function classicalTransformerBranchInit(
       code: Code.createEmpty(),
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      connectorName: require("../../../../package.json").name,
+      connectorName: "1", // TODO: FIX THIS
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      connectorVersion: require("../../../../package.json").version,
+      connectorVersion: "1", // TODO: FIX THIS
     })
     .insert();
 

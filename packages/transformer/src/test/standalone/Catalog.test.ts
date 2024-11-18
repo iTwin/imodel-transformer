@@ -36,8 +36,8 @@ import {
   TemplateRecipe3d,
   TypeDefinitionElement,
 } from "@itwin/core-backend";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
-import { KnownTestLocations as BackendKnownTestLocations } from "../TestUtils/KnownTestLocations";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
+import { KnownTestLocations as BackendKnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 import {
   DbResult,
   Id64,
@@ -67,15 +67,15 @@ import {
   Range3d,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { IModelImporter } from "../../IModelImporter";
+import { IModelImporter } from "../../IModelImporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
   TemplateModelCloner,
-} from "../../IModelTransformer";
-import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+} from "../../IModelTransformer.js";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory.js";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import "./TransformerTestStartup.js"; // calls startup/shutdown IModelHost before/after all tests
 
 const createClassViews = false; // can set to true to make it easier to debug the catalog structure
 

@@ -6,10 +6,10 @@
 import { ConcreteEntityTypes } from "@itwin/core-common";
 import { assert, expect } from "chai";
 import * as path from "path";
-import { ECReferenceTypesCache } from "../../ECReferenceTypesCache";
+import { ECReferenceTypesCache } from "../../ECReferenceTypesCache.js";
 import { Relationship, SnapshotDb } from "@itwin/core-backend";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
-import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
+import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations.js";
 import * as Semver from "semver";
 import { Schema, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as sinon from "sinon";

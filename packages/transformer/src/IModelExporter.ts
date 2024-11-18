@@ -51,13 +51,13 @@ import {
   SchemaKey,
   SchemaLoader,
 } from "@itwin/ecschema-metadata";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import * as nodeAssert from "assert";
 import {
   ElementAspectsHandler,
   ExportElementAspectsStrategy,
-} from "./ExportElementAspectsStrategy";
-import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
+} from "./ExportElementAspectsStrategy.js";
+import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy.js";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 

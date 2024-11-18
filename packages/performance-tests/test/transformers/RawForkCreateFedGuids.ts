@@ -7,7 +7,7 @@ import {
   TestTransformerModule,
   TransformRunner,
 } from "../TestTransformerModule";
-import { initOutputFile } from "../TestUtils";
+import { initOutputFile } from "../TestUtils.js";
 import * as fs from "fs";
 import { setToStandalone } from "../iModelUtils";
 import path from "path";

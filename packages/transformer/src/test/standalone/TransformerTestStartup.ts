@@ -6,7 +6,8 @@
 import { IModelHost, IModelHostOptions } from "@itwin/core-backend";
 import { Logger, LogLevel, ProcessDetector } from "@itwin/core-bentley";
 import * as path from "path";
-
+import { fileURLToPath } from "url";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export async function transformerTestStartup() {
   Logger.initializeToConsole();
   Logger.setLevelDefault(LogLevel.Error);

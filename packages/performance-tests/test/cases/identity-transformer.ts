@@ -12,7 +12,7 @@ import * as path from "path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { SnapshotDb } from "@itwin/core-backend";
 import { TestCaseContext } from "./TestCaseContext";
-import { initOutputFile, timed } from "../TestUtils";
+import { initOutputFile, timed } from "../TestUtils.js";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 const outputDir = path.join(__dirname, ".output");

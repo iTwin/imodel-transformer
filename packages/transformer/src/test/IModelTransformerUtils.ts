@@ -60,7 +60,7 @@ import {
   Subject,
   Texture,
 } from "@itwin/core-backend";
-import * as TestUtils from "./TestUtils";
+import * as TestUtils from "./TestUtils/index.js";
 import {
   Base64EncodedString,
   BisCodeSpec,
@@ -89,15 +89,15 @@ import {
   SubjectProps,
   ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler } from "../IModelExporter";
-import { IModelImporter, IModelImportOptions } from "../IModelImporter";
+import { IModelExporter, IModelExportHandler } from "../IModelExporter.js";
+import { IModelImporter, IModelImportOptions } from "../IModelImporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
   ProcessChangesOptions,
   RelationshipPropsForDelete,
-} from "../IModelTransformer";
-import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+} from "../IModelTransformer.js";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations.js";
 
 export class HubWrappers extends TestUtils.HubWrappers {
   protected static override get hubMock() {

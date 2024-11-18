@@ -83,8 +83,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
       connectorName: "iModel Transformer",
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      connectorVersion: require("@itwin/imodel-transformer/package.json")
-        .version,
+      connectorVersion: "1", // Would have to revisit this
     } as ExternalSourceProps);
 
     const transformer = new ProgressTransformer(sourceDb, targetDb, {

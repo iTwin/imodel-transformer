@@ -26,7 +26,7 @@ import {
   RelatedElement,
   SubCategoryProps,
 } from "@itwin/core-common";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import {
   ElementAspect,
   ElementMultiAspect,
@@ -37,9 +37,9 @@ import {
   SourceAndTarget,
   SubCategory,
 } from "@itwin/core-backend";
-import type { RelationshipPropsForDelete } from "./IModelTransformer";
+import type { RelationshipPropsForDelete } from "./IModelTransformer.js";
 import * as assert from "assert";
-import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
+import { deleteElementTreeCascade } from "./ElementCascadingDeleter.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 

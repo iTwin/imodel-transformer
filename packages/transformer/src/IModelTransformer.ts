@@ -7,7 +7,7 @@
  */
 import * as path from "path";
 import * as Semver from "semver";
-import * as nodeAssert from "assert";
+import { strict as nodeAssert } from "assert";
 import {
   assert,
   DbResult,
@@ -24,7 +24,7 @@ import {
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
-import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
+import * as coreBackendPkgJson from "@itwin/core-backend/package.json" assert { type: "json" };
 import {
   BriefcaseManager,
   ChangedECInstance,
@@ -98,12 +98,12 @@ import {
   ExportSchemaResult,
   IModelExporter,
   IModelExportHandler,
-} from "./IModelExporter";
-import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { IModelCloneContext } from "./IModelCloneContext";
-import { EntityUnifier } from "./EntityUnifier";
-import { rangesFromRangeAndSkipped } from "./Algo";
+} from "./IModelExporter.js";
+import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter.js";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
+import { IModelCloneContext } from "./IModelCloneContext.js";
+import { EntityUnifier } from "./EntityUnifier.js";
+import { rangesFromRangeAndSkipped } from "./Algo.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 

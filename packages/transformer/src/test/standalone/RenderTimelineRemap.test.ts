@@ -13,7 +13,7 @@ import {
   StandaloneDb,
   SubjectOwnsPartitionElements,
 } from "@itwin/core-backend";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
 import { CompressedId64Set, Guid, Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
@@ -29,9 +29,9 @@ import {
   Vector3d,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { IModelTransformer } from "../../IModelTransformer";
+import { IModelTransformer } from "../../IModelTransformer.js";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import "./TransformerTestStartup.js"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("RenderTimeline Remap", () => {
   before(() => {

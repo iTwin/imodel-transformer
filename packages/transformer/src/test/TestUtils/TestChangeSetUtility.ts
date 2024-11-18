@@ -11,7 +11,7 @@ import {
   IModelHost,
   SpatialCategory,
 } from "@itwin/core-backend";
-import { HubWrappers, IModelTestUtils } from "./IModelTestUtils";
+import { HubWrappers, IModelTestUtils } from "./IModelTestUtils.js";
 
 /** Test utility to push an iModel and ChangeSets */
 export class TestChangeSetUtility {

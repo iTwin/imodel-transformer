@@ -4,6 +4,7 @@
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/imodel-transformer.js",
   "typings": "lib/cjs/imodel-transformer",
+  "type": "module",
   "license": "MIT",
   "engines": {
     "node": "^18.0.0"
@@ -67,13 +68,13 @@
   ],
   "devDependencies": {
     "@itwin/build-tools": "4.6.0-dev.27",
-    "@itwin/core-backend": "4.3.5",
-    "@itwin/core-bentley": "4.3.5",
-    "@itwin/core-common": "4.3.5",
-    "@itwin/core-geometry": "4.3.5",
-    "@itwin/core-quantity": "4.3.5",
-    "@itwin/ecschema-metadata": "4.3.5",
-    "@itwin/ecschema-locaters": "4.3.5",
+    "@itwin/core-backend": "4.10.0",
+    "@itwin/core-bentley": "4.10.0",
+    "@itwin/core-common": "4.10.0",
+    "@itwin/core-geometry": "4.10.0",
+    "@itwin/core-quantity": "4.10.0",
+    "@itwin/ecschema-metadata": "4.10.0",
+    "@itwin/ecschema-locaters": "4.10.0",
     "@itwin/eslint-plugin": "^4.0.2",
     "@types/chai": "4.3.1",
     "@types/chai-as-promised": "^7.1.5",
@@ -96,7 +97,8 @@
     "rimraf": "^3.0.2",
     "sinon": "^9.2.4",
     "source-map-support": "^0.5.21",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@bentley/imodel-diff-tool": "0.0.2"
   },
   "dependencies": {
     "semver": "^7.5.1"

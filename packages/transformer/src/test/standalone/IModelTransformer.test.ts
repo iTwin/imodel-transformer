@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as Semver from "semver";
 import * as sinon from "sinon";
+
 import {
   CategorySelector,
   DisplayStyle3d,
@@ -54,10 +55,15 @@ import {
   Subject,
   Texture,
 } from "@itwin/core-backend";
-import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
+import {
+  compareIModelsDeep,
+  CompareConfig,
+  RemapConfig,
+} from "@bentley/imodel-diff-tool";
+import * as coreBackendPkgJson from "@itwin/core-backend/package.json" assert { type: "json" };
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 
-import * as TestUtils from "../TestUtils";
+import * as TestUtils from "../TestUtils/index.js";
 import {
   DbResult,
   Guid,
@@ -101,12 +107,12 @@ import {
   Transform,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
+import { IModelExporter, IModelExportHandler } from "../../IModelExporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
-} from "../../IModelTransformer";
-import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+} from "../../IModelTransformer.js";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory.js";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -124,13 +130,13 @@ import {
   runWithCpuProfiler,
   TestIModelTransformer,
   TransformerExtensiveTestScenario,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import "./TransformerTestStartup.js"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
-import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
-import { SchemaTestUtils } from "../TestUtils";
+import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy.js";
+import { SchemaTestUtils } from "../TestUtils/index.js";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(

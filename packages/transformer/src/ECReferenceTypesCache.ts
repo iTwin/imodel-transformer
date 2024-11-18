@@ -22,7 +22,7 @@ import {
   SchemaLoader,
   StrengthDirection,
 } from "@itwin/ecschema-metadata";
-import * as assert from "assert";
+import assert from "assert";
 import { IModelDb } from "@itwin/core-backend";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
