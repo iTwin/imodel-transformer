@@ -528,10 +528,6 @@ export async function runTimeline(
               : { index: undefined },
           },
         });
-        const args: InitOptions = {
-          accessToken,
-          startChangeset: startIndex ? { index: startIndex } : undefined,
-        };
         await initFxns?.initExporter?.(syncer.exporter);
 
         initFxns?.initTransformer?.(syncer);
