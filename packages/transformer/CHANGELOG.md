@@ -1,8 +1,36 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Wed, 06 Dec 2023 15:24:30 GMT and should not be manually modified.
+<!-- This log was last generated on Mon, 04 Nov 2024 14:45:46 GMT and should not be manually modified. -->
 
 <!-- Start content -->
+
+## 1.0.0
+
+Mon, 04 Nov 2024 14:45:46 GMT
+
+### Patches
+
+- skipPropagateChangesToRootElements should be default true ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- Fixed BigMap class to implement Map (instead of extending it). Added missing method implementations. ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+
+### Changes
+
+- save reverse sync version for process all transformations ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- remove deprecated for 3.x, 0.1.x, 0.1.0 ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- 1.0.0-dev.0 ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- move to one getter for synchronizationVersion, bust a potential cached synchronizationVersion whenever we make changes to targetscopeprovenance, and only save changes if handleUnsafeMigrate makes changes not just if unsafe migrate is enabled ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- Revert "save and push changes after transformer is complete (#153)" ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- add more cases to support preserveElementIdsForFiltering options ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- In itwinjs versions 4.6.0 and greater DefinitionContainers are now deleted as if they were DefinitionPartitions. Made a change to onDeleteModel to treat definitinocontainers as if they were definitionpartitions ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- Support setting the reversesync and sync version when unsafe-migrate is set. Also fix bug with haselementchangedcache ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- add alternative schemaToXmlString ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- no longer track partially commited element references ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- only store deleted ESAS of kind 'Element' in processChangesets ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- improve error messages for mismatching peer dependencies ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- Make processAll and processChanges private, expose a public process function and let people pass isSync to constructor of imodeltransformer ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+-  ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- in findTargetEntityId, special case the repositoryModel such that we ignore any remappings and just set the target to the repositoryModelId ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
+- add extract-api.yaml ([commit](https://github.com/iTwin/transformer/commit/f91dcaa8e6d560b288a7ea3ed9203182bb870740))
 
 ## 0.4.3
 

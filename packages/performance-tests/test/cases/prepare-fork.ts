@@ -41,9 +41,6 @@ export default async function prepareFork(context: TestCaseContext) {
     [timer] = await timed(async () => {
       await branchInitializer.run();
     });
-    // save+push our changes to whatever hub we're using
-    const description = "initialized branch iModel";
-    branchDb.saveChanges(description);
 
     Logger.logInfo(
       loggerCategory,
@@ -54,7 +51,7 @@ export default async function prepareFork(context: TestCaseContext) {
     const schemaDumpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "fork-test-schemas-dump-")
     );
-    // eslint-disable-next-line @itwin/no-internal
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     sourceDb.nativeDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
     throw err;

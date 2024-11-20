@@ -180,7 +180,7 @@ describe("RenderTimeline Remap", () => {
     targetDb.saveChanges();
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processAll();
+    await transformer.process();
 
     const targetTimelineIds = targetDb.queryEntityIds({
       from: RenderTimeline.classFullName,

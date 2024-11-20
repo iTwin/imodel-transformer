@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "skipPropagateChangesToRootElements should be default true",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "91682445+jiaruiz717@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

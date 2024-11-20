@@ -63,6 +63,7 @@ export async function initializeBranchProvenance(
   if (args.createFedGuidsForMaster) {
     // FIXME<LOW>: Consider enforcing that the master and branch dbs passed as part of ProvenanceInitArgs to this function
     // are identical. https://github.com/iTwin/imodel-transformer/issues/138
+    /* eslint-disable deprecation/deprecation */
     args.master.withSqliteStatement(
       `
         UPDATE bis_Element
@@ -96,6 +97,7 @@ export async function initializeBranchProvenance(
         FROM master.bis_Element m
         WHERE m.Id=main.bis_Element.Id
       )`,
+
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
         assert(
@@ -119,6 +121,7 @@ export async function initializeBranchProvenance(
         args.branch.nativeDb.getLastError()
       );
     });
+    /* eslint-enable deprecation/deprecation */
     args.branch.performCheckpoint();
 
     const reopenBranch = makeDbReopener(args.branch);

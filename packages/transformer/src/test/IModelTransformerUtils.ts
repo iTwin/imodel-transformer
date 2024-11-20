@@ -94,6 +94,7 @@ import { IModelImporter, IModelImportOptions } from "../IModelImporter";
 import {
   IModelTransformer,
   IModelTransformOptions,
+  ProcessChangesOptions,
   RelationshipPropsForDelete,
 } from "../IModelTransformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
@@ -548,8 +549,9 @@ export async function assertIdentityTransformation(
           remapper.findTargetCodeSpecId,
           remapper.findTargetAspectId,
         ];
-
+  /* eslint-disable-next-line deprecation/deprecation */
   expect(sourceDb.nativeDb.hasUnsavedChanges()).to.be.false;
+  /* eslint-disable-next-line deprecation/deprecation */
   expect(targetDb.nativeDb.hasUnsavedChanges()).to.be.false;
 
   const sourceToTargetElemsMap = new Map<Element, Element | undefined>();
@@ -1539,9 +1541,12 @@ export class PhysicalModelConsolidator extends IModelTransformer {
   public constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
-    targetModelId: Id64String
+    targetModelId: Id64String,
+    argsForProcessChanges?: ProcessChangesOptions
   ) {
-    super(sourceDb, targetDb);
+    super(sourceDb, targetDb, {
+      argsForProcessChanges,
+    });
     this._targetModelId = targetModelId;
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }
@@ -1780,12 +1785,10 @@ export class TestIModelTransformer extends IModelTransformer {
 
   /** Override transformElementAspect to remap Source*Aspect --> Target*Aspect */
   public override onTransformElementAspect(
-    sourceElementAspect: ElementAspect,
-    targetElementId: Id64String
+    sourceElementAspect: ElementAspect
   ): ElementAspectProps {
     const targetElementAspectProps: any = super.onTransformElementAspect(
-      sourceElementAspect,
-      targetElementId
+      sourceElementAspect
     );
     if (
       "ExtensiveTestScenario:SourceUniqueAspect" ===
@@ -1900,8 +1903,8 @@ export class AssertOrderTransformer extends IModelTransformer {
     return super.onExportElement(elem);
   }
 
-  public override async processAll() {
-    await super.processAll();
+  public override async process() {
+    await super.process();
     if (this._exportOrderQueue.length > 0)
       throw Error(`${this.errPrologue}. ${this.errEpilogue}`);
   }

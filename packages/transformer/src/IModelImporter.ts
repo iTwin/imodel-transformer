@@ -103,6 +103,20 @@ export class IModelImporter {
    */
   private _duplicateCodeValueMap: Map<Id64String, string>;
 
+  /**
+   * A set of elementIds that the transformer adds to while exporting elements to indicate that the element already exists in the target.
+   * Defaults to an empty set.
+   * @note
+   *
+   * This is used as an optimization when `[[IModelTransformOptions.preserveElementIdsForFiltering]]` is set to `true`
+   * In normal cases where this option set to `false`,
+   * the importer determines whether to insert or update based off of whether the ID is defined on the `elementProps` passed to `importElement`.
+   * However, with `preserveElementIdsForFiltering` set to `true`, IDs are always set, so we can't determine insert/update like the normal case.
+   * The transformer already knows if an element exists or not by the time `importElement` is called and pushes to this set with `markElementToUpdateForPreserveId`.
+   * @note This set should stay small, as right after the transformer pushes to it, the importer will remove from the set.
+   */
+  private _elementsToUpdateDuringPreserveIds = new Set<Id64String>([]);
+
   /** The set of elements that should not be updated by this IModelImporter.
    * Defaults to an empty set.
    * @note Adding an element to this set is typically necessary when remapping a source element to one that already exists in the target and already has the desired properties.
@@ -153,6 +167,16 @@ export class IModelImporter {
       return true;
     if (this.doNotUpdateElementIds.has(elementId)) return true;
     return false;
+  }
+
+  /**
+   * Marks an element so that it can be updated during import when [[IModelTransformOptions.preserveElementIdsForFiltering]] is set to true.
+   */
+  public markElementToUpdateDuringPreserveIds(elementId: Id64String) {
+    if (this._rootElementIds.has(elementId)) {
+      return;
+    }
+    this._elementsToUpdateDuringPreserveIds.add(elementId);
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
@@ -227,6 +251,29 @@ export class IModelImporter {
     return `${modelProps.classFullName} [${modelProps.id!}]`;
   }
 
+  /**
+   * Tries to update an element with the specified element properties.
+   * If a duplicate code error occurs, it assigns a new unique code value and retries the update
+   */
+  private tryUpdateElement(elemProps: ElementProps) {
+    try {
+      this.onUpdateElement(elemProps);
+    } catch (err) {
+      if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
+        assert(
+          elemProps.code.value !== undefined,
+          "NULL code values are always considered unique and cannot clash"
+        );
+        this._duplicateCodeValueMap.set(elemProps.id!, elemProps.code.value);
+        // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
+        elemProps.code.value = Guid.createValue();
+        this.onUpdateElement(elemProps);
+      } else {
+        throw err;
+      }
+    }
+  }
+
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
   public importElement(elementProps: ElementProps): Id64String {
     if (
@@ -239,6 +286,7 @@ export class IModelImporter {
       );
       return elementProps.id;
     }
+
     if (this.options.preserveElementIdsForFiltering) {
       if (elementProps.id === undefined) {
         throw new IModelError(
@@ -246,40 +294,27 @@ export class IModelImporter {
           "elementProps.id must be defined during a preserveIds operation"
         );
       }
+
       // Categories are the only element that onInserted will immediately insert a new element (their default subcategory)
       // since default subcategories always exist and always will be inserted after their categories, we treat them as an update
       // to prevent duplicate inserts.
       // Always present elements (0xe, 0x1, 0x10) also will be updated to prevent duplicate inserts.
-      // Otherwise we always insert during a preserveElementIdsForFiltering operation
       if (
         (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) ||
         this._rootElementIds.has(elementProps.id)
       ) {
         this.onUpdateElement(elementProps);
       } else {
-        this.onInsertElement(elementProps);
+        if (this._elementsToUpdateDuringPreserveIds.has(elementProps.id)) {
+          this.tryUpdateElement(elementProps);
+          this._elementsToUpdateDuringPreserveIds.delete(elementProps.id);
+        } else {
+          this.onInsertElement(elementProps);
+        }
       }
     } else {
       if (undefined !== elementProps.id) {
-        try {
-          this.onUpdateElement(elementProps);
-        } catch (err) {
-          if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
-            assert(
-              elementProps.code.value !== undefined,
-              "NULL code values are always considered unique and cannot clash"
-            );
-            this._duplicateCodeValueMap.set(
-              elementProps.id,
-              elementProps.code.value
-            );
-            // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
-            elementProps.code.value = Guid.createValue();
-            this.onUpdateElement(elementProps);
-          } else {
-            throw err;
-          }
-        }
+        this.tryUpdateElement(elementProps);
       } else {
         this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
@@ -292,6 +327,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
   protected onInsertElement(elementProps: ElementProps): Id64String {
+    /* eslint-disable deprecation/deprecation */
     try {
       const elementId = this.targetDb.nativeDb.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
@@ -324,6 +360,7 @@ export class IModelImporter {
       }
       throw error; // throw original error
     }
+    /* eslint-enable deprecation/deprecation */
   }
 
   /** Update an existing Element in the target iModel from the specified ElementProps.
@@ -340,6 +377,7 @@ export class IModelImporter {
     );
     this.trackProgress();
     if (this.options.simplifyElementGeometry) {
+      /* eslint-disable-next-line deprecation/deprecation */
       this.targetDb.nativeDb.simplifyElementGeometry({
         id: elementProps.id,
         convertBReps: true,
@@ -677,7 +715,7 @@ export class IModelImporter {
   protected onProgress(): void {}
 
   /** Optionally compute the projectExtents for the target iModel depending on the options for this IModelImporter.
-   * @note This method is automatically called from [IModelTransformer.processChanges]($transformer) and [IModelTransformer.processAll]($transformer).
+   * @note This method is automatically called from [IModelTransformer.process]($transformer).
    * @see [IModelDb.computeProjectExtents]($backend), [[autoExtendProjectExtents]]
    */
   public computeProjectExtents(): void {
@@ -752,11 +790,12 @@ export class IModelImporter {
   }
 
   /** Examine the geometry streams of every [GeometricElement3d]($backend) in the target iModel and apply the specified optimizations.
-   * @note This method is automatically called from [[IModelTransformer.processChanges]] and [[IModelTransformer.processAll]] if
+   * @note This method is automatically called from [[IModelTransformer.process]] if
    * [[IModelTransformOptions.optimizeGeometry]] is defined.
    */
   public optimizeGeometry(options: OptimizeGeometryOptions): void {
     if (options.inlineUniqueGeometryParts) {
+      /* eslint-disable-next-line deprecation/deprecation */
       const result = this.targetDb.nativeDb.inlineGeometryPartReferences();
       Logger.logInfo(
         loggerCategory,
