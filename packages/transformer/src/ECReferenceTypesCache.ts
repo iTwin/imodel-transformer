@@ -234,7 +234,7 @@ export class ECReferenceTypesCache {
         // no sourceType means the rootBisClass.name is not in the bisRootClassToRefType map.
         Logger.logInfo(
           TransformerLoggerCategory.IModelTransformer,
-          `sourceClass: ${sourceClass.schema.name}:${sourceClass.name} has customAttribute which is QueryView and no sourceType in the rootClassToRefType map`
+          `sourceClass: ${sourceClass.schema.name}:${sourceClass.name} has customAttribute which is QueryView and no type found in the rootClassToRefType map`
         );
         return undefined;
       }
