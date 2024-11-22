@@ -13,6 +13,7 @@ import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/K
 import * as Semver from "semver";
 import { Schema, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
 import * as sinon from "sinon";
+import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
 describe("ECReferenceTypesCache", () => {
   let testIModel: SnapshotDb;
@@ -190,13 +191,19 @@ describe("ECReferenceTypesCache", () => {
   });
 
   it("should handle QueryView", async () => {
-    const thisTestRefCache = new ECReferenceTypesCache();
-    const ecdbMapVersion =
-      emptyWithBrandNewBiscore.querySchemaVersion("ECdbMap");
-    assert(ecdbMapVersion !== undefined);
-    assert(Semver.gte(ecdbMapVersion, "2.0.4"));
-    await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWithQueryView]);
-    await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
+    if (Semver.gte(iTwinCoreBackendVersion, "4.6.0")) {
+      const thisTestRefCache = new ECReferenceTypesCache();
+      const ecdbMapVersion =
+        emptyWithBrandNewBiscore.querySchemaVersion("ECdbMap");
+      assert(ecdbMapVersion !== undefined);
+      assert(Semver.gte(ecdbMapVersion, "2.0.4"));
+      await emptyWithBrandNewBiscore.importSchemas([
+        testSchemaPathWithQueryView,
+      ]);
+      await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
+    } else {
+      assert(true); // Pre 4.6.0 does not have QueryView support. https://www.itwinjs.org/bis/domains/ecdbmap.ecschema/#queryview
+    }
   });
 
   it("should not init schemas of a lower or equal version", async () => {
