@@ -20,9 +20,9 @@ describe("ECReferenceTypesCache", () => {
     BackendTestsKnownLocations.assetsDir,
     "TestGeneratedClasses.ecschema.xml"
   );
-  const testSchemaPathWith32Profile = path.join(
+  const testSchemaPathWithQueryView = path.join(
     BackendTestsKnownLocations.assetsDir,
-    "TestGeneratedClassesNewProfile.ecschema.xml"
+    "TestQueryView.ecschema.xml"
   );
   const testFixtureRefCache = new ECReferenceTypesCache();
   let pathForEmpty: string;
@@ -195,7 +195,7 @@ describe("ECReferenceTypesCache", () => {
       emptyWithBrandNewBiscore.querySchemaVersion("ECdbMap");
     assert(ecdbMapVersion !== undefined);
     assert(Semver.gte(ecdbMapVersion, "2.0.4"));
-    await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWith32Profile]);
+    await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWithQueryView]);
     await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
   });
 
