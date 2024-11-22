@@ -6,7 +6,7 @@
  * @module iModels
  */
 
-import { DbResult, TupleKeyedMap } from "@itwin/core-bentley";
+import { DbResult, Logger, TupleKeyedMap } from "@itwin/core-bentley";
 import {
   ConcreteEntityTypes,
   IModelError,
@@ -24,6 +24,7 @@ import {
 } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelDb } from "@itwin/core-backend";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal
@@ -221,6 +222,38 @@ export class ECReferenceTypesCache {
       ECReferenceTypesCache.bisRootClassToRefType[sourceRootBisClass.name];
     const targetType =
       ECReferenceTypesCache.bisRootClassToRefType[targetRootBisClass.name];
+
+    const sourceCAs = sourceClass.getCustomAttributesSync();
+    const targetCAs = targetClass.getCustomAttributesSync();
+    for (const [customAttributeName, _customAttribute] of sourceCAs) {
+      // I've essentially captured the case that will cause us problems, but now the question is what to do about it?
+      if (
+        customAttributeName.toLowerCase() === "ecdbmap.queryview" &&
+        sourceType === undefined
+      ) {
+        // no sourceType means the rootBisClass.name is not in the bisRootClassToRefType map.
+        Logger.logInfo(
+          TransformerLoggerCategory.IModelTransformer,
+          `sourceClass: ${sourceClass.schema.name}:${sourceClass.name} has customAttribute which is QueryView and no sourceType in the rootClassToRefType map`
+        );
+        return undefined;
+      }
+    }
+
+    for (const [customAttributeName, _customAttribute] of targetCAs) {
+      if (
+        customAttributeName.toLowerCase() === "ecdbmap.queryview" &&
+        targetType === undefined
+      ) {
+        // I've essentially captured the case that will cause us problems, but now the question is what to do about it?
+        Logger.logInfo(
+          TransformerLoggerCategory.IModelTransformer,
+          `targetClass: ${targetClass.schema.name}:${targetClass.name} has customAttribute which is QueryView and no sourceType in the rootClassToRefType map`
+        );
+        return undefined;
+      }
+    }
+
     const makeAssertMsg = (root: ECClass, cls: ECClass) =>
       [
         `An unknown root class '${root.fullName}' was encountered while populating`,

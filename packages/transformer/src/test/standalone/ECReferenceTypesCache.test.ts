@@ -20,6 +20,10 @@ describe("ECReferenceTypesCache", () => {
     BackendTestsKnownLocations.assetsDir,
     "TestGeneratedClasses.ecschema.xml"
   );
+  const testSchemaPathWith32Profile = path.join(
+    BackendTestsKnownLocations.assetsDir,
+    "TestGeneratedClassesNewProfile.ecschema.xml"
+  );
   const testFixtureRefCache = new ECReferenceTypesCache();
   let pathForEmpty: string;
   let emptyWithBrandNewBiscore: SnapshotDb;
@@ -183,6 +187,16 @@ describe("ECReferenceTypesCache", () => {
         "PhysicalMaterial"
       )
     ).to.equal(ConcreteEntityTypes.Element);
+  });
+
+  it("should handle QueryView", async () => {
+    const thisTestRefCache = new ECReferenceTypesCache();
+    const ecdbMapVersion =
+      emptyWithBrandNewBiscore.querySchemaVersion("ECdbMap");
+    assert(ecdbMapVersion !== undefined);
+    assert(Semver.gte(ecdbMapVersion, "2.0.4"));
+    await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWith32Profile]);
+    await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
   });
 
   it("should not init schemas of a lower or equal version", async () => {
