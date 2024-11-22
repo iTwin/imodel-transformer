@@ -248,7 +248,7 @@ export class ECReferenceTypesCache {
         // I've essentially captured the case that will cause us problems, but now the question is what to do about it?
         Logger.logInfo(
           TransformerLoggerCategory.IModelTransformer,
-          `targetClass: ${targetClass.schema.name}:${targetClass.name} has customAttribute which is QueryView and no sourceType in the rootClassToRefType map`
+          `targetClass: ${targetClass.schema.name}:${targetClass.name} has customAttribute which is QueryView and no type found in the rootClassToRefType map`
         );
         return undefined;
       }
