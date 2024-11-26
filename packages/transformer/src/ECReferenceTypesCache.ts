@@ -226,7 +226,9 @@ export class ECReferenceTypesCache {
     const sourceCAs = sourceClass.getCustomAttributesSync();
     const targetCAs = targetClass.getCustomAttributesSync();
     for (const [customAttributeName, _customAttribute] of sourceCAs) {
-      // I've essentially captured the case that will cause us problems, but now the question is what to do about it?
+      /*
+       * Since queryViews are typically associated with abstract classes and have no specific table in the database, we can ignore them.
+       */
       if (
         customAttributeName.toLowerCase() === "ecdbmap.queryview" &&
         sourceType === undefined
@@ -245,7 +247,9 @@ export class ECReferenceTypesCache {
         customAttributeName.toLowerCase() === "ecdbmap.queryview" &&
         targetType === undefined
       ) {
-        // I've essentially captured the case that will cause us problems, but now the question is what to do about it?
+        /*
+         * Since queryViews are typically associated with abstract classes and have no specific table in the database, we can ignore them.
+         */
         Logger.logInfo(
           TransformerLoggerCategory.IModelTransformer,
           `targetClass: ${targetClass.schema.name}:${targetClass.name} has customAttribute which is QueryView and no sourceType in the rootClassToRefType map`
