@@ -368,7 +368,7 @@ export class IModelExporter {
     this._sourceDbChanges = await ChangedInstanceIds.initialize({
       iModel: this.sourceDb,
       ...options,
-      sourceDbChanges: this._sourceDbChanges,
+      sourceDbChanges: this._sourceDbChanges, // Pass along any already present sourceDbChanges, just incase someone has called the sourceDbChanges getter and added some custom changes to it.
     });
     this._initialized = true;
     if (this._sourceDbChanges === undefined) return;
