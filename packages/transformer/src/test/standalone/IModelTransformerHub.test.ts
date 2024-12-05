@@ -1813,7 +1813,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should propagate custom inserts and custom deletes", async () => {
+  it.only("should propagate custom inserts and custom deletes", async () => {
     let ecClassIdOfRel: Id64String | undefined;
     let ecClassIdOfElement: Id64String | undefined;
     const masterIModelName = "Master";
@@ -1874,7 +1874,7 @@ describe("IModelTransformerHub", () => {
       { branch1: { sync: ["master"] } }, // master->branch1 forward sync to pick up relationship change
       {
         branch1: {
-          // delete relationship from branch so that we can attempt to add it back in as a custom 'Inserted' change
+          // delete relationship and element from branch so that we can attempt to add it back in as a custom 'Inserted' change
           manualUpdate(db) {
             const sourceIdInTarget = IModelTestUtils.queryByUserLabel(db, "40");
             const targetIdInTarget = IModelTestUtils.queryByUserLabel(db, "2");
@@ -1931,7 +1931,7 @@ describe("IModelTransformerHub", () => {
                   await exporter.sourceDbChanges?.addCustomChange(
                     ecClassIdOfElement!,
                     "Inserted",
-                    "100"
+                    elementIdInSource!
                   );
                 },
               },

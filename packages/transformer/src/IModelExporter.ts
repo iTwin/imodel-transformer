@@ -1048,6 +1048,10 @@ export type ChangedInstanceType =
   | "aspect"
   | "relationship"
   | "font";
+/**
+ * Interface to describe a 'custom' change. A custom change is one which isn't found by reading changesets, but instead added by a user calling the 'addCustomChange' API on the ChangedInstanceIds instance.
+ * The purpose a custom change would serve is to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+ */
 export interface ChangedInstanceCustomData {
   sourceIdOfRelationship?: Id64String;
   targetIdOfRelationship?: Id64String;
@@ -1074,7 +1078,7 @@ export class ChangedInstanceIds {
   private _relationshipSubclassIdsToSkip?: Set<string>;
   private _ecClassIdsToClassFullNames?: Map<string, string>;
   /** c${string} is used to represent codeSpecs since they do not currently have a representation in the EntityReference class. This map holds information passed to the 'addCustom' functions. */
-  private _entityReferenceToDataMap: Map<
+  private _entityReferenceToCustomDataMap: Map<
     EntityReference | `c${string}`,
     ChangedInstanceCustomData
   >;
@@ -1084,7 +1088,7 @@ export class ChangedInstanceIds {
   public constructor(db: IModelDb) {
     this._db = db;
     this._hasCustomChanges = false;
-    this._entityReferenceToDataMap = new Map<
+    this._entityReferenceToCustomDataMap = new Map<
       EntityReference,
       ChangedInstanceCustomData
     >();
@@ -1231,24 +1235,21 @@ export class ChangedInstanceIds {
     if (federationGuid) customData.federationGuid = federationGuid;
     if (this.isCodeSpec(ecClassId)) {
       this.handleChange(this.codeSpec, changeType, id);
-      this._entityReferenceToDataMap.set(`c${id}`, {
-        ecClassId,
-        federationGuid,
-      });
+      this._entityReferenceToCustomDataMap.set(`c${id}`, customData);
     } else if (this.isAspect(ecClassId)) {
-      this._entityReferenceToDataMap.set(
+      this._entityReferenceToCustomDataMap.set(
         EntityReferences.fromEntityType(id, ConcreteEntityTypes.ElementAspect),
         customData
       );
       this.handleChange(this.aspect, changeType, id);
     } else if (this.isModel(ecClassId)) {
-      this._entityReferenceToDataMap.set(
+      this._entityReferenceToCustomDataMap.set(
         EntityReferences.fromEntityType(id, ConcreteEntityTypes.Model),
         customData
       );
       this.handleChange(this.model, changeType, id);
     } else if (this.isElement(ecClassId)) {
-      this._entityReferenceToDataMap.set(
+      this._entityReferenceToCustomDataMap.set(
         EntityReferences.fromEntityType(id, ConcreteEntityTypes.Element),
         customData
       );
@@ -1277,12 +1278,12 @@ export class ChangedInstanceIds {
     }
 
     if (entityType !== undefined)
-      return this._entityReferenceToDataMap.get(
+      return this._entityReferenceToCustomDataMap.get(
         EntityReferences.fromEntityType(id, entityType)
       );
 
     // codeSpecs do not have a 'ConcreteEntityType' but are still stored in entityReferenceToDataMap as if they did with a prefix of 'c' to their id.
-    return this._entityReferenceToDataMap.get(`c${id}`);
+    return this._entityReferenceToCustomDataMap.get(`c${id}`);
   }
 
   /**
@@ -1313,7 +1314,7 @@ export class ChangedInstanceIds {
       );
 
     this._hasCustomChanges = true;
-    this._entityReferenceToDataMap.set(
+    this._entityReferenceToCustomDataMap.set(
       EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship),
       {
         sourceIdOfRelationship: sourceECInstanceId,
