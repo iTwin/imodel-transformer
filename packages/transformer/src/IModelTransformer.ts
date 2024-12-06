@@ -2930,41 +2930,44 @@ export class IModelTransformer extends IModelExportHandler {
       csReader.close();
     }
 
-    // Because there is a possibility that someone could manually add ids to exporter.sourceDbChanges.deleteIds, we must separately process exporter.sourceDbChanges.deleteIds as deletedOps.
+    // This loop is to process all custom deleteIds. Unclear if the special logic is still necessary for relationships or not (TODO!!). For all other entities, we assume that the element is still present in the sourceDb because it is not
+    // a real delete and instead a simulated delete to update filtering criteria between source and target. Since the element is still present, we do not need to call processDeletedOp to find the corresponding targetId.
+    // We can instead rely on `forEachTrackedElement` at the top of processChangesets to find the corresponding targetId.
+    // Note this also assumes we don't need to handle entity recreation for these custom deletes. I.e. a caller of API would not be able to add a custom delete for an entity that was recreated.
+    // a delete followed by an insert.
+    // ASSUME: If a changeset has a deleteId then custom change will never reference it. Is this still true if it was re-inserted? (TODO!!)
     if (this.exporter.sourceDbChanges?.hasCustomChanges) {
-      for (const changedInstances of changedInstanceOps) {
-        for (const id of this.exporter.sourceDbChanges?.[
-          changedInstances
-        ].deleteIds.keys() ?? []) {
-          // If id was already processed, that means it was a normal delete found in a changeset. We can skip it.
-          if (deleteIdsProcessed.has(id)) continue;
-          const customData = this.exporter.sourceDbChanges?.getCustomDataFromId(
+      for (const id of this.exporter.sourceDbChanges?.relationship.deleteIds.keys() ??
+        []) {
+        if (deleteIdsProcessed.has(id)) continue;
+
+        const customData =
+          this.exporter.sourceDbChanges?.getCustomRelationshipDataFromId(
             id,
-            changedInstances
+            "relationship"
           );
-          if (customData) {
-            const ecClassId = customData?.ecClassId;
-            const classFullName =
-              this.exporter.sourceDbChanges?.getClassFullNameFromECClassId(
-                ecClassId
-              );
-            const fedGuid = customData?.federationGuid;
-            const sourceIdOfRelationshipInSource =
-              customData?.sourceIdOfRelationship;
-            const targetIdOfRelationshipInSource =
-              customData?.targetIdOfRelationship;
-            await this.processDeletedOp(
-              id,
-              classFullName ?? "",
-              fedGuid,
-              elemIdToScopeEsa,
-              relationshipECClassIds.has(ecClassId ?? ""),
-              sourceIdOfRelationshipInSource,
-              targetIdOfRelationshipInSource,
-              alreadyImportedElementInserts,
-              alreadyImportedModelInserts
+        if (customData) {
+          const ecClassId = customData?.ecClassId;
+          const classFullName =
+            this.exporter.sourceDbChanges?.getClassFullNameFromECClassId(
+              ecClassId
             );
-          }
+          const fedGuid = customData?.federationGuid;
+          const sourceIdOfRelationshipInSource =
+            customData?.sourceIdOfRelationship;
+          const targetIdOfRelationshipInSource =
+            customData?.targetIdOfRelationship;
+          await this.processDeletedOp(
+            id,
+            classFullName ?? "",
+            fedGuid,
+            elemIdToScopeEsa,
+            relationshipECClassIds.has(ecClassId ?? ""),
+            sourceIdOfRelationshipInSource,
+            targetIdOfRelationshipInSource,
+            alreadyImportedElementInserts,
+            alreadyImportedModelInserts
+          );
         }
       }
     }

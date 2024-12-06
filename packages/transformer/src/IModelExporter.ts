@@ -1218,72 +1218,46 @@ export class ChangedInstanceIds {
    * @param federationGuid federationGuid defined on the element
    */
   public async addCustomChange(
-    ecClassId: string,
+    entityType: ChangedInstanceType,
     changeType: SqliteChangeOp,
-    id: Id64String,
-    federationGuid?: Id64String
+    id: Id64String // TODO: SUPPORT BULK ADDS (per entity type okay?)
   ): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
-    if (this._relationshipSubclassIds?.has(ecClassId))
+    if (entityType === "relationship") {
       throw new Error(
-        `Misuse. id: ${id}, ecClassId: ${ecClassId} is a relationship class. Use 'addCustomRelationshipChange' instead.`
+        `Misuse. id: ${id} is a relationship. Use 'addCustomRelationshipChange' instead.`
       );
+    }
     this._hasCustomChanges = true;
 
-    const customData: ChangedInstanceCustomData = { ecClassId };
-    if (federationGuid) customData.federationGuid = federationGuid;
-    if (this.isCodeSpec(ecClassId)) {
-      this.handleChange(this.codeSpec, changeType, id);
-      this._entityReferenceToCustomDataMap.set(`c${id}`, customData);
-    } else if (this.isAspect(ecClassId)) {
-      this._entityReferenceToCustomDataMap.set(
-        EntityReferences.fromEntityType(id, ConcreteEntityTypes.ElementAspect),
-        customData
-      );
-      this.handleChange(this.aspect, changeType, id);
-    } else if (this.isModel(ecClassId)) {
-      this._entityReferenceToCustomDataMap.set(
-        EntityReferences.fromEntityType(id, ConcreteEntityTypes.Model),
-        customData
-      );
-      this.handleChange(this.model, changeType, id);
-    } else if (this.isElement(ecClassId)) {
-      this._entityReferenceToCustomDataMap.set(
-        EntityReferences.fromEntityType(id, ConcreteEntityTypes.Element),
-        customData
-      );
-      this.handleChange(this.element, changeType, id);
+    switch (entityType) {
+      case "codeSpec":
+        this.handleChange(this.codeSpec, changeType, id);
+        break;
+      case "model": // TODO: support models better. We need to mark parent models as updated too otherwise the sub-model will get skipped.
+        this.handleChange(this.model, changeType, id);
+        break;
+      case "element":
+        this.handleChange(this.element, changeType, id);
+        break;
+      case "aspect":
+        this.handleChange(this.aspect, changeType, id);
+        break;
     }
   }
 
-  public getCustomDataFromId(
+  /** TODO: Maybe relationships only? maybe not. */
+  public getCustomRelationshipDataFromId(
     id: Id64String,
     type: ChangedInstanceType
   ): ChangedInstanceCustomData | undefined {
-    let entityType: ConcreteEntityTypes | undefined;
-    switch (type) {
-      case "aspect":
-        entityType = ConcreteEntityTypes.ElementAspect;
-        break;
-      case "element":
-        entityType = ConcreteEntityTypes.Element;
-        break;
-      case "model":
-        entityType = ConcreteEntityTypes.Model;
-        break;
-      case "relationship":
-        entityType = ConcreteEntityTypes.Relationship;
-        break;
+    if (type === "relationship") {
+      return this._entityReferenceToCustomDataMap.get(
+        EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship)
+      );
     }
 
-    if (entityType !== undefined)
-      return this._entityReferenceToCustomDataMap.get(
-        EntityReferences.fromEntityType(id, entityType)
-      );
-
-    // codeSpecs do not have a 'ConcreteEntityType' but are still stored in entityReferenceToDataMap as if they did with a prefix of 'c' to their id.
-    return this._entityReferenceToCustomDataMap.get(`c${id}`);
+    return undefined;
   }
 
   /**

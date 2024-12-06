@@ -1928,7 +1928,7 @@ describe("IModelTransformerHub", () => {
                     targetIdOfRel!
                   );
                   await exporter.sourceDbChanges?.addCustomChange(
-                    ecClassIdOfElement!,
+                    "element",
                     "Inserted",
                     elementIdInSource!
                   );
@@ -1979,7 +1979,7 @@ describe("IModelTransformerHub", () => {
                     targetIdOfRel!
                   );
                   await exporter.sourceDbChanges?.addCustomChange(
-                    ecClassIdOfElement!,
+                    "element",
                     "Deleted",
                     elementIdInSource!
                   );
