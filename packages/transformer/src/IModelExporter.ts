@@ -19,6 +19,7 @@ import {
   ElementMultiAspect,
   ElementRefersToElements,
   ElementUniqueAspect,
+  EntityReferences,
   GeometricElement,
   IModelDb,
   IModelHost,
@@ -41,6 +42,8 @@ import {
 import {
   ChangesetFileProps,
   CodeSpec,
+  ConcreteEntityTypes,
+  EntityReference,
   FontProps,
   IModel,
   IModelError,
@@ -289,11 +292,16 @@ export class IModelExporter {
   private _progressCounter: number = 0;
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
+
+  private _initialized = false;
   /**
    * Retrieve the cached entity change information.
    * @note This will only be initialized after [IModelExporter.exportChanges] is invoked.
    */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
+    if (this._sourceDbChanges === undefined && !this._initialized) {
+      this._sourceDbChanges = new ChangedInstanceIds(this.sourceDb);
+    }
     return this._sourceDbChanges;
   }
   /** The handler called by this IModelExporter. */
@@ -355,12 +363,14 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    if (!this.sourceDb.isBriefcaseDb() || this._sourceDbChanges) return;
+    if (!this.sourceDb.isBriefcaseDb() || this._initialized) return;
 
     this._sourceDbChanges = await ChangedInstanceIds.initialize({
       iModel: this.sourceDb,
       ...options,
+      sourceDbChanges: this._sourceDbChanges, // Pass along any already present sourceDbChanges, just incase someone has called the sourceDbChanges getter and added some custom changes to it.
     });
+    this._initialized = true;
     if (this._sourceDbChanges === undefined) return;
 
     this._exportElementAspectsStrategy.setAspectChanges(
@@ -1002,6 +1012,8 @@ export class IModelExporter {
  */
 export type ChangedInstanceIdsInitOptions = ExportChangesOptions & {
   iModel: BriefcaseDb;
+  /** If an instance of ChangedInstanceIds is provided, we will add any changes found to the instance.  */
+  sourceDbChanges?: ChangedInstanceIds;
 };
 
 /** Class for holding change information.
@@ -1029,6 +1041,24 @@ export class ChangedInstanceOps {
   }
 }
 
+export type ChangedInstanceType =
+  | "codeSpec"
+  | "model"
+  | "element"
+  | "aspect"
+  | "relationship"
+  | "font";
+/**
+ * Interface to describe a 'custom' change. A custom change is one which isn't found by reading changesets, but instead added by a user calling the 'addCustomChange' API on the ChangedInstanceIds instance.
+ * The purpose a custom change would serve is to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+ */
+export interface ChangedInstanceCustomData {
+  sourceIdOfRelationship?: Id64String;
+  targetIdOfRelationship?: Id64String;
+  federationGuid?: Id64String;
+  ecClassId: Id64String;
+}
+
 /**
  * Class for discovering modified elements between 2 versions of an iModel.
  * @public
@@ -1045,9 +1075,23 @@ export class ChangedInstanceIds {
   private _elementSubclassIds?: Set<string>;
   private _aspectSubclassIds?: Set<string>;
   private _relationshipSubclassIds?: Set<string>;
+  private _relationshipSubclassIdsToSkip?: Set<string>;
+  private _ecClassIdsToClassFullNames?: Map<string, string>;
+  /** c${string} is used to represent codeSpecs since they do not currently have a representation in the EntityReference class. This map holds information passed to the 'addCustom' functions. */
+  private _entityReferenceToCustomDataMap: Map<
+    EntityReference | `c${string}`,
+    ChangedInstanceCustomData
+  >;
+  private _hasCustomChanges: boolean;
+
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
+    this._hasCustomChanges = false;
+    this._entityReferenceToCustomDataMap = new Map<
+      EntityReference,
+      ChangedInstanceCustomData
+    >();
   }
 
   private async setupECClassIds(): Promise<void> {
@@ -1056,15 +1100,21 @@ export class ChangedInstanceIds {
     this._elementSubclassIds = new Set<string>();
     this._aspectSubclassIds = new Set<string>();
     this._relationshipSubclassIds = new Set<string>();
+    this._relationshipSubclassIdsToSkip = new Set<string>();
+    this._ecClassIdsToClassFullNames = new Map<string, string>();
 
     const addECClassIdsToSet = async (
       setToModify: Set<string>,
       baseClass: string
     ) => {
       for await (const row of this._db.createQueryReader(
-        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`
+        `SELECT c.ECInstanceId ECClassId, c.Name className, s.Name schemaName FROM ECDbMeta.ECClassDef c JOIN ECDbMeta.ECSchemaDef s ON s.ECInstanceId = c.Schema.Id WHERE c.ECInstanceId IS (${baseClass})`
       )) {
-        setToModify.add(row.ECInstanceId);
+        setToModify.add(row.ECClassId);
+        this._ecClassIdsToClassFullNames?.set(
+          row.ECClassId,
+          `${row.schemaName}:${row.className}`
+        );
       }
     };
     const promises = [
@@ -1080,6 +1130,10 @@ export class ChangedInstanceIds {
         this._relationshipSubclassIds,
         "BisCore.ElementRefersToElements"
       ),
+      addECClassIdsToSet(
+        this._relationshipSubclassIdsToSkip,
+        "BisCore.ElementDrivesElement"
+      ),
     ];
     await Promise.all(promises);
   }
@@ -1090,7 +1144,8 @@ export class ChangedInstanceIds {
       this._modelSubclassIds &&
       this._elementSubclassIds &&
       this._aspectSubclassIds &&
-      this._relationshipSubclassIds
+      this._relationshipSubclassIds &&
+      this._relationshipSubclassIdsToSkip
     );
   }
 
@@ -1114,6 +1169,10 @@ export class ChangedInstanceIds {
     return this._elementSubclassIds?.has(ecClassId);
   }
 
+  public get hasCustomChanges(): boolean {
+    return this._hasCustomChanges;
+  }
+
   /**
    * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
@@ -1132,6 +1191,7 @@ export class ChangedInstanceIds {
       throw new Error(
         `ChangeType was undefined for id: ${change.ECInstanceId}.`
       );
+    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
 
     if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
@@ -1143,6 +1203,106 @@ export class ChangedInstanceIds {
       this.handleChange(this.model, changeType, change.ECInstanceId);
     else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
+  }
+
+  /**
+   * Adds the provided change to the appropriate set of changes by class type (codeSpec, model, element, aspect) maintained by this instance of ChangedInstanceIds.
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @note This method will not accept changes to relationship classes. Use 'addCustomRelationshipChange' instead.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   * @throws if the ecClassId is a relationship classId
+   * @param ecClassId class id of the custom change
+   * @param changeType insert, update or delete
+   * @param id ECInstanceID of the custom change
+   * @param federationGuid federationGuid defined on the element
+   */
+  public async addCustomChange(
+    entityType: ChangedInstanceType,
+    changeType: SqliteChangeOp,
+    id: Id64String // TODO: SUPPORT BULK ADDS (per entity type okay?)
+  ): Promise<void> {
+    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    if (entityType === "relationship") {
+      throw new Error(
+        `Misuse. id: ${id} is a relationship. Use 'addCustomRelationshipChange' instead.`
+      );
+    }
+    this._hasCustomChanges = true;
+
+    switch (entityType) {
+      case "codeSpec":
+        this.handleChange(this.codeSpec, changeType, id);
+        break;
+      case "model": // TODO: support models better. We need to mark parent models as updated too otherwise the sub-model will get skipped.
+        this.handleChange(this.model, changeType, id);
+        break;
+      case "element":
+        this.handleChange(this.element, changeType, id);
+        break;
+      case "aspect":
+        this.handleChange(this.aspect, changeType, id);
+        break;
+    }
+  }
+
+  /** TODO: Maybe relationships only? maybe not. */
+  public getCustomRelationshipDataFromId(
+    id: Id64String,
+    type: ChangedInstanceType
+  ): ChangedInstanceCustomData | undefined {
+    if (type === "relationship") {
+      return this._entityReferenceToCustomDataMap.get(
+        EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship)
+      );
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Adds the provided change to the set of relationship changes maintained by this instance of ChangedInstanceIds.
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @note This method will ONLY accept changes to relationship classes. Use 'addCustomChange' instead if your change is not pertaining to a relationship class.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   * @throws if the ecClassId is NOT a relationship classId
+   * @param ecClassId class id of the custom change
+   * @param changeType insert, update or delete
+   * @param id ECInstanceID of the custom change
+   * @param sourceECInstanceId source ECInstanceId of the relationship
+   * @param targetECInstanceId target ECInstanceId of the relationship
+   */
+  public async addCustomRelationshipChange(
+    ecClassId: string,
+    changeType: SqliteChangeOp,
+    id: Id64String,
+    sourceECInstanceId: Id64String,
+    targetECInstanceId: Id64String
+  ): Promise<void> {
+    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
+    if (!this._relationshipSubclassIds?.has(ecClassId))
+      throw new Error(
+        `Misuse. id: ${id}, ecClassId: ${ecClassId} is not a relationship class. Use 'addCustomChange' instead.`
+      );
+
+    this._hasCustomChanges = true;
+    this._entityReferenceToCustomDataMap.set(
+      EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship),
+      {
+        sourceIdOfRelationship: sourceECInstanceId,
+        targetIdOfRelationship: targetECInstanceId,
+        ecClassId,
+      }
+    );
+    this.handleChange(this.relationship, changeType, id);
+  }
+
+  public getClassFullNameFromECClassId(
+    ecClassid: Id64String
+  ): string | undefined {
+    return this._ecClassIdsToClassFullNames?.get(ecClassid);
   }
 
   private handleChange(
@@ -1227,13 +1387,10 @@ export class ChangedInstanceIds {
 
     if (csFileProps === undefined) return undefined;
 
-    const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    const relationshipECClassIdsToSkip = new Set<string>();
-    for await (const row of opts.iModel.createQueryReader(
-      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)"
-    )) {
-      relationshipECClassIdsToSkip.add(row.ECInstanceId);
-    }
+    const changedInstanceIds =
+      opts?.sourceDbChanges !== undefined
+        ? opts.sourceDbChanges
+        : new ChangedInstanceIds(opts.iModel);
 
     for (const csFile of csFileProps) {
       const csReader = SqliteChangesetReader.openFile({
@@ -1249,11 +1406,6 @@ export class ChangedInstanceIds {
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {
-        if (
-          change.ECClassId !== undefined &&
-          relationshipECClassIdsToSkip.has(change.ECClassId)
-        )
-          continue;
         await changedInstanceIds.addChange(change);
       }
       csReader.close();
