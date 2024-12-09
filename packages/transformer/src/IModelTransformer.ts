@@ -2383,12 +2383,13 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  /** Override of [IModelExportHandler.onSkipElement]($transformer) that is called when [IModelExporter]($transformer) excludes an element from being exported. */
   public override onSkipElement(elementId: Id64String): void {
     if (this._sourceInsertIdToSourceDeleteId.has(elementId)) {
       const deleteId = this._sourceInsertIdToSourceDeleteId.get(elementId)!;
       Logger.logInfo(
         TransformerLoggerCategory.IModelTransformer,
-        "Adding element back to sourceDbChanges.deleteIds because it was skipped and detected as an entity recreation.",
+        "Adding element back to sourceDbChanges.deleteIds because it was excluded from being exported and detected as an entity recreation.",
         { elementId, deleteId }
       );
       this.exporter.sourceDbChanges?.element.deleteIds.add(deleteId);
