@@ -126,7 +126,7 @@ import {
   TransformerExtensiveTestScenario,
 } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-
+import { DeepIModelComparer } from "@bentley/imodel-diff-tool";
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
@@ -191,6 +191,37 @@ describe("IModelTransformer", () => {
 
   after(async () => {
     await ReusedSnapshots.cleanup();
+  });
+
+  it.only("should compare two imodels", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "imodel-A.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "iModelA" },
+    });
+
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "imodel-B.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "iModelB" },
+    });
+
+    const comparer = new DeepIModelComparer({
+      compareElemGeom: true,
+      considerNonExistingAndUndefinedEqual: false,
+    });
+    const outputDiffsSpy = sinon.spy(DeepIModelComparer, "outputDiffs");
+
+    await comparer.compare({ left: sourceDb, right: targetDb });
+
+    expect(outputDiffsSpy.calledWith([])).to.be.true;
+
+    sourceDb.close();
+    targetDb.close();
   });
 
   it("should transform changes from source to target", async () => {
