@@ -35,7 +35,7 @@ import {
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
-import { IModelExporter } from "../../IModelExporter";
+import { ExportChangesOptions, IModelExporter } from "../../IModelExporter";
 
 const saveAndPushChanges = async (
   accessToken: string,
@@ -257,7 +257,9 @@ export type TimelineStateChange =
           since?: number;
           init?: {
             initTransformer?: (transformer: IModelTransformer) => void;
-            initExporter?: (exporter: IModelExporter) => Promise<void>;
+            afterInitializeExporter?: (
+              exporter: IModelExporter
+            ) => Promise<void>; // Run this code after exporter.initialize is called
           };
           expectThrow?: boolean;
           assert?: {
@@ -363,7 +365,9 @@ export async function runTimeline(
           opts: {
             since?: number;
             init?: {
-              initExporter?: (exporter: IModelExporter) => Promise<void>;
+              afterInitializeExporter?: (
+                exporter: IModelExporter
+              ) => Promise<void>;
               initTransformer?: (transformer: IModelTransformer) => void;
             };
             expectThrow?: boolean;
@@ -519,16 +523,20 @@ export async function runTimeline(
         let targetStateBefore: TimelineIModelElemState | undefined;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
-
+        const argsForProcessChanges: ExportChangesOptions = {
+          startChangeset: startIndex
+            ? { index: startIndex }
+            : { index: undefined },
+        };
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
-          argsForProcessChanges: {
-            startChangeset: startIndex
-              ? { index: startIndex }
-              : { index: undefined },
-          },
+          argsForProcessChanges,
         });
-        await initFxns?.initExporter?.(syncer.exporter);
+
+        if (initFxns?.afterInitializeExporter) {
+          await syncer.exporter.initialize(argsForProcessChanges);
+          await initFxns?.afterInitializeExporter?.(syncer.exporter);
+        }
 
         initFxns?.initTransformer?.(syncer);
         try {

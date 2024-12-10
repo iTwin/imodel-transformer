@@ -1918,7 +1918,7 @@ describe("IModelTransformerHub", () => {
             "master",
             {
               init: {
-                initExporter: async (exporter) => {
+                afterInitializeExporter: async (exporter) => {
                   // Add custom changes to re-insert relationship and element
                   await exporter.sourceDbChanges?.addCustomRelationshipChange(
                     ecClassIdOfRel!,
@@ -1969,7 +1969,7 @@ describe("IModelTransformerHub", () => {
             "master",
             {
               init: {
-                initExporter: async (exporter) => {
+                afterInitializeExporter: async (exporter) => {
                   // Add custom changes to delete relationship and element
                   await exporter.sourceDbChanges?.addCustomRelationshipChange(
                     ecClassIdOfRel!,

@@ -299,9 +299,6 @@ export class IModelExporter {
    * @note This will only be initialized after [IModelExporter.exportChanges] is invoked.
    */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
-    if (this._sourceDbChanges === undefined && !this._initialized) {
-      this._sourceDbChanges = new ChangedInstanceIds(this.sourceDb);
-    }
     return this._sourceDbChanges;
   }
   /** The handler called by this IModelExporter. */
@@ -368,7 +365,6 @@ export class IModelExporter {
     this._sourceDbChanges = await ChangedInstanceIds.initialize({
       iModel: this.sourceDb,
       ...options,
-      sourceDbChanges: this._sourceDbChanges, // Pass along any already present sourceDbChanges, just incase someone has called the sourceDbChanges getter and added some custom changes to it.
     });
     this._initialized = true;
     if (this._sourceDbChanges === undefined) return;
@@ -1012,8 +1008,6 @@ export class IModelExporter {
  */
 export type ChangedInstanceIdsInitOptions = ExportChangesOptions & {
   iModel: BriefcaseDb;
-  /** If an instance of ChangedInstanceIds is provided, we will add any changes found to the instance.  */
-  sourceDbChanges?: ChangedInstanceIds;
 };
 
 /** Class for holding change information.
@@ -1038,6 +1032,14 @@ export class ChangedInstanceOps {
       if (undefined !== val.delete && Array.isArray(val.delete))
         val.delete.forEach((id: Id64String) => this.deleteIds.add(id));
     }
+  }
+
+  public get isEmpty(): boolean {
+    return (
+      0 === this.insertIds.size &&
+      0 === this.updateIds.size &&
+      0 === this.deleteIds.size
+    );
   }
 }
 
@@ -1171,6 +1173,17 @@ export class ChangedInstanceIds {
 
   public get hasCustomChanges(): boolean {
     return this._hasCustomChanges;
+  }
+
+  public get isEmpty(): boolean {
+    return (
+      this.codeSpec.isEmpty &&
+      this.model.isEmpty &&
+      this.element.isEmpty &&
+      this.aspect.isEmpty &&
+      this.relationship.isEmpty &&
+      this.font.isEmpty
+    );
   }
 
   /**
@@ -1385,12 +1398,10 @@ export class ChangedInstanceIds {
           ? opts.csFileProps
           : undefined;
 
-    if (csFileProps === undefined) return undefined;
+    // TODO: should we do this in this PR?
+    if (csFileProps === undefined) return undefined; // return new ChangedInstanceIds(opts.iModel); // i think we probably need to return sourcedbchanges here even if empty. that sets us up for a transform with nothing
 
-    const changedInstanceIds =
-      opts?.sourceDbChanges !== undefined
-        ? opts.sourceDbChanges
-        : new ChangedInstanceIds(opts.iModel);
+    const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
 
     for (const csFile of csFileProps) {
       const csReader = SqliteChangesetReader.openFile({
