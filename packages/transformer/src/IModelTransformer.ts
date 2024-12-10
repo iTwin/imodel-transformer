@@ -2790,6 +2790,7 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
+    // hmm if we do transforms without changesets this may be a problem for hasElementChangedCache? and maybe others
     if (this._csFileProps === undefined || this._csFileProps.length === 0)
       return;
     const hasElementChangedCache = new Set<string>();

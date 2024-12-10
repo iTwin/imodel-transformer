@@ -454,7 +454,7 @@ export class IModelExporter {
     await this.initialize(initOpts);
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
-      this._sourceDbChanges !== undefined,
+      this._sourceDbChanges !== undefined, // TODO: Should this say that sourceDbChanges must not be empty?
       "sourceDbChanges must be initialized."
     );
 
@@ -586,7 +586,7 @@ export class IModelExporter {
   public async exportCodeSpecByName(codeSpecName: string): Promise<void> {
     const codeSpec: CodeSpec = this.sourceDb.codeSpecs.getByName(codeSpecName);
     let isUpdate: boolean | undefined;
-    if (undefined !== this._sourceDbChanges) {
+    if (this._sourceDbChanges !== undefined && !this._sourceDbChanges.isEmpty) {
       // is changeset information available?
       if (this._sourceDbChanges.codeSpec.insertIds.has(codeSpec.id)) {
         isUpdate = false;
@@ -686,7 +686,7 @@ export class IModelExporter {
   /** Export the model (the container only) from the source iModel. */
   private async exportModelContainer(model: Model): Promise<void> {
     let isUpdate: boolean | undefined;
-    if (undefined !== this._sourceDbChanges) {
+    if (this._sourceDbChanges !== undefined && !this._sourceDbChanges.isEmpty) {
       // is changeset information available?
       if (this._sourceDbChanges.model.insertIds.has(model.id)) {
         isUpdate = false;
@@ -725,7 +725,7 @@ export class IModelExporter {
       );
       return;
     }
-    if (undefined !== this._sourceDbChanges) {
+    if (this._sourceDbChanges !== undefined && !this._sourceDbChanges.isEmpty) {
       // is changeset information available?
       if (
         !this._sourceDbChanges.model.insertIds.has(modelId) &&
@@ -956,7 +956,7 @@ export class IModelExporter {
       return;
     }
     let isUpdate: boolean | undefined;
-    if (undefined !== this._sourceDbChanges) {
+    if (this._sourceDbChanges !== undefined && !this._sourceDbChanges.isEmpty) {
       // is changeset information available?
       if (this._sourceDbChanges.relationship.insertIds.has(relInstanceId)) {
         isUpdate = false;
@@ -1399,7 +1399,7 @@ export class ChangedInstanceIds {
           : undefined;
 
     // TODO: should we do this in this PR?
-    if (csFileProps === undefined) return undefined; // return new ChangedInstanceIds(opts.iModel); // i think we probably need to return sourcedbchanges here even if empty. that sets us up for a transform with nothing
+    if (csFileProps === undefined) return new ChangedInstanceIds(opts.iModel); // i think we probably need to return sourcedbchanges here even if empty. that sets us up for a transform with nothing
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
 
