@@ -296,7 +296,7 @@ export class IModelExporter {
   private _initialized = false;
   /**
    * Retrieve the cached entity change information.
-   * @note This will only be initialized after [IModelExporter.exportChanges] is invoked.
+   * @note This will only be initialized after [IModelExporter.exportChanges] is invoked or [IModelExporter.initialize] is called.
    */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
     return this._sourceDbChanges;
