@@ -1302,7 +1302,11 @@ describe("IModelTransformerHub", () => {
         master: {
           sync: [
             "branch1",
-            { initTransformer: setForceOldRelationshipProvenanceMethod },
+            {
+              init: {
+                initTransformer: setForceOldRelationshipProvenanceMethod,
+              },
+            },
           ],
         },
       }, // first master<-branch1 reverse sync picking up new relationship from branch imodel
@@ -1346,7 +1350,11 @@ describe("IModelTransformerHub", () => {
         branch1: {
           sync: [
             "master",
-            { initTransformer: setForceOldRelationshipProvenanceMethod },
+            {
+              init: {
+                initTransformer: setForceOldRelationshipProvenanceMethod,
+              },
+            },
           ],
         },
       }, // forward sync master->branch1 to pick up delete of relationship
@@ -1802,6 +1810,213 @@ describe("IModelTransformerHub", () => {
         iModelId: replayedIModelId,
       });
     }
+  });
+
+  it("should propagate custom inserts and custom deletes", async () => {
+    let ecClassIdOfRel: Id64String | undefined;
+    let ecClassIdOfElement: Id64String | undefined;
+    const masterIModelName = "Master";
+    const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
+    if (IModelJsFs.existsSync(masterSeedFileName))
+      IModelJsFs.removeSync(masterSeedFileName);
+    const masterSeedState = { 1: 1, 2: 1, 20: 1, 21: 1, 40: 1, 41: 2, 42: 3 };
+    const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
+      rootSubject: { name: masterIModelName },
+    });
+    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    for await (const row of masterSeedDb.createQueryReader(
+      "SELECT ECInstanceId FROM ECdbMeta.ECClassDef WHERE Name LIKE 'ElementGroupsMembers'"
+    )) {
+      ecClassIdOfRel = row.ECInstanceId;
+    }
+    // Elements inserted by syntax like { master: {100: 100} } which this test uses, are PhysicalObjects.
+    for await (const row of masterSeedDb.createQueryReader(
+      "SELECT ECInstanceId FROM ECdbMeta.ECClassDef WHERE Name LIKE 'PhysicalObject'"
+    )) {
+      ecClassIdOfElement = row.ECInstanceId;
+    }
+    populateTimelineSeed(masterSeedDb, masterSeedState);
+
+    const masterSeed: TimelineIModelState = {
+      // HACK: we know this will only be used for seeding via its path and performCheckpoint
+      db: masterSeedDb as any as BriefcaseDb,
+      id: "master-seed",
+      state: masterSeedState,
+    };
+
+    let relId: Id64String | undefined;
+    let sourceIdOfRel: Id64String | undefined;
+    let targetIdOfRel: Id64String | undefined;
+    let elementIdInSource: Id64String | undefined;
+    const timeline: Timeline = [
+      { master: { seed: masterSeed } }, // masterSeedState is above
+      { branch1: { branch: "master" } },
+      { master: { 100: 100 } },
+      {
+        master: {
+          manualUpdate(db) {
+            // insert relationship into master
+            sourceIdOfRel = IModelTestUtils.queryByUserLabel(db, "40");
+            targetIdOfRel = IModelTestUtils.queryByUserLabel(db, "2");
+            const rel = ElementGroupsMembers.create(
+              db,
+              sourceIdOfRel,
+              targetIdOfRel,
+              0
+            );
+            relId = rel.insert();
+
+            elementIdInSource = IModelTestUtils.queryByUserLabel(db, "100");
+          },
+        },
+      },
+      { branch1: { sync: ["master"] } }, // master->branch1 forward sync to pick up relationship change
+      {
+        branch1: {
+          // delete relationship and element from branch so that we can attempt to add it back in as a custom 'Inserted' change
+          manualUpdate(db) {
+            const sourceIdInTarget = IModelTestUtils.queryByUserLabel(db, "40");
+            const targetIdInTarget = IModelTestUtils.queryByUserLabel(db, "2");
+            const rel = db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              { sourceId: sourceIdInTarget, targetId: targetIdInTarget }
+            );
+            expect(rel).to.not.be.undefined;
+            rel.delete();
+
+            const idOfElement = IModelTestUtils.queryByUserLabel(db, "100");
+            expect(idOfElement).to.not.be.undefined;
+            db.elements.deleteElement(idOfElement);
+          },
+        },
+      },
+      {
+        assert({ branch1 }) {
+          // Extra assert to make sure relationship and element are deleted in branch1
+          const sourceIdInTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "40"
+          );
+          const targetIdInTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "2"
+          );
+          const rel =
+            branch1.db.relationships.tryGetInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              { sourceId: sourceIdInTarget, targetId: targetIdInTarget }
+            );
+          expect(rel).to.be.undefined;
+          const element = IModelTestUtils.queryByUserLabel(branch1.db, "100");
+          expect(element).to.equal(Id64.invalid);
+        },
+      },
+      { master: { 20: 6 } }, // need a changeset because transformer currently doesn't support no changesets.
+      {
+        branch1: {
+          sync: [
+            "master",
+            {
+              init: {
+                afterInitializeExporter: async (exporter) => {
+                  // Add custom changes to re-insert relationship and element
+                  await exporter.sourceDbChanges?.addCustomRelationshipChange(
+                    ecClassIdOfRel!,
+                    "Inserted",
+                    relId!,
+                    sourceIdOfRel!,
+                    targetIdOfRel!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "element",
+                    "Inserted",
+                    elementIdInSource!
+                  );
+                },
+              },
+            },
+          ],
+        },
+      },
+      {
+        assert({ branch1 }) {
+          // Validate custom changes worked and we can find the inserted elements in branch1
+          const sourceIdInTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "40"
+          );
+          const targetIdInTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "2"
+          );
+          const rel =
+            branch1.db.relationships.getInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              { sourceId: sourceIdInTarget, targetId: targetIdInTarget }
+            );
+          expect(rel).to.not.be.undefined;
+          const elementInTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "100"
+          );
+          expect(elementInTarget).to.not.be.undefined;
+        },
+      },
+      { master: { 20: 7 } }, // need a changeset because transformer currently doesn't support no changesets.
+      {
+        branch1: {
+          sync: [
+            "master",
+            {
+              init: {
+                afterInitializeExporter: async (exporter) => {
+                  // Add custom changes to delete relationship and element
+                  await exporter.sourceDbChanges?.addCustomRelationshipChange(
+                    ecClassIdOfRel!,
+                    "Deleted",
+                    relId!,
+                    sourceIdOfRel!,
+                    targetIdOfRel!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "element",
+                    "Deleted",
+                    elementIdInSource!
+                  );
+                },
+              },
+            },
+          ],
+        },
+      },
+      {
+        assert({ branch1 }) {
+          // Assert that they were deleted.
+          const sourceIdInTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "40"
+          );
+          const targetIdInTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "2"
+          );
+          const rel =
+            branch1.db.relationships.tryGetInstance<ElementGroupsMembers>(
+              ElementGroupsMembers.classFullName,
+              { sourceId: sourceIdInTarget, targetId: targetIdInTarget }
+            );
+
+          const element = IModelTestUtils.queryByUserLabel(branch1.db, "100");
+          expect(element).to.equal(Id64.invalid);
+          expect(rel).to.be.undefined;
+        },
+      },
+    ];
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+    await tearDown();
   });
 
   it("ModelSelector processChanges", async () => {
@@ -3797,7 +4012,10 @@ describe("IModelTransformerHub", () => {
             "branch",
             {
               expectThrow: false,
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
@@ -3894,7 +4112,10 @@ describe("IModelTransformerHub", () => {
           sync: [
             "branch",
             {
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
@@ -3947,7 +4168,10 @@ describe("IModelTransformerHub", () => {
           sync: [
             "master",
             {
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
@@ -4033,9 +4257,11 @@ describe("IModelTransformerHub", () => {
           sync: [
             "branch",
             {
-              initTransformer: (transformer) =>
-                (transformer["_options"]["branchRelationshipDataBehavior"] =
-                  "unsafe-migrate"),
+              init: {
+                initTransformer: (transformer) =>
+                  (transformer["_options"]["branchRelationshipDataBehavior"] =
+                    "unsafe-migrate"),
+              },
             },
           ], // Sync again with no changes except for ones which may get made by unsafe-migrate.
         },
@@ -4174,7 +4400,10 @@ describe("IModelTransformerHub", () => {
             "master",
             {
               expectThrow: false,
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
@@ -4185,7 +4414,10 @@ describe("IModelTransformerHub", () => {
             "branch",
             {
               expectThrow: false,
-              initTransformer: setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              init: {
+                initTransformer:
+                  setBranchRelationshipDataBehaviorToUnsafeMigrate,
+              },
             },
           ],
         },
