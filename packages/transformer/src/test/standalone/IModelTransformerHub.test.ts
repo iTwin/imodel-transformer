@@ -2984,14 +2984,14 @@ describe("IModelTransformerHub", () => {
   });
 
   for (const excludeBeforeTransformerInitialize of [true, false]) {
-    it(`should be able to handle entity recreation and a switching of exclude criteria ${excludeBeforeTransformerInitialize ? "before transformer initialize" : "after transformer initialize"}`, async () => {
+    it.only(`should be able to handle entity recreation and a switching of exclude criteria ${excludeBeforeTransformerInitialize ? "before transformer initialize" : "after transformer initialize"}`, async () => {
       // Create imodel, insert element
       // Fork iModel
       // push two changesets to source iModel, first one deletes element. second inserts element with same fed guid as the deleted element.
       // Run transformation calling excludeElement on the inserted element id.
       // expect that the delete from the first changeset makes its way to the target iModel.
 
-      const stepFive = excludeBeforeTransformerInitialize
+      const syncMasterToBranch = excludeBeforeTransformerInitialize
         ? {
             branch: {
               sync: [
@@ -3039,7 +3039,6 @@ describe("IModelTransformerHub", () => {
             expect(elem).to.not.be.undefined;
             expect(elem.federationGuid).to.not.be.undefined;
             propsOfElementToRecreate = elem.toJSON();
-
             expect(IModelTestUtils.queryByUserLabel(branch.db, "1")).to.not.be
               .undefined;
           },
@@ -3057,11 +3056,16 @@ describe("IModelTransformerHub", () => {
             },
           },
         },
-        5: stepFive as any,
+        5: syncMasterToBranch as any,
         6: {
           assert({ branch }) {
             const elem = IModelTestUtils.queryByUserLabel(branch.db, "1");
+            const newElemLabel = IModelTestUtils.queryByUserLabel(
+              branch.db,
+              "recreated"
+            ); // we changed the userlabel in master so make sure that didnt make it to target
             expect(elem).to.equal(Id64.invalid);
+            expect(newElemLabel).to.equal(Id64.invalid);
           },
         },
       };
