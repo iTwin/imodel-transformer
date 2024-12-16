@@ -1867,6 +1867,15 @@ describe("IModelTransformerHub", () => {
             relId = rel.insert();
 
             elementIdInSource = IModelTestUtils.queryByUserLabel(db, "100");
+
+            // insert model into master whose parent is the repositoryModel
+            /** @note must always match the model of the [[ModelProps.modeledElement]] */
+            // parentModel?: Id64String;
+            // const model = db.models.createModel({
+            //   classFullName: "BisCore:PhysicalModel",
+            //   modeledElement: { id: elementIdInSource },
+            //   parentModel: IModel.repositoryModelId,
+            // });
           },
         },
       },
