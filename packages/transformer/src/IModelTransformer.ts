@@ -2853,11 +2853,11 @@ export class IModelTransformer extends IModelExportHandler {
     );
     this.exporter.addCustomChangesCallback();
 
-    if (
-      (this._csFileProps === undefined || this._csFileProps.length === 0) &&
-      this.exporter.sourceDbChanges?.isEmpty
-    ) {
-      return;
+    if (this._csFileProps === undefined || this._csFileProps.length === 0) {
+      if (this.exporter.sourceDbChanges?.isEmpty) return;
+      // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
+      if (this._sourceChangeDataState === "no-changes")
+        this._sourceChangeDataState = "has-changes";
     }
     const hasElementChangedCache = new Set<string>();
 
@@ -3012,7 +3012,8 @@ export class IModelTransformer extends IModelExportHandler {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
-      this.synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index &&
+      this.exporter.sourceDbChanges?.isEmpty;
     if (notConnectedModel || noChanges) return;
 
     /**

@@ -1920,7 +1920,6 @@ describe("IModelTransformerHub", () => {
           expect(element).to.equal(Id64.invalid);
         },
       },
-      { master: { 20: 6 } }, // need a changeset because transformer currently doesn't support no changesets.
       {
         branch1: {
           sync: [
@@ -1968,10 +1967,9 @@ describe("IModelTransformerHub", () => {
             branch1.db,
             "100"
           );
-          expect(elementInTarget).to.not.be.undefined;
+          expect(elementInTarget).to.not.equal(Id64.invalid);
         },
       },
-      { master: { 20: 7 } }, // need a changeset because transformer currently doesn't support no changesets.
       {
         branch1: {
           sync: [

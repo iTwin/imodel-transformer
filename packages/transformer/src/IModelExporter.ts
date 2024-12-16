@@ -454,7 +454,7 @@ export class IModelExporter {
       return;
     }
 
-    const startChangeset =
+    const startChangeset = // TODO: This is weird.. why is this needed? I suspect we can remove this and just pass args to initialize?
       args && "startChangeset" in args ? args.startChangeset : undefined;
 
     const initOpts: ExporterInitOptions = {
@@ -1257,16 +1257,27 @@ export class ChangedInstanceIds {
       case "codeSpec":
         this.handleChange(this.codeSpec, changeType, id);
         break;
-      case "model": // TODO: support models better. We need to mark parent models as updated too otherwise the sub-model will get skipped.
+      case "model":
         this.handleChange(this.model, changeType, id);
         break;
-      case "element":
+      case "element": // When element we need to mark the element's model as updated otherwise this fails.
+        this.addModelToUpdated(id);
         this.handleChange(this.element, changeType, id);
         break;
       case "aspect":
         this.handleChange(this.aspect, changeType, id);
         break;
     }
+  }
+
+  /**
+   * TODO: If the element is a custom delete we probably shouldnt be calling this?
+   * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is part of
+   * the sourceDbChanges. This method is used in addCustomChange to add the model to the updatedIds set so that the custom element changes are exported.
+   */
+  private addModelToUpdated(elementId: Id64String) {
+    const modelId = this._db.elements.getElement(elementId).model;
+    this.handleChange(this.model, "Updated", modelId);
   }
 
   /** TODO: Maybe relationships only? maybe not. */
@@ -1408,8 +1419,7 @@ export class ChangedInstanceIds {
           ? opts.csFileProps
           : undefined;
 
-    // TODO: should we do this in this PR?
-    if (csFileProps === undefined) return new ChangedInstanceIds(opts.iModel); // i think we probably need to return sourcedbchanges here even if empty. that sets us up for a transform with nothing
+    if (csFileProps === undefined) return new ChangedInstanceIds(opts.iModel); // Return empty ChangedInstanceIds just incase people want to add custom changes.
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
 

@@ -523,11 +523,10 @@ export async function runTimeline(
         let targetStateBefore: TimelineIModelElemState | undefined;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
-        const argsForProcessChanges: ExportChangesOptions = {
-          startChangeset: startIndex
-            ? { index: startIndex }
-            : { index: undefined },
-        };
+        let argsForProcessChanges: ExportChangesOptions = {};
+        if (startIndex) {
+          argsForProcessChanges = { startChangeset: { index: startIndex } };
+        }
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
           argsForProcessChanges,
