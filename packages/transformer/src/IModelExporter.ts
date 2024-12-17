@@ -1271,6 +1271,11 @@ export class ChangedInstanceIds {
   }
 
   /**
+   * TODO: Think more about permutations of model updated / inserted / deleted. Can you delete a model without deleting its elements? 
+   * What if model delete but custom change si to insert element into target?
+   *       // It is possible and apparently occasionally sensical to delete a model without deleting its underlying element.
+    // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
+    // - If both were deleted, [[remapDeletedSourceEntities]] will find and remap the deleted element making this operation valid
    * TODO: If the element is a custom delete we probably shouldnt be calling this?
    * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is part of
    * the sourceDbChanges. This method is used in addCustomChange to add the model to the updatedIds set so that the custom element changes are exported.
