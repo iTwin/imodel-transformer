@@ -293,7 +293,6 @@ export class IModelExporter {
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
 
-  private _initialized = false;
   /**
    * Retrieve the cached entity change information.
    * @note This will only be initialized after [IModelExporter.exportChanges] is invoked or [IModelExporter.initialize] is called.
@@ -360,13 +359,12 @@ export class IModelExporter {
    * you pass to [[IModelExporter.exportChanges]]
    */
   public async initialize(options: ExporterInitOptions): Promise<void> {
-    if (!this.sourceDb.isBriefcaseDb() || this._initialized) return;
+    if (!this.sourceDb.isBriefcaseDb() || this._sourceDbChanges) return;
 
     this._sourceDbChanges = await ChangedInstanceIds.initialize({
       iModel: this.sourceDb,
       ...options,
     });
-    this._initialized = true;
     if (this._sourceDbChanges === undefined) return;
 
     this._exportElementAspectsStrategy.setAspectChanges(
