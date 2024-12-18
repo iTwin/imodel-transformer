@@ -2776,6 +2776,67 @@ export class IModelTransformer extends IModelExportHandler {
     this._initialized = true;
   }
 
+  private async handleCustomChanges(
+    hasElementChangedCache: Set<string>,
+    deleteIdsProcessed: Set<Id64String>,
+    elemIdToScopeEsa: Map<Id64String, ChangedECInstance>,
+    relationshipECClassIds: Set<string>,
+    alreadyImportedElementInserts: Set<string>,
+    alreadyImportedModelInserts: Set<string>
+  ): Promise<void> {
+    // The hasElementChangedCache gets populated by changes from this._csFileProps.
+    // Because there is a possibility that someone could manually add ids to exporter.sourceDbChanges, we must separately process exporter.sourceDbChanges and add them to our hasElementChangedCache.
+    // Without this change we risk onExportElement returning early because we use hasElementChangedCache to decide if an element has changed or not.
+    this.exporter.sourceDbChanges?.element.updateIds.forEach((id) =>
+      hasElementChangedCache.add(id)
+    );
+    this.exporter.sourceDbChanges?.element.insertIds.forEach((id) =>
+      hasElementChangedCache.add(id)
+    );
+
+    // This loop is to process all custom deleteIds. Unclear if the special logic is still necessary for relationships or not (TODO!!). For all other entities, we assume that the element is still present in the sourceDb because it is not
+    // a real delete and instead a simulated delete to update filtering criteria between source and target. Since the element is still present, we do not need to call processDeletedOp to find the corresponding targetId.
+    // We can instead rely on `forEachTrackedElement` at the top of processChangesets to find the corresponding targetId.
+    // Note this also assumes we don't need to handle entity recreation for these custom deletes. I.e. a caller of API would not be able to add a custom delete for an entity that was recreated.
+    // a delete followed by an insert.
+    // ASSUME: If a changeset has a deleteId then custom change will never reference it. Is this still true if it was re-inserted? (TODO!!)
+    if (this.exporter.sourceDbChanges?.hasCustomChanges) {
+      for (const id of this.exporter.sourceDbChanges?.relationship.deleteIds.keys() ??
+        []) {
+        if (deleteIdsProcessed?.has(id)) continue;
+
+        const customData =
+          this.exporter.sourceDbChanges?.getCustomRelationshipDataFromId(
+            id,
+            "relationship"
+          );
+        if (customData) {
+          const ecClassId = customData?.ecClassId;
+          const classFullName =
+            this.exporter.sourceDbChanges?.getClassFullNameFromECClassId(
+              ecClassId
+            );
+          const fedGuid = customData?.federationGuid;
+          const sourceIdOfRelationshipInSource =
+            customData?.sourceIdOfRelationship;
+          const targetIdOfRelationshipInSource =
+            customData?.targetIdOfRelationship;
+          await this.processDeletedOp(
+            id,
+            classFullName ?? "",
+            fedGuid,
+            elemIdToScopeEsa,
+            relationshipECClassIds.has(ecClassId ?? ""),
+            sourceIdOfRelationshipInSource,
+            targetIdOfRelationshipInSource,
+            alreadyImportedElementInserts,
+            alreadyImportedModelInserts
+          );
+        }
+      }
+    }
+  }
+
   /**
    * Reads all the changeset files in the private member of the transformer: _csFileProps and does two things with these changesets.
    * Finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId.
@@ -2789,8 +2850,14 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
-    if (this._csFileProps === undefined || this._csFileProps.length === 0)
-      return;
+    this.exporter.addCustomChanges();
+
+    if (this._csFileProps === undefined || this._csFileProps.length === 0) {
+      if (this.exporter.sourceDbChanges?.isEmpty) return;
+      // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
+      if (this._sourceChangeDataState === "no-changes")
+        this._sourceChangeDataState = "has-changes";
+    }
     const hasElementChangedCache = new Set<string>();
 
     const relationshipECClassIdsToSkip = new Set<string>();
@@ -2833,9 +2900,12 @@ export class IModelTransformer extends IModelExportHandler {
           alreadyImportedModelInserts.add(targetModelId);
       }
     );
-    this._deletedSourceRelationshipData = new Map();
 
-    for (const csFile of this._csFileProps) {
+    this._deletedSourceRelationshipData = new Map();
+    /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
+    const elemIdToScopeEsa = new Map<Id64String, ChangedECInstance>();
+    const deleteIdsProcessed = new Set<string>();
+    for (const csFile of this._csFileProps ?? []) {
       const csReader = SqliteChangesetReader.openFile({
         fileName: csFile.pathname,
         db: this.sourceDb,
@@ -2848,8 +2918,6 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
-      /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
-      const elemIdToScopeEsa = new Map<Id64String, ChangedECInstance>();
       for (const change of changes) {
         if (
           change.ECClassId !== undefined &&
@@ -2890,19 +2958,35 @@ export class IModelTransformer extends IModelExportHandler {
         )
           continue;
         await this.processDeletedOp(
-          change,
+          change.ECInstanceId,
+          change.$meta?.classFullName ?? "",
+          change.FederationGuid,
           elemIdToScopeEsa,
           relationshipECClassIds.has(ecClassId ?? ""),
+          change.SourceECInstanceId,
+          change.TargetECInstanceId,
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         );
+        deleteIdsProcessed.add(change.ECInstanceId);
       }
 
       csReader.close();
     }
+
+    await this.handleCustomChanges(
+      hasElementChangedCache,
+      deleteIdsProcessed,
+      elemIdToScopeEsa,
+      relationshipECClassIds,
+      alreadyImportedElementInserts,
+      alreadyImportedModelInserts
+    );
+
     this._hasElementChangedCache = hasElementChangedCache;
     return;
   }
+
   /**
    * Helper function for processChangesets. Remaps the id of element deleted found in the 'change' to an element in the targetDb.
    * @param change the change to process, must be of changeType "Deleted"
@@ -2914,16 +2998,21 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns void
    */
   private async processDeletedOp(
-    change: ChangedECInstance,
+    instanceId: Id64String,
+    classFullName: Id64String,
+    federationGuid: Id64String | undefined,
     mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
     isRelationship: boolean,
+    sourceIdOfRelationshipInSource: Id64String | undefined,
+    targetIdOfRelationshipInSource: Id64String | undefined,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>
   ) {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
-      this.synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index &&
+      this.exporter.sourceDbChanges?.isEmpty;
     if (notConnectedModel || noChanges) return;
 
     /**
@@ -2938,9 +3027,13 @@ export class IModelTransformer extends IModelExportHandler {
       if (isRelationship) {
         element = this.sourceDb.elements.tryGetElement(id);
       }
-      const fedGuid = isRelationship
-        ? element?.federationGuid
-        : change.FederationGuid;
+      const fedGuid = isRelationship ? element?.federationGuid : federationGuid;
+      // Check for targetId using sourceId's fedguid
+      if (fedGuid) {
+        const targetId = this._queryElemIdByFedGuid(this.targetDb, fedGuid);
+        if (targetId !== undefined) return targetId;
+      }
+      // Check for targetId by esa
       if (changeDataInProvenanceDb) {
         // TODO: clarify what happens if there are multiple (e.g. elements were merged)
         for await (const row of this.sourceDb.createQueryReader(
@@ -2955,28 +3048,18 @@ export class IModelTransformer extends IModelExportHandler {
         }
         identifierValue =
           identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.Identifier;
+        if (identifierValue) return identifierValue;
       }
 
-      // Check for targetId by an esa first
-      if (changeDataInProvenanceDb && identifierValue) {
-        const targetId = identifierValue;
-        return targetId;
-      }
-
-      // Check for targetId using sourceId's fedguid if we didn't find an esa.
-      if (fedGuid) {
-        const targetId = this._queryElemIdByFedGuid(this.targetDb, fedGuid);
-        return targetId;
-      }
       return undefined;
     };
 
-    const changedInstanceId = change.ECInstanceId;
-    if (isRelationship) {
-      const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
-      const targetIdOfRelationshipInSource = change.TargetECInstanceId;
-      const classFullName = change.$meta?.classFullName;
-
+    const changedInstanceId = instanceId;
+    if (
+      isRelationship &&
+      sourceIdOfRelationshipInSource &&
+      targetIdOfRelationshipInSource
+    ) {
       const sourceIdOfRelationshipInTarget = await getTargetIdFromSourceId(
         sourceIdOfRelationshipInSource
       );
