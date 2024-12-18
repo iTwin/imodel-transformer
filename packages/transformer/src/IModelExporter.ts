@@ -381,7 +381,7 @@ export class IModelExporter {
    * @note The transformer will have built up the remap table between the source and target iModels before calling this function. This means that functions like [[IModelTransformer.context.findTargetElementId]] will return meaningful results.
    * @note Its expected that this function be overridden by a subclass of exporter if it needs to modify sourceDbChanges.
    */
-  public addCustomChangesCallback(): void {}
+  public addCustomChanges(): void {}
 
   /** Register the handler that will be called by IModelExporter. */
   public registerHandler(handler: IModelExportHandler): void {
@@ -1225,6 +1225,15 @@ export class ChangedInstanceIds {
       this.handleChange(this.model, changeType, change.ECInstanceId);
     else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
+  }
+
+  public addCustomElementChange(
+    changeType: SqliteChangeOp,
+    id: Id64String
+  ): void {
+    // if delete unnecessary?
+    this.addModelToUpdated(id);
+    this.handleChange(this.element, changeType, id);
   }
 
   /**
