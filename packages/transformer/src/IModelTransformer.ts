@@ -93,7 +93,6 @@ import {
   SourceAndTarget,
 } from "@itwin/core-common";
 import {
-  ChangedInstanceType,
   ExportChangesOptions,
   ExporterInitOptions,
   ExportSchemaResult,
