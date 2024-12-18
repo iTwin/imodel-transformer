@@ -1227,9 +1227,17 @@ export class ChangedInstanceIds {
       this.handleChange(this.element, changeType, change.ECInstanceId);
   }
 
+  /**
+   * Adds the provided change to the element changes maintained by this instance of ChangedInstanceIds
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @note element changes will also cause the element's model to be marked as updated in [[ChangedInstanceIds.model]], so that the element does not get skipped by the transformer.
+   * @note It is the responsibility of the caller to ensure that the provided id is, in fact an element.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   */
   public addCustomElementChange(
     changeType: SqliteChangeOp,
-    id: Id64String
+    id: Id64String // TODO: Support bulk adds
   ): void {
     // if delete unnecessary?
     this.addModelToUpdated(id);
@@ -1237,45 +1245,45 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided change to the appropriate set of changes by class type (codeSpec, model, element, aspect) maintained by this instance of ChangedInstanceIds.
+   * Adds the provided change to the codespec changes maintained by this instance of ChangedInstanceIds
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @note This method will not accept changes to relationship classes. Use 'addCustomRelationshipChange' instead.
+   * @note It is the responsibility of the caller to ensure that the provided id is, in fact a codespec.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
-   * @throws if the ecClassId is a relationship classId
-   * @param ecClassId class id of the custom change
-   * @param changeType insert, update or delete
-   * @param id ECInstanceID of the custom change
-   * @param federationGuid federationGuid defined on the element
    */
-  public async addCustomChange(
-    entityType: ChangedInstanceType,
+  public addCustomCodeSpecChange(
     changeType: SqliteChangeOp,
-    id: Id64String // TODO: SUPPORT BULK ADDS (per entity type okay?)
-  ): Promise<void> {
-    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    if (entityType === "relationship") {
-      throw new Error(
-        `Misuse. id: ${id} is a relationship. Use 'addCustomRelationshipChange' instead.`
-      );
-    }
-    this._hasCustomChanges = true;
+    id: Id64String
+  ): void {
+    this.handleChange(this.codeSpec, changeType, id);
+  }
 
-    switch (entityType) {
-      case "codeSpec":
-        this.handleChange(this.codeSpec, changeType, id);
-        break;
-      case "model":
-        this.handleChange(this.model, changeType, id);
-        break;
-      case "element": // When element we need to mark the element's model as updated otherwise this fails.
-        this.addModelToUpdated(id);
-        this.handleChange(this.element, changeType, id);
-        break;
-      case "aspect":
-        this.handleChange(this.aspect, changeType, id);
-        break;
-    }
+  /**
+   * Adds the provided change to the model changes maintained by this instance of ChangedInstanceIds
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @note It is the responsibility of the caller to ensure that the provided id is, in fact a model.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   */
+  public addCustomModelChange(
+    changeType: SqliteChangeOp,
+    id: Id64String
+  ): void {
+    this.handleChange(this.model, changeType, id);
+  }
+
+  /**
+   * Adds the provided change to the aspect changes maintained by this instance of ChangedInstanceIds
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @note It is the responsibility of the caller to ensure that the provided id is, in fact an aspect.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   */
+  public addCustomAspectChange(
+    changeType: SqliteChangeOp,
+    id: Id64String
+  ): void {
+    this.handleChange(this.aspect, changeType, id);
   }
 
   /**
@@ -1311,7 +1319,6 @@ export class ChangedInstanceIds {
    * Adds the provided change to the set of relationship changes maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @note This method will ONLY accept changes to relationship classes. Use 'addCustomChange' instead if your change is not pertaining to a relationship class.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @throws if the ecClassId is NOT a relationship classId
    * @param ecClassId class id of the custom change

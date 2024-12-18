@@ -1814,7 +1814,6 @@ describe("IModelTransformerHub", () => {
 
   it("should propagate custom inserts and custom deletes", async () => {
     let ecClassIdOfRel: Id64String | undefined;
-    let ecClassIdOfElement: Id64String | undefined;
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
     if (IModelJsFs.existsSync(masterSeedFileName))
@@ -1956,28 +1955,23 @@ describe("IModelTransformerHub", () => {
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "element",
+                  exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     elementIdInSource!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "element",
+                  exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     physicalModelIdInSource!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "model",
+                  exporter.sourceDbChanges?.addCustomModelChange(
                     "Inserted",
                     physicalModelIdInSource!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "model",
+                  exporter.sourceDbChanges?.addCustomModelChange(
                     "Inserted",
                     modelUnderRepositoryModel!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "element",
+                  exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     modelUnderRepositoryModel!
                   );
@@ -2046,28 +2040,23 @@ describe("IModelTransformerHub", () => {
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "element",
+                  exporter.sourceDbChanges?.addCustomElementChange(
                     "Deleted",
                     elementIdInSource!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "element",
+                  exporter.sourceDbChanges?.addCustomElementChange(
                     "Deleted",
                     physicalModelIdInSource!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "model",
+                  exporter.sourceDbChanges?.addCustomModelChange(
                     "Deleted",
                     physicalModelIdInSource!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "model",
+                  exporter.sourceDbChanges?.addCustomModelChange(
                     "Deleted",
                     modelUnderRepositoryModel!
                   );
-                  await exporter.sourceDbChanges?.addCustomChange(
-                    "element",
+                  exporter.sourceDbChanges?.addCustomElementChange(
                     "Deleted",
                     modelUnderRepositoryModel!
                   );
