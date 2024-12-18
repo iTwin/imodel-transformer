@@ -1829,12 +1829,6 @@ describe("IModelTransformerHub", () => {
     )) {
       ecClassIdOfRel = row.ECInstanceId;
     }
-    // Elements inserted by syntax like { master: {100: 100} } which this test uses, are PhysicalObjects.
-    for await (const row of masterSeedDb.createQueryReader(
-      "SELECT ECInstanceId FROM ECdbMeta.ECClassDef WHERE Name LIKE 'PhysicalObject'"
-    )) {
-      ecClassIdOfElement = row.ECInstanceId;
-    }
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     const masterSeed: TimelineIModelState = {
@@ -1848,6 +1842,8 @@ describe("IModelTransformerHub", () => {
     let sourceIdOfRel: Id64String | undefined;
     let targetIdOfRel: Id64String | undefined;
     let elementIdInSource: Id64String | undefined;
+    let physicalModelIdInSource: Id64String | undefined;
+    let modelUnderRepositoryModel: Id64String | undefined;
     const timeline: Timeline = [
       { master: { seed: masterSeed } }, // masterSeedState is above
       { branch1: { branch: "master" } },
@@ -1867,15 +1863,16 @@ describe("IModelTransformerHub", () => {
             relId = rel.insert();
 
             elementIdInSource = IModelTestUtils.queryByUserLabel(db, "100");
-
-            // insert model into master whose parent is the repositoryModel
-            /** @note must always match the model of the [[ModelProps.modeledElement]] */
-            // parentModel?: Id64String;
-            // const model = db.models.createModel({
-            //   classFullName: "BisCore:PhysicalModel",
-            //   modeledElement: { id: elementIdInSource },
-            //   parentModel: IModel.repositoryModelId,
-            // });
+            physicalModelIdInSource = PhysicalModel.insert(
+              db,
+              IModel.rootSubjectId,
+              "MyPhysicalModel"
+            );
+            modelUnderRepositoryModel = DefinitionModel.insert(
+              db,
+              IModel.rootSubjectId,
+              "MyModelUnderRepositoryModel"
+            );
           },
         },
       },
@@ -1896,6 +1893,19 @@ describe("IModelTransformerHub", () => {
             const idOfElement = IModelTestUtils.queryByUserLabel(db, "100");
             expect(idOfElement).to.not.be.undefined;
             db.elements.deleteElement(idOfElement);
+            const physicalPartitionIdInTarget =
+              IModelTestUtils.queryByCodeValue(db, "MyPhysicalModel");
+            expect(physicalPartitionIdInTarget).to.not.equal(Id64.invalid);
+            db.models.deleteModel(physicalPartitionIdInTarget);
+            db.elements.deleteElement(physicalPartitionIdInTarget);
+            const modelUnderRepositoryModelId =
+              IModelTestUtils.queryByCodeValue(
+                db,
+                "MyModelUnderRepositoryModel"
+              );
+            expect(modelUnderRepositoryModelId).to.not.equal(Id64.invalid);
+            db.models.deleteModel(modelUnderRepositoryModelId);
+            db.elements.deleteElement(modelUnderRepositoryModelId);
           },
         },
       },
@@ -1918,6 +1928,17 @@ describe("IModelTransformerHub", () => {
           expect(rel).to.be.undefined;
           const element = IModelTestUtils.queryByUserLabel(branch1.db, "100");
           expect(element).to.equal(Id64.invalid);
+          const physicalPartitionIdInTarget = IModelTestUtils.queryByCodeValue(
+            branch1.db,
+            "MyPhysicalModel"
+          );
+          expect(physicalPartitionIdInTarget).to.equal(Id64.invalid);
+          const modelUnderRepositoryModelInTarget =
+            IModelTestUtils.queryByCodeValue(
+              branch1.db,
+              "MyModelUnderRepositoryModel"
+            );
+          expect(modelUnderRepositoryModelInTarget).to.equal(Id64.invalid);
         },
       },
       {
@@ -1939,6 +1960,26 @@ describe("IModelTransformerHub", () => {
                     "element",
                     "Inserted",
                     elementIdInSource!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "element",
+                    "Inserted",
+                    physicalModelIdInSource!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "model",
+                    "Inserted",
+                    physicalModelIdInSource!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "model",
+                    "Inserted",
+                    modelUnderRepositoryModel!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "element",
+                    "Inserted",
+                    modelUnderRepositoryModel!
                   );
                 },
               },
@@ -1968,6 +2009,26 @@ describe("IModelTransformerHub", () => {
             "100"
           );
           expect(elementInTarget).to.not.equal(Id64.invalid);
+          const physicalPartitionIdInTarget = IModelTestUtils.queryByCodeValue(
+            branch1.db,
+            "MyPhysicalModel"
+          );
+          expect(physicalPartitionIdInTarget).to.not.equal(Id64.invalid);
+          expect(branch1.db.elements.getElement(physicalPartitionIdInTarget)).to
+            .not.be.undefined;
+          expect(branch1.db.models.getModel(physicalPartitionIdInTarget)).to.not
+            .be.undefined;
+          const modelUnderRepositoryModelInTarget =
+            IModelTestUtils.queryByCodeValue(
+              branch1.db,
+              "MyModelUnderRepositoryModel"
+            );
+          expect(modelUnderRepositoryModelInTarget).to.not.equal(Id64.invalid);
+          expect(
+            branch1.db.elements.getElement(modelUnderRepositoryModelInTarget)
+          ).to.not.be.undefined;
+          expect(branch1.db.models.getModel(modelUnderRepositoryModelInTarget))
+            .to.not.be.undefined;
         },
       },
       {
@@ -1989,6 +2050,26 @@ describe("IModelTransformerHub", () => {
                     "element",
                     "Deleted",
                     elementIdInSource!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "element",
+                    "Deleted",
+                    physicalModelIdInSource!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "model",
+                    "Deleted",
+                    physicalModelIdInSource!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "model",
+                    "Deleted",
+                    modelUnderRepositoryModel!
+                  );
+                  await exporter.sourceDbChanges?.addCustomChange(
+                    "element",
+                    "Deleted",
+                    modelUnderRepositoryModel!
                   );
                 },
               },
@@ -2016,6 +2097,17 @@ describe("IModelTransformerHub", () => {
           const element = IModelTestUtils.queryByUserLabel(branch1.db, "100");
           expect(element).to.equal(Id64.invalid);
           expect(rel).to.be.undefined;
+          const physicalPartitionIdInTarget = IModelTestUtils.queryByCodeValue(
+            branch1.db,
+            "MyPhysicalModel"
+          );
+          expect(physicalPartitionIdInTarget).to.equal(Id64.invalid);
+          const modelUnderRepositoryModelInTarget =
+            IModelTestUtils.queryByCodeValue(
+              branch1.db,
+              "MyModelUnderRepositoryModel"
+            );
+          expect(modelUnderRepositoryModelInTarget).to.equal(Id64.invalid);
         },
       },
     ];
