@@ -2850,7 +2850,7 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
-    this.exporter.addCustomChangesCallback();
+    this.exporter.addCustomChanges();
 
     if (this._csFileProps === undefined || this._csFileProps.length === 0) {
       if (this.exporter.sourceDbChanges?.isEmpty) return;
