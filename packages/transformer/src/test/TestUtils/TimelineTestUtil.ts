@@ -523,7 +523,7 @@ export async function runTimeline(
         let targetStateBefore: TimelineIModelElemState | undefined;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
-        let argsForProcessChanges: ExportChangesOptions = {};
+        let argsForProcessChanges: ExportChangesOptions = { csFileProps: [] };
         if (startIndex) {
           argsForProcessChanges = { startChangeset: { index: startIndex } };
         }
