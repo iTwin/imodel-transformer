@@ -1059,15 +1059,16 @@ export type ChangedInstanceType =
   | "aspect"
   | "relationship"
   | "font";
+
 /**
  * Interface to describe a 'custom' change. A custom change is one which isn't found by reading changesets, but instead added by a user calling the 'addCustomChange' API on the ChangedInstanceIds instance.
  * The purpose a custom change would serve is to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
  */
-export interface ChangedInstanceCustomData {
-  sourceIdOfRelationship?: Id64String;
-  targetIdOfRelationship?: Id64String;
-  federationGuid?: Id64String;
+export interface ChangedInstanceCustomRelationshipData {
+  sourceIdOfRelationship: Id64String;
+  targetIdOfRelationship: Id64String;
   ecClassId: Id64String;
+  classFullName: string;
 }
 
 /**
@@ -1091,7 +1092,7 @@ export class ChangedInstanceIds {
   /** c${string} is used to represent codeSpecs since they do not currently have a representation in the EntityReference class. This map holds information passed to the 'addCustom' functions. */
   private _entityReferenceToCustomDataMap: Map<
     EntityReference | `c${string}`,
-    ChangedInstanceCustomData
+    ChangedInstanceCustomRelationshipData
   >;
   private _hasCustomChanges: boolean;
 
@@ -1101,7 +1102,7 @@ export class ChangedInstanceIds {
     this._hasCustomChanges = false;
     this._entityReferenceToCustomDataMap = new Map<
       EntityReference,
-      ChangedInstanceCustomData
+      ChangedInstanceCustomRelationshipData
     >();
   }
 
@@ -1305,7 +1306,7 @@ export class ChangedInstanceIds {
   public getCustomRelationshipDataFromId(
     id: Id64String,
     type: ChangedInstanceType
-  ): ChangedInstanceCustomData | undefined {
+  ): ChangedInstanceCustomRelationshipData | undefined {
     if (type === "relationship") {
       return this._entityReferenceToCustomDataMap.get(
         EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship)
@@ -1342,18 +1343,21 @@ export class ChangedInstanceIds {
       );
 
     this._hasCustomChanges = true;
+    const classFullName = this._ecClassIdsToClassFullNames?.get(ecClassId);
+    assert(classFullName !== undefined); // setupECClassIds adds an entry to the above map for every single ECClassId.
     this._entityReferenceToCustomDataMap.set(
       EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship),
       {
         sourceIdOfRelationship: sourceECInstanceId,
         targetIdOfRelationship: targetECInstanceId,
         ecClassId,
+        classFullName,
       }
     );
     this.handleChange(this.relationship, changeType, id);
   }
 
-  public getClassFullNameFromECClassId(
+  private getClassFullNameFromECClassId(
     ecClassid: Id64String
   ): string | undefined {
     return this._ecClassIdsToClassFullNames?.get(ecClassid);
