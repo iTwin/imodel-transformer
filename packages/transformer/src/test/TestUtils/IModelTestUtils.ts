@@ -892,13 +892,6 @@ export class IModelTestUtils {
     return subj;
   }
 
-  /** Flushes the Txns in the TxnTable - this allows importing of schemas */
-  public static flushTxns(iModelDb: IModelDb): boolean {
-    /* eslint-disable-next-line deprecation/deprecation */
-    iModelDb.nativeDb.deleteAllTxns();
-    return true;
-  }
-
   public static querySubjectId(
     iModelDb: IModelDb,
     subjectCodeValue: string
