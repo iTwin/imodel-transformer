@@ -2163,16 +2163,7 @@ describe("IModelTransformer", () => {
 
   // for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
   function setToStandalone(iModelName: string) {
-    // eslint-disable-next-line deprecation/deprecation
-    const nativeDb = new IModelHost.platform.DgnDb();
-    nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
-    nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-    nativeDb.saveChanges(); // save change to iTwinId
-    nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-    nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-    nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
-    nativeDb.saveChanges(); // save change to briefcaseId
-    nativeDb.closeFile();
+    StandaloneDb.convertToStandalone(iModelName);
   }
 
   it("biscore update is valid", async () => {
@@ -2950,7 +2941,7 @@ describe("IModelTransformer", () => {
     // insert an unrelated element that uses same id as subject1
     // insertElement public api does not support forceUseId option
     // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    const targetSubjectId3 = targetDb.nativeDb.insertElement(
+    const targetSubjectId3 = targetDb.elements.insertElement(
       newPropsForSubject3,
       { forceUseId: true }
     );

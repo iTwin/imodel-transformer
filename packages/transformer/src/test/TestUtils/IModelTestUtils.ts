@@ -1382,10 +1382,6 @@ export class ExtensiveTestScenario {
   }
 
   public static populateDb(sourceDb: IModelDb): void {
-    // make sure Arial is in the font table
-    sourceDb.addNewFont("Arial");
-    assert.exists(sourceDb.fontMap.getFont("Arial"));
-
     // Initialize project extents
     const projectExtents = new Range3d(-1000, -1000, -1000, 1000, 1000, 1000);
     sourceDb.updateProjectExtents(projectExtents);
