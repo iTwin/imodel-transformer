@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestGeneratedClassesNew" alias="tgcn" version="1.0.0"
+    xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+    <ECSchemaReference name="CoreCustomAttributes" version="01.00.03" alias="CoreCA"/>
+    <ECSchemaReference name="BisCustomAttributes" version="01.00.00" alias="bisCA"/>
+    <ECSchemaReference name="ECdbMap" version="02.00.04" alias="ecdbmap"/>
+    <ECSchemaReference name="BisCore" version="01.00.16" alias="bis"/>
+
+    <ECEntityClass typeName="TestView" modifier="Abstract" displayLabel="Test View" description="a sample view">
+        <ECCustomAttributes>
+            <QueryView xmlns="ECDbMap.02.00.04">
+                <Query>
+                    SELECT
+                        pe.ECInstanceId,
+                        pe.ECClassId,
+                        pe.Yaw as Yaw,
+                        NAVIGATION_VALUE(bis.PhysicalElement.Parent, pe.Parent.Id) as Parent
+                    FROM bis.PhysicalElement pe
+                </Query>
+            </QueryView>
+        </ECCustomAttributes>
+        <ECProperty propertyName="Yaw" typeName="double" description="Yaw of the PhysicalElement"/>
+        <ECNavigationProperty propertyName="Parent" relationshipName="PhysicalElementOwnsTestView" direction="backward" description="The parent Element that owns this element"/>
+    </ECEntityClass>
+
+    <ECRelationshipClass typeName="PhysicalElementOwnsTestView" strength="embedding" modifier="None" description="Relationship between an PhysicalElement and a TestView.">
+        <Source multiplicity="(1..1)" roleLabel="owns" polymorphic="true">
+            <Class class="bis:PhysicalElement"/>
+        </Source>
+        <Target multiplicity="(1..*)" roleLabel="is owned by" polymorphic="true">
+            <Class class="TestView"/>
+        </Target>
+    </ECRelationshipClass>
+
+</ECSchema>

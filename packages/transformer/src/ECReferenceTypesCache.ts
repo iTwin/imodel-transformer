@@ -6,7 +6,12 @@
  * @module iModels
  */
 
-import { DbResult, TupleKeyedMap } from "@itwin/core-bentley";
+import {
+  DbResult,
+  Logger,
+  StopWatch,
+  TupleKeyedMap,
+} from "@itwin/core-bentley";
 import {
   ConcreteEntityTypes,
   IModelError,
@@ -24,6 +29,7 @@ import {
 } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelDb } from "@itwin/core-backend";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal
@@ -53,6 +59,9 @@ export class ECReferenceTypesCache {
     RelTypeInfo
   >();
   private _initedSchemas = new Map<string, SchemaKey>();
+
+  private _cumulativeTimeSpentCheckingForQueryView: number = 0;
+  private _classesCheckedForQueryView: number = 0;
 
   private static bisRootClassToRefType: Record<
     string,
@@ -140,6 +149,50 @@ export class ECReferenceTypesCache {
           throw new IModelError(status, "unexpected query failure");
       }
     );
+    Logger.logInfo(
+      TransformerLoggerCategory.IModelTransformer,
+      `Checked ${this._classesCheckedForQueryView} classes for QueryView custom attribute. This took ${this._cumulativeTimeSpentCheckingForQueryView}ms.`
+    );
+  }
+
+  /**
+   *
+   * @param cls the class to check for custom attributes
+   * @param isSource whether the class is the source or target class of a relationship
+   * @returns true if the class has a custom attribute that is a QueryView and no type found in the rootClassToRefType map
+   */
+  private hasQueryViewCustomAttributeAndNoRootClass(
+    cls: ECClass,
+    isSource: boolean,
+    rootClassToRefType?: ConcreteEntityTypes
+  ): boolean {
+    const stopwatch = new StopWatch(
+      "hasQueryViewCustomAttributeAndNoRootClass",
+      true
+    );
+    const sourceCAs = cls.getCustomAttributesSync();
+    this._classesCheckedForQueryView++;
+    for (const [customAttributeName, _customAttribute] of sourceCAs) {
+      /*
+       * Since queryViews are typically associated with abstract classes and have no specific table in the database, we can ignore them.
+       */
+      if (
+        customAttributeName.toLowerCase() === "ecdbmap.queryview" &&
+        rootClassToRefType === undefined
+      ) {
+        // no rootClassToRefType means the rootBisClass.name is not in the bisRootClassToRefType map.
+        Logger.logInfo(
+          TransformerLoggerCategory.IModelTransformer,
+          `${isSource ? "sourceClass" : "targetClass"}: ${cls.schema.name}:${cls.name} has customAttribute which is QueryView and no type found in the rootClassToRefType map`
+        );
+        this._cumulativeTimeSpentCheckingForQueryView +=
+          stopwatch.elapsed.milliseconds;
+        return true;
+      }
+    }
+    this._cumulativeTimeSpentCheckingForQueryView +=
+      stopwatch.elapsed.milliseconds;
+    return false;
   }
 
   private async considerInitSchema(schema: Schema): Promise<void> {
@@ -221,6 +274,24 @@ export class ECReferenceTypesCache {
       ECReferenceTypesCache.bisRootClassToRefType[sourceRootBisClass.name];
     const targetType =
       ECReferenceTypesCache.bisRootClassToRefType[targetRootBisClass.name];
+
+    if (
+      this.hasQueryViewCustomAttributeAndNoRootClass(
+        sourceClass,
+        true,
+        sourceType
+      )
+    )
+      return undefined;
+    if (
+      this.hasQueryViewCustomAttributeAndNoRootClass(
+        targetClass,
+        false,
+        targetType
+      )
+    )
+      return undefined;
+
     const makeAssertMsg = (root: ECClass, cls: ECClass) =>
       [
         `An unknown root class '${root.fullName}' was encountered while populating`,
