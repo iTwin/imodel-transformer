@@ -34,6 +34,8 @@ import {
 import {
   assert,
   DbResult,
+  Id64,
+  Id64Arg,
   Id64String,
   IModelStatus,
   Logger,
@@ -1238,11 +1240,13 @@ export class ChangedInstanceIds {
    */
   public addCustomElementChange(
     changeType: SqliteChangeOp,
-    id: Id64String // TODO: Support bulk adds
+    ids: Id64Arg
   ): void {
     // if delete unnecessary?
-    this.addModelToUpdated(id);
-    this.handleChange(this.element, changeType, id);
+    for (const id of Id64.iterable(ids)) {
+      this.addModelToUpdated(id);
+      this.handleChange(this.element, changeType, id);
+    }
   }
 
   /**
@@ -1254,9 +1258,11 @@ export class ChangedInstanceIds {
    */
   public addCustomCodeSpecChange(
     changeType: SqliteChangeOp,
-    id: Id64String
+    ids: Id64Arg
   ): void {
-    this.handleChange(this.codeSpec, changeType, id);
+    for (const id of Id64.iterable(ids)) {
+      this.handleChange(this.codeSpec, changeType, id);
+    }
   }
 
   /**
@@ -1267,13 +1273,12 @@ export class ChangedInstanceIds {
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact a model.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    */
-  public addCustomModelChange(
-    changeType: SqliteChangeOp,
-    id: Id64String
-  ): void {
-    this.handleChange(this.model, changeType, id);
-    // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand.
-    this.handleChange(this.element, changeType, id);
+  public addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): void {
+    for (const id of Id64.iterable(ids)) {
+      this.handleChange(this.model, changeType, id);
+      // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand.
+      this.handleChange(this.element, changeType, id);
+    }
   }
 
   /**
@@ -1283,11 +1288,10 @@ export class ChangedInstanceIds {
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact an aspect.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    */
-  public addCustomAspectChange(
-    changeType: SqliteChangeOp,
-    id: Id64String
-  ): void {
-    this.handleChange(this.aspect, changeType, id);
+  public addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void {
+    for (const id of Id64.iterable(ids)) {
+      this.handleChange(this.aspect, changeType, id);
+    }
   }
 
   /**
