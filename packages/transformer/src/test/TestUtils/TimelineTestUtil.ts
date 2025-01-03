@@ -27,7 +27,6 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   IModelTransformer,
   IModelTransformOptions,
-  InitOptions,
 } from "../../IModelTransformer";
 import {
   HubWrappers,
