@@ -1822,6 +1822,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
+    // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     for await (const row of masterSeedDb.createQueryReader(
       "SELECT ECInstanceId FROM ECdbMeta.ECClassDef WHERE Name LIKE 'ElementGroupsMembers'"
