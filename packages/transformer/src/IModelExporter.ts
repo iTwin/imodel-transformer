@@ -440,6 +440,7 @@ export class IModelExporter {
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
    *       for consecutive calls
+   * @note Passing {} or undefined to exportChanges will result in the current changeset of the source iModel being exported.
    */
   public async exportChanges(args?: ExportChangesOptions): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb())
@@ -453,14 +454,21 @@ export class IModelExporter {
       return;
     }
 
-    const startChangeset = // TODO: This is weird.. why is this needed? I suspect we can remove this and just pass args to initialize?
-      args && "startChangeset" in args ? args.startChangeset : undefined;
+    const isEmptyObject = (obj: object): boolean =>
+      Object.keys(obj).length === 0;
 
-    const initOpts: ExporterInitOptions = {
-      startChangeset: { id: startChangeset?.id },
-    };
+    let initOpts: ExporterInitOptions;
+    if (args === undefined || isEmptyObject(args)) {
+      // Fallback behavior for exportChanges with no args / empty object, this.initialize will process the current changeset of the source iModel being exported when startChangeset.id is undefined.
+      initOpts = {
+        startChangeset: { id: undefined },
+      };
+    } else {
+      initOpts = args;
+    }
 
     await this.initialize(initOpts);
+
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
       this._sourceDbChanges !== undefined,
@@ -469,7 +477,7 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    if (initOpts.skipPropagateChangesToRootElements) {
+    if (initOpts?.skipPropagateChangesToRootElements) {
       await this.exportModelContents(IModel.repositoryModelId);
       await this.exportSubModels(IModel.repositoryModelId);
     } else {
