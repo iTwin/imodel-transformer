@@ -1252,7 +1252,8 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided change to the model changes maintained by this instance of ChangedInstanceIds
+   * Adds the provided change to the model changes maintained by this instance of ChangedInstanceIds.
+   * Also adds the model's modeledElement to the element changes. This is to ensure the changes from the model and its modeledElement get exported together.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact a model.
@@ -1263,6 +1264,8 @@ export class ChangedInstanceIds {
     id: Id64String
   ): void {
     this.handleChange(this.model, changeType, id);
+    // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand.
+    this.handleChange(this.element, changeType, id);
   }
 
   /**
