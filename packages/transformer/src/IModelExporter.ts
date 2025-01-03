@@ -1052,14 +1052,6 @@ export class ChangedInstanceOps {
   }
 }
 
-export type ChangedInstanceType =
-  | "codeSpec"
-  | "model"
-  | "element"
-  | "aspect"
-  | "relationship"
-  | "font";
-
 /**
  * Interface to describe a 'custom' change. A custom change is one which isn't found by reading changesets, but instead added by a user calling the 'addCustomChange' API on the ChangedInstanceIds instance.
  * The purpose a custom change would serve is to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
@@ -1304,16 +1296,11 @@ export class ChangedInstanceIds {
 
   /** TODO: Maybe relationships only? maybe not. */
   public getCustomRelationshipDataFromId(
-    id: Id64String,
-    type: ChangedInstanceType
+    id: Id64String
   ): ChangedInstanceCustomRelationshipData | undefined {
-    if (type === "relationship") {
-      return this._entityReferenceToCustomDataMap.get(
-        EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship)
-      );
-    }
-
-    return undefined;
+    return this._entityReferenceToCustomDataMap.get(
+      EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship)
+    );
   }
 
   /**

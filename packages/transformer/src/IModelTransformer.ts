@@ -2802,10 +2802,7 @@ export class IModelTransformer extends IModelExportHandler {
         if (deleteIdsProcessed?.has(id)) continue;
 
         const customData =
-          this.exporter.sourceDbChanges?.getCustomRelationshipDataFromId(
-            id,
-            "relationship"
-          );
+          this.exporter.sourceDbChanges?.getCustomRelationshipDataFromId(id);
         if (customData === undefined) {
           Logger.logError(
             loggerCategory,
