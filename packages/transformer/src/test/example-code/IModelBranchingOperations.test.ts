@@ -31,6 +31,7 @@ import {
   ExternalSourceProps,
   IModel,
   PhysicalElementProps,
+  QueryBinder,
   RepositoryLinkProps,
   SubCategoryAppearance,
 } from "@itwin/core-common";
@@ -130,13 +131,20 @@ async function forwardSyncMasterToBranch(
   myAccessToken: AccessToken
 ) {
   // __PUBLISH_EXTRACT_START__ IModelBranchingOperations_forwardSync
-  const masterExternalSourceId = branchDb.elements.queryElementIdByCode(
+  const repositoryLinkId = branchDb.elements.queryElementIdByCode(
     RepositoryLink.createCode(
       masterDb,
       IModelDb.repositoryModelId,
       "example-code-value"
     )
   );
+  let masterExternalSourceId;
+  for await (const row of branchDb.createQueryReader(
+    `SELECT ECInstanceId FROM ${ExternalSource.classFullName} WHERE Repository.Id=:id`,
+    QueryBinder.from({ id: repositoryLinkId })
+  )) {
+    masterExternalSourceId = row.ECInstanceId;
+  }
   const synchronizer = new IModelTransformer(masterDb, branchDb, {
     // read the synchronization provenance in the scope of our representation of the external source, master
     targetScopeElementId: masterExternalSourceId,
@@ -163,13 +171,20 @@ async function reverseSyncBranchToMaster(
 ) {
   // __PUBLISH_EXTRACT_START__ IModelBranchingOperations_reverseSync
   // we assume masterDb and branchDb have already been opened (see the first example)
-  const masterExternalSourceId = branchDb.elements.queryElementIdByCode(
+  const repositoryLinkId = branchDb.elements.queryElementIdByCode(
     RepositoryLink.createCode(
       masterDb,
       IModelDb.repositoryModelId,
       "example-code-value"
     )
   );
+  let masterExternalSourceId;
+  for await (const row of branchDb.createQueryReader(
+    `SELECT ECInstanceId FROM ${ExternalSource.classFullName} WHERE Repository.Id=:id`,
+    QueryBinder.from({ id: repositoryLinkId })
+  )) {
+    masterExternalSourceId = row.ECInstanceId;
+  }
   const reverseSynchronizer = new IModelTransformer(branchDb, masterDb, {
     // read the synchronization provenance in the scope of our representation of the external source, master
     // "isReverseSynchronization" actually causes the provenance (and therefore the targetScopeElementId) to
