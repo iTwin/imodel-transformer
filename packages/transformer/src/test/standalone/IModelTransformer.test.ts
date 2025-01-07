@@ -4225,14 +4225,7 @@ describe("IModelTransformer", () => {
       ["PhysicalModel", 1],
       ["PhysicalObject", 1],
     ] as const) {
-      // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
-      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(
-        coreBackendPkgJson.version,
-        "^3.0.0 || ^4.1.1"
-      );
-      const expected = inITwinJsVersionWithExactCodeFeature
-        ? `${initialVal}\xa0`
-        : initialVal;
+      const expected = `${initialVal}\xa0`;
       getCodeValRawSqlite(targetDb, {
         initialVal,
         expected,
