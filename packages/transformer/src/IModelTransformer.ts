@@ -2842,7 +2842,11 @@ export class IModelTransformer extends IModelExportHandler {
     this.exporter.addCustomChanges();
 
     if (this._csFileProps === undefined || this._csFileProps.length === 0) {
-      if (this.exporter.sourceDbChanges?.isEmpty) return;
+      if (
+        this.exporter.sourceDbChanges === undefined ||
+        this.exporter.sourceDbChanges.isEmpty
+      )
+        return;
       // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
       if (this._sourceChangeDataState === "no-changes")
         this._sourceChangeDataState = "has-changes";
