@@ -479,7 +479,7 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    if (initOpts?.skipPropagateChangesToRootElements) {
+    if (initOpts.skipPropagateChangesToRootElements) {
       await this.exportModelContents(IModel.repositoryModelId);
       await this.exportSubModels(IModel.repositoryModelId);
     } else {
