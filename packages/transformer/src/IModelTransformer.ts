@@ -2796,7 +2796,7 @@ export class IModelTransformer extends IModelExportHandler {
     // Note this also assumes we don't need to handle entity recreation for these custom deletes. I.e. a caller of API would not be able to add a custom delete for an entity that was recreated.
     // a delete followed by an insert.
     // ASSUME: If a changeset has a deleteId then custom change will never reference it. Is this still true if it was re-inserted? (TODO!!)
-    if (this.exporter.sourceDbChanges?.hasCustomChanges) {
+    if (this.exporter.sourceDbChanges?.hasCustomRelationshipChanges) {
       for (const id of this.exporter.sourceDbChanges?.relationship.deleteIds.keys() ??
         []) {
         if (deleteIdsProcessed?.has(id)) continue;

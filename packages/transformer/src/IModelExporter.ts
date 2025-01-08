@@ -1097,12 +1097,12 @@ export class ChangedInstanceIds {
     EntityReference | `c${string}`,
     ChangedInstanceCustomRelationshipData
   >;
-  private _hasCustomChanges: boolean;
+  private _hasCustomRelationshipChanges: boolean;
 
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
-    this._hasCustomChanges = false;
+    this._hasCustomRelationshipChanges = false;
     this._entityReferenceToCustomDataMap = new Map<
       EntityReference,
       ChangedInstanceCustomRelationshipData
@@ -1184,8 +1184,8 @@ export class ChangedInstanceIds {
     return this._elementSubclassIds?.has(ecClassId);
   }
 
-  public get hasCustomChanges(): boolean {
-    return this._hasCustomChanges;
+  public get hasCustomRelationshipChanges(): boolean {
+    return this._hasCustomRelationshipChanges;
   }
 
   public get isEmpty(): boolean {
@@ -1352,7 +1352,7 @@ export class ChangedInstanceIds {
         `Misuse. id: ${id}, ecClassId: ${ecClassId} is not a relationship class. Use 'addCustomChange' instead.`
       );
 
-    this._hasCustomChanges = true;
+    this._hasCustomRelationshipChanges = true;
     const classFullName = this._ecClassIdsToClassFullNames?.get(ecClassId);
     assert(classFullName !== undefined); // setupECClassIds adds an entry to the above map for every single ECClassId.
     this._entityReferenceToCustomDataMap.set(
