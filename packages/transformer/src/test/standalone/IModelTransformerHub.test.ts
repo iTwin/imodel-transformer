@@ -20,9 +20,11 @@ import {
   ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  ElementAspect,
   ElementGroupsMembers,
   ElementOwnsChildElements,
   ElementOwnsExternalSourceAspects,
+  ElementOwnsMultiAspects,
   ElementRefersToElements,
   ExternalSourceAspect,
   GenericSchema,
@@ -1824,6 +1826,9 @@ describe("IModelTransformerHub", () => {
     });
     // eslint-disable-next-line deprecation/deprecation
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    const schemaPathForMultiAspect =
+      IModelTransformerTestUtils.getPathToSchemaWithMultiAspect();
+    masterSeedDb.importSchemas([schemaPathForMultiAspect]);
     for await (const row of masterSeedDb.createQueryReader(
       "SELECT ECInstanceId FROM ECdbMeta.ECClassDef WHERE Name LIKE 'ElementGroupsMembers'"
     )) {
@@ -1842,6 +1847,7 @@ describe("IModelTransformerHub", () => {
     let sourceIdOfRel: Id64String | undefined;
     let targetIdOfRel: Id64String | undefined;
     let elementIdInSource: Id64String | undefined;
+    let aspectIdInSource: Id64String | undefined;
     let physicalModelIdInSource: Id64String | undefined;
     let modelUnderRepositoryModel: Id64String | undefined;
     const timeline: Timeline = [
@@ -1873,6 +1879,16 @@ describe("IModelTransformerHub", () => {
               IModel.rootSubjectId,
               "MyModelUnderRepositoryModel"
             );
+            // insert aspect
+            const multiAspectProps = {
+              classFullName: "TestSchema2:MyMultiAspect",
+              element: {
+                id: elementIdInSource,
+                relClassName: ElementOwnsMultiAspects.classFullName,
+              },
+              myProp1: "prop_value",
+            };
+            aspectIdInSource = db.elements.insertAspect(multiAspectProps);
           },
         },
       },
@@ -1892,6 +1908,11 @@ describe("IModelTransformerHub", () => {
 
             const idOfElement = IModelTestUtils.queryByUserLabel(db, "100");
             expect(idOfElement).to.not.be.undefined;
+            const aspectsOnElement = db.elements.getAspects(
+              idOfElement,
+              ElementAspect.classFullName
+            );
+            expect(aspectsOnElement.length).to.equal(1);
             db.elements.deleteElement(idOfElement);
             const physicalPartitionIdInTarget =
               IModelTestUtils.queryByCodeValue(db, "MyPhysicalModel");
@@ -1928,6 +1949,7 @@ describe("IModelTransformerHub", () => {
           expect(rel).to.be.undefined;
           const element = IModelTestUtils.queryByUserLabel(branch1.db, "100");
           expect(element).to.equal(Id64.invalid);
+          // assume if element is gone, aspect is gone
           const physicalPartitionIdInTarget = IModelTestUtils.queryByCodeValue(
             branch1.db,
             "MyPhysicalModel"
@@ -1959,6 +1981,10 @@ describe("IModelTransformerHub", () => {
                   exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     elementIdInSource!
+                  );
+                  exporter.sourceDbChanges?.addCustomAspectChange(
+                    "Inserted",
+                    aspectIdInSource!
                   );
                   exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
@@ -2004,6 +2030,11 @@ describe("IModelTransformerHub", () => {
             "100"
           );
           expect(elementInTarget).to.not.equal(Id64.invalid);
+          const aspectsOnElement = branch1.db.elements.getAspects(
+            elementInTarget,
+            ElementAspect.classFullName
+          );
+          expect(aspectsOnElement.length).to.equal(1);
           const physicalPartitionIdInTarget = IModelTestUtils.queryByCodeValue(
             branch1.db,
             "MyPhysicalModel"
