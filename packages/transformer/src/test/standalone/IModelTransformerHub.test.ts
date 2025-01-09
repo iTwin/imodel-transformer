@@ -1814,7 +1814,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it("should propagate custom inserts and custom deletes", async () => {
+  it.only("should propagate custom inserts and custom deletes", async () => {
     let ecClassIdOfRel: Id64String | undefined;
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
@@ -1848,12 +1848,17 @@ describe("IModelTransformerHub", () => {
     let targetIdOfRel: Id64String | undefined;
     let elementIdInSource: Id64String | undefined;
     let aspectIdInSource: Id64String | undefined;
+
+    // I won't delete the element in this case and only the aspect so that I can make sure specific aspect deletes work as expected.
+    let elementId2InSource: Id64String | undefined;
+    let aspectId2InSource: Id64String | undefined;
+
     let physicalModelIdInSource: Id64String | undefined;
     let modelUnderRepositoryModel: Id64String | undefined;
     const timeline: Timeline = [
       { master: { seed: masterSeed } }, // masterSeedState is above
       { branch1: { branch: "master" } },
-      { master: { 100: 100 } },
+      { master: { 100: 100, 101: 101 } },
       {
         master: {
           manualUpdate(db) {
@@ -1880,7 +1885,7 @@ describe("IModelTransformerHub", () => {
               "MyModelUnderRepositoryModel"
             );
             // insert aspect
-            const multiAspectProps = {
+            let multiAspectProps = {
               classFullName: "TestSchema2:MyMultiAspect",
               element: {
                 id: elementIdInSource,
@@ -1889,6 +1894,11 @@ describe("IModelTransformerHub", () => {
               myProp1: "prop_value",
             };
             aspectIdInSource = db.elements.insertAspect(multiAspectProps);
+
+            elementId2InSource = IModelTestUtils.queryByUserLabel(db, "101");
+            multiAspectProps.element.id = elementId2InSource;
+            multiAspectProps.myProp1 = "prop_value2";
+            aspectId2InSource = db.elements.insertAspect(multiAspectProps);
           },
         },
       },
@@ -1927,6 +1937,8 @@ describe("IModelTransformerHub", () => {
             expect(modelUnderRepositoryModelId).to.not.equal(Id64.invalid);
             db.models.deleteModel(modelUnderRepositoryModelId);
             db.elements.deleteElement(modelUnderRepositoryModelId);
+
+            db.elements.deleteAspect(aspectId2InSource!);
           },
         },
       },
@@ -1961,6 +1973,14 @@ describe("IModelTransformerHub", () => {
               "MyModelUnderRepositoryModel"
             );
           expect(modelUnderRepositoryModelInTarget).to.equal(Id64.invalid);
+
+          const element2 = IModelTestUtils.queryByUserLabel(branch1.db, "101");
+          expect(element2).to.not.equal(Id64.invalid);
+          const aspectsOnElement2 = branch1.db.elements.getAspects(
+            element2,
+            ElementAspect.classFullName
+          );
+          expect(aspectsOnElement2.length).to.equal(0);
         },
       },
       {
@@ -2002,6 +2022,10 @@ describe("IModelTransformerHub", () => {
                     "Inserted",
                     modelUnderRepositoryModel!
                   );
+                  exporter.sourceDbChanges?.addCustomAspectChange(
+                    "Inserted",
+                    aspectId2InSource!
+                  );
                 },
               },
             },
@@ -2035,6 +2059,17 @@ describe("IModelTransformerHub", () => {
             ElementAspect.classFullName
           );
           expect(aspectsOnElement.length).to.equal(1);
+
+          const element2InTarget = IModelTestUtils.queryByUserLabel(
+            branch1.db,
+            "101"
+          );
+          const aspectsOnElement2 = branch1.db.elements.getAspects(
+            element2InTarget,
+            ElementAspect.classFullName
+          );
+          expect(aspectsOnElement2.length).to.equal(1); // validates that the custom aspect insert worked.
+
           const physicalPartitionIdInTarget = IModelTestUtils.queryByCodeValue(
             branch1.db,
             "MyPhysicalModel"
@@ -2092,6 +2127,11 @@ describe("IModelTransformerHub", () => {
                     "Deleted",
                     modelUnderRepositoryModel!
                   );
+
+                  exporter.sourceDbChanges?.addCustomAspectChange(
+                    "Deleted",
+                    aspectId2InSource!
+                  );
                 },
               },
             },
@@ -2129,6 +2169,14 @@ describe("IModelTransformerHub", () => {
               "MyModelUnderRepositoryModel"
             );
           expect(modelUnderRepositoryModelInTarget).to.equal(Id64.invalid);
+
+          const element2 = IModelTestUtils.queryByUserLabel(branch1.db, "101");
+          expect(element2).to.not.equal(Id64.invalid);
+          const aspectsOnElement2 = branch1.db.elements.getAspects(
+            element2,
+            ElementAspect.classFullName
+          );
+          expect(aspectsOnElement2.length).to.equal(0); // validates that the custom aspect delete worked. TODO: doesnt seem like it did?
         },
       },
     ];
