@@ -2845,7 +2845,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (this._csFileProps === undefined || this._csFileProps.length === 0) {
       if (
         this.exporter.sourceDbChanges === undefined ||
-        this.exporter.sourceDbChanges.isEmpty
+        !this.exporter.sourceDbChanges.hasChanges
       )
         return;
       // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
@@ -3021,7 +3021,8 @@ export class IModelTransformer extends IModelExportHandler {
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
       this.synchronizationVersion.index === this.sourceDb.changeset.index &&
-      this.exporter.sourceDbChanges?.isEmpty;
+      (this.exporter.sourceDbChanges === undefined ||
+        !this.exporter.sourceDbChanges.hasChanges);
     if (notConnectedModel || noChanges) return;
 
     const sourceIdOfRelationshipInTarget = await this.getTargetIdFromSourceId(
@@ -3089,7 +3090,8 @@ export class IModelTransformer extends IModelExportHandler {
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
       this.synchronizationVersion.index === this.sourceDb.changeset.index &&
-      this.exporter.sourceDbChanges?.isEmpty;
+      (this.exporter.sourceDbChanges === undefined ||
+        !this.exporter.sourceDbChanges.hasChanges);
     if (notConnectedModel || noChanges) return;
 
     let targetId = await this.getTargetIdFromSourceId(

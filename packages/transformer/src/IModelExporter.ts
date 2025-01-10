@@ -1177,14 +1177,14 @@ export class ChangedInstanceIds {
     return this._hasCustomRelationshipChanges;
   }
 
-  public get isEmpty(): boolean {
+  public get hasChanges(): boolean {
     return (
-      this.codeSpec.isEmpty &&
-      this.model.isEmpty &&
-      this.element.isEmpty &&
-      this.aspect.isEmpty &&
-      this.relationship.isEmpty &&
-      this.font.isEmpty
+      !this.codeSpec.isEmpty ||
+      !this.model.isEmpty ||
+      !this.element.isEmpty ||
+      !this.aspect.isEmpty ||
+      !this.relationship.isEmpty ||
+      !this.font.isEmpty
     );
   }
 
