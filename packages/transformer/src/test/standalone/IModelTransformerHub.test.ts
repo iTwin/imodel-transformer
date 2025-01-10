@@ -1828,7 +1828,7 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     const schemaPathForMultiAspect =
       IModelTransformerTestUtils.getPathToSchemaWithMultiAspect();
-    masterSeedDb.importSchemas([schemaPathForMultiAspect]);
+    await masterSeedDb.importSchemas([schemaPathForMultiAspect]);
     for await (const row of masterSeedDb.createQueryReader(
       "SELECT ECInstanceId FROM ECdbMeta.ECClassDef WHERE Name LIKE 'ElementGroupsMembers'"
     )) {
@@ -1885,7 +1885,7 @@ describe("IModelTransformerHub", () => {
               "MyModelUnderRepositoryModel"
             );
             // insert aspect
-            let multiAspectProps = {
+            const multiAspectProps = {
               classFullName: "TestSchema2:MyMultiAspect",
               element: {
                 id: elementIdInSource,
