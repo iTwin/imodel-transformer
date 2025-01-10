@@ -1814,7 +1814,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("should propagate custom inserts and custom deletes", async () => {
+  it("should propagate custom inserts and custom deletes", async () => {
     let ecClassIdOfRel: Id64String | undefined;
     const masterIModelName = "Master";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
