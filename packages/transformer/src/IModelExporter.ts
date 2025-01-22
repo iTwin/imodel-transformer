@@ -1268,11 +1268,14 @@ export class ChangedInstanceIds {
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
    */
-  public addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): void {
+  public async addCustomModelChange(
+    changeType: SqliteChangeOp,
+    ids: Id64Arg
+  ): Promise<void> {
+    // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand and have the same id.
+    await this.addCustomElementChange(changeType, ids);
     for (const id of Id64.iterable(ids)) {
       this.handleChange(this.model, changeType, id);
-      // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand.
-      this.handleChange(this.element, changeType, id);
     }
   }
 
