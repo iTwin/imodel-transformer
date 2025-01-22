@@ -33,6 +33,7 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
+  CompressedId64Set,
   DbResult,
   Id64,
   Id64Arg,
@@ -49,6 +50,7 @@ import {
   FontProps,
   IModel,
   IModelError,
+  QueryBinder,
 } from "@itwin/core-common";
 import {
   ECVersion,
@@ -1229,13 +1231,13 @@ export class ChangedInstanceIds {
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
    */
-  public addCustomElementChange(
+  public async addCustomElementChange(
     changeType: SqliteChangeOp,
     ids: Id64Arg
-  ): void {
+  ): Promise<void> {
     // if delete unnecessary?
+    await this.addModelsToUpdated(ids);
     for (const id of Id64.iterable(ids)) {
-      this.addModelToUpdated(id);
       this.handleChange(this.element, changeType, id);
     }
   }
@@ -1266,11 +1268,14 @@ export class ChangedInstanceIds {
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
    */
-  public addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): void {
+  public async addCustomModelChange(
+    changeType: SqliteChangeOp,
+    ids: Id64Arg
+  ): Promise<void> {
+    // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand and have the same id.
+    await this.addCustomElementChange(changeType, ids);
     for (const id of Id64.iterable(ids)) {
       this.handleChange(this.model, changeType, id);
-      // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand.
-      this.handleChange(this.element, changeType, id);
     }
   }
 
@@ -1298,9 +1303,20 @@ export class ChangedInstanceIds {
    * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is part of
    * the sourceDbChanges. This method is used in addCustomChange to add the model to the updatedIds set so that the custom element changes are exported.
    */
-  private addModelToUpdated(elementId: Id64String) {
-    const modelId = this._db.elements.getElement(elementId).model;
-    this.handleChange(this.model, "Updated", modelId);
+  private async addModelsToUpdated(elementIds: Id64Arg) {
+    const compressedIds = CompressedId64Set.sortAndCompress(
+      Id64.iterable(elementIds)
+    );
+    const params = new QueryBinder().bindIdSet(
+      "elementIds",
+      CompressedId64Set.iterable(compressedIds)
+    );
+    for await (const row of this._db.createQueryReader(
+      "SELECT Model.Id FROM BisCore.Element WHERE InVirtualSet(:elementIds, ECInstanceId)",
+      params
+    )) {
+      this.handleChange(this.model, "Updated", row.id);
+    }
   }
 
   /** TODO: Maybe relationships only? maybe not.

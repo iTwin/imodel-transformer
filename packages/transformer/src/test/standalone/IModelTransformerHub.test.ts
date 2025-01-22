@@ -1828,7 +1828,7 @@ describe("IModelTransformerHub", () => {
     masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     const schemaPathForMultiAspect =
       IModelTransformerTestUtils.getPathToSchemaWithMultiAspect();
-    masterSeedDb.importSchemas([schemaPathForMultiAspect]);
+    await masterSeedDb.importSchemas([schemaPathForMultiAspect]);
     for await (const row of masterSeedDb.createQueryReader(
       "SELECT ECInstanceId FROM ECdbMeta.ECClassDef WHERE Name LIKE 'ElementGroupsMembers'"
     )) {
@@ -1885,7 +1885,7 @@ describe("IModelTransformerHub", () => {
               "MyModelUnderRepositoryModel"
             );
             // insert aspect
-            let multiAspectProps = {
+            const multiAspectProps = {
               classFullName: "TestSchema2:MyMultiAspect",
               element: {
                 id: elementIdInSource,
@@ -1998,7 +1998,7 @@ describe("IModelTransformerHub", () => {
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     elementIdInSource!
                   );
@@ -2006,22 +2006,23 @@ describe("IModelTransformerHub", () => {
                     "Inserted",
                     aspectIdInSource!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomModelChange(
                     "Inserted",
                     physicalModelIdInSource!
                   );
-                  exporter.sourceDbChanges?.addCustomModelChange(
-                    "Inserted",
-                    physicalModelIdInSource!
-                  );
-                  exporter.sourceDbChanges?.addCustomModelChange(
+                  await exporter.sourceDbChanges?.addCustomModelChange(
                     "Inserted",
                     modelUnderRepositoryModel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
-                    "Inserted",
-                    modelUnderRepositoryModel!
-                  );
+                  // Intentionally don't add modelUnderRepositoryModel  or physicalModelIdInSOurce to customElement changes, expect the addCustomModelChange function to take care of this
+                  // await exporter.sourceDbChanges?.addCustomElementChange(
+                  //   "Inserted",
+                  //   physicalModelIdInSource!
+                  // );
+                  // await exporter.sourceDbChanges?.addCustomElementChange(
+                  //   "Inserted",
+                  //   modelUnderRepositoryModel!
+                  // );
                   exporter.sourceDbChanges?.addCustomAspectChange(
                     "Inserted",
                     aspectId2InSource!
@@ -2107,26 +2108,28 @@ describe("IModelTransformerHub", () => {
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Deleted",
                     elementIdInSource!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+
+                  await exporter.sourceDbChanges?.addCustomModelChange(
                     "Deleted",
                     physicalModelIdInSource!
                   );
-                  exporter.sourceDbChanges?.addCustomModelChange(
-                    "Deleted",
-                    physicalModelIdInSource!
-                  );
-                  exporter.sourceDbChanges?.addCustomModelChange(
+                  await exporter.sourceDbChanges?.addCustomModelChange(
                     "Deleted",
                     modelUnderRepositoryModel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
-                    "Deleted",
-                    modelUnderRepositoryModel!
-                  );
+                  // Intentionally do not add physical model or model under repository model to custom element changes, expect the addCustomModelChange function to take care of this
+                  // await exporter.sourceDbChanges?.addCustomElementChange(
+                  //   "Deleted",
+                  //   physicalModelIdInSource!
+                  // );
+                  // await exporter.sourceDbChanges?.addCustomElementChange(
+                  //   "Deleted",
+                  //   modelUnderRepositoryModel!
+                  // );
 
                   exporter.sourceDbChanges?.addCustomAspectChange(
                     "Deleted",

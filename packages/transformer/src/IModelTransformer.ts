@@ -2840,7 +2840,8 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
-    await this.addCustomChanges(this.exporter.sourceDbChanges);
+    if (this.exporter.sourceDbChanges)
+      await this.addCustomChanges(this.exporter.sourceDbChanges);
 
     if (this._csFileProps === undefined || this._csFileProps.length === 0) {
       if (
@@ -3058,16 +3059,16 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * This function is called by the transformer as it is about to process the changesets passed to it in [[IModelTransformOptions.argsForProcessChanges]].
+   * If sourceDbChanges is defined, then this function is called by the transformer as it is about to process the changesets passed to it in [[IModelTransformOptions.argsForProcessChanges]].
+   * In order for sourceDbChanges to be defined, the transformer should be called with [[IModelTransformOptions.argsForProcessChanges]].
    * This would be after the exporter has already processed the same set of changesets passed to the transformer in [[IModelTransformOptions.argsForProcessChanges]].
    * This function should be used to modify the exporter's sourceDbChanges, if necessary, using [[ChangedInstanceIds.addCustomChange]]. See [[ChangedInstanceIds.addCustomChange]] for more information.
-   * @param sourceDbChanges will only be defined if the transformer was called with [[IModelTransformOptions.argsForProcessChanges]].
-   * @note If defined, sourceDbChanges will already be populated with the changesets passed to the transformer, if any when this function is called by the transformer.
+   * @param sourceDbChanges the ChangedInstanceIds already populated by the exporter with the changesets, if any, passed to the transformer.
    * @note The transformer will have built up the remap table between the source and target iModels before calling this function. This means that functions like [[IModelTransformer.context.findTargetElementId]] will return meaningful results.
    * @note Its expected that this function be overridden by a subclass of transformer if it needs to modify sourceDbChanges.
    */
   protected async addCustomChanges(
-    _sourceDbChanges?: ChangedInstanceIds
+    _sourceDbChanges: ChangedInstanceIds
   ): Promise<void> {}
 
   /**
