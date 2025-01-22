@@ -1998,7 +1998,7 @@ describe("IModelTransformerHub", () => {
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     elementIdInSource!
                   );
@@ -2006,7 +2006,7 @@ describe("IModelTransformerHub", () => {
                     "Inserted",
                     aspectIdInSource!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     physicalModelIdInSource!
                   );
@@ -2018,7 +2018,7 @@ describe("IModelTransformerHub", () => {
                     "Inserted",
                     modelUnderRepositoryModel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Inserted",
                     modelUnderRepositoryModel!
                   );
@@ -2107,11 +2107,11 @@ describe("IModelTransformerHub", () => {
                     sourceIdOfRel!,
                     targetIdOfRel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Deleted",
                     elementIdInSource!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Deleted",
                     physicalModelIdInSource!
                   );
@@ -2123,7 +2123,7 @@ describe("IModelTransformerHub", () => {
                     "Deleted",
                     modelUnderRepositoryModel!
                   );
-                  exporter.sourceDbChanges?.addCustomElementChange(
+                  await exporter.sourceDbChanges?.addCustomElementChange(
                     "Deleted",
                     modelUnderRepositoryModel!
                   );
