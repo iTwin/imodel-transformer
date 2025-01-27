@@ -1827,7 +1827,7 @@ export class ExtensiveTestScenario {
     displayStyle3d.settings.addExcludedElements(physicalObjectId1);
     displayStyle3d.settings.setPlanProjectionSettings(
       spatialLocationModelId,
-      new PlanProjectionSettings({ elevation: 10.0 })
+      PlanProjectionSettings.fromJSON({ elevation: 10.0 })
     );
     displayStyle3d.settings.environment = Environment.fromJSON({
       sky: {
