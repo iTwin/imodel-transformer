@@ -165,7 +165,6 @@ export abstract class IModelExportHandler {
 
   /** Called when an element should be exported.
    * @param element The element to export
-   * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
   public onExportElement(_element: Element): void {}
