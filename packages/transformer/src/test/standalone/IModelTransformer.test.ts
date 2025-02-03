@@ -1573,10 +1573,7 @@ describe("IModelTransformer", () => {
       ): void {
         ++this.modelCount;
       }
-      public override onExportElement(
-        _element: Element,
-        _isUpdate: boolean | undefined
-      ): void {
+      public override onExportElement(_element: Element): void {
         assert.fail("Should not visit element when visitElements=false");
       }
       public override onExportRelationship(

@@ -1890,7 +1890,7 @@ export class AssertOrderTransformer extends IModelTransformer {
     return `The elements [${this._exportOrderQueue}] remain`;
   }
 
-  public override onExportElement(elem: Element) {
+  public override onExportElement(elem: Element): void {
     if (elem.id === this._exportOrderQueue[0]) this._exportOrderQueue.shift(); // pop the front
     // we just popped the queue if it was expected, so it shouldn't be there the order was correct (and there are no duplicates)
     const currentExportWasNotInExpectedOrder = this._exportOrderQueue.includes(
@@ -2203,18 +2203,15 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     );
     super.onExportModel(model, isUpdate);
   }
-  public override onExportElement(
-    element: Element,
-    isUpdate: boolean | undefined
-  ): void {
+  public override onExportElement(element: Element): void {
     const indentLevel: number = this.getIndentLevelForElement(element);
     this.writeLine(
       `[Element] ${element.classFullName}, ${
         element.id
-      }, ${element.getDisplayLabel()}${this.formatOperationName(isUpdate)}`,
+      }, ${element.getDisplayLabel()}`,
       indentLevel
     );
-    super.onExportElement(element, isUpdate);
+    super.onExportElement(element);
   }
   public override onDeleteElement(elementId: Id64String): void {
     this.writeLine(`[Element] ${elementId}, DELETE`);
@@ -2351,12 +2348,9 @@ export class ClassCounter extends IModelExportHandler {
     this.incrementClassCount(this._modelClassCounts, model.classFullName);
     super.onExportModel(model, isUpdate);
   }
-  public override onExportElement(
-    element: Element,
-    isUpdate: boolean | undefined
-  ): void {
+  public override onExportElement(element: Element): void {
     this.incrementClassCount(this._elementClassCounts, element.classFullName);
-    super.onExportElement(element, isUpdate);
+    super.onExportElement(element);
   }
   public override onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
