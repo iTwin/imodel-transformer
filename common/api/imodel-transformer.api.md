@@ -166,7 +166,7 @@ export abstract class IModelExportHandler {
     onDeleteModel(_modelId: Id64String): void;
     onDeleteRelationship(_relInstanceId: Id64String): void;
     onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): void;
-    onExportElement(_element: Element_2, _isUpdate: boolean | undefined): void;
+    onExportElement(_element: Element_2): void;
     onExportElementMultiAspects(_aspects: ElementMultiAspect[]): void;
     onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): void;
     onExportFont(_font: FontProps, _isUpdate: boolean | undefined): void;
