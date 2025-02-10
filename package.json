@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "root of the @itwin/imodel-transformer monorepo",
   "repository": {
-    "url": "https://github.com/iTwin/transformer"
+    "url": "https://github.com/iTwin/imodel-transformer"
   },
   "scripts": {
     "build": "pnpm -r build",
@@ -38,9 +38,9 @@
     ]
   },
   "engines": {
-    "pnpm": ">=6",
+    "pnpm": ">=9",
     "npm": "<0",
-    "node": ">=16"
+    "node": ">=18"
   },
   "pnpm": {
     "overrides": {
