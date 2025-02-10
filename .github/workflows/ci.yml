@@ -2,13 +2,14 @@ name: CI
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "itwinjs-v5" ]
   workflow_dispatch:
 
 jobs:
   check-change-files:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    name: Check change files
+    name: Check change files 
 
     steps:
     - name: Checkout
