@@ -11,7 +11,6 @@
 import * as assert from "assert";
 import {
   ConcreteEntityTypes,
-  DbResult,
   EntityReference,
   IModelError,
 } from "@itwin/core-common";
@@ -25,7 +24,7 @@ import {
   IModelDb,
   Relationship,
 } from "@itwin/core-backend";
-import { Id64 } from "@itwin/core-bentley";
+import { DbResult, Id64 } from "@itwin/core-bentley";
 
 /** @internal */
 export namespace EntityUnifier {
