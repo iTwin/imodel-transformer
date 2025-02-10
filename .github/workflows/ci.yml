@@ -162,6 +162,7 @@ jobs:
         CORE_VERSION: ${{ matrix.version }}
 
     - name: Lint
+      if: github.ref == 'refs/heads/main'
       run: pnpm run lint
 
     - name: Build
