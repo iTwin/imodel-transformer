@@ -82,3 +82,6 @@ A practical way to learn the transformer is by writing a unit test that performs
   
 - **Changeset Details:**  
   [Learn about Changesets](https://developer.bentley.com/apis/imodels-v2/overview/#changesets)
+
+  This documentation is a starting point - feel free to contribute anything else others might find useful when getting started!
+
