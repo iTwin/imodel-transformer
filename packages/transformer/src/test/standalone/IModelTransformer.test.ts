@@ -10,6 +10,7 @@ import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
   CategorySelector,
+  DefinitionModel,
   DisplayStyle3d,
   DocumentListModel,
   Drawing,
@@ -27,14 +28,17 @@ import {
   ElementRefersToElements,
   ElementUniqueAspect,
   ExternalSourceAspect,
+  GenericGraphicalModel3d,
   GenericPhysicalMaterial,
   GeometricElement,
+  Graphic3d,
   IModelDb,
   IModelElementCloneContext,
   IModelHost,
   IModelJsFs,
   InformationRecordModel,
   InformationRecordPartition,
+  LineStyleDefinition,
   LinkElement,
   Model,
   ModelSelector,
@@ -81,10 +85,14 @@ import {
   ElementProps,
   ExternalSourceAspectProps,
   GeometricElement2dProps,
+  GeometricElement3dProps,
+  GeometryParams,
+  GeometryStreamBuilder,
   ImageSourceFormat,
   IModel,
   IModelError,
   InformationPartitionElementProps,
+  LineStyle,
   ModelProps,
   PhysicalElementProps,
   Placement3d,
@@ -95,6 +103,7 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import {
+  LineSegment3d,
   Point3d,
   Range3d,
   StandardViewIndex,
@@ -5132,6 +5141,137 @@ describe("IModelTransformer", () => {
     // clean up
     transformer.dispose();
     sourceDb.close();
+    targetDb.close();
+  });
+
+  it.only("should import line style from geometry stream", async function () {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "LineStyle.bim"
+    );
+    const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "LineStyle" },
+    });
+    const subjectId = Subject.insert(
+      iModelDb,
+      IModel.rootSubjectId,
+      "My objects"
+    );
+    const defModelId = DefinitionModel.insert(
+      iModelDb,
+      subjectId,
+      "DefinitionModel"
+    );
+
+    // Entires in be_Prop table:
+    const lsStrokes1: LineStyleDefinition.Strokes = [];
+    const lsStrokes2: LineStyleDefinition.Strokes = [];
+    lsStrokes1.push({
+      length: 4,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+    });
+    lsStrokes1.push({ length: 2 });
+    lsStrokes2.push({
+      length: 1,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+    });
+    lsStrokes2.push({ length: 1 });
+    const styleProps1 = LineStyleDefinition.Utils.createStrokePatternComponent(
+      iModelDb,
+      { descr: "line1", strokes: lsStrokes1 }
+    );
+    const styleProps2 = LineStyleDefinition.Utils.createStrokePatternComponent(
+      iModelDb,
+      { descr: "line2", strokes: lsStrokes2 }
+    );
+
+    const lineStyle1Id = LineStyleDefinition.Utils.createStyle(
+      iModelDb,
+      defModelId,
+      "LineStyle1",
+      styleProps1
+    );
+    const lineStyle2Id = LineStyleDefinition.Utils.createStyle(
+      iModelDb,
+      defModelId,
+      "LineStyle2",
+      styleProps2
+    );
+
+    const category1Id = SpatialCategory.insert(
+      iModelDb,
+      defModelId,
+      "Red category",
+      { color: ColorDef.red.toJSON() }
+    );
+    const category2Id = SpatialCategory.insert(
+      iModelDb,
+      defModelId,
+      "Green category",
+      { color: ColorDef.green.toJSON() }
+    );
+
+    const modelId = GenericGraphicalModel3d.insert(
+      iModelDb,
+      subjectId,
+      "lines"
+    );
+
+    // Insert Line1
+    const code1 = Code.createEmpty();
+    code1.value = "line1";
+    const geometryBuilder1 = new GeometryStreamBuilder();
+    const geometryParams1 = new GeometryParams(category1Id);
+    geometryParams1.styleInfo = new LineStyle.Info(lineStyle1Id);
+    geometryBuilder1.appendGeometryParamsChange(geometryParams1);
+    geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
+    const graphicElement1Props: GeometricElement3dProps = {
+      category: category1Id,
+      model: modelId,
+      code: code1,
+      classFullName: Graphic3d.classFullName,
+      geom: geometryBuilder1.geometryStream,
+    };
+    iModelDb.elements.insertElement(graphicElement1Props);
+
+    // Insert Line2
+    const code2 = Code.createEmpty();
+    code2.value = "line2";
+    const geometryBuilder2 = new GeometryStreamBuilder();
+    const geometryParams2 = new GeometryParams(category2Id);
+    geometryParams2.styleInfo = new LineStyle.Info(lineStyle2Id);
+    geometryBuilder2.appendGeometryParamsChange(geometryParams2);
+    geometryBuilder2.appendGeometry(LineSegment3d.createXYXY(10, 0, 10, 50));
+    const graphicElement2Props: GeometricElement3dProps = {
+      category: category2Id,
+      model: modelId,
+      code: code2,
+      classFullName: Graphic3d.classFullName,
+      geom: geometryBuilder2.geometryStream,
+    };
+    iModelDb.elements.insertElement(graphicElement2Props);
+
+    iModelDb.saveChanges();
+
+    // create target iModel
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "LineStyle-Target.bim"
+    );
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "LineStyle-Target" },
+    });
+    const transformer = new IModelTransformer(iModelDb, targetDb);
+    await transformer.process();
+
+    const copiedElement = targetDb.elements.getElementProps(code1);
+    console.log(
+      iModelDb.elements.getElement(graphicElement1Props.id!).toJSON()
+    );
+    console.log(copiedElement.model);
+
+    transformer.dispose();
+    iModelDb.close();
     targetDb.close();
   });
 
