@@ -1,7 +1,0 @@
-{
-  "type": "major",
-  "comment": "Removed `isUpdated` parameter from `IModelExportHandler:onExportElement`.",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "Julija.Ramoskiene@bentley.com",
-  "dependentChangeType": "patch"
-}
