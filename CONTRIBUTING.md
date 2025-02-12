@@ -1,24 +1,13 @@
-# Contributing to iTwin.js
+# Contributing to `imodel-transformer`
 
 Welcome, and thank you for your interest in contributing to `@itwin/imodel-transformer`!
 
 There are many ways to contribute.
 The goal of this document is to provide a high-level overview of how you can get involved.
 
-## Asking Questions
-
-Have a question?
-Rather than opening an issue, please ask away on [the Github discussions page](https://github.com/iTwin/imodel-transformer/discussions).
-
-The community will be eager to assist you. Your well-worded question will serve as a resource to others searching for help.
-
-## Providing Feedback
-
-Your comments and feedback are welcome. For general comments or discussion please [click here](https://github.com/iTwin/imodel-transformer/labels/discussion) to contribute via GitHub issues using the `discussion` label.
-
 ## Reporting Issues
 
-Have you identified a reproducible problem in iTwin.js?
+Have you identified a reproducible problem in `@itwin/imodel-transformer`?
 Have a feature request?
 We want to hear about it!
 Here's how you can make reporting your issue as effective as possible.

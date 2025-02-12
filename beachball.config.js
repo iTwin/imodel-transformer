@@ -26,7 +26,7 @@ module.exports = {
   changelog: {
     customRenderers: {
       renderEntry: (entry) => {
-        const commitLink = `https://github.com/iTwin/transformer/commit/${entry.commit}`;
+        const commitLink = `https://github.com/iTwin/imodel-transformer/commit/${entry.commit}`;
         return `- ${entry.comment} ([commit](${commitLink}))`;
       },
     },

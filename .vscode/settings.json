@@ -2,4 +2,7 @@
   // "editor.formatOnSave": true, DO NOT TURN THIS ON WITH THE PRETTIER FORMATTER! Known bug with find and replace: https://github.com/prettier/prettier-vscode/issues/3040
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "eslint.experimental.useFlatConfig": true,
+  "search.exclude": {
+    "lib/**": true
+  },
 }
