@@ -1158,6 +1158,8 @@ describe("Catalog", () => {
       assert.equal(catalogContainerIds.size, 1); // expected value from createAcmeCatalog
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
+          // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
@@ -1326,6 +1328,8 @@ describe("Catalog", () => {
       assert.equal(catalogContainerIds.size, 1); // expected value from createTestCatalog
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
+          // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
