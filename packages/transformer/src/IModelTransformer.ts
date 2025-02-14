@@ -1557,7 +1557,6 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   // if undefined, it can be initialized by calling [[this.processChangesets]]
-  private _hasElementChangedCache?: Set<Id64String> = undefined;
   private _deletedSourceRelationshipData?: Map<
     Id64String,
     {
@@ -1574,17 +1573,12 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom change detection behavior.
    */
   protected hasElementChanged(sourceElement: Element): boolean {
-    if (this._sourceChangeDataState === "no-changes") return false;
-    if (this._sourceChangeDataState === "unconnected") return true;
-    nodeAssert(
-      this._sourceChangeDataState === "has-changes",
-      "change data should be initialized by now"
+    const sourceDbChanges = this.exporter.sourceDbChanges;
+    return (
+      !sourceDbChanges || // are we processing changes? if not then element is considered as changed
+      sourceDbChanges.element.insertIds.has(sourceElement.id) ||
+      sourceDbChanges.element.updateIds.has(sourceElement.id)
     );
-    nodeAssert(
-      this._hasElementChangedCache !== undefined,
-      "has element changed cache should be initialized by now"
-    );
-    return this._hasElementChangedCache.has(sourceElement.id);
   }
 
   protected completePartiallyCommittedElements() {
@@ -1844,7 +1838,13 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    if (!this.hasElementChanged(sourceElement)) return;
+    if (!this.hasElementChanged(sourceElement)) {
+      Logger.logTrace(
+        loggerCategory,
+        `Skipping unchanged element (${sourceElement.id}, ${sourceElement.getDisplayLabel()}).`
+      );
+      return;
+    }
 
     if (!this.doAllReferencesExistInTarget(sourceElement)) {
       this._partiallyCommittedElementIds.add(sourceElement.id);
@@ -2777,9 +2777,8 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Reads all the changeset files in the private member of the transformer: _csFileProps and does two things with these changesets.
-   * Finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId.
-   * Populates this._hasElementChangedCache with a set of elementIds that have been updated or inserted into the database.
+   * Reads all the changeset files in the private member of the transformer: _csFileProps
+   * and finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId.
    * This function returns early if csFileProps is undefined or is of length 0.
    * @returns void
    */
@@ -2791,7 +2790,6 @@ export class IModelTransformer extends IModelExportHandler {
     );
     if (this._csFileProps === undefined || this._csFileProps.length === 0)
       return;
-    const hasElementChangedCache = new Set<string>();
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
@@ -2804,12 +2802,6 @@ export class IModelTransformer extends IModelExportHandler {
       "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)"
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
-    }
-    const elementECClassIds = new Set<string>();
-    for await (const row of this.sourceDb.createQueryReader(
-      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.Element)"
-    )) {
-      elementECClassIds.add(row.ECInstanceId);
     }
 
     // For later use when processing deletes.
@@ -2864,12 +2856,7 @@ export class IModelTransformer extends IModelExportHandler {
           change.Kind === ExternalSourceAspect.Kind.Element
         ) {
           elemIdToScopeEsa.set(change.Element.Id, change);
-        } else if (
-          (changeType === "Inserted" || changeType === "Updated") &&
-          change.ECClassId !== undefined &&
-          elementECClassIds.has(change.ECClassId)
-        )
-          hasElementChangedCache.add(change.ECInstanceId);
+        }
       }
 
       // Loop to process deletes.
@@ -2900,7 +2887,6 @@ export class IModelTransformer extends IModelExportHandler {
 
       csReader.close();
     }
-    this._hasElementChangedCache = hasElementChangedCache;
     return;
   }
   /**
