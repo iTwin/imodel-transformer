@@ -40,6 +40,7 @@ import {
   Id64String,
   IModelStatus,
   Logger,
+  OrderedId64Iterable,
   YieldManager,
 } from "@itwin/core-bentley";
 import {
@@ -1235,10 +1236,24 @@ export class ChangedInstanceIds {
     changeType: SqliteChangeOp,
     ids: Id64Arg
   ): Promise<void> {
-    // if delete unnecessary?
-    await this.addModelsToUpdated(ids);
     for (const id of Id64.iterable(ids)) {
       this.handleChange(this.element, changeType, id);
+    }
+
+    if (changeType === "Deleted") {
+      return;
+    }
+    // needed for insert and update
+    const compressedIds = CompressedId64Set.sortAndCompress(Id64.iterable(ids));
+    const orderedIterable = CompressedId64Set.iterable(compressedIds);
+    await this.addModelsToUpdated(orderedIterable);
+
+    if (changeType === "Inserted") {
+      await this.addChangesToInsertElementAspects(orderedIterable);
+      await this.addCustomChangesToInsertRelationships(
+        ElementRefersToElements.classFullName,
+        orderedIterable
+      );
     }
   }
 
@@ -1303,19 +1318,76 @@ export class ChangedInstanceIds {
    * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is part of
    * the sourceDbChanges. This method is used in addCustomChange to add the model to the updatedIds set so that the custom element changes are exported.
    */
-  private async addModelsToUpdated(elementIds: Id64Arg) {
-    const compressedIds = CompressedId64Set.sortAndCompress(
-      Id64.iterable(elementIds)
-    );
+  private async addModelsToUpdated(elementIdsIterable: OrderedId64Iterable) {
     const params = new QueryBinder().bindIdSet(
       "elementIds",
-      CompressedId64Set.iterable(compressedIds)
+      elementIdsIterable
     );
-    for await (const row of this._db.createQueryReader(
-      "SELECT Model.Id FROM BisCore.Element WHERE InVirtualSet(:elementIds, ECInstanceId)",
-      params
-    )) {
-      this.handleChange(this.model, "Updated", row.id);
+
+    const ecQuery = `
+    WITH RECURSIVE hierarchy (parentId) AS (
+        SELECT Model.Id FROM bis.Element WHERE InVirtualSet(:elementIds, ECInstanceId)
+        UNION
+        SELECT ParentModel.id
+        FROM bis.Model e
+            INNER JOIN hierarchy h ON h.parentId = e.ECInstanceId
+        )
+        SELECT parentId FROM hierarchy where parentId is not null
+    `;
+
+    for await (const row of this._db.createQueryReader(ecQuery, params)) {
+      // Transformer handles update as insert when element does not exist in target.
+      // Which means that in scenario where child and parent model are filtered out from target,
+      // and child element is inserted trough custom change, its parent model will be marked as updated.
+      // Transformer then will:
+      //  1. Handle parent update as insert (since it does not exist in target).
+      //  2. Will insert child element (otherwise this insert would be ignored due to missing parent).
+      this.handleChange(this.model, "Updated", row.parentId);
+      this.handleChange(this.element, "Updated", row.parentId);
+    }
+  }
+
+  private async addCustomChangesToInsertRelationships(
+    relationshipClassName: string,
+    elementIdsIterable: OrderedId64Iterable
+  ) {
+    const ecQuery = `SELECT ECInstanceId as id, ECClassId as classId, SourceECInstanceId as sourceId, TargetECInstanceId as targetId FROM ${relationshipClassName}
+        WHERE InVirtualSet(:elementIds, TargetECInstanceId)
+        OR InVirtualSet(:elementIds, SourceECInstanceId)`;
+
+    const queryBinder = new QueryBinder().bindIdSet(
+      "elementIds",
+      elementIdsIterable
+    );
+    const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+
+    for await (const row of queryReader) {
+      await this.addCustomRelationshipChange(
+        row.classId,
+        "Inserted",
+        row.id,
+        row.sourceId,
+        row.targetId
+      );
+    }
+  }
+
+  private async addChangesToInsertElementAspects(
+    elementIdsIterable: OrderedId64Iterable
+  ) {
+    for (const aspectClassName of [
+      ElementUniqueAspect.classFullName,
+      ElementMultiAspect.classFullName,
+    ]) {
+      const ecQuery = `Select ECInstanceId from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
+      const queryBinder = new QueryBinder().bindIdSet(
+        "elementIds",
+        elementIdsIterable
+      );
+      const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+      for await (const row of queryReader) {
+        this.addCustomAspectChange("Inserted", row.toArray()[0]);
+      }
     }
   }
 
