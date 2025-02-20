@@ -60,9 +60,9 @@ export class ChangedInstanceIds {
     // @beta
     addCustomCodeSpecChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
     // @beta
-    addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
-    addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomRelationshipChange(ecClassId: string, changeType: SqliteChangeOp, id: Id64String, sourceECInstanceId: Id64String, targetECInstanceId: Id64String): Promise<void>;
     // (undocumented)
@@ -76,10 +76,10 @@ export class ChangedInstanceIds {
     // @beta
     getCustomRelationshipDataFromId(id: Id64String): ChangedInstanceCustomRelationshipData | undefined;
     // (undocumented)
-    get hasCustomChanges(): boolean;
-    static initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds | undefined>;
+    get hasChanges(): boolean;
     // (undocumented)
-    get isEmpty(): boolean;
+    get hasCustomRelationshipChanges(): boolean;
+    static initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds | undefined>;
     // (undocumented)
     model: ChangedInstanceOps;
     // (undocumented)
@@ -156,7 +156,6 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 // @beta
 export class IModelExporter {
     constructor(sourceDb: IModelDb, elementAspectsStrategy?: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy);
-    addCustomChanges(): void;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -265,6 +264,7 @@ export interface IModelImportOptions {
 // @beta
 export class IModelTransformer extends IModelExportHandler {
     constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
+    protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): void;

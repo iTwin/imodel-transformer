@@ -1227,7 +1227,8 @@ export class ChangedInstanceIds {
    * Adds the provided change to the element changes maintained by this instance of ChangedInstanceIds
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @note element changes will also cause the element's model to be marked as updated in [[ChangedInstanceIds.model]], so that the element does not get skipped by the transformer.
+   * @note Custom element 'Insert' will also mark element aspects and all element relationships as inserted.
+   * @note Custom element 'Insert' and 'Update' will mark element's parent model hierarchy and their modeled elements to be marked as 'Updated' in [[ChangedInstanceIds.model]] and [[ChangedInstanceIds.Element]]. This is needed so that the element does not get skipped by the transformer. This also means that when modeled element of  child model is inserted, its parent models will also be inserted if they were not added to target previously.
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact an element.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
@@ -1246,7 +1247,7 @@ export class ChangedInstanceIds {
     // needed for insert and update
     const compressedIds = CompressedId64Set.sortAndCompress(Id64.iterable(ids));
     const orderedIterable = CompressedId64Set.iterable(compressedIds);
-    await this.addModelsToUpdated(orderedIterable);
+    await this.markParentModelsAsUpdated(orderedIterable);
 
     if (changeType === "Inserted") {
       await this.addChangesToInsertElementAspects(orderedIterable);
@@ -1276,9 +1277,9 @@ export class ChangedInstanceIds {
 
   /**
    * Adds the provided change to the model changes maintained by this instance of ChangedInstanceIds.
-   * Also adds the model's modeledElement to the element changes. This is to ensure the changes from the model and its modeledElement get exported together.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * Will add same change to the model's modeledElement by calling [[ChangedInstanceIds.addCustomElementChange]] which will register more needed changes. This is to ensure the changes from the model and its modeledElement get exported together.
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact a model.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
@@ -1318,7 +1319,9 @@ export class ChangedInstanceIds {
    * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is part of
    * the sourceDbChanges. This method is used in addCustomChange to add the model to the updatedIds set so that the custom element changes are exported.
    */
-  private async addModelsToUpdated(elementIdsIterable: OrderedId64Iterable) {
+  private async markParentModelsAsUpdated(
+    elementIdsIterable: OrderedId64Iterable
+  ) {
     const params = new QueryBinder().bindIdSet(
       "elementIds",
       elementIdsIterable
