@@ -32,6 +32,7 @@ import {
   ExternalSourceAspect,
   GenericSchema,
   GeometricModel,
+  GroupImpartsToMembers,
   HubMock,
   IModelDb,
   IModelHost,
@@ -63,6 +64,8 @@ import {
 } from "@itwin/core-bentley";
 import {
   Code,
+  CodeScopeSpec,
+  CodeSpec,
   ColorDef,
   DefinitionElementProps,
   ElementProps,
@@ -4841,7 +4844,7 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  describe("custom changes", () => {
+  describe("addCustomChanges", () => {
     let sourceDb: BriefcaseDb;
     let targetDb: BriefcaseDb;
 
@@ -5018,12 +5021,11 @@ describe("IModelTransformerHub", () => {
       assertElementsExistByCode(targetDb, [physicalElem1]);
       assertElementsDoNotExistByCode(targetDb, [parentDrawing, childDrawing]);
 
-      // === Transformation 2: `process changes` transformation to include excluded parent model ===
+      // === Transformation 2: `process changes` transformation to insert excluded parent model ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
         .stub(transformer, "shouldExportElement")
         .callsFake((_sourceElement) => true);
-
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5137,6 +5139,37 @@ describe("IModelTransformerHub", () => {
         parentDrawing,
         childDrawing,
       ]);
+      // === Transformation 5: `process changes` transformation to delete existing model with newly added elements  ===
+      const physicalElem3 = insertPhysicalElement(
+        sourceDb,
+        physicalModel2Id,
+        categoryId1,
+        "PhysicalThree"
+      );
+      await pushChanges(sourceDb, "Added new physical element into PM2");
+      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
+      sinon
+        .stub(transformer, "shouldExportElement")
+        .callsFake((_sourceElement) => true);
+      sinon
+        .stub(transformer, "addCustomChanges")
+        .callsFake(async (sourceDbChanges) => {
+          await sourceDbChanges.addCustomModelChange(
+            "Deleted",
+            physicalModel2Id
+          );
+        });
+      await transformer.process();
+      await pushChanges(
+        targetDb,
+        "Transformation 5: delete model with newly added elements"
+      );
+      // Assert
+      expect(
+        IModelTestUtils.count(targetDb, GeometricModel.classFullName)
+      ).to.be.equal(0);
+      assertModelDoesNotExistsByName(targetDb, ["PM2"]);
+      assertElementsDoNotExistByCode(targetDb, [physicalElem2, physicalElem3]);
     });
 
     it("should update modeled element and its related data when custom changes are added for it's sub model", async function () {
@@ -5641,6 +5674,343 @@ describe("IModelTransformerHub", () => {
       ).to.be.equal("PhysicalOne");
     });
 
+    it("should delete recreated model when custom delete change is registered for it", async () => {
+      const constSubjectFedGuid = Guid.createValue();
+      const originalSubjectId = sourceDb.elements.insertElement({
+        classFullName: Subject.classFullName,
+        code: Code.createEmpty(),
+        model: IModel.repositoryModelId,
+        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+        federationGuid: constSubjectFedGuid,
+        userLabel: "A",
+      });
+
+      const constPartitionFedGuid = Guid.createValue();
+      const originalPartitionId = sourceDb.elements.insertElement({
+        model: IModel.repositoryModelId,
+        code: PhysicalPartition.createCode(
+          sourceDb,
+          IModel.rootSubjectId,
+          "original partition"
+        ),
+        classFullName: PhysicalPartition.classFullName,
+        federationGuid: constPartitionFedGuid,
+        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+      });
+      const originalModelId = sourceDb.models.insertModel({
+        classFullName: PhysicalModel.classFullName,
+        modeledElement: { id: originalPartitionId },
+        isPrivate: true,
+      });
+
+      await pushChanges(sourceDb, "Initial changes");
+
+      // === Transformation 1: Run `process all` transformation ===
+      let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
+      await transformer.process();
+      transformer.updateSynchronizationVersion({
+        initializeReverseSyncVersion: true,
+      });
+      await pushChanges(targetDb, "Transformation 1: Process All");
+
+      // Assert
+      expect(targetDb.elements.tryGetElement(constSubjectFedGuid)).to.not.be
+        .undefined;
+      expect(targetDb.elements.tryGetElement(constPartitionFedGuid)).to.not.be
+        .undefined;
+      expect(
+        IModelTestUtils.count(targetDb, PhysicalModel.classFullName)
+      ).to.be.equal(1);
+      assertModelExistsByName(targetDb, ["original partition"]);
+
+      // === Transformation 1: Run `process all` transformation ===
+      sourceDb.elements.deleteElement(originalSubjectId);
+      const secondCopyOfSubjectId = sourceDb.elements.insertElement({
+        classFullName: Subject.classFullName,
+        code: Code.createEmpty(),
+        model: IModel.repositoryModelId,
+        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+        federationGuid: constSubjectFedGuid,
+        userLabel: "B",
+      });
+
+      sourceDb.models.deleteModel(originalModelId);
+      sourceDb.elements.deleteElement(originalPartitionId);
+      const recreatedPartitionId = sourceDb.elements.insertElement({
+        model: IModel.repositoryModelId,
+        code: PhysicalPartition.createCode(
+          sourceDb,
+          IModel.rootSubjectId,
+          "recreated partition"
+        ),
+        classFullName: PhysicalPartition.classFullName,
+        federationGuid: constPartitionFedGuid,
+        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+      });
+      sourceDb.models.insertModel({
+        classFullName: PhysicalModel.classFullName,
+        modeledElement: { id: recreatedPartitionId },
+        isPrivate: false,
+      });
+
+      await pushChanges(sourceDb, "Recreated elements");
+
+      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
+      sinon
+        .stub(transformer, "addCustomChanges")
+        .callsFake(async (sourceDbChanges) => {
+          await sourceDbChanges.addCustomModelChange(
+            "Deleted",
+            recreatedPartitionId
+          );
+          await sourceDbChanges.addCustomElementChange(
+            "Deleted",
+            secondCopyOfSubjectId
+          );
+        });
+      await transformer.process();
+      await pushChanges(
+        targetDb,
+        "Transformation 2: inserted previously excluded model"
+      );
+      expect(targetDb.elements.tryGetElement(constSubjectFedGuid)).to.be
+        .undefined;
+      expect(targetDb.elements.tryGetElement(constPartitionFedGuid)).to.be
+        .undefined;
+      expect(
+        IModelTestUtils.count(targetDb, PhysicalModel.classFullName)
+      ).to.be.equal(0);
+    });
+
+    it("should update data in target correctly when custom changes are registered for relationship", async () => {
+      // Arrange
+      // === Transformation 1: Run `process all` transformation ===
+      // Arrange
+      const sourceSubjectId = Subject.insert(
+        sourceDb,
+        IModel.rootSubjectId,
+        "S1"
+      );
+      const documentListModel = DocumentListModel.insert(
+        sourceDb,
+        sourceSubjectId,
+        "DL"
+      );
+      const drawing1 = insertDrawingElement(
+        sourceDb,
+        documentListModel,
+        "Drawing 1"
+      );
+
+      const drawing2 = insertDrawingElement(
+        sourceDb,
+        documentListModel,
+        "Drawing 2"
+      );
+
+      const drawing3 = insertDrawingElement(
+        sourceDb,
+        documentListModel,
+        "Drawing 3"
+      );
+
+      const drawing4 = insertDrawingElement(
+        sourceDb,
+        documentListModel,
+        "Drawing 4"
+      );
+
+      const rel1 = insertElementGroupsElementsRelationship(
+        sourceDb,
+        drawing1.id!,
+        drawing2.id!
+      );
+
+      const rel2 = insertElementGroupsElementsRelationship(
+        sourceDb,
+        drawing2.id!,
+        drawing3.id!
+      );
+      await pushChanges(sourceDb, "Initial changes");
+
+      // === Transformation 1: Run `process all` transformation ===
+      let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
+      sinon
+        .stub(transformer, "shouldExportRelationship")
+        .callsFake((sourceRelationship) => {
+          // Exclude first relationship
+          return sourceRelationship.id !== rel1.id;
+        });
+      await transformer.process();
+      transformer.updateSynchronizationVersion({
+        initializeReverseSyncVersion: true,
+      });
+      await pushChanges(targetDb, "Transformation 1: Process All");
+
+      // Assert
+      const drawing1IdInTarget = targetDb.elements.getElement(
+        drawing1.federationGuid!
+      );
+      const drawing2IdInTarget = targetDb.elements.getElement(
+        drawing2.federationGuid!
+      );
+      const drawing3IdInTarget = targetDb.elements.getElement(
+        drawing3.federationGuid!
+      );
+
+      expect(
+        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
+      ).to.be.equal(1);
+      let rel1InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
+      );
+      expect(rel1InTarget).to.be.undefined;
+      let rel2InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
+      );
+      expect(rel2InTarget).to.not.be.undefined;
+
+      // === Transformation 2: `process changes` transformation to include excluded relationship ===
+      const ecClassId = await IModelTestUtils.getECClassId(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      );
+      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
+      sinon
+        .stub(transformer, "addCustomChanges")
+        .callsFake(async (sourceDbChanges) => {
+          expect(
+            sourceDbChanges.hasChanges,
+            "there should be only custom changes"
+          ).to.be.false;
+          await sourceDbChanges.addCustomRelationshipChange(
+            ecClassId,
+            "Inserted",
+            rel1.id,
+            drawing2.id!,
+            drawing3.id!
+          );
+        });
+      await transformer.process();
+      await pushChanges(
+        targetDb,
+        "Transformation 2: inserted previously excluded model"
+      );
+      // Assert
+      expect(
+        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
+      ).to.be.equal(2);
+      rel1InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
+      );
+      expect(rel1InTarget).to.not.be.undefined;
+      rel2InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
+      );
+      expect(rel2InTarget).to.not.be.undefined;
+
+      // === Transformation 3: `process changes` transformation to include newly added relationship  ===
+      // Act
+      const rel3 = insertElementGroupsElementsRelationship(
+        sourceDb,
+        drawing3.id!,
+        drawing4.id!
+      );
+      await pushChanges(sourceDb, "Added new relationship");
+
+      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
+      sinon
+        .stub(transformer, "shouldExportElement")
+        .callsFake((_sourceElement) => true);
+      sinon
+        .stub(transformer, "addCustomChanges")
+        .callsFake(async (sourceDbChanges) => {
+          await sourceDbChanges.addCustomRelationshipChange(
+            ecClassId,
+            "Inserted",
+            rel3.id,
+            drawing3.id!,
+            drawing4.id!
+          );
+        });
+      await transformer.process();
+      await pushChanges(
+        targetDb,
+        "Transformation 3: inserted newly created model"
+      );
+      // Assert
+      const drawing4IdInTarget = targetDb.elements.getElement(
+        drawing4.federationGuid!
+      );
+
+      expect(
+        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
+      ).to.be.equal(3);
+      rel1InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
+      );
+      expect(rel1InTarget).to.not.be.undefined;
+      rel2InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
+      );
+      expect(rel2InTarget).to.not.be.undefined;
+      let rel3InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing3IdInTarget.id, targetId: drawing4IdInTarget.id }
+      );
+      expect(rel3InTarget).to.not.be.undefined;
+      // === Transformation 4: `process changes` transformation to delete existing relationship  ===
+      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
+      sinon
+        .stub(transformer, "shouldExportElement")
+        .callsFake((_sourceElement) => true);
+      sinon
+        .stub(transformer, "addCustomChanges")
+        .callsFake(async (sourceDbChanges) => {
+          expect(
+            sourceDbChanges.hasChanges,
+            "there should be only custom changes"
+          ).to.be.false;
+          await sourceDbChanges.addCustomRelationshipChange(
+            ecClassId,
+            "Deleted",
+            rel2.id,
+            drawing2IdInTarget.id,
+            drawing3IdInTarget.id
+          );
+        });
+      await transformer.process();
+      await pushChanges(
+        targetDb,
+        "Transformation 4: delete exported relationship"
+      );
+      // Assert
+      expect(
+        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
+      ).to.be.equal(2);
+      rel1InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
+      );
+      expect(rel1InTarget).to.not.be.undefined;
+      rel2InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
+      );
+      expect(rel2InTarget).to.be.undefined;
+      rel3InTarget = targetDb.relationships.tryGetInstance(
+        ElementGroupsMembers.classFullName,
+        { sourceId: drawing3IdInTarget.id, targetId: drawing4IdInTarget.id }
+      );
+      expect(rel3InTarget).to.not.be.undefined;
+    });
+
     function insertDrawingElement(
       iModel: IModelDb,
       documentListModelId: Id64String,
@@ -5694,9 +6064,13 @@ describe("IModelTransformerHub", () => {
       iModel: IModelDb,
       sourceId: Id64String,
       targetId: Id64String
-    ): Id64String {
+    ) {
       const rel = ElementGroupsMembers.create(iModel, sourceId, targetId, 0);
-      return rel.insert();
+      const id = rel.insert();
+      return iModel.relationships.getInstance(
+        ElementGroupsMembers.classFullName,
+        id
+      );
     }
 
     function assertElementsExistByCode(

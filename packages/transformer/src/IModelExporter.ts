@@ -1222,14 +1222,15 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided change to the element changes maintained by this instance of ChangedInstanceIds.
+   * This method should only be called inside [[IModelTransformer.addCustomChanges]].
+   * It adds the provided change to the element changes maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * This method should only be called inside [[IModelTransformer.addCustomChanges]]
    * @note Custom element 'Insert' and 'Update' will mark element's parent model hierarchy and their modeled elements as 'Updated' in [[ChangedInstanceIds.model]] and [[ChangedInstanceIds.element]]. Parent models have to be marked as 'Updated' to make sure that added change is not skipped by transformer. Transformer starts processing elements from RepositoryModel and then visits all child models. Modeled elements hierarchy is marked as updated to trigger their inserts in case a new model (or its parent) needs to be inserted.
    * @note Custom element 'Insert' will also mark element aspects and all element relationships as inserted.
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact an element.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   * @note In data processing with filter criteria scenarios it is important to consistently filter out models and their modeled elements that were previously removed from target via [[addCustomModelChange]] or [[shouldExportElement]] apis.
    * @beta
    */
   public async addCustomElementChange(
@@ -1258,31 +1259,14 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided change to the codespec changes maintained by this instance of ChangedInstanceIds
-   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
-   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * This method should only be called inside [IModelTransformer.addCustomChanges]
-   * @note It is the responsibility of the caller to ensure that the provided id is, in fact a codespec.
-   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
-   * @beta
-   */
-  public addCustomCodeSpecChange(
-    changeType: SqliteChangeOp,
-    ids: Id64Arg
-  ): void {
-    for (const id of Id64.iterable(ids)) {
-      this.handleChange(this.codeSpec, changeType, id);
-    }
-  }
-
-  /**
+   * This method should only be called inside [IModelTransformer.addCustomChanges].
    * Adds the provided change to the model changes maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
    * Will add same change to the model's modeledElement by calling [[ChangedInstanceIds.addCustomElementChange]] which will register more needed changes. This is to ensure the changes from the model and its modeledElement get exported together.
-   * This method should only be called inside [IModelTransformer.addCustomChanges]
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact a model.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   * @note In data processing with filter criteria scenarios it is important to consistently filter out models and their modeled elements that were previously removed from target via [[addCustomModelChange]] or [[shouldExportElement]] apis.
    * @beta
    */
   public async addCustomModelChange(
@@ -1297,10 +1281,10 @@ export class ChangedInstanceIds {
   }
 
   /**
+   * This method should only be called inside [IModelTransformer.addCustomChanges].
    * Adds the provided change to the aspect changes maintained by this instance of ChangedInstanceIds
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * This method should only be called inside [IModelTransformer.addCustomChanges]
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact an aspect.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
@@ -1312,14 +1296,8 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * TODO: Think more about permutations of model updated / inserted / deleted. Can you delete a model without deleting its elements? 
-   * What if model delete but custom change si to insert element into target?
-   *       // It is possible and apparently occasionally sensical to delete a model without deleting its underlying element.
-    // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
-    // - If both were deleted, [[remapDeletedSourceEntities]] will find and remap the deleted element making this operation valid
-   * TODO: If the element is a custom delete we probably shouldnt be calling this?
-   * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is part of
-   * the sourceDbChanges. This method is used in addCustomChange to add the model to the updatedIds set so that the custom element changes are exported.
+   * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is marked as `Updated` or 'Inserted' in sourceDbChanges. This method is used in [[addCustomElementChange]] and [[addCustomModelChange]] to add the parent model hierarchy to the 'updatedIds' so that the custom element changes are exported.
+   * Transformer will insert 'Updated' model to target if it does not exist there already. To handle such case, modeled elements of parent models are also marked as updated. This is done, because model can not be inserted without it's modeled element.
    */
   private async markParentModelsAsUpdated(
     elementIdsIterable: OrderedId64Iterable
@@ -1431,7 +1409,7 @@ export class ChangedInstanceIds {
     if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
     if (!this._relationshipSubclassIds?.has(ecClassId))
       throw new Error(
-        `Misuse. id: ${id}, ecClassId: ${ecClassId} is not a relationship class. Use 'addCustomChange' instead.`
+        `Misuse. id: ${id}, ecClassId: ${ecClassId} is not a relationship class.`
       );
 
     this._hasCustomRelationshipChanges = true;

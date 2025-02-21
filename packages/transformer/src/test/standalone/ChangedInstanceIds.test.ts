@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import path = require("path");
-import { KnownTestLocations } from "../TestUtils";
+import { IModelTestUtils, KnownTestLocations } from "../TestUtils";
 import {
   DocumentListModel,
   Drawing,
@@ -25,7 +25,7 @@ import {
 import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
 import { expect } from "chai";
 
-describe("ChangedInstanceIds", () => {
+describe.only("ChangedInstanceIds", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformer"
@@ -248,6 +248,16 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
+
+    it("should not add changes when empty array is passed for custom element change ", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      await sourceDbChanges.addCustomElementChange("Inserted", []);
+
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
   });
 
   describe("addCustomModelChange", async function () {
@@ -310,6 +320,62 @@ describe("ChangedInstanceIds", () => {
         [],
         []
       );
+    });
+    it("should not add changes when empty array is passed for custom model change ", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      await sourceDbChanges.addCustomModelChange("Inserted", []);
+
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+  });
+  describe("addCustomAssetChange", async function () {
+    it("should add custom changes when aspect is inserted", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      const ecClassId = await IModelTestUtils.getECClassId(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      );
+      await sourceDbChanges.addCustomRelationshipChange(
+        ecClassId,
+        "Inserted",
+        relationshipId,
+        childDrawing1.id!,
+        childDrawing2.id!
+      );
+      // Act
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(
+        sourceDbChanges.relationship,
+        "relationship",
+        [relationshipId],
+        [],
+        []
+      );
+    });
+  });
+  describe("addCustomAssetChange", async function () {
+    it("should add custom changes when aspect is inserted", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      sourceDbChanges.addCustomAspectChange("Inserted", aspect1Id);
+      // Act
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [aspect1Id], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("should not add changes when empty array is passed for custom aspect change ", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      sourceDbChanges.addCustomAspectChange("Inserted", []);
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
   });
 });
