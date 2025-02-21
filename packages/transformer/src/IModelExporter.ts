@@ -70,10 +70,10 @@ import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspects
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
 /**
- * @internal
+ * @beta
  * The (optional) result of [[IModelExportHandler.onExportSchema]]
  */
-export interface ExportSchemaResult3 {
+export interface ExportSchemaResult {
   /** set this property to notify subclasses where you wrote a schema for later import */
   schemaPath?: string;
 }
