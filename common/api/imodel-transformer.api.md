@@ -39,7 +39,7 @@ import { Schema } from '@itwin/ecschema-metadata';
 import { SchemaKey } from '@itwin/ecschema-metadata';
 import { SqliteChangeOp } from '@itwin/core-backend';
 
-// @beta
+// @internal
 export interface ChangedInstanceCustomRelationshipData {
     // (undocumented)
     classFullName: string;
@@ -73,11 +73,10 @@ export class ChangedInstanceIds {
     element: ChangedInstanceOps;
     // (undocumented)
     font: ChangedInstanceOps;
-    // @beta
+    // @internal (undocumented)
     getCustomRelationshipDataFromId(id: Id64String): ChangedInstanceCustomRelationshipData | undefined;
-    // (undocumented)
     get hasChanges(): boolean;
-    // (undocumented)
+    // @internal (undocumented)
     get hasCustomRelationshipChanges(): boolean;
     static initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds | undefined>;
     // (undocumented)

@@ -3036,9 +3036,9 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * If sourceDbChanges is defined, then this function is called by the transformer as it is about to process the changesets passed to it in [[IModelTransformOptions.argsForProcessChanges]].
    * In order for sourceDbChanges to be defined, the transformer should be called with [[IModelTransformOptions.argsForProcessChanges]].
-   * This would be after the exporter has already processed the same set of changesets passed to the transformer in [[IModelTransformOptions.argsForProcessChanges]].
-   * This function should be used to modify the exporter's sourceDbChanges, if necessary, using [[ChangedInstanceIds.addCustomChange]]. See [[ChangedInstanceIds.addCustomChange]] for more information.
-   * @param sourceDbChanges the ChangedInstanceIds already populated by the exporter with the changesets, if any, passed to the transformer.
+   * This will be called after the exporter has already added all changes from source changesets to `sourceDbChanges`.
+   * This function should be used to modify the exporter's sourceDbChanges, if necessary, using `add custom change' methods in [[ChangedInstanceIds]], such as [[ChangedInstanceIds.addCustomElementChange]], [[ChangedInstanceIds.addCustomModelChange]] and other.
+   * @param sourceDbChanges the ChangedInstanceIds already populated by the exporter with the chenges in source changesets, if any, passed to the transformer.
    * @note The transformer will have built up the remap table between the source and target iModels before calling this function. This means that functions like [[IModelTransformer.context.findTargetElementId]] will return meaningful results.
    * @note Its expected that this function be overridden by a subclass of transformer if it needs to modify sourceDbChanges.
    */

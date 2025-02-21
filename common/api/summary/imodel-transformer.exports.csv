@@ -1,6 +1,6 @@
 sep=;
 Release Tag;API Item Type;API Item Name
-beta;interface;ChangedInstanceCustomRelationshipData
+internal;interface;ChangedInstanceCustomRelationshipData
 public;class;ChangedInstanceIds
 public;type;ChangedInstanceIdsInitOptions
 public;class;ChangedInstanceOps

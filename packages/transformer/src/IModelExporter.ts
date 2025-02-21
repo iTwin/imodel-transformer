@@ -70,10 +70,10 @@ import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspects
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
 /**
- * @beta
+ * @internal
  * The (optional) result of [[IModelExportHandler.onExportSchema]]
  */
-export interface ExportSchemaResult {
+export interface ExportSchemaResult3 {
   /** set this property to notify subclasses where you wrote a schema for later import */
   schemaPath?: string;
 }
@@ -1057,7 +1057,7 @@ export class ChangedInstanceOps {
 /**
  * Interface to describe a 'custom' change. A custom change is one which isn't found by reading changesets, but instead added by a user calling the 'addCustomChange' API on the ChangedInstanceIds instance.
  * The purpose a custom change would serve is to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
- * @beta
+ * @internal
  */
 export interface ChangedInstanceCustomRelationshipData {
   sourceIdOfRelationship: Id64String;
@@ -1175,11 +1175,16 @@ export class ChangedInstanceIds {
   private isElement(ecClassId: string) {
     return this._elementSubclassIds?.has(ecClassId);
   }
-
+  /**
+   * @internal
+   */
   public get hasCustomRelationshipChanges(): boolean {
     return this._hasCustomRelationshipChanges;
   }
 
+  /** Checks if there are any changes.
+   * @returns true if there are any changes in the ChangedInstanceIds object.
+   */
   public get hasChanges(): boolean {
     return (
       !this.codeSpec.isEmpty ||
@@ -1224,11 +1229,12 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided change to the element changes maintained by this instance of ChangedInstanceIds
+   * Adds the provided change to the element changes maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * This method should only be called inside [[IModelTransformer.addCustomChanges]]
+   * @note Custom element 'Insert' and 'Update' will mark element's parent model hierarchy and their modeled elements as 'Updated' in [[ChangedInstanceIds.model]] and [[ChangedInstanceIds.element]]. Parent models have to be marked as 'Updated' to make sure that added change is not skipped by transformer. Transformer starts processing elements from RepositoryModel and then visits all child models. Modeled elements hierarchy is marked as updated to trigger their inserts in case a new model (or its parent) needs to be inserted.
    * @note Custom element 'Insert' will also mark element aspects and all element relationships as inserted.
-   * @note Custom element 'Insert' and 'Update' will mark element's parent model hierarchy and their modeled elements to be marked as 'Updated' in [[ChangedInstanceIds.model]] and [[ChangedInstanceIds.Element]]. This is needed so that the element does not get skipped by the transformer. This also means that when modeled element of  child model is inserted, its parent models will also be inserted if they were not added to target previously.
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact an element.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
@@ -1262,6 +1268,7 @@ export class ChangedInstanceIds {
    * Adds the provided change to the codespec changes maintained by this instance of ChangedInstanceIds
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * This method should only be called inside [IModelTransformer.addCustomChanges]
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact a codespec.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
@@ -1280,6 +1287,7 @@ export class ChangedInstanceIds {
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
    * Will add same change to the model's modeledElement by calling [[ChangedInstanceIds.addCustomElementChange]] which will register more needed changes. This is to ensure the changes from the model and its modeledElement get exported together.
+   * This method should only be called inside [IModelTransformer.addCustomChanges]
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact a model.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
@@ -1299,6 +1307,7 @@ export class ChangedInstanceIds {
    * Adds the provided change to the aspect changes maintained by this instance of ChangedInstanceIds
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * This method should only be called inside [IModelTransformer.addCustomChanges]
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact an aspect.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
@@ -1394,8 +1403,8 @@ export class ChangedInstanceIds {
     }
   }
 
-  /** TODO: Maybe relationships only? maybe not.
-   * @beta
+  /**
+   * @internal
    */
   public getCustomRelationshipDataFromId(
     id: Id64String
