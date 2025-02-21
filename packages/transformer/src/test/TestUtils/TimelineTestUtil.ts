@@ -34,7 +34,6 @@ import {
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
-import { ExportChangesOptions, IModelExporter } from "../../IModelExporter";
 
 const saveAndPushChanges = async (
   accessToken: string,
@@ -254,12 +253,7 @@ export type TimelineStateChange =
         source: string,
         opts?: {
           since?: number;
-          init?: {
-            initTransformer?: (transformer: IModelTransformer) => void;
-            afterInitializeExporter?: (
-              exporter: IModelExporter
-            ) => Promise<void>; // Run this code after exporter.initialize is called
-          };
+          initTransformer?: (transformer: IModelTransformer) => void;
           expectThrow?: boolean;
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
@@ -363,12 +357,7 @@ export async function runTimeline(
           src: string,
           opts: {
             since?: number;
-            init?: {
-              afterInitializeExporter?: (
-                exporter: IModelExporter
-              ) => Promise<void>;
-              initTransformer?: (transformer: IModelTransformer) => void;
-            };
+            initTransformer?: (transformer: IModelTransformer) => void;
             expectThrow?: boolean;
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
@@ -509,7 +498,7 @@ export async function runTimeline(
           syncSource,
           {
             since: startIndex,
-            init: initFxns,
+            initTransformer,
             expectThrow,
             assert: assertFxns,
           },
@@ -522,21 +511,16 @@ export async function runTimeline(
         let targetStateBefore: TimelineIModelElemState | undefined;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = getIModelState(target.db);
-        let argsForProcessChanges: ExportChangesOptions = { csFileProps: [] };
-        if (startIndex) {
-          argsForProcessChanges = { startChangeset: { index: startIndex } };
-        }
+
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
-          argsForProcessChanges,
+          argsForProcessChanges: {
+            startChangeset: startIndex
+              ? { index: startIndex }
+              : { index: undefined },
+          },
         });
-
-        if (initFxns?.afterInitializeExporter) {
-          await syncer.exporter.initialize(argsForProcessChanges);
-          await initFxns?.afterInitializeExporter?.(syncer.exporter);
-        }
-
-        initFxns?.initTransformer?.(syncer);
+        initTransformer?.(syncer);
         try {
           await syncer.process();
           expect(

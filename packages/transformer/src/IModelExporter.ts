@@ -448,19 +448,12 @@ export class IModelExporter {
       return;
     }
 
-    const isEmptyObject = (obj: object): boolean =>
-      Object.keys(obj).length === 0;
+    const startChangeset =
+      args && "startChangeset" in args ? args.startChangeset : undefined;
 
-    let initOpts: ExporterInitOptions;
-    if (args === undefined || isEmptyObject(args)) {
-      // Fallback behavior for exportChanges with no args / empty object, this.initialize will process the current changeset of the source iModel being exported when startChangeset.id is undefined.
-      initOpts = {
-        startChangeset: { id: undefined },
-      };
-    } else {
-      initOpts = args;
-    }
-
+    const initOpts: ExporterInitOptions = {
+      startChangeset: { id: startChangeset?.id },
+    };
     await this.initialize(initOpts);
 
     // _sourceDbChanges are initialized in this.initialize
@@ -597,7 +590,7 @@ export class IModelExporter {
   public async exportCodeSpecByName(codeSpecName: string): Promise<void> {
     const codeSpec: CodeSpec = this.sourceDb.codeSpecs.getByName(codeSpecName);
     let isUpdate: boolean | undefined;
-    if (this._sourceDbChanges !== undefined) {
+    if (undefined !== this._sourceDbChanges) {
       // is changeset information available?
       if (this._sourceDbChanges.codeSpec.insertIds.has(codeSpec.id)) {
         isUpdate = false;
@@ -697,7 +690,7 @@ export class IModelExporter {
   /** Export the model (the container only) from the source iModel. */
   private async exportModelContainer(model: Model): Promise<void> {
     let isUpdate: boolean | undefined;
-    if (this._sourceDbChanges !== undefined) {
+    if (undefined !== this._sourceDbChanges) {
       // is changeset information available?
       if (this._sourceDbChanges.model.insertIds.has(model.id)) {
         isUpdate = false;
@@ -736,7 +729,7 @@ export class IModelExporter {
       );
       return;
     }
-    if (this._sourceDbChanges !== undefined) {
+    if (undefined !== this._sourceDbChanges) {
       // is changeset information available?
       if (
         !this._sourceDbChanges.model.insertIds.has(modelId) &&
@@ -967,7 +960,7 @@ export class IModelExporter {
       return;
     }
     let isUpdate: boolean | undefined;
-    if (this._sourceDbChanges !== undefined) {
+    if (undefined !== this._sourceDbChanges) {
       // is changeset information available?
       if (this._sourceDbChanges.relationship.insertIds.has(relInstanceId)) {
         isUpdate = false;
