@@ -39,18 +39,6 @@ import { Schema } from '@itwin/ecschema-metadata';
 import { SchemaKey } from '@itwin/ecschema-metadata';
 import { SqliteChangeOp } from '@itwin/core-backend';
 
-// @internal
-export interface ChangedInstanceCustomRelationshipData {
-    // (undocumented)
-    classFullName: string;
-    // (undocumented)
-    ecClassId: Id64String;
-    // (undocumented)
-    sourceIdOfRelationship: Id64String;
-    // (undocumented)
-    targetIdOfRelationship: Id64String;
-}
-
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
@@ -58,13 +46,9 @@ export class ChangedInstanceIds {
     // @beta
     addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
     // @beta
-    addCustomCodeSpecChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
-    // @beta
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
-    // @beta
-    addCustomRelationshipChange(ecClassId: string, changeType: SqliteChangeOp, id: Id64String, sourceECInstanceId: Id64String, targetECInstanceId: Id64String): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
     // (undocumented)
@@ -73,11 +57,7 @@ export class ChangedInstanceIds {
     element: ChangedInstanceOps;
     // (undocumented)
     font: ChangedInstanceOps;
-    // @internal (undocumented)
-    getCustomRelationshipDataFromId(id: Id64String): ChangedInstanceCustomRelationshipData | undefined;
     get hasChanges(): boolean;
-    // @internal (undocumented)
-    get hasCustomRelationshipChanges(): boolean;
     static initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds | undefined>;
     // (undocumented)
     model: ChangedInstanceOps;

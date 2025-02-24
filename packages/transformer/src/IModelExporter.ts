@@ -19,7 +19,6 @@ import {
   ElementMultiAspect,
   ElementRefersToElements,
   ElementUniqueAspect,
-  EntityReferences,
   GeometricElement,
   IModelDb,
   IModelHost,
@@ -40,14 +39,11 @@ import {
   Id64String,
   IModelStatus,
   Logger,
-  OrderedId64Iterable,
   YieldManager,
 } from "@itwin/core-bentley";
 import {
   ChangesetFileProps,
   CodeSpec,
-  ConcreteEntityTypes,
-  EntityReference,
   FontProps,
   IModel,
   IModelError,
@@ -434,7 +430,6 @@ export class IModelExporter {
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
    *       for consecutive calls
-   * @note Passing {} or undefined to exportChanges will result in the current changeset of the source iModel being exported.
    */
   public async exportChanges(args?: ExportChangesOptions): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb())
@@ -1048,18 +1043,6 @@ export class ChangedInstanceOps {
 }
 
 /**
- * Interface to describe a 'custom' change. A custom change is one which isn't found by reading changesets, but instead added by a user calling the 'addCustomChange' API on the ChangedInstanceIds instance.
- * The purpose a custom change would serve is to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
- * @internal
- */
-export interface ChangedInstanceCustomRelationshipData {
-  sourceIdOfRelationship: Id64String;
-  targetIdOfRelationship: Id64String;
-  ecClassId: Id64String;
-  classFullName: string;
-}
-
-/**
  * Class for discovering modified elements between 2 versions of an iModel.
  * @public
  */
@@ -1077,21 +1060,10 @@ export class ChangedInstanceIds {
   private _relationshipSubclassIds?: Set<string>;
   private _relationshipSubclassIdsToSkip?: Set<string>;
   private _ecClassIdsToClassFullNames?: Map<string, string>;
-  /** c${string} is used to represent codeSpecs since they do not currently have a representation in the EntityReference class. This map holds information passed to the 'addCustom' functions. */
-  private _entityReferenceToCustomDataMap: Map<
-    EntityReference | `c${string}`,
-    ChangedInstanceCustomRelationshipData
-  >;
-  private _hasCustomRelationshipChanges: boolean;
 
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
-    this._hasCustomRelationshipChanges = false;
-    this._entityReferenceToCustomDataMap = new Map<
-      EntityReference,
-      ChangedInstanceCustomRelationshipData
-    >();
   }
 
   private async setupECClassIds(): Promise<void> {
@@ -1167,12 +1139,6 @@ export class ChangedInstanceIds {
 
   private isElement(ecClassId: string) {
     return this._elementSubclassIds?.has(ecClassId);
-  }
-  /**
-   * @internal
-   */
-  public get hasCustomRelationshipChanges(): boolean {
-    return this._hasCustomRelationshipChanges;
   }
 
   /** Checks if there are any changes.
@@ -1347,13 +1313,7 @@ export class ChangedInstanceIds {
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
 
     for await (const row of queryReader) {
-      await this.addCustomRelationshipChange(
-        row.classId,
-        "Inserted",
-        row.id,
-        row.sourceId,
-        row.targetId
-      );
+      this.handleChange(this.relationship, "Inserted", row.Id);
     }
   }
 
@@ -1374,59 +1334,6 @@ export class ChangedInstanceIds {
         this.addCustomAspectChange("Inserted", row.toArray()[0]);
       }
     }
-  }
-
-  /**
-   * @internal
-   */
-  public getCustomRelationshipDataFromId(
-    id: Id64String
-  ): ChangedInstanceCustomRelationshipData | undefined {
-    return this._entityReferenceToCustomDataMap.get(
-      EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship)
-    );
-  }
-
-  /**
-   * Adds the provided change to the set of relationship changes maintained by this instance of ChangedInstanceIds.
-   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
-   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
-   * @throws if the ecClassId is NOT a relationship classId
-   * @param ecClassId class id of the custom change
-   * @param changeType insert, update or delete
-   * @param id ECInstanceID of the custom change
-   * @param sourceECInstanceId source ECInstanceId of the relationship
-   * @param targetECInstanceId target ECInstanceId of the relationship
-   * @beta
-   */
-  public async addCustomRelationshipChange(
-    ecClassId: string,
-    changeType: SqliteChangeOp,
-    id: Id64String,
-    sourceECInstanceId: Id64String,
-    targetECInstanceId: Id64String
-  ): Promise<void> {
-    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
-    if (!this._relationshipSubclassIds?.has(ecClassId))
-      throw new Error(
-        `Misuse. id: ${id}, ecClassId: ${ecClassId} is not a relationship class.`
-      );
-
-    this._hasCustomRelationshipChanges = true;
-    const classFullName = this._ecClassIdsToClassFullNames?.get(ecClassId);
-    assert(classFullName !== undefined); // setupECClassIds adds an entry to the above map for every single ECClassId.
-    this._entityReferenceToCustomDataMap.set(
-      EntityReferences.fromEntityType(id, ConcreteEntityTypes.Relationship),
-      {
-        sourceIdOfRelationship: sourceECInstanceId,
-        targetIdOfRelationship: targetECInstanceId,
-        ecClassId,
-        classFullName,
-      }
-    );
-    this.handleChange(this.relationship, changeType, id);
   }
 
   private handleChange(

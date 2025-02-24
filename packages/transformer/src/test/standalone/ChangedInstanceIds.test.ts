@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import path = require("path");
-import { IModelTestUtils, KnownTestLocations } from "../TestUtils";
+import { KnownTestLocations } from "../TestUtils";
 import {
   DocumentListModel,
   Drawing,
@@ -398,86 +398,6 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
-    });
-  });
-
-  describe("addCustomRelationshipChange", async function () {
-    it("should add custom changes when relationship is Inserted", async function () {
-      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      const ecClassId = await IModelTestUtils.getECClassId(
-        sourceDb,
-        ElementGroupsMembers.classFullName
-      );
-      await sourceDbChanges.addCustomRelationshipChange(
-        ecClassId,
-        "Inserted",
-        relationshipId,
-        childDrawing1.id!,
-        childDrawing2.id!
-      );
-      // Act
-      assertHasValues(sourceDbChanges.element, "element", [], [], []);
-      assertHasValues(sourceDbChanges.model, "model", [], [], []);
-      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
-      assertHasValues(
-        sourceDbChanges.relationship,
-        "relationship",
-        [relationshipId],
-        [],
-        []
-      );
-    });
-
-    it("should add custom changes when relationship is Updated", async function () {
-      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      const ecClassId = await IModelTestUtils.getECClassId(
-        sourceDb,
-        ElementGroupsMembers.classFullName
-      );
-      await sourceDbChanges.addCustomRelationshipChange(
-        ecClassId,
-        "Updated",
-        relationshipId,
-        childDrawing1.id!,
-        childDrawing2.id!
-      );
-      // Act
-      assertHasValues(sourceDbChanges.element, "element", [], [], []);
-      assertHasValues(sourceDbChanges.model, "model", [], [], []);
-      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
-      assertHasValues(
-        sourceDbChanges.relationship,
-        "relationship",
-        [],
-        [relationshipId],
-        []
-      );
-    });
-
-    it("should add custom changes when relationship is Deleted", async function () {
-      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      const ecClassId = await IModelTestUtils.getECClassId(
-        sourceDb,
-        ElementGroupsMembers.classFullName
-      );
-      await sourceDbChanges.addCustomRelationshipChange(
-        ecClassId,
-        "Deleted",
-        relationshipId,
-        childDrawing1.id!,
-        childDrawing2.id!
-      );
-      // Act
-      assertHasValues(sourceDbChanges.element, "element", [], [], []);
-      assertHasValues(sourceDbChanges.model, "model", [], [], []);
-      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
-      assertHasValues(
-        sourceDbChanges.relationship,
-        "relationship",
-        [],
-        [],
-        [relationshipId]
-      );
     });
   });
 

@@ -23,16 +23,13 @@ import {
   ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
-  ElementAspect,
   ElementGroupsMembers,
   ElementOwnsChildElements,
   ElementOwnsExternalSourceAspects,
-  ElementOwnsMultiAspects,
   ElementRefersToElements,
   ExternalSourceAspect,
   GenericSchema,
   GeometricModel,
-  GroupImpartsToMembers,
   HubMock,
   IModelDb,
   IModelHost,
@@ -64,8 +61,6 @@ import {
 } from "@itwin/core-bentley";
 import {
   Code,
-  CodeScopeSpec,
-  CodeSpec,
   ColorDef,
   DefinitionElementProps,
   ElementProps,
@@ -5780,235 +5775,6 @@ describe("IModelTransformerHub", () => {
       expect(
         IModelTestUtils.count(targetDb, PhysicalModel.classFullName)
       ).to.be.equal(0);
-    });
-
-    it("should update data in target correctly when custom changes are registered for relationship", async () => {
-      // Arrange
-      // === Transformation 1: Run `process all` transformation ===
-      // Arrange
-      const sourceSubjectId = Subject.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "S1"
-      );
-      const documentListModel = DocumentListModel.insert(
-        sourceDb,
-        sourceSubjectId,
-        "DL"
-      );
-      const drawing1 = insertDrawingElement(
-        sourceDb,
-        documentListModel,
-        "Drawing 1"
-      );
-
-      const drawing2 = insertDrawingElement(
-        sourceDb,
-        documentListModel,
-        "Drawing 2"
-      );
-
-      const drawing3 = insertDrawingElement(
-        sourceDb,
-        documentListModel,
-        "Drawing 3"
-      );
-
-      const drawing4 = insertDrawingElement(
-        sourceDb,
-        documentListModel,
-        "Drawing 4"
-      );
-
-      const rel1 = insertElementGroupsElementsRelationship(
-        sourceDb,
-        drawing1.id!,
-        drawing2.id!
-      );
-
-      const rel2 = insertElementGroupsElementsRelationship(
-        sourceDb,
-        drawing2.id!,
-        drawing3.id!
-      );
-      await pushChanges(sourceDb, "Initial changes");
-
-      // === Transformation 1: Run `process all` transformation ===
-      let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
-      sinon
-        .stub(transformer, "shouldExportRelationship")
-        .callsFake((sourceRelationship) => {
-          // Exclude first relationship
-          return sourceRelationship.id !== rel1.id;
-        });
-      await transformer.process();
-      transformer.updateSynchronizationVersion({
-        initializeReverseSyncVersion: true,
-      });
-      await pushChanges(targetDb, "Transformation 1: Process All");
-
-      // Assert
-      const drawing1IdInTarget = targetDb.elements.getElement(
-        drawing1.federationGuid!
-      );
-      const drawing2IdInTarget = targetDb.elements.getElement(
-        drawing2.federationGuid!
-      );
-      const drawing3IdInTarget = targetDb.elements.getElement(
-        drawing3.federationGuid!
-      );
-
-      expect(
-        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
-      ).to.be.equal(1);
-      let rel1InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
-      );
-      expect(rel1InTarget).to.be.undefined;
-      let rel2InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
-      );
-      expect(rel2InTarget).to.not.be.undefined;
-
-      // === Transformation 2: `process changes` transformation to include excluded relationship ===
-      const ecClassId = await IModelTestUtils.getECClassId(
-        sourceDb,
-        ElementGroupsMembers.classFullName
-      );
-      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
-          expect(
-            sourceDbChanges.hasChanges,
-            "there should be only custom changes"
-          ).to.be.false;
-          await sourceDbChanges.addCustomRelationshipChange(
-            ecClassId,
-            "Inserted",
-            rel1.id,
-            drawing2.id!,
-            drawing3.id!
-          );
-        });
-      await transformer.process();
-      await pushChanges(
-        targetDb,
-        "Transformation 2: inserted previously excluded model"
-      );
-      // Assert
-      expect(
-        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
-      ).to.be.equal(2);
-      rel1InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
-      );
-      expect(rel1InTarget).to.not.be.undefined;
-      rel2InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
-      );
-      expect(rel2InTarget).to.not.be.undefined;
-
-      // === Transformation 3: `process changes` transformation to include newly added relationship  ===
-      // Act
-      const rel3 = insertElementGroupsElementsRelationship(
-        sourceDb,
-        drawing3.id!,
-        drawing4.id!
-      );
-      await pushChanges(sourceDb, "Added new relationship");
-
-      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
-          await sourceDbChanges.addCustomRelationshipChange(
-            ecClassId,
-            "Inserted",
-            rel3.id,
-            drawing3.id!,
-            drawing4.id!
-          );
-        });
-      await transformer.process();
-      await pushChanges(
-        targetDb,
-        "Transformation 3: inserted newly created model"
-      );
-      // Assert
-      const drawing4IdInTarget = targetDb.elements.getElement(
-        drawing4.federationGuid!
-      );
-
-      expect(
-        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
-      ).to.be.equal(3);
-      rel1InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
-      );
-      expect(rel1InTarget).to.not.be.undefined;
-      rel2InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
-      );
-      expect(rel2InTarget).to.not.be.undefined;
-      let rel3InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing3IdInTarget.id, targetId: drawing4IdInTarget.id }
-      );
-      expect(rel3InTarget).to.not.be.undefined;
-      // === Transformation 4: `process changes` transformation to delete existing relationship  ===
-      transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
-      sinon
-        .stub(transformer, "addCustomChanges")
-        .callsFake(async (sourceDbChanges) => {
-          expect(
-            sourceDbChanges.hasChanges,
-            "there should be only custom changes"
-          ).to.be.false;
-          await sourceDbChanges.addCustomRelationshipChange(
-            ecClassId,
-            "Deleted",
-            rel2.id,
-            drawing2IdInTarget.id,
-            drawing3IdInTarget.id
-          );
-        });
-      await transformer.process();
-      await pushChanges(
-        targetDb,
-        "Transformation 4: delete exported relationship"
-      );
-      // Assert
-      expect(
-        IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
-      ).to.be.equal(2);
-      rel1InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing1IdInTarget.id, targetId: drawing2IdInTarget.id }
-      );
-      expect(rel1InTarget).to.not.be.undefined;
-      rel2InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing2IdInTarget.id, targetId: drawing3IdInTarget.id }
-      );
-      expect(rel2InTarget).to.be.undefined;
-      rel3InTarget = targetDb.relationships.tryGetInstance(
-        ElementGroupsMembers.classFullName,
-        { sourceId: drawing3IdInTarget.id, targetId: drawing4IdInTarget.id }
-      );
-      expect(rel3InTarget).to.not.be.undefined;
     });
 
     function insertDrawingElement(
