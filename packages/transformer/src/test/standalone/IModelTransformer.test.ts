@@ -5264,11 +5264,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(iModelDb, targetDb);
     await transformer.process();
 
-    const copiedElement = targetDb.elements.getElementProps(code1);
-    console.log(
-      iModelDb.elements.getElement(graphicElement1Props.id!).toJSON()
-    );
-    console.log(copiedElement.model);
+    const copiedElement = targetDb.elements.getElement("0x17");
+    console.log(iModelDb.elements.getElement("0x14").toJSON());
+    console.log(copiedElement.toJSON());
 
     transformer.dispose();
     iModelDb.close();
