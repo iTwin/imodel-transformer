@@ -1,6 +1,6 @@
 {
   "type": "prerelease",
-  "comment": "Add APIs 'ChangedInstanceIds:addCustomElementChange()', 'ChangedInstanceIds:addCustomModelChange()' 'ChangedInstanceIds:addCustomAspectChange()' and 'IModelTransformer:addCustomChange()' to support providing custom changes ( not found in a changeset ) to the transformer",
+  "comment": "Add new APIs to support providing custom changes ( not found in a changeset ) to the transformer",
   "packageName": "@itwin/imodel-transformer",
   "email": "22119573+nick4598@users.noreply.github.com, JulijaRamoskiene@users.noreply.github.com",
   "dependentChangeType": "patch"

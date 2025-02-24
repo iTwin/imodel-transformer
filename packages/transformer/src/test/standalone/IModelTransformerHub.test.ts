@@ -4913,7 +4913,7 @@ describe("IModelTransformerHub", () => {
       }
     }
 
-    it("should call addCustomChanges when processing changes after target ids are populated", async () => {
+    it("should call addCustomChanges when processing changes after source and target id map is populated", async () => {
       // set up source
       const sourceModelId0 = PhysicalModel.insert(
         sourceDb,
@@ -5180,20 +5180,31 @@ describe("IModelTransformerHub", () => {
         sourceSubjectId,
         "DL"
       );
-      const parentDrawing = insertDrawingElement(
+      const parentDrawing1 = insertDrawingElement(
         sourceDb,
         documentListModel,
-        "ParentDrawing"
+        "ParentDrawing1"
+      );
+      const parentDrawing2 = insertDrawingElement(
+        sourceDb,
+        documentListModel,
+        "ParentDrawing2"
       );
       const childDrawing1 = insertDrawingElement(
         sourceDb,
-        parentDrawing.id!,
+        parentDrawing1.id!,
         "ChildDrawing1"
       );
       const childDrawing2 = insertDrawingElement(
         sourceDb,
-        parentDrawing.id!,
+        parentDrawing1.id!,
         "ChildDrawing2"
+      );
+      insertElementAspect(
+        sourceDb,
+        sourceSubjectId,
+        parentDrawing1.id!,
+        "ParentAspect1"
       );
       insertElementAspect(
         sourceDb,
@@ -5209,6 +5220,12 @@ describe("IModelTransformerHub", () => {
       );
       insertElementGroupsElementsRelationship(
         sourceDb,
+        parentDrawing1.id!,
+        parentDrawing2.id!
+      );
+
+      insertElementGroupsElementsRelationship(
+        sourceDb,
         childDrawing1.id!,
         childDrawing2.id!
       );
@@ -5219,7 +5236,7 @@ describe("IModelTransformerHub", () => {
         .stub(transformer, "shouldExportElement")
         .callsFake((sourceElement) => {
           // Exclude all drawings
-          return sourceElement.id !== parentDrawing.id!;
+          return sourceElement.id !== parentDrawing1.id!;
         });
       await transformer.process();
       transformer.updateSynchronizationVersion({
@@ -5227,14 +5244,14 @@ describe("IModelTransformerHub", () => {
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
 
-      assertModelExistsByName(targetDb, ["DL"]);
+      assertModelExistsByName(targetDb, ["DL", "ParentDrawing2"]);
       assertModelDoesNotExistsByName(targetDb, [
-        "ParentDrawing",
+        "ParentDrawing1",
         "ChildDrawing1",
         "ChildDrawing2",
       ]);
       assertElementsDoNotExistByCode(targetDb, [
-        parentDrawing,
+        parentDrawing1,
         childDrawing1,
         childDrawing2,
       ]);
@@ -5267,20 +5284,26 @@ describe("IModelTransformerHub", () => {
 
       assertModelExistsByName(targetDb, [
         "DL",
-        "ParentDrawing",
+        "ParentDrawing1",
+        "ParentDrawing2",
         "ChildDrawing1",
       ]);
       assertModelDoesNotExistsByName(targetDb, ["ChildDrawing2"]);
-      assertElementsExistByCode(targetDb, [parentDrawing, childDrawing1]);
+      assertElementsExistByCode(targetDb, [parentDrawing1, childDrawing1]);
       assertElementsDoNotExistByCode(targetDb, [childDrawing2]);
       assertElementHasExpectedAspectCount(
         targetDb,
         childDrawing1.federationGuid!,
         1
       );
+      assertElementHasExpectedAspectCount(
+        targetDb,
+        parentDrawing1.federationGuid!,
+        1
+      );
       expect(
         IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
-      ).to.be.equal(0);
+      ).to.be.equal(1);
 
       // === Transformation 3: `process changes` transformation to include second child element's sub model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
@@ -5307,12 +5330,13 @@ describe("IModelTransformerHub", () => {
       // Assert
       assertModelExistsByName(targetDb, [
         "DL",
-        "ParentDrawing",
+        "ParentDrawing1",
+        "ParentDrawing2",
         "ChildDrawing1",
         "ChildDrawing2",
       ]);
       assertElementsExistByCode(targetDb, [
-        parentDrawing,
+        parentDrawing1,
         childDrawing1,
         childDrawing2,
       ]);
@@ -5323,7 +5347,7 @@ describe("IModelTransformerHub", () => {
       );
       expect(
         IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
-      ).to.be.equal(1);
+      ).to.be.equal(2);
 
       // === Transformation 4: `process changes` transformation to delete first child element's sub model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
@@ -5349,14 +5373,15 @@ describe("IModelTransformerHub", () => {
       );
       assertModelExistsByName(targetDb, [
         "DL",
-        "ParentDrawing",
+        "ParentDrawing1",
+        "ParentDrawing2",
         "ChildDrawing2",
       ]);
-      assertElementsExistByCode(targetDb, [parentDrawing, childDrawing2]);
+      assertElementsExistByCode(targetDb, [parentDrawing1, childDrawing2]);
       assertElementsDoNotExistByCode(targetDb, [childDrawing1]);
       expect(
         IModelTestUtils.count(targetDb, ElementGroupsMembers.classFullName)
-      ).to.be.equal(0);
+      ).to.be.equal(1);
     });
 
     it("should update exported data correctly when custom changes are registered for elements", async function () {

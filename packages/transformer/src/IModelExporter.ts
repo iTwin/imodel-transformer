@@ -36,6 +36,7 @@ import {
   DbResult,
   Id64,
   Id64Arg,
+  Id64Set,
   Id64String,
   IModelStatus,
   Logger,
@@ -1032,6 +1033,10 @@ export class ChangedInstanceOps {
     }
   }
 
+  /**
+   * Checks if empty.
+   * @returns true if there no ids in the ChangedInstanceOps object.
+   */
   public get isEmpty(): boolean {
     return (
       0 === this.insertIds.size &&
@@ -1207,16 +1212,25 @@ export class ChangedInstanceIds {
     if (changeType === "Deleted") {
       return;
     }
-    // needed for insert and update
-    const compressedIds = CompressedId64Set.sortAndCompress(Id64.iterable(ids));
-    await this.markParentModelsAsUpdated(compressedIds);
 
+    const compressedIds = CompressedId64Set.sortAndCompress(Id64.iterable(ids));
+    // Parent models have to be marked as 'Updated' to make sure that added change is not skipped by transformer. Transformer starts processing elements from RepositoryModel and then visits all child models.
+    // Transformer handles update as insert if element is not found in target, for this reason modeled elements will be also marked as updated to trigger their inserts in case a new model (or its parent) needs to be inserted. Otherwise error would be thrown about missing modeled element while inserting new model.
+    const parentModelIds = await this.markParentModelsAsUpdated(compressedIds);
+
+    // Aspects and relationships of inserted data needs to be marked as inserted otherwise those would not be exported
     if (changeType === "Inserted") {
-      await this.addChangesToInsertElementAspects(compressedIds);
+      const insertedElements = CompressedId64Set.decompressSet(compressedIds);
+      // Adding parents as well as we are not sure if those were inserted or updated
+      parentModelIds.forEach((parentId) => {
+        insertedElements.add(parentId);
+      });
+
+      await this.markElementAspectsAsInserted(insertedElements);
       // Marking only ElementRefersToElements.classFullName as only those are exported in exportRelationships()
-      await this.addCustomChangesToInsertRelationships(
+      await this.markElementRelationshipsAsInserted(
         ElementRefersToElements.classFullName,
-        compressedIds
+        insertedElements
       );
     }
   }
@@ -1278,7 +1292,7 @@ export class ChangedInstanceIds {
         )
         SELECT parentId FROM hierarchy where parentId is not null
     `;
-
+    const parentModelIds = new Set<Id64String>();
     for await (const row of this._db.createQueryReader(ecQuery, params)) {
       // Transformer handles update as insert when element does not exist in target.
       // Which means that in scenario where child and parent model are filtered out from target,
@@ -1288,21 +1302,20 @@ export class ChangedInstanceIds {
       //  2. Will insert child element (otherwise this insert would be ignored due to missing parent).
       this.handleChange(this.model, "Updated", row.parentId);
       this.handleChange(this.element, "Updated", row.parentId);
+      parentModelIds.add(row.parentId);
     }
+    return parentModelIds;
   }
 
-  private async addCustomChangesToInsertRelationships(
+  private async markElementRelationshipsAsInserted(
     relationshipClassName: string,
-    elementIds: CompressedId64Set
+    elementIds: Id64Set
   ) {
     const ecQuery = `SELECT ECInstanceId as id, ECClassId as classId, SourceECInstanceId as sourceId, TargetECInstanceId as targetId FROM ${relationshipClassName}
         WHERE InVirtualSet(:elementIds, TargetECInstanceId)
         OR InVirtualSet(:elementIds, SourceECInstanceId)`;
 
-    const queryBinder = new QueryBinder().bindIdSet(
-      "elementIds",
-      CompressedId64Set.iterable(elementIds)
-    );
+    const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
 
     for await (const row of queryReader) {
@@ -1310,18 +1323,13 @@ export class ChangedInstanceIds {
     }
   }
 
-  private async addChangesToInsertElementAspects(
-    elementIds: CompressedId64Set
-  ) {
+  private async markElementAspectsAsInserted(elementIds: Id64Set) {
     for (const aspectClassName of [
       ElementUniqueAspect.classFullName,
       ElementMultiAspect.classFullName,
     ]) {
       const ecQuery = `Select ECInstanceId from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
-      const queryBinder = new QueryBinder().bindIdSet(
-        "elementIds",
-        CompressedId64Set.iterable(elementIds)
-      );
+      const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
       const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
       for await (const row of queryReader) {
         this.addCustomAspectChange("Inserted", row.toArray()[0]);

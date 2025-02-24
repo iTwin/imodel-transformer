@@ -39,6 +39,8 @@ describe("ChangedInstanceIds", () => {
   let childDrawing2: ElementProps;
   let aspect1Id: Id64String;
   let aspect2Id: Id64String;
+  let parentAspect1Id: Id64String;
+  let parentRelationshipId: Id64String;
   let relationshipId: Id64String;
 
   before(async () => {
@@ -82,17 +84,23 @@ describe("ChangedInstanceIds", () => {
       "ParentDrawing2"
     );
     insertDrawingElement(sourceDb, parentDrawing2.id!, "ChildDrawing3");
+    parentAspect1Id = insertElementAspect(
+      sourceDb,
+      sourceSubjectId,
+      parentDrawing.id!,
+      "TestParentAspect1"
+    );
     aspect1Id = insertElementAspect(
       sourceDb,
       sourceSubjectId,
       childDrawing1.id!,
-      "TestAspect1"
+      "TestChildAspect1"
     );
     aspect2Id = insertElementAspect(
       sourceDb,
       sourceSubjectId,
       childDrawing2.id!,
-      "TestAspect2"
+      "TestChildAspect2"
     );
     relationshipId = ElementGroupsMembers.create(
       sourceDb,
@@ -100,6 +108,14 @@ describe("ChangedInstanceIds", () => {
       childDrawing2.id!,
       0
     ).insert();
+
+    parentRelationshipId = ElementGroupsMembers.create(
+      sourceDb,
+      parentDrawing.id!,
+      parentDrawing2.id!,
+      0
+    ).insert();
+
     sourceDb.saveChanges();
   });
 
@@ -188,11 +204,17 @@ describe("ChangedInstanceIds", () => {
         ["0x1", documentListModel, parentDrawing.id!],
         []
       );
-      assertHasValues(sourceDbChanges.aspect, "aspect", [aspect1Id], [], []);
+      assertHasValues(
+        sourceDbChanges.aspect,
+        "aspect",
+        [aspect1Id, parentAspect1Id],
+        [],
+        []
+      );
       assertHasValues(
         sourceDbChanges.relationship,
         "relationship",
-        [relationshipId],
+        [relationshipId, parentRelationshipId],
         [],
         []
       );
@@ -303,8 +325,20 @@ describe("ChangedInstanceIds", () => {
         [documentListModel, "0x1"],
         []
       );
-      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
-      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+      assertHasValues(
+        sourceDbChanges.aspect,
+        "aspect",
+        [parentAspect1Id],
+        [],
+        []
+      );
+      assertHasValues(
+        sourceDbChanges.relationship,
+        "relationship",
+        [parentRelationshipId],
+        [],
+        []
+      );
     });
 
     it("should add custom changes when multiple models are inserted", async function () {
@@ -333,14 +367,14 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(
         sourceDbChanges.aspect,
         "aspect",
-        [aspect1Id, aspect2Id],
+        [aspect1Id, aspect2Id, parentAspect1Id],
         [],
         []
       );
       assertHasValues(
         sourceDbChanges.relationship,
         "relationship",
-        [relationshipId],
+        [relationshipId, parentRelationshipId],
         [],
         []
       );
