@@ -1311,7 +1311,7 @@ export class ChangedInstanceIds {
     relationshipClassName: string,
     elementIds: Id64Set
   ) {
-    const ecQuery = `SELECT ECInstanceId as id, ECClassId as classId, SourceECInstanceId as sourceId, TargetECInstanceId as targetId FROM ${relationshipClassName}
+    const ecQuery = `SELECT ECInstanceId FROM ${relationshipClassName}
         WHERE InVirtualSet(:elementIds, TargetECInstanceId)
         OR InVirtualSet(:elementIds, SourceECInstanceId)`;
 
@@ -1319,7 +1319,7 @@ export class ChangedInstanceIds {
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
 
     for await (const row of queryReader) {
-      this.handleChange(this.relationship, "Inserted", row.Id);
+      this.handleChange(this.relationship, "Inserted", row.ECInstanceId);
     }
   }
 

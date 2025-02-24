@@ -2899,7 +2899,6 @@ export class IModelTransformer extends IModelExportHandler {
 
       csReader.close();
     }
-
     return;
   }
 

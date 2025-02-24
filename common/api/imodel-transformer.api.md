@@ -77,7 +77,6 @@ export class ChangedInstanceOps {
     deleteIds: Set<string>;
     // (undocumented)
     insertIds: Set<string>;
-    // (undocumented)
     get isEmpty(): boolean;
     // (undocumented)
     updateIds: Set<string>;

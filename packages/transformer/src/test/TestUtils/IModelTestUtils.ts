@@ -1131,14 +1131,6 @@ export class IModelTestUtils {
     );
   }
 
-  public static async getECClassId(iModel: IModelDb, className: string) {
-    const reader = iModel.createQueryReader(
-      `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ec_className(ECInstanceId) = '${className}' LIMIT 1`
-    );
-    await reader.step();
-    return reader.current.ECInstanceId as string;
-  }
-
   public static findAndAssertTargetScopeProvenance(
     master: TimelineIModelState,
     branch: TimelineIModelState,
