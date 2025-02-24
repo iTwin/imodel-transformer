@@ -1237,6 +1237,10 @@ export class ChangedInstanceIds {
     changeType: SqliteChangeOp,
     ids: Id64Arg
   ): Promise<void> {
+    if (Id64.sizeOf(ids) === 0) {
+      return;
+    }
+
     for (const id of Id64.iterable(ids)) {
       this.handleChange(this.element, changeType, id);
     }
@@ -1246,14 +1250,14 @@ export class ChangedInstanceIds {
     }
     // needed for insert and update
     const compressedIds = CompressedId64Set.sortAndCompress(Id64.iterable(ids));
-    const orderedIterable = CompressedId64Set.iterable(compressedIds);
-    await this.markParentModelsAsUpdated(orderedIterable);
+    await this.markParentModelsAsUpdated(compressedIds);
 
     if (changeType === "Inserted") {
-      await this.addChangesToInsertElementAspects(orderedIterable);
+      await this.addChangesToInsertElementAspects(compressedIds);
+      // Marking only ElementRefersToElements.classFullName as only those are exported in exportRelationships()
       await this.addCustomChangesToInsertRelationships(
         ElementRefersToElements.classFullName,
-        orderedIterable
+        compressedIds
       );
     }
   }
@@ -1299,12 +1303,10 @@ export class ChangedInstanceIds {
    * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is marked as `Updated` or 'Inserted' in sourceDbChanges. This method is used in [[addCustomElementChange]] and [[addCustomModelChange]] to add the parent model hierarchy to the 'updatedIds' so that the custom element changes are exported.
    * Transformer will insert 'Updated' model to target if it does not exist there already. To handle such case, modeled elements of parent models are also marked as updated. This is done, because model can not be inserted without it's modeled element.
    */
-  private async markParentModelsAsUpdated(
-    elementIdsIterable: OrderedId64Iterable
-  ) {
+  private async markParentModelsAsUpdated(elementIds: CompressedId64Set) {
     const params = new QueryBinder().bindIdSet(
       "elementIds",
-      elementIdsIterable
+      CompressedId64Set.iterable(elementIds)
     );
 
     const ecQuery = `
@@ -1332,7 +1334,7 @@ export class ChangedInstanceIds {
 
   private async addCustomChangesToInsertRelationships(
     relationshipClassName: string,
-    elementIdsIterable: OrderedId64Iterable
+    elementIds: CompressedId64Set
   ) {
     const ecQuery = `SELECT ECInstanceId as id, ECClassId as classId, SourceECInstanceId as sourceId, TargetECInstanceId as targetId FROM ${relationshipClassName}
         WHERE InVirtualSet(:elementIds, TargetECInstanceId)
@@ -1340,7 +1342,7 @@ export class ChangedInstanceIds {
 
     const queryBinder = new QueryBinder().bindIdSet(
       "elementIds",
-      elementIdsIterable
+      CompressedId64Set.iterable(elementIds)
     );
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
 
@@ -1356,7 +1358,7 @@ export class ChangedInstanceIds {
   }
 
   private async addChangesToInsertElementAspects(
-    elementIdsIterable: OrderedId64Iterable
+    elementIds: CompressedId64Set
   ) {
     for (const aspectClassName of [
       ElementUniqueAspect.classFullName,
@@ -1365,7 +1367,7 @@ export class ChangedInstanceIds {
       const ecQuery = `Select ECInstanceId from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
       const queryBinder = new QueryBinder().bindIdSet(
         "elementIds",
-        elementIdsIterable
+        CompressedId64Set.iterable(elementIds)
       );
       const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
       for await (const row of queryReader) {

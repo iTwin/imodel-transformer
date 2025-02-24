@@ -25,7 +25,7 @@ import {
 import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
 import { expect } from "chai";
 
-describe.only("ChangedInstanceIds", () => {
+describe("ChangedInstanceIds", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformer"
@@ -94,11 +94,12 @@ describe.only("ChangedInstanceIds", () => {
       childDrawing2.id!,
       "TestAspect2"
     );
-    relationshipId = insertElementGroupsElementsRelationship(
+    relationshipId = ElementGroupsMembers.create(
       sourceDb,
       childDrawing1.id!,
-      childDrawing2.id!
-    );
+      childDrawing2.id!,
+      0
+    ).insert();
     sourceDb.saveChanges();
   });
 
@@ -145,14 +146,6 @@ describe.only("ChangedInstanceIds", () => {
     return iModel.elements.insertAspect(aspectProps);
   }
 
-  function insertElementGroupsElementsRelationship(
-    iModel: IModelDb,
-    sourceId: Id64String,
-    targetId: Id64String
-  ): Id64String {
-    return ElementGroupsMembers.create(iModel, sourceId, targetId, 0).insert();
-  }
-
   function assertHasValues(
     instanceOps: ChangedInstanceOps,
     propertyName: string,
@@ -174,7 +167,7 @@ describe.only("ChangedInstanceIds", () => {
     );
   }
   describe("addCustomElementChange", async function () {
-    it("should add changes for related entities when element is inserted", async function () {
+    it("should add changes for related entities when element is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       await sourceDbChanges.addCustomElementChange(
         "Inserted",
@@ -205,7 +198,7 @@ describe.only("ChangedInstanceIds", () => {
       );
     });
 
-    it("should add changes for related entities when element is updated", async function () {
+    it("should add changes for related entities when element is Updated", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       await sourceDbChanges.addCustomElementChange(
         "Updated",
@@ -230,7 +223,38 @@ describe.only("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
 
-    it("should add changes for related entities when element is deleted", async function () {
+    it("should add changes for related entities when multiple elements are updated", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      await sourceDbChanges.addCustomElementChange("Updated", [
+        childDrawing1.id!,
+        childDrawing2.id!,
+      ]);
+
+      assertHasValues(
+        sourceDbChanges.element,
+        "element",
+        [],
+        [
+          "0x1",
+          documentListModel,
+          parentDrawing.id!,
+          childDrawing1.id!,
+          childDrawing2.id!,
+        ],
+        []
+      );
+      assertHasValues(
+        sourceDbChanges.model,
+        "model",
+        [],
+        ["0x1", documentListModel, parentDrawing.id!],
+        []
+      );
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("should add changes for related entities when element is Deleted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       await sourceDbChanges.addCustomElementChange(
         "Deleted",
@@ -321,6 +345,51 @@ describe.only("ChangedInstanceIds", () => {
         []
       );
     });
+
+    it("should add custom changes when model is Updated", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      await sourceDbChanges.addCustomModelChange("Updated", parentDrawing.id!);
+      // Act
+      assertHasValues(
+        sourceDbChanges.element,
+        "element",
+        [],
+        [documentListModel, "0x1", parentDrawing.id!],
+        []
+      );
+      assertHasValues(
+        sourceDbChanges.model,
+        "model",
+        [],
+        [documentListModel, "0x1", parentDrawing.id!],
+        []
+      );
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("should add custom changes when model is Deleted", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      await sourceDbChanges.addCustomModelChange("Deleted", parentDrawing.id!);
+      // Act
+      assertHasValues(
+        sourceDbChanges.element,
+        "element",
+        [],
+        [],
+        [parentDrawing.id!]
+      );
+      assertHasValues(
+        sourceDbChanges.model,
+        "model",
+        [],
+        [],
+        [parentDrawing.id!]
+      );
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
     it("should not add changes when empty array is passed for custom model change ", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       await sourceDbChanges.addCustomModelChange("Inserted", []);
@@ -331,8 +400,9 @@ describe.only("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
   });
-  describe("addCustomAssetChange", async function () {
-    it("should add custom changes when aspect is inserted", async function () {
+
+  describe("addCustomRelationshipChange", async function () {
+    it("should add custom changes when relationship is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       const ecClassId = await IModelTestUtils.getECClassId(
         sourceDb,
@@ -357,15 +427,88 @@ describe.only("ChangedInstanceIds", () => {
         []
       );
     });
+
+    it("should add custom changes when relationship is Updated", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      const ecClassId = await IModelTestUtils.getECClassId(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      );
+      await sourceDbChanges.addCustomRelationshipChange(
+        ecClassId,
+        "Updated",
+        relationshipId,
+        childDrawing1.id!,
+        childDrawing2.id!
+      );
+      // Act
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(
+        sourceDbChanges.relationship,
+        "relationship",
+        [],
+        [relationshipId],
+        []
+      );
+    });
+
+    it("should add custom changes when relationship is Deleted", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      const ecClassId = await IModelTestUtils.getECClassId(
+        sourceDb,
+        ElementGroupsMembers.classFullName
+      );
+      await sourceDbChanges.addCustomRelationshipChange(
+        ecClassId,
+        "Deleted",
+        relationshipId,
+        childDrawing1.id!,
+        childDrawing2.id!
+      );
+      // Act
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+      assertHasValues(
+        sourceDbChanges.relationship,
+        "relationship",
+        [],
+        [],
+        [relationshipId]
+      );
+    });
   });
-  describe("addCustomAssetChange", async function () {
-    it("should add custom changes when aspect is inserted", async function () {
+
+  describe("addCustomAspectChange", async function () {
+    it("should add custom changes when aspect is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       sourceDbChanges.addCustomAspectChange("Inserted", aspect1Id);
       // Act
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [aspect1Id], [], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("should add custom changes when aspect is Updated", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      sourceDbChanges.addCustomAspectChange("Updated", aspect1Id);
+      // Act
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [aspect1Id], []);
+      assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("should add custom changes when aspect is Deleted", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      sourceDbChanges.addCustomAspectChange("Deleted", aspect1Id);
+      // Act
+      assertHasValues(sourceDbChanges.element, "element", [], [], []);
+      assertHasValues(sourceDbChanges.model, "model", [], [], []);
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], [aspect1Id]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
 
