@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Ignore navigational properties that point to an ECView",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "36619139+ViliusRuskys@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
