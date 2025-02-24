@@ -450,7 +450,6 @@ export class IModelExporter {
       startChangeset: { id: startChangeset?.id },
     };
     await this.initialize(initOpts);
-
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
       this._sourceDbChanges !== undefined,
@@ -1080,7 +1079,7 @@ export class ChangedInstanceIds {
       for await (const row of this._db.createQueryReader(
         `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`
       )) {
-        setToModify.add(row.ECClassId);
+        setToModify.add(row.ECInstanceId);
       }
     };
     const promises = [
