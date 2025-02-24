@@ -1059,7 +1059,6 @@ export class ChangedInstanceIds {
   private _aspectSubclassIds?: Set<string>;
   private _relationshipSubclassIds?: Set<string>;
   private _relationshipSubclassIdsToSkip?: Set<string>;
-  private _ecClassIdsToClassFullNames?: Map<string, string>;
 
   private _db: IModelDb;
   public constructor(db: IModelDb) {
@@ -1073,20 +1072,15 @@ export class ChangedInstanceIds {
     this._aspectSubclassIds = new Set<string>();
     this._relationshipSubclassIds = new Set<string>();
     this._relationshipSubclassIdsToSkip = new Set<string>();
-    this._ecClassIdsToClassFullNames = new Map<string, string>();
 
     const addECClassIdsToSet = async (
       setToModify: Set<string>,
       baseClass: string
     ) => {
       for await (const row of this._db.createQueryReader(
-        `SELECT c.ECInstanceId ECClassId, c.Name className, s.Name schemaName FROM ECDbMeta.ECClassDef c JOIN ECDbMeta.ECSchemaDef s ON s.ECInstanceId = c.Schema.Id WHERE c.ECInstanceId IS (${baseClass})`
+        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`
       )) {
         setToModify.add(row.ECClassId);
-        this._ecClassIdsToClassFullNames?.set(
-          row.ECClassId,
-          `${row.schemaName}:${row.className}`
-        );
       }
     };
     const promises = [
