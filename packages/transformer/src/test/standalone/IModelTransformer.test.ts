@@ -132,7 +132,6 @@ import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/a
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
-import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(
@@ -5190,7 +5189,7 @@ describe("IModelTransformer", () => {
   });
 
   it("should transform iModel with ECView successfully", async function () {
-    if (!Semver.gte(iTwinCoreBackendVersion, "4.6.0")) {
+    if (!Semver.gte(coreBackendPkgJson.version, "4.6.0")) {
       return; // Pre 4.6.0 does not have QueryView support. https://www.itwinjs.org/bis/domains/ecdbmap.ecschema/#queryview
     }
     const createSnapshot = (name: string): SnapshotDb => {
