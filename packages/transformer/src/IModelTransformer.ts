@@ -2915,6 +2915,16 @@ export class IModelTransformer extends IModelExportHandler {
     _sourceDbChanges: ChangedInstanceIds
   ): Promise<void> {}
 
+  /**
+   * Helper function for processChangesets. Remaps the id of element deleted found in the 'change' to an element in the targetDb.
+   * @param change the change to process, must be of changeType "Deleted"
+   * @param mapOfDeletedElemIdToScopeEsas a map of elementIds to changedECInstances (which are ESAs). the elementId is not the id of the esa itself, but the elementid that the esa was stored on before the esa's deletion.
+   * All ESAs in this map are part of the transformer's scope / ESA data and are tracked in case the ESA is deleted in the target.
+   * @param isRelationship is relationship or not
+   * @param alreadyImportedElementInserts used to handle entity recreation and not delete already handled element inserts.
+   * @param alreadyImportedModelInserts used to handle entity recreation and not delete already handled model inserts.
+   * @returns void
+   */
   private async processDeletedOp(
     change: ChangedECInstance,
     mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
