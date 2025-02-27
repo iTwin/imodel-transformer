@@ -31,6 +31,7 @@ import {
   GenericGraphicalModel3d,
   GenericPhysicalMaterial,
   GeometricElement,
+  GeometryPart,
   Graphic3d,
   IModelDb,
   IModelElementCloneContext,
@@ -87,6 +88,7 @@ import {
   GeometricElement2dProps,
   GeometricElement3dProps,
   GeometryParams,
+  GeometryPartProps,
   GeometryStreamBuilder,
   ImageSourceFormat,
   IModel,
@@ -103,6 +105,7 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import {
+  Arc3d,
   LineSegment3d,
   Point3d,
   Range3d,
@@ -5144,7 +5147,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it.only("should import line style from geometry stream", async function () {
+  it("should import line style from geometry stream", async function () {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "LineStyle.bim"
@@ -5184,6 +5187,7 @@ describe("IModelTransformer", () => {
       iModelDb,
       { descr: "line2", strokes: lsStrokes2 }
     );
+    styleProps2.unitDef = 2;
 
     const lineStyle1Id = LineStyleDefinition.Utils.createStyle(
       iModelDb,
@@ -5264,8 +5268,173 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(iModelDb, targetDb);
     await transformer.process();
 
-    const copiedElement = targetDb.elements.getElement("0x17");
+    const copiedElement = targetDb.elements.getElement("0x15");
     console.log(iModelDb.elements.getElement("0x14").toJSON());
+    console.log(copiedElement.toJSON());
+
+    transformer.dispose();
+    iModelDb.close();
+    targetDb.close();
+  });
+
+  it.only("should import compound line style from geometry stream", async function () {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "CompoundLineStyle.bim"
+    );
+    const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "LineStyle" },
+    });
+    const subjectId = Subject.insert(
+      iModelDb,
+      IModel.rootSubjectId,
+      "My objects"
+    );
+    const defModelId = DefinitionModel.insert(
+      iModelDb,
+      subjectId,
+      "DefinitionModel"
+    );
+
+    const lsStrokes: LineStyleDefinition.Strokes = [];
+    lsStrokes.push({
+      length: 0.25,
+      orgWidth: 0.0,
+      endWidth: 0.025,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      widthMode: LineStyleDefinition.StrokeWidth.Left,
+    });
+    lsStrokes.push({ length: 0.1 });
+    lsStrokes.push({
+      length: 0.1,
+      orgWidth: 0.025,
+      endWidth: 0.025,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      widthMode: LineStyleDefinition.StrokeWidth.Full,
+    });
+    lsStrokes.push({ length: 0.1 });
+    lsStrokes.push({
+      length: 0.25,
+      orgWidth: 0.025,
+      endWidth: 0.0,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      widthMode: LineStyleDefinition.StrokeWidth.Right,
+    });
+    lsStrokes.push({ length: 0.1 });
+
+    const strokePatternData =
+      LineStyleDefinition.Utils.createStrokePatternComponent(iModelDb, {
+        descr: "TestDashDotDashLineCode",
+        strokes: lsStrokes,
+      });
+    assert.isTrue(undefined !== strokePatternData);
+
+    const partBuilder = new GeometryStreamBuilder();
+    partBuilder.appendGeometry(Arc3d.createXY(Point3d.createZero(), 0.05));
+
+    const partProps: GeometryPartProps = {
+      classFullName: GeometryPart.classFullName,
+      model: IModel.dictionaryId,
+      code: Code.createEmpty(),
+      geom: partBuilder.geometryStream,
+    };
+    const partId = iModelDb.elements.insertElement(partProps);
+    assert.isTrue(Id64.isValidId64(partId));
+
+    const pointSymbolData =
+      LineStyleDefinition.Utils.createPointSymbolComponent(iModelDb, {
+        geomPartId: partId,
+      }); // base and size will be set automatically...
+    assert.isTrue(undefined !== pointSymbolData);
+
+    const lsSymbols: LineStyleDefinition.Symbols = [];
+    lsSymbols.push({
+      symId: pointSymbolData!.compId,
+      strokeNum: 1,
+      mod1: LineStyleDefinition.SymbolOptions.Center,
+    });
+    lsSymbols.push({
+      symId: pointSymbolData!.compId,
+      strokeNum: 3,
+      mod1: LineStyleDefinition.SymbolOptions.Center,
+    });
+
+    const strokePointData =
+      LineStyleDefinition.Utils.createStrokePointComponent(iModelDb, {
+        descr: "TestGapSymbolsLinePoint",
+        lcId: strokePatternData.compId,
+        symbols: lsSymbols,
+      });
+    assert.isTrue(undefined !== strokePointData);
+
+    const lsComponents: LineStyleDefinition.Components = [];
+    lsComponents.push({
+      id: strokePointData.compId,
+      type: strokePointData.compType,
+    });
+    lsComponents.push({
+      id: strokePatternData.compId,
+      type: strokePatternData.compType,
+    });
+
+    const compoundData = LineStyleDefinition.Utils.createCompoundComponent(
+      iModelDb,
+      { comps: lsComponents }
+    );
+    assert.isTrue(undefined !== compoundData);
+
+    const styleId = LineStyleDefinition.Utils.createStyle(
+      iModelDb,
+      IModel.dictionaryId,
+      "TestDashCircleDotCircleDashStyle",
+      compoundData
+    );
+    assert.isTrue(Id64.isValidId64(styleId));
+
+    const category1Id = SpatialCategory.insert(
+      iModelDb,
+      defModelId,
+      "Red category",
+      { color: ColorDef.red.toJSON() }
+    );
+
+    const modelId = GenericGraphicalModel3d.insert(
+      iModelDb,
+      subjectId,
+      "lines"
+    );
+    // Insert Line1
+    const code1 = Code.createEmpty();
+    code1.value = "line1";
+    const geometryBuilder1 = new GeometryStreamBuilder();
+    const geometryParams1 = new GeometryParams(category1Id);
+    geometryParams1.styleInfo = new LineStyle.Info(styleId);
+    geometryBuilder1.appendGeometryParamsChange(geometryParams1);
+    geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
+    const graphicElement1Props: GeometricElement3dProps = {
+      category: category1Id,
+      model: modelId,
+      code: code1,
+      classFullName: Graphic3d.classFullName,
+      geom: geometryBuilder1.geometryStream,
+    };
+    iModelDb.elements.insertElement(graphicElement1Props);
+
+    iModelDb.saveChanges();
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "CompoundLineStyle-Target.bim"
+    );
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "LineStyle-Target" },
+    });
+    const transformer = new IModelTransformer(iModelDb, targetDb);
+    await transformer.process();
+
+    console.log(iModelDb.elements.getElement(styleId).toJSON());
+
+    const copiedElement = targetDb.elements.getElement("0x15");
     console.log(copiedElement.toJSON());
 
     transformer.dispose();
