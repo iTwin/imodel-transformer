@@ -93,6 +93,7 @@ import {
   SourceAndTarget,
 } from "@itwin/core-common";
 import {
+  ChangedInstanceIds,
   ExportChangesOptions,
   ExporterInitOptions,
   ExportSchemaResult,
@@ -2788,8 +2789,19 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
-    if (this._csFileProps === undefined || this._csFileProps.length === 0)
-      return;
+    if (this.exporter.sourceDbChanges)
+      await this.addCustomChanges(this.exporter.sourceDbChanges);
+
+    if (this._csFileProps === undefined || this._csFileProps.length === 0) {
+      if (
+        this.exporter.sourceDbChanges === undefined ||
+        !this.exporter.sourceDbChanges.hasChanges
+      )
+        return;
+      // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
+      if (this._sourceChangeDataState === "no-changes")
+        this._sourceChangeDataState = "has-changes";
+    }
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
@@ -2825,9 +2837,10 @@ export class IModelTransformer extends IModelExportHandler {
           alreadyImportedModelInserts.add(targetModelId);
       }
     );
+
     this._deletedSourceRelationshipData = new Map();
 
-    for (const csFile of this._csFileProps) {
+    for (const csFile of this._csFileProps ?? []) {
       const csReader = SqliteChangesetReader.openFile({
         fileName: csFile.pathname,
         db: this.sourceDb,
@@ -2858,7 +2871,6 @@ export class IModelTransformer extends IModelExportHandler {
           elemIdToScopeEsa.set(change.Element.Id, change);
         }
       }
-
       // Loop to process deletes.
       for (const change of changes) {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
@@ -2889,6 +2901,19 @@ export class IModelTransformer extends IModelExportHandler {
     }
     return;
   }
+
+  /**
+   * This will be called when transformer is called with [[IModelTransformOptions.argsForProcessChanges]] to process changes.
+   * It will be executed after changes in changesets are populated into `sourceDbChanges` and before data processing begins.
+   * Remap table between the source and target iModels will be built at that time, meaning that functions like [[IModelTransformer.context.findTargetElementId]] will return meaningful results.
+   * This function should be used to modify the `sourceDbChanges`, if necessary, using `add custom change` methods in [[ChangedInstanceIds]], such as [[ChangedInstanceIds.addCustomElementChange]], [[ChangedInstanceIds.addCustomModelChange]] and other.
+   * @param sourceDbChanges the ChangedInstanceIds already populated by the exporter with the changes in source changesets, if any, passed to the transformer.
+   * @note Its expected that this function be overridden by a subclass of transformer if it needs to modify sourceDbChanges.
+   */
+  protected async addCustomChanges(
+    _sourceDbChanges: ChangedInstanceIds
+  ): Promise<void> {}
+
   /**
    * Helper function for processChangesets. Remaps the id of element deleted found in the 'change' to an element in the targetDb.
    * @param change the change to process, must be of changeType "Deleted"
@@ -2909,7 +2934,9 @@ export class IModelTransformer extends IModelExportHandler {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
-      this.synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index &&
+      (this.exporter.sourceDbChanges === undefined ||
+        !this.exporter.sourceDbChanges.hasChanges);
     if (notConnectedModel || noChanges) return;
 
     /**
