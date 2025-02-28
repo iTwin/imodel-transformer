@@ -1213,24 +1213,23 @@ export class ChangedInstanceIds {
       return;
     }
 
-    const compressedIds = CompressedId64Set.sortAndCompress(Id64.iterable(ids));
+    const idsSet = Id64.toIdSet(ids);
     // Parent models have to be marked as 'Updated' to make sure that added change is not skipped by transformer. Transformer starts processing elements from RepositoryModel and then visits all child models.
     // Transformer handles update as insert if element is not found in target, for this reason modeled elements will be also marked as updated to trigger their inserts in case a new model (or its parent) needs to be inserted. Otherwise error would be thrown about missing modeled element while inserting new model.
-    const parentModelIds = await this.markParentModelsAsUpdated(compressedIds);
+    const parentModelIds = await this.markParentModelsAsUpdated(idsSet);
 
     // Aspects and relationships of inserted data needs to be marked as inserted otherwise those would not be exported
     if (changeType === "Inserted") {
-      const insertedElements = CompressedId64Set.decompressSet(compressedIds);
       // Adding parents as well as we are not sure if those were inserted or updated
       parentModelIds.forEach((parentId) => {
-        insertedElements.add(parentId);
+        idsSet.add(parentId);
       });
 
-      await this.markElementAspectsAsInserted(insertedElements);
+      await this.markElementAspectsAsInserted(idsSet);
       // Marking only ElementRefersToElements.classFullName as only those are exported in exportRelationships()
       await this.markElementRelationshipsAsInserted(
         ElementRefersToElements.classFullName,
-        insertedElements
+        idsSet
       );
     }
   }
@@ -1276,11 +1275,8 @@ export class ChangedInstanceIds {
    * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is marked as `Updated` or 'Inserted' in sourceDbChanges. This method is used in [[addCustomElementChange]] and [[addCustomModelChange]] to add the parent model hierarchy to the 'updatedIds' so that the custom element changes are exported.
    * Transformer will insert 'Updated' model to target if it does not exist there already. To handle such case, modeled elements of parent models are also marked as updated. This is done, because model can not be inserted without it's modeled element.
    */
-  private async markParentModelsAsUpdated(elementIds: CompressedId64Set) {
-    const params = new QueryBinder().bindIdSet(
-      "elementIds",
-      CompressedId64Set.iterable(elementIds)
-    );
+  private async markParentModelsAsUpdated(elementIds: Id64Set) {
+    const params = new QueryBinder().bindIdSet("elementIds", elementIds);
 
     const ecQuery = `
     WITH RECURSIVE hierarchy (parentId) AS (
