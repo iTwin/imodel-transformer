@@ -32,7 +32,6 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
-  CompressedId64Set,
   DbResult,
   Id64,
   Id64Arg,
