@@ -33,6 +33,9 @@ import {
 import {
   assert,
   DbResult,
+  Id64,
+  Id64Arg,
+  Id64Set,
   Id64String,
   IModelStatus,
   Logger,
@@ -44,6 +47,7 @@ import {
   FontProps,
   IModel,
   IModelError,
+  QueryBinder,
 } from "@itwin/core-common";
 import {
   ECVersion,
@@ -289,9 +293,10 @@ export class IModelExporter {
   private _progressCounter: number = 0;
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
+
   /**
    * Retrieve the cached entity change information.
-   * @note This will only be initialized after [IModelExporter.exportChanges] is invoked.
+   * @note This will only be initialized after [IModelExporter.exportChanges] is invoked or [IModelExporter.initialize] is called.
    */
   public get sourceDbChanges(): ChangedInstanceIds | undefined {
     return this._sourceDbChanges;
@@ -444,7 +449,6 @@ export class IModelExporter {
     const initOpts: ExporterInitOptions = {
       startChangeset: { id: startChangeset?.id },
     };
-
     await this.initialize(initOpts);
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
@@ -1027,6 +1031,18 @@ export class ChangedInstanceOps {
         val.delete.forEach((id: Id64String) => this.deleteIds.add(id));
     }
   }
+
+  /**
+   * Checks if empty.
+   * @returns true if there no ids in the ChangedInstanceOps object.
+   */
+  public get isEmpty(): boolean {
+    return (
+      0 === this.insertIds.size &&
+      0 === this.updateIds.size &&
+      0 === this.deleteIds.size
+    );
+  }
 }
 
 /**
@@ -1045,6 +1061,8 @@ export class ChangedInstanceIds {
   private _elementSubclassIds?: Set<string>;
   private _aspectSubclassIds?: Set<string>;
   private _relationshipSubclassIds?: Set<string>;
+  private _relationshipSubclassIdsToSkip?: Set<string>;
+
   private _db: IModelDb;
   public constructor(db: IModelDb) {
     this._db = db;
@@ -1056,6 +1074,7 @@ export class ChangedInstanceIds {
     this._elementSubclassIds = new Set<string>();
     this._aspectSubclassIds = new Set<string>();
     this._relationshipSubclassIds = new Set<string>();
+    this._relationshipSubclassIdsToSkip = new Set<string>();
 
     const addECClassIdsToSet = async (
       setToModify: Set<string>,
@@ -1080,6 +1099,10 @@ export class ChangedInstanceIds {
         this._relationshipSubclassIds,
         "BisCore.ElementRefersToElements"
       ),
+      addECClassIdsToSet(
+        this._relationshipSubclassIdsToSkip,
+        "BisCore.ElementDrivesElement"
+      ),
     ];
     await Promise.all(promises);
   }
@@ -1090,7 +1113,8 @@ export class ChangedInstanceIds {
       this._modelSubclassIds &&
       this._elementSubclassIds &&
       this._aspectSubclassIds &&
-      this._relationshipSubclassIds
+      this._relationshipSubclassIds &&
+      this._relationshipSubclassIdsToSkip
     );
   }
 
@@ -1114,6 +1138,20 @@ export class ChangedInstanceIds {
     return this._elementSubclassIds?.has(ecClassId);
   }
 
+  /** Checks if there are any changes.
+   * @returns true if there are any changes in the ChangedInstanceIds object.
+   */
+  public get hasChanges(): boolean {
+    return (
+      !this.codeSpec.isEmpty ||
+      !this.model.isEmpty ||
+      !this.element.isEmpty ||
+      !this.aspect.isEmpty ||
+      !this.relationship.isEmpty ||
+      !this.font.isEmpty
+    );
+  }
+
   /**
    * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
@@ -1132,6 +1170,7 @@ export class ChangedInstanceIds {
       throw new Error(
         `ChangeType was undefined for id: ${change.ECInstanceId}.`
       );
+    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
 
     if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
@@ -1143,6 +1182,154 @@ export class ChangedInstanceIds {
       this.handleChange(this.model, changeType, change.ECInstanceId);
     else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
+  }
+
+  /**
+   * This method should only be called inside [[IModelTransformer.addCustomChanges]].
+   * It adds the provided change to the element changes maintained by this instance of ChangedInstanceIds.
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @note Custom element 'Insert' and 'Update' will mark element's parent model hierarchy and their modeled elements as 'Updated' in [[ChangedInstanceIds.model]] and [[ChangedInstanceIds.element]]. Parent models have to be marked as 'Updated' to make sure that added change is not skipped by transformer. Transformer starts processing elements from RepositoryModel and then visits all child models. Modeled elements hierarchy is marked as updated to trigger their inserts in case a new model (or its parent) needs to be inserted.
+   * @note Custom element 'Insert' will also mark element aspects and all element relationships as inserted.
+   * @note It is the responsibility of the caller to ensure that the provided id is, in fact an element.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   * @note In data processing with filter criteria scenarios it is important to consistently filter out models and their modeled elements that were previously removed from target via [[addCustomModelChange]] or [[shouldExportElement]] apis.
+   * @beta
+   */
+  public async addCustomElementChange(
+    changeType: SqliteChangeOp,
+    ids: Id64Arg
+  ): Promise<void> {
+    if (Id64.sizeOf(ids) === 0) {
+      return;
+    }
+
+    for (const id of Id64.iterable(ids)) {
+      this.handleChange(this.element, changeType, id);
+    }
+
+    if (changeType === "Deleted") {
+      return;
+    }
+
+    const idsSet = Id64.toIdSet(ids);
+    // Parent models have to be marked as 'Updated' to make sure that added change is not skipped by transformer. Transformer starts processing elements from RepositoryModel and then visits all child models.
+    // Transformer handles update as insert if element is not found in target, for this reason modeled elements will be also marked as updated to trigger their inserts in case a new model (or its parent) needs to be inserted. Otherwise error would be thrown about missing modeled element while inserting new model.
+    const parentModelIds = await this.markParentModelsAsUpdated(idsSet);
+
+    // Aspects and relationships of inserted data needs to be marked as inserted otherwise those would not be exported
+    if (changeType === "Inserted") {
+      // Adding parents as well as we are not sure if those were inserted or updated
+      parentModelIds.forEach((parentId) => {
+        idsSet.add(parentId);
+      });
+
+      await this.markElementAspectsAsInserted(idsSet);
+      // Marking only ElementRefersToElements.classFullName as only those are exported in exportRelationships()
+      await this.markElementRelationshipsAsInserted(
+        ElementRefersToElements.classFullName,
+        idsSet
+      );
+    }
+  }
+
+  /**
+   * This method should only be called inside [IModelTransformer.addCustomChanges].
+   * Adds the provided change to the model changes maintained by this instance of ChangedInstanceIds.
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * Will add same change to the model's modeledElement by calling [[ChangedInstanceIds.addCustomElementChange]] which will register more needed changes. This is to ensure the changes from the model and its modeledElement get exported together.
+   * @note It is the responsibility of the caller to ensure that the provided id is, in fact a model.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   * @note In data processing with filter criteria scenarios it is important to consistently filter out models and their modeled elements that were previously removed from target via [[addCustomModelChange]] or [[shouldExportElement]] apis.
+   * @beta
+   */
+  public async addCustomModelChange(
+    changeType: SqliteChangeOp,
+    ids: Id64Arg
+  ): Promise<void> {
+    // Also add the model's modeledElement to the element changes. The modeledElement and model go hand in hand and have the same id.
+    await this.addCustomElementChange(changeType, ids);
+    for (const id of Id64.iterable(ids)) {
+      this.handleChange(this.model, changeType, id);
+    }
+  }
+
+  /**
+   * This method should only be called inside [IModelTransformer.addCustomChanges].
+   * Adds the provided change to the aspect changes maintained by this instance of ChangedInstanceIds
+   * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
+   * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
+   * @note It is the responsibility of the caller to ensure that the provided id is, in fact an aspect.
+   * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
+   * @beta
+   */
+  public addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void {
+    for (const id of Id64.iterable(ids)) {
+      this.handleChange(this.aspect, changeType, id);
+    }
+  }
+
+  /**
+   * There is an optimization in [IModelExporter.exportModelContents] which doesn't try to export elements within a model unless the model itself is marked as `Updated` or 'Inserted' in sourceDbChanges. This method is used in [[addCustomElementChange]] and [[addCustomModelChange]] to add the parent model hierarchy to the 'updatedIds' so that the custom element changes are exported.
+   * Transformer will insert 'Updated' model to target if it does not exist there already. To handle such case, modeled elements of parent models are also marked as updated. This is done, because model can not be inserted without it's modeled element.
+   */
+  private async markParentModelsAsUpdated(elementIds: Id64Set) {
+    const params = new QueryBinder().bindIdSet("elementIds", elementIds);
+
+    const ecQuery = `
+    WITH RECURSIVE hierarchy (parentId) AS (
+        SELECT Model.Id FROM bis.Element WHERE InVirtualSet(:elementIds, ECInstanceId)
+        UNION
+        SELECT ParentModel.id
+        FROM bis.Model e
+            INNER JOIN hierarchy h ON h.parentId = e.ECInstanceId
+        )
+        SELECT parentId FROM hierarchy where parentId is not null
+    `;
+    const parentModelIds = new Set<Id64String>();
+    for await (const row of this._db.createQueryReader(ecQuery, params)) {
+      // Transformer handles update as insert when element does not exist in target.
+      // Which means that in scenario where child and parent model are filtered out from target,
+      // and child element is inserted trough custom change, its parent model will be marked as updated.
+      // Transformer then will:
+      //  1. Handle parent update as insert (since it does not exist in target).
+      //  2. Will insert child element (otherwise this insert would be ignored due to missing parent).
+      this.handleChange(this.model, "Updated", row.parentId);
+      this.handleChange(this.element, "Updated", row.parentId);
+      parentModelIds.add(row.parentId);
+    }
+    return parentModelIds;
+  }
+
+  private async markElementRelationshipsAsInserted(
+    relationshipClassName: string,
+    elementIds: Id64Set
+  ) {
+    const ecQuery = `SELECT ECInstanceId FROM ${relationshipClassName}
+        WHERE InVirtualSet(:elementIds, TargetECInstanceId)
+        OR InVirtualSet(:elementIds, SourceECInstanceId)`;
+
+    const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
+    const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+
+    for await (const row of queryReader) {
+      this.handleChange(this.relationship, "Inserted", row.ECInstanceId);
+    }
+  }
+
+  private async markElementAspectsAsInserted(elementIds: Id64Set) {
+    for (const aspectClassName of [
+      ElementUniqueAspect.classFullName,
+      ElementMultiAspect.classFullName,
+    ]) {
+      const ecQuery = `Select ECInstanceId from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
+      const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
+      const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+      for await (const row of queryReader) {
+        this.addCustomAspectChange("Inserted", row.toArray()[0]);
+      }
+    }
   }
 
   private handleChange(
@@ -1228,12 +1415,6 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-    const relationshipECClassIdsToSkip = new Set<string>();
-    for await (const row of opts.iModel.createQueryReader(
-      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)"
-    )) {
-      relationshipECClassIdsToSkip.add(row.ECInstanceId);
-    }
 
     for (const csFile of csFileProps) {
       const csReader = SqliteChangesetReader.openFile({
@@ -1249,11 +1430,6 @@ export class ChangedInstanceIds {
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {
-        if (
-          change.ECClassId !== undefined &&
-          relationshipECClassIdsToSkip.has(change.ECClassId)
-        )
-          continue;
         await changedInstanceIds.addChange(change);
       }
       csReader.close();
