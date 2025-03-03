@@ -2,6 +2,37 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Mon, 03 Mar 2025 17:50:09 GMT",
+      "version": "1.1.0",
+      "tag": "@itwin/imodel-transformer_v1.1.0",
+      "comments": {
+        "none": [
+          {
+            "author": "'DanRod1999@users.noreply.github.com'",
+            "package": "@itwin/imodel-transformer",
+            "commit": "6f122f59a084f58b976a314f781e7fda90e0a8b1",
+            "comment": ""
+          }
+        ],
+        "minor": [
+          {
+            "author": "JulijaRamoskiene@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "6f122f59a084f58b976a314f781e7fda90e0a8b1",
+            "comment": "Removed changed element cache from iModelTransformer as iModelExporter stores same data in `sourceDbChanges`."
+          }
+        ],
+        "prerelease": [
+          {
+            "author": "22119573+nick4598@users.noreply.github.com, JulijaRamoskiene@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "6f122f59a084f58b976a314f781e7fda90e0a8b1",
+            "comment": "Add new APIs to support providing custom changes ( not found in a changeset ) to the transformer"
+          }
+        ]
+      }
+    },
+    {
       "date": "Mon, 04 Nov 2024 14:45:46 GMT",
       "version": "1.0.0",
       "tag": "@itwin/imodel-transformer_v1.0.0",

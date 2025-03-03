@@ -1,8 +1,20 @@
 # Change Log - @itwin/imodel-transformer
 
-<!-- This log was last generated on Mon, 04 Nov 2024 14:45:46 GMT and should not be manually modified. -->
+This log was last generated on Mon, 03 Mar 2025 17:50:09 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 1.1.0
+
+Mon, 03 Mar 2025 17:50:09 GMT
+
+### Minor changes
+
+- Removed changed element cache from iModelTransformer as iModelExporter stores same data in `sourceDbChanges`. ([commit](https://github.com/iTwin/imodel-transformer/commit/6f122f59a084f58b976a314f781e7fda90e0a8b1))
+
+### Changes
+
+- Add new APIs to support providing custom changes ( not found in a changeset ) to the transformer ([commit](https://github.com/iTwin/imodel-transformer/commit/6f122f59a084f58b976a314f781e7fda90e0a8b1))
 
 ## 1.0.0
 
