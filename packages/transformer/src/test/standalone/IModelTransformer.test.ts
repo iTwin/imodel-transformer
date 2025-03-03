@@ -5147,7 +5147,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it("should import line style from geometry stream", async function () {
+  it.only("should import line style from geometry stream", async function () {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "LineStyle.bim"
@@ -5277,7 +5277,7 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
 
-  it.only("should import compound line style from geometry stream", async function () {
+  it("should import compound line style from geometry stream", async function () {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "CompoundLineStyle.bim"
