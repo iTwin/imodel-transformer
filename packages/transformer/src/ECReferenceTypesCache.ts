@@ -221,6 +221,17 @@ export class ECReferenceTypesCache {
       ECReferenceTypesCache.bisRootClassToRefType[sourceRootBisClass.name];
     const targetType =
       ECReferenceTypesCache.bisRootClassToRefType[targetRootBisClass.name];
+    if (
+      (!sourceType &&
+        sourceRootBisClass.customAttributes?.has("ECDbMap.QueryView")) ||
+      (!targetType &&
+        targetRootBisClass.customAttributes?.has("ECDbMap.QueryView"))
+    ) {
+      // ECView elements are not "real" data and transformer does not need to process them.
+      // Relationships that point to ECView elements can only be used in ECViews so the mapping is not needed.
+      return undefined;
+    }
+
     const makeAssertMsg = (root: ECClass, cls: ECClass) =>
       [
         `An unknown root class '${root.fullName}' was encountered while populating`,

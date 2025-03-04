@@ -81,6 +81,7 @@ import {
   ElementProps,
   ExternalSourceAspectProps,
   GeometricElement2dProps,
+  GeometricElement3dProps,
   ImageSourceFormat,
   IModel,
   IModelError,
@@ -5167,6 +5168,94 @@ describe("IModelTransformer", () => {
         sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
       }
     );
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it("should transform iModel with ECView successfully", async function () {
+    if (!Semver.gte(coreBackendPkgJson.version, "4.6.0")) {
+      return; // Pre 4.6.0 does not have QueryView support. https://www.itwinjs.org/bis/domains/ecdbmap.ecschema/#queryview
+    }
+    const createSnapshot = (name: string): SnapshotDb => {
+      return SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          `${name}.bim`
+        ),
+        { rootSubject: { name } }
+      );
+    };
+    const sourceDb = createSnapshot("ECView-Source");
+    const targetDb = createSnapshot("ECView-Target");
+    await sourceDb.importSchemas([
+      path.join(KnownTestLocations.assetsDir, "TestQueryView.ecschema.xml"),
+    ]);
+
+    const modelId = PhysicalModel.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "PhysicalModel"
+    );
+    const categoryId = SpatialCategory.insert(
+      sourceDb,
+      IModel.dictionaryId,
+      "SpatialCategory",
+      {}
+    );
+    const elementProps1: GeometricElement3dProps = {
+      category: categoryId,
+      model: modelId,
+      code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject1"),
+      classFullName: PhysicalObject.classFullName,
+      placement: {
+        origin: { x: 0, y: 0, z: 0 },
+        angles: { yaw: { degrees: 45 } },
+      },
+    };
+    const sourceElement1Id = sourceDb.elements.insertElement(elementProps1);
+    const elementProps2: GeometricElement3dProps = {
+      category: categoryId,
+      model: modelId,
+      code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject2"),
+      classFullName: PhysicalObject.classFullName,
+      parent: {
+        id: sourceElement1Id,
+        relClassName: ElementOwnsChildElements.classFullName,
+      },
+      placement: {
+        origin: { x: 0, y: 0, z: 0 },
+        angles: { yaw: { degrees: 90 } },
+      },
+    };
+    sourceDb.elements.insertElement(elementProps2);
+    sourceDb.saveChanges();
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.processSchemas();
+    await transformer.process();
+    targetDb.saveChanges();
+
+    const getTestViewElements = (imodelDb: IModelDb) => {
+      return imodelDb.withPreparedStatement(
+        "SELECT * FROM TestGeneratedClassesNew.TestView",
+        (statement) => {
+          const viewElements = [];
+          while (DbResult.BE_SQLITE_ROW === statement.step()) {
+            viewElements.push(statement.getRow());
+          }
+          return viewElements;
+        }
+      );
+    };
+    const sourceViews = getTestViewElements(sourceDb);
+    const targetViews = getTestViewElements(targetDb);
+
+    expect(sourceViews.length).to.equal(targetViews.length).and.to.equal(2);
+    expect(sourceViews[0]).to.deep.equal(targetViews[0]);
+    expect(sourceViews[1]).to.deep.equal(targetViews[1]);
+
+    // clean up
     transformer.dispose();
     sourceDb.close();
     targetDb.close();
