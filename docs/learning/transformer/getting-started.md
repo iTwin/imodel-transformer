@@ -2,20 +2,12 @@
 
 ## Overview
 
-The repository supports both JavaScript and TypeScript. To build a strong foundation, check out these resources:
-
-- **JavaScript:**  
-  [The Modern JavaScript Tutorial](https://javascript.info/)  
-  [Mozilla JavaScript Reference](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference)
-  
-- **TypeScript:**  
-  [TypeScript Documentation](https://www.typescriptlang.org/docs/)
+iModel-Transformer is an API for exporting an iModel's parts and also importing them into another iModel.
 
 For more details on the transformer itself:
 
-- **Transformer Repo:** [GitHub - imodel-transformer](https://github.com/iTwin/imodel-transformer)
 - **Transformer Docs:** [iTwinJS Transformer Learning](https://www.itwinjs.org/learning/transformer)
-- **Branching & Synchronization:** [Branching iModels Documentation](https://github.com/iTwin/imodel-transformer/blob/main/docs/learning/transformer/branching-imodels.md)
+- **Branching & Synchronization:** [Branching iModels Documentation]($docs/learning/transformer/index.md)
 
 ## iModel Files, Changesets & Checkpoints
 
@@ -46,7 +38,7 @@ Below is an image of an iModel Checkpoint showcasing some important concepts tha
   A file holding a copy of an iModel. It includes data from [changesets](https://www.itwinjs.org/learning/glossary/#changeset) as well as local changes. See [BriefcaseDb](https://www.itwinjs.org/learning/backend/imodeldb/).
 
 - **Provenance:**  
-  The tracking of where an entity originated within an iModel. They are useful for letting us know where the entity comes from. The IModelTransformer will also store provenance as it makes changes to a target; provenance will be used during [synchronizations](https://github.com/iTwin/imodel-transformer/blob/main/docs/learning/transformer/branching-imodels.md#synchronization-implementing-branching) to identify which elements in the branch correspond to those in the master, in order to find conflicts in changes.
+  The tracking of where an entity originated within an iModel. They are useful for letting us know where the entity comes from. The IModelTransformer will also store provenance as it makes changes to a target; provenance will be used during [synchronizations]($docs/learning/transformer/branching-imodels.md#synchronization-implementing-branching) to identify which elements in the branch correspond to those in the master, in order to find conflicts in changes.
 
 - **Synchronization:**  
   The process of transferring change history between iModels, allowing for branching and merging.
@@ -56,7 +48,7 @@ Below is an image of an iModel Checkpoint showcasing some important concepts tha
     Merges changes from the master to an existing branch (similar to `git merge master`).
 - **Reverse Synchronization:**  
   Merges changes from a branch back into the master from which it was created(like merging a pull request in Git).
-  - For more info: [Branching iModels Documentation](https://github.com/iTwin/imodel-transformer/blob/main/docs/learning/transformer/branching-imodels.md#synchronization-implementing-branching)
+  - For more info: [Branching iModels Documentation]($docs/learning/transformer/branching-imodels.md#synchronization-implementing-branching)
 
 - **External Source Aspect:**  
   A specialized Element Aspect that records an element’s origin in an external repository. This aids in provenance tracking.
@@ -82,6 +74,4 @@ A practical way to learn the transformer is by writing a unit test that performs
   
 - **Changeset Details:**  
   [Learn about Changesets](https://developer.bentley.com/apis/imodels-v2/overview/#changesets)
-
-  This documentation is a starting point - feel free to contribute anything else others might find useful when getting started!
-
+  
