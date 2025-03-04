@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Mon, 03 Mar 2025 17:50:09 GMT and should not be manually modified.
+This log was last generated on Tue, 04 Mar 2025 15:01:06 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 1.1.1
+
+Tue, 04 Mar 2025 15:01:06 GMT
+
+### Patches
+
+- Ignore navigational properties that point to an ECView ([commit](https://github.com/iTwin/imodel-transformer/commit/e55e3e0c82c82ced3a515af301284be18d86646b))
 
 ## 1.1.0
 
