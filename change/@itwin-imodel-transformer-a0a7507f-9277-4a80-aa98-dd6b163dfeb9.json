@@ -1,7 +1,0 @@
-{
-  "type": "minor",
-  "comment": "Removed changed element cache from iModelTransformer as iModelExporter stores same data in `sourceDbChanges`.",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "JulijaRamoskiene@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}
