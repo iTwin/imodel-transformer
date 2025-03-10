@@ -54,6 +54,7 @@ import {
   Schema,
   SnapshotDb,
   SpatialCategory,
+  SqliteStatement,
   StandaloneDb,
   SubCategory,
   Subject,
@@ -143,6 +144,7 @@ import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/a
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
+import { compileFunction } from "vm";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(
@@ -5268,16 +5270,42 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(iModelDb, targetDb);
     await transformer.process();
 
-    const copiedElement = targetDb.elements.getElement("0x15");
-    console.log(iModelDb.elements.getElement("0x14").toJSON());
-    console.log(copiedElement.toJSON());
+    const fedGuid = iModelDb.elements.getElement(lineStyle1Id).federationGuid;
+    const fedGuid2 = iModelDb.elements.getElement(lineStyle2Id).federationGuid;
+    const srcCode1 = iModelDb.elements.getElement(lineStyle1Id).toJSON().code;
+    const srcCode2 = iModelDb.elements.getElement(lineStyle2Id).toJSON().code;
+
+    const copiedElement = targetDb.elements.getElement(fedGuid!);
+    const copiedElement2 = targetDb.elements.getElement(fedGuid2!);
+
+    // verify that line style value matches copied elements with same fed guids
+    assert(srcCode1.value! === copiedElement.toJSON().code.value);
+    assert(srcCode2.value! === copiedElement2.toJSON().code.value);
+
+    const compIds = [JSON.parse(copiedElement.asAny.toJSON().data).compId];
+    compIds.push(JSON.parse(copiedElement2.asAny.toJSON().data).compId);
+
+    // Verify comp Id's are correctly mapped between bis_Element and be_Prop tables
+    targetDb.withPreparedSqliteStatement(
+      "SELECT Name,Id,StrData FROM be_Prop WHERE Namespace='dgn_LStyle'",
+      (stmt: SqliteStatement) => {
+        let rowCount: number = 0;
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          const row = stmt.getRow();
+          assert.equal(compIds[rowCount], row.id);
+          assert.equal(row.name, "LineCodeV1");
+          rowCount++;
+        }
+        assert.equal(rowCount, 2);
+      }
+    );
 
     transformer.dispose();
     iModelDb.close();
     targetDb.close();
   });
 
-  it("should import compound line style from geometry stream", async function () {
+  it.only("should import compound line style from geometry stream", async function () {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "CompoundLineStyle.bim"
@@ -5432,10 +5460,42 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(iModelDb, targetDb);
     await transformer.process();
 
-    console.log(iModelDb.elements.getElement(styleId).toJSON());
+    const fedGuid = iModelDb.elements.getElement(styleId).federationGuid;
+    const srcCode1 = iModelDb.elements.getElement(styleId).toJSON().code;
 
-    const copiedElement = targetDb.elements.getElement("0x15");
-    console.log(copiedElement.toJSON());
+    const copiedElement = targetDb.elements.getElement(fedGuid!);
+
+    // verify that line style value matches copied element with same fed guids
+    assert(srcCode1.value! === copiedElement.toJSON().code.value);
+
+    const compId = JSON.parse(copiedElement.asAny.toJSON().data).compId;
+
+    let rowCount: number = 0;
+    const styleTypes: string[] = [];
+    iModelDb.withPreparedSqliteStatement(
+      "SELECT Name,Id,StrData FROM be_Prop WHERE Namespace='dgn_LStyle'",
+      (stmt: SqliteStatement) => {
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          styleTypes.push(stmt.getRow().name);
+          rowCount++;
+        }
+      }
+    );
+
+    // Verify comp Id is correctly mapped between bis_Element and be_Prop tables
+    targetDb.withPreparedSqliteStatement(
+      "SELECT Name,Id,StrData FROM be_Prop WHERE Namespace='dgn_LStyle'",
+      (stmt: SqliteStatement) => {
+        let i: number = 0;
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          const row = stmt.getRow();
+          assert.equal(compId, row.id);
+          assert(styleTypes.includes(row.name), "style type not found");
+          i++;
+        }
+        assert.equal(rowCount, i, "row counts do not match");
+      }
+    );
 
     transformer.dispose();
     iModelDb.close();
