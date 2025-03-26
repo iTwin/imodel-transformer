@@ -5290,6 +5290,8 @@ describe("IModelTransformer", () => {
     });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
+    transformer.context.remapElement(IModel.rootSubjectId, "0x1");
+    transformer.importer.doNotUpdateElementIds.add("0x1");
     await transformer.process();
 
     transformer.dispose();
