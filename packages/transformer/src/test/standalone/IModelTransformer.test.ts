@@ -10,6 +10,7 @@ import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
   CategorySelector,
+  DefinitionModel,
   DisplayStyle3d,
   DocumentListModel,
   Drawing,
@@ -5257,6 +5258,66 @@ describe("IModelTransformer", () => {
 
     // clean up
     transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+
+  it.only("should skip changes to root subject element", async function () {
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "SrcTestRootSubject.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "TestRootSubject" },
+    });
+    const subjectId = Subject.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "My objects"
+    );
+    const defModelId = DefinitionModel.insert(
+      sourceDb,
+      subjectId,
+      "DefinitionModel"
+    );
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "TestRootSubject-Target.bim"
+    );
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "TestRootSubject-Target" },
+    });
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.process();
+
+    transformer.dispose();
+
+    const props = sourceDb.elements.getElementProps("0x1");
+    props.userLabel = "changed";
+    sourceDb.elements.updateElement(props);
+    sourceDb.saveChanges();
+
+    const transformerOptions: IModelTransformOptions = {
+      skipPropagateChangesToRootElements: true,
+    };
+
+    const transformerWithSkip = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      transformerOptions
+    );
+    transformerWithSkip.context.remapElement(IModel.rootSubjectId, "0x1");
+    transformerWithSkip.importer.doNotUpdateElementIds.add("0x1");
+    await transformerWithSkip.process();
+
+    const srcElem = sourceDb.elements.getElement("0x1");
+    const targetElem = targetDb.elements.getElement("0x1");
+    expect(srcElem.userLabel).to.equal("changed");
+    expect(targetElem.userLabel).to.be.undefined;
+
+    transformerWithSkip.dispose();
     sourceDb.close();
     targetDb.close();
   });
