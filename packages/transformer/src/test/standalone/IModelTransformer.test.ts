@@ -5272,7 +5272,7 @@ describe("IModelTransformer", () => {
     sourceDb.close();
     targetDb.close();
   });
-  it.only("should import line style from geometry stream", async function () {
+  it("should import line style from geometry stream", async function () {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "LineStyle.bim"
@@ -5426,9 +5426,11 @@ describe("IModelTransformer", () => {
     transformer.dispose();
     iModelDb.close();
     targetDb.close();
+    IModelJsFs.removeSync(targetDbFile);
+    IModelJsFs.removeSync(sourceDbFile);
   });
 
-  it.only("should import compound line style from geometry stream", async function () {
+  it("should import compound line style from geometry stream", async function () {
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "CompoundLineStyle.bim"
@@ -5623,5 +5625,7 @@ describe("IModelTransformer", () => {
     transformer.dispose();
     iModelDb.close();
     targetDb.close();
+    IModelJsFs.removeSync(targetDbFile);
+    IModelJsFs.removeSync(sourceDbFile);
   });
 });
