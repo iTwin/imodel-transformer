@@ -34,7 +34,7 @@ importers:
         version: 4.10.6(@types/node@18.19.31)
       '@itwin/core-backend':
         specifier: ^4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)
+        version: 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)
       '@types/node':
         specifier: ^18.11.5
         version: 18.19.31
@@ -45,38 +45,38 @@ importers:
   packages/performance-tests:
     dependencies:
       '@itwin/core-backend':
-        specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0)
+        specifier: ^4.10.12
+        version: 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)
       '@itwin/core-bentley':
-        specifier: 4.3.5
-        version: 4.3.5
+        specifier: ^4.10.12
+        version: 4.10.12
       '@itwin/core-common':
-        specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+        specifier: ^4.10.12
+        version: 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
       '@itwin/core-geometry':
-        specifier: 4.3.5
-        version: 4.3.5
+        specifier: ^4.10.12
+        version: 4.10.12
       '@itwin/core-quantity':
-        specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)
+        specifier: ^4.10.12
+        version: 4.10.12(@itwin/core-bentley@4.10.12)
       '@itwin/ecschema-metadata':
         specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-quantity@4.3.5(@itwin/core-bentley@4.3.5))
+        version: 4.3.5(@itwin/core-bentley@4.10.12)(@itwin/core-quantity@4.10.12(@itwin/core-bentley@4.10.12))
       '@itwin/imodel-transformer':
         specifier: workspace:*
         version: link:../transformer
       '@itwin/imodels-access-backend':
         specifier: ^4.1.4
-        version: 4.1.6(@itwin/core-backend@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(inversify@6.0.2)(reflect-metadata@0.1.14)
+        version: 4.1.6(@itwin/core-backend@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(inversify@6.0.2)(reflect-metadata@0.1.14)
       '@itwin/imodels-client-authoring':
         specifier: 4.4.0
         version: 4.4.0(inversify@6.0.2)(reflect-metadata@0.1.14)
       '@itwin/node-cli-authorization':
         specifier: ~0.9.0
-        version: 0.9.2(@itwin/core-bentley@4.3.5)
+        version: 0.9.2(@itwin/core-bentley@4.10.12)
       '@itwin/perf-tools':
-        specifier: 3.7.2
-        version: 3.7.2
+        specifier: ^4.10.12
+        version: 4.10.12
       dotenv:
         specifier: ^10.0.0
         version: 10.0.0
@@ -101,7 +101,7 @@ importers:
         version: 1.3.0
       '@itwin/oidc-signin-tool':
         specifier: ^4.3.2
-        version: 4.3.4(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+        version: 4.3.4(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
       '@types/chai':
         specifier: ^4.1.4
         version: 4.3.1
@@ -145,29 +145,29 @@ importers:
   packages/test-app:
     dependencies:
       '@itwin/core-backend':
-        specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0)
+        specifier: ^4.10.12
+        version: 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)
       '@itwin/core-bentley':
-        specifier: 4.3.5
-        version: 4.3.5
+        specifier: ^4.10.12
+        version: 4.10.12
       '@itwin/core-common':
-        specifier: 4.3.5
-        version: 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+        specifier: ^4.10.12
+        version: 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
       '@itwin/core-geometry':
-        specifier: 4.3.5
-        version: 4.3.5
+        specifier: ^4.10.12
+        version: 4.10.12
       '@itwin/imodel-transformer':
         specifier: workspace:*
         version: link:../transformer
       '@itwin/imodels-access-backend':
         specifier: ^2.2.1
-        version: 2.3.0(@itwin/core-backend@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))
+        version: 2.3.0(@itwin/core-backend@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))
       '@itwin/imodels-client-authoring':
         specifier: 2.3.0
         version: 2.3.0
       '@itwin/node-cli-authorization':
         specifier: ~0.9.0
-        version: 0.9.2(@itwin/core-bentley@4.3.5)
+        version: 0.9.2(@itwin/core-bentley@4.10.12)
       dotenv:
         specifier: ^10.0.0
         version: 10.0.0
@@ -626,18 +626,10 @@ packages:
   '@itwin/core-geometry@4.10.12':
     resolution: {integrity: sha512-P/AxJCXC0Dwz5mW3w4h7uHKdueXexyJOiQpgP6y9118ovrbkhEtVP6HpjltmCqpFyLthdX1NX39E0WJNk2h5vA==}
 
-  '@itwin/core-geometry@4.3.5':
-    resolution: {integrity: sha512-g8feNctkl1BYkoLipJXzg9CFfOFBi+jVPCafyApoOZqYH+4Y6IYNUQK7f92PdKUuvK2Z9VNPfDwk6hnszFEj+Q==}
-
   '@itwin/core-quantity@4.10.12':
     resolution: {integrity: sha512-Zxg1FSQd2zNEKfKhP9zpcDWkWqJKLc8PlA6O6PoI1EGSQifx2+0EZAXYr8Uw5/WasVkkrM3BxBP9saUFH6HaRA==}
     peerDependencies:
       '@itwin/core-bentley': ^4.10.12
-
-  '@itwin/core-quantity@4.3.5':
-    resolution: {integrity: sha512-Y1OEllc4NhAMX7xwjDBIxk9xMcL5VDqtjsjeegh79ZVIFOX9dkBi1hFp7fJA0FSRzdZPc84CkqX7BK8BQtDAgA==}
-    peerDependencies:
-      '@itwin/core-bentley': ^4.3.5
 
   '@itwin/core-telemetry@4.10.12':
     resolution: {integrity: sha512-lOig+2h7YJFovyyLAjXFWjMBqL326eMWAzajgHkQUmDeciTP6qNHoliqVTuBWwSxuvvnUrcW7XMqlrsW9A6S2A==}
@@ -757,8 +749,8 @@ packages:
     peerDependencies:
       '@itwin/core-bentley': ^3.3.0 || ^4.0.0
 
-  '@itwin/perf-tools@3.7.2':
-    resolution: {integrity: sha512-Y786ucBUjmtHKJdxNbzZZeVP+zm2VHgq+Pgegn5GpaO63bGFjgZKkKBzvFcvbmmniJjaN+Sr7to2/B+ncIl99w==}
+  '@itwin/perf-tools@4.10.12':
+    resolution: {integrity: sha512-zH7Wd5vdVoKhNNRW7BM5hWrKRMJP9Mvi+7D6hYpXlCldRiSEgi3NUcezAtiMoEsjwUoE2yBG08U0WjRm/aIjiA==}
 
   '@itwin/projects-client@0.6.0':
     resolution: {integrity: sha512-uA8lqjNLIpmpdldoOa/EwQfaV+F2yflxoi1aEZSb+R+dlCyvlsE/hLM7oTzYwmYmFzdezKNbFjwN2PvWLBWaBg==}
@@ -4583,41 +4575,14 @@ snapshots:
       - encoding
       - utf-8-validate
 
-  '@itwin/core-backend@4.3.5(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)':
-    dependencies:
-      '@bentley/imodeljs-native': 4.3.6
-      '@itwin/cloud-agnostic-core': 2.2.3(inversify@6.0.2)(reflect-metadata@0.1.14)
-      '@itwin/core-bentley': 4.10.12
-      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
-      '@itwin/core-geometry': 4.10.12
-      '@itwin/core-telemetry': 4.3.5(@itwin/core-geometry@4.10.12)
-      '@itwin/object-storage-azure': 2.2.3(inversify@6.0.2)(reflect-metadata@0.1.14)
-      '@itwin/object-storage-core': 2.2.3(inversify@6.0.2)(reflect-metadata@0.1.14)
-      form-data: 2.5.1
-      fs-extra: 8.1.0
-      inversify: 6.0.2
-      json5: 2.2.3
-      multiparty: 4.2.3
-      reflect-metadata: 0.1.14
-      semver: 7.6.0
-      touch: 3.1.0
-      ws: 7.5.9
-    optionalDependencies:
-      '@opentelemetry/api': 1.8.0
-    transitivePeerDependencies:
-      - bufferutil
-      - debug
-      - encoding
-      - utf-8-validate
-
-  '@itwin/core-backend@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0)':
+  '@itwin/core-backend@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)':
     dependencies:
       '@bentley/imodeljs-native': 4.3.6
       '@itwin/cloud-agnostic-core': 2.2.3(inversify@6.0.2)(reflect-metadata@0.1.14)
       '@itwin/core-bentley': 4.3.5
-      '@itwin/core-common': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
-      '@itwin/core-geometry': 4.3.5
-      '@itwin/core-telemetry': 4.3.5(@itwin/core-geometry@4.3.5)
+      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.10.12)
+      '@itwin/core-geometry': 4.10.12
+      '@itwin/core-telemetry': 4.3.5(@itwin/core-geometry@4.10.12)
       '@itwin/object-storage-azure': 2.2.3(inversify@6.0.2)(reflect-metadata@0.1.14)
       '@itwin/object-storage-core': 2.2.3(inversify@6.0.2)(reflect-metadata@0.1.14)
       form-data: 2.5.1
@@ -4648,10 +4613,10 @@ snapshots:
       flatbuffers: 1.12.0
       js-base64: 3.7.7
 
-  '@itwin/core-common@4.10.12(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)':
+  '@itwin/core-common@4.10.12(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.10.12)':
     dependencies:
       '@itwin/core-bentley': 4.3.5
-      '@itwin/core-geometry': 4.3.5
+      '@itwin/core-geometry': 4.10.12
       flatbuffers: 1.12.0
       js-base64: 3.7.7
 
@@ -4662,30 +4627,14 @@ snapshots:
       flatbuffers: 1.12.0
       js-base64: 3.7.7
 
-  '@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)':
-    dependencies:
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-geometry': 4.3.5
-      flatbuffers: 1.12.0
-      js-base64: 3.7.7
-
   '@itwin/core-geometry@4.10.12':
     dependencies:
       '@itwin/core-bentley': 4.10.12
       flatbuffers: 1.12.0
 
-  '@itwin/core-geometry@4.3.5':
-    dependencies:
-      '@itwin/core-bentley': 4.3.5
-      flatbuffers: 1.12.0
-
   '@itwin/core-quantity@4.10.12(@itwin/core-bentley@4.10.12)':
     dependencies:
       '@itwin/core-bentley': 4.10.12
-
-  '@itwin/core-quantity@4.3.5(@itwin/core-bentley@4.3.5)':
-    dependencies:
-      '@itwin/core-bentley': 4.3.5
 
   '@itwin/core-telemetry@4.10.12(@itwin/core-geometry@4.10.12)':
     dependencies:
@@ -4701,13 +4650,6 @@ snapshots:
     transitivePeerDependencies:
       - '@itwin/core-geometry'
 
-  '@itwin/core-telemetry@4.3.5(@itwin/core-geometry@4.3.5)':
-    dependencies:
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-common': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
-    transitivePeerDependencies:
-      - '@itwin/core-geometry'
-
   '@itwin/ecschema-locaters@4.10.12(@itwin/ecschema-metadata@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-quantity@4.10.12(@itwin/core-bentley@4.10.12)))':
     dependencies:
       '@itwin/ecschema-metadata': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-quantity@4.10.12(@itwin/core-bentley@4.10.12))
@@ -4720,10 +4662,10 @@ snapshots:
       '@itwin/core-bentley': 4.10.12
       '@itwin/core-quantity': 4.10.12(@itwin/core-bentley@4.10.12)
 
-  '@itwin/ecschema-metadata@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-quantity@4.3.5(@itwin/core-bentley@4.3.5))':
+  '@itwin/ecschema-metadata@4.3.5(@itwin/core-bentley@4.10.12)(@itwin/core-quantity@4.10.12(@itwin/core-bentley@4.10.12))':
     dependencies:
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-quantity': 4.3.5(@itwin/core-bentley@4.3.5)
+      '@itwin/core-bentley': 4.10.12
+      '@itwin/core-quantity': 4.10.12(@itwin/core-bentley@4.10.12)
       almost-equal: 1.1.0
 
   '@itwin/eslint-plugin@4.0.2(eslint@8.57.0)(typescript@5.3.3)':
@@ -4746,25 +4688,25 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
-  '@itwin/imodels-access-backend@2.3.0(@itwin/core-backend@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))':
+  '@itwin/imodels-access-backend@2.3.0(@itwin/core-backend@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))':
     dependencies:
       '@azure/abort-controller': 1.1.0
-      '@itwin/core-backend': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0)
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-common': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+      '@itwin/core-backend': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)
+      '@itwin/core-bentley': 4.10.12
+      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
       '@itwin/imodels-client-authoring': 2.3.0
       axios: 0.21.4
     transitivePeerDependencies:
       - debug
       - encoding
 
-  '@itwin/imodels-access-backend@4.1.6(@itwin/core-backend@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(inversify@6.0.2)(reflect-metadata@0.1.14)':
+  '@itwin/imodels-access-backend@4.1.6(@itwin/core-backend@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0))(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(inversify@6.0.2)(reflect-metadata@0.1.14)':
     dependencies:
       '@azure/abort-controller': 1.1.0
-      '@itwin/core-backend': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))(@itwin/core-geometry@4.3.5)(@opentelemetry/api@1.8.0)
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-common': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
-      '@itwin/imodels-access-common': 4.1.6(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))
+      '@itwin/core-backend': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))(@itwin/core-geometry@4.10.12)(@opentelemetry/api@1.8.0)
+      '@itwin/core-bentley': 4.10.12
+      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
+      '@itwin/imodels-access-common': 4.1.6(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))
       '@itwin/imodels-client-authoring': 4.4.0(inversify@6.0.2)(reflect-metadata@0.1.14)
       axios: 1.6.8
     transitivePeerDependencies:
@@ -4773,10 +4715,10 @@ snapshots:
       - inversify
       - reflect-metadata
 
-  '@itwin/imodels-access-common@4.1.6(@itwin/core-bentley@4.3.5)(@itwin/core-common@4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5))':
+  '@itwin/imodels-access-common@4.1.6(@itwin/core-bentley@4.10.12)(@itwin/core-common@4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12))':
     dependencies:
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-common': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+      '@itwin/core-bentley': 4.10.12
+      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
       '@itwin/imodels-client-management': 4.4.0
     transitivePeerDependencies:
       - debug
@@ -4821,9 +4763,9 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@itwin/node-cli-authorization@0.9.2(@itwin/core-bentley@4.3.5)':
+  '@itwin/node-cli-authorization@0.9.2(@itwin/core-bentley@4.10.12)':
     dependencies:
-      '@itwin/core-bentley': 4.3.5
+      '@itwin/core-bentley': 4.10.12
       '@openid/appauth': 1.3.2
       keytar: 7.9.0
       open: 8.4.2
@@ -4896,12 +4838,12 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@itwin/oidc-signin-tool@4.3.4(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)':
+  '@itwin/oidc-signin-tool@4.3.4(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)':
     dependencies:
       '@itwin/certa': 4.5.2
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-common': 4.3.5(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
-      '@itwin/service-authorization': 1.2.0(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+      '@itwin/core-bentley': 4.10.12
+      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
+      '@itwin/service-authorization': 1.2.0(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
       '@playwright/test': 1.41.2
       dotenv: 10.0.0
       dotenv-expand: 5.1.0
@@ -4911,7 +4853,7 @@ snapshots:
       - electron
       - supports-color
 
-  '@itwin/perf-tools@3.7.2':
+  '@itwin/perf-tools@4.10.12':
     dependencies:
       fs-extra: 8.1.0
 
@@ -4921,10 +4863,10 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@itwin/service-authorization@1.2.0(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)':
+  '@itwin/service-authorization@1.2.0(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)':
     dependencies:
-      '@itwin/core-bentley': 4.3.5
-      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.3.5)(@itwin/core-geometry@4.3.5)
+      '@itwin/core-bentley': 4.10.12
+      '@itwin/core-common': 4.10.12(@itwin/core-bentley@4.10.12)(@itwin/core-geometry@4.10.12)
       got: 12.6.1
       jsonwebtoken: 9.0.2
       jwks-rsa: 2.1.5
