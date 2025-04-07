@@ -5273,6 +5273,9 @@ describe("IModelTransformer", () => {
     targetDb.close();
   });
   it("should import line style from geometry stream", async function () {
+    if (!Semver.gte(coreBackendPkgJson.version, "4.10.12")) {
+      return; // Pre 4.10.12 does not properly import line styles, so test will fail in older versions
+    }
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "LineStyle.bim"
@@ -5431,6 +5434,9 @@ describe("IModelTransformer", () => {
   });
 
   it("should import compound line style from geometry stream", async function () {
+    if (!Semver.gte(coreBackendPkgJson.version, "4.10.12")) {
+      return; // Pre 4.10.12 does not properly import line styles, so test will fail in older versions
+    }
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "CompoundLineStyle.bim"
