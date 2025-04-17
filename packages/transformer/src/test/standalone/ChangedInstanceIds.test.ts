@@ -380,6 +380,45 @@ describe("ChangedInstanceIds", () => {
       );
     });
 
+    it("should add custom changes when set with multiple models is passed to insert", async function () {
+      // Arrange
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      await sourceDbChanges.addCustomModelChange(
+        "Inserted",
+        new Set([childDrawing1.id!, childDrawing2.id!])
+      );
+
+      // Act
+      assertHasValues(
+        sourceDbChanges.element,
+        "element",
+        [childDrawing1.id!, childDrawing2.id!],
+        ["0x1", documentListModel, parentDrawing.id!],
+        []
+      );
+      assertHasValues(
+        sourceDbChanges.model,
+        "model",
+        [childDrawing1.id!, childDrawing2.id!],
+        ["0x1", documentListModel, parentDrawing.id!],
+        []
+      );
+      assertHasValues(
+        sourceDbChanges.aspect,
+        "aspect",
+        [aspect1Id, aspect2Id, parentAspect1Id],
+        [],
+        []
+      );
+      assertHasValues(
+        sourceDbChanges.relationship,
+        "relationship",
+        [relationshipId, parentRelationshipId],
+        [],
+        []
+      );
+    });
+
     it("should add custom changes when model is Updated", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       await sourceDbChanges.addCustomModelChange("Updated", parentDrawing.id!);
