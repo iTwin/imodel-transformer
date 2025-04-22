@@ -643,6 +643,7 @@ export async function assertIdentityTransformation(
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
           // so we query the prop instead of the checking for the property on the element
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
+          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
           const relationTargetInSourceId = sourceDb.withPreparedStatement(
             sql,
             (stmt) => {
@@ -651,6 +652,7 @@ export async function assertIdentityTransformation(
               return stmt.getValue(0).getId() ?? Id64.invalid;
             }
           );
+          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
           const relationTargetInTargetId = targetDb.withPreparedStatement(
             sql,
             (stmt) => {
@@ -917,6 +919,7 @@ export async function assertIdentityTransformation(
       TargetECInstanceId: relTargetInTarget,
     });
     const relInTarget = targetRelationshipsToFind.get(relInTargetKey);
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     const relClassName = sourceDb.withPreparedStatement(
       "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?",
       (s) => {
@@ -1648,8 +1651,10 @@ export class FilterByViewTransformer extends IModelTransformer {
   /** Excludes categories not referenced by the export view's CategorySelector */
   private excludeCategoriesExcept(exportCategoryIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const categoryId = statement.getValue(0).getId();
@@ -1780,8 +1785,10 @@ export class TestIModelTransformer extends IModelTransformer {
   private initSubCategoryFilters(): void {
     assert.isFalse(this.context.hasSubCategoryFilter);
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:codeValue`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         statement.bindString("codeValue", "FilteredSubCategory");
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2102,8 +2109,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   private getRecordPartitionId(physicalPartitionId: Id64String): Id64String {
     const sql =
       "SELECT TargetECInstanceId FROM ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords WHERE SourceECInstanceId=:physicalPartitionId";
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.targetDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): Id64String => {
         statement.bindId("physicalPartitionId", physicalPartitionId);
         return DbResult.BE_SQLITE_ROW === statement.step()
