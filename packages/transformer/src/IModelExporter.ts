@@ -1221,7 +1221,7 @@ export class ChangedInstanceIds {
       return;
     }
 
-    const idsSet = Id64.toIdSet(ids);
+    const idsSet = Id64.toIdSet(ids, true);
     // Parent models have to be marked as 'Updated' to make sure that added change is not skipped by transformer. Transformer starts processing elements from RepositoryModel and then visits all child models.
     // Transformer handles update as insert if element is not found in target, for this reason modeled elements will be also marked as updated to trigger their inserts in case a new model (or its parent) needs to be inserted. Otherwise error would be thrown about missing modeled element while inserting new model.
     const parentModelIds = await this.markParentModelsAsUpdated(idsSet);
