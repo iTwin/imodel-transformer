@@ -1,7 +1,0 @@
-{
-  "type": "patch",
-  "comment": "Fix for custom changes API to create a deep copy of set before modifying it.",
-  "packageName": "@itwin/imodel-transformer",
-  "email": "28706674+JulijaRamoskiene@users.noreply.github.com",
-  "dependentChangeType": "patch"
-}

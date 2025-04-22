@@ -2,6 +2,33 @@
   "name": "@itwin/imodel-transformer",
   "entries": [
     {
+      "date": "Tue, 22 Apr 2025 15:14:03 GMT",
+      "version": "1.1.2",
+      "tag": "@itwin/imodel-transformer_v1.1.2",
+      "comments": {
+        "patch": [
+          {
+            "author": "'DanRod1999@users.noreply.github.com'",
+            "package": "@itwin/imodel-transformer",
+            "commit": "e638acd91b8f1cdf6682e828aa1cd078f98ea317",
+            "comment": "update itwin packages and add tests"
+          },
+          {
+            "author": "28706674+JulijaRamoskiene@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "e638acd91b8f1cdf6682e828aa1cd078f98ea317",
+            "comment": "Disabled lint errors for deprecated withPreparedStatement(), withStatement() and ECSqlStatement apis"
+          },
+          {
+            "author": "28706674+JulijaRamoskiene@users.noreply.github.com",
+            "package": "@itwin/imodel-transformer",
+            "commit": "e638acd91b8f1cdf6682e828aa1cd078f98ea317",
+            "comment": "Fix for custom changes API to create a deep copy of set before modifying it."
+          }
+        ]
+      }
+    },
+    {
       "date": "Tue, 04 Mar 2025 15:01:06 GMT",
       "version": "1.1.1",
       "tag": "@itwin/imodel-transformer_v1.1.1",
