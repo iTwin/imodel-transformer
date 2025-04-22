@@ -523,6 +523,7 @@ describe("IModelTransformer", () => {
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     branchDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -567,8 +568,10 @@ describe("IModelTransformer", () => {
   });
 
   function count(iModelDb: IModelDb, classFullName: string): number {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${classFullName}`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -3189,9 +3192,11 @@ describe("IModelTransformer", () => {
 
     const targetExternalSourceAspects = new Array<any>();
     const targetMyUniqueAspects = new Array<any>();
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withStatement("SELECT * FROM bis.ExternalSourceAspect", (stmt) =>
       targetExternalSourceAspects.push(...stmt)
     );
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withStatement("SELECT * FROM TestSchema1.MyUniqueAspect", (stmt) =>
       targetMyUniqueAspects.push(...stmt)
     );
@@ -3307,6 +3312,7 @@ describe("IModelTransformer", () => {
 
     function getNavPropContent(db: IModelDb) {
       let results = new Array<{ id: Id64String; navProp: RelatedElement }>();
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       db.withPreparedStatement(
         "SELECT ECInstanceId, navProp FROM TestGeneratedClasses.TestElementWithNavProp",
         (stmt) => {
@@ -3485,6 +3491,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     const targetRelationships = new Array<any>();
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withStatement("SELECT * FROM ts1.MyElemRefersToElem", (stmt) =>
       targetRelationships.push(...stmt)
     );
@@ -4140,6 +4147,7 @@ describe("IModelTransformer", () => {
       db: IModelDb,
       args: { initialVal: string; expected: string; expectedMatchCount: number }
     ) => {
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       db.withStatement(
         `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
         (stmt) => {
@@ -4743,7 +4751,7 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
     targetDb.saveChanges();
-
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withPreparedStatement(
       "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'",
       (statement) => {
@@ -5249,6 +5257,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     const getTestViewElements = (imodelDb: IModelDb) => {
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       return imodelDb.withPreparedStatement(
         "SELECT * FROM TestGeneratedClassesNew.TestView",
         (statement) => {

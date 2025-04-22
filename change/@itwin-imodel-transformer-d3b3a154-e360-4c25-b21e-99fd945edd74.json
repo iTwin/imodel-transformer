@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Disabled lint errors for deprecated withPreparedStatement(), withStatement() and ECSqlStatement apis",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "28706674+JulijaRamoskiene@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

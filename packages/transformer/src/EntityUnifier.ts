@@ -70,6 +70,7 @@ export namespace EntityUnifier {
 
     if (id === undefined || Id64.isInvalid(id)) return false;
 
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return db.withPreparedStatement(
       `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
       (stmt) => {
