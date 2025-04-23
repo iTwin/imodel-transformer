@@ -28,10 +28,8 @@ import {
   ElementOwnsExternalSourceAspects,
   ElementRefersToElements,
   ExternalSourceAspect,
-  GenericGraphicalModel3d,
   GenericSchema,
   GeometricModel,
-  Graphic3d,
   HubMock,
   IModelDb,
   IModelHost,
@@ -69,14 +67,10 @@ import {
   DefinitionElementProps,
   ElementProps,
   ExternalSourceAspectProps,
-  GeometricElement3dProps,
-  GeometryParams,
-  GeometryStreamBuilder,
   IModel,
   IModelError,
   IModelVersion,
   InformationPartitionElementProps,
-  LineStyle,
   ModelProps,
   PhysicalElementProps,
   Placement3d,
@@ -84,11 +78,7 @@ import {
   SubCategoryAppearance,
   SubjectProps,
 } from "@itwin/core-common";
-import {
-  LineSegment3d,
-  Point3d,
-  YawPitchRollAngles,
-} from "@itwin/core-geometry";
+import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   ChangedInstanceIds,
   IModelExporter,
