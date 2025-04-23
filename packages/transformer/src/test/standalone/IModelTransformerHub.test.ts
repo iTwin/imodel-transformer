@@ -48,6 +48,7 @@ import {
   SubjectOwnsPartitionElements,
   SubjectOwnsSubjects,
 } from "@itwin/core-backend";
+import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 
 import * as TestUtils from "../TestUtils";
 import {
@@ -4849,6 +4850,9 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should correctly handle processChanges when inserting LineStyles", async () => {
+    if (!semver.gte(coreBackendPkgJson.version, "4.10.12")) {
+      return; // Pre 4.10.12 does not properly import line styles, so test will fail in older versions
+    }
     const sourceIModelName: string =
       IModelTransformerTestUtils.generateUniqueName("Source");
     const sourceIModelId = await HubWrappers.recreateIModel({
