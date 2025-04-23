@@ -28,12 +28,15 @@ import {
   ElementOwnsExternalSourceAspects,
   ElementRefersToElements,
   ExternalSourceAspect,
+  GenericGraphicalModel3d,
   GenericSchema,
   GeometricModel,
+  Graphic3d,
   HubMock,
   IModelDb,
   IModelHost,
   IModelJsFs,
+  LineStyleDefinition,
   ModelSelector,
   NativeLoggerCategory,
   PhysicalModel,
@@ -42,6 +45,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
+  SqliteStatement,
   Subject,
   SubjectOwnsPartitionElements,
   SubjectOwnsSubjects,
@@ -65,10 +69,14 @@ import {
   DefinitionElementProps,
   ElementProps,
   ExternalSourceAspectProps,
+  GeometricElement3dProps,
+  GeometryParams,
+  GeometryStreamBuilder,
   IModel,
   IModelError,
   IModelVersion,
   InformationPartitionElementProps,
+  LineStyle,
   ModelProps,
   PhysicalElementProps,
   Placement3d,
@@ -76,7 +84,11 @@ import {
   SubCategoryAppearance,
   SubjectProps,
 } from "@itwin/core-common";
-import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
+import {
+  LineSegment3d,
+  Point3d,
+  YawPitchRollAngles,
+} from "@itwin/core-geometry";
 import {
   ChangedInstanceIds,
   IModelExporter,
@@ -4837,6 +4849,137 @@ describe("IModelTransformerHub", () => {
 
     const { tearDown } = await runTimeline(timeline, { iTwinId, accessToken });
     await tearDown();
+  });
+
+  it("should correctly handle processChanges when inserting LineStyles", async () => {
+    const sourceIModelName: string =
+      IModelTransformerTestUtils.generateUniqueName("Source");
+    const sourceIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: sourceIModelName,
+      noLocks: true,
+    });
+
+    const targetIModelName: string =
+      IModelTransformerTestUtils.generateUniqueName("Target");
+    const targetIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: targetIModelName,
+      noLocks: true,
+    });
+
+    // open/upgrade sourceDb
+    const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: sourceIModelId,
+    });
+
+    const lineStyleStrokes: LineStyleDefinition.Strokes = [];
+    lineStyleStrokes.push({
+      length: 4,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+    });
+    lineStyleStrokes.push({ length: 2 });
+
+    const lineStyleProps =
+      LineStyleDefinition.Utils.createStrokePatternComponent(sourceDb, {
+        descr: "test line style",
+        strokes: lineStyleStrokes,
+      });
+
+    const lineStyle1Id = LineStyleDefinition.Utils.createStyle(
+      sourceDb,
+      IModelDb.dictionaryId,
+      "TestLineStyle",
+      lineStyleProps
+    );
+
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({
+      accessToken,
+      description: "First LineStyle insert",
+    });
+
+    const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: targetIModelId,
+    });
+    let transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.process();
+    targetDb.saveChanges();
+    transformer.dispose();
+
+    targetDb.saveChanges();
+    await sourceDb.pushChanges({
+      accessToken,
+      description: "First LineStyle insert",
+    });
+
+    const lineStyleStrokes2: LineStyleDefinition.Strokes = [];
+    lineStyleStrokes2.push({
+      length: 4,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+    });
+    lineStyleStrokes2.push({ length: 2 });
+
+    const lineStyleProps2 =
+      LineStyleDefinition.Utils.createStrokePatternComponent(sourceDb, {
+        descr: "second test line style",
+        strokes: lineStyleStrokes,
+      });
+
+    const lineStyle2Id = LineStyleDefinition.Utils.createStyle(
+      sourceDb,
+      IModelDb.dictionaryId,
+      "TestLineStyle2",
+      lineStyleProps2
+    );
+
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({
+      accessToken,
+      description: "Second LineStyle insert",
+    });
+
+    transformer = new IModelTransformer(sourceDb, targetDb, {
+      argsForProcessChanges: {
+        startChangeset: { id: sourceDb.changeset.id },
+      },
+    });
+    await transformer.process();
+
+    const fedGuid = sourceDb.elements.getElement(lineStyle1Id).federationGuid;
+    const fedGuid2 = sourceDb.elements.getElement(lineStyle2Id).federationGuid;
+    const copiedElement = targetDb.elements.getElement(fedGuid!);
+    const copiedElement2 = targetDb.elements.getElement(fedGuid2!);
+
+    const compIds = [JSON.parse(copiedElement.asAny.toJSON().data).compId];
+    compIds.push(JSON.parse(copiedElement2.asAny.toJSON().data).compId);
+
+    // Verify comp Id's are correctly mapped between bis_Element and be_Prop tables
+    targetDb.withPreparedSqliteStatement(
+      "SELECT Name,Id,StrData FROM be_Prop WHERE Namespace='dgn_LStyle'",
+      (stmt: SqliteStatement) => {
+        let rowCount: number = 0;
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          const row = stmt.getRow();
+          assert.equal(compIds[rowCount], row.id);
+          assert.equal(row.name, "LineCodeV1");
+          rowCount++;
+        }
+        assert.equal(rowCount, 2);
+      }
+    );
+
+    transformer.dispose();
+    // sourceDb.close();
+    // targetDb.close();
+    await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+    await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
   });
 
   describe("addCustomChanges", () => {
