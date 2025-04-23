@@ -835,6 +835,7 @@ describe("IModelTransformerHub", () => {
       transformer.dispose();
 
       const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       targetDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
         let objectCounter = 0;
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -853,8 +854,10 @@ describe("IModelTransformerHub", () => {
       });
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       const modelId = targetDb.withPreparedStatement(
         `SELECT ECInstanceId, isPrivate FROM ${PhysicalModel.classFullName}`,
+        // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
         (statement: ECSqlStatement) => {
           if (DbResult.BE_SQLITE_ROW === statement.step()) {
             const isPrivate = statement.getValue(1).getBoolean();
@@ -2074,8 +2077,10 @@ describe("IModelTransformerHub", () => {
       await transformer.process();
 
       const elementCodeValueMap = new Map<Id64String, string>();
+      // eslint-disable-next-line deprecation/deprecation
       targetDb.withStatement(
         `SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`,
+        // eslint-disable-next-line deprecation/deprecation
         (statement: ECSqlStatement) => {
           while (statement.step() === DbResult.BE_SQLITE_ROW) {
             elementCodeValueMap.set(
@@ -4221,12 +4226,14 @@ describe("IModelTransformerHub", () => {
           );
 
           const externalAspectCounts = (db: IModelDb) =>
+            // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
             db.withPreparedStatement(
               `
           SELECT e.ECInstanceId as elementId, COUNT(*) as aspectCount FROM bis.ExternalSourceAspect esa
           JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
           GROUP BY e.ECInstanceId
           `,
+              // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
               (s: ECSqlStatement) => [...s]
             );
 

@@ -1,8 +1,18 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 04 Mar 2025 15:01:06 GMT and should not be manually modified.
+This log was last generated on Tue, 22 Apr 2025 15:14:03 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 1.1.2
+
+Tue, 22 Apr 2025 15:14:03 GMT
+
+### Patches
+
+- update itwin packages and add tests ([commit](https://github.com/iTwin/imodel-transformer/commit/e638acd91b8f1cdf6682e828aa1cd078f98ea317))
+- Disabled lint errors for deprecated withPreparedStatement(), withStatement() and ECSqlStatement apis ([commit](https://github.com/iTwin/imodel-transformer/commit/e638acd91b8f1cdf6682e828aa1cd078f98ea317))
+- Fix for custom changes API to create a deep copy of set before modifying it. ([commit](https://github.com/iTwin/imodel-transformer/commit/e638acd91b8f1cdf6682e828aa1cd078f98ea317))
 
 ## 1.1.1
 

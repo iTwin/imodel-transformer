@@ -437,6 +437,7 @@ export class IModelTransformer extends IModelExportHandler {
         AND Identifier=:identifier
       LIMIT 1
     `;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
       if (aspectProps.scope === undefined) return undefined; // return instead of binding an invalid id
@@ -809,6 +810,7 @@ export class IModelTransformer extends IModelExportHandler {
       ? sourceRelInstanceId
       : targetRelInstanceId;
 
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     const elementId = provenanceDb.withPreparedStatement(
       "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
       (stmt) => {
@@ -1034,8 +1036,10 @@ export class IModelTransformer extends IModelExportHandler {
         LIMIT 1
       `;
 
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       const hasConflictingScope = this.provenanceDb.withPreparedStatement(
         sql,
+        // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
         (statement: ECSqlStatement): boolean => {
           statement.bindId("elementId", aspectProps.element.id);
           statement.bindId("scopeId", aspectProps.scope.id); // this scope.id can never be invalid, we create it above
@@ -1203,7 +1207,10 @@ export class IModelTransformer extends IModelExportHandler {
     // NOTE: if we exposed the native attach database support,
     // we could get the intersection of fed guids in one query, not sure if it would be faster
     // OR we could do a raw sqlite query...
+
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     sourceDb.withStatement(elementIdByFedGuidQuery, (sourceStmt) =>
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       targetDb.withStatement(elementIdByFedGuidQuery, (targetStmt) => {
         if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
         let sourceRow = sourceStmt.getRow() as {
@@ -1260,6 +1267,8 @@ export class IModelTransformer extends IModelExportHandler {
     // Technically this will a second time call the function (as documented) on
     // victims of the old provenance method that have both fedguids and an inserted aspect.
     // But this is a private function with one known caller where that doesn't matter
+
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     args.provenanceDb.withPreparedStatement(
       provenanceAspectsQuery,
       (stmt): void => {
@@ -1306,6 +1315,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _queryProvenanceForElement(
     entityInProvenanceSourceId: Id64String
   ): Id64String | undefined {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.provenanceDb.withPreparedStatement(
       `
         SELECT esa.Element.Id
@@ -1346,6 +1356,7 @@ export class IModelTransformer extends IModelExportHandler {
         relationshipId: Id64String | undefined;
       }
     | undefined {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.provenanceDb.withPreparedStatement(
       `
         SELECT
@@ -1390,6 +1401,8 @@ export class IModelTransformer extends IModelExportHandler {
       targetRelInfo.targetId === undefined
     )
       return undefined; // couldn't find an element, rel is invalid or deleted
+
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.targetDb.withPreparedStatement(
       `
       SELECT ECInstanceId
@@ -1425,6 +1438,7 @@ export class IModelTransformer extends IModelExportHandler {
   // NOTE: this doesn't handle remapped element classes,
   // but is only used for relationships rn
   private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return db.withPreparedStatement(
       `
       SELECT c.ECInstanceId
@@ -1450,6 +1464,7 @@ export class IModelTransformer extends IModelExportHandler {
     db: IModelDb,
     fedGuid: GuidString
   ): Id64String | undefined {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return db.withPreparedStatement(
       "SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?",
       (stmt) => {
@@ -1494,6 +1509,8 @@ export class IModelTransformer extends IModelExportHandler {
       "synchronizations with processChanges already detect element deletes, don't call detectElementDeletes"
     );
 
+    // Reported issue: https://github.com/iTwin/itwinjs-core/issues/7989
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.provenanceDb.withPreparedStatement(sql, (stmt) => {
       stmt.bindId("scopeId", this.targetScopeElementId);
       stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
@@ -2001,6 +2018,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       const isDefinitionPartition = this.targetDb.withPreparedStatement(
         sql,
         (stmt) => {
@@ -2085,8 +2103,10 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
     // import DefinitionModels first
     const childDefinitionPartitionSql = `SELECT ECInstanceId FROM ${DefinitionPartition.classFullName} WHERE Parent.Id=:subjectId`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.sourceDb.withPreparedStatement(
       childDefinitionPartitionSql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("subjectId", sourceSubjectId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2096,8 +2116,10 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // import other partitions next
     const childPartitionSql = `SELECT ECInstanceId FROM ${InformationPartitionElement.classFullName} WHERE Parent.Id=:subjectId`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.sourceDb.withPreparedStatement(
       childPartitionSql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("subjectId", sourceSubjectId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2111,8 +2133,10 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // recurse into child Subjects
     const childSubjectSql = `SELECT ECInstanceId FROM ${Subject.classFullName} WHERE Parent.Id=:subjectId`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.sourceDb.withPreparedStatement(
       childSubjectSql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("subjectId", sourceSubjectId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2451,8 +2475,10 @@ export class IModelTransformer extends IModelExportHandler {
       WHERE aspect.Scope.Id=:scopeId
         AND aspect.Kind=:kind
     `;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.targetDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("scopeId", this.targetScopeElementId);
         statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
@@ -3446,6 +3472,7 @@ export class TemplateModelCloner extends IModelTransformer {
 }
 
 function queryElemFedGuid(db: IModelDb, elemId: Id64String) {
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   return db.withPreparedStatement(
     `
     SELECT FederationGuid
