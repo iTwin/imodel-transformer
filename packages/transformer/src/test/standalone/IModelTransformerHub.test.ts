@@ -5809,6 +5809,87 @@ describe("IModelTransformerHub", () => {
       ).to.be.equal(0);
     });
 
+    it("should handle custom changes when source iModel has no changesets", async () => {
+      // set up source
+      const subjectFedGuid1 = Guid.createValue();
+      const originalSubjectId1 = sourceDb.elements.insertElement({
+        classFullName: Subject.classFullName,
+        code: Code.createEmpty(),
+        model: IModel.repositoryModelId,
+        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+        federationGuid: subjectFedGuid1,
+        userLabel: "A",
+      });
+
+      const subjectFedGuid2 = Guid.createValue();
+      const originalSubjectId2 = sourceDb.elements.insertElement({
+        classFullName: Subject.classFullName,
+        code: Code.createEmpty(),
+        model: IModel.repositoryModelId,
+        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+        federationGuid: subjectFedGuid2,
+        userLabel: "B",
+      });
+      // Changes are saved but not pushed
+      sourceDb.saveChanges("Initial changes");
+
+      // process all
+      const transformer1 = new CustomChangesTransformer(
+        sourceDb,
+        targetDb,
+        false
+      );
+      sinon
+        .stub(transformer1, "shouldExportElement")
+        .callsFake((sourceElement) => {
+          // Exclude all drawings
+          return sourceElement.id !== originalSubjectId2;
+        });
+      await transformer1.process();
+      await pushChanges(
+        targetDb,
+        "target changes for process all transformation."
+      );
+      expect(targetDb.elements.tryGetElement(subjectFedGuid1)).to.not.be
+        .undefined;
+      expect(targetDb.elements.tryGetElement(subjectFedGuid2)).to.be.undefined;
+
+      // process changes
+      const transformer2 = new CustomChangesTransformer(
+        sourceDb,
+        targetDb,
+        true
+      );
+      const addChangesStub = sinon
+        .stub(transformer2, "addCustomChanges")
+        .callsFake(async (sourceDbChanges) => {
+          // Assert that element mapping is set
+          const targetId =
+            transformer2.context.findTargetElementId(originalSubjectId1);
+          expect(
+            targetId,
+            "addCustomChanges should be called only after elements are mapped in clone context"
+          ).to.not.be.equal(Id64.invalid);
+          await sourceDbChanges.addCustomElementChange(
+            "Deleted",
+            originalSubjectId1
+          );
+          await sourceDbChanges.addCustomElementChange(
+            "Inserted",
+            originalSubjectId2
+          );
+        });
+      await transformer2.process();
+      await pushChanges(
+        targetDb,
+        "target changes for process changes transformation."
+      );
+      expect(addChangesStub.calledOnce).to.be.true;
+      expect(targetDb.elements.tryGetElement(subjectFedGuid1)).to.be.undefined;
+      expect(targetDb.elements.tryGetElement(subjectFedGuid2)).to.not.be
+        .undefined;
+    });
+
     function insertDrawingElement(
       iModel: IModelDb,
       documentListModelId: Id64String,
