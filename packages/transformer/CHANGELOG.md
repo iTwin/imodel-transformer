@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 22 Apr 2025 15:14:03 GMT and should not be manually modified.
+This log was last generated on Tue, 29 Apr 2025 14:01:13 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 1.1.3
+
+Tue, 29 Apr 2025 14:01:13 GMT
+
+### Patches
+
+- Fix for exporting custom changes when iModel has no changesets. ([commit](https://github.com/iTwin/imodel-transformer/commit/1779d9e3a5b5c9654fb44ae59d2918042a07b57f))
 
 ## 1.1.2
 
