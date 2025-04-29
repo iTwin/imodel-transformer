@@ -4915,9 +4915,6 @@ describe("IModelTransformerHub", () => {
       public override async addCustomChanges(
         _sourceDbChanges: ChangedInstanceIds
       ) {}
-      public override shouldExportElement(sourceElement: Element) {
-        return super.shouldExportElement(sourceElement);
-      }
     }
 
     it("should call addCustomChanges when processing changes after source and target id map is populated", async () => {
@@ -4998,12 +4995,7 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((sourceElement) => {
-          // Exclude all drawings
-          return sourceElement.id !== documentListModel;
-        });
+      transformer.exporter.excludeElement(documentListModel);
       await transformer.process();
       transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
@@ -5025,9 +5017,6 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 2: `process changes` transformation to insert excluded parent model ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5073,9 +5062,6 @@ describe("IModelTransformerHub", () => {
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
-      sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
           await sourceDbChanges.addCustomModelChange(
@@ -5105,9 +5091,6 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 4: `process changes` transformation to delete existing model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5150,9 +5133,6 @@ describe("IModelTransformerHub", () => {
       );
       await pushChanges(sourceDb, "Added new physical element into PM2");
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5239,12 +5219,8 @@ describe("IModelTransformerHub", () => {
       await pushChanges(sourceDb, "Initial changes");
       // Act
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((sourceElement) => {
-          // Exclude all drawings
-          return sourceElement.id !== parentDrawing1.id!;
-        });
+      // Exclude all drawings
+      transformer.exporter.excludeElement(parentDrawing1.id!);
       await transformer.process();
       transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
@@ -5267,10 +5243,7 @@ describe("IModelTransformerHub", () => {
       // Act
       // insert first child and keep excluding second child
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((sourceElement) => sourceElement.id !== childDrawing2.id!);
-
+      transformer.exporter.excludeElement(childDrawing2.id!);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5315,9 +5288,6 @@ describe("IModelTransformerHub", () => {
       // === Transformation 3: `process changes` transformation to include second child element's sub model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
-      sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
           expect(
@@ -5358,9 +5328,6 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 4: `process changes` transformation to delete first child element's sub model  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5447,12 +5414,8 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((sourceElement) => {
-          // will exclude 'PM2'
-          return sourceElement.id !== physicalModel2Id;
-        });
+      // will exclude 'PM2'
+      transformer.exporter.excludeElement(physicalModel2Id);
       await transformer.process();
       transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
@@ -5477,9 +5440,6 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 2: `process changes` transformation to include excluded element  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5528,9 +5488,6 @@ describe("IModelTransformerHub", () => {
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
-      sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
           await sourceDbChanges.addCustomElementChange(
@@ -5559,9 +5516,6 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 4: `process changes` transformation to delete exported element  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5628,10 +5582,6 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
-
       await transformer.process();
       transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
@@ -5647,9 +5597,6 @@ describe("IModelTransformerHub", () => {
       targetDb.elements.updateElement(physicalElem1InTargetProps);
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5673,9 +5620,6 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 3: `process changes` transformation to update changed element  ===
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
-      sinon
-        .stub(transformer, "shouldExportElement")
-        .callsFake((_sourceElement) => true);
       sinon
         .stub(transformer, "addCustomChanges")
         .callsFake(async (sourceDbChanges) => {
@@ -5807,6 +5751,82 @@ describe("IModelTransformerHub", () => {
       expect(
         IModelTestUtils.count(targetDb, PhysicalModel.classFullName)
       ).to.be.equal(0);
+    });
+
+    it("should handle custom changes when source iModel has no changesets", async () => {
+      // set up source
+      const subjectFedGuid1 = Guid.createValue();
+      const originalSubjectId1 = sourceDb.elements.insertElement({
+        classFullName: Subject.classFullName,
+        code: Code.createEmpty(),
+        model: IModel.repositoryModelId,
+        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+        federationGuid: subjectFedGuid1,
+        userLabel: "A",
+      });
+
+      const subjectFedGuid2 = Guid.createValue();
+      const originalSubjectId2 = sourceDb.elements.insertElement({
+        classFullName: Subject.classFullName,
+        code: Code.createEmpty(),
+        model: IModel.repositoryModelId,
+        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+        federationGuid: subjectFedGuid2,
+        userLabel: "B",
+      });
+      // Changes are saved but not pushed
+      sourceDb.saveChanges("Initial changes");
+
+      // process all
+      const transformer1 = new CustomChangesTransformer(
+        sourceDb,
+        targetDb,
+        false
+      );
+      transformer1.exporter.excludeElement(originalSubjectId2);
+      await transformer1.process();
+      await pushChanges(
+        targetDb,
+        "target changes for process all transformation."
+      );
+      expect(targetDb.elements.tryGetElement(subjectFedGuid1)).to.not.be
+        .undefined;
+      expect(targetDb.elements.tryGetElement(subjectFedGuid2)).to.be.undefined;
+
+      // process changes
+      const transformer2 = new CustomChangesTransformer(
+        sourceDb,
+        targetDb,
+        true
+      );
+      const addChangesStub = sinon
+        .stub(transformer2, "addCustomChanges")
+        .callsFake(async (sourceDbChanges) => {
+          // Assert that element mapping is set
+          const targetId =
+            transformer2.context.findTargetElementId(originalSubjectId1);
+          expect(
+            targetId,
+            "addCustomChanges should be called only after elements are mapped in clone context"
+          ).to.not.be.equal(Id64.invalid);
+          await sourceDbChanges.addCustomElementChange(
+            "Deleted",
+            originalSubjectId1
+          );
+          await sourceDbChanges.addCustomElementChange(
+            "Inserted",
+            originalSubjectId2
+          );
+        });
+      await transformer2.process();
+      await pushChanges(
+        targetDb,
+        "target changes for process changes transformation."
+      );
+      expect(addChangesStub.calledOnce).to.be.true;
+      expect(targetDb.elements.tryGetElement(subjectFedGuid1)).to.be.undefined;
+      expect(targetDb.elements.tryGetElement(subjectFedGuid2)).to.not.be
+        .undefined;
     });
 
     function insertDrawingElement(

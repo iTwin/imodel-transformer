@@ -438,8 +438,11 @@ export class IModelExporter {
         "Must be a briefcase to export changes"
       );
 
-    if ("" === this.sourceDb.changeset.id) {
-      await this.exportAll(); // no changesets, so revert to exportAll
+    if (
+      "" === this.sourceDb.changeset.id &&
+      !this.sourceDbChanges?.hasChanges
+    ) {
+      await this.exportAll(); // no changesets or custom changes, so revert to exportAll
       return;
     }
 
