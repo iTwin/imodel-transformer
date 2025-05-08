@@ -176,6 +176,7 @@ async function runRegressionTests() {
             fileName: sourceFileName,
             readonly: true,
           });
+          // eslint-disable-next-line deprecation/deprecation
           const fedGuidSaturation = sourceDb.withStatement(
             `
             SELECT

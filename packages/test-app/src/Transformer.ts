@@ -221,8 +221,10 @@ export class Transformer extends IModelTransformer {
     }
 
     // query for and log the number of source Elements that will be processed
+    // eslint-disable-next-line deprecation/deprecation
     this._numSourceElements = this.sourceDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${Element.classFullName}`,
+      // eslint-disable-next-line deprecation/deprecation
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -235,8 +237,10 @@ export class Transformer extends IModelTransformer {
     );
 
     // query for and log the number of source Relationships that will be processed
+    // eslint-disable-next-line deprecation/deprecation
     this._numSourceRelationships = this.sourceDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${ElementRefersToElements.classFullName}`,
+      // eslint-disable-next-line deprecation/deprecation
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -256,8 +260,10 @@ export class Transformer extends IModelTransformer {
   private excludeSubCategories(subCategoryNames: string[]): void {
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:subCategoryName`;
     for (const subCategoryName of subCategoryNames) {
+      // eslint-disable-next-line deprecation/deprecation
       this.sourceDb.withPreparedStatement(
         sql,
+        // eslint-disable-next-line deprecation/deprecation
         (statement: ECSqlStatement): void => {
           statement.bindString("subCategoryName", subCategoryName);
           while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -291,8 +297,10 @@ export class Transformer extends IModelTransformer {
   private excludeCategories(categoryNames: string[]): void {
     const sql = `SELECT ECInstanceId FROM ${Category.classFullName} WHERE CodeValue=:categoryName`;
     for (const categoryName of categoryNames) {
+      // eslint-disable-next-line deprecation/deprecation
       this.sourceDb.withPreparedStatement(
         sql,
+        // eslint-disable-next-line deprecation/deprecation
         (statement: ECSqlStatement): void => {
           statement.bindString("categoryName", categoryName);
           while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -308,8 +316,10 @@ export class Transformer extends IModelTransformer {
   /** Excludes categories not referenced by the specified Id64Set. */
   private excludeCategoriesExcept(categoryIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
+    // eslint-disable-next-line deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const categoryId = statement.getValue(0).getId();
@@ -327,8 +337,10 @@ export class Transformer extends IModelTransformer {
    */
   private excludeModelsExcept(modelIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${GeometricModel3d.classFullName}`;
+    // eslint-disable-next-line deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const modelId = statement.getValue(0).getId();
@@ -437,8 +449,10 @@ export class Transformer extends IModelTransformer {
   private deleteUnusedGeometryParts(): void {
     const geometryPartIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${GeometryPart.classFullName}`;
+    // eslint-disable-next-line deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           geometryPartIds.push(statement.getValue(0).getId());

@@ -1,8 +1,46 @@
 # Change Log - @itwin/imodel-transformer
 
-<!-- This log was last generated on Mon, 04 Nov 2024 14:45:46 GMT and should not be manually modified. -->
+This log was last generated on Tue, 29 Apr 2025 14:01:13 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 1.1.3
+
+Tue, 29 Apr 2025 14:01:13 GMT
+
+### Patches
+
+- Fix for exporting custom changes when iModel has no changesets. ([commit](https://github.com/iTwin/imodel-transformer/commit/1779d9e3a5b5c9654fb44ae59d2918042a07b57f))
+
+## 1.1.2
+
+Tue, 22 Apr 2025 15:14:03 GMT
+
+### Patches
+
+- update itwin packages and add tests ([commit](https://github.com/iTwin/imodel-transformer/commit/e638acd91b8f1cdf6682e828aa1cd078f98ea317))
+- Disabled lint errors for deprecated withPreparedStatement(), withStatement() and ECSqlStatement apis ([commit](https://github.com/iTwin/imodel-transformer/commit/e638acd91b8f1cdf6682e828aa1cd078f98ea317))
+- Fix for custom changes API to create a deep copy of set before modifying it. ([commit](https://github.com/iTwin/imodel-transformer/commit/e638acd91b8f1cdf6682e828aa1cd078f98ea317))
+
+## 1.1.1
+
+Tue, 04 Mar 2025 15:01:06 GMT
+
+### Patches
+
+- Ignore navigational properties that point to an ECView ([commit](https://github.com/iTwin/imodel-transformer/commit/e55e3e0c82c82ced3a515af301284be18d86646b))
+
+## 1.1.0
+
+Mon, 03 Mar 2025 17:50:09 GMT
+
+### Minor changes
+
+- Removed changed element cache from iModelTransformer as iModelExporter stores same data in `sourceDbChanges`. ([commit](https://github.com/iTwin/imodel-transformer/commit/6f122f59a084f58b976a314f781e7fda90e0a8b1))
+
+### Changes
+
+- Add new APIs to support providing custom changes ( not found in a changeset ) to the transformer ([commit](https://github.com/iTwin/imodel-transformer/commit/6f122f59a084f58b976a314f781e7fda90e0a8b1))
 
 ## 1.0.0
 

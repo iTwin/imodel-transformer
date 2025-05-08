@@ -731,6 +731,7 @@ function createContainerCode(codeSpecId: Id64String, codeValue: string): Code {
 function queryContainerIds(db: IModelDb): Id64Set {
   const sql = `SELECT ECInstanceId FROM ${DefinitionContainer.classFullName} WHERE Model.Id=:modelId`;
   const containerIds = new Set<Id64String>();
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   db.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
     statement.bindId("modelId", IModel.dictionaryId);
     while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -749,6 +750,7 @@ function queryDefinitionGroupIds(
 ): Id64Set {
   const sql = `SELECT ECInstanceId FROM ${DefinitionGroup.classFullName} WHERE Model.Id=:modelId`;
   const groupIds = new Set<Id64String>();
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   db.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
     statement.bindId("modelId", containerId);
     while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -765,6 +767,7 @@ function queryDefinitionGroupMemberIds(
 ): Id64Set {
   const sql = `SELECT TargetECInstanceId FROM ${DefinitionGroupGroupsDefinitions.classFullName} WHERE SourceECInstanceId=:groupId`;
   const memberIds = new Set<Id64String>();
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   db.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
     statement.bindId("groupId", groupId);
     while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -830,6 +833,7 @@ function queryTypeDefinitionIds(
 ): Id64Set {
   const sql = `SELECT ECInstanceId FROM ${TypeDefinitionElement.classFullName} WHERE Recipe.Id=:templateRecipeId`;
   const typeDefinitionIds = new Set<Id64String>();
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   db.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
     statement.bindId("templateRecipeId", templateRecipeId);
     while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -846,6 +850,7 @@ function queryTemplateRecipeIds(
 ): Id64Set {
   const sql = `SELECT ECInstanceId FROM ${RecipeDefinitionElement.classFullName} WHERE Model.Id=:modelId`;
   const templateRecipeIds = new Set<Id64String>();
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   db.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
     statement.bindId("modelId", containerId);
     while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -864,8 +869,10 @@ function queryEquipmentId(
 ): Id64String | undefined {
   const sql =
     "SELECT ECInstanceId FROM TestDomain:Equipment WHERE Model.Id=:modelId LIMIT 1";
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   return db.withPreparedStatement(
     sql,
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     (statement: ECSqlStatement): Id64String | undefined => {
       statement.bindId("modelId", templateModelId);
       return DbResult.BE_SQLITE_ROW === statement.step()
@@ -880,8 +887,10 @@ function countElementsInModel(
   classFullName: string,
   modelId: Id64String
 ): number {
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   return db.withPreparedStatement(
     `SELECT COUNT(*) FROM ${classFullName} WHERE Model.Id=:modelId`,
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     (statement: ECSqlStatement): number => {
       statement.bindId("modelId", modelId);
       return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1014,8 +1023,10 @@ class CatalogImporter extends IModelTransformer {
       return;
     }
     const sql = `SELECT ECInstanceId,CodeValue FROM ${SpatialCategory.classFullName}`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const sourceCategoryId = statement.getValue(0).getId();
@@ -1038,8 +1049,10 @@ class CatalogImporter extends IModelTransformer {
       return;
     }
     const sql = `SELECT ECInstanceId,CodeValue FROM ${DrawingCategory.classFullName}`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const sourceCategoryId = statement.getValue(0).getId();
@@ -1158,6 +1171,8 @@ describe("Catalog", () => {
       assert.equal(catalogContainerIds.size, 1); // expected value from createAcmeCatalog
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
+          // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
@@ -1241,8 +1256,10 @@ describe("Catalog", () => {
         2
       ); // expected value from createBestCatalog
       const catalogContainerSql = `SELECT ECInstanceId FROM ${DefinitionContainer.classFullName} WHERE CodeValue=:containerName LIMIT 1`;
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       const catalogContainerId = catalogDb.withPreparedStatement(
         catalogContainerSql,
+        // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
         (statement: ECSqlStatement): Id64String => {
           statement.bindString("containerName", "Best Product Line B");
           return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1326,6 +1343,8 @@ describe("Catalog", () => {
       assert.equal(catalogContainerIds.size, 1); // expected value from createTestCatalog
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
+          // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
@@ -1397,8 +1416,10 @@ describe("Catalog", () => {
     const componentPlacer = new TemplateModelCloner(iModelDb);
     const physicalTypeSql = `SELECT ECInstanceId FROM ${PhysicalType.classFullName}`;
     const physicalTypeIds = new Set<Id64String>();
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       physicalTypeSql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           physicalTypeIds.add(statement.getValue(0).getId());

@@ -10,6 +10,7 @@ import * as Semver from "semver";
 import * as sinon from "sinon";
 import {
   CategorySelector,
+  DefinitionModel,
   DisplayStyle3d,
   DocumentListModel,
   Drawing,
@@ -27,14 +28,18 @@ import {
   ElementRefersToElements,
   ElementUniqueAspect,
   ExternalSourceAspect,
+  GenericGraphicalModel3d,
   GenericPhysicalMaterial,
   GeometricElement,
+  GeometryPart,
+  Graphic3d,
   IModelDb,
   IModelElementCloneContext,
   IModelHost,
   IModelJsFs,
   InformationRecordModel,
   InformationRecordPartition,
+  LineStyleDefinition,
   LinkElement,
   Model,
   ModelSelector,
@@ -49,6 +54,7 @@ import {
   Schema,
   SnapshotDb,
   SpatialCategory,
+  SqliteStatement,
   StandaloneDb,
   SubCategory,
   Subject,
@@ -81,10 +87,15 @@ import {
   ElementProps,
   ExternalSourceAspectProps,
   GeometricElement2dProps,
+  GeometricElement3dProps,
+  GeometryParams,
+  GeometryPartProps,
+  GeometryStreamBuilder,
   ImageSourceFormat,
   IModel,
   IModelError,
   InformationPartitionElementProps,
+  LineStyle,
   ModelProps,
   PhysicalElementProps,
   Placement3d,
@@ -95,6 +106,8 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import {
+  Arc3d,
+  LineSegment3d,
   Point3d,
   Range3d,
   StandardViewIndex,
@@ -510,6 +523,7 @@ describe("IModelTransformer", () => {
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     branchDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -554,8 +568,10 @@ describe("IModelTransformer", () => {
   });
 
   function count(iModelDb: IModelDb, classFullName: string): number {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${classFullName}`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -3077,24 +3093,9 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "deferred-element-with-aspects" },
     });
 
-    const testSchema1Path = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "TestSchema1.ecschema.xml"
-    );
-    // the only two ElementUniqueAspect's in bis are ignored by the transformer, so we add our own to test their export
-    IModelJsFs.writeFileSync(
-      testSchema1Path,
-      `<?xml version="1.0" encoding="UTF-8"?>
-      <ECSchema schemaName="TestSchema1" alias="ts1" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
-          <ECSchemaReference name="BisCore" version="01.00" alias="bis"/>
-          <ECEntityClass typeName="MyUniqueAspect" description="A test unique aspect" displayLabel="a test unique aspect" modifier="Sealed">
-            <BaseClass>bis:ElementUniqueAspect</BaseClass>
-            <ECProperty propertyName="MyProp1" typeName="string"/>
-        </ECEntityClass>
-      </ECSchema>`
-    );
-
-    await sourceDb.importSchemas([testSchema1Path]);
+    const testSchemaPath =
+      IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
+    await sourceDb.importSchemas([testSchemaPath]);
 
     const myPhysicalModelId = PhysicalModel.insert(
       sourceDb,
@@ -3182,9 +3183,11 @@ describe("IModelTransformer", () => {
 
     const targetExternalSourceAspects = new Array<any>();
     const targetMyUniqueAspects = new Array<any>();
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withStatement("SELECT * FROM bis.ExternalSourceAspect", (stmt) =>
       targetExternalSourceAspects.push(...stmt)
     );
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withStatement("SELECT * FROM TestSchema1.MyUniqueAspect", (stmt) =>
       targetMyUniqueAspects.push(...stmt)
     );
@@ -3300,6 +3303,7 @@ describe("IModelTransformer", () => {
 
     function getNavPropContent(db: IModelDb) {
       let results = new Array<{ id: Id64String; navProp: RelatedElement }>();
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       db.withPreparedStatement(
         "SELECT ECInstanceId, navProp FROM TestGeneratedClasses.TestElementWithNavProp",
         (stmt) => {
@@ -3478,6 +3482,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     const targetRelationships = new Array<any>();
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withStatement("SELECT * FROM ts1.MyElemRefersToElem", (stmt) =>
       targetRelationships.push(...stmt)
     );
@@ -4133,6 +4138,7 @@ describe("IModelTransformer", () => {
       db: IModelDb,
       args: { initialVal: string; expected: string; expectedMatchCount: number }
     ) => {
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       db.withStatement(
         `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
         (stmt) => {
@@ -4729,7 +4735,7 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
     targetDb.saveChanges();
-
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     targetDb.withPreparedStatement(
       "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'",
       (statement) => {
@@ -5169,5 +5175,456 @@ describe("IModelTransformer", () => {
     transformer.dispose();
     sourceDb.close();
     targetDb.close();
+  });
+
+  it("should transform iModel with ECView successfully", async function () {
+    if (!Semver.gte(coreBackendPkgJson.version, "4.6.0")) {
+      return; // Pre 4.6.0 does not have QueryView support. https://www.itwinjs.org/bis/domains/ecdbmap.ecschema/#queryview
+    }
+    const createSnapshot = (name: string): SnapshotDb => {
+      return SnapshotDb.createEmpty(
+        IModelTransformerTestUtils.prepareOutputFile(
+          "IModelTransformer",
+          `${name}.bim`
+        ),
+        { rootSubject: { name } }
+      );
+    };
+    const sourceDb = createSnapshot("ECView-Source");
+    const targetDb = createSnapshot("ECView-Target");
+    await sourceDb.importSchemas([
+      path.join(KnownTestLocations.assetsDir, "TestQueryView.ecschema.xml"),
+    ]);
+
+    const modelId = PhysicalModel.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "PhysicalModel"
+    );
+    const categoryId = SpatialCategory.insert(
+      sourceDb,
+      IModel.dictionaryId,
+      "SpatialCategory",
+      {}
+    );
+    const elementProps1: GeometricElement3dProps = {
+      category: categoryId,
+      model: modelId,
+      code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject1"),
+      classFullName: PhysicalObject.classFullName,
+      placement: {
+        origin: { x: 0, y: 0, z: 0 },
+        angles: { yaw: { degrees: 45 } },
+      },
+    };
+    const sourceElement1Id = sourceDb.elements.insertElement(elementProps1);
+    const elementProps2: GeometricElement3dProps = {
+      category: categoryId,
+      model: modelId,
+      code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject2"),
+      classFullName: PhysicalObject.classFullName,
+      parent: {
+        id: sourceElement1Id,
+        relClassName: ElementOwnsChildElements.classFullName,
+      },
+      placement: {
+        origin: { x: 0, y: 0, z: 0 },
+        angles: { yaw: { degrees: 90 } },
+      },
+    };
+    sourceDb.elements.insertElement(elementProps2);
+    sourceDb.saveChanges();
+
+    const transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.processSchemas();
+    await transformer.process();
+    targetDb.saveChanges();
+
+    const getTestViewElements = (imodelDb: IModelDb) => {
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      return imodelDb.withPreparedStatement(
+        "SELECT * FROM TestGeneratedClassesNew.TestView",
+        (statement) => {
+          const viewElements = [];
+          while (DbResult.BE_SQLITE_ROW === statement.step()) {
+            viewElements.push(statement.getRow());
+          }
+          return viewElements;
+        }
+      );
+    };
+    const sourceViews = getTestViewElements(sourceDb);
+    const targetViews = getTestViewElements(targetDb);
+
+    expect(sourceViews.length).to.equal(targetViews.length).and.to.equal(2);
+    expect(sourceViews[0]).to.deep.equal(targetViews[0]);
+    expect(sourceViews[1]).to.deep.equal(targetViews[1]);
+
+    // clean up
+    transformer.dispose();
+    sourceDb.close();
+    targetDb.close();
+  });
+  it("should import line style from geometry stream", async function () {
+    if (!Semver.gte(coreBackendPkgJson.version, "4.10.12")) {
+      return; // Pre 4.10.12 does not properly import line styles, so test will fail in older versions
+    }
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "LineStyle.bim"
+    );
+    const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "LineStyle" },
+    });
+    const subjectId = Subject.insert(
+      iModelDb,
+      IModel.rootSubjectId,
+      "My objects"
+    );
+    const defModelId = DefinitionModel.insert(
+      iModelDb,
+      subjectId,
+      "DefinitionModel"
+    );
+
+    // Entires in be_Prop table:
+    const lsStrokes1: LineStyleDefinition.Strokes = [];
+    const lsStrokes2: LineStyleDefinition.Strokes = [];
+    lsStrokes1.push({
+      length: 4,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+    });
+    lsStrokes1.push({ length: 2 });
+    lsStrokes2.push({
+      length: 1,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+    });
+    lsStrokes2.push({ length: 1 });
+    const styleProps1 = LineStyleDefinition.Utils.createStrokePatternComponent(
+      iModelDb,
+      { descr: "line1", strokes: lsStrokes1 }
+    );
+    const styleProps2 = LineStyleDefinition.Utils.createStrokePatternComponent(
+      iModelDb,
+      { descr: "line2", strokes: lsStrokes2 }
+    );
+    styleProps2.unitDef = 2;
+
+    const lineStyle1Id = LineStyleDefinition.Utils.createStyle(
+      iModelDb,
+      defModelId,
+      "LineStyle1",
+      styleProps1
+    );
+    const lineStyle2Id = LineStyleDefinition.Utils.createStyle(
+      iModelDb,
+      defModelId,
+      "LineStyle2",
+      styleProps2
+    );
+
+    const category1Id = SpatialCategory.insert(
+      iModelDb,
+      defModelId,
+      "Red category",
+      { color: ColorDef.red.toJSON() }
+    );
+    const category2Id = SpatialCategory.insert(
+      iModelDb,
+      defModelId,
+      "Green category",
+      { color: ColorDef.green.toJSON() }
+    );
+
+    const modelId = GenericGraphicalModel3d.insert(
+      iModelDb,
+      subjectId,
+      "lines"
+    );
+
+    // Insert Line1
+    const code1 = Code.createEmpty();
+    code1.value = "line1";
+    const geometryBuilder1 = new GeometryStreamBuilder();
+    const geometryParams1 = new GeometryParams(category1Id);
+    geometryParams1.styleInfo = new LineStyle.Info(lineStyle1Id);
+    geometryBuilder1.appendGeometryParamsChange(geometryParams1);
+    geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
+    const graphicElement1Props: GeometricElement3dProps = {
+      category: category1Id,
+      model: modelId,
+      code: code1,
+      classFullName: Graphic3d.classFullName,
+      geom: geometryBuilder1.geometryStream,
+    };
+    iModelDb.elements.insertElement(graphicElement1Props);
+
+    // Insert Line2
+    const code2 = Code.createEmpty();
+    code2.value = "line2";
+    const geometryBuilder2 = new GeometryStreamBuilder();
+    const geometryParams2 = new GeometryParams(category2Id);
+    geometryParams2.styleInfo = new LineStyle.Info(lineStyle2Id);
+    geometryBuilder2.appendGeometryParamsChange(geometryParams2);
+    geometryBuilder2.appendGeometry(LineSegment3d.createXYXY(10, 0, 10, 50));
+    const graphicElement2Props: GeometricElement3dProps = {
+      category: category2Id,
+      model: modelId,
+      code: code2,
+      classFullName: Graphic3d.classFullName,
+      geom: geometryBuilder2.geometryStream,
+    };
+    iModelDb.elements.insertElement(graphicElement2Props);
+
+    iModelDb.saveChanges();
+
+    // create target iModel
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "LineStyle-Target.bim"
+    );
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "LineStyle-Target" },
+    });
+    const transformer = new IModelTransformer(iModelDb, targetDb);
+    await transformer.process();
+
+    const fedGuid = iModelDb.elements.getElement(lineStyle1Id).federationGuid;
+    const fedGuid2 = iModelDb.elements.getElement(lineStyle2Id).federationGuid;
+    const srcCode1 = iModelDb.elements.getElement(lineStyle1Id).toJSON().code;
+    const srcCode2 = iModelDb.elements.getElement(lineStyle2Id).toJSON().code;
+
+    const copiedElement = targetDb.elements.getElement(fedGuid!);
+    const copiedElement2 = targetDb.elements.getElement(fedGuid2!);
+
+    // verify that line style value matches copied elements with same fed guids
+    assert(srcCode1.value! === copiedElement.toJSON().code.value);
+    assert(srcCode2.value! === copiedElement2.toJSON().code.value);
+
+    const compIds = [JSON.parse(copiedElement.asAny.toJSON().data).compId];
+    compIds.push(JSON.parse(copiedElement2.asAny.toJSON().data).compId);
+
+    // Verify comp Id's are correctly mapped between bis_Element and be_Prop tables
+    targetDb.withPreparedSqliteStatement(
+      "SELECT Name,Id,StrData FROM be_Prop WHERE Namespace='dgn_LStyle'",
+      (stmt: SqliteStatement) => {
+        let rowCount: number = 0;
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          const row = stmt.getRow();
+          assert.equal(compIds[rowCount], row.id);
+          assert.equal(row.name, "LineCodeV1");
+          rowCount++;
+        }
+        assert.equal(rowCount, 2);
+      }
+    );
+
+    transformer.dispose();
+    iModelDb.close();
+    targetDb.close();
+    IModelJsFs.removeSync(targetDbFile);
+    IModelJsFs.removeSync(sourceDbFile);
+  });
+
+  it("should import compound line style from geometry stream", async function () {
+    if (!Semver.gte(coreBackendPkgJson.version, "4.10.12")) {
+      return; // Pre 4.10.12 does not properly import line styles, so test will fail in older versions
+    }
+    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "CompoundLineStyle.bim"
+    );
+    const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "LineStyle" },
+    });
+    const subjectId = Subject.insert(
+      iModelDb,
+      IModel.rootSubjectId,
+      "My objects"
+    );
+    const defModelId = DefinitionModel.insert(
+      iModelDb,
+      subjectId,
+      "DefinitionModel"
+    );
+
+    const lsStrokes: LineStyleDefinition.Strokes = [];
+    lsStrokes.push({
+      length: 0.25,
+      orgWidth: 0.0,
+      endWidth: 0.025,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      widthMode: LineStyleDefinition.StrokeWidth.Left,
+    });
+    lsStrokes.push({ length: 0.1 });
+    lsStrokes.push({
+      length: 0.1,
+      orgWidth: 0.025,
+      endWidth: 0.025,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      widthMode: LineStyleDefinition.StrokeWidth.Full,
+    });
+    lsStrokes.push({ length: 0.1 });
+    lsStrokes.push({
+      length: 0.25,
+      orgWidth: 0.025,
+      endWidth: 0.0,
+      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      widthMode: LineStyleDefinition.StrokeWidth.Right,
+    });
+    lsStrokes.push({ length: 0.1 });
+
+    const strokePatternData =
+      LineStyleDefinition.Utils.createStrokePatternComponent(iModelDb, {
+        descr: "TestDashDotDashLineCode",
+        strokes: lsStrokes,
+      });
+    assert.isTrue(undefined !== strokePatternData);
+
+    const partBuilder = new GeometryStreamBuilder();
+    partBuilder.appendGeometry(Arc3d.createXY(Point3d.createZero(), 0.05));
+
+    const partProps: GeometryPartProps = {
+      classFullName: GeometryPart.classFullName,
+      model: IModel.dictionaryId,
+      code: Code.createEmpty(),
+      geom: partBuilder.geometryStream,
+    };
+    const partId = iModelDb.elements.insertElement(partProps);
+    assert.isTrue(Id64.isValidId64(partId));
+
+    const pointSymbolData =
+      LineStyleDefinition.Utils.createPointSymbolComponent(iModelDb, {
+        geomPartId: partId,
+      }); // base and size will be set automatically...
+    assert.isTrue(undefined !== pointSymbolData);
+
+    const lsSymbols: LineStyleDefinition.Symbols = [];
+    lsSymbols.push({
+      symId: pointSymbolData!.compId,
+      strokeNum: 1,
+      mod1: LineStyleDefinition.SymbolOptions.Center,
+    });
+    lsSymbols.push({
+      symId: pointSymbolData!.compId,
+      strokeNum: 3,
+      mod1: LineStyleDefinition.SymbolOptions.Center,
+    });
+
+    const strokePointData =
+      LineStyleDefinition.Utils.createStrokePointComponent(iModelDb, {
+        descr: "TestGapSymbolsLinePoint",
+        lcId: strokePatternData.compId,
+        symbols: lsSymbols,
+      });
+    assert.isTrue(undefined !== strokePointData);
+
+    const lsComponents: LineStyleDefinition.Components = [];
+    lsComponents.push({
+      id: strokePointData.compId,
+      type: strokePointData.compType,
+    });
+    lsComponents.push({
+      id: strokePatternData.compId,
+      type: strokePatternData.compType,
+    });
+
+    const compoundData = LineStyleDefinition.Utils.createCompoundComponent(
+      iModelDb,
+      { comps: lsComponents }
+    );
+    assert.isTrue(undefined !== compoundData);
+
+    const styleId = LineStyleDefinition.Utils.createStyle(
+      iModelDb,
+      IModel.dictionaryId,
+      "TestDashCircleDotCircleDashStyle",
+      compoundData
+    );
+    assert.isTrue(Id64.isValidId64(styleId));
+
+    const category1Id = SpatialCategory.insert(
+      iModelDb,
+      defModelId,
+      "Red category",
+      { color: ColorDef.red.toJSON() }
+    );
+
+    const modelId = GenericGraphicalModel3d.insert(
+      iModelDb,
+      subjectId,
+      "lines"
+    );
+    // Insert Line1
+    const code1 = Code.createEmpty();
+    code1.value = "line1";
+    const geometryBuilder1 = new GeometryStreamBuilder();
+    const geometryParams1 = new GeometryParams(category1Id);
+    geometryParams1.styleInfo = new LineStyle.Info(styleId);
+    geometryBuilder1.appendGeometryParamsChange(geometryParams1);
+    geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
+    const graphicElement1Props: GeometricElement3dProps = {
+      category: category1Id,
+      model: modelId,
+      code: code1,
+      classFullName: Graphic3d.classFullName,
+      geom: geometryBuilder1.geometryStream,
+    };
+    iModelDb.elements.insertElement(graphicElement1Props);
+
+    iModelDb.saveChanges();
+
+    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "CompoundLineStyle-Target.bim"
+    );
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "LineStyle-Target" },
+    });
+    const transformer = new IModelTransformer(iModelDb, targetDb);
+    await transformer.process();
+
+    const fedGuid = iModelDb.elements.getElement(styleId).federationGuid;
+    const srcCode1 = iModelDb.elements.getElement(styleId).toJSON().code;
+
+    const copiedElement = targetDb.elements.getElement(fedGuid!);
+
+    // verify that line style value matches copied element with same fed guids
+    assert(srcCode1.value! === copiedElement.toJSON().code.value);
+
+    const compId = JSON.parse(copiedElement.asAny.toJSON().data).compId;
+
+    let rowCount: number = 0;
+    const styleTypes: string[] = [];
+    iModelDb.withPreparedSqliteStatement(
+      "SELECT Name,Id,StrData FROM be_Prop WHERE Namespace='dgn_LStyle'",
+      (stmt: SqliteStatement) => {
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          styleTypes.push(stmt.getRow().name);
+          rowCount++;
+        }
+      }
+    );
+
+    // Verify comp Id is correctly mapped between bis_Element and be_Prop tables
+    targetDb.withPreparedSqliteStatement(
+      "SELECT Name,Id,StrData FROM be_Prop WHERE Namespace='dgn_LStyle'",
+      (stmt: SqliteStatement) => {
+        let i: number = 0;
+        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
+          const row = stmt.getRow();
+          assert.equal(compId, row.id);
+          assert(styleTypes.includes(row.name), "style type not found");
+          i++;
+        }
+        assert.equal(rowCount, i, "row counts do not match");
+      }
+    );
+
+    transformer.dispose();
+    iModelDb.close();
+    targetDb.close();
+    IModelJsFs.removeSync(targetDbFile);
+    IModelJsFs.removeSync(sourceDbFile);
   });
 });

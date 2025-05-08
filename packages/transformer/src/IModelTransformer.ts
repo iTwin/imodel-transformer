@@ -92,6 +92,7 @@ import {
   SourceAndTarget,
 } from "@itwin/core-common";
 import {
+  ChangedInstanceIds,
   ExportChangesOptions,
   ExporterInitOptions,
   ExportSchemaResult,
@@ -432,6 +433,7 @@ export class IModelTransformer extends IModelExportHandler {
         AND Identifier=:identifier
       LIMIT 1
     `;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
       if (aspectProps.scope === undefined) return undefined; // return instead of binding an invalid id
@@ -804,6 +806,7 @@ export class IModelTransformer extends IModelExportHandler {
       ? sourceRelInstanceId
       : targetRelInstanceId;
 
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     const elementId = provenanceDb.withPreparedStatement(
       "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
       (stmt) => {
@@ -1015,8 +1018,10 @@ export class IModelTransformer extends IModelExportHandler {
         LIMIT 1
       `;
 
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       const hasConflictingScope = this.provenanceDb.withPreparedStatement(
         sql,
+        // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
         (statement: ECSqlStatement): boolean => {
           statement.bindId("elementId", aspectProps.element.id);
           statement.bindId("scopeId", aspectProps.scope.id); // this scope.id can never be invalid, we create it above
@@ -1184,7 +1189,10 @@ export class IModelTransformer extends IModelExportHandler {
     // NOTE: if we exposed the native attach database support,
     // we could get the intersection of fed guids in one query, not sure if it would be faster
     // OR we could do a raw sqlite query...
+
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     sourceDb.withStatement(elementIdByFedGuidQuery, (sourceStmt) =>
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       targetDb.withStatement(elementIdByFedGuidQuery, (targetStmt) => {
         if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
         let sourceRow = sourceStmt.getRow() as {
@@ -1241,6 +1249,8 @@ export class IModelTransformer extends IModelExportHandler {
     // Technically this will a second time call the function (as documented) on
     // victims of the old provenance method that have both fedguids and an inserted aspect.
     // But this is a private function with one known caller where that doesn't matter
+
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     args.provenanceDb.withPreparedStatement(
       provenanceAspectsQuery,
       (stmt): void => {
@@ -1287,6 +1297,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _queryProvenanceForElement(
     entityInProvenanceSourceId: Id64String
   ): Id64String | undefined {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.provenanceDb.withPreparedStatement(
       `
         SELECT esa.Element.Id
@@ -1327,6 +1338,7 @@ export class IModelTransformer extends IModelExportHandler {
         relationshipId: Id64String | undefined;
       }
     | undefined {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.provenanceDb.withPreparedStatement(
       `
         SELECT
@@ -1371,6 +1383,8 @@ export class IModelTransformer extends IModelExportHandler {
       targetRelInfo.targetId === undefined
     )
       return undefined; // couldn't find an element, rel is invalid or deleted
+
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.targetDb.withPreparedStatement(
       `
       SELECT ECInstanceId
@@ -1406,6 +1420,7 @@ export class IModelTransformer extends IModelExportHandler {
   // NOTE: this doesn't handle remapped element classes,
   // but is only used for relationships rn
   private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return db.withPreparedStatement(
       `
       SELECT c.ECInstanceId
@@ -1431,6 +1446,7 @@ export class IModelTransformer extends IModelExportHandler {
     db: IModelDb,
     fedGuid: GuidString
   ): Id64String | undefined {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return db.withPreparedStatement(
       "SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?",
       (stmt) => {
@@ -1475,6 +1491,8 @@ export class IModelTransformer extends IModelExportHandler {
       "synchronizations with processChanges already detect element deletes, don't call detectElementDeletes"
     );
 
+    // Reported issue: https://github.com/iTwin/itwinjs-core/issues/7989
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.provenanceDb.withPreparedStatement(sql, (stmt) => {
       stmt.bindId("scopeId", this.targetScopeElementId);
       stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
@@ -1539,7 +1557,6 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   // if undefined, it can be initialized by calling [[this.processChangesets]]
-  private _hasElementChangedCache?: Set<Id64String> = undefined;
   private _deletedSourceRelationshipData?: Map<
     Id64String,
     {
@@ -1556,17 +1573,12 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom change detection behavior.
    */
   protected hasElementChanged(sourceElement: Element): boolean {
-    if (this._sourceChangeDataState === "no-changes") return false;
-    if (this._sourceChangeDataState === "unconnected") return true;
-    nodeAssert(
-      this._sourceChangeDataState === "has-changes",
-      "change data should be initialized by now"
+    const sourceDbChanges = this.exporter.sourceDbChanges;
+    return (
+      !sourceDbChanges || // are we processing changes? if not then element is considered as changed
+      sourceDbChanges.element.insertIds.has(sourceElement.id) ||
+      sourceDbChanges.element.updateIds.has(sourceElement.id)
     );
-    nodeAssert(
-      this._hasElementChangedCache !== undefined,
-      "has element changed cache should be initialized by now"
-    );
-    return this._hasElementChangedCache.has(sourceElement.id);
   }
 
   protected completePartiallyCommittedElements() {
@@ -1826,7 +1838,13 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    if (!this.hasElementChanged(sourceElement)) return;
+    if (!this.hasElementChanged(sourceElement)) {
+      Logger.logTrace(
+        loggerCategory,
+        `Skipping unchanged element (${sourceElement.id}, ${sourceElement.getDisplayLabel()}).`
+      );
+      return;
+    }
 
     if (!this.doAllReferencesExistInTarget(sourceElement)) {
       this._partiallyCommittedElementIds.add(sourceElement.id);
@@ -1966,6 +1984,7 @@ export class IModelTransformer extends IModelExportHandler {
     `;
 
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       const isDefinitionPartition = this.targetDb.withPreparedStatement(
         sql,
         (stmt) => {
@@ -2050,8 +2069,10 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
     // import DefinitionModels first
     const childDefinitionPartitionSql = `SELECT ECInstanceId FROM ${DefinitionPartition.classFullName} WHERE Parent.Id=:subjectId`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.sourceDb.withPreparedStatement(
       childDefinitionPartitionSql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("subjectId", sourceSubjectId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2061,8 +2082,10 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // import other partitions next
     const childPartitionSql = `SELECT ECInstanceId FROM ${InformationPartitionElement.classFullName} WHERE Parent.Id=:subjectId`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.sourceDb.withPreparedStatement(
       childPartitionSql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("subjectId", sourceSubjectId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2076,8 +2099,10 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // recurse into child Subjects
     const childSubjectSql = `SELECT ECInstanceId FROM ${Subject.classFullName} WHERE Parent.Id=:subjectId`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.sourceDb.withPreparedStatement(
       childSubjectSql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("subjectId", sourceSubjectId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2416,8 +2441,10 @@ export class IModelTransformer extends IModelExportHandler {
       WHERE aspect.Scope.Id=:scopeId
         AND aspect.Kind=:kind
     `;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     await this.targetDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       async (statement: ECSqlStatement) => {
         statement.bindId("scopeId", this.targetScopeElementId);
         statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
@@ -2750,9 +2777,8 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
-   * Reads all the changeset files in the private member of the transformer: _csFileProps and does two things with these changesets.
-   * Finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId.
-   * Populates this._hasElementChangedCache with a set of elementIds that have been updated or inserted into the database.
+   * Reads all the changeset files in the private member of the transformer: _csFileProps
+   * and finds the corresponding target entity for any deleted source entities and remaps the sourceId to the targetId.
    * This function returns early if csFileProps is undefined or is of length 0.
    * @returns void
    */
@@ -2762,9 +2788,19 @@ export class IModelTransformer extends IModelExportHandler {
         this.context.remapElement(sourceElementId, targetElementId);
       }
     );
-    if (this._csFileProps === undefined || this._csFileProps.length === 0)
-      return;
-    const hasElementChangedCache = new Set<string>();
+    if (this.exporter.sourceDbChanges)
+      await this.addCustomChanges(this.exporter.sourceDbChanges);
+
+    if (this._csFileProps === undefined || this._csFileProps.length === 0) {
+      if (
+        this.exporter.sourceDbChanges === undefined ||
+        !this.exporter.sourceDbChanges.hasChanges
+      )
+        return;
+      // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
+      if (this._sourceChangeDataState === "no-changes")
+        this._sourceChangeDataState = "has-changes";
+    }
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
@@ -2777,12 +2813,6 @@ export class IModelTransformer extends IModelExportHandler {
       "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)"
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
-    }
-    const elementECClassIds = new Set<string>();
-    for await (const row of this.sourceDb.createQueryReader(
-      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.Element)"
-    )) {
-      elementECClassIds.add(row.ECInstanceId);
     }
 
     // For later use when processing deletes.
@@ -2806,9 +2836,10 @@ export class IModelTransformer extends IModelExportHandler {
           alreadyImportedModelInserts.add(targetModelId);
       }
     );
+
     this._deletedSourceRelationshipData = new Map();
 
-    for (const csFile of this._csFileProps) {
+    for (const csFile of this._csFileProps ?? []) {
       const csReader = SqliteChangesetReader.openFile({
         fileName: csFile.pathname,
         db: this.sourceDb,
@@ -2837,14 +2868,8 @@ export class IModelTransformer extends IModelExportHandler {
           change.Kind === ExternalSourceAspect.Kind.Element
         ) {
           elemIdToScopeEsa.set(change.Element.Id, change);
-        } else if (
-          (changeType === "Inserted" || changeType === "Updated") &&
-          change.ECClassId !== undefined &&
-          elementECClassIds.has(change.ECClassId)
-        )
-          hasElementChangedCache.add(change.ECInstanceId);
+        }
       }
-
       // Loop to process deletes.
       for (const change of changes) {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
@@ -2873,9 +2898,21 @@ export class IModelTransformer extends IModelExportHandler {
 
       csReader.close();
     }
-    this._hasElementChangedCache = hasElementChangedCache;
     return;
   }
+
+  /**
+   * This will be called when transformer is called with [[IModelTransformOptions.argsForProcessChanges]] to process changes.
+   * It will be executed after changes in changesets are populated into `sourceDbChanges` and before data processing begins.
+   * Remap table between the source and target iModels will be built at that time, meaning that functions like [[IModelTransformer.context.findTargetElementId]] will return meaningful results.
+   * This function should be used to modify the `sourceDbChanges`, if necessary, using `add custom change` methods in [[ChangedInstanceIds]], such as [[ChangedInstanceIds.addCustomElementChange]], [[ChangedInstanceIds.addCustomModelChange]] and other.
+   * @param sourceDbChanges the ChangedInstanceIds already populated by the exporter with the changes in source changesets, if any, passed to the transformer.
+   * @note Its expected that this function be overridden by a subclass of transformer if it needs to modify sourceDbChanges.
+   */
+  protected async addCustomChanges(
+    _sourceDbChanges: ChangedInstanceIds
+  ): Promise<void> {}
+
   /**
    * Helper function for processChangesets. Remaps the id of element deleted found in the 'change' to an element in the targetDb.
    * @param change the change to process, must be of changeType "Deleted"
@@ -2896,7 +2933,9 @@ export class IModelTransformer extends IModelExportHandler {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
-      this.synchronizationVersion.index === this.sourceDb.changeset.index;
+      this.synchronizationVersion.index === this.sourceDb.changeset.index &&
+      (this.exporter.sourceDbChanges === undefined ||
+        !this.exporter.sourceDbChanges.hasChanges);
     if (notConnectedModel || noChanges) return;
 
     /**
@@ -3399,6 +3438,7 @@ export class TemplateModelCloner extends IModelTransformer {
 }
 
 function queryElemFedGuid(db: IModelDb, elemId: Id64String) {
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   return db.withPreparedStatement(
     `
     SELECT FederationGuid

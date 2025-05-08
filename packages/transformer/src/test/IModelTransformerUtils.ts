@@ -139,6 +139,55 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
     return iModelDb;
   }
 
+  /** Returns path to a schema which contains a multiAspect TestSchema2:MyMultiAspect.
+   * The schema is created in the output directory.
+   * The multi aspect has a prop 'MyProp1'.
+   * Users should import this schema in order to insert multi aspects.
+   */
+  public static getPathToSchemaWithMultiAspect(): string {
+    const testSchema1Path = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "TestSchema2.ecschema.xml"
+    );
+    IModelJsFs.writeFileSync(
+      testSchema1Path,
+      `<?xml version="1.0" encoding="UTF-8"?>
+        <ECSchema schemaName="TestSchema2" alias="ts1" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+            <ECSchemaReference name="BisCore" version="01.00" alias="bis"/>
+            <ECEntityClass typeName="MyMultiAspect" description="A test unique aspect" displayLabel="a test unique aspect" modifier="Sealed">
+              <BaseClass>bis:ElementMultiAspect</BaseClass>
+              <ECProperty propertyName="MyProp1" typeName="string"/>
+          </ECEntityClass>
+        </ECSchema>`
+    );
+    return testSchema1Path;
+  }
+
+  /** Returns path to a schema which contains a UniqueAspect TestSchema1:MyUniqueAspect.
+   * The schema is created in the output directory.
+   * the only two ElementUniqueAspect's in bis are ignored by the transformer, so we can add our own to test their export
+   * The unique aspect has a prop 'MyProp1'.
+   * Users should import this schema in order to insert unique aspects.
+   */
+  public static getPathToSchemaWithUniqueAspect(): string {
+    const testSchema1Path = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "TestSchema1.ecschema.xml"
+    );
+    IModelJsFs.writeFileSync(
+      testSchema1Path,
+      `<?xml version="1.0" encoding="UTF-8"?>
+      <ECSchema schemaName="TestSchema1" alias="ts1" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+          <ECSchemaReference name="BisCore" version="01.00" alias="bis"/>
+          <ECEntityClass typeName="MyUniqueAspect" description="A test unique aspect" displayLabel="a test unique aspect" modifier="Sealed">
+            <BaseClass>bis:ElementUniqueAspect</BaseClass>
+            <ECProperty propertyName="MyProp1" typeName="string"/>
+        </ECEntityClass>
+      </ECSchema>`
+    );
+    return testSchema1Path;
+  }
+
   public static populateTeamIModel(
     teamDb: IModelDb,
     teamName: string,
@@ -590,6 +639,7 @@ export async function assertIdentityTransformation(
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
           // so we query the prop instead of the checking for the property on the element
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
+          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
           const relationTargetInSourceId = sourceDb.withPreparedStatement(
             sql,
             (stmt) => {
@@ -598,6 +648,7 @@ export async function assertIdentityTransformation(
               return stmt.getValue(0).getId() ?? Id64.invalid;
             }
           );
+          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
           const relationTargetInTargetId = targetDb.withPreparedStatement(
             sql,
             (stmt) => {
@@ -864,6 +915,7 @@ export async function assertIdentityTransformation(
       TargetECInstanceId: relTargetInTarget,
     });
     const relInTarget = targetRelationshipsToFind.get(relInTargetKey);
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     const relClassName = sourceDb.withPreparedStatement(
       "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?",
       (s) => {
@@ -1593,8 +1645,10 @@ export class FilterByViewTransformer extends IModelTransformer {
   /** Excludes categories not referenced by the export view's CategorySelector */
   private excludeCategoriesExcept(exportCategoryIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const categoryId = statement.getValue(0).getId();
@@ -1725,8 +1779,10 @@ export class TestIModelTransformer extends IModelTransformer {
   private initSubCategoryFilters(): void {
     assert.isFalse(this.context.hasSubCategoryFilter);
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:codeValue`;
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     this.sourceDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         statement.bindString("codeValue", "FilteredSubCategory");
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2047,8 +2103,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   private getRecordPartitionId(physicalPartitionId: Id64String): Id64String {
     const sql =
       "SELECT TargetECInstanceId FROM ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords WHERE SourceECInstanceId=:physicalPartitionId";
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return this.targetDb.withPreparedStatement(
       sql,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): Id64String => {
         statement.bindId("physicalPartitionId", physicalPartitionId);
         return DbResult.BE_SQLITE_ROW === statement.step()

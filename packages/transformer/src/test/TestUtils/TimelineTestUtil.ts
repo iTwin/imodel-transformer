@@ -47,6 +47,7 @@ export const deleted = Symbol("DELETED");
 export function getIModelState(db: IModelDb): TimelineIModelElemState {
   const result = {} as TimelineIModelElemState;
 
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   const elemIds = db.withPreparedStatement(
     `
     SELECT ECInstanceId
@@ -71,6 +72,7 @@ export function getIModelState(db: IModelDb): TimelineIModelElemState {
       : elem.toJSON();
   }
 
+  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
   const supportedRelIds = db.withPreparedStatement(
     `
     SELECT erte.ECInstanceId, erte.ECClassId,

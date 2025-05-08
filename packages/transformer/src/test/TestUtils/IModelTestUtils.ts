@@ -862,6 +862,7 @@ export class IModelTestUtils {
     ecsql: string,
     bindings?: any[] | object
   ): any[] {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return db.withPreparedStatement(ecsql, (stmt) => {
       if (bindings) stmt.bindValues(bindings);
 
@@ -1113,8 +1114,10 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     userLabel: string
   ): Id64String {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Element.classFullName} WHERE UserLabel=:userLabel`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("userLabel", userLabel);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1190,8 +1193,27 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     codeValue: string
   ): Id64String {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Element.classFullName} WHERE CodeValue=:codeValue`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      (statement: ECSqlStatement): Id64String => {
+        statement.bindString("codeValue", codeValue);
+        return DbResult.BE_SQLITE_ROW === statement.step()
+          ? statement.getValue(0).getId()
+          : Id64.invalid;
+      }
+    );
+  }
+
+  public static queryModelIddByModeledElementCodeValue(
+    iModelDb: IModelDb,
+    codeValue: string
+  ): Id64String {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    return iModelDb.withPreparedStatement(
+      `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ModeledElement.Id in (Select ECInstanceId from Bis.Element where CodeValue=:codeValue)`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("codeValue", codeValue);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1245,8 +1267,10 @@ export class IModelTestUtils {
     }
     IModelJsFs.appendFileSync(outputFileName, `${iModelDb.pathName}\n`);
     IModelJsFs.appendFileSync(outputFileName, "\n=== CodeSpecs ===\n");
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       "SELECT ECInstanceId,Name FROM BisCore:CodeSpec ORDER BY ECInstanceId",
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const codeSpecId = statement.getValue(0).getId();
@@ -1259,8 +1283,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Schemas ===\n");
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       "SELECT Name FROM ECDbMeta.ECSchemaDef ORDER BY ECInstanceId",
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const schemaName: string = statement.getValue(0).getString();
@@ -1269,8 +1295,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Models ===\n");
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Model.classFullName} ORDER BY ECInstanceId`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const modelId = statement.getValue(0).getId();
@@ -1283,8 +1311,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== ViewDefinitions ===\n");
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${ViewDefinition.classFullName} ORDER BY ECInstanceId`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const viewDefinitionId = statement.getValue(0).getId();
@@ -1298,8 +1328,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Elements ===\n");
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${Element.classFullName}`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1310,8 +1342,10 @@ export class IModelTestUtils {
         }
       }
     );
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${PhysicalObject.classFullName}`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1322,8 +1356,10 @@ export class IModelTestUtils {
         }
       }
     );
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${GeometryPart.classFullName}`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1342,10 +1378,12 @@ export class IModelTestUtils {
     classFullName: string,
     whereClause?: string
   ): number {
+    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
     return iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${classFullName}${
         whereClause ? ` WHERE ${whereClause}` : ""
       }`,
+      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
