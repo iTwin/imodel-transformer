@@ -158,8 +158,11 @@ export class ECReferenceTypesCache {
   }
 
   private async initSchema(schema: Schema): Promise<void> {
-    for (const ecclass of schema.getClasses()) {
-      for (const prop of await ecclass.getProperties()) {
+    for (const ecclass of schema.getItems()) {
+      if (!ECClass.isECClass(ecclass)) continue;
+      const properties = await ecclass.getProperties();
+      if (properties === undefined) continue;
+      for (const prop of properties) {
         if (!prop.isNavigation()) continue;
         const relClass = await prop.relationshipClass;
         const relInfo = await this.relInfoFromRelClass(relClass);

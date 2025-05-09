@@ -17,6 +17,7 @@ import {
   IModelHost,
   RequestNewBriefcaseArg,
 } from "@itwin/core-backend";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   BriefcaseIdValue,
   ChangesetId,
@@ -80,7 +81,7 @@ export namespace IModelHubUtils {
     iModelName: string
   ): Promise<GuidString | undefined> {
     // eslint-disable-next-line @itwin/no-internal
-    return IModelHost.hubAccess.queryIModelByName({
+    return IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
@@ -98,7 +99,7 @@ export namespace IModelHubUtils {
     return (
       // eslint-disable-next-line @itwin/no-internal
       (
-        await IModelHost.hubAccess.queryChangeset({
+        await IModelHost[_hubAccess].queryChangeset({
           accessToken,
           iModelId,
           changeset: { index: changesetIndex },
@@ -116,7 +117,7 @@ export namespace IModelHubUtils {
     changesetId: ChangesetId
   ): Promise<ChangesetIndex> {
     return (
-      await IModelHost.hubAccess.queryChangeset({
+      await IModelHost[_hubAccess].queryChangeset({
         accessToken,
         iModelId,
         changeset: { id: changesetId },
@@ -130,7 +131,7 @@ export namespace IModelHubUtils {
     iModelId: GuidString,
     func: (c: ChangesetProps) => void
   ): Promise<void> {
-    const changesets = await IModelHost.hubAccess.queryChangesets({
+    const changesets = await IModelHost[_hubAccess].queryChangesets({
       accessToken,
       iModelId,
     });

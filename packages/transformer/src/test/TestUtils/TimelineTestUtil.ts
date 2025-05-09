@@ -13,7 +13,7 @@ import {
   PhysicalPartition,
   SpatialCategory,
 } from "@itwin/core-backend";
-
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   ChangesetIdWithIndex,
   Code,
@@ -416,7 +416,7 @@ export async function runTimeline(
         undefined;
 
       seed?.db.performCheckpoint(); // make sure WAL is flushed before we use this as a file seed
-      const newIModelId = await IModelHost.hubAccess.createNewIModel({
+      const newIModelId = await IModelHost[_hubAccess].createNewIModel({
         iTwinId,
         iModelName: newIModelName,
         version0: seed?.db.pathName,
@@ -620,7 +620,7 @@ export async function runTimeline(
     tearDown: async () => {
       for (const [, state] of trackedIModels) {
         state.db.close();
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: state.id,
         });

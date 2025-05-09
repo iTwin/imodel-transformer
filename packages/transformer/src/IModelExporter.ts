@@ -30,6 +30,7 @@ import {
   SqliteChangeOp,
   SqliteChangesetReader,
 } from "@itwin/core-backend";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   assert,
   DbResult,
@@ -1388,7 +1389,7 @@ export class ChangedInstanceIds {
             [
               startChangeset.index ??
                 (
-                  await IModelHost.hubAccess.queryChangeset({
+                  await IModelHost[_hubAccess].queryChangeset({
                     iModelId,
                     changeset: {
                       id: startChangeset.id ?? opts.iModel.changeset.id,
@@ -1397,7 +1398,7 @@ export class ChangedInstanceIds {
                 ).index,
               opts.iModel.changeset.index ??
                 (
-                  await IModelHost.hubAccess.queryChangeset({
+                  await IModelHost[_hubAccess].queryChangeset({
                     iModelId,
                     changeset: { id: opts.iModel.changeset.id },
                   })
@@ -1412,7 +1413,7 @@ export class ChangedInstanceIds {
         ? (
             await Promise.all(
               changesetRanges.map(async ([first, end]) =>
-                IModelHost.hubAccess.downloadChangesets({
+                IModelHost[_hubAccess].downloadChangesets({
                   iModelId,
                   range: { first, end },
                   targetDir: BriefcaseManager.getChangeSetsPath(iModelId),

@@ -67,6 +67,7 @@ import {
   Subject,
   SynchronizationConfigLink,
 } from "@itwin/core-backend";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   ChangesetFileProps,
   ChangesetIndexAndId,
@@ -3074,7 +3075,7 @@ export class IModelTransformer extends IModelExportHandler {
       [startChangesetIndexOrId, endChangesetId].map(async (indexOrId) =>
         typeof indexOrId === "number"
           ? indexOrId
-          : IModelHost.hubAccess
+          : IModelHost[_hubAccess]
               .queryChangeset({
                 iModelId: this.sourceDb.iModelId,
                 // eslint-disable-next-line deprecation/deprecation
@@ -3125,7 +3126,7 @@ export class IModelTransformer extends IModelExportHandler {
     const csFileProps: ChangesetFileProps[] = [];
     for (const [first, end] of this._changesetRanges) {
       // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
-      const fileProps = await IModelHost.hubAccess.downloadChangesets({
+      const fileProps = await IModelHost[_hubAccess].downloadChangesets({
         iModelId: this.sourceDb.iModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(this.sourceDb.iModelId),
         range: { first, end },

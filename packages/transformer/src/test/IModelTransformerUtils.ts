@@ -37,7 +37,6 @@ import {
   FunctionalSchema,
   GeometricElement3d,
   GeometryPart,
-  HubMock,
   IModelDb,
   IModelJsFs,
   InformationPartitionElement,
@@ -60,6 +59,7 @@ import {
   Subject,
   Texture,
 } from "@itwin/core-backend";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "./TestUtils";
 import {
   Base64EncodedString,
@@ -603,6 +603,10 @@ export async function assertIdentityTransformation(
   const targetToSourceElemsMap = new Map<Element, Element | undefined>();
   const targetElemIds = new Set<Id64String>();
 
+  //WIP
+  const results = sourceDb.createQueryReader(
+    "SELECT ECInstanceId FROM bis.Element"
+  );
   // eslint-disable-next-line deprecation/deprecation
   for await (const [sourceElemId] of sourceDb.query(
     "SELECT ECInstanceId FROM bis.Element"
@@ -829,7 +833,7 @@ export async function assertIdentityTransformation(
   const sourceToTargetModelsMap = new Map<Model, Model | undefined>();
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
   const targetModelIds = new Set<Id64String>();
-
+  // [WIP]: https://github.com/iTwin/itwinjs-core/blob/866db04132312c929fa8062d3b1ba6673d83cd3f/example-code/snippets/src/frontend/ExecutingECSQL.ts#L65
   // eslint-disable-next-line deprecation/deprecation
   for await (const [sourceModelId] of sourceDb.query(
     "SELECT ECInstanceId FROM bis.Model"

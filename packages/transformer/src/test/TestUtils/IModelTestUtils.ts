@@ -79,6 +79,7 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   CategorySelector,
+  CheckpointManager,
   CheckpointProps,
   ClassRegistry,
   DefinitionModel,
@@ -86,6 +87,7 @@ import {
   DisplayStyle2d,
   DisplayStyle3d,
   DocumentListModel,
+  DownloadRequest,
   Drawing,
   DrawingCategory,
   DrawingGraphic,
@@ -108,7 +110,6 @@ import {
   FunctionalSchema,
   GeometryPart,
   GroupModel,
-  HubMock,
   IModelDb,
   IModelHost,
   IModelJsFs,
@@ -136,9 +137,11 @@ import {
   Subject,
   SubjectOwnsPartitionElements,
   Texture,
-  V1CheckpointManager,
+  V2CheckpointManager,
   ViewDefinition,
 } from "@itwin/core-backend";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   DownloadAndOpenArgs,
   RpcBriefcaseUtility,
@@ -239,7 +242,7 @@ export enum TestUserType {
   SuperManager,
 }
 
-/** A wrapper around the BackendHubAccess API through IModelHost.hubAccess.
+/** A wrapper around the BackendHubAccess API through IModelHost[_hubAccess].
  *
  * All methods in this class should be usable with any BackendHubAccess implementation (i.e. HubMock and IModelHubBackend).
  */
@@ -262,13 +265,13 @@ export class HubWrappers {
       this.hubMock.isValid,
       "Must use HubMock for tests that modify iModels"
     );
-    let iModelId = await IModelHost.hubAccess.queryIModelByName({
+    let iModelId = await IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
     });
     if (!iModelId)
-      iModelId = await IModelHost.hubAccess.createNewIModel({
+      iModelId = await IModelHost[_hubAccess].createNewIModel({
         accessToken,
         iTwinId,
         iModelName,
@@ -287,16 +290,16 @@ export class HubWrappers {
       this.hubMock.isValid,
       "Must use HubMock for tests that modify iModels"
     );
-    const deleteIModel = await IModelHost.hubAccess.queryIModelByName(arg);
+    const deleteIModel = await IModelHost[_hubAccess].queryIModelByName(arg);
     if (undefined !== deleteIModel)
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         accessToken: arg.accessToken,
         iTwinId: arg.iTwinId,
         iModelId: deleteIModel,
       });
 
     // Create a new iModel
-    return IModelHost.hubAccess.createNewIModel({
+    return IModelHost[_hubAccess].createNewIModel({
       description: `Description for ${arg.iModelName}`,
       ...arg,
     });
@@ -308,14 +311,18 @@ export class HubWrappers {
     iTwinId: string,
     iModelName: string
   ): Promise<void> {
-    const iModelId = await IModelHost.hubAccess.queryIModelByName({
+    const iModelId = await IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
     });
     if (undefined === iModelId) return;
 
-    await IModelHost.hubAccess.deleteIModel({ accessToken, iTwinId, iModelId });
+    await IModelHost[_hubAccess].deleteIModel({
+      accessToken,
+      iTwinId,
+      iModelId,
+    });
   }
 
   /** Push an iModel to the Hub */
@@ -328,14 +335,14 @@ export class HubWrappers {
   ): Promise<GuidString> {
     // Delete any existing iModels with the same name as the required iModel
     const locIModelName = iModelName || path.basename(pathname, ".bim");
-    const iModelId = await IModelHost.hubAccess.queryIModelByName({
+    const iModelId = await IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName: locIModelName,
     });
     if (iModelId) {
       if (!overwrite) return iModelId;
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         accessToken,
         iTwinId,
         iModelId,
@@ -343,7 +350,7 @@ export class HubWrappers {
     }
 
     // Upload a new iModel
-    return IModelHost.hubAccess.createNewIModel({
+    return IModelHost[_hubAccess].createNewIModel({
       accessToken,
       iTwinId,
       iModelName: locIModelName,
@@ -372,7 +379,7 @@ export class HubWrappers {
       tokenProps: {
         iTwinId: args.iTwinId,
         iModelId: args.iModelId,
-        changeset: await IModelHost.hubAccess.getChangesetFromVersion({
+        changeset: await IModelHost[_hubAccess].getChangesetFromVersion({
           accessToken: args.accessToken,
           version: IModelVersion.fromJSON(args.asOf),
           iModelId: args.iModelId,
@@ -418,17 +425,38 @@ export class HubWrappers {
       iTwinId: args.iTwinId,
       iModelId: args.iModelId,
       accessToken: args.accessToken,
-      changeset: await IModelHost.hubAccess.getChangesetFromVersion({
+      changeset: await IModelHost[_hubAccess].getChangesetFromVersion({
         accessToken: args.accessToken,
         version: IModelVersion.fromJSON(args.asOf),
         iModelId: args.iModelId,
       }),
     };
 
-    return V1CheckpointManager.getCheckpointDb({
-      checkpoint,
-      localFile: V1CheckpointManager.getFileName(checkpoint),
-    });
+    // return V2CheckpointManager.getCheckpointDb({
+    //   checkpoint,
+    //   localFile: V2CheckpointManager.getFileName(checkpoint),
+    // });
+    const folder = path.join(
+      V2CheckpointManager.getFolder(),
+      checkpoint.iModelId
+    );
+    const filename = path.join(
+      folder,
+      `${checkpoint.changeset.id === "" ? "first" : checkpoint.changeset.id}.bim`
+    );
+    const request: DownloadRequest = { checkpoint, localFile: filename };
+    let db = SnapshotDb.tryFindByKey(
+      CheckpointManager.getKey(request.checkpoint)
+    );
+    if (undefined !== db) return db;
+    db = IModelTestUtils.tryOpenLocalFile(request);
+    if (db) return db;
+    await V2CheckpointManager.downloadCheckpoint(request);
+    await CheckpointManager.updateToRequestedVersion(request);
+    return IModelTestUtils.openCheckpoint(
+      request.localFile,
+      request.checkpoint
+    );
   }
 
   /** Opens the specific Checkpoint iModel, `SyncMode.FixedVersion`, through the same workflow the IModelReadRpc.getConnectionProps method will use. Replicates the way a frontend would open the iModel. */
@@ -440,7 +468,7 @@ export class HubWrappers {
   ): Promise<IModelDb> {
     if (undefined === args.asOf) args.asOf = IModelVersion.latest().toJSON();
 
-    const changeset = await IModelHost.hubAccess.getChangesetFromVersion({
+    const changeset = await IModelHost[_hubAccess].getChangesetFromVersion({
       accessToken: args.accessToken,
       version: IModelVersion.fromJSON(args.asOf),
       iModelId: args.iModelId,
@@ -482,7 +510,7 @@ export class HubWrappers {
     onReachThreshold: () => void = () => {},
     acquireThreshold: number = 16
   ): Promise<void> {
-    const briefcases = await IModelHost.hubAccess.getMyBriefcaseIds({
+    const briefcases = await IModelHost[_hubAccess].getMyBriefcaseIds({
       accessToken,
       iModelId,
     });
@@ -492,7 +520,7 @@ export class HubWrappers {
       const promises: Promise<void>[] = [];
       briefcases.forEach((briefcaseId) => {
         promises.push(
-          IModelHost.hubAccess.releaseBriefcase({
+          IModelHost[_hubAccess].releaseBriefcase({
             accessToken,
             iModelId,
             briefcaseId,
@@ -535,6 +563,28 @@ export class IModelTestUtils {
   /** Generate a name for an iModel that's unique using the baseName provided and appending a new GUID.  */
   public static generateUniqueName(baseName: string) {
     return `${baseName} - ${Guid.createValue()}`;
+  }
+
+  public static openCheckpoint(
+    fileName: LocalFileName,
+    checkpoint: CheckpointProps
+  ) {
+    const snapshot = SnapshotDb.openFile(fileName, {
+      key: CheckpointManager.getKey(checkpoint),
+    });
+    (snapshot as any)._iTwinId = checkpoint.iTwinId;
+    return snapshot;
+  }
+
+  /** try to open an existing local file to satisfy a download request */
+  public static tryOpenLocalFile(
+    request: DownloadRequest
+  ): SnapshotDb | undefined {
+    const checkpoint = request.checkpoint;
+    if (CheckpointManager.verifyCheckpoint(checkpoint, request.localFile))
+      return this.openCheckpoint(request.localFile, checkpoint);
+
+    return undefined;
   }
 
   /** Prepare for an output file by:
