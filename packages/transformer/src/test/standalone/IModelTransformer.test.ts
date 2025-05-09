@@ -2251,7 +2251,7 @@ describe("IModelTransformer", () => {
     ]);
     const result: Record<Id64String, any> = {};
     // eslint-disable-next-line deprecation/deprecation
-    for await (const row of db.query("SELECT * FROM bis.Element", undefined, {
+    for await (const row of db.createQueryReader("SELECT * FROM bis.Element", undefined, {
       rowFormat: QueryRowFormat.UseJsPropertyNames,
     })) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
@@ -2270,15 +2270,14 @@ describe("IModelTransformer", () => {
     filterPredicate?: (rel: { sourceId: string; targetId: string }) => boolean
   ): Promise<{ sourceId: Id64String; targetId: Id64String }[]> {
     const result = [];
-    // eslint-disable-next-line deprecation/deprecation
-    for await (const row of db.query(
+    for await (const row of db.createQueryReader(
       "SELECT * FROM bis.ElementRefersToElements",
       undefined,
       { rowFormat: QueryRowFormat.UseJsPropertyNames }
     )) {
-      if (!filterPredicate || filterPredicate(row)) {
-        const { id: _id, ...invariantPortion } = row;
-        result.push(invariantPortion);
+      const { sourceId, targetId } = row;
+      if (!filterPredicate || filterPredicate({ sourceId, targetId })) {
+        result.push({ sourceId, targetId });
       }
     }
     return result;

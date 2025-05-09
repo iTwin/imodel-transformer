@@ -152,8 +152,7 @@ describe("imodel-transformer", () => {
             GeometricElement3d.classFullName,
           ].map(async (className) => {
             const queryResult = await db
-              // eslint-disable-next-line deprecation/deprecation
-              .query(
+              .createQueryReader(
                 `SELECT COUNT(*) FROM ${className} e JOIN bis.Category c ON e.category.id=c.ECInstanceId WHERE c.CodeValue=:category`,
                 QueryBinder.from({ category: testCategory })
               )

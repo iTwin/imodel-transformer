@@ -607,10 +607,8 @@ export async function assertIdentityTransformation(
   const results = sourceDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Element"
   );
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [sourceElemId] of sourceDb.query(
-    "SELECT ECInstanceId FROM bis.Element"
-  )) {
+  for await (const row of sourceDb.createQueryReader("SELECT ECInstanceId FROM bis.Element")) {
+    const sourceElemId = row.id;
     const targetElemId = remapElem(sourceElemId);
     const sourceElem = sourceDb.elements.getElement({
       id: sourceElemId,
@@ -779,10 +777,8 @@ export async function assertIdentityTransformation(
     }
   }
 
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [targetElemId] of targetDb.query(
-    "SELECT ECInstanceId FROM bis.Element"
-  )) {
+  for await (const row of targetDb.createQueryReader("SELECT ECInstanceId FROM bis.Element")) {
+    const targetElemId = row.id;
     if (!targetElemIds.has(targetElemId)) {
       const targetElem = targetDb.elements.getElement(targetElemId);
       targetToSourceElemsMap.set(targetElem, undefined);
@@ -834,10 +830,10 @@ export async function assertIdentityTransformation(
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
   const targetModelIds = new Set<Id64String>();
   // [WIP]: https://github.com/iTwin/itwinjs-core/blob/866db04132312c929fa8062d3b1ba6673d83cd3f/example-code/snippets/src/frontend/ExecutingECSQL.ts#L65
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [sourceModelId] of sourceDb.query(
+  for await (const row of sourceDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
+    const sourceModelId = row.id;
     const targetModelId = remapElem(sourceModelId);
     const sourceModel = sourceDb.models.getModel(sourceModelId);
     const targetModel = targetDb.models.tryGetModel(targetModelId);
@@ -858,9 +854,10 @@ export async function assertIdentityTransformation(
   }
 
   // eslint-disable-next-line deprecation/deprecation
-  for await (const [targetModelId] of targetDb.query(
+  for await (const row of targetDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
+    const targetModelId = row.id;
     if (!targetModelIds.has(targetModelId)) {
       const targetModel = targetDb.models.getModel(targetModelId);
       targetToSourceModelsMap.set(targetModel, undefined);
@@ -886,24 +883,23 @@ export async function assertIdentityTransformation(
 
   const makeRelationKey = (rel: any) =>
     `${rel.SourceECInstanceId}\x00${rel.TargetECInstanceId}`;
-  const query: Parameters<IModelDb["query"]> = [
-    "SELECT * FROM bis.ElementRefersToElements",
-    undefined,
-    { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
-  ];
+  const query = {
+    ecsql: "SELECT * FROM bis.ElementRefersToElements",
+    params: undefined,
+    config: { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
+  };
   const sourceRelationships = new Map<string, any>();
   // eslint-disable-next-line deprecation/deprecation
-  for await (const row of sourceDb.query(...query)) {
+  for await (const row of sourceDb.createQueryReader(query.ecsql, query.params, query.config)) {
     sourceRelationships.set(makeRelationKey(row), row);
   }
 
   const targetRelationshipsToFind = new Map<string, any>();
   // eslint-disable-next-line deprecation/deprecation
-  for await (const row of targetDb.query(...query)) {
+  for await (const row of targetDb.createQueryReader(query.ecsql, query.params, query.config)) {
     targetRelationshipsToFind.set(makeRelationKey(row), row);
   }
 
-  /* eslint-disable @typescript-eslint/naming-convention */
   for (const relInSource of sourceRelationships.values()) {
     const isOnlyInSource =
       onlyInSourceElements.has(relInSource.SourceECInstanceId) &&
