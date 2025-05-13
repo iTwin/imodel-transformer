@@ -607,7 +607,9 @@ export async function assertIdentityTransformation(
   const results = sourceDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Element"
   );
-  for await (const row of sourceDb.createQueryReader("SELECT ECInstanceId FROM bis.Element")) {
+  for await (const row of sourceDb.createQueryReader(
+    "SELECT ECInstanceId FROM bis.Element"
+  )) {
     const sourceElemId = row.id;
     const targetElemId = remapElem(sourceElemId);
     const sourceElem = sourceDb.elements.getElement({
@@ -777,7 +779,9 @@ export async function assertIdentityTransformation(
     }
   }
 
-  for await (const row of targetDb.createQueryReader("SELECT ECInstanceId FROM bis.Element")) {
+  for await (const row of targetDb.createQueryReader(
+    "SELECT ECInstanceId FROM bis.Element"
+  )) {
     const targetElemId = row.id;
     if (!targetElemIds.has(targetElemId)) {
       const targetElem = targetDb.elements.getElement(targetElemId);
@@ -829,7 +833,6 @@ export async function assertIdentityTransformation(
   const sourceToTargetModelsMap = new Map<Model, Model | undefined>();
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
   const targetModelIds = new Set<Id64String>();
-  // [WIP]: https://github.com/iTwin/itwinjs-core/blob/866db04132312c929fa8062d3b1ba6673d83cd3f/example-code/snippets/src/frontend/ExecutingECSQL.ts#L65
   for await (const row of sourceDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
@@ -890,13 +893,21 @@ export async function assertIdentityTransformation(
   };
   const sourceRelationships = new Map<string, any>();
   // eslint-disable-next-line deprecation/deprecation
-  for await (const row of sourceDb.createQueryReader(query.ecsql, query.params, query.config)) {
+  for await (const row of sourceDb.createQueryReader(
+    query.ecsql,
+    query.params,
+    query.config
+  )) {
     sourceRelationships.set(makeRelationKey(row), row);
   }
 
   const targetRelationshipsToFind = new Map<string, any>();
   // eslint-disable-next-line deprecation/deprecation
-  for await (const row of targetDb.createQueryReader(query.ecsql, query.params, query.config)) {
+  for await (const row of targetDb.createQueryReader(
+    query.ecsql,
+    query.params,
+    query.config
+  )) {
     targetRelationshipsToFind.set(makeRelationKey(row), row);
   }
 
