@@ -603,10 +603,6 @@ export async function assertIdentityTransformation(
   const targetToSourceElemsMap = new Map<Element, Element | undefined>();
   const targetElemIds = new Set<Id64String>();
 
-  //WIP
-  const results = sourceDb.createQueryReader(
-    "SELECT ECInstanceId FROM bis.Element"
-  );
   for await (const row of sourceDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Element"
   )) {
@@ -891,24 +887,25 @@ export async function assertIdentityTransformation(
     params: undefined,
     config: { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
   };
+
   const sourceRelationships = new Map<string, any>();
-  // eslint-disable-next-line deprecation/deprecation
   for await (const row of sourceDb.createQueryReader(
     query.ecsql,
     query.params,
     query.config
   )) {
-    sourceRelationships.set(makeRelationKey(row), row);
+    const rowAsObject = row.toRow();
+    sourceRelationships.set(makeRelationKey(row), rowAsObject);
   }
 
   const targetRelationshipsToFind = new Map<string, any>();
-  // eslint-disable-next-line deprecation/deprecation
   for await (const row of targetDb.createQueryReader(
     query.ecsql,
     query.params,
     query.config
   )) {
-    targetRelationshipsToFind.set(makeRelationKey(row), row);
+    const rowAsObject = row.toRow();
+    targetRelationshipsToFind.set(makeRelationKey(row), rowAsObject);
   }
 
   for (const relInSource of sourceRelationships.values()) {
@@ -947,6 +944,7 @@ export async function assertIdentityTransformation(
       ECInstanceId: _4,
       SourceECClassId: _5,
       TargetECClassId: _6,
+      MemberPriority: _7,
       ...rel
     }: any) => rel;
     expect(makeRelInvariant(relInSource)).to.deep.equal(
