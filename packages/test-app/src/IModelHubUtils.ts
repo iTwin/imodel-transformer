@@ -8,9 +8,10 @@ import { AccessToken, GuidString, Logger } from "@itwin/core-bentley";
 import * as assert from "assert";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import {
-  AccessTokenAdapter,
   BackendIModelsAccess,
 } from "@itwin/imodels-access-backend";
+import { AccessTokenAdapter } from "@itwin/imodels-access-common";
+import type { NamedVersion } from "@itwin/imodels-client-management";
 import {
   BriefcaseDb,
   BriefcaseManager,
@@ -24,7 +25,7 @@ import {
   ChangesetIndex,
   ChangesetProps,
 } from "@itwin/core-common";
-import { IModelsClient, NamedVersion } from "@itwin/imodels-client-authoring";
+import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { loggerCategory } from "./Transformer";
 
 export class IModelTransformerTestAppHost {

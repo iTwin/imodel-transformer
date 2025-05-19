@@ -24,7 +24,7 @@ import {
   IModelVersion,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { NamedVersion } from "@itwin/imodels-client-authoring";
+import { NamedVersion } from "@itwin/imodels-client-management";
 import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
 // eslint-disable-next-line @typescript-eslint/no-redeclare

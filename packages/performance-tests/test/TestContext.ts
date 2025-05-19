@@ -12,9 +12,9 @@ import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import { Logger } from "@itwin/core-bentley";
 import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
 import {
-  AccessTokenAdapter,
   BackendIModelsAccess,
 } from "@itwin/imodels-access-backend";
+import { AccessTokenAdapter } from "@itwin/imodels-access-common";
 import assert from "assert";
 import { generateTestIModel } from "./iModelUtils";
 
