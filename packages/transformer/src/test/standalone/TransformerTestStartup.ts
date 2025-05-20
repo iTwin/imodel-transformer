@@ -10,7 +10,7 @@ import * as path from "path";
 export async function transformerTestStartup() {
   Logger.initializeToConsole();
   Logger.setLevelDefault(LogLevel.Error);
-  const cfg: IModelHostOptions = {};
+  const cfg: IModelHostOptions = { disableThinnedNativeInstanceWorkflow: true };
   if (ProcessDetector.isIOSAppBackend) {
     cfg.cacheDir = undefined; // Let the native side handle the cache.
   } else {
