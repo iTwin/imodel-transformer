@@ -72,10 +72,7 @@ export async function initializeBranchProvenance(
       `,
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     const masterPath = args.master.pathName;
     const reopenMaster = makeDbReopener(args.master);
@@ -84,10 +81,7 @@ export async function initializeBranchProvenance(
       `ATTACH DATABASE '${pathToFileURL(`${masterPath}`)}?mode=ro' AS master`,
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.withSqliteStatement(
       `
@@ -100,10 +94,7 @@ export async function initializeBranchProvenance(
 
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
     args.branch.saveChanges();
@@ -116,10 +107,7 @@ export async function initializeBranchProvenance(
         );
       // this is the case until native side changes
       // eslint-disable-next-line @itwin/no-internal
-      assert(
-        res === DbResult.BE_SQLITE_ERROR,
-        args.branch.getLastError()
-      );
+      assert(res === DbResult.BE_SQLITE_ERROR, args.branch.getLastError());
     });
     /* eslint-enable deprecation/deprecation */
     args.branch.performCheckpoint();

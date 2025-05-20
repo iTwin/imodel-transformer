@@ -7,9 +7,7 @@
 import { AccessToken, GuidString, Logger } from "@itwin/core-bentley";
 import * as assert from "assert";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
-import {
-  BackendIModelsAccess,
-} from "@itwin/imodels-access-backend";
+import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { AccessTokenAdapter } from "@itwin/imodels-access-common";
 import type { NamedVersion } from "@itwin/imodels-client-management";
 import {

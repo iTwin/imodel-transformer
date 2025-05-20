@@ -2251,9 +2251,13 @@ describe("IModelTransformer", () => {
     ]);
     const result: Record<Id64String, any> = {};
     // eslint-disable-next-line deprecation/deprecation
-    for await (const row of db.createQueryReader("SELECT * FROM bis.Element", undefined, {
-      rowFormat: QueryRowFormat.UseJsPropertyNames,
-    })) {
+    for await (const row of db.createQueryReader(
+      "SELECT * FROM bis.Element",
+      undefined,
+      {
+        rowFormat: QueryRowFormat.UseJsPropertyNames,
+      }
+    )) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
         const { lastMod: _lastMod, ...invariantPortion } = row;
         if (ignoreFedGuidElementIds.has(row.id))
