@@ -62,6 +62,9 @@ describe("Linear Geolocation Transformations", () => {
     return ecef;
   }
 
+  // Create a test iModel with a specified ECEF location and number of spherical elements
+  // Elements are of radius 1, placed in 2 by 2 by x grids 5 meters apart, and first eleement is inserted at origin
+  // which is the specified ECEF location
   function createTestSnapshotDb(
     ecef: EcefLocation,
     dbName: string,
@@ -109,7 +112,7 @@ describe("Linear Geolocation Transformations", () => {
         x += 5;
       } else if (i % 4 === 2) {
         y += 5;
-      } else {
+      } else if (i % 4 === 3) {
         x -= 5;
       }
 
@@ -131,6 +134,8 @@ describe("Linear Geolocation Transformations", () => {
     return imodelDb;
   }
 
+  // TEMP: Function to get ECEF location from an existing local iModel
+  // testing purposes only atm
   function getEcefFromExistingDb(filePath: string): EcefLocation {
     const imodelDb = SnapshotDb.openFile(filePath);
     const ecefLocation = imodelDb.ecefLocation;
@@ -141,6 +146,8 @@ describe("Linear Geolocation Transformations", () => {
     return ecefLocation;
   }
 
+  // Calculate the transform between two ECEF locations
+  // Converts relative coords from the src imodel to the new relative coords in the target imodel based on the shift between the src and target ECEF locations
   function getEcefTransform(
     srcEcefLoc: EcefLocation,
     targetEcefLoc: EcefLocation
@@ -156,6 +163,8 @@ describe("Linear Geolocation Transformations", () => {
     return ecefTransform;
   }
 
+  // Get all GeometricElement3d elements from the iModel
+  // Used to find and compare placement of elements before and after transform
   async function getGeometric3dElements(
     iModelDb: IModelDb
   ): Promise<GeometricElement3d[]> {
@@ -168,6 +177,8 @@ describe("Linear Geolocation Transformations", () => {
     return elements;
   }
 
+  // Get the difference between two points
+  // When compared difference between 2 ecef locations should equal the difference between the src elements placement before and after transform
   function getPositionDifference(
     point1: Point3d,
     point2: Point3d
@@ -179,7 +190,7 @@ describe("Linear Geolocation Transformations", () => {
     };
   }
 
-  it.only("should create imodel", async function () {
+  it.only("should transform placement of src elements when target has different ECEF", async function () {
     // const srcEcef =   convertLatLongToEcef(39.95512097639021, -75.16578267595735) // 1515 Arch
     // const targetEcef = convertLatLongToEcef(39.95595450339434, -75.16697176954752) // Bentley Cherry Street
 
