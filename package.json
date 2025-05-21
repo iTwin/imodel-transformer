@@ -45,6 +45,9 @@
   "pnpm": {
     "overrides": {
       "semver": "^7.5.2"
+    },
+    "patchedDependencies": {
+      "@itwin/core-backend@5.0.0-dev.114": "patches/@itwin__core-backend@5.0.0-dev.114.patch"
     }
   },
   "packageManager": "pnpm@9.14.2"

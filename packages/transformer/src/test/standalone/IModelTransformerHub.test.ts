@@ -2877,7 +2877,7 @@ describe("IModelTransformerHub", () => {
         startChangeset: branchAt2Changeset,
       },
     });
-    const queryChangeset = sinon.spy(HubMock, "queryChangeset");
+    const queryChangeset = sinon.spy(BriefcaseManager, "queryChangeset");
     await syncer.process();
     expect(
       queryChangeset.alwaysCalledWith({

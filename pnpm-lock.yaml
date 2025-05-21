@@ -7,6 +7,11 @@ settings:
 overrides:
   semver: ^7.5.2
 
+patchedDependencies:
+  '@itwin/core-backend@5.0.0-dev.114':
+    hash: uqanr3rlhubgmewlutyj3szyqa
+    path: patches/@itwin__core-backend@5.0.0-dev.114.patch
+
 importers:
 
   .:
@@ -34,7 +39,7 @@ importers:
         version: 5.0.0-dev.114(@types/node@18.19.100)
       '@itwin/core-backend':
         specifier: ^5.0.0-dev.114
-        version: 5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
+        version: 5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
       '@types/node':
         specifier: ^18.11.5
         version: 18.19.100
@@ -46,7 +51,7 @@ importers:
     dependencies:
       '@itwin/core-backend':
         specifier: ^5.0.0-dev.114
-        version: 5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
+        version: 5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
       '@itwin/core-bentley':
         specifier: ^5.0.0-dev.114
         version: 5.0.0-dev.114
@@ -67,7 +72,7 @@ importers:
         version: link:../transformer
       '@itwin/imodels-access-backend':
         specifier: ^6.0.0-dev.2
-        version: 6.0.0-dev.2(@itwin/core-backend@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114))))(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))
+        version: 6.0.0-dev.2(@itwin/core-backend@5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114))))(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))
       '@itwin/imodels-access-common':
         specifier: ^6.0.0-dev.2
         version: 6.0.0-dev.2(@itwin/core-bentley@5.0.0-dev.114)
@@ -149,7 +154,7 @@ importers:
     dependencies:
       '@itwin/core-backend':
         specifier: ^5.0.0-dev.114
-        version: 5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
+        version: 5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
       '@itwin/core-bentley':
         specifier: ^5.0.0-dev.114
         version: 5.0.0-dev.114
@@ -164,7 +169,7 @@ importers:
         version: link:../transformer
       '@itwin/imodels-access-backend':
         specifier: ^6.0.0-dev.2
-        version: 6.0.0-dev.2(@itwin/core-backend@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114))))(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))
+        version: 6.0.0-dev.2(@itwin/core-backend@5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114))))(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))
       '@itwin/imodels-access-common':
         specifier: ^6.0.0-dev.2
         version: 6.0.0-dev.2(@itwin/core-bentley@5.0.0-dev.114)
@@ -250,7 +255,7 @@ importers:
         version: 5.0.0-dev.114(@types/node@18.19.100)
       '@itwin/core-backend':
         specifier: 5.0.0-dev.114
-        version: 5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
+        version: 5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
       '@itwin/core-bentley':
         specifier: 5.0.0-dev.114
         version: 5.0.0-dev.114
@@ -4675,7 +4680,7 @@ snapshots:
 
   '@itwin/cloud-agnostic-core@3.0.0-dev.0': {}
 
-  '@itwin/core-backend@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))':
+  '@itwin/core-backend@5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))':
     dependencies:
       '@bentley/imodeljs-native': 5.0.103
       '@itwin/cloud-agnostic-core': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
@@ -4758,10 +4763,10 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
-  '@itwin/imodels-access-backend@6.0.0-dev.2(@itwin/core-backend@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114))))(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))':
+  '@itwin/imodels-access-backend@6.0.0-dev.2(@itwin/core-backend@5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114))))(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))':
     dependencies:
       '@azure/abort-controller': 1.1.0
-      '@itwin/core-backend': 5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
+      '@itwin/core-backend': 5.0.0-dev.114(patch_hash=uqanr3rlhubgmewlutyj3szyqa)(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-common@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114))(@itwin/core-geometry@5.0.0-dev.114)(@itwin/ecschema-metadata@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-quantity@5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)))
       '@itwin/core-bentley': 5.0.0-dev.114
       '@itwin/core-common': 5.0.0-dev.114(@itwin/core-bentley@5.0.0-dev.114)(@itwin/core-geometry@5.0.0-dev.114)
       '@itwin/imodels-access-common': 6.0.0-dev.2(@itwin/core-bentley@5.0.0-dev.114)
