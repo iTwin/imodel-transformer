@@ -1389,7 +1389,7 @@ export class ChangedInstanceIds {
             [
               startChangeset.index ??
                 (
-                  await IModelHost[_hubAccess].queryChangeset({
+                  await BriefcaseManager.queryChangeset({
                     iModelId,
                     changeset: {
                       id: startChangeset.id ?? opts.iModel.changeset.id,
@@ -1398,7 +1398,7 @@ export class ChangedInstanceIds {
                 ).index,
               opts.iModel.changeset.index ??
                 (
-                  await IModelHost[_hubAccess].queryChangeset({
+                  await BriefcaseManager.queryChangeset({
                     iModelId,
                     changeset: { id: opts.iModel.changeset.id },
                   })
