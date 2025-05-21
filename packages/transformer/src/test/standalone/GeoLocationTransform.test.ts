@@ -48,13 +48,10 @@ describe("Linear Geolocation Transformations", () => {
     return outputFileName;
   }
 
-  function convertLatLongToEcef(
-    longitude: number,
-    latitude: number
-  ): EcefLocation {
+  function convertLatLongToEcef(lat: number, long: number): EcefLocation {
     const cartographic = Cartographic.fromDegrees({
-      longitude,
-      latitude,
+      longitude: long,
+      latitude: lat,
       height: 0,
     });
     const ecef = EcefLocation.createFromCartographicOrigin(cartographic);
@@ -191,16 +188,19 @@ describe("Linear Geolocation Transformations", () => {
   }
 
   it.only("should transform placement of src elements when target has different ECEF", async function () {
-    // const srcEcef =   convertLatLongToEcef(39.95512097639021, -75.16578267595735) // 1515 Arch
-    // const targetEcef = convertLatLongToEcef(39.95595450339434, -75.16697176954752) // Bentley Cherry Street
+    const srcEcef = convertLatLongToEcef(39.95512097639021, -75.16578267595735); // 1515 Arch
+    const targetEcef = convertLatLongToEcef(
+      39.95595450339434,
+      -75.16697176954752
+    ); // Bentley Cherry Street
 
     // grab ecefs from existing iModels currently using ben's linearly located discs
-    const srcEcef = getEcefFromExistingDb(
-      "D:/GCS-transformer-poc/lib/output/source-iModel.bim"
-    );
-    const targetEcef = getEcefFromExistingDb(
-      "D:/GCS-transformer-poc/lib/output/target-iModel.bim"
-    );
+    // const srcEcef = getEcefFromExistingDb(
+    //   "D:/GCS-transformer-poc/lib/output/source-iModel.bim"
+    // );
+    // const targetEcef = getEcefFromExistingDb(
+    //   "D:/GCS-transformer-poc/lib/output/target-iModel.bim"
+    // );
 
     // generate imodels with ecef locations specified above, and number of spherical elements inserted
     const sourceDb = createTestSnapshotDb(
