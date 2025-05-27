@@ -2,11 +2,9 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as fs from "fs";
 import * as path from "path";
 import {
   DefinitionModel,
-  GenericPhysicalType,
   GeometricElement3d,
   IModelDb,
   IModelJsFs,
@@ -32,7 +30,6 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import { IModelTransformer3d } from "../IModelTransformerUtils";
-import { get } from "http";
 import { assert } from "console";
 
 describe("Linear Geolocation Transformations", () => {
@@ -131,18 +128,6 @@ describe("Linear Geolocation Transformations", () => {
     return imodelDb;
   }
 
-  // TEMP: Function to get ECEF location from an existing local iModel
-  // testing purposes only atm
-  function getEcefFromExistingDb(filePath: string): EcefLocation {
-    const imodelDb = SnapshotDb.openFile(filePath);
-    const ecefLocation = imodelDb.ecefLocation;
-    if (ecefLocation === undefined) {
-      throw new Error("No ECEF location found in the iModel");
-    }
-    imodelDb.close();
-    return ecefLocation;
-  }
-
   // Calculate the transform between two ECEF locations
   // Converts relative coords from the src imodel to the new relative coords in the target imodel based on the shift between the src and target ECEF locations
   function getEcefTransform(
@@ -155,7 +140,7 @@ describe("Linear Geolocation Transformations", () => {
     const srcSpatialToECEF = srcEcefLoc.getTransform(); // converts relative to ECEF in relation to source
     const targetECEFToSpatial = targetEcefLoc.getTransform().inverse()!; // converts ECEF to relative in relation to target
     const ecefTransform =
-      srcSpatialToECEF.multiplyTransformTransform(targetECEFToSpatial); // chain both transforms
+      targetECEFToSpatial.multiplyTransformTransform(srcSpatialToECEF); // chain both transforms
 
     return ecefTransform;
   }
@@ -174,33 +159,15 @@ describe("Linear Geolocation Transformations", () => {
     return elements;
   }
 
-  // Get the difference between two points
-  // When compared difference between 2 ecef locations should equal the difference between the src elements placement before and after transform
-  function getPositionDifference(
-    point1: Point3d,
-    point2: Point3d
-  ): { x: number; y: number; z: number } {
-    return {
-      x: point1.x - point2.x,
-      y: point1.y - point2.y,
-      z: point1.z - point2.z,
-    };
-  }
-
   it.only("should transform placement of src elements when target has different ECEF", async function () {
-    const srcEcef = convertLatLongToEcef(39.95512097639021, -75.16578267595735); // 1515 Arch
+    const srcEcef = convertLatLongToEcef(
+      39.952959446468206,
+      -75.16349515933572
+    ); // City Hall
     const targetEcef = convertLatLongToEcef(
       39.95595450339434,
       -75.16697176954752
     ); // Bentley Cherry Street
-
-    // grab ecefs from existing iModels currently using ben's linearly located discs
-    // const srcEcef = getEcefFromExistingDb(
-    //   "D:/GCS-transformer-poc/lib/output/source-iModel.bim"
-    // );
-    // const targetEcef = getEcefFromExistingDb(
-    //   "D:/GCS-transformer-poc/lib/output/target-iModel.bim"
-    // );
 
     // generate imodels with ecef locations specified above, and number of spherical elements inserted
     const sourceDb = createTestSnapshotDb(
@@ -223,9 +190,6 @@ describe("Linear Geolocation Transformations", () => {
     // get Fed Guid of one geomentric element in srcDb so we can compare the transfromed element in targetDb
     const srcElements = await getGeometric3dElements(sourceDb);
     const srcElemFedGuid = srcElements[0].federationGuid;
-    const srcElemPositionPreTransform = srcElements[0].placement.origin;
-
-    const ecefDiff = getPositionDifference(srcEcef.origin, targetEcef.origin);
 
     const ecefTransform = getEcefTransform(
       sourceDb.ecefLocation!,
@@ -244,13 +208,9 @@ describe("Linear Geolocation Transformations", () => {
     const srcElemPositionPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElemFedGuid!)
         .placement.origin;
-    const srcElemPositionDiff = getPositionDifference(
-      srcElemPositionPostTransform,
-      srcElemPositionPreTransform
-    );
-    console.log("srcElemPositionDiff", srcElemPositionDiff);
-    console.log("ecefDiff", ecefDiff);
-    console.log("ecef transform origin", ecefTransform.origin);
+
+    // assert that the element at the origin of sourceDb still has the same ecef location when transformed to targetDb
+    assert(srcEcef.origin.isAlmostEqual(srcElemPositionPostTransform));
 
     targetDb.close();
     sourceDb.close();
