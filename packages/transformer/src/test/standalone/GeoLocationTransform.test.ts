@@ -23,7 +23,6 @@ import {
   PhysicalElementProps,
 } from "@itwin/core-common";
 import {
-  Geometry,
   Point3d,
   Sphere,
   Transform,
