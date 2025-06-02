@@ -58,6 +58,7 @@ import {
   SubCategory,
   Subject,
   Texture,
+  ViewDefinition2d,
 } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "./TestUtils";
@@ -2071,6 +2072,8 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     return modelId;
   }
   protected override onInsertElement(elementProps: ElementProps): Id64String {
+    // during insertion it is possible that elements are inserted with partial. Account for that so that operations below don't throw.
+    this.accountForPartialViewDefinition2d(elementProps);
     const elementId: Id64String = super.onInsertElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
@@ -2138,6 +2141,17 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       physicalElement: { id: physicalElement.id },
     };
     return this.targetDb.elements.insertElement(auditRecord);
+  }
+  private accountForPartialViewDefinition2d(elementProps: ElementProps): void {
+    const view2d = elementProps as unknown as ViewDefinition2d;
+    // if the ViewDefinition2d has a baseModelId, it should be a valid Id64String otherwise insert/get operations will fail.
+    // if the element referenced by baseModelId is not yet inserted in the target iModel this condition is possible.
+    // Transformer code in this case marks this element as partial and in the end will reconcile and update the element with a valid baseModelId before the entire process is done.
+    // Reference to reconciliation: https://github.com/iTwin/imodel-transformer/blob/6a2dabe4a55d70814682723839850a3186af7d3d/packages/transformer/src/IModelTransformer.ts#L1602
+    // The baseModelId assigned here is a placeholder that will be replaced with the actual baseModelId when the reconciliation happens.
+    if (view2d.baseModelId && !Id64.isValidId64(view2d.baseModelId)) {
+      view2d.baseModelId = "0x1";
+    }
   }
 }
 
