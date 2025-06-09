@@ -38,6 +38,7 @@ import { RelationshipProps } from '@itwin/core-backend';
 import { Schema } from '@itwin/ecschema-metadata';
 import { SchemaKey } from '@itwin/ecschema-metadata';
 import { SqliteChangeOp } from '@itwin/core-backend';
+import { Transform } from '@itwin/core-geometry';
 
 // @public
 export class ChangedInstanceIds {
@@ -158,6 +159,7 @@ export class IModelExporter {
     exportSubModels(parentModelId: Id64String): Promise<void>;
     protected get handler(): IModelExportHandler;
     initialize(options: ExporterInitOptions): Promise<void>;
+    linearlyTransformSpatialElements: boolean;
     progressInterval: number;
     registerHandler(handler: IModelExportHandler): void;
     shouldExportElement(element: Element_2): boolean;
@@ -266,6 +268,8 @@ export class IModelTransformer extends IModelExportHandler {
         fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
         skipPropagateChangesToRootElements: boolean;
     }): void;
+    // (undocumented)
+    getEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform;
     protected get hasDefinitionContainerDeletionFeature(): boolean;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
