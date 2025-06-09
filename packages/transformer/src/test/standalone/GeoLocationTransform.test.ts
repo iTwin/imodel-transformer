@@ -22,14 +22,10 @@ import {
   GeometryStreamBuilder,
   PhysicalElementProps,
 } from "@itwin/core-common";
-import {
-  Point3d,
-  Sphere,
-  Transform,
-  YawPitchRollAngles,
-} from "@itwin/core-geometry";
-import { IModelTransformer3d } from "../IModelTransformerUtils";
+import { Point3d, Sphere, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert } from "console";
+import { IModelTransformer } from "../../IModelTransformer";
+import { expect } from "chai";
 
 describe("Linear Geolocation Transformations", () => {
   function initOutputFile(fileBaseName: string) {
@@ -127,23 +123,6 @@ describe("Linear Geolocation Transformations", () => {
     return imodelDb;
   }
 
-  // Calculate the transform between two ECEF locations
-  // Converts relative coords from the src imodel to the new relative coords in the target imodel based on the shift between the src and target ECEF locations
-  function getEcefTransform(
-    srcEcefLoc: EcefLocation,
-    targetEcefLoc: EcefLocation
-  ): Transform {
-    if (srcEcefLoc.getTransform().isAlmostEqual(targetEcefLoc.getTransform()))
-      return Transform.createIdentity();
-
-    const srcSpatialToECEF = srcEcefLoc.getTransform(); // converts relative to ECEF in relation to source
-    const targetECEFToSpatial = targetEcefLoc.getTransform().inverse()!; // converts ECEF to relative in relation to target
-    const ecefTransform =
-      targetECEFToSpatial.multiplyTransformTransform(srcSpatialToECEF); // chain both transforms
-
-    return ecefTransform;
-  }
-
   // Get all GeometricElement3d elements from the iModel
   // Used to find and compare placement of elements before and after transform
   async function getGeometric3dElements(
@@ -158,7 +137,7 @@ describe("Linear Geolocation Transformations", () => {
     return elements;
   }
 
-  it.only("should transform placement of src elements when target has different ECEF", async function () {
+  it.only("should not transform placement of src elements using core transfromer", async function () {
     const srcEcef = convertLatLongToEcef(
       39.952959446468206,
       -75.16349515933572
@@ -171,13 +150,13 @@ describe("Linear Geolocation Transformations", () => {
     // generate imodels with ecef locations specified above, and number of spherical elements inserted
     const sourceDb = createTestSnapshotDb(
       srcEcef,
-      "Source-ECEF-Transform",
+      "Source-ECEF-core-Transform",
       12,
       "red"
     );
     const targetDb = createTestSnapshotDb(
       targetEcef,
-      "Target-ECEF-Transform",
+      "Target-ECEF-core-Transform",
       12,
       "blue"
     );
@@ -190,29 +169,25 @@ describe("Linear Geolocation Transformations", () => {
     const srcElements = await getGeometric3dElements(sourceDb);
     const srcElemFedGuid = srcElements[0].federationGuid;
 
-    const ecefTransform = getEcefTransform(
-      sourceDb.ecefLocation!,
-      targetDb.ecefLocation!
-    );
+    const transfrom = new IModelTransformer(sourceDb, targetDb);
+    transfrom.exporter.linearlyTransformSpatialElements = true;
 
-    const transfrom3d = new IModelTransformer3d(
-      sourceDb,
-      targetDb,
-      ecefTransform
-    );
-
-    await transfrom3d.process();
+    await transfrom.process();
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPositionPostTransform =
-      targetDb.elements.getElement<GeometricElement3d>(srcElemFedGuid!)
-        .placement.origin;
-
+      targetDb.elements.getElement<GeometricElement3d>(
+        srcElemFedGuid!
+      ).placement;
+    srcElemPositionPostTransform.multiplyTransform(targetEcef.getTransform());
     // assert that the element at the origin of sourceDb still has the same ecef location when transformed to targetDb
-    assert(srcEcef.origin.isAlmostEqual(srcElemPositionPostTransform));
+    expect(
+      srcEcef.origin.isAlmostEqual(srcElemPositionPostTransform.origin),
+      "Source element position's ecef location does not match target element position's ecef location after transform"
+    );
 
     targetDb.close();
     sourceDb.close();
-    transfrom3d.dispose();
+    transfrom.dispose();
   });
 });
