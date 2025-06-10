@@ -240,6 +240,11 @@ export interface IModelTransformOptions {
    * @default undefined
    */
   argsForProcessChanges?: ProcessChangesOptions;
+  /** A flag that determines if spatial elements in the source db should be transformed if source and target ECEF's of the imodels differ
+   * @note This flag should only be used if imodels are linearly located
+   * @default false
+   */
+  alignECEFLocations?: boolean;
 }
 
 /**
@@ -594,6 +599,7 @@ export class IModelTransformer extends IModelExportHandler {
         options?.branchRelationshipDataBehavior ?? "reject",
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
+      alignECEFLocations: options?.alignECEFLocations ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -661,6 +667,9 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
+    this.ecefTransform = this._options.alignECEFLocations
+      ? this.getEcefTransform(this.sourceDb, this.targetDb)
+      : undefined;
   }
 
   /** validates that the importer set on the transformer has the same values for its shared options as the transformer.
@@ -1594,8 +1603,13 @@ export class IModelTransformer extends IModelExportHandler {
     return targetElementProps;
   }
 
-  // Calculate the transform between two ECEF locations
-  // Converts relative coords from the src imodel to the new relative coords in the target imodel based on the shift between the src and target ECEF locations
+  /**
+   * Calculate the transform between two ECEF locations
+   * @param srcDb
+   * @param targetDb
+   * @returns Transform that converts relative coordinates in the source iModel to relative coordinates in the target iModel.
+   * @note This can only be used if both source and target iModels are linearly located
+   */
   public getEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform {
     const srcEcefLoc = srcDb.ecefLocation;
     const targetEcefLoc = targetDb.ecefLocation;
@@ -3253,9 +3267,6 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
 
     this.logSettings();
-
-    if (this.exporter.alignECEFLocations)
-      this.ecefTransform = this.getEcefTransform(this.sourceDb, this.targetDb);
 
     return this._options.argsForProcessChanges !== undefined
       ? this.processChanges(this._options.argsForProcessChanges)

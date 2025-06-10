@@ -293,10 +293,6 @@ export class IModelExporter {
   private _progressCounter: number = 0;
   /** Optionally cached entity change information */
   private _sourceDbChanges?: ChangedInstanceIds;
-  /** A flag that determines if spatial elements in the source db should be transformed if source and target ECEF's of the imodels differ
-   * @note This flag should only be used if imodels are linearly located
-   */
-  public alignECEFLocations: boolean = false;
 
   /**
    * Retrieve the cached entity change information.

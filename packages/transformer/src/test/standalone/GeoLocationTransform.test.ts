@@ -24,7 +24,10 @@ import {
 } from "@itwin/core-common";
 import { Point3d, Sphere, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert } from "console";
-import { IModelTransformer } from "../../IModelTransformer";
+import {
+  IModelTransformer,
+  IModelTransformOptions,
+} from "../../IModelTransformer";
 import { expect } from "chai";
 
 describe("Linear Geolocation Transformations", () => {
@@ -94,17 +97,10 @@ describe("Linear Geolocation Transformations", () => {
     const builder = new GeometryStreamBuilder();
     builder.appendGeometry(Sphere.createCenterRadius(Point3d.createZero(), 1));
     for (let i = 0; i < numElements; i++) {
-      if (i % 4 === 0 && i !== 0) {
-        x = 0;
-        y = 0;
-        z += 5;
-      } else if (i % 4 === 1) {
-        x += 5;
-      } else if (i % 4 === 2) {
-        y += 5;
-      } else if (i % 4 === 3) {
-        x -= 5;
-      }
+      // Arrange elements in a 2x2 grid, incrementing z every 4 elements
+      x = (i % 2) * 5;
+      y = (Math.floor(i / 2) % 2) * 5;
+      z = Math.floor(i / 4) * 5;
 
       const elementProps: PhysicalElementProps = {
         classFullName: PhysicalObject.classFullName,
@@ -138,7 +134,7 @@ describe("Linear Geolocation Transformations", () => {
     return elements;
   }
 
-  it("should not transform placement of src elements using core transfromer", async function () {
+  it.only("should transform placement of src elements using core transfromer", async function () {
     const srcEcef = convertLatLongToEcef(
       39.952959446468206,
       -75.16349515933572
@@ -170,8 +166,14 @@ describe("Linear Geolocation Transformations", () => {
     const srcElements = await getGeometric3dElements(sourceDb);
     const srcElemFedGuid = srcElements[0].federationGuid;
 
-    const transfrom = new IModelTransformer(sourceDb, targetDb);
-    transfrom.exporter.alignECEFLocations = true;
+    const transformerOptions: IModelTransformOptions = {
+      alignECEFLocations: true,
+    };
+    const transfrom = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      transformerOptions
+    );
 
     await transfrom.process();
     targetDb.saveChanges("clone contents from source");
@@ -185,7 +187,7 @@ describe("Linear Geolocation Transformations", () => {
     expect(
       srcEcef.origin.isAlmostEqual(srcElemPositionPostTransform.origin),
       "Source element position's ecef location does not match target element position's ecef location after transform"
-    );
+    ).to.be.true;
 
     targetDb.close();
     sourceDb.close();
