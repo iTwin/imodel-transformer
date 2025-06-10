@@ -380,6 +380,10 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly targetDb: IModelDb;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
+  /** The transform to be applied to the placement of spatial elements when source and target db have different ECEF locations
+   * @note transform can only be used when source and target are linearly located imodels
+   */
+  public ecefTransform?: Transform;
   private _syncType?: SyncType;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
@@ -1574,7 +1578,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (
-      this.exporter.linearlyTransformSpatialElements === true &&
+      this.ecefTransform !== undefined &&
       sourceElement instanceof GeometricElement3d
     ) {
       // can check the sourceElement since this IModelTransformer does not remap classes
@@ -1582,9 +1586,8 @@ export class IModelTransformer extends IModelExportHandler {
         (targetElementProps as GeometricElement3dProps).placement
       );
 
-      const ecefTransform = this.getEcefTransform(this.sourceDb, this.targetDb);
       if (placement.isValid) {
-        placement.multiplyTransform(ecefTransform);
+        placement.multiplyTransform(this.ecefTransform);
         (targetElementProps as GeometricElement3dProps).placement = placement;
       }
     }
@@ -1603,7 +1606,7 @@ export class IModelTransformer extends IModelExportHandler {
     ) {
       throw new IModelError(
         IModelStatus.MismatchGcs,
-        "Both source and target geographic coordinate systems must not be defined to calculate the linear ecef transfrom."
+        "Both source and target geographic coordinate systems must not be defined to calculate the linear ecef transform."
       );
     }
 
@@ -3250,6 +3253,9 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
 
     this.logSettings();
+
+    if (this.exporter.alignECEFLocations)
+      this.ecefTransform = this.getEcefTransform(this.sourceDb, this.targetDb);
 
     return this._options.argsForProcessChanges !== undefined
       ? this.processChanges(this._options.argsForProcessChanges)

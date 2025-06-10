@@ -65,6 +65,7 @@ describe("Linear Geolocation Transformations", () => {
       rootSubject: { name: dbName },
       ecefLocation: ecef,
     });
+    // bug in SnapshotEb.createEmpty does not properly set ecefLocation, this was corrected in itwinjs-core 5.1, and will be fixed when transformer repo is updated
     imodelDb.setEcefLocation(ecef);
 
     const subjectId = Subject.insert(
@@ -170,7 +171,7 @@ describe("Linear Geolocation Transformations", () => {
     const srcElemFedGuid = srcElements[0].federationGuid;
 
     const transfrom = new IModelTransformer(sourceDb, targetDb);
-    transfrom.exporter.linearlyTransformSpatialElements = true;
+    transfrom.exporter.alignECEFLocations = true;
 
     await transfrom.process();
     targetDb.saveChanges("clone contents from source");
