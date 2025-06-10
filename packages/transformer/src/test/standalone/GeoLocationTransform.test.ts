@@ -91,16 +91,13 @@ describe("Linear Geolocation Transformations", () => {
 
     const modelId = PhysicalModel.insert(imodelDb, subjectId, "Test Model");
 
-    let x = 0,
-      y = 0,
-      z = 0;
     const builder = new GeometryStreamBuilder();
     builder.appendGeometry(Sphere.createCenterRadius(Point3d.createZero(), 1));
     for (let i = 0; i < numElements; i++) {
       // Arrange elements in a 2x2 grid, incrementing z every 4 elements
-      x = (i % 2) * 5;
-      y = (Math.floor(i / 2) % 2) * 5;
-      z = Math.floor(i / 4) * 5;
+      const x = (i % 2) * 5;
+      const y = (Math.floor(i / 2) % 2) * 5;
+      const z = Math.floor(i / 4) * 5;
 
       const elementProps: PhysicalElementProps = {
         classFullName: PhysicalObject.classFullName,
