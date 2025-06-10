@@ -668,7 +668,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
     /* eslint-enable @itwin/no-internal */
     this.ecefTransform = this._options.alignECEFLocations
-      ? this.getEcefTransform(this.sourceDb, this.targetDb)
+      ? this.calculateEcefTransform(this.sourceDb, this.targetDb)
       : undefined;
   }
 
@@ -1610,7 +1610,10 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns Transform that converts relative coordinates in the source iModel to relative coordinates in the target iModel.
    * @note This can only be used if both source and target iModels are linearly located
    */
-  public getEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform {
+  public calculateEcefTransform(
+    srcDb: IModelDb,
+    targetDb: IModelDb
+  ): Transform {
     const srcEcefLoc = srcDb.ecefLocation;
     const targetEcefLoc = targetDb.ecefLocation;
 

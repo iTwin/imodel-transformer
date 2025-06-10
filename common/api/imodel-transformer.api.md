@@ -244,6 +244,7 @@ export interface IModelImportOptions {
 export class IModelTransformer extends IModelExportHandler {
     constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
+    calculateEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): void;
@@ -268,7 +269,6 @@ export class IModelTransformer extends IModelExportHandler {
         fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
         skipPropagateChangesToRootElements: boolean;
     }): void;
-    getEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform;
     protected get hasDefinitionContainerDeletionFeature(): boolean;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
