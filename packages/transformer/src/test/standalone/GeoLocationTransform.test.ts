@@ -134,7 +134,7 @@ describe("Linear Geolocation Transformations", () => {
     return elements;
   }
 
-  it.only("should transform placement of src elements using core transfromer", async function () {
+  it("should transform placement of src elements using core transfromer", async function () {
     const srcEcef = convertLatLongToEcef(
       39.952959446468206,
       -75.16349515933572

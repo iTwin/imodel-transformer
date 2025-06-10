@@ -159,7 +159,6 @@ export class IModelExporter {
     exportSubModels(parentModelId: Id64String): Promise<void>;
     protected get handler(): IModelExportHandler;
     initialize(options: ExporterInitOptions): Promise<void>;
-    linearlyTransformSpatialElements: boolean;
     progressInterval: number;
     registerHandler(handler: IModelExportHandler): void;
     shouldExportElement(element: Element_2): boolean;
@@ -258,6 +257,7 @@ export class IModelTransformer extends IModelExportHandler {
     static determineSyncType(sourceDb: IModelDb, targetDb: IModelDb,
     targetScopeElementId: Id64String): "forward" | "reverse";
     dispose(): void;
+    ecefTransform?: Transform;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
     static forEachTrackedElement(args: {
@@ -268,7 +268,6 @@ export class IModelTransformer extends IModelExportHandler {
         fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
         skipPropagateChangesToRootElements: boolean;
     }): void;
-    // (undocumented)
     getEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform;
     protected get hasDefinitionContainerDeletionFeature(): boolean;
     protected hasElementChanged(sourceElement: Element_2): boolean;
@@ -358,6 +357,7 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export interface IModelTransformOptions {
+    alignECEFLocations?: boolean;
     argsForProcessChanges?: ProcessChangesOptions;
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
