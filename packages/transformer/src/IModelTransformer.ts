@@ -240,7 +240,7 @@ export interface IModelTransformOptions {
    * @default undefined
    */
   argsForProcessChanges?: ProcessChangesOptions;
-  /** A flag that determines if spatial elements in the source db should be transformed if source and target ECEF's of the imodels differ
+  /** A flag that determines if spatial elements from the source db should be transformed if source and target iModel ECEF locations differ.
    * @note This flag should only be used if imodels are linearly located
    * @default false
    */
