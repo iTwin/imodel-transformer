@@ -1618,7 +1618,7 @@ export class IModelTransformer extends IModelExportHandler {
     const targetEcefLoc = targetDb.ecefLocation;
 
     if (
-      srcDb.geographicCoordinateSystem !== undefined &&
+      srcDb.geographicCoordinateSystem !== undefined ||
       targetDb.geographicCoordinateSystem !== undefined
     ) {
       throw new IModelError(
