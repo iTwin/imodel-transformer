@@ -5,12 +5,9 @@
 
 import { AccessToken, GuidString } from "@itwin/core-bentley";
 import { ColorDef, IModel, SubCategoryAppearance } from "@itwin/core-common";
-import {
-  BriefcaseDb,
-  HubMock,
-  IModelHost,
-  SpatialCategory,
-} from "@itwin/core-backend";
+import { BriefcaseDb, IModelHost, SpatialCategory } from "@itwin/core-backend";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { HubWrappers, IModelTestUtils } from "./IModelTestUtils";
 
 /** Test utility to push an iModel and ChangeSets */
@@ -118,7 +115,7 @@ export class TestChangeSetUtility {
       this._accessToken,
       this._iModel
     );
-    await IModelHost.hubAccess.deleteIModel({
+    await IModelHost[_hubAccess].deleteIModel({
       accessToken: this._accessToken,
       iTwinId: this.iTwinId,
       iModelId: this.iModelId,

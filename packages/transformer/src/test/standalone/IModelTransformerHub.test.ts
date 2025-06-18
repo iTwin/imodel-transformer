@@ -30,7 +30,6 @@ import {
   ExternalSourceAspect,
   GenericSchema,
   GeometricModel,
-  HubMock,
   IModelDb,
   IModelHost,
   IModelJsFs,
@@ -46,7 +45,8 @@ import {
   SubjectOwnsPartitionElements,
   SubjectOwnsSubjects,
 } from "@itwin/core-backend";
-
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "../TestUtils";
 import {
   AccessToken,
@@ -169,7 +169,7 @@ describe("IModelTransformerHub", () => {
     seedDb.saveChanges();
     seedDb.close();
 
-    const iModelId = await IModelHost.hubAccess.createNewIModel({
+    const iModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName,
       description: "source",
@@ -300,11 +300,11 @@ describe("IModelTransformerHub", () => {
       });
     } finally {
       try {
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -508,7 +508,7 @@ describe("IModelTransformerHub", () => {
         );
         targetDb.saveChanges();
         // eslint-disable-next-line deprecation/deprecation
-        assert.isFalse(targetDb.nativeDb.hasPendingTxns());
+        assert.isFalse(targetDb.txns.hasPendingTxns);
         await targetDb.pushChanges({
           accessToken,
           description: "Should not actually push because there are no changes",
@@ -609,12 +609,12 @@ describe("IModelTransformerHub", () => {
         assert.equal(targetDbChanges.codeSpec.deleteIds.size, 0);
       }
 
-      const sourceIModelChangeSets = await IModelHost.hubAccess.queryChangesets(
-        { accessToken, iModelId: sourceIModelId }
-      );
-      const targetIModelChangeSets = await IModelHost.hubAccess.queryChangesets(
-        { accessToken, iModelId: targetIModelId }
-      );
+      const sourceIModelChangeSets = await IModelHost[
+        _hubAccess
+      ].queryChangesets({ accessToken, iModelId: sourceIModelId });
+      const targetIModelChangeSets = await IModelHost[
+        _hubAccess
+      ].queryChangesets({ accessToken, iModelId: targetIModelId });
       assert.equal(sourceIModelChangeSets.length, 2);
       assert.equal(targetIModelChangeSets.length, 2);
 
@@ -622,11 +622,11 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
     } finally {
       try {
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -875,11 +875,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -939,12 +939,12 @@ describe("IModelTransformerHub", () => {
       // push sourceDb schema changes
       /* eslint-disable deprecation/deprecation */
       assert.equal(
-        sourceDb.nativeDb.hasPendingTxns(),
+        sourceDb.txns.hasPendingTxns,
         expectedHasPendingTxns,
         "Expect importSchemas to have saved changes"
       );
       assert.isFalse(
-        sourceDb.nativeDb.hasUnsavedChanges(),
+        sourceDb.txns.hasUnsavedChanges,
         "Expect no unsaved changes after importSchemas"
       );
       await sourceDb.pushChanges({
@@ -958,11 +958,11 @@ describe("IModelTransformerHub", () => {
         GenericSchema.schemaFilePath,
       ]);
       assert.isFalse(
-        sourceDb.nativeDb.hasPendingTxns(),
+        sourceDb.txns.hasPendingTxns,
         "Expect importSchemas to be a no-op"
       );
       assert.isFalse(
-        sourceDb.nativeDb.hasUnsavedChanges(),
+        sourceDb.txns.hasUnsavedChanges,
         "Expect importSchemas to be a no-op"
       );
       /* eslint-enable deprecation/deprecation */
@@ -1028,11 +1028,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -1053,7 +1053,7 @@ describe("IModelTransformerHub", () => {
       rootSubject: { name: masterIModelName },
     });
     // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     const masterSeed: TimelineIModelState = {
@@ -1149,7 +1149,7 @@ describe("IModelTransformerHub", () => {
       rootSubject: { name: masterIModelName },
     });
     // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
       from: "Bis.Element",
@@ -1266,7 +1266,7 @@ describe("IModelTransformerHub", () => {
       rootSubject: { name: masterIModelName },
     });
     // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
       from: "Bis.Element",
@@ -1422,7 +1422,7 @@ describe("IModelTransformerHub", () => {
       rootSubject: { name: masterIModelName },
     });
     // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
@@ -1681,7 +1681,7 @@ describe("IModelTransformerHub", () => {
 
     // create empty iModel meant to contain replayed master history
     const replayedIModelName = "Replayed";
-    const replayedIModelId = await IModelHost.hubAccess.createNewIModel({
+    const replayedIModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName: replayedIModelName,
       description: "blank",
@@ -1700,7 +1700,9 @@ describe("IModelTransformerHub", () => {
       const master = trackedIModels.get("master");
       assert(master);
 
-      const masterDbChangesets = await IModelHost.hubAccess.downloadChangesets({
+      const masterDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
         accessToken,
         iModelId: master.id,
         targetDir: BriefcaseManager.getChangeSetsPath(master.id),
@@ -1778,12 +1780,13 @@ describe("IModelTransformerHub", () => {
       assertElemState(replayedDb, master.state); // should have same ending state as masterDb
 
       // make sure there are no deletes in the replay history (all elements that were eventually deleted from masterDb were excluded)
-      const replayedDbChangesets =
-        await IModelHost.hubAccess.downloadChangesets({
-          accessToken,
-          iModelId: replayedIModelId,
-          targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId),
-        });
+      const replayedDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
+        accessToken,
+        iModelId: replayedIModelId,
+        targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId),
+      });
       assert.isAtLeast(replayedDbChangesets.length, masterDbChangesets.length); // replayedDb will have more changesets when seed contains elements
       const replayedDeletedElementIds = new Set<Id64String>();
       for (const replayedDbChangeset of replayedDbChangesets) {
@@ -1809,7 +1812,7 @@ describe("IModelTransformerHub", () => {
     } finally {
       await tearDown();
       replayedDb.close();
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: replayedIModelId,
       });
@@ -1916,7 +1919,9 @@ describe("IModelTransformerHub", () => {
       expect(modelSelectorUpdate2.models).to.have.length(2);
 
       // test extracted changed ids
-      const sourceDbChangesets = await IModelHost.hubAccess.downloadChangesets({
+      const sourceDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
         accessToken,
         iModelId: sourceIModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(sourceIModelId),
@@ -1985,11 +1990,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -2100,11 +2105,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -2162,7 +2167,7 @@ describe("IModelTransformerHub", () => {
     seedDb.saveChanges();
     seedDb.close();
 
-    const sourceIModelId = await IModelHost.hubAccess.createNewIModel({
+    const sourceIModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName: "TransformerSource",
       description: "source",
@@ -2181,7 +2186,7 @@ describe("IModelTransformerHub", () => {
     sourceDb.performCheckpoint(); // so we can use as a seed
 
     // forking target
-    const targetIModelId = await IModelHost.hubAccess.createNewIModel({
+    const targetIModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName: "TransformerTarget",
       description: "target",
@@ -2273,7 +2278,7 @@ describe("IModelTransformerHub", () => {
       rootSubject: { name: masterIModelName },
     });
     // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
@@ -2391,7 +2396,7 @@ describe("IModelTransformerHub", () => {
     let targetIModelId: string | undefined;
 
     try {
-      sourceIModelId = await IModelHost.hubAccess.createNewIModel({
+      sourceIModelId = await IModelHost[_hubAccess].createNewIModel({
         iTwinId,
         iModelName: "TransformerSource",
         description: "source",
@@ -2422,7 +2427,7 @@ describe("IModelTransformerHub", () => {
       sourceDb.performCheckpoint(); // so we can use as a seed
 
       // forking target
-      targetIModelId = await IModelHost.hubAccess.createNewIModel({
+      targetIModelId = await IModelHost[_hubAccess].createNewIModel({
         iTwinId,
         iModelName: "TransformerTarget",
         description: "target",
@@ -2506,12 +2511,12 @@ describe("IModelTransformerHub", () => {
       try {
         // delete iModel briefcases
         if (sourceIModelId)
-          await IModelHost.hubAccess.deleteIModel({
+          await IModelHost[_hubAccess].deleteIModel({
             iTwinId,
             iModelId: sourceIModelId,
           });
         if (targetIModelId)
-          await IModelHost.hubAccess.deleteIModel({
+          await IModelHost[_hubAccess].deleteIModel({
             iTwinId,
             iModelId: targetIModelId,
           });
@@ -2725,7 +2730,9 @@ describe("IModelTransformerHub", () => {
         .undefined;
 
       // expected extracted changed ids
-      const branchDbChangesets = await IModelHost.hubAccess.downloadChangesets({
+      const branchDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
         accessToken,
         iModelId: branchIModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(branchIModelId),
@@ -2824,12 +2831,12 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
     } finally {
       // delete iModel briefcases
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: masterIModelId,
       });
       if (branchIModelId) {
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: branchIModelId,
         });
@@ -2870,7 +2877,7 @@ describe("IModelTransformerHub", () => {
         startChangeset: branchAt2Changeset,
       },
     });
-    const queryChangeset = sinon.spy(HubMock, "queryChangeset");
+    const queryChangeset = sinon.spy(BriefcaseManager, "queryChangeset");
     await syncer.process();
     expect(
       queryChangeset.alwaysCalledWith({
@@ -2974,11 +2981,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3190,11 +3197,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3319,11 +3326,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3440,11 +3447,11 @@ describe("IModelTransformerHub", () => {
         expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
       });
     } finally {
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: sourceIModelId,
       });
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: targetIModelId,
       });
@@ -3550,7 +3557,7 @@ describe("IModelTransformerHub", () => {
       rootSubject: { name: masterIModelName },
     });
     // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -4883,7 +4890,7 @@ describe("IModelTransformerHub", () => {
     async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
       // eslint-disable-next-line @itwin/no-internal
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: iModel.iModelId,
       });

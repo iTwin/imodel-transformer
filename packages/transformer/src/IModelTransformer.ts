@@ -24,7 +24,6 @@ import {
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { Point3d, Transform } from "@itwin/core-geometry";
-import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import {
   BriefcaseManager,
   ChangedECInstance,
@@ -407,9 +406,6 @@ export class IModelTransformer extends IModelExportHandler {
     IModelTransformOptions,
     "targetScopeElementId" | "danglingReferencesBehavior"
   >;
-
-  /** @see hasDefinitionContainerDeletionFeature */
-  private _hasDefinitionContainerDeletionFeature?: boolean;
 
   /**
    * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
@@ -921,20 +917,6 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
     undefined;
-
-  /**
-   * As of itwinjs 4.6.0, definitionContainers are now deleted as if they were DefinitionPartitions as opposed to Definitions.
-   * This variable being true will be used to special case the deletion of DefinitionContainers the same way DefinitionPartitions are deleted.
-   */
-  protected get hasDefinitionContainerDeletionFeature(): boolean {
-    if (this._hasDefinitionContainerDeletionFeature === undefined) {
-      this._hasDefinitionContainerDeletionFeature = Semver.satisfies(
-        coreBackendPkgJson.version,
-        "^4.6.0"
-      );
-    }
-    return this._hasDefinitionContainerDeletionFeature;
-  }
 
   /**
    * We cache the synchronization version to avoid querying the target scoping ESA multiple times.
@@ -2068,9 +2050,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (!Id64.isValidId64(targetModelId)) return;
 
-    let sql: string;
-    if (this.hasDefinitionContainerDeletionFeature) {
-      sql = `
+    const sql = `
       SELECT 1
       FROM bis.DefinitionPartition
       WHERE ECInstanceId=:targetModelId
@@ -2079,13 +2059,6 @@ export class IModelTransformer extends IModelExportHandler {
       FROM bis.DefinitionContainer
       WHERE ECInstanceId=:targetModelId
     `;
-    } else {
-      sql = `
-      SELECT 1
-      FROM bis.DefinitionPartition
-      WHERE ECInstanceId=:targetModelId
-    `;
-    }
 
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
       // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
@@ -2743,11 +2716,11 @@ export class IModelTransformer extends IModelExportHandler {
       this._longNamedSchemasMap.set(schema.name, schemaFileName);
     }
     /* eslint-disable-next-line deprecation/deprecation */
-    this.sourceDb.nativeDb.exportSchema(
-      schema.name,
-      this._schemaExportDir,
-      schemaFileName
-    );
+    this.sourceDb.exportSchema({
+      schemaName: schema.name,
+      outputDirectory: this._schemaExportDir,
+      outputFileName: schemaFileName,
+    });
     return { schemaPath: path.join(this._schemaExportDir, schemaFileName) };
   }
 
@@ -3178,7 +3151,7 @@ export class IModelTransformer extends IModelExportHandler {
       [startChangesetIndexOrId, endChangesetId].map(async (indexOrId) =>
         typeof indexOrId === "number"
           ? indexOrId
-          : IModelHost.hubAccess
+          : BriefcaseManager
               .queryChangeset({
                 iModelId: this.sourceDb.iModelId,
                 // eslint-disable-next-line deprecation/deprecation
@@ -3229,7 +3202,7 @@ export class IModelTransformer extends IModelExportHandler {
     const csFileProps: ChangesetFileProps[] = [];
     for (const [first, end] of this._changesetRanges) {
       // TODO: should the first changeset in a reverse sync really be included even though its 'initialized branch provenance'? The answer is no, its a bug that needs to be fixed.
-      const fileProps = await IModelHost.hubAccess.downloadChangesets({
+      const fileProps = await BriefcaseManager.downloadChangesets({
         iModelId: this.sourceDb.iModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(this.sourceDb.iModelId),
         range: { first, end },

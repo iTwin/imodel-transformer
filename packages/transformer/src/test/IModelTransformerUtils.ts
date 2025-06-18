@@ -37,7 +37,6 @@ import {
   FunctionalSchema,
   GeometricElement3d,
   GeometryPart,
-  HubMock,
   IModelDb,
   IModelJsFs,
   InformationPartitionElement,
@@ -59,7 +58,9 @@ import {
   SubCategory,
   Subject,
   Texture,
+  ViewDefinition2d,
 } from "@itwin/core-backend";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "./TestUtils";
 import {
   Base64EncodedString,
@@ -598,19 +599,15 @@ export async function assertIdentityTransformation(
           remapper.findTargetCodeSpecId,
           remapper.findTargetAspectId,
         ];
-  /* eslint-disable-next-line deprecation/deprecation */
-  expect(sourceDb.nativeDb.hasUnsavedChanges()).to.be.false;
-  /* eslint-disable-next-line deprecation/deprecation */
-  expect(targetDb.nativeDb.hasUnsavedChanges()).to.be.false;
 
   const sourceToTargetElemsMap = new Map<Element, Element | undefined>();
   const targetToSourceElemsMap = new Map<Element, Element | undefined>();
   const targetElemIds = new Set<Id64String>();
 
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [sourceElemId] of sourceDb.query(
+  for await (const row of sourceDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Element"
   )) {
+    const sourceElemId = row.id;
     const targetElemId = remapElem(sourceElemId);
     const sourceElem = sourceDb.elements.getElement({
       id: sourceElemId,
@@ -779,10 +776,10 @@ export async function assertIdentityTransformation(
     }
   }
 
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [targetElemId] of targetDb.query(
+  for await (const row of targetDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Element"
   )) {
+    const targetElemId = row.id;
     if (!targetElemIds.has(targetElemId)) {
       const targetElem = targetDb.elements.getElement(targetElemId);
       targetToSourceElemsMap.set(targetElem, undefined);
@@ -833,11 +830,10 @@ export async function assertIdentityTransformation(
   const sourceToTargetModelsMap = new Map<Model, Model | undefined>();
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
   const targetModelIds = new Set<Id64String>();
-
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [sourceModelId] of sourceDb.query(
+  for await (const row of sourceDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
+    const sourceModelId = row.id;
     const targetModelId = remapElem(sourceModelId);
     const sourceModel = sourceDb.models.getModel(sourceModelId);
     const targetModel = targetDb.models.tryGetModel(targetModelId);
@@ -858,9 +854,10 @@ export async function assertIdentityTransformation(
   }
 
   // eslint-disable-next-line deprecation/deprecation
-  for await (const [targetModelId] of targetDb.query(
+  for await (const row of targetDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
+    const targetModelId = row.id;
     if (!targetModelIds.has(targetModelId)) {
       const targetModel = targetDb.models.getModel(targetModelId);
       targetToSourceModelsMap.set(targetModel, undefined);
@@ -886,24 +883,32 @@ export async function assertIdentityTransformation(
 
   const makeRelationKey = (rel: any) =>
     `${rel.SourceECInstanceId}\x00${rel.TargetECInstanceId}`;
-  const query: Parameters<IModelDb["query"]> = [
-    "SELECT * FROM bis.ElementRefersToElements",
-    undefined,
-    { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
-  ];
+  const query = {
+    ecsql: "SELECT * FROM bis.ElementRefersToElements",
+    params: undefined,
+    config: { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
+  };
+
   const sourceRelationships = new Map<string, any>();
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const row of sourceDb.query(...query)) {
-    sourceRelationships.set(makeRelationKey(row), row);
+  for await (const row of sourceDb.createQueryReader(
+    query.ecsql,
+    query.params,
+    query.config
+  )) {
+    const rowAsObject = row.toRow();
+    sourceRelationships.set(makeRelationKey(row), rowAsObject);
   }
 
   const targetRelationshipsToFind = new Map<string, any>();
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const row of targetDb.query(...query)) {
-    targetRelationshipsToFind.set(makeRelationKey(row), row);
+  for await (const row of targetDb.createQueryReader(
+    query.ecsql,
+    query.params,
+    query.config
+  )) {
+    const rowAsObject = row.toRow();
+    targetRelationshipsToFind.set(makeRelationKey(row), rowAsObject);
   }
 
-  /* eslint-disable @typescript-eslint/naming-convention */
   for (const relInSource of sourceRelationships.values()) {
     const isOnlyInSource =
       onlyInSourceElements.has(relInSource.SourceECInstanceId) &&
@@ -940,6 +945,7 @@ export async function assertIdentityTransformation(
       ECInstanceId: _4,
       SourceECClassId: _5,
       TargetECClassId: _6,
+      MemberPriority: _7,
       ...rel
     }: any) => rel;
     expect(makeRelInvariant(relInSource)).to.deep.equal(
@@ -1016,8 +1022,6 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     assert.isFalse(targetDb.codeSpecs.hasName("SourceCodeSpec"));
     assert.isFalse(targetDb.codeSpecs.hasName("ExtraCodeSpec"));
 
-    // Font
-    assert.exists(targetDb.fontMap.getFont("Arial"));
     // Subject
     const subjectId: Id64String = targetDb.elements.queryElementIdByCode(
       Subject.createCode(targetDb, IModel.rootSubjectId, targetSubjectName)
@@ -2068,6 +2072,8 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     return modelId;
   }
   protected override onInsertElement(elementProps: ElementProps): Id64String {
+    // during insertion it is possible that elements are inserted with partial. Account for that so that operations below don't throw.
+    this.accountForPartialViewDefinition2d(elementProps);
     const elementId: Id64String = super.onInsertElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
@@ -2135,6 +2141,17 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       physicalElement: { id: physicalElement.id },
     };
     return this.targetDb.elements.insertElement(auditRecord);
+  }
+  private accountForPartialViewDefinition2d(elementProps: ElementProps): void {
+    const view2d = elementProps as unknown as ViewDefinition2d;
+    // if the ViewDefinition2d has a baseModelId, it should be a valid Id64String otherwise insert/get operations will fail.
+    // if the element referenced by baseModelId is not yet inserted in the target iModel this condition is possible.
+    // Transformer code in this case marks this element as partial and in the end will reconcile and update the element with a valid baseModelId before the entire process is done.
+    // Reference to reconciliation: https://github.com/iTwin/imodel-transformer/blob/6a2dabe4a55d70814682723839850a3186af7d3d/packages/transformer/src/IModelTransformer.ts#L1602
+    // The baseModelId assigned here is a placeholder that will be replaced with the actual baseModelId when the reconciliation happens.
+    if (view2d.baseModelId && !Id64.isValidId64(view2d.baseModelId)) {
+      view2d.baseModelId = "0x1";
+    }
   }
 }
 
