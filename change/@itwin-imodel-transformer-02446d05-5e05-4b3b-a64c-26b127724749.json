@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "allow option to transform spatial elements of linearly located imodels",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "'DanRod1999@users.noreply.github.com'",
+  "dependentChangeType": "patch"
+}

@@ -80,6 +80,7 @@ import {
   EntityReference,
   ExternalSourceAspectProps,
   FontProps,
+  GeometricElement3dProps,
   GeometricElementProps,
   IModel,
   IModelError,
@@ -239,6 +240,11 @@ export interface IModelTransformOptions {
    * @default undefined
    */
   argsForProcessChanges?: ProcessChangesOptions;
+  /** A flag that determines if spatial elements from the source db should be transformed if source and target iModel ECEF locations differ.
+   * @note This flag should only be used if imodels are linearly located
+   * @default false
+   */
+  alignECEFLocations?: boolean;
 }
 
 /**
@@ -379,6 +385,10 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly targetDb: IModelDb;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
+  /** The transform to be applied to the placement of spatial elements when source and target db have different ECEF locations
+   * @note transform can only be used when source and target are linearly located imodels
+   */
+  public ecefTransform?: Transform;
   private _syncType?: SyncType;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
@@ -589,6 +599,7 @@ export class IModelTransformer extends IModelExportHandler {
         options?.branchRelationshipDataBehavior ?? "reject",
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
+      alignECEFLocations: options?.alignECEFLocations ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -656,6 +667,9 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
+    this.ecefTransform = this._options.alignECEFLocations
+      ? this.calculateEcefTransform(this.sourceDb, this.targetDb)
+      : undefined;
   }
 
   /** validates that the importer set on the transformer has the same values for its shared options as the transformer.
@@ -1571,7 +1585,70 @@ export class IModelTransformer extends IModelExportHandler {
         targetElementProps.jsonProperties.Subject.Job = undefined;
       }
     }
+
+    if (
+      this.ecefTransform !== undefined &&
+      sourceElement instanceof GeometricElement3d
+    ) {
+      // can check the sourceElement since this IModelTransformer does not remap classes
+      const placement = Placement3d.fromJSON(
+        (targetElementProps as GeometricElement3dProps).placement
+      );
+
+      if (placement.isValid) {
+        placement.multiplyTransform(this.ecefTransform);
+        (targetElementProps as GeometricElement3dProps).placement = placement;
+      }
+    }
     return targetElementProps;
+  }
+
+  /**
+   * Calculate the transform between two ECEF locations
+   * @param srcDb
+   * @param targetDb
+   * @returns Transform that converts relative coordinates in the source iModel to relative coordinates in the target iModel.
+   * @note This can only be used if both source and target iModels are linearly located
+   */
+  public calculateEcefTransform(
+    srcDb: IModelDb,
+    targetDb: IModelDb
+  ): Transform {
+    const srcEcefLoc = srcDb.ecefLocation;
+    const targetEcefLoc = targetDb.ecefLocation;
+
+    if (
+      srcDb.geographicCoordinateSystem !== undefined ||
+      targetDb.geographicCoordinateSystem !== undefined
+    ) {
+      throw new IModelError(
+        IModelStatus.MismatchGcs,
+        "Both source and target geographic coordinate systems must not be defined to calculate the linear ecef transform."
+      );
+    }
+
+    if (srcEcefLoc === undefined || targetEcefLoc === undefined) {
+      throw new IModelError(
+        IModelStatus.NoGeoLocation,
+        "Both source and target ECEF locations must be defined to calculate the transform."
+      );
+    } else {
+      if (srcEcefLoc.getTransform().isAlmostEqual(targetEcefLoc.getTransform()))
+        return Transform.createIdentity();
+
+      const srcSpatialToECEF = srcEcefLoc.getTransform(); // converts relative to ECEF in relation to source
+      const targetECEFToSpatial = targetEcefLoc.getTransform().inverse(); // converts ECEF to relative in relation to target
+      if (!targetECEFToSpatial) {
+        throw new IModelError(
+          IModelStatus.NoGeoLocation,
+          "Failed to invert target ECEF transform."
+        );
+      }
+      const ecefTransform =
+        targetECEFToSpatial.multiplyTransformTransform(srcSpatialToECEF); // chain both transforms
+
+      return ecefTransform;
+    }
   }
 
   // if undefined, it can be initialized by calling [[this.processChangesets]]

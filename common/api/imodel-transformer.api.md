@@ -38,6 +38,7 @@ import { RelationshipProps } from '@itwin/core-backend';
 import { Schema } from '@itwin/ecschema-metadata';
 import { SchemaKey } from '@itwin/ecschema-metadata';
 import { SqliteChangeOp } from '@itwin/core-backend';
+import { Transform } from '@itwin/core-geometry';
 
 // @public
 export class ChangedInstanceIds {
@@ -243,6 +244,7 @@ export interface IModelImportOptions {
 export class IModelTransformer extends IModelExportHandler {
     constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
+    calculateEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): void;
@@ -256,6 +258,7 @@ export class IModelTransformer extends IModelExportHandler {
     static determineSyncType(sourceDb: IModelDb, targetDb: IModelDb,
     targetScopeElementId: Id64String): "forward" | "reverse";
     dispose(): void;
+    ecefTransform?: Transform;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
     static forEachTrackedElement(args: {
@@ -354,6 +357,7 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export interface IModelTransformOptions {
+    alignECEFLocations?: boolean;
     argsForProcessChanges?: ProcessChangesOptions;
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
