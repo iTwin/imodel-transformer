@@ -23,7 +23,14 @@ import {
   YieldManager,
 } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
-import { Point3d, Transform } from "@itwin/core-geometry";
+import {
+  Angle,
+  AxisIndex,
+  Matrix3d,
+  Point3d,
+  Transform,
+  Vector3d,
+} from "@itwin/core-geometry";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import {
   BriefcaseManager,
@@ -82,6 +89,7 @@ import {
   FontProps,
   GeometricElement3dProps,
   GeometricElementProps,
+  Helmert2DWithZOffset,
   IModel,
   IModelError,
   ModelProps,
@@ -240,11 +248,18 @@ export interface IModelTransformOptions {
    * @default undefined
    */
   argsForProcessChanges?: ProcessChangesOptions;
-  /** A flag that determines if spatial elements from the source db should be transformed if source and target iModel ECEF locations differ.
+  /**
+   * A flag that determines if spatial elements from the source db should be transformed if source and target iModel ECEF locations differ.
    * @note This flag should only be used if imodels are linearly located
    * @default false
    */
   alignECEFLocations?: boolean;
+  /**
+   * A flag that determines if spatial elements from the source db should be transformed if source and target iModel GCS/CRS data is the same, but they have differing additional transforms.
+   * @note This flag should only be used if imodels are not linearly located
+   * @default false
+   */
+  alignAdditionalTransforms?: boolean;
 }
 
 /**
@@ -385,10 +400,14 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly targetDb: IModelDb;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
-  /** The transform to be applied to the placement of spatial elements when source and target db have different ECEF locations
-   * @note transform can only be used when source and target are linearly located imodels
+  /** The transform to be applied to the placement of spatial elements
+   * This transform should be applied when:
+   * - source and target db have different ECEF locations
+   * - source and target db have matching GCS/CRS data, but differing `geographicCoordinateSystem.additionalTransform.helmert2DWithZOffset`
+   * @note for ECEF transforms, this can only be used when source and target are linearly located imodels
+   * @note for non linearly located imodels, this transform will be a linear transform derived from Helmert Transforms from the src and target iModels.
    */
-  public ecefTransform?: Transform;
+  public linearSpatialTransform?: Transform;
   private _syncType?: SyncType;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
@@ -600,6 +619,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
       alignECEFLocations: options?.alignECEFLocations ?? false,
+      alignAdditionalTransforms: options?.alignAdditionalTransforms ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -667,8 +687,15 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
-    this.ecefTransform = this._options.alignECEFLocations
+    this.linearSpatialTransform = this._options.alignECEFLocations
       ? this.calculateEcefTransform(this.sourceDb, this.targetDb)
+      : undefined;
+
+    this.linearSpatialTransform = this._options.alignAdditionalTransforms
+      ? this.calculateSpatialTransfromFromHelmertTransforms(
+          this.sourceDb,
+          this.targetDb
+        )
       : undefined;
   }
 
@@ -1587,7 +1614,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (
-      this.ecefTransform !== undefined &&
+      this.linearSpatialTransform !== undefined &&
       sourceElement instanceof GeometricElement3d
     ) {
       // can check the sourceElement since this IModelTransformer does not remap classes
@@ -1596,7 +1623,7 @@ export class IModelTransformer extends IModelExportHandler {
       );
 
       if (placement.isValid) {
-        placement.multiplyTransform(this.ecefTransform);
+        placement.multiplyTransform(this.linearSpatialTransform);
         (targetElementProps as GeometricElement3dProps).placement = placement;
       }
     }
@@ -1649,6 +1676,85 @@ export class IModelTransformer extends IModelExportHandler {
 
       return ecefTransform;
     }
+  }
+
+  public convertHelmertToTransform(
+    helmert: Helmert2DWithZOffset | undefined
+  ): Transform {
+    if (!helmert) {
+      return Transform.createIdentity();
+    }
+
+    const rotationXY = Matrix3d.createRotationAroundAxisIndex(
+      AxisIndex.Z,
+      Angle.createDegrees(helmert?.rotDeg)
+    );
+    rotationXY.scaleColumnsInPlace(helmert.scale, helmert.scale, 1.0);
+    const translation = Vector3d.create(
+      helmert.translationX,
+      helmert.translationY,
+      helmert.translationZ
+    );
+    const helmertTransform = Transform.createRefs(translation, rotationXY);
+
+    return helmertTransform;
+  }
+
+  public calculateSpatialTransfromFromHelmertTransforms(
+    srcDb: IModelDb,
+    targetDb: IModel
+  ): Transform {
+    if (
+      srcDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
+      srcDb.geographicCoordinateSystem?.verticalCRS === undefined
+    ) {
+      throw new IModelError(
+        IModelStatus.BadRequest,
+        "Source iModel does not have a geographic coordinate system defined."
+      );
+    }
+    if (
+      targetDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
+      targetDb.geographicCoordinateSystem.verticalCRS === undefined
+    ) {
+      throw new IModelError(
+        IModelStatus.BadRequest,
+        "Target iModel does not have a geographic coordinate system defined."
+      );
+    }
+    if (
+      !srcDb.geographicCoordinateSystem.horizontalCRS.equals(
+        targetDb.geographicCoordinateSystem.horizontalCRS
+      ) ||
+      !srcDb.geographicCoordinateSystem.verticalCRS.equals(
+        targetDb.geographicCoordinateSystem.verticalCRS
+      )
+    ) {
+      throw new IModelError(
+        IModelStatus.MismatchGcs,
+        "Source and target geographic coordinate systems must match to calculate the spatial transform."
+      );
+    }
+
+    const srcTransform = this.convertHelmertToTransform(
+      srcDb.geographicCoordinateSystem.additionalTransform?.helmert2DWithZOffset
+    ); // moves elements to where src helmert transform would move them at render time
+    const targetTransformInv = this.convertHelmertToTransform(
+      targetDb.geographicCoordinateSystem.additionalTransform
+        ?.helmert2DWithZOffset
+    ).inverse(); // negates target helmert transform that is applied at render time
+
+    if (!targetTransformInv) {
+      throw new IModelError(
+        IModelStatus.NoGeoLocation,
+        "Failed to invert target Helmert transform."
+      );
+    }
+
+    const combinedTransform =
+      targetTransformInv.multiplyTransformTransform(srcTransform);
+
+    return combinedTransform;
   }
 
   // if undefined, it can be initialized by calling [[this.processChangesets]]
