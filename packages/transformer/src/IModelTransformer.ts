@@ -2846,7 +2846,7 @@ export class IModelTransformer extends IModelExportHandler {
         disableSchemaCheck: true,
       });
       const csAdaptor = new ChangesetECAdaptor(csReader);
-      const ecChangeUnifier = new PartialECChangeUnifier();
+      const ecChangeUnifier = new PartialECChangeUnifier(this.sourceDb);
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }

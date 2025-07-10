@@ -1435,7 +1435,7 @@ export class ChangedInstanceIds {
         disableSchemaCheck: true,
       });
       const csAdaptor = new ChangesetECAdaptor(csReader);
-      const ecChangeUnifier = new PartialECChangeUnifier();
+      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
