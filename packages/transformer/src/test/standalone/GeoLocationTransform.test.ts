@@ -215,7 +215,7 @@ describe("Linear Geolocation Transformations", () => {
 });
 
 describe("Non Linear Geolocation Transformations", () => {
-  it.only("should transform placement of src elements when target and source have matching GCS but different addtionalTransforms", async function () {
+  it("should transform placement of src elements when target and source have matching GCS but different addtionalTransforms", async function () {
     const horizontalCRS = new HorizontalCRS({
       id: "10TM115-27",
       description: "",

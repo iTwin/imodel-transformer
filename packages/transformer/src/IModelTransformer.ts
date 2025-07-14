@@ -687,16 +687,26 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
-    this.linearSpatialTransform = this._options.alignECEFLocations
-      ? this.calculateEcefTransform(this.sourceDb, this.targetDb)
-      : undefined;
+    nodeAssert(
+      !(
+        this._options.alignECEFLocations &&
+        this._options.alignAdditionalTransforms
+      ),
+      "Both alignECEFLocations and alignAdditionalTransforms cannot be set to true at the same time"
+    );
 
-    this.linearSpatialTransform = this._options.alignAdditionalTransforms
-      ? this.calculateSpatialTransfromFromHelmertTransforms(
+    if (this._options.alignECEFLocations)
+      this.linearSpatialTransform = this.calculateEcefTransform(
+        this.sourceDb,
+        this.targetDb
+      );
+    else if (this._options.alignAdditionalTransforms)
+      this.linearSpatialTransform =
+        this.calculateSpatialTransfromFromHelmertTransforms(
           this.sourceDb,
           this.targetDb
-        )
-      : undefined;
+        );
+    else this.linearSpatialTransform = undefined;
   }
 
   /** validates that the importer set on the transformer has the same values for its shared options as the transformer.
