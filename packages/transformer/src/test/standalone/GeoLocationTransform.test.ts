@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 /*---------------------------------------------------------------------------------------------
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
@@ -243,21 +242,21 @@ describe("Non Linear Geolocation Transformations", () => {
 
     const srcAdditionalTransform = new AdditionalTransform({
       helmert2DWithZOffset: {
-        translationX: 100.0,
-        translationY: 100.0,
+        translationX: 25.0,
+        translationY: 170.0,
         translationZ: 0.0,
-        rotDeg: 45,
-        scale: 1,
+        rotDeg: 18,
+        scale: 2,
       },
     });
 
-    const targetAddtionalTransform = new AdditionalTransform({
+    const targetAdditionalTransform = new AdditionalTransform({
       helmert2DWithZOffset: {
-        translationX: 10.0,
-        translationY: 10.0,
+        translationX: -12.0,
+        translationY: 200.0,
         translationZ: 0.0,
-        rotDeg: 90,
-        scale: 1,
+        rotDeg: 40,
+        scale: 2,
       },
     });
 
@@ -270,7 +269,7 @@ describe("Non Linear Geolocation Transformations", () => {
     const targetGCS = new GeographicCRS({
       horizontalCRS,
       verticalCRS,
-      additionalTransform: targetAddtionalTransform,
+      additionalTransform: targetAdditionalTransform,
     });
 
     const sourceDb = createTestSnapshotDb(
@@ -307,10 +306,10 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     const srcHelmert = transform.convertHelmertToTransform(
-      targetAddtionalTransform.helmert2DWithZOffset
+      srcAdditionalTransform.helmert2DWithZOffset
     );
     const targetHelmert = transform.convertHelmertToTransform(
-      srcAdditionalTransform.helmert2DWithZOffset
+      targetAdditionalTransform.helmert2DWithZOffset
     );
 
     // goal is to have element from src and target be in the same position after additionalTransform is applied.
@@ -318,33 +317,25 @@ describe("Non Linear Geolocation Transformations", () => {
     // apply target helmert transform to source. This way if source additional transform was the identity the elements will be at the same position as at render time
     // apply inv of source helmert to source element, so when additional transform is applied, the element will be at the same position as target element at render time
     // const srcSpatialTransform = srcHelmert.inverse()!.multiplyTransformTransform(targetHelmert);
-    const srcSpatialTransform = targetHelmert
+    const srcSpatialTransform = srcHelmert
       .inverse()!
-      .multiplyTransformTransform(srcHelmert);
+      .multiplyTransformTransform(targetHelmert);
 
     const srcElems = await getGeometric3dElements(sourceDb);
     const srcElem = srcElems[0];
-    console.log("Source element placement:", srcElem.placement.origin);
 
     const targetElems = await getGeometric3dElements(targetDb);
     const targetElem = targetElems[0];
-    console.log("Target element placement:", targetElem.placement.origin);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
     srcElem.update();
     sourceDb.saveChanges("update placement of source element");
-    console.log("Source element placement:", srcElem.placement.origin);
 
     await transform.process();
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
-
-    console.log(
-      "Src element post transform placement:",
-      srcElemPostTransform.placement.origin
-    );
 
     expect(
       srcElemPostTransform.placement.origin.isAlmostEqual(
