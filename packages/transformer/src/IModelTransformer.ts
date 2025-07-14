@@ -1736,6 +1736,18 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
 
+    if (
+      srcDb.geographicCoordinateSystem.additionalTransform?.helmert2DWithZOffset
+        ?.scale !==
+      targetDb.geographicCoordinateSystem.additionalTransform
+        ?.helmert2DWithZOffset?.scale
+    ) {
+      throw new IModelError(
+        IModelStatus.MismatchGcs,
+        "Spatial transform is non linear. Source and target Helmert transforms must have the same scale to calculate a linear spatial transform."
+      );
+    }
+
     const srcTransform = this.convertHelmertToTransform(
       srcDb.geographicCoordinateSystem.additionalTransform?.helmert2DWithZOffset
     ); // moves elements to where src helmert transform would move them at render time
