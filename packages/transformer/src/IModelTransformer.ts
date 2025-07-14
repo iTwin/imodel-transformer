@@ -252,12 +252,14 @@ export interface IModelTransformOptions {
    * A flag that determines if spatial elements from the source db should be transformed if source and target iModel ECEF locations differ.
    * @note This flag should only be used if imodels are linearly located
    * @default false
+   * @beta
    */
   alignECEFLocations?: boolean;
   /**
    * A flag that determines if spatial elements from the source db should be transformed if source and target iModel GCS/CRS data is the same, but they have differing additional transforms.
    * @note This flag should only be used if imodels are not linearly located
    * @default false
+   * @beta
    */
   alignAdditionalTransforms?: boolean;
 }
@@ -406,6 +408,7 @@ export class IModelTransformer extends IModelExportHandler {
    * - source and target db have matching GCS/CRS data, but differing `geographicCoordinateSystem.additionalTransform.helmert2DWithZOffset`
    * @note for ECEF transforms, this can only be used when source and target are linearly located imodels
    * @note for non linearly located imodels, this transform will be a linear transform derived from Helmert Transforms from the src and target iModels.
+   * @beta
    */
   public linearSpatialTransform?: Transform;
   private _syncType?: SyncType;
