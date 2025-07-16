@@ -254,14 +254,15 @@ export interface IModelTransformOptions {
    * @default false
    * @beta
    */
-  alignECEFLocations?: boolean;
+  // alignECEFLocations?: boolean;
   /**
    * A flag that determines if spatial elements from the source db should be transformed if source and target iModel GCS/CRS data is the same, but they have differing additional transforms.
    * @note This flag should only be used if imodels are not linearly located
    * @default false
    * @beta
    */
-  alignAdditionalTransforms?: boolean;
+  // alignAdditionalTransforms?: boolean;
+  tryAlignGeolocation?: boolean;
 }
 
 /**
@@ -410,7 +411,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note for non linearly located imodels, this transform will be a linear transform derived from Helmert Transforms from the src and target iModels.
    * @beta
    */
-  public linearSpatialTransform?: Transform;
+  private _linearSpatialTransform?: Transform;
   private _syncType?: SyncType;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
@@ -621,8 +622,9 @@ export class IModelTransformer extends IModelExportHandler {
         options?.branchRelationshipDataBehavior ?? "reject",
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
-      alignECEFLocations: options?.alignECEFLocations ?? false,
-      alignAdditionalTransforms: options?.alignAdditionalTransforms ?? false,
+      // alignECEFLocations: options?.alignECEFLocations ?? false,
+      // alignAdditionalTransforms: options?.alignAdditionalTransforms ?? false,
+      tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -690,26 +692,31 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
-    nodeAssert(
-      !(
-        this._options.alignECEFLocations &&
-        this._options.alignAdditionalTransforms
-      ),
-      "Both alignECEFLocations and alignAdditionalTransforms cannot be set to true at the same time"
-    );
-
-    if (this._options.alignECEFLocations)
-      this.linearSpatialTransform = this.calculateEcefTransform(
-        this.sourceDb,
-        this.targetDb
-      );
-    else if (this._options.alignAdditionalTransforms)
-      this.linearSpatialTransform =
-        this.calculateSpatialTransfromFromHelmertTransforms(
+    if (this._options.tryAlignGeolocation) {
+      if (
+        this.sourceDb.geographicCoordinateSystem === undefined &&
+        this.targetDb.geographicCoordinateSystem === undefined
+      ) {
+        Logger.logTrace(
+          loggerCategory,
+          "Aligning ECEF Location's between imodels due to imodels not containing GeographicCoordinateSystem data"
+        );
+        this._linearSpatialTransform = this.calculateEcefTransform(
           this.sourceDb,
           this.targetDb
         );
-    else this.linearSpatialTransform = undefined;
+      } else {
+        Logger.logTrace(
+          loggerCategory,
+          "Aligning Additional transforms between imodels due to imodels containing GeographicCoordinateSystem data"
+        );
+        this._linearSpatialTransform =
+          this.calculateSpatialTransfromFromHelmertTransforms(
+            this.sourceDb,
+            this.targetDb
+          );
+      }
+    }
   }
 
   /** validates that the importer set on the transformer has the same values for its shared options as the transformer.
@@ -1627,7 +1634,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (
-      this.linearSpatialTransform !== undefined &&
+      this._linearSpatialTransform !== undefined &&
       sourceElement instanceof GeometricElement3d
     ) {
       // can check the sourceElement since this IModelTransformer does not remap classes
@@ -1636,7 +1643,7 @@ export class IModelTransformer extends IModelExportHandler {
       );
 
       if (placement.isValid) {
-        placement.multiplyTransform(this.linearSpatialTransform);
+        placement.multiplyTransform(this._linearSpatialTransform);
         (targetElementProps as GeometricElement3dProps).placement = placement;
       }
     }
@@ -1757,7 +1764,7 @@ export class IModelTransformer extends IModelExportHandler {
     ) {
       throw new IModelError(
         IModelStatus.MismatchGcs,
-        "Spatial transform is non linear. Source and target Helmert transforms must have the same scale to calculate a linear spatial transform."
+        "Spatial transform is non rigid. Source and target Helmert transforms must have the same scale to calculate a linear spatial transform."
       );
     }
 

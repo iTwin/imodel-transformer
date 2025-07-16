@@ -186,7 +186,7 @@ describe("Linear Geolocation Transformations", () => {
     const srcElemFedGuid = srcElements[0].federationGuid;
 
     const transformerOptions: IModelTransformOptions = {
-      alignECEFLocations: true,
+      tryAlignGeolocation: true,
     };
     const transfrom = new IModelTransformer(
       sourceDb,
@@ -296,7 +296,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     const transformerOptions: IModelTransformOptions = {
-      alignAdditionalTransforms: true,
+      tryAlignGeolocation: true,
     };
 
     const transform = new IModelTransformer(
