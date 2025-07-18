@@ -701,20 +701,14 @@ export class IModelTransformer extends IModelExportHandler {
           loggerCategory,
           "Aligning ECEF Location's between imodels due to imodels not containing GeographicCoordinateSystem data"
         );
-        this._linearSpatialTransform = this.calculateEcefTransform(
-          this.sourceDb,
-          this.targetDb
-        );
+        this._linearSpatialTransform = this.calculateEcefTransform();
       } else {
         Logger.logTrace(
           loggerCategory,
           "Aligning Additional transforms between imodels due to imodels containing GeographicCoordinateSystem data"
         );
         this._linearSpatialTransform =
-          this.calculateSpatialTransfromFromHelmertTransforms(
-            this.sourceDb,
-            this.targetDb
-          );
+          this.calculateSpatialTransfromFromHelmertTransforms();
       }
     }
   }
@@ -1657,16 +1651,13 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns Transform that converts relative coordinates in the source iModel to relative coordinates in the target iModel.
    * @note This can only be used if both source and target iModels are linearly located
    */
-  public calculateEcefTransform(
-    srcDb: IModelDb,
-    targetDb: IModelDb
-  ): Transform {
-    const srcEcefLoc = srcDb.ecefLocation;
-    const targetEcefLoc = targetDb.ecefLocation;
+  public calculateEcefTransform(): Transform {
+    const srcEcefLoc = this.sourceDb.ecefLocation;
+    const targetEcefLoc = this.targetDb.ecefLocation;
 
     if (
-      srcDb.geographicCoordinateSystem !== undefined ||
-      targetDb.geographicCoordinateSystem !== undefined
+      this.sourceDb.geographicCoordinateSystem !== undefined ||
+      this.targetDb.geographicCoordinateSystem !== undefined
     ) {
       throw new IModelError(
         IModelStatus.MismatchGcs,
@@ -1698,7 +1689,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  public convertHelmertToTransform(
+  public static convertHelmertToTransform(
     helmert: Helmert2DWithZOffset | undefined
   ): Transform {
     if (!helmert) {
@@ -1720,13 +1711,10 @@ export class IModelTransformer extends IModelExportHandler {
     return helmertTransform;
   }
 
-  public calculateSpatialTransfromFromHelmertTransforms(
-    srcDb: IModelDb,
-    targetDb: IModel
-  ): Transform {
+  public calculateSpatialTransfromFromHelmertTransforms(): Transform {
     if (
-      srcDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
-      srcDb.geographicCoordinateSystem?.verticalCRS === undefined
+      this.sourceDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
+      this.sourceDb.geographicCoordinateSystem?.verticalCRS === undefined
     ) {
       throw new IModelError(
         IModelStatus.BadRequest,
@@ -1734,8 +1722,8 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
     if (
-      targetDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
-      targetDb.geographicCoordinateSystem.verticalCRS === undefined
+      this.targetDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
+      this.targetDb.geographicCoordinateSystem.verticalCRS === undefined
     ) {
       throw new IModelError(
         IModelStatus.BadRequest,
@@ -1743,11 +1731,11 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
     if (
-      !srcDb.geographicCoordinateSystem.horizontalCRS.equals(
-        targetDb.geographicCoordinateSystem.horizontalCRS
+      !this.sourceDb.geographicCoordinateSystem.horizontalCRS.equals(
+        this.targetDb.geographicCoordinateSystem.horizontalCRS
       ) ||
-      !srcDb.geographicCoordinateSystem.verticalCRS.equals(
-        targetDb.geographicCoordinateSystem.verticalCRS
+      !this.sourceDb.geographicCoordinateSystem.verticalCRS.equals(
+        this.targetDb.geographicCoordinateSystem.verticalCRS
       )
     ) {
       throw new IModelError(
@@ -1756,23 +1744,26 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
 
-    if (
-      srcDb.geographicCoordinateSystem.additionalTransform?.helmert2DWithZOffset
-        ?.scale !==
-      targetDb.geographicCoordinateSystem.additionalTransform
-        ?.helmert2DWithZOffset?.scale
-    ) {
+    const srcScale =
+      this.sourceDb.geographicCoordinateSystem.additionalTransform
+        ?.helmert2DWithZOffset?.scale ?? 1;
+    const targetScale =
+      this.targetDb.geographicCoordinateSystem.additionalTransform
+        ?.helmert2DWithZOffset?.scale ?? 1;
+
+    if (srcScale !== targetScale) {
       throw new IModelError(
         IModelStatus.MismatchGcs,
         "Spatial transform is non rigid. Source and target Helmert transforms must have the same scale to calculate a linear spatial transform."
       );
     }
 
-    const srcTransform = this.convertHelmertToTransform(
-      srcDb.geographicCoordinateSystem.additionalTransform?.helmert2DWithZOffset
+    const srcTransform = IModelTransformer.convertHelmertToTransform(
+      this.sourceDb.geographicCoordinateSystem.additionalTransform
+        ?.helmert2DWithZOffset
     ); // moves elements to where src helmert transform would move them at render time
-    const targetTransformInv = this.convertHelmertToTransform(
-      targetDb.geographicCoordinateSystem.additionalTransform
+    const targetTransformInv = IModelTransformer.convertHelmertToTransform(
+      this.targetDb.geographicCoordinateSystem.additionalTransform
         ?.helmert2DWithZOffset
     ).inverse(); // negates target helmert transform that is applied at render time
 
