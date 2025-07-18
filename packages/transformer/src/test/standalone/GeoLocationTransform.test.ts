@@ -22,11 +22,17 @@ import {
   EcefLocation,
   GeographicCRS,
   GeometryStreamBuilder,
+  Helmert2DWithZOffset,
   HorizontalCRS,
   PhysicalElementProps,
   VerticalCRS,
 } from "@itwin/core-common";
-import { Point3d, Sphere, YawPitchRollAngles } from "@itwin/core-geometry";
+import {
+  Point3d,
+  Sphere,
+  Transform,
+  YawPitchRollAngles,
+} from "@itwin/core-geometry";
 import { assert } from "console";
 import {
   IModelTransformer,
@@ -144,7 +150,7 @@ function convertLatLongToEcef(lat: number, long: number): EcefLocation {
 }
 
 describe("Linear Geolocation Transformations", () => {
-  it("should transform placement of src elements using core transfromer", async function () {
+  it.only("should transform placement of src elements using core transfromer", async function () {
     const srcEcef = convertLatLongToEcef(
       39.952959446468206,
       -75.16349515933572
@@ -215,8 +221,13 @@ describe("Linear Geolocation Transformations", () => {
 });
 
 describe("Non Linear Geolocation Transformations", () => {
-  it("should transform placement of src elements when target and source have matching GCS but different addtionalTransforms", async function () {
-    const horizontalCRS = new HorizontalCRS({
+  let horizontalCRS: HorizontalCRS;
+  let verticalCRS: VerticalCRS;
+  let srcHelmertTransform: Helmert2DWithZOffset;
+  let targetHelmertTransform: Helmert2DWithZOffset;
+
+  before(async () => {
+    horizontalCRS = new HorizontalCRS({
       id: "10TM115-27",
       description: "",
       source: "Mentor Software Client",
@@ -236,28 +247,34 @@ describe("Non Linear Geolocation Transformations", () => {
         northEast: { latitude: 84, longitude: -109.5 },
       },
     });
-    const verticalCRS = new VerticalCRS({
+    verticalCRS = new VerticalCRS({
       id: "GEOID",
     });
 
+    srcHelmertTransform = new Helmert2DWithZOffset({
+      translationX: 25.0,
+      translationY: 170.0,
+      translationZ: 0.0,
+      rotDeg: 18,
+      scale: 2,
+    });
+
+    targetHelmertTransform = new Helmert2DWithZOffset({
+      translationX: -12.0,
+      translationY: 200.0,
+      translationZ: 0.0,
+      rotDeg: 40,
+      scale: 2,
+    });
+  });
+
+  it.only("should transform placement of src elements when target and source have matching GCS but different addtionalTransforms", async function () {
     const srcAdditionalTransform = new AdditionalTransform({
-      helmert2DWithZOffset: {
-        translationX: 25.0,
-        translationY: 170.0,
-        translationZ: 0.0,
-        rotDeg: 18,
-        scale: 2,
-      },
+      helmert2DWithZOffset: srcHelmertTransform,
     });
 
     const targetAdditionalTransform = new AdditionalTransform({
-      helmert2DWithZOffset: {
-        translationX: -12.0,
-        translationY: 200.0,
-        translationZ: 0.0,
-        rotDeg: 40,
-        scale: 2,
-      },
+      helmert2DWithZOffset: targetHelmertTransform,
     });
 
     const srcGCS = new GeographicCRS({
@@ -305,10 +322,10 @@ describe("Non Linear Geolocation Transformations", () => {
       transformerOptions
     );
 
-    const srcHelmert = transform.convertHelmertToTransform(
+    const srcHelmert = IModelTransformer.convertHelmertToTransform(
       srcAdditionalTransform.helmert2DWithZOffset
     );
-    const targetHelmert = transform.convertHelmertToTransform(
+    const targetHelmert = IModelTransformer.convertHelmertToTransform(
       targetAdditionalTransform.helmert2DWithZOffset
     );
 
@@ -330,6 +347,182 @@ describe("Non Linear Geolocation Transformations", () => {
     srcElem.placement.multiplyTransform(srcSpatialTransform);
     srcElem.update();
     sourceDb.saveChanges("update placement of source element");
+
+    await transform.process();
+    targetDb.saveChanges("clone contents from source");
+
+    const srcElemPostTransform =
+      targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
+
+    expect(
+      srcElemPostTransform.placement.origin.isAlmostEqual(
+        targetElem.placement.origin
+      ),
+      "Source element placement should match target element placement"
+    ).to.be.true;
+
+    targetDb.close();
+    sourceDb.close();
+    transform.dispose();
+  });
+
+  it.only("should transform placement of src elements when src has additional transform", async function () {
+    srcHelmertTransform.scale = 1;
+    const srcAdditionalTransform = new AdditionalTransform({
+      helmert2DWithZOffset: srcHelmertTransform,
+    });
+
+    const srcGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: srcAdditionalTransform,
+    });
+
+    const targetGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: undefined,
+    });
+
+    const sourceDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: srcGCS },
+      "Source-non-linear-core-Transform",
+      1,
+      "red"
+    );
+
+    const targetDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: targetGCS },
+      "Target-non-linear-core-Transform",
+      1,
+      "blue"
+    );
+
+    assert(
+      sourceDb.geographicCoordinateSystem !== undefined,
+      "Source iModel should have a geographic coordinate system"
+    );
+    assert(
+      targetDb.geographicCoordinateSystem !== undefined,
+      "Target iModel should have a geographic coordinate system"
+    );
+
+    const srcElems = await getGeometric3dElements(sourceDb);
+    const srcElem = srcElems[0];
+
+    const targetElems = await getGeometric3dElements(targetDb);
+    const targetElem = targetElems[0];
+
+    const srcHelmert = IModelTransformer.convertHelmertToTransform(
+      srcAdditionalTransform.helmert2DWithZOffset
+    );
+    const targetHelmert = Transform.createIdentity();
+
+    const srcSpatialTransform = srcHelmert
+      .inverse()!
+      .multiplyTransformTransform(targetHelmert);
+
+    srcElem.placement.multiplyTransform(srcSpatialTransform);
+    srcElem.update();
+    sourceDb.saveChanges("update placement of source element");
+
+    const transformerOptions: IModelTransformOptions = {
+      tryAlignGeolocation: true,
+    };
+
+    const transform = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      transformerOptions
+    );
+
+    await transform.process();
+    targetDb.saveChanges("clone contents from source");
+
+    const srcElemPostTransform =
+      targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
+
+    expect(
+      srcElemPostTransform.placement.origin.isAlmostEqual(
+        targetElem.placement.origin
+      ),
+      "Source element placement should match target element placement"
+    ).to.be.true;
+
+    targetDb.close();
+    sourceDb.close();
+    transform.dispose();
+  });
+
+  it.only("should transform placement of src elements when target has additional transform", async function () {
+    targetHelmertTransform.scale = 1;
+    const targetAdditionalTransform = new AdditionalTransform({
+      helmert2DWithZOffset: srcHelmertTransform,
+    });
+
+    const srcGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: undefined,
+    });
+
+    const targetGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: targetAdditionalTransform,
+    });
+
+    const sourceDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: srcGCS },
+      "Source-non-linear-core-Transform",
+      1,
+      "red"
+    );
+
+    const targetDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: targetGCS },
+      "Target-non-linear-core-Transform",
+      1,
+      "blue"
+    );
+
+    assert(
+      sourceDb.geographicCoordinateSystem !== undefined,
+      "Source iModel should have a geographic coordinate system"
+    );
+    assert(
+      targetDb.geographicCoordinateSystem !== undefined,
+      "Target iModel should have a geographic coordinate system"
+    );
+
+    const srcElems = await getGeometric3dElements(sourceDb);
+    const srcElem = srcElems[0];
+
+    const targetElems = await getGeometric3dElements(targetDb);
+    const targetElem = targetElems[0];
+
+    const srcHelmert = Transform.createIdentity();
+    const targetHelmert = IModelTransformer.convertHelmertToTransform(
+      targetAdditionalTransform.helmert2DWithZOffset
+    );
+
+    const srcSpatialTransform = srcHelmert
+      .inverse()!
+      .multiplyTransformTransform(targetHelmert);
+
+    srcElem.placement.multiplyTransform(srcSpatialTransform);
+    srcElem.update();
+    sourceDb.saveChanges("update placement of source element");
+
+    const transformerOptions: IModelTransformOptions = {
+      tryAlignGeolocation: true,
+    };
+
+    const transform = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      transformerOptions
+    );
 
     await transform.process();
     targetDb.saveChanges("clone contents from source");
