@@ -694,22 +694,26 @@ export class IModelTransformer extends IModelExportHandler {
     /* eslint-enable @itwin/no-internal */
     if (this._options.tryAlignGeolocation) {
       if (
-        this.sourceDb.geographicCoordinateSystem === undefined &&
-        this.targetDb.geographicCoordinateSystem === undefined
+        this.sourceDb.geographicCoordinateSystem ||
+        this.targetDb.geographicCoordinateSystem
       ) {
-        Logger.logTrace(
-          loggerCategory,
-          "Aligning ECEF Location's between imodels due to imodels not containing GeographicCoordinateSystem data"
-        );
-        this._linearSpatialTransform = this.calculateEcefTransform();
-      } else {
         Logger.logTrace(
           loggerCategory,
           "Aligning Additional transforms between imodels due to imodels containing GeographicCoordinateSystem data"
         );
         this._linearSpatialTransform =
           this.calculateSpatialTransfromFromHelmertTransforms();
-      }
+      } else if (this.sourceDb.ecefLocation && this.targetDb.ecefLocation) {
+        Logger.logTrace(
+          loggerCategory,
+          "Aligning ECEF Location's between imodels due to imodels not containing GeographicCoordinateSystem data"
+        );
+        this._linearSpatialTransform = this.calculateEcefTransform();
+      } else
+        Logger.logWarning(
+          loggerCategory,
+          "No Geolcation data to align, both GCS and ECEF are undefined"
+        );
     }
   }
 

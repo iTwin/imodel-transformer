@@ -39,6 +39,9 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import { expect } from "chai";
+import sinon = require("sinon");
+import { Logger } from "@itwin/core-bentley";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
 
 interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
@@ -150,7 +153,7 @@ function convertLatLongToEcef(lat: number, long: number): EcefLocation {
 }
 
 describe("Linear Geolocation Transformations", () => {
-  it.only("should transform placement of src elements using core transfromer", async function () {
+  it("should transform placement of src elements using core transfromer", async function () {
     const srcEcef = convertLatLongToEcef(
       39.952959446468206,
       -75.16349515933572
@@ -218,6 +221,56 @@ describe("Linear Geolocation Transformations", () => {
     sourceDb.close();
     transfrom.dispose();
   });
+
+  it("should log a warning if no GCS or ECEF data is present when tryAlignGeolocation is true", async function () {
+    const srcGeolocData: GeolocationData = {
+      ecefLocation: undefined,
+      geographicCRS: undefined,
+    };
+    const targetGeolocData: GeolocationData = {
+      ecefLocation: undefined,
+      geographicCRS: undefined,
+    };
+
+    const sourceDb = createTestSnapshotDb(
+      srcGeolocData,
+      "Source-No-GCS-ECEF",
+      1,
+      "red"
+    );
+    const targetDb = createTestSnapshotDb(
+      targetGeolocData,
+      "Target-No-GCS-ECEF",
+      1,
+      "blue"
+    );
+
+    const loggerSpy = sinon.spy(Logger, "logWarning");
+
+    const transformerOptions: IModelTransformOptions = {
+      tryAlignGeolocation: true,
+    };
+
+    const transformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      transformerOptions
+    );
+
+    await transformer.process();
+
+    expect(
+      loggerSpy.calledWithMatch(
+        TransformerLoggerCategory.IModelTransformer,
+        "No Geolcation data to align, both GCS and ECEF are undefined"
+      )
+    ).to.be.true;
+
+    loggerSpy.restore();
+    targetDb.close();
+    sourceDb.close();
+    transformer.dispose();
+  });
 });
 
 describe("Non Linear Geolocation Transformations", () => {
@@ -268,7 +321,7 @@ describe("Non Linear Geolocation Transformations", () => {
     });
   });
 
-  it.only("should transform placement of src elements when target and source have matching GCS but different addtionalTransforms", async function () {
+  it("should transform placement of src elements when target and source have matching GCS but different addtionalTransforms", async function () {
     const srcAdditionalTransform = new AdditionalTransform({
       helmert2DWithZOffset: srcHelmertTransform,
     });
@@ -366,7 +419,7 @@ describe("Non Linear Geolocation Transformations", () => {
     transform.dispose();
   });
 
-  it.only("should transform placement of src elements when src has additional transform", async function () {
+  it("should transform placement of src elements when src has additional transform", async function () {
     srcHelmertTransform.scale = 1;
     const srcAdditionalTransform = new AdditionalTransform({
       helmert2DWithZOffset: srcHelmertTransform,
@@ -454,7 +507,7 @@ describe("Non Linear Geolocation Transformations", () => {
     transform.dispose();
   });
 
-  it.only("should transform placement of src elements when target has additional transform", async function () {
+  it("should transform placement of src elements when target has additional transform", async function () {
     targetHelmertTransform.scale = 1;
     const targetAdditionalTransform = new AdditionalTransform({
       helmert2DWithZOffset: srcHelmertTransform,
@@ -540,5 +593,99 @@ describe("Non Linear Geolocation Transformations", () => {
     targetDb.close();
     sourceDb.close();
     transform.dispose();
+  });
+
+  it("should throw error if GCS data is not present", async function () {
+    const srcGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: undefined,
+    });
+
+    const sourceDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: srcGCS },
+      "Source-Has-GCS",
+      1,
+      "red"
+    );
+    const targetDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: undefined },
+      "Target-No-GCS",
+      1,
+      "blue"
+    );
+
+    const transformerOptions: IModelTransformOptions = {
+      tryAlignGeolocation: true,
+    };
+
+    expect(
+      () => new IModelTransformer(sourceDb, targetDb, transformerOptions)
+    ).to.throw(
+      "Target iModel does not have a geographic coordinate system defined."
+    );
+
+    targetDb.close();
+    sourceDb.close();
+  });
+
+  it("should throw error if horizontal CRS differs between source and target", async function () {
+    const targetHorizontalCRS = new HorizontalCRS({
+      id: "10TM116-27", // different id
+      description: "",
+      source: "Mentor Software Client",
+      deprecated: false,
+      datumId: "NAD27",
+      unit: "Meter",
+      projection: {
+        method: "TransverseMercator",
+        centralMeridian: -116, // different central meridian
+        latitudeOfOrigin: 0,
+        scaleFactor: 0.9992,
+        falseEasting: 0.0,
+        falseNorthing: 0.0,
+      },
+      extent: {
+        southWest: { latitude: 48, longitude: -120.5 },
+        northEast: { latitude: 84, longitude: -109.5 },
+      },
+    });
+
+    const srcGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: undefined,
+    });
+    const targetGCS = new GeographicCRS({
+      horizontalCRS: targetHorizontalCRS,
+      verticalCRS,
+      additionalTransform: undefined,
+    });
+
+    const sourceDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: srcGCS },
+      "Source-Different-HCRS",
+      1,
+      "red"
+    );
+    const targetDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: targetGCS },
+      "Target-Different-HCRS",
+      1,
+      "blue"
+    );
+
+    const transformerOptions: IModelTransformOptions = {
+      tryAlignGeolocation: true,
+    };
+
+    expect(
+      () => new IModelTransformer(sourceDb, targetDb, transformerOptions)
+    ).to.throw(
+      "Source and target geographic coordinate systems must match to calculate the spatial transform."
+    );
+
+    targetDb.close();
+    sourceDb.close();
   });
 });
