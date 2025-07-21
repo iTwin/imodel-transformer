@@ -710,7 +710,7 @@ export class IModelTransformer extends IModelExportHandler {
         );
         this._linearSpatialTransform = this.calculateEcefTransform();
       } else
-        Logger.logWarning(
+        Logger.logTrace(
           loggerCategory,
           "No Geolcation data to align, both GCS and ECEF are undefined"
         );
