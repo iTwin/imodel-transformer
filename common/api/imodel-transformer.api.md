@@ -22,6 +22,7 @@ import { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontProps } from '@itwin/core-common';
+import { Helmert2DWithZOffset } from '@itwin/core-common';
 import { Id64Arg } from '@itwin/core-bentley';
 import { Id64Array } from '@itwin/core-bentley';
 import { Id64Set } from '@itwin/core-bentley';
@@ -244,13 +245,17 @@ export interface IModelImportOptions {
 export class IModelTransformer extends IModelExportHandler {
     constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
-    calculateEcefTransform(srcDb: IModelDb, targetDb: IModelDb): Transform;
+    calculateEcefTransform(): Transform;
+    // (undocumented)
+    calculateTransformFromHelmertTransforms(): Transform;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): void;
     // (undocumented)
     protected completePartiallyCommittedElements(): void;
     readonly context: IModelCloneContext;
+    // (undocumented)
+    static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     // @deprecated
     detectElementDeletes(): Promise<void>;
     // @deprecated
@@ -258,7 +263,6 @@ export class IModelTransformer extends IModelExportHandler {
     static determineSyncType(sourceDb: IModelDb, targetDb: IModelDb,
     targetScopeElementId: Id64String): "forward" | "reverse";
     dispose(): void;
-    ecefTransform?: Transform;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
     static forEachTrackedElement(args: {
@@ -357,7 +361,6 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export interface IModelTransformOptions {
-    alignECEFLocations?: boolean;
     argsForProcessChanges?: ProcessChangesOptions;
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
@@ -371,6 +374,7 @@ export interface IModelTransformOptions {
     preserveElementIdsForFiltering?: boolean;
     skipPropagateChangesToRootElements?: boolean;
     targetScopeElementId?: Id64String;
+    tryAlignGeolocation?: boolean;
     wasSourceIModelCopiedToTarget?: boolean;
 }
 
