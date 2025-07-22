@@ -245,7 +245,7 @@ describe("Linear Geolocation Transformations", () => {
       "blue"
     );
 
-    const loggerSpy = sinon.spy(Logger, "logWarning");
+    const loggerSpy = sinon.spy(Logger, "logTrace");
 
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,

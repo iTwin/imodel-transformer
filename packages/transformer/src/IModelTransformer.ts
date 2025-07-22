@@ -248,20 +248,13 @@ export interface IModelTransformOptions {
    * @default undefined
    */
   argsForProcessChanges?: ProcessChangesOptions;
+
   /**
-   * A flag that determines if spatial elements from the source db should be transformed if source and target iModel ECEF locations differ.
-   * @note This flag should only be used if imodels are linearly located
+   * A flag that determines if spatial elements from the source db should be transformed if:
+   * source and target iModel GCS/CRS data is the same, but they have differing additional transforms
+   * source and target iModel ECEF locations differ
    * @default false
-   * @beta
    */
-  // alignECEFLocations?: boolean;
-  /**
-   * A flag that determines if spatial elements from the source db should be transformed if source and target iModel GCS/CRS data is the same, but they have differing additional transforms.
-   * @note This flag should only be used if imodels are not linearly located
-   * @default false
-   * @beta
-   */
-  // alignAdditionalTransforms?: boolean;
   tryAlignGeolocation?: boolean;
 }
 
@@ -622,8 +615,6 @@ export class IModelTransformer extends IModelExportHandler {
         options?.branchRelationshipDataBehavior ?? "reject",
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
-      // alignECEFLocations: options?.alignECEFLocations ?? false,
-      // alignAdditionalTransforms: options?.alignAdditionalTransforms ?? false,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
     };
     // check if authorization client is defined
@@ -702,7 +693,7 @@ export class IModelTransformer extends IModelExportHandler {
           "Aligning Additional transforms between imodels due to imodels containing GeographicCoordinateSystem data"
         );
         this._linearSpatialTransform =
-          this.calculateSpatialTransfromFromHelmertTransforms();
+          this.calculateTransformFromHelmertTransforms();
       } else if (this.sourceDb.ecefLocation && this.targetDb.ecefLocation) {
         Logger.logTrace(
           loggerCategory,
@@ -1659,16 +1650,6 @@ export class IModelTransformer extends IModelExportHandler {
     const srcEcefLoc = this.sourceDb.ecefLocation;
     const targetEcefLoc = this.targetDb.ecefLocation;
 
-    if (
-      this.sourceDb.geographicCoordinateSystem !== undefined ||
-      this.targetDb.geographicCoordinateSystem !== undefined
-    ) {
-      throw new IModelError(
-        IModelStatus.MismatchGcs,
-        "Both source and target geographic coordinate systems must not be defined to calculate the linear ecef transform."
-      );
-    }
-
     if (srcEcefLoc === undefined || targetEcefLoc === undefined) {
       throw new IModelError(
         IModelStatus.NoGeoLocation,
@@ -1715,7 +1696,7 @@ export class IModelTransformer extends IModelExportHandler {
     return helmertTransform;
   }
 
-  public calculateSpatialTransfromFromHelmertTransforms(): Transform {
+  public calculateTransformFromHelmertTransforms(): Transform {
     if (
       this.sourceDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
       this.sourceDb.geographicCoordinateSystem?.verticalCRS === undefined
@@ -1758,7 +1739,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (srcScale !== targetScale) {
       throw new IModelError(
         IModelStatus.MismatchGcs,
-        "Spatial transform is non rigid. Source and target Helmert transforms must have the same scale to calculate a linear spatial transform."
+        "Spatial transform is non rigid. Source and target Helmert transforms must have the same scale to calculate a rigid spatial transform."
       );
     }
 
