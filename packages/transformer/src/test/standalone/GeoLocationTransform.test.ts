@@ -222,7 +222,7 @@ describe("Linear Geolocation Transformations", () => {
     transfrom.dispose();
   });
 
-  it("should log a warning if no GCS or ECEF data is present when tryAlignGeolocation is true", async function () {
+  it("should log a trace if no GCS or ECEF data is present when tryAlignGeolocation is true", async function () {
     const srcGeolocData: GeolocationData = {
       ecefLocation: undefined,
       geographicCRS: undefined,
@@ -270,6 +270,74 @@ describe("Linear Geolocation Transformations", () => {
     targetDb.close();
     sourceDb.close();
     transformer.dispose();
+  });
+
+  it("should skip transform if both ECEF are equal", async function () {
+    const ecef = convertLatLongToEcef(39.95595450339434, -75.16697176954752); // Bentley Cherry Street
+
+    const sourceDb = createTestSnapshotDb(
+      { ecefLocation: ecef, geographicCRS: undefined },
+      "Source-non-linear-core-Transform",
+      1,
+      "red"
+    );
+
+    const targetDb = createTestSnapshotDb(
+      { ecefLocation: ecef, geographicCRS: undefined },
+      "Target-non-linear-core-Transform",
+      1,
+      "blue"
+    );
+
+    assert(
+      sourceDb.ecefLocation !== undefined,
+      "Source iModel should have a geographic coordinate system"
+    );
+    assert(
+      targetDb.ecefLocation !== undefined,
+      "Target iModel should have a geographic coordinate system"
+    );
+
+    const srcElems = await getGeometric3dElements(sourceDb);
+    const srcElem = srcElems[0];
+
+    const loggerSpy = sinon.spy(Logger, "logTrace");
+
+    const transformerOptions: IModelTransformOptions = {
+      tryAlignGeolocation: true,
+    };
+
+    const transform = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      transformerOptions
+    );
+
+    await transform.process();
+    targetDb.saveChanges("clone contents from source");
+
+    const srcElemPostTransform =
+      targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
+
+    expect(
+      srcElemPostTransform.placement.origin.isAlmostEqual(
+        srcElem.placement.origin
+      ),
+      "Source element placement should be unchanged"
+    ).to.be.true;
+
+    expect(
+      loggerSpy.calledWithMatch(
+        TransformerLoggerCategory.IModelTransformer,
+        "ECEF data is already aligned. No spatial transforms needed."
+      )
+    ).to.be.true;
+
+    loggerSpy.restore();
+
+    targetDb.close();
+    sourceDb.close();
+    transform.dispose();
   });
 });
 
@@ -595,7 +663,85 @@ describe("Non Linear Geolocation Transformations", () => {
     transform.dispose();
   });
 
-  it("should throw error if GCS data is not present", async function () {
+  it("should skip transform if both additionalTransforms are equal", async function () {
+    const srcGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: undefined,
+    });
+
+    const targetGCS = new GeographicCRS({
+      horizontalCRS,
+      verticalCRS,
+      additionalTransform: undefined,
+    });
+
+    const sourceDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: srcGCS },
+      "Source-non-linear-core-Transform",
+      1,
+      "red"
+    );
+
+    const targetDb = createTestSnapshotDb(
+      { ecefLocation: undefined, geographicCRS: targetGCS },
+      "Target-non-linear-core-Transform",
+      1,
+      "blue"
+    );
+
+    assert(
+      sourceDb.geographicCoordinateSystem !== undefined,
+      "Source iModel should have a geographic coordinate system"
+    );
+    assert(
+      targetDb.geographicCoordinateSystem !== undefined,
+      "Target iModel should have a geographic coordinate system"
+    );
+
+    const srcElems = await getGeometric3dElements(sourceDb);
+    const srcElem = srcElems[0];
+
+    const loggerSpy = sinon.spy(Logger, "logTrace");
+
+    const transformerOptions: IModelTransformOptions = {
+      tryAlignGeolocation: true,
+    };
+
+    const transform = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      transformerOptions
+    );
+
+    await transform.process();
+    targetDb.saveChanges("clone contents from source");
+
+    const srcElemPostTransform =
+      targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
+
+    expect(
+      srcElemPostTransform.placement.origin.isAlmostEqual(
+        srcElem.placement.origin
+      ),
+      "Source element placement should be unchanged"
+    ).to.be.true;
+
+    expect(
+      loggerSpy.calledWithMatch(
+        TransformerLoggerCategory.IModelTransformer,
+        "Geolocation data is already aligned. No spatial transforms needed."
+      )
+    ).to.be.true;
+
+    loggerSpy.restore();
+
+    targetDb.close();
+    sourceDb.close();
+    transform.dispose();
+  });
+
+  it("should throw error if GCS data is not present in one imodel", async function () {
     const srcGCS = new GeographicCRS({
       horizontalCRS,
       verticalCRS,

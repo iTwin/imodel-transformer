@@ -1646,7 +1646,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns Transform that converts relative coordinates in the source iModel to relative coordinates in the target iModel.
    * @note This can only be used if both source and target iModels are linearly located
    */
-  public calculateEcefTransform(): Transform {
+  public calculateEcefTransform(): Transform | undefined {
     const srcEcefLoc = this.sourceDb.ecefLocation;
     const targetEcefLoc = this.targetDb.ecefLocation;
 
@@ -1655,23 +1655,27 @@ export class IModelTransformer extends IModelExportHandler {
         IModelStatus.NoGeoLocation,
         "Both source and target ECEF locations must be defined to calculate the transform."
       );
-    } else {
-      if (srcEcefLoc.getTransform().isAlmostEqual(targetEcefLoc.getTransform()))
-        return Transform.createIdentity();
-
-      const srcSpatialToECEF = srcEcefLoc.getTransform(); // converts relative to ECEF in relation to source
-      const targetECEFToSpatial = targetEcefLoc.getTransform().inverse(); // converts ECEF to relative in relation to target
-      if (!targetECEFToSpatial) {
-        throw new IModelError(
-          IModelStatus.NoGeoLocation,
-          "Failed to invert target ECEF transform."
-        );
-      }
-      const ecefTransform =
-        targetECEFToSpatial.multiplyTransformTransform(srcSpatialToECEF); // chain both transforms
-
-      return ecefTransform;
     }
+    if (srcEcefLoc.getTransform().isAlmostEqual(targetEcefLoc.getTransform())) {
+      Logger.logTrace(
+        loggerCategory,
+        "ECEF data is already aligned. No spatial transforms needed."
+      );
+      return undefined;
+    }
+
+    const srcSpatialToECEF = srcEcefLoc.getTransform(); // converts relative to ECEF in relation to source
+    const targetECEFToSpatial = targetEcefLoc.getTransform().inverse(); // converts ECEF to relative in relation to target
+    if (!targetECEFToSpatial) {
+      throw new IModelError(
+        IModelStatus.NoGeoLocation,
+        "Failed to invert target ECEF transform."
+      );
+    }
+    const ecefTransform =
+      targetECEFToSpatial.multiplyTransformTransform(srcSpatialToECEF); // chain both transforms
+
+    return ecefTransform;
   }
 
   public static convertHelmertToTransform(
@@ -1696,7 +1700,7 @@ export class IModelTransformer extends IModelExportHandler {
     return helmertTransform;
   }
 
-  public calculateTransformFromHelmertTransforms(): Transform {
+  public calculateTransformFromHelmertTransforms(): Transform | undefined {
     if (
       this.sourceDb.geographicCoordinateSystem?.horizontalCRS === undefined ||
       this.sourceDb.geographicCoordinateSystem?.verticalCRS === undefined
@@ -1727,6 +1731,16 @@ export class IModelTransformer extends IModelExportHandler {
         IModelStatus.MismatchGcs,
         "Source and target geographic coordinate systems must match to calculate the spatial transform."
       );
+    }
+    if (
+      this.sourceDb.geographicCoordinateSystem.additionalTransform ===
+      this.targetDb.geographicCoordinateSystem.additionalTransform
+    ) {
+      Logger.logTrace(
+        loggerCategory,
+        "Geolocation data is already aligned. No spatial transforms needed."
+      );
+      return undefined;
     }
 
     const srcScale =
