@@ -245,9 +245,9 @@ export interface IModelImportOptions {
 export class IModelTransformer extends IModelExportHandler {
     constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
-    calculateEcefTransform(): Transform;
+    calculateEcefTransform(): Transform | undefined;
     // (undocumented)
-    calculateTransformFromHelmertTransforms(): Transform;
+    calculateTransformFromHelmertTransforms(): Transform | undefined;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): void;
