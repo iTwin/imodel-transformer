@@ -2016,6 +2016,13 @@ export class IModelTransformer extends IModelExportHandler {
       targetElementProps =
         this.targetDb.elements.getElementProps(targetElementId);
     } else {
+      if (!this.hasElementChanged(sourceElement)) {
+        Logger.logTrace(
+          loggerCategory,
+          `Skipping unchanged element (${sourceElement.id}, ${sourceElement.getDisplayLabel()}).`
+        );
+        return;
+      }
       targetElementId = this.context.findTargetElementId(sourceElement.id);
       targetElementProps = this.onTransformElement(sourceElement);
     }
