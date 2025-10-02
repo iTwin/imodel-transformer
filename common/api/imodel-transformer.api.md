@@ -22,6 +22,7 @@ import { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontProps } from '@itwin/core-common';
+import { Helmert2DWithZOffset } from '@itwin/core-common';
 import { Id64Arg } from '@itwin/core-bentley';
 import { Id64Array } from '@itwin/core-bentley';
 import { Id64Set } from '@itwin/core-bentley';
@@ -38,6 +39,7 @@ import { RelationshipProps } from '@itwin/core-backend';
 import { Schema } from '@itwin/ecschema-metadata';
 import { SchemaKey } from '@itwin/ecschema-metadata';
 import { SqliteChangeOp } from '@itwin/core-backend';
+import { Transform } from '@itwin/core-geometry';
 
 // @public
 export class ChangedInstanceIds {
@@ -243,12 +245,17 @@ export interface IModelImportOptions {
 export class IModelTransformer extends IModelExportHandler {
     constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
+    calculateEcefTransform(): Transform | undefined;
+    // (undocumented)
+    calculateTransformFromHelmertTransforms(): Transform | undefined;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): void;
     // (undocumented)
     protected completePartiallyCommittedElements(): void;
     readonly context: IModelCloneContext;
+    // (undocumented)
+    static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     // @deprecated
     detectElementDeletes(): Promise<void>;
     // @deprecated
@@ -366,6 +373,7 @@ export interface IModelTransformOptions {
     preserveElementIdsForFiltering?: boolean;
     skipPropagateChangesToRootElements?: boolean;
     targetScopeElementId?: Id64String;
+    tryAlignGeolocation?: boolean;
     wasSourceIModelCopiedToTarget?: boolean;
 }
 

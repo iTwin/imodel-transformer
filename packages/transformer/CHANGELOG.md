@@ -1,8 +1,16 @@
 # Change Log - @itwin/imodel-transformer
 
-This log was last generated on Tue, 29 Apr 2025 14:01:13 GMT and should not be manually modified.
+This log was last generated on Mon, 30 Jun 2025 18:36:23 GMT and should not be manually modified.
 
 <!-- Start content -->
+
+## 1.2.0
+
+Mon, 30 Jun 2025 18:36:23 GMT
+
+### Minor changes
+
+- allow option to transform spatial elements of linearly located imodels ([commit](https://github.com/iTwin/imodel-transformer/commit/7971863b75b604e9d5b090d69938d17ef40a2d44))
 
 ## 1.1.3
 
