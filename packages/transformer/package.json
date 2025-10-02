@@ -9,7 +9,7 @@
     "node": "^20.18.0"
   },
   "scripts": {
-    "build": "npm run -s build:cjs && npm run -s copy:test-assets",
+    "build": "npm run -s build:cjs && npm run -s copy:test-assets && npm run -s extract-api",
     "build:cjs": "tsc 1>&2 --outDir lib/cjs",
     "clean": "rimraf lib",
     "docs": "npm run -s docs:extract && npm run -s docs:reference && npm run -s docs:changelog",

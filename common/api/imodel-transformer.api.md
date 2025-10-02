@@ -447,13 +447,13 @@ export class TemplateModelCloner extends IModelTransformer {
 // @public
 export enum TransformerLoggerCategory {
     // @beta
-    IModelCloneContext = "core-backend.IModelCloneContext",
+    IModelCloneContext = "imodel-transformer.IModelCloneContext",
     // @beta
-    IModelExporter = "core-backend.IModelExporter",
+    IModelExporter = "imodel-transformer.IModelExporter",
     // @beta
-    IModelImporter = "core-backend.IModelImporter",
+    IModelImporter = "imodel-transformer.IModelImporter",
     // @beta
-    IModelTransformer = "core-backend.IModelTransformer"
+    IModelTransformer = "imodel-transformer.IModelTransformer"
 }
 
 // (No @packageDocumentation comment for this package)
