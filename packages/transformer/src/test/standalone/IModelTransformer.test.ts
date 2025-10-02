@@ -35,7 +35,6 @@ import {
   Graphic3d,
   IModelDb,
   IModelElementCloneContext,
-  IModelHost,
   IModelJsFs,
   InformationRecordModel,
   InformationRecordPartition,
@@ -76,7 +75,6 @@ import {
 } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d,
-  BriefcaseIdValue,
   Code,
   CodeScopeSpec,
   CodeSpec,
@@ -4000,8 +3998,6 @@ describe("IModelTransformer", () => {
       { sourceDb: newDb, targetSeed: oldDb, doUpgrade: false },
     ] as const;
 
-    /* eslint-disable @typescript-eslint/indent */
-    /* eslint-disable @typescript-eslint/indent */
     for (const sourceDb of sourceDbs)
       for (const targetSeed of targetSeeds)
         for (const doUpgrade of doUpgradeVariants) {

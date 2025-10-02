@@ -248,6 +248,7 @@ export class IModelImporter {
 
   /** Format a Model for the Logger. */
   private formatModelForLogger(modelProps: ModelProps): string {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return `${modelProps.classFullName} [${modelProps.id!}]`;
   }
 
@@ -264,6 +265,7 @@ export class IModelImporter {
           elemProps.code.value !== undefined,
           "NULL code values are always considered unique and cannot clash"
         );
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         this._duplicateCodeValueMap.set(elemProps.id!, elemProps.code.value);
         // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
         elemProps.code.value = Guid.createValue();

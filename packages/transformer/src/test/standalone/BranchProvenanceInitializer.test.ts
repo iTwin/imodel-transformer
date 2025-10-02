@@ -9,7 +9,6 @@ import {
   ExternalSourceAspect,
   ExternalSourceIsInRepository,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   RepositoryLink,
@@ -26,7 +25,6 @@ import {
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import {
-  BriefcaseIdValue,
   Code,
   ExternalSourceProps,
   RepositoryLinkProps,
@@ -391,9 +389,9 @@ async function classicalTransformerBranchInit(
       model: IModelDb.rootSubjectId,
       code: Code.createEmpty(),
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorName: require("../../../../package.json").name,
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorVersion: require("../../../../package.json").version,
     })
     .insert();

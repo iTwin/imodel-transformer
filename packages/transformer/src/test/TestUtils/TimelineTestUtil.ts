@@ -320,7 +320,6 @@ export async function runTimeline(
   const trackedIModels = new Map<string, TimelineIModelState>();
   const masterOfBranch = new Map<string, string>();
 
-  /* eslint-disable @typescript-eslint/indent */
   const timelineStates = new Map<
     number,
     {
@@ -328,7 +327,6 @@ export async function runTimeline(
       changesets: { [iModelName: string]: ChangesetIdWithIndex };
     }
   >();
-  /* eslint-enable @typescript-eslint/indent */
 
   function printChangelogs() {
     const rows = [...timelineStates.values()].map((state) =>

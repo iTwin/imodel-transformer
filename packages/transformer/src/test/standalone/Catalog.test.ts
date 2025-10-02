@@ -1005,7 +1005,7 @@ class CatalogImporter extends IModelTransformer {
       });
       targetContainerId =
         this.targetDb.elements.queryElementIdByCode(targetContainerCode);
-    } catch (error) {
+    } catch {
       // catch NotFound error and continue
     }
     if (undefined === targetContainerId) {

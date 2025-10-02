@@ -21,7 +21,6 @@ import {
   ElementUniqueAspect,
   GeometricElement,
   IModelDb,
-  IModelHost,
   IModelJsNative,
   Model,
   PartialECChangeUnifier,
@@ -111,6 +110,7 @@ export type ExportChangesOptions = {
    * @default the current changeset of the sourceDb, if undefined
    */
   | { startChangeset: { id?: string; index?: number } }
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   | {}
 );
 
@@ -514,7 +514,6 @@ export class IModelExporter {
    * @note This must be called separately from [[exportAll]] or [[exportChanges]].
    */
   public async exportSchemas(): Promise<void> {
-    /* eslint-disable @typescript-eslint/indent */
     const sql = `
       SELECT s.Name, s.VersionMajor, s.VersionWrite, s.VersionMinor
       FROM ECDbMeta.ECSchemaDef s
@@ -527,7 +526,6 @@ export class IModelExporter {
       }
       ORDER BY ECInstanceId
     `;
-    /* eslint-enable @typescript-eslint/indent */
     const schemaNamesToExport: string[] = [];
     // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {

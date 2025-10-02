@@ -66,6 +66,7 @@ module.exports = [
     files: ["packages/transformer/**/*.ts"],
     rules: {
       "@typescript-eslint/no-unsafe-enum-comparison": "off",
+      "@typescript-eslint/no-deprecated": "off",
     },
     languageOptions: {
       parserOptions: {
@@ -80,7 +81,7 @@ module.exports = [
     rules: {
       "@itwin/no-internal-barrel-imports": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-deprecated": "off"
+      "@typescript-eslint/no-deprecated": "off",
     },
   },
   {

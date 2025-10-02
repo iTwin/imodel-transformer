@@ -39,7 +39,7 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import { expect } from "chai";
-import sinon = require("sinon");
+import * as sinon from "sinon";
 import { Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
 
