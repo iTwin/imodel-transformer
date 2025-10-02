@@ -24,6 +24,7 @@ import {
   ChangesetProps,
 } from "@itwin/core-common";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
+import { AzureClientStorage, BlockBlobClientWrapperFactory } from "@itwin/object-storage-azure";
 import { loggerCategory } from "./Transformer";
 
 export class IModelTransformerTestAppHost {
@@ -36,6 +37,7 @@ export class IModelTransformerTestAppHost {
           process.env.IMJS_URL_PREFIX ?? ""
         }api.bentley.com/imodels`,
       },
+      cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
     });
     const hubAccess = new BackendIModelsAccess(
       IModelTransformerTestAppHost.iModelClient

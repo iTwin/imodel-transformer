@@ -25,6 +25,7 @@ import { ReporterInfo } from "./ReporterUtils";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { TestTransformerModule } from "./TestTransformerModule";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import { AzureClientStorage, BlockBlobClientWrapperFactory } from "@itwin/object-storage-azure";
 import {
   filterIModels,
   initOutputFile,
@@ -142,6 +143,7 @@ const setupTestData = async () => {
     api: {
       baseUrl: `https://${process.env.IMJS_URL_PREFIX}api.bentley.com/imodels`,
     },
+    cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
   });
   // eslint-disable-next-line @itwin/no-internal
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);

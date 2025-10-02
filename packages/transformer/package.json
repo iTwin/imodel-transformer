@@ -10,7 +10,6 @@
   },
   "scripts": {
     "build": "npm run -s build:cjs && npm run -s copy:test-assets",
-    "build:ci": "npm run -s build",
     "build:cjs": "tsc 1>&2 --outDir lib/cjs",
     "clean": "rimraf lib",
     "docs": "npm run -s docs:extract && npm run -s docs:reference && npm run -s docs:changelog",
@@ -54,52 +53,52 @@
     "You can find a script to see the latest @itwin/imodel-transformer version for your iTwin.js version in the README"
   ],
   "peerDependencies": {
-    "@itwin/core-backend": "^5.0.0",
-    "@itwin/core-bentley": "^5.0.0",
-    "@itwin/core-common": "^5.0.0",
-    "@itwin/core-geometry": "^5.0.0",
-    "@itwin/core-quantity": "^5.0.0",
-    "@itwin/ecschema-metadata": "^5.0.0"
+    "@itwin/core-backend": "^5.2.0",
+    "@itwin/core-bentley": "^5.2.0",
+    "@itwin/core-common": "^5.2.0",
+    "@itwin/core-geometry": "^5.2.0",
+    "@itwin/core-quantity": "^5.2.0",
+    "@itwin/ecschema-metadata": "^5.2.0"
   },
   "//devDependencies": [
     "NOTE: All peerDependencies should also be listed as devDependencies since peerDependencies are not considered by npm install",
     "NOTE: All tools used by scripts in this package must be listed as devDependencies"
   ],
   "devDependencies": {
-    "@itwin/build-tools": "^5.0.0",
-    "@itwin/core-backend": "^5.0.0",
-    "@itwin/core-bentley": "^5.0.0",
-    "@itwin/core-common": "^5.0.0",
-    "@itwin/core-geometry": "^5.0.0",
-    "@itwin/core-quantity": "^5.0.0",
-    "@itwin/ecschema-metadata": "^5.0.0",
-    "@itwin/ecschema-locaters": "^5.0.0",
+    "@itwin/build-tools": "^5.2.0",
+    "@itwin/core-backend": "^5.2.0",
+    "@itwin/core-bentley": "^5.2.0",
+    "@itwin/core-common": "^5.2.0",
+    "@itwin/core-geometry": "^5.2.0",
+    "@itwin/core-quantity": "^5.2.0",
+    "@itwin/ecschema-locaters": "^5.2.0",
+    "@itwin/ecschema-metadata": "^5.2.0",
     "@itwin/eslint-plugin": "^5.2.1",
-    "@types/chai": "4.3.1",
-    "@types/chai-as-promised": "^7.1.5",
+    "@types/chai": "^4.3.20",
+    "@types/chai-as-promised": "^7.1.8",
     "@types/mocha": "^8.2.3",
-    "@types/node": "^18.16.14",
-    "@types/node-fetch": "2.6.11",
-    "@types/semver": "7.3.10",
+    "@types/node": "^22.18.8",
+    "@types/node-fetch": "^2.6.13",
+    "@types/semver": "^7.7.1",
     "@types/sinon": "^9.0.11",
-    "chai": "^4.3.7",
-    "chai-as-promised": "^7.1.1",
+    "chai": "^4.5.0",
+    "chai-as-promised": "^7.1.2",
     "cpx2": "^3.0.2",
     "cross-env": "^5.2.1",
-    "eslint": "^9.11.1",
-    "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.1.1",
-    "js-base64": "^3.7.5",
-    "mocha": "^10.2.0",
+    "eslint": "^9.36.0",
+    "eslint-config-prettier": "^9.1.2",
+    "js-base64": "^3.7.8",
+    "mocha": "^10.8.2",
     "npm-run-all": "^4.1.5",
     "nyc": "^15.1.0",
+    "prettier": "^3.6.2",
     "rimraf": "^3.0.2",
     "sinon": "^9.2.4",
     "source-map-support": "^0.5.21",
-    "typescript": "^5.6.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "semver": "^7.5.1"
+    "semver": "^7.7.2"
   },
   "nyc": {
     "extends": "./node_modules/@itwin/build-tools/.nycrc"

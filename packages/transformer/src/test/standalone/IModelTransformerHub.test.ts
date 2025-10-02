@@ -3510,6 +3510,7 @@ describe("IModelTransformerHub", () => {
         master: {
           manualUpdate(db) {
             const notDeleted = db.elements.deleteDefinitionElements([
+              // @ts-expect-error
               spatialViewDef.id,
               displayStyle.id,
             ]);
