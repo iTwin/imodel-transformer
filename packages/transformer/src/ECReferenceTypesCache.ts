@@ -115,7 +115,7 @@ export class ECReferenceTypesCache {
       imodel.getSchemaProps(name)
     );
     // Issue for `createQueryReader` reported: https://github.com/iTwin/itwinjs-core/issues/7984
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await imodel.withPreparedStatement(
       `
       WITH RECURSIVE refs(SchemaId) AS (

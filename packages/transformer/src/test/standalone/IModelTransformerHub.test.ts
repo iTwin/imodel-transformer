@@ -507,7 +507,7 @@ describe("IModelTransformerHub", () => {
           "Second import should not add relationships"
         );
         targetDb.saveChanges();
-        // eslint-disable-next-line deprecation/deprecation
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         assert.isFalse(targetDb.txns.hasPendingTxns);
         await targetDb.pushChanges({
           accessToken,
@@ -823,7 +823,7 @@ describe("IModelTransformerHub", () => {
       transformer.dispose();
 
       const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       targetDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
         let objectCounter = 0;
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -842,10 +842,10 @@ describe("IModelTransformerHub", () => {
       });
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       const modelId = targetDb.withPreparedStatement(
         `SELECT ECInstanceId, isPrivate FROM ${PhysicalModel.classFullName}`,
-        // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+        // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
         (statement: ECSqlStatement) => {
           if (DbResult.BE_SQLITE_ROW === statement.step()) {
             const isPrivate = statement.getValue(1).getBoolean();
@@ -937,7 +937,7 @@ describe("IModelTransformerHub", () => {
         seedBisCoreVersion !== updatedBisCoreVersion;
 
       // push sourceDb schema changes
-      /* eslint-disable deprecation/deprecation */
+      /* eslint-disable @typescript-eslint/no-deprecated */
       assert.equal(
         sourceDb.txns.hasPendingTxns,
         expectedHasPendingTxns,
@@ -965,7 +965,7 @@ describe("IModelTransformerHub", () => {
         sourceDb.txns.hasUnsavedChanges,
         "Expect importSchemas to be a no-op"
       );
-      /* eslint-enable deprecation/deprecation */
+      /* eslint-enable @typescript-eslint/no-deprecated */
       sourceDb.saveChanges(); // will be no changes to save in this case
       await sourceDb.pushChanges({
         accessToken,
@@ -1052,7 +1052,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -1148,7 +1148,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1265,7 +1265,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1421,7 +1421,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -2070,10 +2070,10 @@ describe("IModelTransformerHub", () => {
       await transformer.process();
 
       const elementCodeValueMap = new Map<Id64String, string>();
-      // eslint-disable-next-line deprecation/deprecation
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       targetDb.withStatement(
         `SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`,
-        // eslint-disable-next-line deprecation/deprecation
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         (statement: ECSqlStatement) => {
           while (statement.step() === DbResult.BE_SQLITE_ROW) {
             elementCodeValueMap.set(
@@ -2277,7 +2277,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const masterSeed: TimelineIModelState = {
@@ -3510,7 +3510,7 @@ describe("IModelTransformerHub", () => {
         master: {
           manualUpdate(db) {
             const notDeleted = db.elements.deleteDefinitionElements([
-              // @ts-expect-error
+              // @ts-expect-error using spatialViewDef before its defined
               spatialViewDef.id,
               displayStyle.id,
             ]);
@@ -3557,7 +3557,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -4222,14 +4222,14 @@ describe("IModelTransformerHub", () => {
           );
 
           const externalAspectCounts = (db: IModelDb) =>
-            // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+            // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
             db.withPreparedStatement(
               `
           SELECT e.ECInstanceId as elementId, COUNT(*) as aspectCount FROM bis.ExternalSourceAspect esa
           JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
           GROUP BY e.ECInstanceId
           `,
-              // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+              // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
               (s: ECSqlStatement) => [...s]
             );
 

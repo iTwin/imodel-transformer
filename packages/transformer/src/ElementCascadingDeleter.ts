@@ -53,7 +53,7 @@ export class ElementCascadingDeleter extends ElementTreeDeleter {
     scope: ElementTreeWalkerScope
   ) {
     const newScope = new ElementTreeWalkerScope(scope, element);
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this._iModel.withPreparedStatement(
       `
       SELECT ECInstanceId

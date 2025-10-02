@@ -25,7 +25,10 @@ import { ReporterInfo } from "./ReporterUtils";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { TestTransformerModule } from "./TestTransformerModule";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { AzureClientStorage, BlockBlobClientWrapperFactory } from "@itwin/object-storage-azure";
+import {
+  AzureClientStorage,
+  BlockBlobClientWrapperFactory,
+} from "@itwin/object-storage-azure";
 import {
   filterIModels,
   initOutputFile,
@@ -178,7 +181,7 @@ async function runRegressionTests() {
             fileName: sourceFileName,
             readonly: true,
           });
-          // eslint-disable-next-line deprecation/deprecation
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           const fedGuidSaturation = sourceDb.withStatement(
             `
             SELECT

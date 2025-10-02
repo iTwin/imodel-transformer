@@ -529,7 +529,7 @@ export class IModelExporter {
     `;
     /* eslint-enable @typescript-eslint/indent */
     const schemaNamesToExport: string[] = [];
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const schemaName = statement.getValue(0).getString();
@@ -571,10 +571,10 @@ export class IModelExporter {
   public async exportCodeSpecs(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportCodeSpecs()");
     const sql = "SELECT Name FROM BisCore:CodeSpec ORDER BY ECInstanceId";
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       async (statement: ECSqlStatement): Promise<void> => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const codeSpecName: string = statement.getValue(0).getString();
@@ -745,10 +745,10 @@ export class IModelExporter {
     } else {
       sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId ORDER BY ECInstanceId`;
     }
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       async (statement: ECSqlStatement): Promise<void> => {
         statement.bindId("modelId", modelId);
         if (skipRootSubject) {
@@ -770,10 +770,10 @@ export class IModelExporter {
     const definitionModelIds: Id64String[] = [];
     const otherModelIds: Id64String[] = [];
     const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         statement.bindId("parentModelId", parentModelId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -936,10 +936,10 @@ export class IModelExporter {
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       async (statement: ECSqlStatement): Promise<void> => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const relationshipId = statement.getValue(0).getId();

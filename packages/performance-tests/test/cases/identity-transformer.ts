@@ -49,7 +49,7 @@ export default async function identityTransformer(context: TestCaseContext) {
     const schemaDumpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "identity-test-schemas-dump-")
     );
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     sourceDb.exportSchemas(schemaDumpDir);
     Logger.logInfo(loggerCategory, `dumped schemas to: ${schemaDumpDir}`);
     throw err;

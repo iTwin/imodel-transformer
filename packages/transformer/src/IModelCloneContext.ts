@@ -171,7 +171,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
               ELSE 'error'
             END
           `;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
           const relInSource = this.sourceDb.withPreparedStatement(
             `
             SELECT
@@ -227,7 +227,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
             !EntityReferences.isValid(relInTarget.targetId)
           )
             break;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
           const relInTargetId = this.targetDb.withPreparedStatement(
             `
             SELECT ECInstanceId

@@ -327,7 +327,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
   protected onInsertElement(elementProps: ElementProps): Id64String {
-    /* eslint-disable deprecation/deprecation */
+    /* eslint-disable @typescript-eslint/no-deprecated */
     try {
       const elementId = this.targetDb.elements.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
@@ -360,7 +360,7 @@ export class IModelImporter {
       }
       throw error; // throw original error
     }
-    /* eslint-enable deprecation/deprecation */
+    /* eslint-enable @typescript-eslint/no-deprecated */
   }
 
   /** Update an existing Element in the target iModel from the specified ElementProps.
@@ -377,7 +377,7 @@ export class IModelImporter {
     );
     this.trackProgress();
     if (this.options.simplifyElementGeometry) {
-      /* eslint-disable-next-line deprecation/deprecation */
+      /* eslint-disable-next-line @typescript-eslint/no-deprecated */
       this.targetDb.simplifyElementGeometry({
         id: elementProps.id,
         convertBReps: true,
@@ -795,7 +795,7 @@ export class IModelImporter {
    */
   public optimizeGeometry(options: OptimizeGeometryOptions): void {
     if (options.inlineUniqueGeometryParts) {
-      /* eslint-disable-next-line deprecation/deprecation */
+      /* eslint-disable-next-line @typescript-eslint/no-deprecated */
       const result = this.targetDb.inlineGeometryParts();
       Logger.logInfo(
         loggerCategory,

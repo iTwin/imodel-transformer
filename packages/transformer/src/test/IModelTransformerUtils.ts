@@ -640,7 +640,7 @@ export async function assertIdentityTransformation(
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
           // so we query the prop instead of the checking for the property on the element
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
           const relationTargetInSourceId = sourceDb.withPreparedStatement(
             sql,
             (stmt) => {
@@ -649,7 +649,7 @@ export async function assertIdentityTransformation(
               return stmt.getValue(0).getId() ?? Id64.invalid;
             }
           );
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
           const relationTargetInTargetId = targetDb.withPreparedStatement(
             sql,
             (stmt) => {
@@ -853,7 +853,7 @@ export async function assertIdentityTransformation(
     }
   }
 
-  // eslint-disable-next-line deprecation/deprecation
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   for await (const row of targetDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
@@ -924,7 +924,7 @@ export async function assertIdentityTransformation(
       TargetECInstanceId: relTargetInTarget,
     });
     const relInTarget = targetRelationshipsToFind.get(relInTargetKey);
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     const relClassName = sourceDb.withPreparedStatement(
       "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?",
       (s) => {
@@ -1234,7 +1234,7 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     );
     assert.isDefined(physicalObject1.geom);
     let index1 = 0;
-    for (const entry of new GeometryStreamIterator(physicalObject1.geom!)) {
+    for (const entry of new GeometryStreamIterator(physicalObject1.geom)) {
       if (0 === index1) {
         assert.equal(entry.primitive.type, "geometryQuery");
         assert.equal(entry.geomParams.subCategoryId, subCategoryId);
@@ -1655,10 +1655,10 @@ export class FilterByViewTransformer extends IModelTransformer {
   /** Excludes categories not referenced by the export view's CategorySelector */
   private excludeCategoriesExcept(exportCategoryIds: Id64Set): void {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const categoryId = statement.getValue(0).getId();
@@ -1789,10 +1789,10 @@ export class TestIModelTransformer extends IModelTransformer {
   private initSubCategoryFilters(): void {
     assert.isFalse(this.context.hasSubCategoryFilter);
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:codeValue`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         statement.bindString("codeValue", "FilteredSubCategory");
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -2115,10 +2115,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   private getRecordPartitionId(physicalPartitionId: Id64String): Id64String {
     const sql =
       "SELECT TargetECInstanceId FROM ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords WHERE SourceECInstanceId=:physicalPartitionId";
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return this.targetDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): Id64String => {
         statement.bindId("physicalPartitionId", physicalPartitionId);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -2199,7 +2199,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     ...args: Parameters<IModelExporter["exportChanges"]>
   ): Promise<void> {
     this._shouldIndent = false;
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return this.exporter.exportChanges(...args);
   }
   private writeLine(line: string, indentLevel: number = 0): void {

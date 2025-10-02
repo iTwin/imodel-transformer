@@ -25,10 +25,10 @@ import { IModel } from "@itwin/core-common";
 export namespace ElementUtils {
   function queryElementIds(iModelDb: IModelDb, classFullName: string): Id64Set {
     const elementIds = new Set<Id64String>();
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${classFullName}`,
-      // eslint-disable-next-line deprecation/deprecation
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       (statement: ECSqlStatement) => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           elementIds.add(statement.getValue(0).getId());
@@ -112,7 +112,7 @@ export namespace ElementUtils {
     const elementIds = new Set<Id64String>();
     if (iModelDb.containsClass(ExternalSourceAspect.classFullName)) {
       const sql = `SELECT Element.Id FROM ${ExternalSourceAspect.classFullName} WHERE Kind=:kind`;
-      // eslint-disable-next-line deprecation/deprecation
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
         statement.bindString("kind", ExternalSourceAspect.Kind.Scope);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -169,7 +169,7 @@ export namespace ElementUtils {
         iModelDb.projectExtents
       );
       if (makeDefault) {
-        // eslint-disable-next-line deprecation/deprecation
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         iModelDb.views.setDefaultViewId(viewId);
       }
       iModelDb.saveChanges("Inserted ViewDefinition");
@@ -183,7 +183,7 @@ export namespace ElementUtils {
   ): Id64Array {
     const modelIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${modelClassFullName} WHERE IsTemplate=false`;
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         modelIds.push(statement.getValue(0).getId());
@@ -195,7 +195,7 @@ export namespace ElementUtils {
   function querySpatialCategoryIds(iModelDb: IModelDb): Id64Array {
     const categoryIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         categoryIds.push(statement.getValue(0).getId());
