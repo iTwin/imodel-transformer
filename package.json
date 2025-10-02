@@ -21,13 +21,13 @@
     "publish-packages": "beachball publish",
     "publish-packages-dev": "beachball publish --config beachball.config.dev.js --keep-change-files",
     "pre-commit": "lint-staged",
-    "prepare": "husky install"
+    "prepare": "husky"
   },
   "license": "MIT",
   "devDependencies": {
     "beachball": "^2.55.1",
     "fast-glob": "^3.3.3",
-    "husky": "^8.0.3",
+    "husky": "^9.1.7",
     "lint-staged": "^13.3.0",
     "prettier": "^3.6.2"
   },
