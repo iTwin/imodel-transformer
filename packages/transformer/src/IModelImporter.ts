@@ -318,10 +318,10 @@ export class IModelImporter {
       if (undefined !== elementProps.id) {
         this.tryUpdateElement(elementProps);
       } else {
-        this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
+        elementProps.id = this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
     }
-    return elementProps.id!;
+    return elementProps.id;
   }
 
   /** Create a new Element from the specified ElementProps and insert it into the target iModel.

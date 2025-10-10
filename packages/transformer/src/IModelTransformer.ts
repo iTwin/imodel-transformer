@@ -2090,7 +2090,14 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this._options.wasSourceIModelCopiedToTarget) {
       this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
-    this.context.remapElement(sourceElement.id, targetElementProps.id!); // targetElementProps.id assigned by importElement
+
+    if (targetElementProps.id === undefined) {
+      throw new IModelError(
+        IModelStatus.BadElement,
+        "targetElementProps.id should be assigned by importElement"
+      );
+    }
+    this.context.remapElement(sourceElement.id, targetElementProps.id);
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
     // insert external source aspects because federation guids are sufficient for this.
@@ -2110,7 +2117,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (!provenance) {
         const aspectProps = this.initElementProvenance(
           sourceElement.id,
-          targetElementProps.id!
+          targetElementProps.id
         );
         const foundEsaProps = IModelTransformer.queryScopeExternalSourceAspect(
           this.provenanceDb,
@@ -2334,8 +2341,14 @@ export class IModelTransformer extends IModelExportHandler {
       id: targetModeledElementId,
     };
     targetModelProps.id = targetModeledElementId;
+    if (targetModelProps.parentModel === undefined) {
+      throw new IModelError(
+        IModelStatus.BadElement,
+        "targetElementProps must have a defined parentModel"
+      );
+    }
     targetModelProps.parentModel = this.context.findTargetElementId(
-      targetModelProps.parentModel!
+      targetModelProps.parentModel
     );
     return targetModelProps;
   }
@@ -3231,6 +3244,14 @@ export class IModelTransformer extends IModelExportHandler {
       // of entities that were never synced and can be safely ignored
       const deletionNotInTarget = !targetId;
       if (deletionNotInTarget) return;
+
+      if (targetId === undefined) {
+        throw new IModelError(
+          IModelStatus.BadElement,
+          "targetId should aquired from source id or element provenance"
+        );
+      }
+
       this.context.remapElement(changedInstanceId, targetId!);
       // If an entity insert and an entity delete both point to the same entity in target iModel, that means that entity was recreated.
       // In such case an entity update will be triggered and we no longer need to delete the entity.
