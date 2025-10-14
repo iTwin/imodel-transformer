@@ -4843,8 +4843,14 @@ describe("IModelTransformerHub", () => {
             const categoryB = iModel.db.elements.getElement(
               SpatialCategory.createCode(iModel.db, IModel.dictionaryId, "B")
             );
-            expect(categoryA.userLabel).to.equal("B");
-            expect(categoryB.userLabel).to.equal("A");
+            expect(categoryA.userLabel).to.equal(
+              "B",
+              `categoryA.userlabel mismatch in ${iModel.db.name}`
+            );
+            expect(categoryB.userLabel).to.equal(
+              "A",
+              `categoryB.userlabel mismatch in ${iModel.db.name}`
+            );
           }
         },
       },
