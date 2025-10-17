@@ -61,3 +61,5 @@ debug.log
 *.cpp.cpuprofile
 *.sqliteprofile.db
 
+# ignore bim files for substation tests
+/**/assets/SubstationTestBim/*.bim
