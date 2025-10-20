@@ -4846,6 +4846,59 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
+  it.skip("should successfully process changes when some parent and child elements have no changes", async () => {
+    const sourceIModelName: string =
+      IModelTransformerTestUtils.generateUniqueName("Source");
+    const targetIModelName: string =
+      IModelTransformerTestUtils.generateUniqueName("Target");
+    const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: sourceIModelName,
+    });
+    const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: targetIModelName,
+    });
+
+    const changes1ParentSubjectId = Subject.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "Change 1: Parent"
+    );
+    Subject.insert(sourceDb, changes1ParentSubjectId, "Change 1: Child");
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "change 1" });
+
+    // process change 1
+    let transformer = new IModelTransformer(sourceDb, targetDb);
+    await transformer.process();
+    targetDb.saveChanges();
+
+    const changes2ParentSubjectId = Subject.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "Change 2: Parent"
+    );
+    Subject.insert(sourceDb, changes2ParentSubjectId, "Change 2: Child");
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "change 2" });
+
+    transformer = new IModelTransformer(sourceDb, targetDb, {
+      argsForProcessChanges: {},
+    });
+    await expect(async () => transformer.process()).to.be.eventually.fulfilled;
+    targetDb.saveChanges();
+
+    const queryReader = targetDb.createQueryReader(
+      `SELECT COUNT(*) FROM ${Subject.classFullName}`
+    );
+    await queryReader.step();
+    const subjectCount = queryReader.current.toArray()[0];
+    expect(subjectCount).to.equal(5); // RootSubject + 4 created subjects
+  });
+
   describe("addCustomChanges", () => {
     let sourceDb: BriefcaseDb;
     let targetDb: BriefcaseDb;

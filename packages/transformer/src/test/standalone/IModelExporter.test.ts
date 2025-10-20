@@ -14,8 +14,9 @@ import {
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
+  Subject,
 } from "@itwin/core-backend";
-import { Id64 } from "@itwin/core-bentley";
+import { Id64, Id64Array } from "@itwin/core-bentley";
 import {
   Code,
   GeometryPartProps,
@@ -29,7 +30,10 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
 import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  HubWrappers,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
@@ -107,6 +111,51 @@ describe("IModelExporter", () => {
     assert(geomPartInTarget.geom?.[1]?.brep?.data !== undefined);
 
     sourceDb.close();
+  });
+
+  describe("exportChanges", () => {
+    class TestElementExporter extends IModelExportHandler {
+      public exportedElementIds: Id64Array = [];
+
+      public override onExportElement(elem: Element): void {
+        this.exportedElementIds.push(elem.id);
+      }
+    }
+
+    it.skip("should only export changed elements", async () => {
+      // Arrange
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken: "accessToken",
+        iTwinId: "iTwinId",
+        iModelId: "sourceIModelId",
+      });
+
+      const subject1Id = Subject.insert(
+        sourceDb,
+        IModel.rootSubjectId,
+        "Subject 1"
+      );
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ description: "Added Subject 1" });
+
+      const subject2Id = Subject.insert(
+        sourceDb,
+        IModel.rootSubjectId,
+        "Subject 2"
+      );
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({ description: "Added Subject 2" });
+
+      const exporter = new IModelExporter(sourceDb);
+      const handler = new TestElementExporter();
+      exporter.registerHandler(handler);
+
+      // Act
+      await exporter.exportChanges({ startChangeset: { index: 2 } });
+
+      // Assert
+      expect(handler.exportedElementIds).to.deep.equal([subject2Id]);
+    });
   });
 
   describe("exportRelationships", () => {
