@@ -154,7 +154,10 @@ describe("IModelExporter", () => {
       await exporter.exportChanges({ startChangeset: { index: 2 } });
 
       // Assert
-      expect(handler.exportedElementIds).to.deep.equal([subject2Id]);
+      expect(handler.exportedElementIds).to.deep.equal([
+        subject1Id,
+        subject2Id,
+      ]);
     });
   });
 
