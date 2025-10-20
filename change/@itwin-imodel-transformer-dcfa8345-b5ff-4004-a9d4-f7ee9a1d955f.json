@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Update exporter to only export changed elements and fix change processing issue when parent and child were not updated",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "25615181+mindaugasdirg@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
