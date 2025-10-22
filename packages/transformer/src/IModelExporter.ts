@@ -806,18 +806,6 @@ export class IModelExporter {
       return false;
     }
 
-    if (
-      this._sourceDbChanges &&
-      !this._sourceDbChanges.element.insertIds.has(element.id) &&
-      !this._sourceDbChanges.element.updateIds.has(element.id)
-    ) {
-      Logger.logInfo(
-        loggerCategory,
-        `Excluded element ${element.id} because it's up to date`
-      );
-      return false; // exporting changes and element was not changed
-    }
-
     if (element instanceof GeometricElement) {
       if (this._excludedElementCategoryIds.has(element.category)) {
         Logger.logInfo(

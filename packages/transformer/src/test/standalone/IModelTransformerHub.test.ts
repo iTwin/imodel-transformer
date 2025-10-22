@@ -4846,7 +4846,7 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it.skip("should successfully process changes when some parent and child elements have no changes", async () => {
+  it.skip("should successfully process changes when some parent and child elements have no changes in source and were deleted in target", async () => {
     const sourceIModelName: string =
       IModelTransformerTestUtils.generateUniqueName("Source");
     const targetIModelName: string =
@@ -4876,6 +4876,7 @@ describe("IModelTransformerHub", () => {
     await transformer.process();
     targetDb.saveChanges();
 
+    // Update source iModel
     const changes2ParentSubjectId = Subject.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -4885,6 +4886,16 @@ describe("IModelTransformerHub", () => {
     sourceDb.saveChanges();
     await sourceDb.pushChanges({ description: "change 2" });
 
+    // Update target iModel
+    const changes1ParentSubject = sourceDb.elements.getElement(
+      changes1ParentSubjectId
+    );
+    const targetChanges1ParentSubject = targetDb.elements.getElement(
+      changes1ParentSubject.federationGuid!
+    );
+    targetDb.elements.deleteElement([targetChanges1ParentSubject.id]);
+
+    // process change 2
     transformer = new IModelTransformer(sourceDb, targetDb, {
       argsForProcessChanges: {},
     });

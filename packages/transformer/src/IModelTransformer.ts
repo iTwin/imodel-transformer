@@ -1930,6 +1930,14 @@ export class IModelTransformer extends IModelExportHandler {
   public override async preExportElement(
     sourceElement: Element
   ): Promise<void> {
+    if (!this.hasElementChanged(sourceElement)) {
+      Logger.logTrace(
+        loggerCategory,
+        `Skipping unchanged element (${sourceElement.id}, ${sourceElement.getDisplayLabel()}).`
+      );
+      return;
+    }
+
     const elemClass = sourceElement.constructor as typeof Element;
 
     const unresolvedReferences = elemClass.requiredReferenceKeys
@@ -2009,7 +2017,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
   public override onExportElement(sourceElement: Element): void {
-    let targetElementId: Id64String;
+    let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;
     if (this._options.wasSourceIModelCopiedToTarget) {
       targetElementId = sourceElement.id;
@@ -2021,44 +2029,18 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     // if an existing remapping was not yet found, check by FederationGuid
-    if (
-      this.context.isBetweenIModels &&
-      !Id64.isValid(targetElementId) &&
-      sourceElement.federationGuid !== undefined
-    ) {
-      targetElementId =
-        this._queryElemIdByFedGuid(
-          this.targetDb,
-          sourceElement.federationGuid
-        ) ?? Id64.invalid;
-      if (Id64.isValid(targetElementId))
-        this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
+    if (!Id64.isValid(targetElementId)) {
+      targetElementId = this.tryRemapElementByFederationGuid(
+        sourceElement.id,
+        sourceElement.federationGuid
+      );
     }
 
-    // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-    if (
-      !Id64.isValidId64(targetElementId) &&
-      Id64.isValidId64(targetElementProps.code.scope)
-    ) {
-      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
-      // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
-      targetElementProps.code.value = targetElementProps.code.value ?? "";
-      const maybeTargetElementId = this.targetDb.elements.queryElementIdByCode(
-        targetElementProps.code as Required<CodeProps>
+    if (!Id64.isValid(targetElementId)) {
+      targetElementId = this.resolveCodeClashes(
+        sourceElement.id,
+        targetElementProps
       );
-      if (undefined !== maybeTargetElementId) {
-        const maybeTargetElem =
-          this.targetDb.elements.getElement(maybeTargetElementId);
-        if (
-          maybeTargetElem.classFullName === targetElementProps.classFullName
-        ) {
-          // ensure code remapping doesn't change the target class
-          targetElementId = maybeTargetElementId;
-          this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found by Code
-        } else {
-          targetElementProps.code = Code.createEmpty(); // clear out invalid code
-        }
-      }
     }
 
     if (!this.hasElementChanged(sourceElement)) {
@@ -2149,6 +2131,52 @@ export class IModelTransformer extends IModelExportHandler {
       }
       this.markLastProvenance(provenance, { isRelationship: false });
     }
+  }
+
+  private resolveCodeClashes(
+    sourceElementId: Id64String,
+    targetElementProps: ElementProps
+  ): Id64String {
+    // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
+    if (Id64.isValidId64(targetElementProps.code.scope)) {
+      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
+      // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
+      targetElementProps.code.value = targetElementProps.code.value ?? "";
+      const maybeTargetElementId = this.targetDb.elements.queryElementIdByCode(
+        targetElementProps.code as Required<CodeProps>
+      );
+      if (undefined !== maybeTargetElementId) {
+        const maybeTargetElem =
+          this.targetDb.elements.getElement(maybeTargetElementId);
+        if (
+          maybeTargetElem.classFullName === targetElementProps.classFullName
+        ) {
+          // ensure code remapping doesn't change the target class
+          const targetElementId = maybeTargetElementId;
+          this.context.remapElement(sourceElementId, targetElementId); // record that the targetElement was found by Code
+          return targetElementId;
+        } else {
+          targetElementProps.code = Code.createEmpty(); // clear out invalid code
+          return Id64.invalid;
+        }
+      }
+    }
+
+    return Id64.invalid;
+  }
+
+  private tryRemapElementByFederationGuid(
+    sourceElementId: Id64String,
+    federationGuid?: GuidString
+  ): Id64String {
+    if (!this.context.isBetweenIModels || federationGuid === undefined) {
+      return Id64.invalid;
+    }
+    const targetElementId =
+      this._queryElemIdByFedGuid(this.targetDb, federationGuid) ?? Id64.invalid;
+    if (Id64.isValid(targetElementId))
+      this.context.remapElement(sourceElementId, targetElementId); // record that the targetElement was found
+    return targetElementId;
   }
 
   /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.

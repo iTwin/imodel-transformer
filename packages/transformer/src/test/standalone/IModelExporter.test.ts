@@ -151,13 +151,13 @@ describe("IModelExporter", () => {
       exporter.registerHandler(handler);
 
       // Act
-      await exporter.exportChanges({ startChangeset: { index: 2 } });
+      await exporter.exportChanges({ startChangeset: { index: 3 } });
 
       // Assert
-      expect(handler.exportedElementIds).to.deep.equal([
-        subject1Id,
-        subject2Id,
-      ]);
+      expect(handler.exportedElementIds.length).to.be.equal(1);
+      expect(handler.exportedElementIds).to.contain(subject2Id);
+
+      sourceDb.close();
     });
   });
 
