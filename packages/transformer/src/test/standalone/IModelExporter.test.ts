@@ -130,11 +130,7 @@ describe("IModelExporter", () => {
         iModelId: "sourceIModelId",
       });
 
-      const subject1Id = Subject.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "Subject 1"
-      );
+      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject 1");
       sourceDb.saveChanges();
       await sourceDb.pushChanges({ description: "Added Subject 1" });
 
