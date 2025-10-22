@@ -745,9 +745,11 @@ export class IModelImporter {
         typeof this.options.autoExtendProjectExtents === "object"
           ? this.options.autoExtendProjectExtents.excludeOutliers
           : false;
+      // If excludeOutliers is true, use the extents without outliers. If extentsWithOutliers is undefined, fall back to extents.
       const newProjectExtents: AxisAlignedBox3d = excludeOutliers
         ? computedProjectExtents.extents
-        : computedProjectExtents.extentsWithOutliers!;
+        : (computedProjectExtents.extentsWithOutliers ??
+          computedProjectExtents.extents);
       if (!newProjectExtents.isAlmostEqual(this.targetDb.projectExtents)) {
         this.targetDb.updateProjectExtents(newProjectExtents);
         Logger.logInfo(
