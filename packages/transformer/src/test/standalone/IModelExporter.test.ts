@@ -9,15 +9,13 @@ import {
   ElementRefersToElements,
   GeometryPart,
   GraphicalElement3dRepresentsElement,
-  HubMock,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
-  Subject,
 } from "@itwin/core-backend";
-import { Id64, Id64Array } from "@itwin/core-bentley";
+import { Id64 } from "@itwin/core-bentley";
 import {
   Code,
   GeometryPartProps,
@@ -31,13 +29,9 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
 import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
-import {
-  HubWrappers,
-  IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import * as TestUtils from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
