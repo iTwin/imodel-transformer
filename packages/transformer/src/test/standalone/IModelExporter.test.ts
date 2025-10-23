@@ -115,61 +115,6 @@ describe("IModelExporter", () => {
     sourceDb.close();
   });
 
-  describe("exportChanges", () => {
-    class TestElementExporter extends IModelExportHandler {
-      public exportedElementIds: Id64Array = [];
-
-      public override onExportElement(elem: Element): void {
-        this.exportedElementIds.push(elem.id);
-      }
-    }
-
-    it.skip("should only export changed elements", async () => {
-      // Arrange
-      HubMock.startup("IModelTransformerHub", KnownTestLocations.outputDir);
-      const accessToken = await HubWrappers.getAccessToken(
-        TestUtils.TestUserType.Regular
-      );
-      const iTwinId = HubMock.iTwinId;
-      const sourceIModelId = await HubWrappers.recreateIModel({
-        accessToken,
-        iTwinId,
-        iModelName: "sourceIModel",
-        noLocks: true,
-      });
-      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
-        accessToken,
-        iTwinId,
-        iModelId: sourceIModelId,
-      });
-
-      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject 1");
-      sourceDb.saveChanges();
-      await sourceDb.pushChanges({ description: "Added Subject 1" });
-
-      const subject2Id = Subject.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "Subject 2"
-      );
-      sourceDb.saveChanges();
-      await sourceDb.pushChanges({ description: "Added Subject 2" });
-
-      const exporter = new IModelExporter(sourceDb);
-      const handler = new TestElementExporter();
-      exporter.registerHandler(handler);
-
-      // Act
-      await exporter.exportChanges({ startChangeset: { index: 3 } });
-
-      // Assert
-      expect(handler.exportedElementIds.length).to.be.equal(1);
-      expect(handler.exportedElementIds).to.contain(subject2Id);
-
-      sourceDb.close();
-    });
-  });
-
   describe("exportRelationships", () => {
     it("should not export invalid relationships", async () => {
       const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
