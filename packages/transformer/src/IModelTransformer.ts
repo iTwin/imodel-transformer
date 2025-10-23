@@ -2421,6 +2421,8 @@ export class IModelTransformer extends IModelExportHandler {
         "updateSynchronizationVersion was called without change history"
       );
 
+      // Store in a local variable, so typescript knows it's defined (due to the assert above)
+      const startingChangesetIndices = this._startingChangesetIndices;
       const jsonProps = this._targetScopeProvenanceProps.jsonProperties;
 
       Logger.logTrace(
@@ -2454,7 +2456,7 @@ export class IModelTransformer extends IModelExportHandler {
       // just marked this changeset as a synchronization to ignore, and the user can add other
       // stuff to it which would break future synchronizations
       for (
-        let i = this._startingChangesetIndices.target + 1;
+        let i = startingChangesetIndices.target + 1;
         i <= this.targetDb.changeset.index + 1;
         i++
       )
@@ -2463,7 +2465,7 @@ export class IModelTransformer extends IModelExportHandler {
       jsonProps[syncChangesetsToClearKey] = jsonProps[
         syncChangesetsToClearKey
       ].filter((csIndex) => {
-        return csIndex > this._startingChangesetIndices!.source;
+        return csIndex > startingChangesetIndices.source;
       });
 
       // if reverse sync then we may have received provenance changes which should be marked as sync changes
@@ -2473,7 +2475,7 @@ export class IModelTransformer extends IModelExportHandler {
           "changeset didn't exist"
         );
         for (
-          let i = this._startingChangesetIndices.source + 1;
+          let i = startingChangesetIndices.source + 1;
           i <= this.sourceDb.changeset.index + 1;
           i++
         )
@@ -3212,7 +3214,7 @@ export class IModelTransformer extends IModelExportHandler {
         targetIdOfRelationshipInSource
       );
       if (sourceIdOfRelationshipInTarget && targetIdOfRelationshipInTarget) {
-        this._deletedSourceRelationshipData!.set(changedInstanceId, {
+        this._deletedSourceRelationshipData?.set(changedInstanceId, {
           classFullName: classFullName ?? "",
           sourceIdInTarget: sourceIdOfRelationshipInTarget,
           targetIdInTarget: targetIdOfRelationshipInTarget,
@@ -3227,7 +3229,7 @@ export class IModelTransformer extends IModelExportHandler {
           }
         );
         if (relProvenance && relProvenance.relationshipId)
-          this._deletedSourceRelationshipData!.set(changedInstanceId, {
+          this._deletedSourceRelationshipData?.set(changedInstanceId, {
             classFullName: classFullName ?? "",
             relId: relProvenance.relationshipId,
             provenanceAspectId: relProvenance.aspectId,
@@ -3654,7 +3656,7 @@ export class TemplateModelCloner extends IModelTransformer {
         (targetElementProps as GeometricElementProps).placement = placement;
       }
     }
-    this._sourceIdToTargetIdMap!.set(sourceElement.id, Id64.invalid); // keep track of (source) elementIds from the template model, but the target hasn't been inserted yet
+    this._sourceIdToTargetIdMap?.set(sourceElement.id, Id64.invalid); // keep track of (source) elementIds from the template model, but the target hasn't been inserted yet
     return targetElementProps;
   }
 }
