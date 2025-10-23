@@ -9,6 +9,7 @@ import {
   ElementRefersToElements,
   GeometryPart,
   GraphicalElement3dRepresentsElement,
+  HubMock,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
@@ -36,6 +37,7 @@ import {
 } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+import * as TestUtils from "../TestUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
@@ -124,10 +126,21 @@ describe("IModelExporter", () => {
 
     it.skip("should only export changed elements", async () => {
       // Arrange
+      HubMock.startup("IModelTransformerHub", KnownTestLocations.outputDir);
+      const accessToken = await HubWrappers.getAccessToken(
+        TestUtils.TestUserType.Regular
+      );
+      const iTwinId = HubMock.iTwinId;
+      const sourceIModelId = await HubWrappers.recreateIModel({
+        accessToken,
+        iTwinId,
+        iModelName: "sourceIModel",
+        noLocks: true,
+      });
       const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
-        accessToken: "accessToken",
-        iTwinId: "iTwinId",
-        iModelId: "sourceIModelId",
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
       });
 
       Subject.insert(sourceDb, IModel.rootSubjectId, "Subject 1");

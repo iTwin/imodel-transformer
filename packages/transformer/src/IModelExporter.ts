@@ -805,7 +805,6 @@ export class IModelExporter {
       Logger.logInfo(loggerCategory, `Excluded element ${element.id} by Id`);
       return false;
     }
-
     if (element instanceof GeometricElement) {
       if (this._excludedElementCategoryIds.has(element.category)) {
         Logger.logInfo(

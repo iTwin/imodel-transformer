@@ -4846,20 +4846,32 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
-  it.skip("should successfully process changes when some parent and child elements have no changes in source and were deleted in target", async () => {
+  it("should successfully process changes when some parent and child elements have no changes in source and were deleted in target", async () => {
     const sourceIModelName: string =
       IModelTransformerTestUtils.generateUniqueName("Source");
     const targetIModelName: string =
       IModelTransformerTestUtils.generateUniqueName("Target");
+    const sourceIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: sourceIModelName,
+      noLocks: true,
+    });
+    const targetIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: targetIModelName,
+      noLocks: true,
+    });
     const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
       accessToken,
       iTwinId,
-      iModelId: sourceIModelName,
+      iModelId: sourceIModelId,
     });
     const targetDb = await HubWrappers.downloadAndOpenBriefcase({
       accessToken,
       iTwinId,
-      iModelId: targetIModelName,
+      iModelId: targetIModelId,
     });
 
     const changes1ParentSubjectId = Subject.insert(
@@ -4899,7 +4911,7 @@ describe("IModelTransformerHub", () => {
     transformer = new IModelTransformer(sourceDb, targetDb, {
       argsForProcessChanges: {},
     });
-    await expect(async () => transformer.process()).to.be.eventually.fulfilled;
+    await expect(transformer.process()).to.be.eventually.fulfilled;
     targetDb.saveChanges();
 
     const queryReader = targetDb.createQueryReader(
