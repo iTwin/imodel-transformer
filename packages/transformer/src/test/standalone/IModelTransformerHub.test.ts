@@ -4882,9 +4882,23 @@ describe("IModelTransformerHub", () => {
     Subject.insert(sourceDb, changes1ParentSubjectId, "Change 1: Child");
     sourceDb.saveChanges();
     await sourceDb.pushChanges({ description: "change 1" });
+    const targetChanges1ParentSubjectId = Subject.insert(
+      targetDb,
+      IModel.rootSubjectId,
+      "Change 1: Parent"
+    );
+    const targetChanges1ChildSubjectId = Subject.insert(
+      targetDb,
+      targetChanges1ParentSubjectId,
+      "Change 1: Child"
+    );
+    targetDb.saveChanges();
 
     // process change 1
-    let transformer = new IModelTransformer(sourceDb, targetDb);
+    let transformer = new IModelTransformer(sourceDb, targetDb, {
+      argsForProcessChanges: {},
+      wasSourceIModelCopiedToTarget: true,
+    });
     await transformer.process();
     targetDb.saveChanges();
 
@@ -4899,13 +4913,11 @@ describe("IModelTransformerHub", () => {
     await sourceDb.pushChanges({ description: "change 2" });
 
     // Update target iModel
-    const changes1ParentSubject = sourceDb.elements.getElement(
-      changes1ParentSubjectId
-    );
-    const targetChanges1ParentSubject = targetDb.elements.getElement(
-      changes1ParentSubject.federationGuid!
-    );
-    targetDb.elements.deleteElement([targetChanges1ParentSubject.id]);
+    targetDb.elements.deleteElement([
+      targetChanges1ChildSubjectId,
+      targetChanges1ParentSubjectId,
+    ]);
+    targetDb.saveChanges();
 
     // process change 2
     transformer = new IModelTransformer(sourceDb, targetDb, {
@@ -4919,7 +4931,7 @@ describe("IModelTransformerHub", () => {
     );
     await queryReader.step();
     const subjectCount = queryReader.current.toArray()[0];
-    expect(subjectCount).to.equal(5); // RootSubject + 4 created subjects
+    expect(subjectCount).to.equal(3); // RootSubject + 2 created subjects
   });
 
   describe("addCustomChanges", () => {
