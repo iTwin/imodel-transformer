@@ -94,6 +94,8 @@ import {
   ModelProps,
   Placement2d,
   Placement3d,
+  PrimitiveTypeCode,
+  PropertyMetaData,
   QueryBinder,
   RelatedElement,
   SourceAndTarget,
@@ -111,7 +113,6 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
-import { PrimitiveType } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -728,7 +729,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
-    this.context[Symbol.dispose]();
+    this.context.dispose();
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
@@ -2716,18 +2717,19 @@ export class IModelTransformer extends IModelExportHandler {
       sourceRelationship.targetId
     );
     // TODO: move to cloneRelationship in IModelCloneContext
-    sourceRelationship.forEach((propertyName, property) => {
-      if (
-        property.isPrimitive() &&
-        property.primitiveType === PrimitiveType.Long &&
-        property.extendedTypeName === "Id"
-      ) {
-        (targetRelationshipProps as any)[propertyName] =
-          this.context.findTargetElementId(
-            sourceRelationship.asAny[propertyName]
-          );
+    sourceRelationship.forEachProperty(
+      (propertyName: string, propertyMetaData: PropertyMetaData) => {
+        if (
+          PrimitiveTypeCode.Long === propertyMetaData.primitiveType &&
+          "Id" === propertyMetaData.extendedType
+        ) {
+          (targetRelationshipProps as any)[propertyName] =
+            this.context.findTargetElementId(
+              sourceRelationship.asAny[propertyName]
+            );
+        }
       }
-    });
+    );
     return targetRelationshipProps;
   }
 
