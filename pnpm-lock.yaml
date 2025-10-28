@@ -34,7 +34,7 @@ importers:
         version: 5.2.0(@types/node@22.18.7)
       '@itwin/core-backend':
         specifier: ^5.2.0
-        version: 5.2.0(@itwin/core-bentley@5.2.3)(@itwin/core-common@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3))(@itwin/core-geometry@5.2.3)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3)))
+        version: 5.2.0(@itwin/core-bentley@5.2.4)(@itwin/core-common@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4))(@itwin/core-geometry@5.2.4)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4)))
       '@types/node':
         specifier: ^22
         version: 22.18.7
@@ -152,7 +152,7 @@ importers:
     dependencies:
       '@itwin/core-backend':
         specifier: ^5.2.0
-        version: 5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0)))
+        version: 5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0)))
       '@itwin/core-bentley':
         specifier: ^5.2.0
         version: 5.2.0
@@ -167,7 +167,7 @@ importers:
         version: link:../transformer
       '@itwin/imodels-access-backend':
         specifier: ^6.0.2
-        version: 6.0.2(@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0))))(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))
+        version: 6.0.2(@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0))))(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))
       '@itwin/imodels-access-common':
         specifier: ^6.0.2
         version: 6.0.2(@itwin/core-bentley@5.2.0)(@itwin/imodels-client-management@6.0.2)
@@ -252,29 +252,29 @@ importers:
         version: 7.7.2
     devDependencies:
       '@itwin/build-tools':
-        specifier: ^5.2.3
-        version: 5.2.3(@types/node@22.18.8)
+        specifier: ^5.2.4
+        version: 5.2.4(@types/node@22.18.8)
       '@itwin/core-backend':
-        specifier: ^5.2.3
-        version: 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-common@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3))(@itwin/core-geometry@5.2.3)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3)))
+        specifier: ^5.2.4
+        version: 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-common@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4))(@itwin/core-geometry@5.2.4)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4)))
       '@itwin/core-bentley':
-        specifier: ^5.2.3
-        version: 5.2.3
+        specifier: ^5.2.4
+        version: 5.2.4
       '@itwin/core-common':
-        specifier: ^5.2.3
-        version: 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3)
+        specifier: ^5.2.4
+        version: 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4)
       '@itwin/core-geometry':
-        specifier: ^5.2.3
-        version: 5.2.3
+        specifier: ^5.2.4
+        version: 5.2.4
       '@itwin/core-quantity':
-        specifier: ^5.2.3
-        version: 5.2.3(@itwin/core-bentley@5.2.3)
+        specifier: ^5.2.4
+        version: 5.2.4(@itwin/core-bentley@5.2.4)
       '@itwin/ecschema-locaters':
-        specifier: ^5.2.3
-        version: 5.2.3(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3)))
+        specifier: ^5.2.4
+        version: 5.2.4(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4)))
       '@itwin/ecschema-metadata':
-        specifier: ^5.2.3
-        version: 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3))
+        specifier: ^5.2.4
+        version: 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4))
       '@itwin/eslint-plugin':
         specifier: ^5.2.1
         version: 5.2.1(eslint@9.36.0)(typescript@5.9.3)
@@ -629,8 +629,8 @@ packages:
     resolution: {integrity: sha512-fzXaQ43f7ikytqoYKf4P53T6c3mat2Mz0jG9prYUAYepkrXbbQDAakAhyH5xnk65icpXnIHo7UadirlO6/gyNQ==}
     hasBin: true
 
-  '@itwin/build-tools@5.2.3':
-    resolution: {integrity: sha512-D4OHlylZDEdNIi3lmQo1M/UDhSclZZAN4j0qK6C/Qfr2iehQOApmwPPsH+Q3IMdVVk73RPcY2m20o7UdJcYM8g==}
+  '@itwin/build-tools@5.2.4':
+    resolution: {integrity: sha512-dv9dhtdmHFNSyTNV0iNwpGYE9s1no2WZKIIO1kipyUJNwYn4F6IrDlmgvkSfuFnHORJhz21GeP6gtdSYXs1rAg==}
     hasBin: true
 
   '@itwin/certa@5.2.0-dev.37':
@@ -688,14 +688,14 @@ packages:
       '@opentelemetry/api':
         optional: true
 
-  '@itwin/core-backend@5.2.3':
-    resolution: {integrity: sha512-1+XXRky3nDPEU38xCP9zhEUJ6Pg9eCb5otthot/O6B6bze6sP3am1ZS3wHY6PkdXjqyiG3dnUCPAjv93UlMqGQ==}
+  '@itwin/core-backend@5.2.4':
+    resolution: {integrity: sha512-7NjKXW/5/BT0yXEKxwM3a8hC+2mlqYa8I/mi3v4SmM++ApMfqEycbwuLuBW+nBmH6F6C+frMkipnBjC3/05w8g==}
     engines: {node: ^20.0.0 || ^22.0.0}
     peerDependencies:
-      '@itwin/core-bentley': 5.2.3
-      '@itwin/core-common': 5.2.3
-      '@itwin/core-geometry': 5.2.3
-      '@itwin/ecschema-metadata': 5.2.3
+      '@itwin/core-bentley': 5.2.4
+      '@itwin/core-common': 5.2.4
+      '@itwin/core-geometry': 5.2.4
+      '@itwin/ecschema-metadata': 5.2.4
       '@opentelemetry/api': ^1.0.4
     peerDependenciesMeta:
       '@opentelemetry/api':
@@ -704,8 +704,8 @@ packages:
   '@itwin/core-bentley@5.2.0':
     resolution: {integrity: sha512-n6ZHc7I2WGDB9iHwht0Fo8yasO5sgQcvS1QXRNevolw5sxgbuk/8G+1s58UejJya/svVd/BciW71dVQTvrwZSA==}
 
-  '@itwin/core-bentley@5.2.3':
-    resolution: {integrity: sha512-XExcf0s0WDF4WWkXXcw4Yw5nMYaJ0PUl+eNjjHXZI7VXs+kZhPsOPXO06+d1Wzl5fFKgiaix//vG2fdwOMeYwQ==}
+  '@itwin/core-bentley@5.2.4':
+    resolution: {integrity: sha512-Ogl1JGsOtZ0vYOl5LowPr+P17HArZvAkH4Xm3AvNMW27O4DwMHxKxsf/9VYoQhWbQqpI6Ewks8rEJ7yC6ZG+SA==}
 
   '@itwin/core-common@5.2.0':
     resolution: {integrity: sha512-nBubhL0ujTpIoQcNzeQdn1LPDSTAGKnWLxEeH1MwcX3vFWe29P31rN9mPEJNxdV5eZdAY8lhumQTl3W+9NI+gA==}
@@ -713,32 +713,32 @@ packages:
       '@itwin/core-bentley': 5.2.0
       '@itwin/core-geometry': 5.2.0
 
-  '@itwin/core-common@5.2.3':
-    resolution: {integrity: sha512-HGrkinsbqQ6lVlZa9JWeqIuCzv+S2wRCrOkOZ1VB16VaCdN2HmyV+PNnw3rLg6gGhPjCE664Nbrl1xWfQkRNNw==}
+  '@itwin/core-common@5.2.4':
+    resolution: {integrity: sha512-s269Q/rZLkpVs/AR9wX7uMJfWR8huh17mKwn7wM+3GrHFZUJDCj92c71X6Nb+6JkDWcMGFiwrJuVxrw48YgpOQ==}
     peerDependencies:
-      '@itwin/core-bentley': 5.2.3
-      '@itwin/core-geometry': 5.2.3
+      '@itwin/core-bentley': 5.2.4
+      '@itwin/core-geometry': 5.2.4
 
   '@itwin/core-geometry@5.2.0':
     resolution: {integrity: sha512-hb4TU7weF5fdwk/qwGqH4ylZilWq7qxKBvbMu67apxynhsbeVf25jceq6r1TG36CQ42F5sGt9B2i9qYfbtBthA==}
 
-  '@itwin/core-geometry@5.2.3':
-    resolution: {integrity: sha512-SFjDJIotQjUL2xLuf92MvzDmTx8qREN7lhin27X1RG0KVewXeI0wBvURx9mrvZ8o7OiGMw1a6OFCWodhDHtSmQ==}
+  '@itwin/core-geometry@5.2.4':
+    resolution: {integrity: sha512-4/9xu0PvBJY4kqi0deillwVYoj7J29OtmsNGV5TMY197JZ7OxkToJNdDmn7BAzp+Fwr4Dtgrjdz2xKD3N8J+Sw==}
 
   '@itwin/core-quantity@5.2.0':
     resolution: {integrity: sha512-/503qsEWPIwaQW0QY4TnwlD4DOpk3Nb96zt7PsSmLpS7ifJTornIDpI1wlpCEMUFpjiuVgaN4tc91TqqRGAypQ==}
     peerDependencies:
       '@itwin/core-bentley': 5.2.0
 
-  '@itwin/core-quantity@5.2.3':
-    resolution: {integrity: sha512-jGU1FzyCYklwU/+XdJaXOFxe0CX+hx48WfziOaE5TagpEuukj04pTlJw1XPFLdra8JrvVJlaFnEzbTFCHWPIVA==}
+  '@itwin/core-quantity@5.2.4':
+    resolution: {integrity: sha512-KbIq0HehPRYd7Ey2erfFyC2WFrM6bHu+UfeM7nV41ApnZDbx1vLR/c2GAeqHgQ7dYsTliEqnxIsLhfT4eBzZuQ==}
     peerDependencies:
-      '@itwin/core-bentley': 5.2.3
+      '@itwin/core-bentley': 5.2.4
 
-  '@itwin/ecschema-locaters@5.2.3':
-    resolution: {integrity: sha512-RLMn892ZFlBQz7GKdusa+SuhYzABLbRm61lihz1MQAzcvvv5OGMcaDj8X9XxU18O3ru/5EbOGGdh91Rn14tI7Q==}
+  '@itwin/ecschema-locaters@5.2.4':
+    resolution: {integrity: sha512-sS3q2G7u0jRqIewXHZPS5Hvyk60rLur/JtyZiEBpJlC7Rw8O4ZvqRo8eBWYRYuuwNuyV7MBOYfluabz4WETXeg==}
     peerDependencies:
-      '@itwin/ecschema-metadata': 5.2.3
+      '@itwin/ecschema-metadata': 5.2.4
 
   '@itwin/ecschema-metadata@5.2.0':
     resolution: {integrity: sha512-KmV4qlA9NMbtrqULsUVS1GwxDo9XVXwLjaP4xSn9F6gtZqArudGla6fbAAj46G4at40R8rspTFhz7PzE2VYpzA==}
@@ -746,11 +746,11 @@ packages:
       '@itwin/core-bentley': 5.2.0
       '@itwin/core-quantity': 5.2.0
 
-  '@itwin/ecschema-metadata@5.2.3':
-    resolution: {integrity: sha512-Eq3NPpTgfvpgJBy+j0YK5BsbiCPh/YamUdCtZFxuYaDwkpNy0ypoDTSjfdr5cauS8Pw7xLm2cIr4ggQJtr2ELA==}
+  '@itwin/ecschema-metadata@5.2.4':
+    resolution: {integrity: sha512-3KGqnNDWo7r8Cjppvgg8zQrtcERfc4eIAovxMUFjXJxNjzPE6ZPiU2/U4xhsh4BmdYfyoUcElOGOAif0LlMWXw==}
     peerDependencies:
-      '@itwin/core-bentley': 5.2.3
-      '@itwin/core-quantity': 5.2.3
+      '@itwin/core-bentley': 5.2.4
+      '@itwin/core-quantity': 5.2.4
 
   '@itwin/eslint-plugin@5.2.1':
     resolution: {integrity: sha512-iFmxAXzBYUm/yHiyp37V8Qn2oZ9iqwB1HxWX1AAhewk77JUIhO1KLY2hrBNisHx49giy7hZmIOBEaXc357z+Uw==}
@@ -4998,7 +4998,7 @@ snapshots:
       - '@types/node'
       - supports-color
 
-  '@itwin/build-tools@5.2.3(@types/node@22.18.8)':
+  '@itwin/build-tools@5.2.4(@types/node@22.18.8)':
     dependencies:
       '@microsoft/api-extractor': 7.52.15(@types/node@22.18.8)
       chalk: 3.0.0
@@ -5068,14 +5068,14 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0)))':
+  '@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0)))':
     dependencies:
       '@bentley/imodeljs-native': 5.2.20
       '@itwin/cloud-agnostic-core': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
       '@itwin/core-bentley': 5.2.0
       '@itwin/core-common': 5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0)
       '@itwin/core-geometry': 5.2.0
-      '@itwin/ecschema-metadata': 5.2.3(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0))
+      '@itwin/ecschema-metadata': 5.2.4(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0))
       '@itwin/object-storage-azure': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
       '@itwin/object-storage-core': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
       form-data: 4.0.4
@@ -5094,14 +5094,14 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.3)(@itwin/core-common@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3))(@itwin/core-geometry@5.2.3)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3)))':
+  '@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.4)(@itwin/core-common@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4))(@itwin/core-geometry@5.2.4)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4)))':
     dependencies:
       '@bentley/imodeljs-native': 5.2.20
       '@itwin/cloud-agnostic-core': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
-      '@itwin/core-bentley': 5.2.3
-      '@itwin/core-common': 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3)
-      '@itwin/core-geometry': 5.2.3
-      '@itwin/ecschema-metadata': 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3))
+      '@itwin/core-bentley': 5.2.4
+      '@itwin/core-common': 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4)
+      '@itwin/core-geometry': 5.2.4
+      '@itwin/ecschema-metadata': 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4))
       '@itwin/object-storage-azure': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
       '@itwin/object-storage-core': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
       form-data: 4.0.4
@@ -5120,14 +5120,14 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@itwin/core-backend@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-common@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3))(@itwin/core-geometry@5.2.3)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3)))':
+  '@itwin/core-backend@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-common@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4))(@itwin/core-geometry@5.2.4)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4)))':
     dependencies:
       '@bentley/imodeljs-native': 5.2.27
       '@itwin/cloud-agnostic-core': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
-      '@itwin/core-bentley': 5.2.3
-      '@itwin/core-common': 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3)
-      '@itwin/core-geometry': 5.2.3
-      '@itwin/ecschema-metadata': 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3))
+      '@itwin/core-bentley': 5.2.4
+      '@itwin/core-common': 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4)
+      '@itwin/core-geometry': 5.2.4
+      '@itwin/ecschema-metadata': 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4))
       '@itwin/object-storage-azure': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
       '@itwin/object-storage-core': 2.3.0(inversify@6.0.3)(reflect-metadata@0.1.14)
       form-data: 4.0.4
@@ -5148,7 +5148,7 @@ snapshots:
 
   '@itwin/core-bentley@5.2.0': {}
 
-  '@itwin/core-bentley@5.2.3': {}
+  '@itwin/core-bentley@5.2.4': {}
 
   '@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0)':
     dependencies:
@@ -5157,10 +5157,10 @@ snapshots:
       flatbuffers: 1.12.0
       js-base64: 3.7.8
 
-  '@itwin/core-common@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-geometry@5.2.3)':
+  '@itwin/core-common@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-geometry@5.2.4)':
     dependencies:
-      '@itwin/core-bentley': 5.2.3
-      '@itwin/core-geometry': 5.2.3
+      '@itwin/core-bentley': 5.2.4
+      '@itwin/core-geometry': 5.2.4
       flatbuffers: 1.12.0
       js-base64: 3.7.8
 
@@ -5169,26 +5169,26 @@ snapshots:
       '@itwin/core-bentley': 5.2.0
       flatbuffers: 1.12.0
 
-  '@itwin/core-geometry@5.2.3':
+  '@itwin/core-geometry@5.2.4':
     dependencies:
-      '@itwin/core-bentley': 5.2.3
+      '@itwin/core-bentley': 5.2.4
       flatbuffers: 1.12.0
 
   '@itwin/core-quantity@5.2.0(@itwin/core-bentley@5.2.0)':
     dependencies:
       '@itwin/core-bentley': 5.2.0
 
-  '@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0)':
+  '@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0)':
     dependencies:
       '@itwin/core-bentley': 5.2.0
 
-  '@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3)':
+  '@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4)':
     dependencies:
-      '@itwin/core-bentley': 5.2.3
+      '@itwin/core-bentley': 5.2.4
 
-  '@itwin/ecschema-locaters@5.2.3(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3)))':
+  '@itwin/ecschema-locaters@5.2.4(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4)))':
     dependencies:
-      '@itwin/ecschema-metadata': 5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3))
+      '@itwin/ecschema-metadata': 5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4))
       '@xmldom/xmldom': 0.8.11
       fs-extra: 8.1.0
       glob: 10.4.5
@@ -5198,15 +5198,15 @@ snapshots:
       '@itwin/core-bentley': 5.2.0
       '@itwin/core-quantity': 5.2.0(@itwin/core-bentley@5.2.0)
 
-  '@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0))':
+  '@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0))':
     dependencies:
       '@itwin/core-bentley': 5.2.0
-      '@itwin/core-quantity': 5.2.3(@itwin/core-bentley@5.2.0)
+      '@itwin/core-quantity': 5.2.4(@itwin/core-bentley@5.2.0)
 
-  '@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.3)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.3))':
+  '@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.4)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.4))':
     dependencies:
-      '@itwin/core-bentley': 5.2.3
-      '@itwin/core-quantity': 5.2.3(@itwin/core-bentley@5.2.3)
+      '@itwin/core-bentley': 5.2.4
+      '@itwin/core-quantity': 5.2.4(@itwin/core-bentley@5.2.4)
 
   '@itwin/eslint-plugin@5.2.1(eslint@9.26.0)(typescript@5.6.3)':
     dependencies:
@@ -5267,9 +5267,9 @@ snapshots:
       - reflect-metadata
       - supports-color
 
-  '@itwin/imodels-access-backend@6.0.2(@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0))))(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))':
+  '@itwin/imodels-access-backend@6.0.2(@itwin/core-backend@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0))))(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))':
     dependencies:
-      '@itwin/core-backend': 5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.3(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.3(@itwin/core-bentley@5.2.0)))
+      '@itwin/core-backend': 5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-common@5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0))(@itwin/core-geometry@5.2.0)(@itwin/ecschema-metadata@5.2.4(@itwin/core-bentley@5.2.0)(@itwin/core-quantity@5.2.4(@itwin/core-bentley@5.2.0)))
       '@itwin/core-bentley': 5.2.0
       '@itwin/core-common': 5.2.0(@itwin/core-bentley@5.2.0)(@itwin/core-geometry@5.2.0)
       '@itwin/imodels-access-common': 6.0.2(@itwin/core-bentley@5.2.0)(@itwin/imodels-client-management@6.0.2)
