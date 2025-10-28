@@ -1911,6 +1911,14 @@ export class IModelTransformer extends IModelExportHandler {
   public override async preExportElement(
     sourceElement: Element
   ): Promise<void> {
+    if (!this.hasElementChanged(sourceElement)) {
+      Logger.logTrace(
+        loggerCategory,
+        `Skipping unchanged element (${sourceElement.id}, ${sourceElement.getDisplayLabel()}).`
+      );
+      return;
+    }
+
     const elemClass = sourceElement.constructor as typeof Element;
 
     const unresolvedReferences = elemClass.requiredReferenceKeys
@@ -1990,7 +1998,7 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
   public override onExportElement(sourceElement: Element): void {
-    let targetElementId: Id64String;
+    let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;
     if (this._options.wasSourceIModelCopiedToTarget) {
       targetElementId = sourceElement.id;
