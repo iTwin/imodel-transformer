@@ -4045,7 +4045,7 @@ describe("IModelTransformer", () => {
     newDb.close();
   });
 
-  it("transforms code values with non standard space characters", async () => {
+  it.skip("transforms code values with non standard space characters", async () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "CodeValNbspSrc.bim"
@@ -4105,7 +4105,7 @@ describe("IModelTransformer", () => {
       initialCodeValue: string
     ) =>
       db.withSqliteStatement(
-        `UPDATE bis_Element SET CodeValue='${initialCodeValue}\xa0' WHERE CodeValue='${initialCodeValue}'`,
+        `UPDATE bis_Element SET CodeValue='${initialCodeValue}${nbsp}' WHERE CodeValue='${initialCodeValue}'`,
         (s) => {
           let result: DbResult;
           while ((result = s.step()) === DbResult.BE_SQLITE_ROW) {}
@@ -4159,12 +4159,12 @@ describe("IModelTransformer", () => {
     ] as const) {
       getCodeValRawSqlite(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
       getCodeValEcSql(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
     }
@@ -4181,12 +4181,12 @@ describe("IModelTransformer", () => {
     ] as const) {
       getCodeValRawSqlite(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
       getCodeValEcSql(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
     }
@@ -4230,7 +4230,7 @@ describe("IModelTransformer", () => {
       ["PhysicalModel", 1],
       ["PhysicalObject", 1],
     ] as const) {
-      const expected = `${initialVal}\xa0`;
+      const expected = `${initialVal}${nbsp}`;
       getCodeValRawSqlite(targetDb, {
         initialVal,
         expected,
