@@ -16,6 +16,8 @@ import {
   EntityReference,
   IModel,
   IModelError,
+  PrimitiveTypeCode,
+  PropertyMetaData,
   RelatedElement,
   RelatedElementProps,
 } from "@itwin/core-common";
@@ -30,7 +32,6 @@ import {
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { PrimitiveType, type Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -57,14 +58,17 @@ export class IModelCloneContext extends IModelElementCloneContext {
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
-    sourceElement.forEach((propertyName: string, property: Property) => {
-      if (
-        property.isNavigation() &&
-        undefined === (sourceElement as any)[propertyName]
-      ) {
-        (targetElementProps as any)[propertyName] = RelatedElement.none;
-      }
-    }, false); // exclude custom because C++ has already handled them
+    sourceElement.forEachProperty(
+      (propertyName: string, meta: PropertyMetaData) => {
+        if (
+          meta.isNavigation &&
+          undefined === (sourceElement as any)[propertyName]
+        ) {
+          (targetElementProps as any)[propertyName] = RelatedElement.none;
+        }
+      },
+      false
+    ); // exclude custom because C++ has already handled them
     if (this.isBetweenIModels) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is between iModels
       targetElementProps.federationGuid = sourceElement.federationGuid;
@@ -258,8 +262,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
     const targetElementAspectProps: ElementAspectProps =
       sourceElementAspect.toJSON();
     targetElementAspectProps.id = undefined;
-    sourceElementAspect.forEach((propertyName, property) => {
-      if (property.isNavigation()) {
+    sourceElementAspect.forEachProperty((propertyName, propertyMetaData) => {
+      if (propertyMetaData.isNavigation) {
         const sourceNavProp: RelatedElementProps | undefined =
           sourceElementAspect.asAny[propertyName];
         if (sourceNavProp?.id) {
@@ -283,9 +287,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
           };
         }
       } else if (
-        property.isPrimitive() &&
-        property.primitiveType === PrimitiveType.Long &&
-        property.extendedTypeName === "Id"
+        PrimitiveTypeCode.Long === propertyMetaData.primitiveType &&
+        "Id" === propertyMetaData.extendedType
       ) {
         (targetElementAspectProps as any)[propertyName] =
           this.findTargetElementId(sourceElementAspect.asAny[propertyName]);

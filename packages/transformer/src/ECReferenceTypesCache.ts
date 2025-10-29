@@ -125,11 +125,11 @@ export class ECReferenceTypesCache {
         FROM ECDbMeta.SchemaHasSchemaReferences sr
         JOIN refs ON sr.TargetECInstanceId = refs.SchemaId
       )
-      SELECT s.Name
+      SELECT DISTINCT s.Name as name
       FROM refs
       JOIN ECDbMeta.ECSchemaDef s ON refs.SchemaId=s.ECInstanceId
       -- ensure schema dependency order
-      ORDER BY ECInstanceId
+      ORDER BY s.ECInstanceId
     `,
       async (stmt) => {
         let status: DbResult;

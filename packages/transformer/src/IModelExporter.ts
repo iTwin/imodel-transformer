@@ -627,7 +627,6 @@ export class IModelExporter {
    */
   public async exportFonts(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportFonts()");
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     for (const font of this.sourceDb.fontMap.fonts.values()) {
       await this.exportFontByNumber(font.id);
     }
@@ -638,7 +637,6 @@ export class IModelExporter {
    */
   public async exportFontByName(fontName: string): Promise<void> {
     Logger.logTrace(loggerCategory, `exportFontByName(${fontName})`);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const font: FontProps | undefined = this.sourceDb.fontMap.getFont(fontName);
     if (undefined !== font) {
       await this.exportFontByNumber(font.id);
@@ -657,7 +655,6 @@ export class IModelExporter {
     const isUpdate = true;
     Logger.logTrace(loggerCategory, `exportFontById(${fontNumber})`);
     const font: FontProps | undefined =
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
       this.sourceDb.fontMap.getFont(fontNumber);
     if (undefined !== font) {
       this.handler.onExportFont(font, isUpdate);
