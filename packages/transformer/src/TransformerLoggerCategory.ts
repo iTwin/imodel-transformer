@@ -31,4 +31,6 @@ export enum TransformerLoggerCategory {
    * @beta
    */
   IModelCloneContext = "imodel-transformer.IModelCloneContext",
+
+  ECReferenceTypesCache = "imodel-transformer.ECReferenceTypesCache",
 }
