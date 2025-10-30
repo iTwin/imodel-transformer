@@ -4860,6 +4860,94 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
+  it("should successfully process changes when some parent and child elements have no changes in source and were deleted in target", async () => {
+    const sourceIModelName: string =
+      IModelTransformerTestUtils.generateUniqueName("Source");
+    const targetIModelName: string =
+      IModelTransformerTestUtils.generateUniqueName("Target");
+    const sourceIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: sourceIModelName,
+      noLocks: true,
+    });
+    const targetIModelId = await HubWrappers.recreateIModel({
+      accessToken,
+      iTwinId,
+      iModelName: targetIModelName,
+      noLocks: true,
+    });
+    const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: sourceIModelId,
+    });
+    const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken,
+      iTwinId,
+      iModelId: targetIModelId,
+    });
+
+    const changes1ParentSubjectId = Subject.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "Change 1: Parent"
+    );
+    Subject.insert(sourceDb, changes1ParentSubjectId, "Change 1: Child");
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "change 1" });
+    const targetChanges1ParentSubjectId = Subject.insert(
+      targetDb,
+      IModel.rootSubjectId,
+      "Change 1: Parent"
+    );
+    const targetChanges1ChildSubjectId = Subject.insert(
+      targetDb,
+      targetChanges1ParentSubjectId,
+      "Change 1: Child"
+    );
+    targetDb.saveChanges();
+
+    // process change 1
+    let transformer = new IModelTransformer(sourceDb, targetDb, {
+      argsForProcessChanges: {},
+      wasSourceIModelCopiedToTarget: true,
+    });
+    await transformer.process();
+    targetDb.saveChanges();
+
+    // Update source iModel
+    const changes2ParentSubjectId = Subject.insert(
+      sourceDb,
+      IModel.rootSubjectId,
+      "Change 2: Parent"
+    );
+    Subject.insert(sourceDb, changes2ParentSubjectId, "Change 2: Child");
+    sourceDb.saveChanges();
+    await sourceDb.pushChanges({ description: "change 2" });
+
+    // Update target iModel
+    targetDb.elements.deleteElement([
+      targetChanges1ChildSubjectId,
+      targetChanges1ParentSubjectId,
+    ]);
+    targetDb.saveChanges();
+
+    // process change 2
+    transformer = new IModelTransformer(sourceDb, targetDb, {
+      argsForProcessChanges: {},
+    });
+    await expect(transformer.process()).to.be.eventually.fulfilled;
+    targetDb.saveChanges();
+
+    const queryReader = targetDb.createQueryReader(
+      `SELECT COUNT(*) FROM ${Subject.classFullName}`
+    );
+    await queryReader.step();
+    const subjectCount = queryReader.current.toArray()[0];
+    expect(subjectCount).to.equal(3); // RootSubject + 2 created subjects
+  });
+
   describe("addCustomChanges", () => {
     let sourceDb: BriefcaseDb;
     let targetDb: BriefcaseDb;

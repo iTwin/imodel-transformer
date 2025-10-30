@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Fix issue when unchanged elements cause infinite loop during transformation",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "25615181+mindaugasdirg@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
