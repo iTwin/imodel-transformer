@@ -446,6 +446,8 @@ export class TemplateModelCloner extends IModelTransformer {
 
 // @public
 export enum TransformerLoggerCategory {
+    // (undocumented)
+    ECReferenceTypesCache = "imodel-transformer.ECReferenceTypesCache",
     // @beta
     IModelCloneContext = "imodel-transformer.IModelCloneContext",
     // @beta
