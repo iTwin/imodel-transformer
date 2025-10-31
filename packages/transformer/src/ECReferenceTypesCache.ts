@@ -156,7 +156,7 @@ export class ECReferenceTypesCache {
     for await (const row of imodel.createQueryReader(query)) {
       const schemaName = row.name;
       const startTime = performance.now();
-      Logger.logInfo(
+      Logger.logTrace(
         TransformerLoggerCategory.ECReferenceTypesCache,
         `Loading schema: ${schemaName}`
       );
@@ -165,7 +165,7 @@ export class ECReferenceTypesCache {
       if (schema) {
         await this.considerInitSchema(schema);
         const endTime = performance.now();
-        Logger.logInfo(
+        Logger.logTrace(
           TransformerLoggerCategory.ECReferenceTypesCache,
           `Completed schema: ${schemaName} in ${(endTime - startTime).toFixed(2)}ms`
         );
@@ -181,7 +181,7 @@ export class ECReferenceTypesCache {
     }
 
     const initEndTime = performance.now();
-    Logger.logInfo(
+    Logger.logTrace(
       TransformerLoggerCategory.ECReferenceTypesCache,
       `Schemas completed out of total: ${schemaCompletedCount} / ${totalSchemaCount} in ${(initEndTime - initStartTime).toFixed(2)}ms`
     );
@@ -201,6 +201,10 @@ export class ECReferenceTypesCache {
   }
 
   private async initSchema(schema: Schema): Promise<void> {
+    Logger.logInfo(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `Init Schema: ${schema.name}`
+    );
     const schemaNameLower = schema.name.toLowerCase();
 
     // Pre-collect all items to reduce iterator overhead
