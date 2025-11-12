@@ -69,6 +69,17 @@ export class IModelCloneContext extends IModelElementCloneContext {
       },
       false
     ); // exclude custom because C++ has already handled them
+    // sourceElement.forEach(
+    //   (name: string, property: Property) => {
+    //     if (
+    //       property.isNavigation() &&
+    //       undefined === (sourceElement as any)[name]
+    //     ) {
+    //       (targetElementProps as any)[name] = RelatedElement.none;
+    //     }
+    //   },
+    //   false
+    // );
     if (this.isBetweenIModels) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is between iModels
       targetElementProps.federationGuid = sourceElement.federationGuid;
@@ -294,6 +305,38 @@ export class IModelCloneContext extends IModelElementCloneContext {
           this.findTargetElementId(sourceElementAspect.asAny[propertyName]);
       }
     });
+    // sourceElementAspect.forEach((name, property) => {
+    //   if (property.isNavigation()) {
+    //     const sourceNavProp: RelatedElementProps | undefined =
+    //       sourceElementAspect.asAny[name];
+    //     if (sourceNavProp?.id) {
+    //       const navPropRefType = this._refTypesCache.getNavPropRefType(
+    //         sourceElementAspect.schemaName,
+    //         sourceElementAspect.className,
+    //         name
+    //       );
+    //       assert(
+    //         navPropRefType !== undefined,
+    //         `nav prop ref type for '${name}' was not in the cache, this is a bug.`
+    //       );
+    //       const targetEntityReference = this.findTargetEntityId(
+    //         EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType)
+    //       );
+    //       const targetEntityId = EntityReferences.toId64(targetEntityReference);
+    //       // spread the property in case toJSON did not deep-clone
+    //       (targetElementAspectProps as any)[name] = {
+    //         ...(targetElementAspectProps as any)[name],
+    //         id: targetEntityId,
+    //       };
+    //     }
+    //   } else if (
+    //     PropertyType.Long === property.propertyType &&
+    //     "Id" === property.extendedTypeName
+    //   ) {
+    //     (targetElementAspectProps as any)[propertyName] =
+    //       this.findTargetElementId(sourceElementAspect.asAny[propertyName]);
+    //   }
+    // });
     return targetElementAspectProps;
   }
 }

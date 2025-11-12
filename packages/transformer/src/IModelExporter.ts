@@ -43,6 +43,8 @@ import {
 import {
   ChangesetFileProps,
   CodeSpec,
+  FontFamilyDescriptor,
+  FontId,
   FontProps,
   IModel,
   IModelError,
@@ -627,19 +629,51 @@ export class IModelExporter {
    */
   public async exportFonts(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportFonts()");
-    for (const font of this.sourceDb.fontMap.fonts.values()) {
-      await this.exportFontByNumber(font.id);
+    for (const font of this.sourceDb.fonts.queryMappedFamilies()) {
+      await this.exportFontByFontProps(font);
+    }
+  }
+
+  /** Export a single font from the source iModel.
+   * @note multiple fonts can have the same font name, if a font with a specific type is needed use exportFontByFontFamilyDescriptor.
+   * If not this will only export the first font with this type in the db.
+   */
+  public async exportFontByName(fontName: string): Promise<void> {
+    Logger.logTrace(loggerCategory, `exportFontByName(${fontName})`);
+    const fontId: FontId | undefined = this.sourceDb.fonts.findId({
+      name: fontName,
+    });
+    if (undefined !== fontId) {
+      await this.exportFontByNumber(fontId);
     }
   }
 
   /** Export a single font from the source iModel.
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
-  public async exportFontByName(fontName: string): Promise<void> {
-    Logger.logTrace(loggerCategory, `exportFontByName(${fontName})`);
-    const font: FontProps | undefined = this.sourceDb.fontMap.getFont(fontName);
-    if (undefined !== font) {
-      await this.exportFontByNumber(font.id);
+  public async exportFontByFontProps(fontProps: FontProps): Promise<void> {
+    Logger.logTrace(
+      loggerCategory,
+      `exportFontByFamily(${fontProps.name}, ${fontProps.type})`
+    );
+    this.handler.onExportFont(fontProps, true);
+    return this.trackProgress();
+  }
+
+  /** Export a single font from the source iModel.
+   * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
+   */
+  public async exportFontByFontFamilyDescriptor(
+    fontFamily: FontFamilyDescriptor
+  ): Promise<void> {
+    Logger.logTrace(
+      loggerCategory,
+      `exportFontByFamilyDescriptor(${fontFamily.name}, ${fontFamily.type})`
+    );
+    const fontId: FontId | undefined =
+      await this.sourceDb.fonts.acquireId(fontFamily);
+    if (undefined !== fontId) {
+      await this.exportFontByFontProps({ ...fontFamily, id: fontId });
     }
   }
 
@@ -652,13 +686,11 @@ export class IModelExporter {
      * It is very rare and even problematic for the font table to reach a large size, so it is not a bottleneck in transforming changes.
      * See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
      */
-    const isUpdate = true;
     Logger.logTrace(loggerCategory, `exportFontById(${fontNumber})`);
-    const font: FontProps | undefined =
-      this.sourceDb.fontMap.getFont(fontNumber);
+    const font: FontFamilyDescriptor | undefined =
+      this.sourceDb.fonts.findDescriptor(fontNumber);
     if (undefined !== font) {
-      this.handler.onExportFont(font, isUpdate);
-      return this.trackProgress();
+      await this.exportFontByFontFamilyDescriptor(font);
     }
   }
 

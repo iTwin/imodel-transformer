@@ -49,9 +49,14 @@ export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
 
   for (const iTwinId of testITwinIds) {
     const iModels = hubClient.iModels.getMinimalList({
-      authorization: AccessTokenAdapter.toAuthorizationCallback(
-        await IModelHost.authorizationClient.getAccessToken()
-      ),
+      authorization: AccessTokenAdapter.toAuthorizationCallback(async () => {
+        const authClient = IModelHost.authorizationClient;
+        if (!authClient) {
+          throw new Error("Authorization client is not initialized");
+        }
+        const authTok = await authClient.getAccessToken();
+        return authTok;
+      }),
       urlParams: { iTwinId },
     });
 

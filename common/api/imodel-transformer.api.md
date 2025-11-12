@@ -21,6 +21,7 @@ import { EntityProps } from '@itwin/core-common';
 import { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
+import { FontFamilyDescriptor } from '@itwin/core-common';
 import { FontProps } from '@itwin/core-common';
 import { Helmert2DWithZOffset } from '@itwin/core-common';
 import { Id64Arg } from '@itwin/core-bentley';
@@ -149,6 +150,8 @@ export class IModelExporter {
     exportCodeSpecByName(codeSpecName: string): Promise<void>;
     exportCodeSpecs(): Promise<void>;
     exportElement(elementId: Id64String): Promise<void>;
+    exportFontByFontFamilyDescriptor(fontFamily: FontFamilyDescriptor): Promise<void>;
+    exportFontByFontProps(fontProps: FontProps): Promise<void>;
     exportFontByName(fontName: string): Promise<void>;
     exportFontByNumber(fontNumber: number): Promise<void>;
     exportFonts(): Promise<void>;
