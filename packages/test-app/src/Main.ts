@@ -497,7 +497,6 @@ void (async () => {
 
       if (args.targetStandaloneDestination) {
         fs.copyFileSync(fileName, args.targetStandaloneDestination);
-        /* eslint-enable @typescript-eslint/no-deprecated */
         targetDb.close();
         StandaloneDb.convertToStandalone(args.targetStandaloneDestination);
         await StandaloneDb.upgradeSchemas({ fileName });

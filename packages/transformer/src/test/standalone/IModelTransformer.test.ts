@@ -1512,7 +1512,7 @@ describe("IModelTransformer", () => {
     assert.throws(() =>
       cloneContext.remapCodeSpec("SourceNotFound", "TargetNotFound")
     );
-    cloneContext.dispose();
+    cloneContext[Symbol.dispose]();
     iModelDb.close();
   });
 
@@ -2248,7 +2248,6 @@ describe("IModelTransformer", () => {
       "0xe", // id of realityDataSourcesModel
     ]);
     const result: Record<Id64String, any> = {};
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     for await (const row of db.createQueryReader(
       "SELECT * FROM bis.Element",
       undefined,
@@ -2957,7 +2956,6 @@ describe("IModelTransformer", () => {
 
     // insert an unrelated element that uses same id as subject1
     // insertElement public api does not support forceUseId option
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     const targetSubjectId3 = targetDb.elements.insertElement(
       newPropsForSubject3,
       { forceUseId: true }

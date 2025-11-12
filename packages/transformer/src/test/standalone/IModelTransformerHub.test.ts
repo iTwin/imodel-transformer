@@ -507,7 +507,6 @@ describe("IModelTransformerHub", () => {
           "Second import should not add relationships"
         );
         targetDb.saveChanges();
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
         assert.isFalse(targetDb.txns.hasPendingTxns);
         await targetDb.pushChanges({
           accessToken,
@@ -937,7 +936,6 @@ describe("IModelTransformerHub", () => {
         seedBisCoreVersion !== updatedBisCoreVersion;
 
       // push sourceDb schema changes
-      /* eslint-disable @typescript-eslint/no-deprecated */
       assert.equal(
         sourceDb.txns.hasPendingTxns,
         expectedHasPendingTxns,
@@ -965,7 +963,6 @@ describe("IModelTransformerHub", () => {
         sourceDb.txns.hasUnsavedChanges,
         "Expect importSchemas to be a no-op"
       );
-      /* eslint-enable @typescript-eslint/no-deprecated */
       sourceDb.saveChanges(); // will be no changes to save in this case
       await sourceDb.pushChanges({
         accessToken,
@@ -1052,7 +1049,6 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
@@ -2277,7 +2273,6 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const masterSeed: TimelineIModelState = {
@@ -3557,7 +3552,6 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 

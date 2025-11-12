@@ -329,7 +329,6 @@ export class IModelImporter {
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
   protected onInsertElement(elementProps: ElementProps): Id64String {
-    /* eslint-disable @typescript-eslint/no-deprecated */
     try {
       const elementId = this.targetDb.elements.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
@@ -362,7 +361,6 @@ export class IModelImporter {
       }
       throw error; // throw original error
     }
-    /* eslint-enable @typescript-eslint/no-deprecated */
   }
 
   /** Update an existing Element in the target iModel from the specified ElementProps.
@@ -379,7 +377,6 @@ export class IModelImporter {
     );
     this.trackProgress();
     if (this.options.simplifyElementGeometry) {
-      /* eslint-disable-next-line @typescript-eslint/no-deprecated */
       this.targetDb.simplifyElementGeometry({
         id: elementProps.id,
         convertBReps: true,
@@ -799,7 +796,6 @@ export class IModelImporter {
    */
   public optimizeGeometry(options: OptimizeGeometryOptions): void {
     if (options.inlineUniqueGeometryParts) {
-      /* eslint-disable-next-line @typescript-eslint/no-deprecated */
       const result = this.targetDb.inlineGeometryParts();
       Logger.logInfo(
         loggerCategory,
@@ -866,6 +862,11 @@ export function hasEntityChanged(
   );
   return changed;
 }
+
+// function getEntityPropertyValue(entity: Entity | EntityProps, propertyName: string){
+//   propertyName = propertyName.charAt(0).toLocaleLowerCase() + propertyName.slice(1);
+//   return (entity as any)[propertyName];
+// }
 
 /** Returns true if the specified binary values are different. */
 function hasBinaryValueChanged(

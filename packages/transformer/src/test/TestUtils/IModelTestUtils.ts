@@ -403,11 +403,9 @@ export class HubWrappers {
     );
     while (true) {
       try {
-        return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb; // eslint-disable-line @typescript-eslint/no-deprecated
+        return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb;
       } catch (error) {
-        if (!(error instanceof RpcPendingResponse))
-          // eslint-disable-line @typescript-eslint/no-deprecated
-          throw error;
+        if (!(error instanceof RpcPendingResponse)) throw error;
       }
     }
   }
@@ -492,11 +490,9 @@ export class HubWrappers {
 
     while (true) {
       try {
-        return await RpcBriefcaseUtility.open(openArgs); // eslint-disable-line @typescript-eslint/no-deprecated
+        return await RpcBriefcaseUtility.open(openArgs);
       } catch (error) {
-        if (!(error instanceof RpcPendingResponse))
-          // eslint-disable-line @typescript-eslint/no-deprecated
-          throw error;
+        if (!(error instanceof RpcPendingResponse)) throw error;
       }
     }
   }
@@ -1939,7 +1935,6 @@ export class ExtensiveTestScenario {
       StandardViewIndex.Iso
     );
     assert.isTrue(Id64.isValidId64(viewId));
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.views.setDefaultViewId(viewId);
     const drawingViewRange = new Range2d(0, 0, 100, 100);
     const drawingViewId = DrawingViewDefinition.insert(

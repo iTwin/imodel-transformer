@@ -853,7 +853,6 @@ export async function assertIdentityTransformation(
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
   for await (const row of targetDb.createQueryReader(
     "SELECT ECInstanceId FROM bis.Model"
   )) {
@@ -2199,7 +2198,6 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     ...args: Parameters<IModelExporter["exportChanges"]>
   ): Promise<void> {
     this._shouldIndent = false;
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return this.exporter.exportChanges(...args);
   }
   private writeLine(line: string, indentLevel: number = 0): void {

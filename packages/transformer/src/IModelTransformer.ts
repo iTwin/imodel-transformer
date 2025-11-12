@@ -729,7 +729,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
-    this.context.dispose();
+    this.context[Symbol.dispose]();
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
@@ -2866,7 +2866,6 @@ export class IModelTransformer extends IModelExportHandler {
       );
       this._longNamedSchemasMap.set(schema.name, schemaFileName);
     }
-    /* eslint-disable-next-line @typescript-eslint/no-deprecated */
     this.sourceDb.exportSchema({
       schemaName: schema.name,
       outputDirectory: this._schemaExportDir,
@@ -3312,7 +3311,6 @@ export class IModelTransformer extends IModelExportHandler {
           ? indexOrId
           : BriefcaseManager.queryChangeset({
               iModelId: this.sourceDb.iModelId,
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
               changeset: { id: indexOrId },
             }).then((changeset) => changeset.index)
       )

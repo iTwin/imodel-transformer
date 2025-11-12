@@ -7,14 +7,13 @@ import * as path from "path";
 import {
   ElementGroupsMembers,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   SpatialCategory,
   StandaloneDb,
 } from "@itwin/core-backend";
 import { Guid, OpenMode } from "@itwin/core-bentley";
-import { BriefcaseIdValue, Code } from "@itwin/core-common";
+import { Code } from "@itwin/core-common";
 import { initOutputFile } from "./TestUtils";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
