@@ -81,6 +81,7 @@ import {
   CodeProps,
   CodeSpec,
   ConcreteEntityTypes,
+  ECJsNames,
   ElementAspectProps,
   ElementProps,
   EntityReference,
@@ -94,8 +95,6 @@ import {
   ModelProps,
   Placement2d,
   Placement3d,
-  PrimitiveTypeCode,
-  PropertyMetaData,
   QueryBinder,
   RelatedElement,
   SourceAndTarget,
@@ -113,6 +112,7 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
+import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -2725,19 +2725,14 @@ export class IModelTransformer extends IModelExportHandler {
       sourceRelationship.targetId
     );
     // TODO: move to cloneRelationship in IModelCloneContext
-    sourceRelationship.forEachProperty(
-      (propertyName: string, propertyMetaData: PropertyMetaData) => {
-        if (
-          PrimitiveTypeCode.Long === propertyMetaData.primitiveType &&
-          "Id" === propertyMetaData.extendedType
-        ) {
-          (targetRelationshipProps as any)[propertyName] =
-            this.context.findTargetElementId(
-              sourceRelationship.asAny[propertyName]
-            );
-        }
+    sourceRelationship.forEach((propertyName: string, property: Property) => {
+      if (property.isPrimitive() && "Id" === property.extendedTypeName) {
+        (targetRelationshipProps as any)[ECJsNames.toJsName(propertyName)] =
+          this.context.findTargetElementId(
+            sourceRelationship.asAny[ECJsNames.toJsName(propertyName)]
+          );
       }
-    );
+    });
     return targetRelationshipProps;
   }
 

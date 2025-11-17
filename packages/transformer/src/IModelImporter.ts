@@ -15,14 +15,13 @@ import {
 import {
   AxisAlignedBox3d,
   Base64EncodedString,
+  ECJsNames,
   ElementAspectProps,
   ElementProps,
   EntityProps,
   IModel,
   IModelError,
   ModelProps,
-  PrimitiveTypeCode,
-  PropertyMetaData,
   RelatedElement,
   SubCategoryProps,
 } from "@itwin/core-common";
@@ -40,6 +39,7 @@ import {
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
+import { Property, PropertyType } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -836,30 +836,28 @@ export function hasEntityChanged(
   namesToIgnore?: Set<string>
 ): boolean {
   let changed: boolean = false;
-  entity.forEachProperty(
-    (propertyName: string, propertyMeta: PropertyMetaData) => {
-      if (!changed) {
-        if (namesToIgnore && namesToIgnore.has(propertyName)) {
-          // skip
-        } else if (PrimitiveTypeCode.Binary === propertyMeta.primitiveType) {
-          changed = hasBinaryValueChanged(
-            entity.asAny[propertyName],
-            (entityProps as any)[propertyName]
-          );
-        } else if (propertyMeta.isNavigation) {
-          changed = hasNavigationValueChanged(
-            entity.asAny[propertyName],
-            (entityProps as any)[propertyName]
-          );
-        } else {
-          changed = hasValueChanged(
-            entity.asAny[propertyName],
-            (entityProps as any)[propertyName]
-          );
-        }
+  entity.forEach((propertyName: string, property: Property) => {
+    if (!changed) {
+      if (namesToIgnore && namesToIgnore.has(propertyName)) {
+        // skip
+      } else if (PropertyType.Binary === property.propertyType) {
+        changed = hasBinaryValueChanged(
+          entity.asAny[ECJsNames.toJsName(propertyName)],
+          (entityProps as any)[ECJsNames.toJsName(propertyName)]
+        );
+      } else if (property.isNavigation()) {
+        changed = hasNavigationValueChanged(
+          entity.asAny[ECJsNames.toJsName(propertyName)],
+          (entityProps as any)[ECJsNames.toJsName(propertyName)]
+        );
+      } else {
+        changed = hasValueChanged(
+          entity.asAny[ECJsNames.toJsName(propertyName)],
+          (entityProps as any)[ECJsNames.toJsName(propertyName)]
+        );
       }
     }
-  );
+  });
   return changed;
 }
 
