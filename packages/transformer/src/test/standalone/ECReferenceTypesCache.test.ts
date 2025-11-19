@@ -173,9 +173,14 @@ describe("ECReferenceTypesCache", () => {
     assert(bisVersionInSeed !== undefined);
 
     assert(Semver.gt(bisVersionInEmpty, bisVersionInSeed));
-    expect(() => testIModel.getMetaData("BisCore:RenderTimeline")).not.to.throw;
-    expect(() => emptyWithBrandNewBiscore.getMetaData("BisCore:RenderTimeline"))
-      .to.throw;
+    expect(() =>
+      testIModel.schemaContext.getSchemaItemSync("BisCore:RenderTimeline")
+    ).not.to.throw;
+    expect(() =>
+      emptyWithBrandNewBiscore.schemaContext.getSchemaItemSync(
+        "BisCore:RenderTimeline"
+      )
+    ).to.throw;
 
     await thisTestRefCache.initAllSchemasInIModel(testIModel);
     expect(
@@ -234,9 +239,14 @@ describe("ECReferenceTypesCache", () => {
 
     assert(Semver.eq(bisVersionInEmpty1, bisVersionInEmpty2));
     assert(Semver.gt(bisVersionInEmpty1, bisVersionInSeed));
-    expect(() => testIModel.getMetaData("BisCore:RenderTimeline")).not.to.throw;
-    expect(() => emptyWithBrandNewBiscore.getMetaData("BisCore:RenderTimeline"))
-      .to.throw;
+    expect(() =>
+      testIModel.schemaContext.getSchemaItemSync("BisCore:RenderTimeline")
+    ).not.to.throw;
+    expect(() =>
+      emptyWithBrandNewBiscore.schemaContext.getSchemaItemSync(
+        "BisCore:RenderTimeline"
+      )
+    ).to.throw;
 
     const initSchemaSpy = sinon.spy(
       thisTestRefCache,

@@ -16,7 +16,7 @@ import {
   Id64String,
   Mutable,
 } from "@itwin/core-bentley";
-import { Schema } from "@itwin/ecschema-metadata";
+import { Property, RelationshipClass, Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   AuxCoordSystem,
@@ -73,7 +73,6 @@ import {
   DisplayStyle3dSettingsProps,
   ElementAspectProps,
   ElementProps,
-  EntityMetaData,
   FontProps,
   GeometricElement3dProps,
   GeometryStreamIterator,
@@ -513,28 +512,33 @@ const aliasedProperties: Record<string, Record<string, string> | undefined> =
  * get all properties, including those of bases and mixins from metadata,
  * and aliases some properties where the name differs in JS land from the ec property
  */
-function getAllElemMetaDataProperties(elem: Element) {
+function getAllElemMetaDataProperties(
+  elem: Element
+): Record<string, Property> | undefined {
   function getAllClassMetaDataProperties(
     className: string,
-    metadata: EntityMetaData
-  ) {
-    const allProperties = { ...metadata?.properties };
-    for (const baseName of metadata?.baseClasses ?? []) {
-      const base = elem.iModel.getMetaData(baseName);
-      Object.assign(
-        allProperties,
-        getAllClassMetaDataProperties(baseName, base)
+    entity: Entity
+  ): Record<string, Property> {
+    const metaData = entity.getMetaDataSync();
+    const allProperties = { ...metaData.getPropertiesSync() };
+    entity.forEach((name, property) => {
+      const base = elem.iModel.schemaContext.getSchemaItemSync(
+        property.class.fullName
       );
-    }
+      if (base !== undefined && base instanceof Entity) {
+        Object.assign(allProperties, getAllClassMetaDataProperties(name, base));
+      }
+    });
 
     Object.assign(allProperties, aliasedProperties[className.toLowerCase()]);
     return allProperties;
   }
 
-  const classMetaData = elem.getClassMetaData();
-  if (!classMetaData) return undefined;
+  const classMetaData = elem.getMetaDataSync();
+  if (!classMetaData || classMetaData instanceof RelationshipClass)
+    return undefined;
 
-  return getAllClassMetaDataProperties(elem.classFullName, classMetaData);
+  return getAllClassMetaDataProperties(elem.classFullName, elem);
 }
 
 /**
@@ -635,7 +639,7 @@ export async function assertIdentityTransformation(
               (ignoreFedGuidsOnAlwaysPresentElementIds &&
                 alwaysPresentElementIds.has(sourceElemId)))) ||
             propName === "jsonProperties");
-        if (prop.isNavigation) {
+        if (prop.isNavigation()) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
           // so we query the prop instead of the checking for the property on the element
