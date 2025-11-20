@@ -403,6 +403,7 @@ export class HubWrappers {
     );
     while (true) {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb;
       } catch (error) {
         if (!(error instanceof RpcPendingResponse)) throw error;
@@ -430,10 +431,6 @@ export class HubWrappers {
       }),
     };
 
-    // return V2CheckpointManager.getCheckpointDb({
-    //   checkpoint,
-    //   localFile: V2CheckpointManager.getFileName(checkpoint),
-    // });
     const folder = path.join(
       V2CheckpointManager.getFolder(),
       checkpoint.iModelId
@@ -471,7 +468,7 @@ export class HubWrappers {
       version: IModelVersion.fromJSON(args.asOf),
       iModelId: args.iModelId,
     });
-    const openArgs: DownloadAndOpenArgs = {
+    const openArgs = {
       tokenProps: {
         iTwinId: args.iTwinId,
         iModelId: args.iModelId,
@@ -484,7 +481,7 @@ export class HubWrappers {
         applicationVersion: "",
         sessionId: "",
       },
-      syncMode: SyncMode.FixedVersion,
+      syncMode: SyncMode.FixedVersion as const,
       forceDownload: args.deleteFirst,
     };
 
@@ -1935,7 +1932,6 @@ export class ExtensiveTestScenario {
       StandardViewIndex.Iso
     );
     assert.isTrue(Id64.isValidId64(viewId));
-    sourceDb.views.setDefaultViewId(viewId);
     const drawingViewRange = new Range2d(0, 0, 100, 100);
     const drawingViewId = DrawingViewDefinition.insert(
       sourceDb,

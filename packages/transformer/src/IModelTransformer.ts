@@ -604,7 +604,6 @@ export class IModelTransformer extends IModelExportHandler {
       cloneUsingBinaryGeometry: options?.cloneUsingBinaryGeometry ?? true,
       targetScopeElementId:
         options?.targetScopeElementId ?? IModel.rootSubjectId,
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
       danglingReferencesBehavior:
         options?.danglingReferencesBehavior ?? "reject",
       branchRelationshipDataBehavior:

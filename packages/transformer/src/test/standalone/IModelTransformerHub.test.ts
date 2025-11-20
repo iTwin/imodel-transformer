@@ -1144,7 +1144,6 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1261,7 +1260,6 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -1417,7 +1415,6 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
