@@ -861,11 +861,6 @@ export function hasEntityChanged(
   return changed;
 }
 
-// function getEntityPropertyValue(entity: Entity | EntityProps, propertyName: string){
-//   propertyName = propertyName.charAt(0).toLocaleLowerCase() + propertyName.slice(1);
-//   return (entity as any)[propertyName];
-// }
-
 /** Returns true if the specified binary values are different. */
 function hasBinaryValueChanged(
   binaryProperty1: any,
