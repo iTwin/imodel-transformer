@@ -13,7 +13,7 @@ import {
   PhysicalPartition,
   SpatialCategory,
 } from "@itwin/core-backend";
-
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   ChangesetIdWithIndex,
   Code,
@@ -47,7 +47,7 @@ export const deleted = Symbol("DELETED");
 export function getIModelState(db: IModelDb): TimelineIModelElemState {
   const result = {} as TimelineIModelElemState;
 
-  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+  // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
   const elemIds = db.withPreparedStatement(
     `
     SELECT ECInstanceId
@@ -72,7 +72,7 @@ export function getIModelState(db: IModelDb): TimelineIModelElemState {
       : elem.toJSON();
   }
 
-  // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+  // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
   const supportedRelIds = db.withPreparedStatement(
     `
     SELECT erte.ECInstanceId, erte.ECClassId,
@@ -320,7 +320,6 @@ export async function runTimeline(
   const trackedIModels = new Map<string, TimelineIModelState>();
   const masterOfBranch = new Map<string, string>();
 
-  /* eslint-disable @typescript-eslint/indent */
   const timelineStates = new Map<
     number,
     {
@@ -328,7 +327,6 @@ export async function runTimeline(
       changesets: { [iModelName: string]: ChangesetIdWithIndex };
     }
   >();
-  /* eslint-enable @typescript-eslint/indent */
 
   function printChangelogs() {
     const rows = [...timelineStates.values()].map((state) =>
@@ -416,7 +414,7 @@ export async function runTimeline(
         undefined;
 
       seed?.db.performCheckpoint(); // make sure WAL is flushed before we use this as a file seed
-      const newIModelId = await IModelHost.hubAccess.createNewIModel({
+      const newIModelId = await IModelHost[_hubAccess].createNewIModel({
         iTwinId,
         iModelName: newIModelName,
         version0: seed?.db.pathName,
@@ -620,7 +618,7 @@ export async function runTimeline(
     tearDown: async () => {
       for (const [, state] of trackedIModels) {
         state.db.close();
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: state.id,
         });

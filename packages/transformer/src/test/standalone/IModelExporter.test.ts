@@ -182,7 +182,7 @@ describe("IModelExporter", () => {
       );
       sourceDb.saveChanges();
 
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       const sourceRelationships = sourceDb.withStatement(
         "SELECT ECInstanceId FROM bis.ElementRefersToElements",
         (stmt) => [...stmt]
@@ -202,7 +202,7 @@ describe("IModelExporter", () => {
         exporter.exportRelationships(ElementRefersToElements.classFullName)
       ).to.eventually.be.fulfilled;
 
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       const targetRelationships = targetDb.withStatement(
         "SELECT ECInstanceId FROM bis.ElementRefersToElements",
         (stmt) => [...stmt]

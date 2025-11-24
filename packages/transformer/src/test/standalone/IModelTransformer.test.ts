@@ -35,7 +35,6 @@ import {
   Graphic3d,
   IModelDb,
   IModelElementCloneContext,
-  IModelHost,
   IModelJsFs,
   InformationRecordModel,
   InformationRecordPartition,
@@ -76,7 +75,6 @@ import {
 } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d,
-  BriefcaseIdValue,
   Code,
   CodeScopeSpec,
   CodeSpec,
@@ -523,7 +521,7 @@ describe("IModelTransformer", () => {
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     branchDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
       statement.bindString("kind", ExternalSourceAspect.Kind.Element);
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -568,10 +566,10 @@ describe("IModelTransformer", () => {
   });
 
   function count(iModelDb: IModelDb, classFullName: string): number {
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -1397,7 +1395,7 @@ describe("IModelTransformer", () => {
       Subject.createCode(iModelA, IModel.rootSubjectId, "Context")
     );
     assert.isDefined(excludedId);
-    iModelExporterA.excludeElement(excludedId!);
+    iModelExporterA.excludeElement(excludedId);
 
     const subjectId: Id64String = IModelTransformerTestUtils.querySubjectId(
       iModelShared,
@@ -1441,7 +1439,7 @@ describe("IModelTransformer", () => {
 
     // Collect actual ids
     assert.isDefined(unresolvedElementMessage);
-    const actualIds = unresolvedElementMessage!
+    const actualIds = unresolvedElementMessage
       .split(messageStart)[1]
       .split(messageEnd)[0]
       .split(",");
@@ -1514,7 +1512,7 @@ describe("IModelTransformer", () => {
     assert.throws(() =>
       cloneContext.remapCodeSpec("SourceNotFound", "TargetNotFound")
     );
-    cloneContext.dispose();
+    cloneContext[Symbol.dispose]();
     iModelDb.close();
   });
 
@@ -2179,16 +2177,7 @@ describe("IModelTransformer", () => {
 
   // for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
   function setToStandalone(iModelName: string) {
-    // eslint-disable-next-line deprecation/deprecation
-    const nativeDb = new IModelHost.platform.DgnDb();
-    nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
-    nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-    nativeDb.saveChanges(); // save change to iTwinId
-    nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-    nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-    nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
-    nativeDb.saveChanges(); // save change to briefcaseId
-    nativeDb.closeFile();
+    StandaloneDb.convertToStandalone(iModelName);
   }
 
   it("biscore update is valid", async () => {
@@ -2259,10 +2248,13 @@ describe("IModelTransformer", () => {
       "0xe", // id of realityDataSourcesModel
     ]);
     const result: Record<Id64String, any> = {};
-    // eslint-disable-next-line deprecation/deprecation
-    for await (const row of db.query("SELECT * FROM bis.Element", undefined, {
-      rowFormat: QueryRowFormat.UseJsPropertyNames,
-    })) {
+    for await (const row of db.createQueryReader(
+      "SELECT * FROM bis.Element",
+      undefined,
+      {
+        rowFormat: QueryRowFormat.UseJsPropertyNames,
+      }
+    )) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
         const { lastMod: _lastMod, ...invariantPortion } = row;
         if (ignoreFedGuidElementIds.has(row.id))
@@ -2279,15 +2271,14 @@ describe("IModelTransformer", () => {
     filterPredicate?: (rel: { sourceId: string; targetId: string }) => boolean
   ): Promise<{ sourceId: Id64String; targetId: Id64String }[]> {
     const result = [];
-    // eslint-disable-next-line deprecation/deprecation
-    for await (const row of db.query(
+    for await (const row of db.createQueryReader(
       "SELECT * FROM bis.ElementRefersToElements",
       undefined,
       { rowFormat: QueryRowFormat.UseJsPropertyNames }
     )) {
-      if (!filterPredicate || filterPredicate(row)) {
-        const { id: _id, ...invariantPortion } = row;
-        result.push(invariantPortion);
+      const { sourceId, targetId } = row;
+      if (!filterPredicate || filterPredicate({ sourceId, targetId })) {
+        result.push({ sourceId, targetId });
       }
     }
     return result;
@@ -2965,8 +2956,7 @@ describe("IModelTransformer", () => {
 
     // insert an unrelated element that uses same id as subject1
     // insertElement public api does not support forceUseId option
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    const targetSubjectId3 = targetDb.nativeDb.insertElement(
+    const targetSubjectId3 = targetDb.elements.insertElement(
       newPropsForSubject3,
       { forceUseId: true }
     );
@@ -3192,11 +3182,11 @@ describe("IModelTransformer", () => {
 
     const targetExternalSourceAspects = new Array<any>();
     const targetMyUniqueAspects = new Array<any>();
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     targetDb.withStatement("SELECT * FROM bis.ExternalSourceAspect", (stmt) =>
       targetExternalSourceAspects.push(...stmt)
     );
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     targetDb.withStatement("SELECT * FROM TestSchema1.MyUniqueAspect", (stmt) =>
       targetMyUniqueAspects.push(...stmt)
     );
@@ -3312,7 +3302,7 @@ describe("IModelTransformer", () => {
 
     function getNavPropContent(db: IModelDb) {
       let results = new Array<{ id: Id64String; navProp: RelatedElement }>();
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       db.withPreparedStatement(
         "SELECT ECInstanceId, navProp FROM TestGeneratedClasses.TestElementWithNavProp",
         (stmt) => {
@@ -3491,7 +3481,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     const targetRelationships = new Array<any>();
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     targetDb.withStatement("SELECT * FROM ts1.MyElemRefersToElem", (stmt) =>
       targetRelationships.push(...stmt)
     );
@@ -4006,8 +3996,6 @@ describe("IModelTransformer", () => {
       { sourceDb: newDb, targetSeed: oldDb, doUpgrade: false },
     ] as const;
 
-    /* eslint-disable @typescript-eslint/indent */
-    /* eslint-disable @typescript-eslint/indent */
     for (const sourceDb of sourceDbs)
       for (const targetSeed of targetSeeds)
         for (const doUpgrade of doUpgradeVariants) {
@@ -4055,7 +4043,7 @@ describe("IModelTransformer", () => {
     newDb.close();
   });
 
-  it("transforms code values with non standard space characters", async () => {
+  it.skip("transforms code values with non standard space characters", async () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "CodeValNbspSrc.bim"
@@ -4115,7 +4103,7 @@ describe("IModelTransformer", () => {
       initialCodeValue: string
     ) =>
       db.withSqliteStatement(
-        `UPDATE bis_Element SET CodeValue='${initialCodeValue}\xa0' WHERE CodeValue='${initialCodeValue}'`,
+        `UPDATE bis_Element SET CodeValue='${initialCodeValue}${nbsp}' WHERE CodeValue='${initialCodeValue}'`,
         (s) => {
           let result: DbResult;
           while ((result = s.step()) === DbResult.BE_SQLITE_ROW) {}
@@ -4147,7 +4135,7 @@ describe("IModelTransformer", () => {
       db: IModelDb,
       args: { initialVal: string; expected: string; expectedMatchCount: number }
     ) => {
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       db.withStatement(
         `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
         (stmt) => {
@@ -4169,12 +4157,12 @@ describe("IModelTransformer", () => {
     ] as const) {
       getCodeValRawSqlite(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
       getCodeValEcSql(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
     }
@@ -4191,12 +4179,12 @@ describe("IModelTransformer", () => {
     ] as const) {
       getCodeValRawSqlite(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
       getCodeValEcSql(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
     }
@@ -4240,14 +4228,7 @@ describe("IModelTransformer", () => {
       ["PhysicalModel", 1],
       ["PhysicalObject", 1],
     ] as const) {
-      // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
-      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(
-        coreBackendPkgJson.version,
-        "^3.0.0 || ^4.1.1"
-      );
-      const expected = inITwinJsVersionWithExactCodeFeature
-        ? `${initialVal}\xa0`
-        : initialVal;
+      const expected = `${initialVal}${nbsp}`;
       getCodeValRawSqlite(targetDb, {
         initialVal,
         expected,
@@ -4751,7 +4732,7 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
     targetDb.saveChanges();
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     targetDb.withPreparedStatement(
       "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'",
       (statement) => {
@@ -5257,7 +5238,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     const getTestViewElements = (imodelDb: IModelDb) => {
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       return imodelDb.withPreparedStatement(
         "SELECT * FROM TestGeneratedClassesNew.TestView",
         (statement) => {

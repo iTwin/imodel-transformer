@@ -11,7 +11,12 @@ import { Relationship, SnapshotDb } from "@itwin/core-backend";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations";
 import * as Semver from "semver";
-import { Schema, SchemaItemType, SchemaLoader } from "@itwin/ecschema-metadata";
+import {
+  ECClass,
+  Schema,
+  SchemaItemType,
+  SchemaLoader,
+} from "@itwin/ecschema-metadata";
 import * as sinon from "sinon";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
 
@@ -57,7 +62,8 @@ describe("ECReferenceTypesCache", () => {
       testIModel.getSchemaProps(name)
     );
     const schema = schemaLoader.getSchema("BisCore");
-    for (const ecclass of schema.getClasses()) {
+    for (const ecclass of schema.getItems()) {
+      if (!ECClass.isECClass(ecclass)) continue;
       const unsupportedClassNames = [
         "CodeSpec",
         "ElementDrivesElement",
@@ -167,9 +173,14 @@ describe("ECReferenceTypesCache", () => {
     assert(bisVersionInSeed !== undefined);
 
     assert(Semver.gt(bisVersionInEmpty, bisVersionInSeed));
-    expect(() => testIModel.getMetaData("BisCore:RenderTimeline")).not.to.throw;
-    expect(() => emptyWithBrandNewBiscore.getMetaData("BisCore:RenderTimeline"))
-      .to.throw;
+    expect(() =>
+      testIModel.schemaContext.getSchemaItemSync("BisCore:RenderTimeline")
+    ).not.to.throw;
+    expect(() =>
+      emptyWithBrandNewBiscore.schemaContext.getSchemaItemSync(
+        "BisCore:RenderTimeline"
+      )
+    ).to.throw;
 
     await thisTestRefCache.initAllSchemasInIModel(testIModel);
     expect(
@@ -228,9 +239,14 @@ describe("ECReferenceTypesCache", () => {
 
     assert(Semver.eq(bisVersionInEmpty1, bisVersionInEmpty2));
     assert(Semver.gt(bisVersionInEmpty1, bisVersionInSeed));
-    expect(() => testIModel.getMetaData("BisCore:RenderTimeline")).not.to.throw;
-    expect(() => emptyWithBrandNewBiscore.getMetaData("BisCore:RenderTimeline"))
-      .to.throw;
+    expect(() =>
+      testIModel.schemaContext.getSchemaItemSync("BisCore:RenderTimeline")
+    ).not.to.throw;
+    expect(() =>
+      emptyWithBrandNewBiscore.schemaContext.getSchemaItemSync(
+        "BisCore:RenderTimeline"
+      )
+    ).to.throw;
 
     const initSchemaSpy = sinon.spy(
       thisTestRefCache,

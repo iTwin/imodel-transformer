@@ -21,6 +21,7 @@ import { EntityProps } from '@itwin/core-common';
 import { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
+import { FontFamilyDescriptor } from '@itwin/core-common';
 import { FontProps } from '@itwin/core-common';
 import { Helmert2DWithZOffset } from '@itwin/core-common';
 import { Id64Arg } from '@itwin/core-bentley';
@@ -149,6 +150,8 @@ export class IModelExporter {
     exportCodeSpecByName(codeSpecName: string): Promise<void>;
     exportCodeSpecs(): Promise<void>;
     exportElement(elementId: Id64String): Promise<void>;
+    exportFontByFontFamilyDescriptor(fontFamily: FontFamilyDescriptor): Promise<void>;
+    exportFontByFontProps(fontProps: FontProps): Promise<void>;
     exportFontByName(fontName: string): Promise<void>;
     exportFontByNumber(fontNumber: number): Promise<void>;
     exportFonts(): Promise<void>;
@@ -273,7 +276,6 @@ export class IModelTransformer extends IModelExportHandler {
         fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
         skipPropagateChangesToRootElements: boolean;
     }): void;
-    protected get hasDefinitionContainerDeletionFeature(): boolean;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
     initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps;
@@ -447,14 +449,16 @@ export class TemplateModelCloner extends IModelTransformer {
 
 // @public
 export enum TransformerLoggerCategory {
+    // (undocumented)
+    ECReferenceTypesCache = "imodel-transformer.ECReferenceTypesCache",
     // @beta
-    IModelCloneContext = "core-backend.IModelCloneContext",
+    IModelCloneContext = "imodel-transformer.IModelCloneContext",
     // @beta
-    IModelExporter = "core-backend.IModelExporter",
+    IModelExporter = "imodel-transformer.IModelExporter",
     // @beta
-    IModelImporter = "core-backend.IModelImporter",
+    IModelImporter = "imodel-transformer.IModelImporter",
     // @beta
-    IModelTransformer = "core-backend.IModelTransformer"
+    IModelTransformer = "imodel-transformer.IModelTransformer"
 }
 
 // (No @packageDocumentation comment for this package)

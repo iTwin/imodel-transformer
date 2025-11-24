@@ -79,6 +79,7 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   CategorySelector,
+  CheckpointManager,
   CheckpointProps,
   ClassRegistry,
   DefinitionModel,
@@ -86,6 +87,7 @@ import {
   DisplayStyle2d,
   DisplayStyle3d,
   DocumentListModel,
+  DownloadRequest,
   Drawing,
   DrawingCategory,
   DrawingGraphic,
@@ -108,7 +110,6 @@ import {
   FunctionalSchema,
   GeometryPart,
   GroupModel,
-  HubMock,
   IModelDb,
   IModelHost,
   IModelJsFs,
@@ -136,9 +137,11 @@ import {
   Subject,
   SubjectOwnsPartitionElements,
   Texture,
-  V1CheckpointManager,
+  V2CheckpointManager,
   ViewDefinition,
 } from "@itwin/core-backend";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   DownloadAndOpenArgs,
   RpcBriefcaseUtility,
@@ -239,7 +242,7 @@ export enum TestUserType {
   SuperManager,
 }
 
-/** A wrapper around the BackendHubAccess API through IModelHost.hubAccess.
+/** A wrapper around the BackendHubAccess API through IModelHost[_hubAccess].
  *
  * All methods in this class should be usable with any BackendHubAccess implementation (i.e. HubMock and IModelHubBackend).
  */
@@ -262,13 +265,13 @@ export class HubWrappers {
       this.hubMock.isValid,
       "Must use HubMock for tests that modify iModels"
     );
-    let iModelId = await IModelHost.hubAccess.queryIModelByName({
+    let iModelId = await IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
     });
     if (!iModelId)
-      iModelId = await IModelHost.hubAccess.createNewIModel({
+      iModelId = await IModelHost[_hubAccess].createNewIModel({
         accessToken,
         iTwinId,
         iModelName,
@@ -287,16 +290,16 @@ export class HubWrappers {
       this.hubMock.isValid,
       "Must use HubMock for tests that modify iModels"
     );
-    const deleteIModel = await IModelHost.hubAccess.queryIModelByName(arg);
+    const deleteIModel = await IModelHost[_hubAccess].queryIModelByName(arg);
     if (undefined !== deleteIModel)
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         accessToken: arg.accessToken,
         iTwinId: arg.iTwinId,
         iModelId: deleteIModel,
       });
 
     // Create a new iModel
-    return IModelHost.hubAccess.createNewIModel({
+    return IModelHost[_hubAccess].createNewIModel({
       description: `Description for ${arg.iModelName}`,
       ...arg,
     });
@@ -308,14 +311,18 @@ export class HubWrappers {
     iTwinId: string,
     iModelName: string
   ): Promise<void> {
-    const iModelId = await IModelHost.hubAccess.queryIModelByName({
+    const iModelId = await IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
     });
     if (undefined === iModelId) return;
 
-    await IModelHost.hubAccess.deleteIModel({ accessToken, iTwinId, iModelId });
+    await IModelHost[_hubAccess].deleteIModel({
+      accessToken,
+      iTwinId,
+      iModelId,
+    });
   }
 
   /** Push an iModel to the Hub */
@@ -328,14 +335,14 @@ export class HubWrappers {
   ): Promise<GuidString> {
     // Delete any existing iModels with the same name as the required iModel
     const locIModelName = iModelName || path.basename(pathname, ".bim");
-    const iModelId = await IModelHost.hubAccess.queryIModelByName({
+    const iModelId = await IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName: locIModelName,
     });
     if (iModelId) {
       if (!overwrite) return iModelId;
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         accessToken,
         iTwinId,
         iModelId,
@@ -343,7 +350,7 @@ export class HubWrappers {
     }
 
     // Upload a new iModel
-    return IModelHost.hubAccess.createNewIModel({
+    return IModelHost[_hubAccess].createNewIModel({
       accessToken,
       iTwinId,
       iModelName: locIModelName,
@@ -372,7 +379,7 @@ export class HubWrappers {
       tokenProps: {
         iTwinId: args.iTwinId,
         iModelId: args.iModelId,
-        changeset: await IModelHost.hubAccess.getChangesetFromVersion({
+        changeset: await IModelHost[_hubAccess].getChangesetFromVersion({
           accessToken: args.accessToken,
           version: IModelVersion.fromJSON(args.asOf),
           iModelId: args.iModelId,
@@ -396,11 +403,10 @@ export class HubWrappers {
     );
     while (true) {
       try {
-        return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb; // eslint-disable-line deprecation/deprecation
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb;
       } catch (error) {
-        if (!(error instanceof RpcPendingResponse))
-          // eslint-disable-line deprecation/deprecation
-          throw error;
+        if (!(error instanceof RpcPendingResponse)) throw error;
       }
     }
   }
@@ -418,17 +424,34 @@ export class HubWrappers {
       iTwinId: args.iTwinId,
       iModelId: args.iModelId,
       accessToken: args.accessToken,
-      changeset: await IModelHost.hubAccess.getChangesetFromVersion({
+      changeset: await IModelHost[_hubAccess].getChangesetFromVersion({
         accessToken: args.accessToken,
         version: IModelVersion.fromJSON(args.asOf),
         iModelId: args.iModelId,
       }),
     };
 
-    return V1CheckpointManager.getCheckpointDb({
-      checkpoint,
-      localFile: V1CheckpointManager.getFileName(checkpoint),
-    });
+    const folder = path.join(
+      V2CheckpointManager.getFolder(),
+      checkpoint.iModelId
+    );
+    const filename = path.join(
+      folder,
+      `${checkpoint.changeset.id === "" ? "first" : checkpoint.changeset.id}.bim`
+    );
+    const request: DownloadRequest = { checkpoint, localFile: filename };
+    let db = SnapshotDb.tryFindByKey(
+      CheckpointManager.getKey(request.checkpoint)
+    );
+    if (undefined !== db) return db;
+    db = IModelTestUtils.tryOpenLocalFile(request);
+    if (db) return db;
+    await V2CheckpointManager.downloadCheckpoint(request);
+    await CheckpointManager.updateToRequestedVersion(request);
+    return IModelTestUtils.openCheckpoint(
+      request.localFile,
+      request.checkpoint
+    );
   }
 
   /** Opens the specific Checkpoint iModel, `SyncMode.FixedVersion`, through the same workflow the IModelReadRpc.getConnectionProps method will use. Replicates the way a frontend would open the iModel. */
@@ -440,12 +463,12 @@ export class HubWrappers {
   ): Promise<IModelDb> {
     if (undefined === args.asOf) args.asOf = IModelVersion.latest().toJSON();
 
-    const changeset = await IModelHost.hubAccess.getChangesetFromVersion({
+    const changeset = await IModelHost[_hubAccess].getChangesetFromVersion({
       accessToken: args.accessToken,
       version: IModelVersion.fromJSON(args.asOf),
       iModelId: args.iModelId,
     });
-    const openArgs: DownloadAndOpenArgs = {
+    const openArgs = {
       tokenProps: {
         iTwinId: args.iTwinId,
         iModelId: args.iModelId,
@@ -458,17 +481,15 @@ export class HubWrappers {
         applicationVersion: "",
         sessionId: "",
       },
-      syncMode: SyncMode.FixedVersion,
+      syncMode: SyncMode.FixedVersion as const,
       forceDownload: args.deleteFirst,
     };
 
     while (true) {
       try {
-        return await RpcBriefcaseUtility.open(openArgs); // eslint-disable-line deprecation/deprecation
+        return await RpcBriefcaseUtility.open(openArgs);
       } catch (error) {
-        if (!(error instanceof RpcPendingResponse))
-          // eslint-disable-line deprecation/deprecation
-          throw error;
+        if (!(error instanceof RpcPendingResponse)) throw error;
       }
     }
   }
@@ -482,7 +503,7 @@ export class HubWrappers {
     onReachThreshold: () => void = () => {},
     acquireThreshold: number = 16
   ): Promise<void> {
-    const briefcases = await IModelHost.hubAccess.getMyBriefcaseIds({
+    const briefcases = await IModelHost[_hubAccess].getMyBriefcaseIds({
       accessToken,
       iModelId,
     });
@@ -492,7 +513,7 @@ export class HubWrappers {
       const promises: Promise<void>[] = [];
       briefcases.forEach((briefcaseId) => {
         promises.push(
-          IModelHost.hubAccess.releaseBriefcase({
+          IModelHost[_hubAccess].releaseBriefcase({
             accessToken,
             iModelId,
             briefcaseId,
@@ -535,6 +556,28 @@ export class IModelTestUtils {
   /** Generate a name for an iModel that's unique using the baseName provided and appending a new GUID.  */
   public static generateUniqueName(baseName: string) {
     return `${baseName} - ${Guid.createValue()}`;
+  }
+
+  public static openCheckpoint(
+    fileName: LocalFileName,
+    checkpoint: CheckpointProps
+  ) {
+    const snapshot = SnapshotDb.openFile(fileName, {
+      key: CheckpointManager.getKey(checkpoint),
+    });
+    (snapshot as any)._iTwinId = checkpoint.iTwinId;
+    return snapshot;
+  }
+
+  /** try to open an existing local file to satisfy a download request */
+  public static tryOpenLocalFile(
+    request: DownloadRequest
+  ): SnapshotDb | undefined {
+    const checkpoint = request.checkpoint;
+    if (CheckpointManager.verifyCheckpoint(checkpoint, request.localFile))
+      return this.openCheckpoint(request.localFile, checkpoint);
+
+    return undefined;
   }
 
   /** Prepare for an output file by:
@@ -862,7 +905,7 @@ export class IModelTestUtils {
     ecsql: string,
     bindings?: any[] | object
   ): any[] {
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return db.withPreparedStatement(ecsql, (stmt) => {
       if (bindings) stmt.bindValues(bindings);
 
@@ -891,13 +934,6 @@ export class IModelTestUtils {
     );
     subj.setJsonProperty("Subject", { Job: name }); // eslint-disable-line @typescript-eslint/naming-convention
     return subj;
-  }
-
-  /** Flushes the Txns in the TxnTable - this allows importing of schemas */
-  public static flushTxns(iModelDb: IModelDb): boolean {
-    /* eslint-disable-next-line deprecation/deprecation */
-    iModelDb.nativeDb.deleteAllTxns();
-    return true;
   }
 
   public static querySubjectId(
@@ -1121,10 +1157,10 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     userLabel: string
   ): Id64String {
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Element.classFullName} WHERE UserLabel=:userLabel`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("userLabel", userLabel);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1200,10 +1236,10 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     codeValue: string
   ): Id64String {
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Element.classFullName} WHERE CodeValue=:codeValue`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("codeValue", codeValue);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1217,10 +1253,10 @@ export class IModelTestUtils {
     iModelDb: IModelDb,
     codeValue: string
   ): Id64String {
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ModeledElement.Id in (Select ECInstanceId from Bis.Element where CodeValue=:codeValue)`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): Id64String => {
         statement.bindString("codeValue", codeValue);
         return DbResult.BE_SQLITE_ROW === statement.step()
@@ -1274,10 +1310,10 @@ export class IModelTestUtils {
     }
     IModelJsFs.appendFileSync(outputFileName, `${iModelDb.pathName}\n`);
     IModelJsFs.appendFileSync(outputFileName, "\n=== CodeSpecs ===\n");
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       "SELECT ECInstanceId,Name FROM BisCore:CodeSpec ORDER BY ECInstanceId",
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const codeSpecId = statement.getValue(0).getId();
@@ -1290,10 +1326,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Schemas ===\n");
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       "SELECT Name FROM ECDbMeta.ECSchemaDef ORDER BY ECInstanceId",
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const schemaName: string = statement.getValue(0).getString();
@@ -1302,10 +1338,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Models ===\n");
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${Model.classFullName} ORDER BY ECInstanceId`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const modelId = statement.getValue(0).getId();
@@ -1318,10 +1354,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== ViewDefinitions ===\n");
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT ECInstanceId FROM ${ViewDefinition.classFullName} ORDER BY ECInstanceId`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const viewDefinitionId = statement.getValue(0).getId();
@@ -1335,10 +1371,10 @@ export class IModelTestUtils {
       }
     );
     IModelJsFs.appendFileSync(outputFileName, "\n=== Elements ===\n");
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${Element.classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1349,10 +1385,10 @@ export class IModelTestUtils {
         }
       }
     );
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${PhysicalObject.classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1363,10 +1399,10 @@ export class IModelTestUtils {
         }
       }
     );
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${GeometryPart.classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         if (DbResult.BE_SQLITE_ROW === statement.step()) {
           const count: number = statement.getValue(0).getInteger();
@@ -1385,12 +1421,12 @@ export class IModelTestUtils {
     classFullName: string,
     whereClause?: string
   ): number {
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${classFullName}${
         whereClause ? ` WHERE ${whereClause}` : ""
       }`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -1427,10 +1463,6 @@ export class ExtensiveTestScenario {
   }
 
   public static populateDb(sourceDb: IModelDb): void {
-    // make sure Arial is in the font table
-    sourceDb.addNewFont("Arial");
-    assert.exists(sourceDb.fontMap.getFont("Arial"));
-
     // Initialize project extents
     const projectExtents = new Range3d(-1000, -1000, -1000, 1000, 1000, 1000);
     sourceDb.updateProjectExtents(projectExtents);
@@ -1876,7 +1908,7 @@ export class ExtensiveTestScenario {
     displayStyle3d.settings.addExcludedElements(physicalObjectId1);
     displayStyle3d.settings.setPlanProjectionSettings(
       spatialLocationModelId,
-      new PlanProjectionSettings({ elevation: 10.0 })
+      PlanProjectionSettings.fromJSON({ elevation: 10.0 })
     );
     displayStyle3d.settings.environment = Environment.fromJSON({
       sky: {
@@ -1900,8 +1932,6 @@ export class ExtensiveTestScenario {
       StandardViewIndex.Iso
     );
     assert.isTrue(Id64.isValidId64(viewId));
-    // eslint-disable-next-line deprecation/deprecation
-    sourceDb.views.setDefaultViewId(viewId);
     const drawingViewRange = new Range2d(0, 0, 100, 100);
     const drawingViewId = DrawingViewDefinition.insert(
       sourceDb,

@@ -6,7 +6,7 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as Yargs from "yargs";
-import { assert, Guid, Logger, LogLevel, OpenMode } from "@itwin/core-bentley";
+import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
   BriefcaseDb,
@@ -16,6 +16,7 @@ import {
   SnapshotDb,
   StandaloneDb,
 } from "@itwin/core-backend";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   BriefcaseIdValue,
   ChangesetId,
@@ -23,7 +24,7 @@ import {
   IModelVersion,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
-import { NamedVersion } from "@itwin/imodels-client-authoring";
+import { NamedVersion } from "@itwin/imodels-client-management";
 import { ElementUtils } from "./ElementUtils";
 import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -438,7 +439,7 @@ void (async () => {
           args.targetIModelName
         );
         if (args.clean && undefined !== targetIModelId) {
-          await IModelHost.hubAccess.deleteIModel({
+          await IModelHost[_hubAccess].deleteIModel({
             accessToken: await acquireAccessToken(),
             iTwinId: targetITwinId,
             iModelId: targetIModelId,
@@ -447,7 +448,7 @@ void (async () => {
         }
         if (undefined === targetIModelId) {
           // create target iModel if it doesn't yet exist or was just cleaned/deleted above
-          targetIModelId = await IModelHost.hubAccess.createNewIModel({
+          targetIModelId = await IModelHost[_hubAccess].createNewIModel({
             accessToken: await acquireAccessToken(),
             iTwinId: targetITwinId,
             iModelName: args.targetIModelName,
@@ -496,24 +497,8 @@ void (async () => {
 
       if (args.targetStandaloneDestination) {
         fs.copyFileSync(fileName, args.targetStandaloneDestination);
-        function setToStandalone(iModelPath: string) {
-          /* eslint-disable deprecation/deprecation */
-          const nativeDb = new IModelHost.platform.DgnDb();
-          nativeDb.openIModel(iModelPath, OpenMode.ReadWrite);
-          nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-          nativeDb.saveChanges(); // save change to iTwinId
-          nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-          nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-          nativeDb.saveLocalValue(
-            "StandaloneEdit",
-            JSON.stringify({ txns: true })
-          );
-          nativeDb.saveChanges(); // save change to briefcaseId
-          nativeDb.closeFile();
-        }
-        /* eslint-enable deprecation/deprecation */
         targetDb.close();
-        setToStandalone(args.targetStandaloneDestination);
+        StandaloneDb.convertToStandalone(args.targetStandaloneDestination);
         await StandaloneDb.upgradeSchemas({ fileName });
         targetDb = StandaloneDb.openFile(args.targetStandaloneDestination);
       }

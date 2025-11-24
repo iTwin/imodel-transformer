@@ -15,14 +15,13 @@ import {
 import {
   AxisAlignedBox3d,
   Base64EncodedString,
+  ECJsNames,
   ElementAspectProps,
   ElementProps,
   EntityProps,
   IModel,
   IModelError,
   ModelProps,
-  PrimitiveTypeCode,
-  PropertyMetaData,
   RelatedElement,
   SubCategoryProps,
 } from "@itwin/core-common";
@@ -40,6 +39,7 @@ import {
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
+import { Property, PropertyType } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -248,6 +248,7 @@ export class IModelImporter {
 
   /** Format a Model for the Logger. */
   private formatModelForLogger(modelProps: ModelProps): string {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     return `${modelProps.classFullName} [${modelProps.id!}]`;
   }
 
@@ -264,6 +265,7 @@ export class IModelImporter {
           elemProps.code.value !== undefined,
           "NULL code values are always considered unique and cannot clash"
         );
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         this._duplicateCodeValueMap.set(elemProps.id!, elemProps.code.value);
         // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
         elemProps.code.value = Guid.createValue();
@@ -316,10 +318,10 @@ export class IModelImporter {
       if (undefined !== elementProps.id) {
         this.tryUpdateElement(elementProps);
       } else {
-        this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
+        elementProps.id = this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
     }
-    return elementProps.id!;
+    return elementProps.id;
   }
 
   /** Create a new Element from the specified ElementProps and insert it into the target iModel.
@@ -327,9 +329,8 @@ export class IModelImporter {
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
   protected onInsertElement(elementProps: ElementProps): Id64String {
-    /* eslint-disable deprecation/deprecation */
     try {
-      const elementId = this.targetDb.nativeDb.insertElement(elementProps, {
+      const elementId = this.targetDb.elements.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
       });
       // set the id like [IModelDb.insertElement]($backend), does, the raw nativeDb method does not
@@ -340,7 +341,7 @@ export class IModelImporter {
       );
       this.trackProgress();
       if (this.options.simplifyElementGeometry) {
-        this.targetDb.nativeDb.simplifyElementGeometry({
+        this.targetDb.simplifyElementGeometry({
           id: elementId,
           convertBReps: true,
         });
@@ -360,7 +361,6 @@ export class IModelImporter {
       }
       throw error; // throw original error
     }
-    /* eslint-enable deprecation/deprecation */
   }
 
   /** Update an existing Element in the target iModel from the specified ElementProps.
@@ -377,8 +377,7 @@ export class IModelImporter {
     );
     this.trackProgress();
     if (this.options.simplifyElementGeometry) {
-      /* eslint-disable-next-line deprecation/deprecation */
-      this.targetDb.nativeDb.simplifyElementGeometry({
+      this.targetDb.simplifyElementGeometry({
         id: elementProps.id,
         convertBReps: true,
       });
@@ -744,9 +743,11 @@ export class IModelImporter {
         typeof this.options.autoExtendProjectExtents === "object"
           ? this.options.autoExtendProjectExtents.excludeOutliers
           : false;
+      // If excludeOutliers is true, use the extents without outliers. If extentsWithOutliers is undefined, fall back to extents.
       const newProjectExtents: AxisAlignedBox3d = excludeOutliers
         ? computedProjectExtents.extents
-        : computedProjectExtents.extentsWithOutliers!;
+        : (computedProjectExtents.extentsWithOutliers ??
+          computedProjectExtents.extents);
       if (!newProjectExtents.isAlmostEqual(this.targetDb.projectExtents)) {
         this.targetDb.updateProjectExtents(newProjectExtents);
         Logger.logInfo(
@@ -795,8 +796,7 @@ export class IModelImporter {
    */
   public optimizeGeometry(options: OptimizeGeometryOptions): void {
     if (options.inlineUniqueGeometryParts) {
-      /* eslint-disable-next-line deprecation/deprecation */
-      const result = this.targetDb.nativeDb.inlineGeometryPartReferences();
+      const result = this.targetDb.inlineGeometryParts();
       Logger.logInfo(
         loggerCategory,
         `Inlined ${result.numRefsInlined} references to ${result.numCandidateParts} geometry parts and deleted ${result.numPartsDeleted} parts.`
@@ -836,30 +836,28 @@ export function hasEntityChanged(
   namesToIgnore?: Set<string>
 ): boolean {
   let changed: boolean = false;
-  entity.forEachProperty(
-    (propertyName: string, propertyMeta: PropertyMetaData) => {
-      if (!changed) {
-        if (namesToIgnore && namesToIgnore.has(propertyName)) {
-          // skip
-        } else if (PrimitiveTypeCode.Binary === propertyMeta.primitiveType) {
-          changed = hasBinaryValueChanged(
-            entity.asAny[propertyName],
-            (entityProps as any)[propertyName]
-          );
-        } else if (propertyMeta.isNavigation) {
-          changed = hasNavigationValueChanged(
-            entity.asAny[propertyName],
-            (entityProps as any)[propertyName]
-          );
-        } else {
-          changed = hasValueChanged(
-            entity.asAny[propertyName],
-            (entityProps as any)[propertyName]
-          );
-        }
+  entity.forEach((propertyName: string, property: Property) => {
+    if (!changed) {
+      if (namesToIgnore && namesToIgnore.has(propertyName)) {
+        // skip
+      } else if (PropertyType.Binary === property.propertyType) {
+        changed = hasBinaryValueChanged(
+          entity.asAny[ECJsNames.toJsName(propertyName)],
+          (entityProps as any)[ECJsNames.toJsName(propertyName)]
+        );
+      } else if (property.isNavigation()) {
+        changed = hasNavigationValueChanged(
+          entity.asAny[ECJsNames.toJsName(propertyName)],
+          (entityProps as any)[ECJsNames.toJsName(propertyName)]
+        );
+      } else {
+        changed = hasValueChanged(
+          entity.asAny[ECJsNames.toJsName(propertyName)],
+          (entityProps as any)[ECJsNames.toJsName(propertyName)]
+        );
       }
     }
-  );
+  });
   return changed;
 }
 

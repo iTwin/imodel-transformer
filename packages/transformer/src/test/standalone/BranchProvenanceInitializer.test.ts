@@ -9,7 +9,6 @@ import {
   ExternalSourceAspect,
   ExternalSourceIsInRepository,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   RepositoryLink,
@@ -26,7 +25,6 @@ import {
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import {
-  BriefcaseIdValue,
   Code,
   ExternalSourceProps,
   RepositoryLinkProps,
@@ -391,9 +389,9 @@ async function classicalTransformerBranchInit(
       model: IModelDb.rootSubjectId,
       code: Code.createEmpty(),
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorName: require("../../../../package.json").name,
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorVersion: require("../../../../package.json").version,
     })
     .insert();
@@ -422,14 +420,5 @@ async function classicalTransformerBranchInit(
 }
 
 function setToStandalone(iModelName: string) {
-  // eslint-disable-next-line deprecation/deprecation
-  const nativeDb = new IModelHost.platform.DgnDb();
-  nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
-  nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-  nativeDb.saveChanges(); // save change to iTwinId
-  nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-  nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-  nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
-  nativeDb.saveChanges(); // save change to briefcaseId
-  nativeDb.closeFile();
+  StandaloneDb.convertToStandalone(iModelName);
 }

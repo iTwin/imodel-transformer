@@ -11,7 +11,6 @@
 import * as assert from "assert";
 import {
   ConcreteEntityTypes,
-  DbResult,
   EntityReference,
   IModelError,
 } from "@itwin/core-common";
@@ -25,7 +24,7 @@ import {
   IModelDb,
   Relationship,
 } from "@itwin/core-backend";
-import { Id64 } from "@itwin/core-bentley";
+import { DbResult, Id64 } from "@itwin/core-bentley";
 
 /** @internal */
 export namespace EntityUnifier {
@@ -65,12 +64,13 @@ export namespace EntityUnifier {
         : [undefined, arg.entity.id];
     const classFullName =
       "entityReference" in arg
-        ? ConcreteEntityTypes.toBisCoreRootClassFullName(type!)
+        ? // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-non-null-assertion
+          ConcreteEntityTypes.toBisCoreRootClassFullName(type!)
         : `[${arg.entity.schemaName}].[${arg.entity.className}]`;
 
     if (id === undefined || Id64.isInvalid(id)) return false;
 
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return db.withPreparedStatement(
       `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
       (stmt) => {

@@ -127,7 +127,7 @@ describe("IModelCloneContext", () => {
                     JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                     WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
       const sourceRelationshipIds: Id64String[] = [];
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           sourceRelationshipIds.push(statement.getValue(0).getId());

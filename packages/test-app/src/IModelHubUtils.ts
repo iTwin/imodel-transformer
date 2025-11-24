@@ -7,23 +7,24 @@
 import { AccessToken, GuidString, Logger } from "@itwin/core-bentley";
 import * as assert from "assert";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
-import {
-  AccessTokenAdapter,
-  BackendIModelsAccess,
-} from "@itwin/imodels-access-backend";
+import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
+import { AccessTokenAdapter } from "@itwin/imodels-access-common";
+import type { NamedVersion } from "@itwin/imodels-client-management";
 import {
   BriefcaseDb,
   BriefcaseManager,
   IModelHost,
   RequestNewBriefcaseArg,
 } from "@itwin/core-backend";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   BriefcaseIdValue,
   ChangesetId,
   ChangesetIndex,
   ChangesetProps,
 } from "@itwin/core-common";
-import { IModelsClient, NamedVersion } from "@itwin/imodels-client-authoring";
+import { IModelsClient } from "@itwin/imodels-client-authoring";
+import { AzureClientStorage, BlockBlobClientWrapperFactory } from "@itwin/object-storage-azure";
 import { loggerCategory } from "./Transformer";
 
 export class IModelTransformerTestAppHost {
@@ -36,6 +37,7 @@ export class IModelTransformerTestAppHost {
           process.env.IMJS_URL_PREFIX ?? ""
         }api.bentley.com/imodels`,
       },
+      cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
     });
     const hubAccess = new BackendIModelsAccess(
       IModelTransformerTestAppHost.iModelClient
@@ -80,7 +82,7 @@ export namespace IModelHubUtils {
     iModelName: string
   ): Promise<GuidString | undefined> {
     // eslint-disable-next-line @itwin/no-internal
-    return IModelHost.hubAccess.queryIModelByName({
+    return IModelHost[_hubAccess].queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
@@ -98,7 +100,7 @@ export namespace IModelHubUtils {
     return (
       // eslint-disable-next-line @itwin/no-internal
       (
-        await IModelHost.hubAccess.queryChangeset({
+        await IModelHost[_hubAccess].queryChangeset({
           accessToken,
           iModelId,
           changeset: { index: changesetIndex },
@@ -116,7 +118,7 @@ export namespace IModelHubUtils {
     changesetId: ChangesetId
   ): Promise<ChangesetIndex> {
     return (
-      await IModelHost.hubAccess.queryChangeset({
+      await IModelHost[_hubAccess].queryChangeset({
         accessToken,
         iModelId,
         changeset: { id: changesetId },
@@ -130,7 +132,7 @@ export namespace IModelHubUtils {
     iModelId: GuidString,
     func: (c: ChangesetProps) => void
   ): Promise<void> {
-    const changesets = await IModelHost.hubAccess.queryChangesets({
+    const changesets = await IModelHost[_hubAccess].queryChangesets({
       accessToken,
       iModelId,
     });

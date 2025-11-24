@@ -71,10 +71,10 @@ describe("imodel-transformer", () => {
   }
 
   function count(iModelDb: IModelDb, classFullName: string): number {
-    // eslint-disable-next-line deprecation/deprecation
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return iModelDb.withPreparedStatement(
       `SELECT COUNT(*) FROM ${classFullName}`,
-      // eslint-disable-next-line deprecation/deprecation
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): number => {
         return DbResult.BE_SQLITE_ROW === statement.step()
           ? statement.getValue(0).getInteger()
@@ -152,8 +152,7 @@ describe("imodel-transformer", () => {
             GeometricElement3d.classFullName,
           ].map(async (className) => {
             const queryResult = await db
-              // eslint-disable-next-line deprecation/deprecation
-              .query(
+              .createQueryReader(
                 `SELECT COUNT(*) FROM ${className} e JOIN bis.Category c ON e.category.id=c.ECInstanceId WHERE c.CodeValue=:category`,
                 QueryBinder.from({ category: testCategory })
               )
@@ -285,7 +284,7 @@ describe("imodel-transformer", () => {
       db: IModelDb
     ): Promise<typeof elementProps | {}> {
       let result: any = [{}];
-      // eslint-disable-next-line deprecation/deprecation
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       db.withPreparedStatement(
         "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
         (stmtResult) => (result = stmtResult)
@@ -365,7 +364,7 @@ describe("imodel-transformer", () => {
       db: IModelDb
     ): Promise<typeof elementProps | {}> {
       let result: any = [{}];
-      // eslint-disable-next-line deprecation/deprecation
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       db.withPreparedStatement(
         "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
         (stmtResult) => (result = stmtResult)

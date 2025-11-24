@@ -6,12 +6,8 @@
  * @module iModels
  */
 
-import { DbResult, TupleKeyedMap } from "@itwin/core-bentley";
-import {
-  ConcreteEntityTypes,
-  IModelError,
-  RelTypeInfo,
-} from "@itwin/core-common";
+import { Logger, TupleKeyedMap } from "@itwin/core-bentley";
+import { ConcreteEntityTypes, RelTypeInfo } from "@itwin/core-common";
 import {
   ECClass,
   Mixin,
@@ -19,11 +15,11 @@ import {
   RelationshipConstraint,
   Schema,
   SchemaKey,
-  SchemaLoader,
   StrengthDirection,
 } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelDb } from "@itwin/core-backend";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal
@@ -54,6 +50,11 @@ export class ECReferenceTypesCache {
   >();
   private _initedSchemas = new Map<string, SchemaKey>();
 
+  // Performance optimization caches
+  private _rootBisClassCache = new Map<string, ECClass>();
+  private _relationshipInfoCache = new Map<string, RelTypeInfo | undefined>();
+  private _constraintClassCache = new Map<string, ECClass>();
+
   private static bisRootClassToRefType: Record<
     string,
     ConcreteEntityTypes | undefined
@@ -70,6 +71,12 @@ export class ECReferenceTypesCache {
   };
 
   private async getRootBisClass(ecclass: ECClass) {
+    const cacheKey = ecclass.fullName;
+    const cached = this._rootBisClassCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     let bisRootForConstraint: ECClass = ecclass;
     await ecclass.traverseBaseClasses((baseClass) => {
       // The depth first traversal will descend all the way to the root class before making any lateral traversal
@@ -93,12 +100,20 @@ export class ECReferenceTypesCache {
         await bisRootForConstraint.appliesTo
       );
     }
+
+    this._rootBisClassCache.set(cacheKey, bisRootForConstraint);
     return bisRootForConstraint;
   }
 
   private async getAbstractConstraintClass(
     constraint: RelationshipConstraint
   ): Promise<ECClass> {
+    const cacheKey = `${constraint.fullName}_${constraint.constraintClasses?.[0]?.fullName || "abstract"}`;
+    const cached = this._constraintClassCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     // constraint classes must share a base so we can get the root from any of them, just use the first
     const ecclass = await (constraint.constraintClasses?.[0] ||
       constraint.abstractConstraint);
@@ -106,18 +121,19 @@ export class ECReferenceTypesCache {
       ecclass !== undefined,
       "At least one constraint class or an abstract constraint must have been defined, the constraint is not valid"
     );
+
+    this._constraintClassCache.set(cacheKey, ecclass);
     return ecclass;
   }
 
   /** initialize from an imodel with metadata */
   public async initAllSchemasInIModel(imodel: IModelDb): Promise<void> {
-    const schemaLoader = new SchemaLoader((name: string) =>
-      imodel.getSchemaProps(name)
-    );
-    // Issue for `createQueryReader` reported: https://github.com/iTwin/itwinjs-core/issues/7984
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    await imodel.withPreparedStatement(
-      `
+    let totalSchemaCount = 0;
+    let schemaCompletedCount = 0;
+
+    const initStartTime = performance.now();
+
+    const query = `
       WITH RECURSIVE refs(SchemaId) AS (
         SELECT ECInstanceId FROM ECDbMeta.ECSchemaDef WHERE Name='BisCore'
         UNION ALL
@@ -125,22 +141,44 @@ export class ECReferenceTypesCache {
         FROM ECDbMeta.SchemaHasSchemaReferences sr
         JOIN refs ON sr.TargetECInstanceId = refs.SchemaId
       )
-      SELECT s.Name
+      SELECT DISTINCT s.Name as name
       FROM refs
       JOIN ECDbMeta.ECSchemaDef s ON refs.SchemaId=s.ECInstanceId
       -- ensure schema dependency order
-      ORDER BY ECInstanceId
-    `,
-      async (stmt) => {
-        let status: DbResult;
-        while ((status = stmt.step()) === DbResult.BE_SQLITE_ROW) {
-          const schemaName = stmt.getValue(0).getString();
-          const schema = schemaLoader.getSchema(schemaName);
-          await this.considerInitSchema(schema);
-        }
-        if (status !== DbResult.BE_SQLITE_DONE)
-          throw new IModelError(status, "unexpected query failure");
+      ORDER BY s.ECInstanceId
+    `;
+
+    for await (const row of imodel.createQueryReader(query)) {
+      const schemaName = row.name;
+      const startTime = performance.now();
+      Logger.logTrace(
+        TransformerLoggerCategory.ECReferenceTypesCache,
+        `Loading schema: ${schemaName}`
+      );
+      const schemaItemKey = new SchemaKey(schemaName);
+      const schema = await imodel.schemaContext.getSchema(schemaItemKey);
+      if (schema) {
+        await this.considerInitSchema(schema);
+        const endTime = performance.now();
+        Logger.logTrace(
+          TransformerLoggerCategory.ECReferenceTypesCache,
+          `Completed schema: ${schemaName} in ${(endTime - startTime).toFixed(2)}ms`
+        );
+        schemaCompletedCount++;
+      } else {
+        Logger.logInfo(
+          TransformerLoggerCategory.ECReferenceTypesCache,
+          `Did not load schema: ${schemaName}`
+        );
       }
+
+      totalSchemaCount++;
+    }
+
+    const initEndTime = performance.now();
+    Logger.logTrace(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `Schemas completed out of total: ${schemaCompletedCount} / ${totalSchemaCount} in ${(initEndTime - initStartTime).toFixed(2)}ms`
     );
   }
 
@@ -158,34 +196,92 @@ export class ECReferenceTypesCache {
   }
 
   private async initSchema(schema: Schema): Promise<void> {
-    for (const ecclass of schema.getClasses()) {
-      for (const prop of await ecclass.getProperties()) {
-        if (!prop.isNavigation()) continue;
-        const relClass = await prop.relationshipClass;
-        const relInfo = await this.relInfoFromRelClass(relClass);
-        if (relInfo === undefined) continue;
-        const navPropRefType =
-          prop.direction === StrengthDirection.Forward
-            ? relInfo.target
-            : relInfo.source;
-        this._propQualifierToRefType.set(
-          [
-            schema.name.toLowerCase(),
-            ecclass.name.toLowerCase(),
-            prop.name.toLowerCase(),
-          ],
-          navPropRefType
+    Logger.logInfo(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `Init Schema: ${schema.name}`
+    );
+    const schemaNameLower = schema.name.toLowerCase();
+
+    // Pre-collect all items to reduce iterator overhead
+    const allItems = Array.from(schema.getItems());
+    const ecClasses: ECClass[] = [];
+    const relationshipClasses: RelationshipClass[] = [];
+
+    // Single pass through items with type checking
+    for (const item of allItems) {
+      // eslint-disable-next-line @itwin/no-internal
+      if (!ECClass.isECClass(item)) continue;
+      ecClasses.push(item);
+      if (item instanceof RelationshipClass) {
+        relationshipClasses.push(item);
+      }
+    }
+
+    // Process relationship classes in parallel and populate global cache
+    const relInfoPromises = relationshipClasses.map(async (relClass) => {
+      const relInfo = await this.relInfoFromRelClass(relClass);
+      this._relationshipInfoCache.set(relClass.fullName, relInfo);
+      if (relInfo) {
+        this._relClassNameEndToRefTypes.set(
+          [schemaNameLower, relClass.name.toLowerCase()],
+          relInfo
         );
       }
+      return relInfo;
+    });
 
-      if (ecclass instanceof RelationshipClass) {
-        const relInfo = await this.relInfoFromRelClass(ecclass);
-        if (relInfo)
-          this._relClassNameEndToRefTypes.set(
-            [schema.name.toLowerCase(), ecclass.name.toLowerCase()],
-            relInfo
+    // Wait for all relationship info to be cached
+    await Promise.all(relInfoPromises);
+
+    // Process navigation properties with optimized batching
+    const propertyBatchSize = 25;
+    for (let i = 0; i < ecClasses.length; i += propertyBatchSize) {
+      const classBatch = ecClasses.slice(i, i + propertyBatchSize);
+
+      const classPromises = classBatch.map(async (ecclass) => {
+        const properties = await ecclass.getProperties();
+        if (!properties) return;
+
+        const classNameLower = ecclass.name.toLowerCase();
+
+        // Efficiently filter navigation properties
+        const navProps = Array.from(properties).filter((prop) =>
+          prop.isNavigation()
+        );
+        if (navProps.length === 0) return;
+
+        const navPropPromises = navProps.map(async (prop) => {
+          const relClass = await prop.relationshipClass;
+
+          // Use cached relation info
+          let relInfo = this._relationshipInfoCache.get(relClass.fullName);
+          if (
+            relInfo === undefined &&
+            !this._relationshipInfoCache.has(relClass.fullName)
+          ) {
+            relInfo = await this.relInfoFromRelClass(relClass);
+            this._relationshipInfoCache.set(relClass.fullName, relInfo);
+          }
+
+          if (relInfo === undefined) return;
+
+          const navPropRefType =
+            prop.direction === StrengthDirection.Forward
+              ? // eslint-disable-next-line @itwin/no-internal
+                relInfo.target
+              : // eslint-disable-next-line @itwin/no-internal
+                relInfo.source;
+
+          this._propQualifierToRefType.set(
+            [schemaNameLower, classNameLower, prop.name.toLowerCase()],
+            navPropRefType
           );
-      }
+        });
+
+        await Promise.all(navPropPromises);
+      });
+
+      await Promise.all(classPromises);
     }
 
     this._initedSchemas.set(schema.name, schema.schemaKey);
@@ -278,5 +374,9 @@ export class ECReferenceTypesCache {
   public clear() {
     this._initedSchemas.clear();
     this._propQualifierToRefType.clear();
+    this._relClassNameEndToRefTypes.clear();
+    this._rootBisClassCache.clear();
+    this._relationshipInfoCache.clear();
+    this._constraintClassCache.clear();
   }
 }

@@ -2,13 +2,14 @@ name: CI
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "itwinjs-v5" ]
   workflow_dispatch:
 
 jobs:
   check-change-files:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    name: Check change files
+    name: Check change files 
 
     steps:
     - name: Checkout
@@ -21,10 +22,10 @@ jobs:
       with:
         version: 9.14.2
 
-    - name: Use Node.js 20
+    - name: Use Node.js 22
       uses: actions/setup-node@v3
       with:
-        node-version: 20.18.1
+        node-version: 22.12.0
         cache: 'pnpm'
 
     - name: Install dependencies
@@ -48,10 +49,10 @@ jobs:
       with:
         version: 9.14.2
 
-    - name: Use Node.js 20
+    - name: Use Node.js 22
       uses: actions/setup-node@v3
       with:
-        node-version: 20.18.1
+        node-version: 22.12.0
         cache: 'pnpm'
 
     - id: set-matrix
@@ -104,10 +105,10 @@ jobs:
       with:
         version: 9.14.2
 
-    - name: Use Node.js 20
+    - name: Use Node.js 22
       uses: actions/setup-node@v3
       with:
-        node-version: 20.18.1
+        node-version: 22.12.0
         cache: 'pnpm'
 
     - name: Force dependency resolution
@@ -161,6 +162,7 @@ jobs:
         CORE_VERSION: ${{ matrix.version }}
 
     - name: Lint
+      if: github.ref == 'refs/heads/main'
       run: pnpm run lint
 
     - name: Build

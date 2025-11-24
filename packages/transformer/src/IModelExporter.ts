@@ -21,7 +21,6 @@ import {
   ElementUniqueAspect,
   GeometricElement,
   IModelDb,
-  IModelHost,
   IModelJsNative,
   Model,
   PartialECChangeUnifier,
@@ -44,6 +43,8 @@ import {
 import {
   ChangesetFileProps,
   CodeSpec,
+  FontFamilyDescriptor,
+  FontId,
   FontProps,
   IModel,
   IModelError,
@@ -111,6 +112,7 @@ export type ExportChangesOptions = {
    * @default the current changeset of the sourceDb, if undefined
    */
   | { startChangeset: { id?: string; index?: number } }
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   | {}
 );
 
@@ -514,7 +516,6 @@ export class IModelExporter {
    * @note This must be called separately from [[exportAll]] or [[exportChanges]].
    */
   public async exportSchemas(): Promise<void> {
-    /* eslint-disable @typescript-eslint/indent */
     const sql = `
       SELECT s.Name, s.VersionMajor, s.VersionWrite, s.VersionMinor
       FROM ECDbMeta.ECSchemaDef s
@@ -527,9 +528,8 @@ export class IModelExporter {
       }
       ORDER BY ECInstanceId
     `;
-    /* eslint-enable @typescript-eslint/indent */
     const schemaNamesToExport: string[] = [];
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       while (DbResult.BE_SQLITE_ROW === statement.step()) {
         const schemaName = statement.getValue(0).getString();
@@ -571,10 +571,10 @@ export class IModelExporter {
   public async exportCodeSpecs(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportCodeSpecs()");
     const sql = "SELECT Name FROM BisCore:CodeSpec ORDER BY ECInstanceId";
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       async (statement: ECSqlStatement): Promise<void> => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const codeSpecName: string = statement.getValue(0).getString();
@@ -629,19 +629,51 @@ export class IModelExporter {
    */
   public async exportFonts(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportFonts()");
-    for (const font of this.sourceDb.fontMap.fonts.values()) {
-      await this.exportFontByNumber(font.id);
+    for (const font of this.sourceDb.fonts.queryMappedFamilies()) {
+      await this.exportFontByFontProps(font);
+    }
+  }
+
+  /** Export a single font from the source iModel.
+   * @note multiple fonts can have the same font name, if a font with a specific type is needed use exportFontByFontFamilyDescriptor.
+   * If not this will only export the first font with this type in the db.
+   */
+  public async exportFontByName(fontName: string): Promise<void> {
+    Logger.logTrace(loggerCategory, `exportFontByName(${fontName})`);
+    const fontId: FontId | undefined = this.sourceDb.fonts.findId({
+      name: fontName,
+    });
+    if (undefined !== fontId) {
+      await this.exportFontByNumber(fontId);
     }
   }
 
   /** Export a single font from the source iModel.
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
-  public async exportFontByName(fontName: string): Promise<void> {
-    Logger.logTrace(loggerCategory, `exportFontByName(${fontName})`);
-    const font: FontProps | undefined = this.sourceDb.fontMap.getFont(fontName);
-    if (undefined !== font) {
-      await this.exportFontByNumber(font.id);
+  public async exportFontByFontProps(fontProps: FontProps): Promise<void> {
+    Logger.logTrace(
+      loggerCategory,
+      `exportFontByFamily(${fontProps.name}, ${fontProps.type})`
+    );
+    this.handler.onExportFont(fontProps, true);
+    return this.trackProgress();
+  }
+
+  /** Export a single font from the source iModel.
+   * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
+   */
+  public async exportFontByFontFamilyDescriptor(
+    fontFamily: FontFamilyDescriptor
+  ): Promise<void> {
+    Logger.logTrace(
+      loggerCategory,
+      `exportFontByFamilyDescriptor(${fontFamily.name}, ${fontFamily.type})`
+    );
+    const fontId: FontId | undefined =
+      await this.sourceDb.fonts.acquireId(fontFamily);
+    if (undefined !== fontId) {
+      await this.exportFontByFontProps({ ...fontFamily, id: fontId });
     }
   }
 
@@ -654,13 +686,11 @@ export class IModelExporter {
      * It is very rare and even problematic for the font table to reach a large size, so it is not a bottleneck in transforming changes.
      * See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
      */
-    const isUpdate = true;
     Logger.logTrace(loggerCategory, `exportFontById(${fontNumber})`);
-    const font: FontProps | undefined =
-      this.sourceDb.fontMap.getFont(fontNumber);
+    const font: FontFamilyDescriptor | undefined =
+      this.sourceDb.fonts.findDescriptor(fontNumber);
     if (undefined !== font) {
-      this.handler.onExportFont(font, isUpdate);
-      return this.trackProgress();
+      await this.exportFontByFontFamilyDescriptor(font);
     }
   }
 
@@ -745,10 +775,10 @@ export class IModelExporter {
     } else {
       sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId ORDER BY ECInstanceId`;
     }
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       async (statement: ECSqlStatement): Promise<void> => {
         statement.bindId("modelId", modelId);
         if (skipRootSubject) {
@@ -770,10 +800,10 @@ export class IModelExporter {
     const definitionModelIds: Id64String[] = [];
     const otherModelIds: Id64String[] = [];
     const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       (statement: ECSqlStatement): void => {
         statement.bindId("parentModelId", parentModelId);
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
@@ -936,10 +966,10 @@ export class IModelExporter {
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await this.sourceDb.withPreparedStatement(
       sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
       async (statement: ECSqlStatement): Promise<void> => {
         while (DbResult.BE_SQLITE_ROW === statement.step()) {
           const relationshipId = statement.getValue(0).getId();
@@ -1388,7 +1418,7 @@ export class ChangedInstanceIds {
             [
               startChangeset.index ??
                 (
-                  await IModelHost.hubAccess.queryChangeset({
+                  await BriefcaseManager.queryChangeset({
                     iModelId,
                     changeset: {
                       id: startChangeset.id ?? opts.iModel.changeset.id,
@@ -1397,7 +1427,7 @@ export class ChangedInstanceIds {
                 ).index,
               opts.iModel.changeset.index ??
                 (
-                  await IModelHost.hubAccess.queryChangeset({
+                  await BriefcaseManager.queryChangeset({
                     iModelId,
                     changeset: { id: opts.iModel.changeset.id },
                   })
@@ -1412,7 +1442,7 @@ export class ChangedInstanceIds {
         ? (
             await Promise.all(
               changesetRanges.map(async ([first, end]) =>
-                IModelHost.hubAccess.downloadChangesets({
+                BriefcaseManager.downloadChangesets({
                   iModelId,
                   range: { first, end },
                   targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
@@ -1435,7 +1465,7 @@ export class ChangedInstanceIds {
         disableSchemaCheck: true,
       });
       const csAdaptor = new ChangesetECAdaptor(csReader);
-      const ecChangeUnifier = new PartialECChangeUnifier();
+      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }

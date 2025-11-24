@@ -63,7 +63,6 @@ export async function initializeBranchProvenance(
   if (args.createFedGuidsForMaster) {
     // FIXME<LOW>: Consider enforcing that the master and branch dbs passed as part of ProvenanceInitArgs to this function
     // are identical. https://github.com/iTwin/imodel-transformer/issues/138
-    /* eslint-disable deprecation/deprecation */
     args.master.withSqliteStatement(
       `
         UPDATE bis_Element
@@ -72,10 +71,7 @@ export async function initializeBranchProvenance(
       `,
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.nativeDb.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     const masterPath = args.master.pathName;
     const reopenMaster = makeDbReopener(args.master);
@@ -84,10 +80,7 @@ export async function initializeBranchProvenance(
       `ATTACH DATABASE '${pathToFileURL(`${masterPath}`)}?mode=ro' AS master`,
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.nativeDb.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.withSqliteStatement(
       `
@@ -100,10 +93,7 @@ export async function initializeBranchProvenance(
 
       // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(
-          s.step() === DbResult.BE_SQLITE_DONE,
-          args.branch.nativeDb.getLastError()
-        )
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
     args.branch.saveChanges();
@@ -112,16 +102,12 @@ export async function initializeBranchProvenance(
       if (res !== DbResult.BE_SQLITE_DONE)
         Logger.logTrace(
           "initializeBranchProvenance",
-          `Error detaching db (we will close anyway): ${args.branch.nativeDb.getLastError()}`
+          `Error detaching db (we will close anyway): ${args.branch.getLastError()}`
         );
       // this is the case until native side changes
       // eslint-disable-next-line @itwin/no-internal
-      assert(
-        res === DbResult.BE_SQLITE_ERROR,
-        args.branch.nativeDb.getLastError()
-      );
+      assert(res === DbResult.BE_SQLITE_ERROR, args.branch.getLastError());
     });
-    /* eslint-enable deprecation/deprecation */
     args.branch.performCheckpoint();
 
     const reopenBranch = makeDbReopener(args.branch);
@@ -153,10 +139,10 @@ export async function initializeBranchProvenance(
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
     repository: new ExternalSourceIsInRepository(masterRepoLinkId),
-    /* eslint-disable @typescript-eslint/no-var-requires */
+    /* eslint-disable @typescript-eslint/no-require-imports */
     connectorName: require("../../package.json").name,
     connectorVersion: require("../../package.json").version,
-    /* eslint-enable @typescript-eslint/no-var-requires */
+    /* eslint-enable @typescript-eslint/no-require-imports */
   } as ExternalSourceProps);
 
   const fedGuidLessElemsSql = `

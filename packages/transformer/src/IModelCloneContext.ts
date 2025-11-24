@@ -11,13 +11,12 @@ import {
   Code,
   CodeScopeSpec,
   ConcreteEntityTypes,
+  ECJsNames,
   ElementAspectProps,
   ElementProps,
   EntityReference,
   IModel,
   IModelError,
-  PrimitiveTypeCode,
-  PropertyMetaData,
   RelatedElement,
   RelatedElementProps,
 } from "@itwin/core-common";
@@ -32,6 +31,7 @@ import {
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -58,17 +58,15 @@ export class IModelCloneContext extends IModelElementCloneContext {
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
-    sourceElement.forEachProperty(
-      (propertyName: string, meta: PropertyMetaData) => {
-        if (
-          meta.isNavigation &&
-          undefined === (sourceElement as any)[propertyName]
-        ) {
-          (targetElementProps as any)[propertyName] = RelatedElement.none;
-        }
-      },
-      false
-    ); // exclude custom because C++ has already handled them
+    sourceElement.forEach((name: string, property: Property) => {
+      if (
+        property.isNavigation() &&
+        undefined === (sourceElement as any)[ECJsNames.toJsName(name)]
+      ) {
+        (targetElementProps as any)[ECJsNames.toJsName(name)] =
+          RelatedElement.none;
+      }
+    }, false); // exclude custom because C++ has already handled them
     if (this.isBetweenIModels) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is between iModels
       targetElementProps.federationGuid = sourceElement.federationGuid;
@@ -171,7 +169,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
               ELSE 'error'
             END
           `;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
           const relInSource = this.sourceDb.withPreparedStatement(
             `
             SELECT
@@ -227,7 +225,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
             !EntityReferences.isValid(relInTarget.targetId)
           )
             break;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
+          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
           const relInTargetId = this.targetDb.withPreparedStatement(
             `
             SELECT ECInstanceId
@@ -262,36 +260,35 @@ export class IModelCloneContext extends IModelElementCloneContext {
     const targetElementAspectProps: ElementAspectProps =
       sourceElementAspect.toJSON();
     targetElementAspectProps.id = undefined;
-    sourceElementAspect.forEachProperty((propertyName, propertyMetaData) => {
-      if (propertyMetaData.isNavigation) {
+    sourceElementAspect.forEach((name, property) => {
+      if (property.isNavigation()) {
         const sourceNavProp: RelatedElementProps | undefined =
-          sourceElementAspect.asAny[propertyName];
+          sourceElementAspect.asAny[ECJsNames.toJsName(name)];
         if (sourceNavProp?.id) {
           const navPropRefType = this._refTypesCache.getNavPropRefType(
             sourceElementAspect.schemaName,
             sourceElementAspect.className,
-            propertyName
+            ECJsNames.toJsName(name)
           );
           assert(
             navPropRefType !== undefined,
-            `nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`
+            `nav prop ref type for '${name}' was not in the cache, this is a bug.`
           );
           const targetEntityReference = this.findTargetEntityId(
             EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType)
           );
           const targetEntityId = EntityReferences.toId64(targetEntityReference);
           // spread the property in case toJSON did not deep-clone
-          (targetElementAspectProps as any)[propertyName] = {
-            ...(targetElementAspectProps as any)[propertyName],
+          (targetElementAspectProps as any)[ECJsNames.toJsName(name)] = {
+            ...(targetElementAspectProps as any)[ECJsNames.toJsName(name)],
             id: targetEntityId,
           };
         }
-      } else if (
-        PrimitiveTypeCode.Long === propertyMetaData.primitiveType &&
-        "Id" === propertyMetaData.extendedType
-      ) {
-        (targetElementAspectProps as any)[propertyName] =
-          this.findTargetElementId(sourceElementAspect.asAny[propertyName]);
+      } else if (property.isPrimitive() && "Id" === property.extendedTypeName) {
+        (targetElementAspectProps as any)[ECJsNames.toJsName(name)] =
+          this.findTargetElementId(
+            sourceElementAspect.asAny[ECJsNames.toJsName(name)]
+          );
       }
     });
     return targetElementAspectProps;

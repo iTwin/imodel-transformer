@@ -26,6 +26,10 @@ import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { TestTransformerModule } from "./TestTransformerModule";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import {
+  AzureClientStorage,
+  BlockBlobClientWrapperFactory,
+} from "@itwin/object-storage-azure";
+import {
   filterIModels,
   initOutputFile,
   preFetchAsyncIterator,
@@ -142,6 +146,7 @@ const setupTestData = async () => {
     api: {
       baseUrl: `https://${process.env.IMJS_URL_PREFIX}api.bentley.com/imodels`,
     },
+    cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
   });
   // eslint-disable-next-line @itwin/no-internal
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
@@ -176,7 +181,7 @@ async function runRegressionTests() {
             fileName: sourceFileName,
             readonly: true,
           });
-          // eslint-disable-next-line deprecation/deprecation
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           const fedGuidSaturation = sourceDb.withStatement(
             `
             SELECT
