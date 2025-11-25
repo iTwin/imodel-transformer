@@ -182,11 +182,12 @@ describe("IModelExporter", () => {
       );
       sourceDb.saveChanges();
 
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      const sourceRelationships = sourceDb.withStatement(
-        "SELECT ECInstanceId FROM bis.ElementRefersToElements",
-        (stmt) => [...stmt]
-      );
+      const sourceRelationships = [];
+      for await (const row of sourceDb.createQueryReader(
+        "SELECT ECInstanceId FROM bis.ElementRefersToElements"
+      )) {
+        sourceRelationships.push(row);
+      }
       expect(sourceRelationships.length).to.be.equal(4);
 
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
@@ -202,11 +203,12 @@ describe("IModelExporter", () => {
         exporter.exportRelationships(ElementRefersToElements.classFullName)
       ).to.eventually.be.fulfilled;
 
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      const targetRelationships = targetDb.withStatement(
-        "SELECT ECInstanceId FROM bis.ElementRefersToElements",
-        (stmt) => [...stmt]
-      );
+      const targetRelationships = [];
+      for await (const row of targetDb.createQueryReader(
+        "SELECT ECInstanceId FROM bis.ElementRefersToElements"
+      )) {
+        targetRelationships.push(row);
+      }
       expect(
         targetRelationships.length,
         "TargetDb should not contain any invalid relationships"

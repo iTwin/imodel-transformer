@@ -108,6 +108,10 @@ describe("IModelCloneContext", () => {
       relationshipsProps.forEach((props) =>
         sourceDb.relationships.insertInstance(props)
       );
+
+      // Save changes to source DB to ensure relationships are persisted
+      sourceDb.saveChanges();
+
       // Target IModelDb
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
         "IModelTransformer",
@@ -127,12 +131,9 @@ describe("IModelCloneContext", () => {
                     JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                     WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
       const sourceRelationshipIds: Id64String[] = [];
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          sourceRelationshipIds.push(statement.getValue(0).getId());
-        }
-      });
+      for await (const row of sourceDb.createQueryReader(sql)) {
+        sourceRelationshipIds.push(row.id);
+      }
       let atLeastOneRelIdMissMatches = false;
       sourceRelationshipIds.forEach((sourceRelId) => {
         const targetRelId = EntityReferences.toId64(
