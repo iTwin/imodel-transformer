@@ -10,7 +10,6 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   ChangedECInstance,
-  ChangesetECAdaptor,
   DefinitionModel,
   ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -24,7 +23,6 @@ import {
   IModelHost,
   IModelJsNative,
   Model,
-  PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   SqliteChangeOp,
@@ -1170,7 +1168,33 @@ export class ChangedInstanceIds {
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
    * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
    */
-  public async addChange(change: ChangeInstanceKey): Promise<void> {
+  public async addChange(change: ChangedECInstance): Promise<void> {
+    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    if (ecClassId === undefined)
+      throw new Error(
+        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
+      );
+    const changeType: SqliteChangeOp | undefined = change.$meta?.op;
+    if (changeType === undefined)
+      throw new Error(
+        `ChangeType was undefined for id: ${change.ECInstanceId}.`
+      );
+    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
+
+    if (this.isRelationship(ecClassId))
+      this.handleChange(this.relationship, changeType, change.ECInstanceId);
+    else if (this.isCodeSpec(ecClassId))
+      this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
+    else if (this.isAspect(ecClassId))
+      this.handleChange(this.aspect, changeType, change.ECInstanceId);
+    else if (this.isModel(ecClassId))
+      this.handleChange(this.model, changeType, change.ECInstanceId);
+    else if (this.isElement(ecClassId))
+      this.handleChange(this.element, changeType, change.ECInstanceId);
+  }
+
+  public async addChangeKey(change: ChangeInstanceKey): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.classId;
     if (ecClassId === undefined)
@@ -1532,7 +1556,7 @@ class ChangesetProcessor {
           const key = makeKey(row);
           if (!instanceKeySet.has(key)) {
             instanceKeySet.add(key);
-            await store.addChange(row);
+            await store.addChangeKey(row);
           }
         }
       }
