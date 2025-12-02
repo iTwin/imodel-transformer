@@ -1196,7 +1196,7 @@ export class ChangedInstanceIds {
 
   public async addChangeKey(change: ChangeInstanceKey): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    const ecClassId = change.classId;
+    const ecClassId = change.classId || change.fallbackClassId;
     if (ecClassId === undefined)
       throw new Error(
         `ECClassId was not found for id: ${change.instanceId}! Table is : ${change.tableName}`
@@ -1481,6 +1481,10 @@ interface ChangeInstanceKey {
   op: SqliteChangeOp;
   /** The name of the ECDb table containing the changed instance */
   tableName: string;
+  /** The fallback ECClassId to use if classId is not available from the changeset */
+  fallbackClassId: Id64String;
+  /** The previous ECClassId before the change, if applicable */
+  previousClassId?: Id64String;
 }
 
 type ActionOnIdReuseDetected = "Skip" | "Fail";
@@ -1532,7 +1536,7 @@ class ChangesetProcessor {
   ) {
     const instanceKeySet = new Set<string>();
     const makeKey = (val: ChangeInstanceKey) =>
-      `${val.instanceId}-${val.classId}`;
+      `${val.instanceId}-${val.fallbackClassId}-${val.classId}-${val.previousClassId}`;
     const csReader = SqliteChangesetReader.openFile({
       fileName: csFileProp.pathname,
       db: this.db,
@@ -1596,24 +1600,36 @@ class ChangesetProcessor {
     const instanceId = reader.primaryKeyValues[0] as string;
     const kClassIdColumnIndex = 1;
     let classId: Id64String | undefined;
+    let previousClassId: Id64String | undefined;
     let isIdReused: true | undefined;
+    const fallbackClassId = tableInfo.exclusiveRootClassId;
     if (tableInfo.isClassIdVirtual) {
       classId = tableInfo.exclusiveRootClassId;
     } else {
       if (reader.op === "Updated") {
         const oldClassId = reader.getChangeValueId(kClassIdColumnIndex, "Old");
         const newClassId = reader.getChangeValueId(kClassIdColumnIndex, "New");
-        if (oldClassId !== newClassId) {
+        if (oldClassId && newClassId && oldClassId !== newClassId) {
           Logger.logError(
             loggerCategory,
             `ClassId changed during update for instance ${instanceId}`
           );
           isIdReused = true;
+          previousClassId = oldClassId;
+          classId = newClassId;
+        } else if (newClassId) {
+          classId = newClassId;
+        } else if (oldClassId) {
+          classId = oldClassId;
+        } else {
+          const classIdFromDb = this.getClassIdFromDb(
+            reader.tableName,
+            instanceId
+          );
+          if (classIdFromDb) {
+            classId = classIdFromDb;
+          }
         }
-        classId =
-          newClassId ||
-          oldClassId ||
-          this.getClassIdFromDb(reader.tableName, instanceId);
       } else if (reader.op === "Inserted") {
         classId = reader.getChangeValueId(
           kClassIdColumnIndex,
@@ -1630,6 +1646,8 @@ class ChangesetProcessor {
     return {
       instanceId,
       classId,
+      previousClassId,
+      fallbackClassId,
       op: reader.op,
       isIdReused,
       tableName,
