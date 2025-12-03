@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "copy learning folder over to build folder (docs output)",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "'DanRod1999@users.noreply.github.com'",
+  "dependentChangeType": "patch"
+}
