@@ -22,6 +22,8 @@ import { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontProps } from '@itwin/core-common';
+import { Helmert2DWithZOffset } from '@itwin/core-common';
+import { Id64Arg } from '@itwin/core-bentley';
 import { Id64Array } from '@itwin/core-bentley';
 import { Id64Set } from '@itwin/core-bentley';
 import { Id64String } from '@itwin/core-bentley';
@@ -36,11 +38,19 @@ import { Relationship } from '@itwin/core-backend';
 import { RelationshipProps } from '@itwin/core-backend';
 import { Schema } from '@itwin/ecschema-metadata';
 import { SchemaKey } from '@itwin/ecschema-metadata';
+import { SqliteChangeOp } from '@itwin/core-backend';
+import { Transform } from '@itwin/core-geometry';
 
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangedECInstance): Promise<void>;
+    // @beta
+    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    // @beta
+    addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
+    // @beta
+    addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
     // (undocumented)
@@ -49,6 +59,7 @@ export class ChangedInstanceIds {
     element: ChangedInstanceOps;
     // (undocumented)
     font: ChangedInstanceOps;
+    get hasChanges(): boolean;
     static initialize(opts: ChangedInstanceIdsInitOptions): Promise<ChangedInstanceIds | undefined>;
     // (undocumented)
     model: ChangedInstanceOps;
@@ -68,6 +79,7 @@ export class ChangedInstanceOps {
     deleteIds: Set<string>;
     // (undocumented)
     insertIds: Set<string>;
+    get isEmpty(): boolean;
     // (undocumented)
     updateIds: Set<string>;
 }
@@ -232,12 +244,18 @@ export interface IModelImportOptions {
 // @beta
 export class IModelTransformer extends IModelExportHandler {
     constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
+    protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
+    calculateEcefTransform(): Transform | undefined;
+    // (undocumented)
+    calculateTransformFromHelmertTransforms(): Transform | undefined;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
     protected completePartiallyCommittedAspects(): void;
     // (undocumented)
     protected completePartiallyCommittedElements(): void;
     readonly context: IModelCloneContext;
+    // (undocumented)
+    static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     // @deprecated
     detectElementDeletes(): Promise<void>;
     // @deprecated
@@ -356,6 +374,7 @@ export interface IModelTransformOptions {
     preserveElementIdsForFiltering?: boolean;
     skipPropagateChangesToRootElements?: boolean;
     targetScopeElementId?: Id64String;
+    tryAlignGeolocation?: boolean;
     wasSourceIModelCopiedToTarget?: boolean;
 }
 
