@@ -96,6 +96,7 @@ async function initializeBranch(
       code: Code.createEmpty(),
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
       connectorName: "iModel Transformer",
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       connectorVersion: require("@itwin/imodel-transformer/package.json")
         .version,
     })
