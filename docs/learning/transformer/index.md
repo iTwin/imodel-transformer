@@ -1,6 +1,6 @@
 # iModel Transformation and Data Exchange
 
-The `@itwin/core-transformer` package provides some classes that implement [Extract, Transform, and Load](https://en.wikipedia.org/wiki/Extract,_transform,_load) (ETL) functionality:
+The `@itwin/imodel-transformer` package provides some classes that implement [Extract, Transform, and Load](https://en.wikipedia.org/wiki/Extract,_transform,_load) (ETL) functionality:
 
 - [IModelExporter]($transformer) and [IModelExportHandler]($transformer) are the base classes that implement the *extract* (or *export*) part of ETL functionality.
 - [IModelTransformer]($transformer) is the base class that implements the *transform* part of ETL functionality.
@@ -71,7 +71,7 @@ Either of the non-false autoExtendProjectExtents options are useful for consolid
 
 ## IModelCloneContext
 
-The [IModelCloneContext]($backend) class provides the core *cloning* capability required for iModel transformation.
+The [IModelCloneContext]($transformer) class provides the core *cloning* capability required for iModel transformation.
 It also maintains the **sourceId --> targetId** mapping which is required to successfully *clone* [Entity]($backend) instances from the source iModel into the target iModel.
 iModel entities are highly related to each other. Therefore, *cloning* an entity means copying a *graph* of objects and remapping their source references (Ids) to other target entities.
 
