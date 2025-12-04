@@ -71,7 +71,7 @@ Either of the non-false autoExtendProjectExtents options are useful for consolid
 
 ## IModelCloneContext
 
-The [IModelCloneContext]($backend) class provides the core *cloning* capability required for iModel transformation.
+The [IModelCloneContext]($transformer) class provides the core *cloning* capability required for iModel transformation.
 It also maintains the **sourceId --> targetId** mapping which is required to successfully *clone* [Entity]($backend) instances from the source iModel into the target iModel.
 iModel entities are highly related to each other. Therefore, *cloning* an entity means copying a *graph* of objects and remapping their source references (Ids) to other target entities.
 
