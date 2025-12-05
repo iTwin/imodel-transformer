@@ -31,6 +31,7 @@ import {
 import {
   assert,
   DbResult,
+  GuidString,
   Id64,
   Id64Arg,
   Id64Set,
@@ -1485,6 +1486,10 @@ interface ChangeInstanceKey {
   fallbackClassId: Id64String;
   /** The previous ECClassId before the change, if applicable */
   previousClassId?: Id64String;
+  /** The federation GUID associated with the instance, if available */
+  federationGuid?: GuidString;
+  /** The previous federation GUID associated with the instance, if available */
+  previousFederationGuid?: GuidString;
 }
 
 type ActionOnIdReuseDetected = "Skip" | "Fail";
@@ -1542,10 +1547,20 @@ class ChangesetProcessor {
       db: this.db,
       disableSchemaCheck: true,
     });
-
+    let fedGuidColumnIndex: number | undefined;
     try {
       while (csReader.step()) {
-        const row = this.processRow(csReader);
+        if (
+          csReader.tableName === "bis_Element" &&
+          fedGuidColumnIndex === undefined
+        ) {
+          fedGuidColumnIndex = csReader
+            .getColumnNames(csReader.tableName)
+            .indexOf("FederationGuid");
+          if (fedGuidColumnIndex < 0) fedGuidColumnIndex = undefined;
+        }
+
+        const row = this.processRow(csReader, fedGuidColumnIndex);
         // SKIP over row where ClassId was reused
         if (row) {
           if (row.isIdReused)
@@ -1579,7 +1594,8 @@ class ChangesetProcessor {
    * available in the changeset.
    */
   private processRow(
-    reader: SqliteChangesetReader
+    reader: SqliteChangesetReader,
+    fedGuidColumnIndex?: number
   ): ChangeInstanceKey | undefined {
     const tableName = reader.tableName;
     if (
@@ -1643,6 +1659,25 @@ class ChangesetProcessor {
       }
     }
 
+    let federationGuid: GuidString | undefined;
+    let previousFederationGuid: GuidString | undefined;
+    if (fedGuidColumnIndex) {
+      const oldFedGuid =
+        reader.op !== "Inserted"
+          ? reader.getChangeValueBinary(fedGuidColumnIndex, "Old")
+          : undefined;
+      const newFedGuid =
+        reader.op !== "Deleted"
+          ? reader.getChangeValueBinary(fedGuidColumnIndex, "New")
+          : undefined;
+      if (newFedGuid) {
+        federationGuid = ChangesetProcessor.convertBinaryToGuid(newFedGuid);
+      } else if (oldFedGuid) {
+        previousFederationGuid =
+          ChangesetProcessor.convertBinaryToGuid(oldFedGuid);
+      }
+    }
+
     return {
       instanceId,
       classId,
@@ -1651,7 +1686,21 @@ class ChangesetProcessor {
       op: reader.op,
       isIdReused,
       tableName,
+      federationGuid,
+      previousFederationGuid,
     };
+  }
+  private static convertBinaryToGuid(binaryGUID: Uint8Array): GuidString {
+    // Check if the array has 16 elements
+    if (binaryGUID.length !== 16) {
+      throw new Error("Invalid array length for Guid");
+    }
+    // Convert each element to a two-digit hexadecimal string
+    const hex = Array.from(binaryGUID, (byte) =>
+      byte.toString(16).padStart(2, "0")
+    );
+    // Join the hexadecimal strings and insert hyphens
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
   }
   /**
    * Retrieves the ECClassId for a given instance directly from the database.
