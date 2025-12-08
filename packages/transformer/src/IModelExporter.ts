@@ -1501,6 +1501,7 @@ type ActionOnIdReuseDetected = "Skip" | "Fail";
 class ChangesetProcessor {
   private _cacheTables = new Map<string, TableInfo>();
   private _onIdReuseDetected: ActionOnIdReuseDetected = "Fail";
+  private _deletedReusedIds: Set<GuidString> = new Set();
   public constructor(public readonly db: IModelDb) {}
 
   /**
@@ -1561,7 +1562,7 @@ class ChangesetProcessor {
         }
 
         const row = this.processRow(csReader, fedGuidColumnIndex);
-        // SKIP over row where ClassId was reused
+        // where ClassId is reused add to deletedReusedIds list and set op to inserted
         if (row) {
           if (row.isIdReused)
             if (this._onIdReuseDetected === "Fail") {
@@ -1672,7 +1673,7 @@ class ChangesetProcessor {
           : undefined;
       if (newFedGuid) {
         federationGuid = ChangesetProcessor.convertBinaryToGuid(newFedGuid);
-      } else if (oldFedGuid) {
+      } else if (oldFedGuid && oldFedGuid.length !== 0) {
         previousFederationGuid =
           ChangesetProcessor.convertBinaryToGuid(oldFedGuid);
       }
