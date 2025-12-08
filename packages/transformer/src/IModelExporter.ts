@@ -1561,7 +1561,12 @@ class ChangesetProcessor {
           if (fedGuidColumnIndex < 0) fedGuidColumnIndex = undefined;
         }
 
-        const row = this.processRow(csReader, fedGuidColumnIndex);
+        const row = this.processRow(
+          csReader,
+          fedGuidColumnIndex && csReader.tableName === "bis_Element"
+            ? fedGuidColumnIndex
+            : undefined
+        );
         // where ClassId is reused add to deletedReusedIds list and set op to inserted
         if (row) {
           if (row.isIdReused)
@@ -1671,7 +1676,7 @@ class ChangesetProcessor {
         reader.op !== "Deleted"
           ? reader.getChangeValueBinary(fedGuidColumnIndex, "New")
           : undefined;
-      if (newFedGuid) {
+      if (newFedGuid && newFedGuid.length !== 0) {
         federationGuid = ChangesetProcessor.convertBinaryToGuid(newFedGuid);
       } else if (oldFedGuid && oldFedGuid.length !== 0) {
         previousFederationGuid =
