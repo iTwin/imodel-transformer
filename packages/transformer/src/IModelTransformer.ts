@@ -3010,6 +3010,27 @@ export class IModelTransformer extends IModelExportHandler {
       this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
     );
 
+    // Delete elements in targetDb that correspond to deletedReusedIds (federation GUIDs)
+    if (this.exporter.sourceDbChanges?.deletedReusedIds) {
+      for (const federationGuid of this.exporter.sourceDbChanges
+        .deletedReusedIds) {
+        const targetElementId = this._queryElemIdByFedGuid(
+          this.targetDb,
+          federationGuid
+        );
+        if (targetElementId && Id64.isValid(targetElementId)) {
+          try {
+            this.targetDb.elements.deleteElement(targetElementId);
+          } catch (error) {
+            Logger.logWarning(
+              loggerCategory,
+              `Failed to delete element ${targetElementId} with federation GUID ${federationGuid}: ${error}`
+            );
+          }
+        }
+      }
+    }
+
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
     await this.processChangesets();
 

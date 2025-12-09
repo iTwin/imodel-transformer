@@ -1067,6 +1067,7 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
+  public deletedReusedIds: Set<GuidString> = new Set();
   private _codeSpecSubclassIds?: Set<string>;
   private _modelSubclassIds?: Set<string>;
   private _elementSubclassIds?: Set<string>;
@@ -1501,7 +1502,6 @@ type ActionOnIdReuseDetected = "Skip" | "Fail";
 class ChangesetProcessor {
   private _cacheTables = new Map<string, TableInfo>();
   private _onIdReuseDetected: ActionOnIdReuseDetected = "Fail";
-  private _deletedReusedIds: Set<GuidString> = new Set();
   public constructor(public readonly db: IModelDb) {}
 
   /**
@@ -1567,16 +1567,12 @@ class ChangesetProcessor {
             ? fedGuidColumnIndex
             : undefined
         );
-        // where ClassId is reused add to deletedReusedIds list and set op to inserted
+        // where ClassId is reused add to deletedReusedIds list
         if (row) {
-          if (row.isIdReused)
-            if (this._onIdReuseDetected === "Fail") {
-              throw new Error(
-                `ClassId changed during update for instance ${row.instanceId}`
-              );
-            } else {
-              continue;
-            }
+          if (row.isIdReused && row.previousFederationGuid) {
+            store.deletedReusedIds.add(row.previousFederationGuid);
+            row.op = "Inserted";
+          }
 
           const key = makeKey(row);
           if (!instanceKeySet.has(key)) {
