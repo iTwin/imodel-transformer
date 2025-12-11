@@ -3020,7 +3020,7 @@ export class IModelTransformer extends IModelExportHandler {
         );
         if (targetElementId && Id64.isValid(targetElementId)) {
           try {
-            this.targetDb.elements.deleteElement(targetElementId);
+            this.importer.deleteElement(targetElementId);
           } catch (error) {
             Logger.logWarning(
               loggerCategory,
