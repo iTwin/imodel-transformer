@@ -1674,9 +1674,9 @@ class ChangesetProcessor {
           : undefined;
       if (newFedGuid && newFedGuid.length !== 0) {
         federationGuid = ChangesetProcessor.convertBinaryToGuid(newFedGuid);
-      } else if (oldFedGuid && oldFedGuid.length !== 0) {
-        previousFederationGuid =
-          ChangesetProcessor.convertBinaryToGuid(oldFedGuid);
+      }
+      if (oldFedGuid && oldFedGuid.length !== 0) {
+        previousFederationGuid = ChangesetProcessor.convertBinaryToGuid(oldFedGuid);
       }
     }
 
