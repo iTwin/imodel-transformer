@@ -1510,6 +1510,22 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
+  private async _getClassFullNameById(
+    classId: string
+  ): Promise<string | undefined> {
+    try {
+      const sql = "SELECT ec_classname(:classId, 's:c') AS FullName";
+      const params = new QueryBinder().bindId("classId", classId);
+
+      for await (const row of this.sourceDb.createQueryReader(sql, params)) {
+        return row.FullName;
+      }
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private _queryElemIdByFedGuid(
     db: IModelDb,
     fedGuid: GuidString
@@ -3010,22 +3026,42 @@ export class IModelTransformer extends IModelExportHandler {
       this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
     );
 
-    // Delete elements in targetDb that correspond to deletedReusedIds (federation GUIDs)
+    // Delete elements/relationships in targetDb that correspond to deletedReusedIds (federation GUIDs)
     if (this.exporter.sourceDbChanges?.deletedReusedIds) {
-      for (const federationGuid of this.exporter.sourceDbChanges
+      for (const instanceToDelete of this.exporter.sourceDbChanges
         .deletedReusedIds) {
-        const targetElementId = this._queryElemIdByFedGuid(
-          this.targetDb,
-          federationGuid
-        );
-        if (targetElementId && Id64.isValid(targetElementId)) {
-          try {
-            this.importer.deleteElement(targetElementId);
-          } catch (error) {
-            Logger.logWarning(
-              loggerCategory,
-              `Failed to delete element ${targetElementId} with federation GUID ${federationGuid}: ${error}`
-            );
+        if (instanceToDelete.fedGuid) {
+          const targetElementId = this._queryElemIdByFedGuid(
+            this.targetDb,
+            instanceToDelete.fedGuid
+          );
+          if (targetElementId && Id64.isValid(targetElementId)) {
+            try {
+              this.importer.deleteElement(targetElementId);
+            } catch (error) {
+              Logger.logWarning(
+                loggerCategory,
+                `Failed to delete element ${targetElementId} with federation GUID ${instanceToDelete.fedGuid}: ${error}`
+              );
+            }
+          }
+        } else {
+          const classFullName = await this._getClassFullNameById(
+            instanceToDelete.classId
+          );
+          if (classFullName) {
+            try {
+              const targetRelationshipProps: RelationshipPropsForDelete = {
+                id: instanceToDelete.instanceId,
+                classFullName,
+              };
+              this.importer.deleteRelationship(targetRelationshipProps);
+            } catch (error) {
+              Logger.logWarning(
+                loggerCategory,
+                `Failed to delete relationship instance ${instanceToDelete.instanceId} from class ${classFullName}: ${error}`
+              );
+            }
           }
         }
       }

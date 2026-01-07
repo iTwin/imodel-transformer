@@ -81,6 +81,16 @@ export interface ExportSchemaResult {
 export type ExporterInitOptions = ExportChangesOptions;
 
 /**
+ * Represents a deleted reused ID with class and federation GUID
+ * @public
+ */
+export interface DeletedReusedId {
+  classId: string;
+  instanceId: string;
+  fedGuid?: GuidString;
+}
+
+/**
  * Arguments for [[IModelExporter.exportChanges]]
  * @public
  */
@@ -1067,7 +1077,7 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
-  public deletedReusedIds: Set<GuidString> = new Set();
+  public deletedReusedIds: Set<DeletedReusedId> = new Set();
   private _codeSpecSubclassIds?: Set<string>;
   private _modelSubclassIds?: Set<string>;
   private _elementSubclassIds?: Set<string>;
@@ -1569,8 +1579,12 @@ class ChangesetProcessor {
         );
         // where ClassId is reused add to deletedReusedIds list
         if (row) {
-          if (row.isIdReused && row.previousFederationGuid) {
-            store.deletedReusedIds.add(row.previousFederationGuid);
+          if (row.isIdReused && row.classId && row.instanceId) {
+            store.deletedReusedIds.add({
+              classId: row.classId,
+              instanceId: row.instanceId,
+              fedGuid: row.previousFederationGuid,
+            });
             row.op = "Inserted";
           }
 
@@ -1676,7 +1690,8 @@ class ChangesetProcessor {
         federationGuid = ChangesetProcessor.convertBinaryToGuid(newFedGuid);
       }
       if (oldFedGuid && oldFedGuid.length !== 0) {
-        previousFederationGuid = ChangesetProcessor.convertBinaryToGuid(oldFedGuid);
+        previousFederationGuid =
+          ChangesetProcessor.convertBinaryToGuid(oldFedGuid);
       }
     }
 

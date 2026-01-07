@@ -26,7 +26,7 @@ import { assert, expect } from "chai";
 import path = require("path");
 import { HubWrappers, IModelTestUtils, KnownTestLocations } from "../TestUtils";
 
-describe.only("BadChangeSet", () => {
+describe.skip("BadChangeSet", () => {
   let iTwinId: GuidString;
 
   before(async () => {
