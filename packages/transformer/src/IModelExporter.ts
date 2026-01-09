@@ -10,7 +10,6 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   ChangedECInstance,
-  ChangesetECAdaptor,
   DefinitionModel,
   ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -24,7 +23,6 @@ import {
   IModelHost,
   IModelJsNative,
   Model,
-  PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   SqliteChangeOp,
@@ -33,6 +31,7 @@ import {
 import {
   assert,
   DbResult,
+  GuidString,
   Id64,
   Id64Arg,
   Id64Set,
@@ -80,6 +79,19 @@ export interface ExportSchemaResult {
  * @beta
  */
 export type ExporterInitOptions = ExportChangesOptions;
+
+type EntityClass = "Aspect" | "Element" | "Model" | "Relationship";
+
+/**
+ * Represents a deleted reused ID with class and federation GUID
+ * @public
+ */
+export interface DeletedReusedId {
+  classId: string;
+  instanceId: string;
+  fedGuid?: GuidString;
+  entityClass: EntityClass;
+}
 
 /**
  * Arguments for [[IModelExporter.exportChanges]]
@@ -1068,6 +1080,7 @@ export class ChangedInstanceIds {
   public aspect = new ChangedInstanceOps();
   public relationship = new ChangedInstanceOps();
   public font = new ChangedInstanceOps();
+  public deletedReusedIds: Set<DeletedReusedId> = new Set();
   private _codeSpecSubclassIds?: Set<string>;
   private _modelSubclassIds?: Set<string>;
   private _elementSubclassIds?: Set<string>;
@@ -1130,23 +1143,23 @@ export class ChangedInstanceIds {
     );
   }
 
-  private isRelationship(ecClassId: string) {
+  public isRelationship(ecClassId: string) {
     return this._relationshipSubclassIds?.has(ecClassId);
   }
 
-  private isCodeSpec(ecClassId: string) {
+  public isCodeSpec(ecClassId: string) {
     return this._codeSpecSubclassIds?.has(ecClassId);
   }
 
-  private isAspect(ecClassId: string) {
+  public isAspect(ecClassId: string) {
     return this._aspectSubclassIds?.has(ecClassId);
   }
 
-  private isModel(ecClassId: string) {
+  public isModel(ecClassId: string) {
     return this._modelSubclassIds?.has(ecClassId);
   }
 
-  private isElement(ecClassId: string) {
+  public isElement(ecClassId: string) {
     return this._elementSubclassIds?.has(ecClassId);
   }
 
@@ -1194,6 +1207,29 @@ export class ChangedInstanceIds {
       this.handleChange(this.model, changeType, change.ECInstanceId);
     else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
+  }
+
+  public async addChangeKey(change: ChangeInstanceKey): Promise<void> {
+    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    const ecClassId = change.classId || change.fallbackClassId;
+    if (ecClassId === undefined)
+      throw new Error(
+        `ECClassId was not found for id: ${change.instanceId}! Table is : ${change.tableName}`
+      );
+
+    const changeType: SqliteChangeOp | undefined = change.op;
+    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
+
+    if (this.isRelationship(ecClassId))
+      this.handleChange(this.relationship, changeType, change.instanceId);
+    else if (this.isCodeSpec(ecClassId))
+      this.handleChange(this.codeSpec, changeType, change.instanceId);
+    else if (this.isAspect(ecClassId))
+      this.handleChange(this.aspect, changeType, change.instanceId);
+    else if (this.isModel(ecClassId))
+      this.handleChange(this.model, changeType, change.instanceId);
+    else if (this.isElement(ecClassId))
+      this.handleChange(this.element, changeType, change.instanceId);
   }
 
   /**
@@ -1427,25 +1463,354 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
+    const processor = new ChangesetProcessor(opts.iModel);
 
-    for (const csFile of csFileProps) {
-      const csReader = SqliteChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: opts.iModel,
-        disableSchemaCheck: true,
-      });
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      const ecChangeUnifier = new PartialECChangeUnifier();
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
-      }
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
+    // row will be skip could cause some other issue.
+    processor.setActionForWhenIdReuseDetected("Skip");
+    await processor.processFiles(csFileProps, changedInstanceIds);
+    return changedInstanceIds;
+  }
+}
 
-      for (const change of changes) {
-        await changedInstanceIds.addChange(change);
+/**
+ * Information about an ECDb table used during changeset processing.
+ * @internal
+ */
+interface TableInfo {
+  readonly exclusiveRootClassId: Id64String;
+  readonly isClassIdVirtual: boolean;
+}
+
+/**
+ * Represents a changed instance key extracted from a changeset.
+ * @internal
+ */
+interface ChangeInstanceKey {
+  /** The ECInstanceId of the changed instance */
+  instanceId: Id64String;
+  /** The ECClassId of the changed instance. May be undefined if not available from the changeset. */
+  classId?: Id64String;
+  /** Indicates if the instance ID was reused (i.e., ClassId changed during an update operation) */
+  isIdReused?: true;
+  /** The type of change operation performed on the instance */
+  op: SqliteChangeOp;
+  /** The name of the ECDb table containing the changed instance */
+  tableName: string;
+  /** The fallback ECClassId to use if classId is not available from the changeset */
+  fallbackClassId: Id64String;
+  /** The previous ECClassId before the change, if applicable */
+  previousClassId?: Id64String;
+  /** The federation GUID associated with the instance, if available */
+  federationGuid?: GuidString;
+  /** The previous federation GUID associated with the instance, if available */
+  previousFederationGuid?: GuidString;
+}
+
+type ActionOnIdReuseDetected = "Skip" | "Fail";
+/**
+ * Processes changesets to extract changed instance information.
+ * This class reads changeset files and populates a ChangedInstanceIds object with the changes.
+ * @internal
+ */
+export class ChangesetProcessor {
+  private _cacheTables = new Map<string, TableInfo>();
+  private _onIdReuseDetected: ActionOnIdReuseDetected = "Fail";
+  public constructor(public readonly db: IModelDb) {}
+
+  /**
+   * Sets the action to take when ID reuse is detected during changeset processing.
+   * @param value The action to take - either "Skip" to ignore reused IDs or "Fail" to throw an error.
+   * @remarks ID reuse occurs when an ECInstanceId is deleted and then reinserted with a different ECClassId.
+   * The default behavior is "Fail" which logs an error when ID reuse is detected.
+   */
+  public setActionForWhenIdReuseDetected(value: ActionOnIdReuseDetected) {
+    this._onIdReuseDetected = value;
+  }
+
+  /**
+   * Processes multiple changeset files sequentially.
+   * @param csFileProps Array of changeset file properties to process.
+   * @param store The ChangedInstanceIds object to populate with extracted changes.
+   */
+  public async processFiles(
+    csFileProps: ChangesetFileProps[],
+    store: ChangedInstanceIds
+  ) {
+    for (const csFileProp of csFileProps) {
+      await this.processFile(csFileProp, store);
+    }
+  }
+
+  /**
+   * Processes a single changeset file and extracts changed instance information.
+   * @param csFileProp The changeset file properties.
+   * @param store The ChangedInstanceIds object to populate with extracted changes.
+   * @remarks This method reads through the changeset file, processes each row, and adds valid changes
+   * to the store. Duplicate changes (based on instanceId and classId) are skipped, and rows where
+   * the ClassId was reused are also filtered out.
+   */
+  public async processFile(
+    csFileProp: ChangesetFileProps,
+    store: ChangedInstanceIds
+  ) {
+    const instanceKeySet = new Set<string>();
+    const makeKey = (val: ChangeInstanceKey) =>
+      `${val.instanceId}-${val.fallbackClassId}-${val.classId}-${val.previousClassId}`;
+    const csReader = SqliteChangesetReader.openFile({
+      fileName: csFileProp.pathname,
+      db: this.db,
+      disableSchemaCheck: true,
+    });
+    let fedGuidColumnIndex: number | undefined;
+    try {
+      while (csReader.step()) {
+        if (
+          csReader.tableName === "bis_Element" &&
+          fedGuidColumnIndex === undefined
+        ) {
+          fedGuidColumnIndex = csReader
+            .getColumnNames(csReader.tableName)
+            .indexOf("FederationGuid");
+          if (fedGuidColumnIndex < 0) fedGuidColumnIndex = undefined;
+        }
+
+        const row = this.processRow(
+          csReader,
+          fedGuidColumnIndex && csReader.tableName === "bis_Element"
+            ? fedGuidColumnIndex
+            : undefined
+        );
+        // where ClassId is reused add to deletedReusedIds list
+        if (row) {
+          const key = makeKey(row);
+          if (!instanceKeySet.has(key)) {
+            instanceKeySet.add(key);
+            await store.addChangeKey(row);
+          }
+
+          if (row.isIdReused && row.classId && row.instanceId) {
+            let entityClass: EntityClass;
+            if (store.isAspect(row.classId)) entityClass = "Aspect";
+            else if (store.isElement(row.classId)) entityClass = "Element";
+            else if (store.isModel(row.classId)) entityClass = "Model";
+            else if (store.isRelationship(row.classId))
+              entityClass = "Relationship";
+            else
+              throw new Error(
+                "entity with reused id must be of class aspect, element, model, or relationship"
+              );
+
+            store.deletedReusedIds.add({
+              classId: row.classId,
+              instanceId: row.instanceId,
+              fedGuid: row.previousFederationGuid,
+              entityClass,
+            });
+            row.op = "Inserted";
+          }
+        }
       }
+    } finally {
       csReader.close();
     }
-    return changedInstanceIds;
+  }
+
+  /**
+   * Processes a single row from the changeset reader and extracts change information.
+   * @param reader The SqliteChangesetReader positioned at the current row.
+   * @returns A ChangeInstanceKey object containing the extracted change information, or undefined
+   * if the row should be skipped (e.g., system tables, invalid primary keys).
+   * @remarks This method handles special cases such as virtual ClassId columns, ClassId changes
+   * during updates (ID reuse), and falls back to querying the database when ClassId is not
+   * available in the changeset.
+   */
+  private processRow(
+    reader: SqliteChangesetReader,
+    fedGuidColumnIndex?: number
+  ): ChangeInstanceKey | undefined {
+    const tableName = reader.tableName;
+    if (
+      tableName.startsWith("ec_") ||
+      tableName.startsWith("be_") ||
+      tableName.startsWith("dgn_")
+    )
+      return;
+
+    const tableInfo = this.getTable(tableName);
+    if (!tableInfo) {
+      return undefined;
+    }
+
+    const pks = reader.primaryKeyValues;
+    if (pks.length !== 1) return undefined;
+
+    const instanceId = reader.primaryKeyValues[0] as string;
+    const kClassIdColumnIndex = 1;
+    let classId: Id64String | undefined;
+    let previousClassId: Id64String | undefined;
+    let isIdReused: true | undefined;
+    const fallbackClassId = tableInfo.exclusiveRootClassId;
+    if (tableInfo.isClassIdVirtual) {
+      classId = tableInfo.exclusiveRootClassId;
+    } else {
+      if (reader.op === "Updated") {
+        const oldClassId = reader.getChangeValueId(kClassIdColumnIndex, "Old");
+        const newClassId = reader.getChangeValueId(kClassIdColumnIndex, "New");
+        if (oldClassId && newClassId && oldClassId !== newClassId) {
+          Logger.logError(
+            loggerCategory,
+            `ClassId changed during update for instance ${instanceId}`
+          );
+          isIdReused = true;
+          previousClassId = oldClassId;
+          classId = newClassId;
+        } else if (newClassId) {
+          classId = newClassId;
+        } else if (oldClassId) {
+          classId = oldClassId;
+        } else {
+          const classIdFromDb = this.getClassIdFromDb(
+            reader.tableName,
+            instanceId
+          );
+          if (classIdFromDb) {
+            classId = classIdFromDb;
+          }
+        }
+      } else if (reader.op === "Inserted") {
+        classId = reader.getChangeValueId(
+          kClassIdColumnIndex,
+          "New"
+        ) as Id64String;
+      } else if (reader.op === "Deleted") {
+        classId = reader.getChangeValueId(
+          kClassIdColumnIndex,
+          "Old"
+        ) as Id64String;
+      }
+    }
+
+    let federationGuid: GuidString | undefined;
+    let previousFederationGuid: GuidString | undefined;
+    if (fedGuidColumnIndex) {
+      const oldFedGuid =
+        reader.op !== "Inserted"
+          ? reader.getChangeValueBinary(fedGuidColumnIndex, "Old")
+          : undefined;
+      const newFedGuid =
+        reader.op !== "Deleted"
+          ? reader.getChangeValueBinary(fedGuidColumnIndex, "New")
+          : undefined;
+      if (newFedGuid && newFedGuid.length !== 0) {
+        federationGuid = ChangesetProcessor.convertBinaryToGuid(newFedGuid);
+      }
+      if (oldFedGuid && oldFedGuid.length !== 0) {
+        previousFederationGuid =
+          ChangesetProcessor.convertBinaryToGuid(oldFedGuid);
+      }
+    }
+
+    return {
+      instanceId,
+      classId,
+      previousClassId,
+      fallbackClassId,
+      op: reader.op,
+      isIdReused,
+      tableName,
+      federationGuid,
+      previousFederationGuid,
+    };
+  }
+  private static convertBinaryToGuid(binaryGUID: Uint8Array): GuidString {
+    // Check if the array has 16 elements
+    if (binaryGUID.length !== 16) {
+      throw new Error("Invalid array length for Guid");
+    }
+    // Convert each element to a two-digit hexadecimal string
+    const hex = Array.from(binaryGUID, (byte) =>
+      byte.toString(16).padStart(2, "0")
+    );
+    // Join the hexadecimal strings and insert hyphens
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
+  }
+  /**
+   * Retrieves the ECClassId for a given instance directly from the database.
+   * @param tableName The name of the table containing the instance.
+   * @param instanceId The ECInstanceId to look up.
+   * @returns The ECClassId if found, undefined otherwise.
+   * @remarks This is used as a fallback when the ClassId cannot be determined from the changeset itself.
+   */
+  private getClassIdFromDb(
+    tableName: string,
+    instanceId: Id64String
+  ): Id64String | undefined {
+    try {
+      return this.db?.withPreparedSqliteStatement(
+        `SELECT [ECClassId] FROM [${tableName}] WHERE [rowId]=?`,
+        (stmt) => {
+          stmt.bindId(1, instanceId);
+          return stmt.step() === DbResult.BE_SQLITE_ROW
+            ? stmt.getValueId(0)
+            : undefined;
+        }
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Retrieves table metadata from the ECDb schema tables.
+   * @param tableName The name of the table to look up.
+   * @returns TableInfo containing the table's exclusive root class ID and whether ClassId is virtual,
+   * or undefined if the table is not found.
+   * @remarks Results are cached to avoid repeated database queries for the same table.
+   * The exclusive root class ID is used for tables with virtual ClassId columns where all instances
+   * share the same class.
+   */
+  private getTable(tableName: string): TableInfo | undefined {
+    if (this._cacheTables.has(tableName))
+      return this._cacheTables.get(tableName);
+
+    const sql = `
+      SELECT
+        JSON_OBJECT (
+        'exclusiveRootClassId', FORMAT ('0x%x',
+          COALESCE (
+            [t].[ExclusiveRootClassId], (
+              SELECT [parent].[ExclusiveRootClassId]
+              FROM [ec_Table] [parent]
+              WHERE [parent].[Id] = [t].[ParentTableId] AND [parent].[Type] = 1))),
+        'isClassIdVirtual', (
+          SELECT
+            [c].[IsVirtual]
+          FROM
+            [ec_Column] [c]
+          WHERE
+            [c].[Name] = 'ECClassId' AND [c].[TableId] = [t].[Id]
+        )
+      )
+      FROM [ec_Table] [t]
+      WHERE
+        [t].[Name] = ?;
+    `;
+
+    return this.db.withPreparedSqliteStatement(sql, (stmt) => {
+      stmt.bindString(1, tableName);
+      if (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const table = JSON.parse(stmt.getValueString(0), (key, value) => {
+          if (value === null) return undefined;
+
+          if (key === "isClassIdVirtual") return value === 0 ? false : true;
+
+          return value;
+        }) as TableInfo;
+
+        this._cacheTables.set(tableName, table);
+        return table;
+      }
+      return undefined;
+    });
   }
 }
