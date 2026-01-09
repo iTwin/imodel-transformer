@@ -80,6 +80,8 @@ export interface ExportSchemaResult {
  */
 export type ExporterInitOptions = ExportChangesOptions;
 
+type EntityClass = "Aspect" | "Element" | "Model" | "Relationship";
+
 /**
  * Represents a deleted reused ID with class and federation GUID
  * @public
@@ -88,6 +90,7 @@ export interface DeletedReusedId {
   classId: string;
   instanceId: string;
   fedGuid?: GuidString;
+  entityClass: EntityClass;
 }
 
 /**
@@ -1140,23 +1143,23 @@ export class ChangedInstanceIds {
     );
   }
 
-  private isRelationship(ecClassId: string) {
+  public isRelationship(ecClassId: string) {
     return this._relationshipSubclassIds?.has(ecClassId);
   }
 
-  private isCodeSpec(ecClassId: string) {
+  public isCodeSpec(ecClassId: string) {
     return this._codeSpecSubclassIds?.has(ecClassId);
   }
 
-  private isAspect(ecClassId: string) {
+  public isAspect(ecClassId: string) {
     return this._aspectSubclassIds?.has(ecClassId);
   }
 
-  private isModel(ecClassId: string) {
+  public isModel(ecClassId: string) {
     return this._modelSubclassIds?.has(ecClassId);
   }
 
-  private isElement(ecClassId: string) {
+  public isElement(ecClassId: string) {
     return this._elementSubclassIds?.has(ecClassId);
   }
 
@@ -1509,7 +1512,7 @@ type ActionOnIdReuseDetected = "Skip" | "Fail";
  * This class reads changeset files and populates a ChangedInstanceIds object with the changes.
  * @internal
  */
-class ChangesetProcessor {
+export class ChangesetProcessor {
   private _cacheTables = new Map<string, TableInfo>();
   private _onIdReuseDetected: ActionOnIdReuseDetected = "Fail";
   public constructor(public readonly db: IModelDb) {}
@@ -1579,19 +1582,31 @@ class ChangesetProcessor {
         );
         // where ClassId is reused add to deletedReusedIds list
         if (row) {
-          if (row.isIdReused && row.classId && row.instanceId) {
-            store.deletedReusedIds.add({
-              classId: row.classId,
-              instanceId: row.instanceId,
-              fedGuid: row.previousFederationGuid,
-            });
-            row.op = "Inserted";
-          }
-
           const key = makeKey(row);
           if (!instanceKeySet.has(key)) {
             instanceKeySet.add(key);
             await store.addChangeKey(row);
+          }
+
+          if (row.isIdReused && row.classId && row.instanceId) {
+            let entityClass: EntityClass;
+            if (store.isAspect(row.classId)) entityClass = "Aspect";
+            else if (store.isElement(row.classId)) entityClass = "Element";
+            else if (store.isModel(row.classId)) entityClass = "Model";
+            else if (store.isRelationship(row.classId))
+              entityClass = "Relationship";
+            else
+              throw new Error(
+                "entity with reused id must be of class aspect, element, model, or relationship"
+              );
+
+            store.deletedReusedIds.add({
+              classId: row.classId,
+              instanceId: row.instanceId,
+              fedGuid: row.previousFederationGuid,
+              entityClass,
+            });
+            row.op = "Inserted";
           }
         }
       }
