@@ -25,8 +25,9 @@ import { Arc3d, IModelJson, Point3d } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import path = require("path");
 import { HubWrappers, IModelTestUtils, KnownTestLocations } from "../TestUtils";
+import { ChangedInstanceIds, ChangesetProcessor } from "../../IModelExporter";
 
-describe.skip("BadChangeSet", () => {
+describe.only("BadChangeSet", () => {
   let iTwinId: GuidString;
 
   before(async () => {
@@ -288,36 +289,45 @@ describe.skip("BadChangeSet", () => {
     reader.close();
 
     // ChangesetECAdaptor works incorrectly as it does not expect ECClassId to change in an update.
-    const adaptor = new ChangesetECAdaptor(
-      SqliteChangesetReader.openFile({
-        fileName: changesets[1].pathname,
-        disableSchemaCheck: true,
-        db: b1,
-      })
+    // const adaptor = new ChangesetECAdaptor(
+    //   SqliteChangesetReader.openFile({
+    //     fileName: changesets[1].pathname,
+    //     disableSchemaCheck: true,
+    //     db: b1,
+    //   })
+    // );
+
+    // adaptor.acceptClass(GraphicalElement2d.classFullName);
+    // adaptor.acceptOp("Updated");
+
+    // let ecChangeForElementAsserted = false;
+    // let ecChangeForGeometricElement2dAsserted = false;
+    // while (adaptor.step()) {
+    //   if (adaptor.reader.tableName === "bis_Element") {
+    //     ecChangeForElementAsserted = true;
+    //     expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+    //     expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+    //   }
+    //   if (adaptor.reader.tableName === "bis_GeometricElement2d") {
+    //     ecChangeForGeometricElement2dAsserted = true;
+    //     expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+    //     expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+    //     expect(adaptor.inserted?.p).equals("0x457"); // CORRECT p in T2 is integer
+    //     expect(adaptor.deleted?.p).equals("wwww"); // CORRECT p in T1 is string
+    //   }
+    // }
+    // expect(ecChangeForElementAsserted).to.be.true;
+    // expect(ecChangeForGeometricElement2dAsserted).to.be.true;
+    // adaptor.close();
+
+    const changedInstanceIds = new ChangedInstanceIds(b1);
+    const processor = new ChangesetProcessor(b1);
+
+    await processor.processFiles(changesets, changedInstanceIds);
+    // await processor.processFile(changesets[1], changedInstanceIds);
+    changedInstanceIds.deletedReusedIds.forEach((reusedId) =>
+      expect(reusedId.classId).to.equal(t2ClassId)
     );
-
-    adaptor.acceptClass(GraphicalElement2d.classFullName);
-    adaptor.acceptOp("Updated");
-
-    let ecChangeForElementAsserted = false;
-    let ecChangeForGeometricElement2dAsserted = false;
-    while (adaptor.step()) {
-      if (adaptor.reader.tableName === "bis_Element") {
-        ecChangeForElementAsserted = true;
-        expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-        expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-      }
-      if (adaptor.reader.tableName === "bis_GeometricElement2d") {
-        ecChangeForGeometricElement2dAsserted = true;
-        expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-        expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-        expect(adaptor.inserted?.p).equals("0x457"); // CORRECT p in T2 is integer
-        expect(adaptor.deleted?.p).equals("wwww"); // CORRECT p in T1 is string
-      }
-    }
-    expect(ecChangeForElementAsserted).to.be.true;
-    expect(ecChangeForGeometricElement2dAsserted).to.be.true;
-    adaptor.close();
 
     // PartialECChangeUnifier fail to combine changes correctly when ECClassId is updated.
     // const adaptor2 = new ChangesetECAdaptor(
