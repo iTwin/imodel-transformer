@@ -4,14 +4,22 @@
  *--------------------------------------------------------------------------------------------*/
 import { IModelHost, StandaloneDb } from "@itwin/core-backend";
 import * as fs from "fs";
+import * as path from "path";
 import { IModelTransformer } from "../../IModelTransformer";
+import { KnownTestLocations } from "../TestUtils";
 
 describe("getAllBaseClasses", () => {
   it.only("fail during transform", async () => {
     await IModelHost.startup();
 
-    const sourceDbPath = "./imodels/SourceDb.bim";
-    const targetDbPath = "./imodels/TargetDb.bim";
+    const sourceDbPath = path.join(
+      KnownTestLocations.outputDir,
+      "SourceDb.bim"
+    );
+    const targetDbPath = path.join(
+      KnownTestLocations.outputDir,
+      "TargetDb.bim"
+    );
 
     // Delete existing files if they exist
     if (fs.existsSync(sourceDbPath)) {
