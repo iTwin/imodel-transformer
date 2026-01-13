@@ -10,7 +10,9 @@ import {
   DrawingCategory,
   GraphicalElement2d,
   HubMock,
+  IModelJsFs,
   SqliteChangesetReader,
+  StandaloneDb,
 } from "@itwin/core-backend";
 import { GuidString, Id64 } from "@itwin/core-bentley";
 import {
@@ -25,7 +27,7 @@ import { Arc3d, IModelJson, Point3d } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import path = require("path");
 import { HubWrappers, IModelTestUtils, KnownTestLocations } from "../TestUtils";
-import { ChangedInstanceIds, ChangesetProcessor } from "../../IModelExporter";
+import { IModelTransformer } from "../../IModelTransformer";
 
 describe.only("BadChangeSet", () => {
   let iTwinId: GuidString;
@@ -141,6 +143,7 @@ describe.only("BadChangeSet", () => {
     };
 
     const elId = b1.elements.insertElement(geomElementT1);
+    const elIdFedGuid = b1.elements.getFederationGuidFromId(elId);
     assert.isTrue(Id64.isValidId64(elId), "insert worked");
     b1.saveChanges();
     await b1.pushChanges({ description: "insert element" });
@@ -170,6 +173,7 @@ describe.only("BadChangeSet", () => {
     };
 
     const elId2 = b1.elements.insertElement(geomElementT2);
+    const elId2FedGuid = b1.elements.getFederationGuidFromId(elId2);
     expect(elId).equals(elId2);
 
     b1.saveChanges();
@@ -289,46 +293,39 @@ describe.only("BadChangeSet", () => {
     reader.close();
 
     // ChangesetECAdaptor works incorrectly as it does not expect ECClassId to change in an update.
-    // const adaptor = new ChangesetECAdaptor(
-    //   SqliteChangesetReader.openFile({
-    //     fileName: changesets[1].pathname,
-    //     disableSchemaCheck: true,
-    //     db: b1,
-    //   })
-    // );
-
-    // adaptor.acceptClass(GraphicalElement2d.classFullName);
-    // adaptor.acceptOp("Updated");
-
-    // let ecChangeForElementAsserted = false;
-    // let ecChangeForGeometricElement2dAsserted = false;
-    // while (adaptor.step()) {
-    //   if (adaptor.reader.tableName === "bis_Element") {
-    //     ecChangeForElementAsserted = true;
-    //     expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-    //     expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-    //   }
-    //   if (adaptor.reader.tableName === "bis_GeometricElement2d") {
-    //     ecChangeForGeometricElement2dAsserted = true;
-    //     expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-    //     expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
-    //     expect(adaptor.inserted?.p).equals("0x457"); // CORRECT p in T2 is integer
-    //     expect(adaptor.deleted?.p).equals("wwww"); // CORRECT p in T1 is string
-    //   }
-    // }
-    // expect(ecChangeForElementAsserted).to.be.true;
-    // expect(ecChangeForGeometricElement2dAsserted).to.be.true;
-    // adaptor.close();
-
-    const changedInstanceIds = new ChangedInstanceIds(b1);
-    const processor = new ChangesetProcessor(b1);
-
-    await processor.processFiles(changesets, changedInstanceIds);
-    // await processor.processFile(changesets[1], changedInstanceIds);
-    changedInstanceIds.deletedReusedIds.forEach((reusedId) =>
-      expect(reusedId.classId).to.equal(t2ClassId)
+    const adaptor = new ChangesetECAdaptor(
+      SqliteChangesetReader.openFile({
+        fileName: changesets[1].pathname,
+        disableSchemaCheck: true,
+        db: b1,
+      })
     );
 
+    adaptor.acceptClass(GraphicalElement2d.classFullName);
+    adaptor.acceptOp("Updated");
+
+    let ecChangeForElementAsserted = false;
+    let ecChangeForGeometricElement2dAsserted = false;
+    while (adaptor.step()) {
+      if (adaptor.reader.tableName === "bis_Element") {
+        ecChangeForElementAsserted = true;
+        expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+        expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+      }
+      if (adaptor.reader.tableName === "bis_GeometricElement2d") {
+        ecChangeForGeometricElement2dAsserted = true;
+        expect(adaptor.inserted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+        expect(adaptor.deleted?.$meta?.classFullName).equals("TestDomain:T1"); // WRONG should be TestDomain:T2
+        expect(adaptor.inserted?.p).equals("0x457"); // CORRECT p in T2 is integer
+        expect(adaptor.deleted?.p).equals("wwww"); // CORRECT p in T1 is string
+      }
+    }
+    expect(ecChangeForElementAsserted).to.be.true;
+    expect(ecChangeForGeometricElement2dAsserted).to.be.true;
+    adaptor.close();
+
+    //////////////////////////////////
+    // itwin v5 only
     // PartialECChangeUnifier fail to combine changes correctly when ECClassId is updated.
     // const adaptor2 = new ChangesetECAdaptor(
     //   SqliteChangesetReader.openFile({ fileName: changesets[1].pathname, disableSchemaCheck: true, db: b1 })
@@ -341,8 +338,84 @@ describe.only("BadChangeSet", () => {
     // }
 
     // expect(unifier.getInstanceCount()).to.be.equals(2); // WRONG should be 1
+    //////////////////////////////////
+
+    // const changedInstanceIds = new ChangedInstanceIds(b1);
+    // const processor = new ChangesetProcessor(b1);
+
+    // await processor.processFiles(changesets, changedInstanceIds);
+    // // await processor.processFile(changesets[1], changedInstanceIds);
+    // changedInstanceIds.deletedReusedIds.forEach((reusedId) =>
+    //   expect(reusedId.classId).to.equal(t2ClassId)
+    // );
 
     b1.saveChanges();
     b1.close();
+
+    // Create an empty standalone target db
+    const targetDbPath = path.join(
+      KnownTestLocations.outputDir,
+      "TargetDb.bim"
+    );
+    if (IModelJsFs.existsSync(targetDbPath)) {
+      IModelJsFs.removeSync(targetDbPath);
+    }
+
+    const targetDb = StandaloneDb.createEmpty(targetDbPath, {
+      rootSubject: { name: "Target" },
+    });
+
+    // Open b1 at V1 (after first changeset, before buggy changeset)
+    const b1AtV1 = await HubWrappers.downloadAndOpenBriefcase({
+      iTwinId,
+      iModelId: modelId,
+      accessToken: adminToken,
+    });
+    await b1AtV1.pullChanges({
+      accessToken: adminToken,
+      toIndex: changesets[0].index,
+    });
+
+    // Use processAll to establish provenance and clone b1 at V1 to target
+    const initTransformer = new IModelTransformer(b1AtV1, targetDb);
+    await initTransformer.processSchemas();
+    await initTransformer.process();
+    initTransformer.dispose();
+    targetDb.saveChanges();
+
+    // Verify T1 element exists after first changeset
+    assert(elIdFedGuid != undefined);
+    const targetElementAfterV1 = targetDb.elements.tryGetElement(elIdFedGuid);
+    expect(targetElementAfterV1).to.not.be.undefined;
+    expect(targetElementAfterV1?.classFullName).to.equal("TestDomain:T1");
+
+    // Now pull the buggy changeset and use processChanges for incremental sync
+    await b1AtV1.pullChanges({
+      accessToken: adminToken,
+      toIndex: changesets[1].index,
+    });
+
+    const v2Transformer = new IModelTransformer(b1AtV1, targetDb, {
+      argsForProcessChanges: {
+        csFileProps: [changesets[1]],
+      },
+    });
+    await v2Transformer.process();
+    v2Transformer.dispose();
+
+    targetDb.saveChanges();
+
+    // Verify the target db has the T2 element (not T1) after the buggy changeset
+    assert(elId2FedGuid != undefined);
+    const targetElement = targetDb.elements.tryGetElement(elId2FedGuid);
+    expect(targetElement).to.not.be.undefined;
+    expect(targetElement?.classFullName).to.equal("TestDomain:T2");
+
+    // T1 element should be deleted
+    const badTargetElement = targetDb.elements.tryGetElement(elIdFedGuid);
+    expect(badTargetElement).to.be.undefined;
+
+    b1AtV1.close();
+    targetDb.close();
   });
 });
