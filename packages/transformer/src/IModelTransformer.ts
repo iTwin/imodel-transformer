@@ -1510,6 +1510,19 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
+  private async _getClassFullNameById(classId: string): Promise<string> {
+    const sql = "SELECT ec_classname(:classId, 's:c') AS FullName";
+    const params = new QueryBinder().bindId("classId", classId);
+
+    for await (const row of this.sourceDb.createQueryReader(sql, params)) {
+      return row.FullName;
+    }
+    throw new IModelError(
+      IModelStatus.NotFound,
+      `No class found for classId ${classId}`
+    );
+  }
+
   private _queryElemIdByFedGuid(
     db: IModelDb,
     fedGuid: GuidString
@@ -3010,8 +3023,95 @@ export class IModelTransformer extends IModelExportHandler {
       this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
     );
 
-    // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    await this.processChangesets();
+    // Delete elements/relationships in targetDb that correspond to deletedReusedIds (federation GUIDs)
+    if (this.exporter.sourceDbChanges?.deletedReusedIds?.size) {
+      for (const instanceToDelete of this.exporter.sourceDbChanges
+        .deletedReusedIds) {
+        const classFullName = await this._getClassFullNameById(
+          instanceToDelete.classId
+        );
+
+        switch (instanceToDelete.entityClass) {
+          case "Element":
+            if (instanceToDelete.fedGuid) {
+              const targetElementId = this._queryElemIdByFedGuid(
+                this.targetDb,
+                instanceToDelete.fedGuid
+              );
+              if (targetElementId && Id64.isValid(targetElementId)) {
+                try {
+                  this.importer.deleteElement(targetElementId);
+                } catch (error) {
+                  Logger.logWarning(
+                    loggerCategory,
+                    `Failed to delete element ${targetElementId} with federation GUID ${instanceToDelete.fedGuid}: ${error}`
+                  );
+                }
+              }
+            } else {
+              Logger.logWarning(
+                loggerCategory,
+                `Failed to delete element ${instanceToDelete.instanceId} in target due to missing Federation GUID.`
+              );
+            }
+
+            break;
+          case "Relationship":
+            try {
+              // Get source relationship to find source/target element IDs
+              const sourceRel = this.sourceDb.relationships.getInstance(
+                classFullName,
+                instanceToDelete.instanceId
+              );
+              const targetRelId = this._queryTargetRelId({
+                classFullName,
+                sourceId: sourceRel.sourceId,
+                targetId: sourceRel.targetId,
+              });
+
+              if (targetRelId) {
+                const targetRelationshipProps: RelationshipPropsForDelete = {
+                  id: targetRelId,
+                  classFullName,
+                };
+                this.importer.deleteRelationship(targetRelationshipProps);
+              }
+            } catch (error) {
+              Logger.logWarning(
+                loggerCategory,
+                `Failed to delete relationship instance ${instanceToDelete.instanceId} from class ${classFullName}: ${error}`
+              );
+            }
+            break;
+          case "Model":
+            try {
+              // Get source model to find its modeled element
+              const sourceModel = this.sourceDb.models.getModel(
+                instanceToDelete.instanceId
+              );
+              const targetModeledElementId = this.context.findTargetElementId(
+                sourceModel.modeledElement.id
+              );
+
+              if (targetModeledElementId) {
+                const targetModelId = this.targetDb.models.getModel(
+                  targetModeledElementId
+                ).id;
+                this.importer.deleteModel(targetModelId);
+              }
+            } catch (error) {
+              Logger.logWarning(
+                loggerCategory,
+                `Failed to delete model ${instanceToDelete.instanceId} from class ${classFullName}: ${error}`
+              );
+            }
+            break;
+        }
+      }
+    } else {
+      // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
+      await this.processChangesets();
+    }
 
     this._initialized = true;
   }
