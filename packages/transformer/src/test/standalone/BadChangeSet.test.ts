@@ -41,7 +41,7 @@ describe("BadChangeSet", () => {
     HubMock.shutdown();
   });
 
-  it.skip("Instance update to a different class (bug)", async () => {
+  it("Instance update to a different class (bug)", async () => {
     /**
      * Test scenario: Verifies changeset reader behavior when an instance ID is reused with a different class.
      *
@@ -324,7 +324,7 @@ describe("BadChangeSet", () => {
     expect(ecChangeForGeometricElement2dAsserted).to.be.true;
     adaptor.close();
 
-    //////////////////////////////////
+    /********************/
     // itwin v5 only
     // PartialECChangeUnifier fail to combine changes correctly when ECClassId is updated.
     // const adaptor2 = new ChangesetECAdaptor(
@@ -336,9 +336,8 @@ describe("BadChangeSet", () => {
     // while(adaptor2.step()){
     //   unifier.appendFrom(adaptor2);
     // }
-
     // expect(unifier.getInstanceCount()).to.be.equals(2); // WRONG should be 1
-    //////////////////////////////////
+    /********************/
 
     // const changedInstanceIds = new ChangedInstanceIds(b1);
     // const processor = new ChangesetProcessor(b1);
@@ -384,7 +383,7 @@ describe("BadChangeSet", () => {
     targetDb.saveChanges();
 
     // Verify T1 element exists after first changeset
-    assert(elIdFedGuid != undefined);
+    assert(elIdFedGuid !== undefined);
     const targetElementAfterV1 = targetDb.elements.tryGetElement(elIdFedGuid);
     expect(targetElementAfterV1).to.not.be.undefined;
     expect(targetElementAfterV1?.classFullName).to.equal("TestDomain:T1");
@@ -406,7 +405,7 @@ describe("BadChangeSet", () => {
     targetDb.saveChanges();
 
     // Verify the target db has the T2 element (not T1) after the buggy changeset
-    assert(elId2FedGuid != undefined);
+    assert(elId2FedGuid !== undefined);
     const targetElement = targetDb.elements.tryGetElement(elId2FedGuid);
     expect(targetElement).to.not.be.undefined;
     expect(targetElement?.classFullName).to.equal("TestDomain:T2");
@@ -685,6 +684,15 @@ describe("BadChangeSet", () => {
     expect(bisGeometricElement2dAsserted).to.be.true;
     reader.close();
 
+    // const changedInstanceIds = new ChangedInstanceIds(b1);
+    // const processor = new ChangesetProcessor(b1);
+
+    // await processor.processFiles(changesets, changedInstanceIds);
+    // // await processor.processFile(changesets[1], changedInstanceIds);
+    // changedInstanceIds.deletedReusedIds.forEach((reusedId) =>
+    //   expect(reusedId.classId).to.equal(t2ClassId)
+    // );
+
     b1.saveChanges();
     b1.close();
 
@@ -720,7 +728,7 @@ describe("BadChangeSet", () => {
     targetDb.saveChanges();
 
     // Verify T1 element exists after first changeset
-    assert(elIdFedGuid != undefined);
+    assert(elIdFedGuid !== undefined);
     const targetElementAfterV1 = targetDb.elements.tryGetElement(elIdFedGuid);
     expect(targetElementAfterV1).to.not.be.undefined;
     expect(targetElementAfterV1?.classFullName).to.equal("TestDomain:T1");

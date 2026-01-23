@@ -3024,7 +3024,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     // Delete elements/relationships in targetDb that correspond to deletedReusedIds (federation GUIDs)
-    if (this.exporter.sourceDbChanges?.deletedReusedIds) {
+    if (this.exporter.sourceDbChanges?.deletedReusedIds?.size) {
       for (const instanceToDelete of this.exporter.sourceDbChanges
         .deletedReusedIds) {
         const classFullName = await this._getClassFullNameById(
@@ -3108,10 +3108,10 @@ export class IModelTransformer extends IModelExportHandler {
             break;
         }
       }
+    } else {
+      // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
+      await this.processChangesets();
     }
-
-    // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    await this.processChangesets();
 
     this._initialized = true;
   }
