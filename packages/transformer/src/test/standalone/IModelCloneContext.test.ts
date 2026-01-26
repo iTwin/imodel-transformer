@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  ECSqlStatement,
   ElementRefersToElements,
   EntityReferences,
   GraphicalElement3dRepresentsElement,
@@ -14,7 +13,7 @@ import {
   SnapshotDb,
   SpatialCategory,
 } from "@itwin/core-backend";
-import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
+import { Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
   ConcreteEntityTypes,
