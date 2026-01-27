@@ -459,6 +459,28 @@ export class IModelTransformer extends IModelExportHandler {
         AND Identifier=:identifier
       LIMIT 1
     `;
+
+    // if (aspectProps.scope === undefined) return undefined;
+    // const params = new QueryBinder().bindId("elementId", aspectProps.element.id);
+    // params.bindId("scopeId", aspectProps.scope.id);
+    // params.bindString("kind", aspectProps.kind);
+    // params.bindString("identifier", aspectProps.identifier);
+
+    // const result = await dbToQuery.createQueryReader(sql);
+    // if (result) {
+    //   const aspectId = result.current.id;
+    //   const versionValue = result.current[1];
+    //   const version = versionValue.isNull
+    //     ? undefined
+    //     : versionValue.getString();
+    //   const jsonPropsValue = result.current[2];
+    //   const jsonProperties = jsonPropsValue.isNull
+    //     ? undefined
+    //     : jsonPropsValue.getString();
+    //   return { aspectId, version, jsonProperties };
+    // }
+    // else
+    //   return undefined;
     // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
@@ -2288,37 +2310,29 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initialize();
     // import DefinitionModels first
     const childDefinitionPartitionSql = `SELECT ECInstanceId FROM ${DefinitionPartition.classFullName} WHERE Parent.Id=:subjectId`;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    await this.sourceDb.withPreparedStatement(
+    const params = new QueryBinder().bindId("subjectId", sourceSubjectId);
+    for await (const row of this.sourceDb.createQueryReader(
       childDefinitionPartitionSql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      async (statement: ECSqlStatement) => {
-        statement.bindId("subjectId", sourceSubjectId);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          await this.processModel(statement.getValue(0).getId());
-        }
-      }
-    );
+      params
+    )) {
+      await this.processModel(row.id);
+    }
+
     // import other partitions next
     const childPartitionSql = `SELECT ECInstanceId FROM ${InformationPartitionElement.classFullName} WHERE Parent.Id=:subjectId`;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    await this.sourceDb.withPreparedStatement(
+    for await (const row of this.sourceDb.createQueryReader(
       childPartitionSql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      async (statement: ECSqlStatement) => {
-        statement.bindId("subjectId", sourceSubjectId);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const modelId: Id64String = statement.getValue(0).getId();
-          const model: Model = this.sourceDb.models.getModel(modelId);
-          if (!(model instanceof DefinitionModel)) {
-            await this.processModel(modelId);
-          }
-        }
+      params
+    )) {
+      const modelId: Id64String = row.id;
+      const model: Model = this.sourceDb.models.getModel(modelId);
+      if (!(model instanceof DefinitionModel)) {
+        await this.processModel(modelId);
       }
-    );
+    }
+
     // recurse into child Subjects
     const childSubjectSql = `SELECT ECInstanceId FROM ${Subject.classFullName} WHERE Parent.Id=:subjectId`;
-    const params = new QueryBinder().bindId("subjectId", sourceSubjectId);
     for await (const row of this.sourceDb.createQueryReader(
       childSubjectSql,
       params
