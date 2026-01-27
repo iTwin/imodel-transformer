@@ -2318,17 +2318,13 @@ export class IModelTransformer extends IModelExportHandler {
     );
     // recurse into child Subjects
     const childSubjectSql = `SELECT ECInstanceId FROM ${Subject.classFullName} WHERE Parent.Id=:subjectId`;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    await this.sourceDb.withPreparedStatement(
+    const params = new QueryBinder().bindId("subjectId", sourceSubjectId);
+    for await (const row of this.sourceDb.createQueryReader(
       childSubjectSql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      async (statement: ECSqlStatement) => {
-        statement.bindId("subjectId", sourceSubjectId);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          await this.processSubjectSubModels(statement.getValue(0).getId());
-        }
-      }
-    );
+      params
+    )) {
+      await this.processSubjectSubModels(row.id);
+    }
   }
 
   /** Transform the specified sourceModel into ModelProps for the target iModel.
@@ -2668,42 +2664,36 @@ export class IModelTransformer extends IModelExportHandler {
       WHERE aspect.Scope.Id=:scopeId
         AND aspect.Kind=:kind
     `;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    await this.targetDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      async (statement: ECSqlStatement) => {
-        statement.bindId("scopeId", this.targetScopeElementId);
-        statement.bindString("kind", ExternalSourceAspect.Kind.Relationship);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const sourceRelInstanceId: Id64String = Id64.fromJSON(
-            statement.getValue(1).getString()
-          );
-          if (
-            undefined ===
-            this.sourceDb.relationships.tryGetInstanceProps(
-              ElementRefersToElements.classFullName,
-              sourceRelInstanceId
-            )
-          ) {
-            // this function exists only to support some in-imodel transformations, which must
-            // use the old (external source aspect) provenance method anyway so we don't need to support
-            // new provenance
-            const json: any = JSON.parse(statement.getValue(2).getString());
-            const targetRelInstanceId =
-              json.targetRelInstanceId ?? json.provenanceRelInstanceId;
-            if (targetRelInstanceId) {
-              this.importer.deleteRelationship({
-                id: targetRelInstanceId,
-                classFullName: ElementRefersToElements.classFullName,
-              });
-            }
-            aspectDeleteIds.push(statement.getValue(0).getId());
-          }
-          await this._yieldManager.allowYield();
-        }
-      }
+    const params = new QueryBinder().bindId(
+      "scopeId",
+      this.targetScopeElementId
     );
+    params.bindString("kind", ExternalSourceAspect.Kind.Relationship);
+    for await (const row of this.targetDb.createQueryReader(sql, params)) {
+      const sourceRelInstanceId: Id64String = Id64.fromJSON(row[1]);
+      if (
+        undefined ===
+        this.sourceDb.relationships.tryGetInstanceProps(
+          ElementRefersToElements.classFullName,
+          sourceRelInstanceId
+        )
+      ) {
+        // this function exists only to support some in-imodel transformations, which must
+        // use the old (external source aspect) provenance method anyway so we don't need to support
+        // new provenance
+        const json: any = JSON.parse(row[2]);
+        const targetRelInstanceId =
+          json.targetRelInstanceId ?? json.provenanceRelInstanceId;
+        if (targetRelInstanceId) {
+          this.importer.deleteRelationship({
+            id: targetRelInstanceId,
+            classFullName: ElementRefersToElements.classFullName,
+          });
+        }
+        aspectDeleteIds.push(row.id);
+      }
+      await this._yieldManager.allowYield();
+    }
     this.targetDb.elements.deleteAspect(aspectDeleteIds);
   }
 

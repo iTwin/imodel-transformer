@@ -529,23 +529,19 @@ export class IModelExporter {
       ORDER BY ECInstanceId
     `;
     const schemaNamesToExport: string[] = [];
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const schemaName = statement.getValue(0).getString();
-        const versionMajor = statement.getValue(1).getInteger();
-        const versionWrite = statement.getValue(2).getInteger();
-        const versionMinor = statement.getValue(3).getInteger();
-        const schemaKey = new SchemaKey(
-          schemaName,
-          new ECVersion(versionMajor, versionWrite, versionMinor)
-        );
-        if (this.handler.shouldExportSchema(schemaKey)) {
-          schemaNamesToExport.push(schemaName);
-        }
+    for await (const row of this.sourceDb.createQueryReader(sql)) {
+      const schemaName = row[0];
+      const versionMajor = row[1];
+      const versionWrite = row[2];
+      const versionMinor = row[3];
+      const schemaKey = new SchemaKey(
+        schemaName,
+        new ECVersion(versionMajor, versionWrite, versionMinor)
+      );
+      if (this.handler.shouldExportSchema(schemaKey)) {
+        schemaNamesToExport.push(schemaName);
       }
-    });
-
+    }
     if (schemaNamesToExport.length === 0) return;
 
     const schemaLoader = new SchemaLoader((name: string) =>
@@ -571,17 +567,9 @@ export class IModelExporter {
   public async exportCodeSpecs(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportCodeSpecs()");
     const sql = "SELECT Name FROM BisCore:CodeSpec ORDER BY ECInstanceId";
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    await this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      async (statement: ECSqlStatement): Promise<void> => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const codeSpecName: string = statement.getValue(0).getString();
-          await this.exportCodeSpecByName(codeSpecName);
-        }
-      }
-    );
+    for await (const row of this.sourceDb.createQueryReader(sql)) {
+      await this.exportCodeSpecByName(row.name);
+    }
   }
 
   /** Export a single CodeSpec from the source iModel.
@@ -775,6 +763,14 @@ export class IModelExporter {
     } else {
       sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId ORDER BY ECInstanceId`;
     }
+    // const params = new QueryBinder().bindId("modelId",modelId);
+    // if (skipRootSubject) {
+    //   params.bindId("rootSubjectId", IModel.rootSubjectId)
+    // }
+    // for await (const row of this.sourceDb.createQueryReader(sql, params)) {
+    //   await this.exportElement(row.id);
+    //   await this._yieldManager.allowYield();
+    // }
     // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     await this.sourceDb.withPreparedStatement(
       sql,
@@ -800,6 +796,16 @@ export class IModelExporter {
     const definitionModelIds: Id64String[] = [];
     const otherModelIds: Id64String[] = [];
     const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
+    // const params = new QueryBinder().bindId("parentModelId", parentModelId);
+    // for await (const row of this.sourceDb.createQueryReader(sql, params)) {
+    //   const modelId: Id64String = row.ecinstanceid;
+    //   const model: Model = this.sourceDb.models.getModel(modelId);
+    //   if (model instanceof DefinitionModel) {
+    //     definitionModelIds.push(modelId);
+    //   } else {
+    //     otherModelIds.push(modelId);
+    //   }
+    // }
     // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     this.sourceDb.withPreparedStatement(
       sql,
@@ -962,25 +968,16 @@ export class IModelExporter {
       loggerCategory,
       `exportRelationships(${baseRelClassFullName})`
     );
-    const sql = `SELECT r.ECInstanceId, r.ECClassId FROM ${baseRelClassFullName} r
+    const sql = `SELECT r.ECInstanceId, ec_className(r.ECClassId, 's.c') as ClassName FROM ${baseRelClassFullName} r
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    await this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      async (statement: ECSqlStatement): Promise<void> => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const relationshipId = statement.getValue(0).getId();
-          const relationshipClass = statement
-            .getValue(1)
-            .getClassNameForClassId();
-          await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
-          await this._yieldManager.allowYield();
-        }
-      }
-    );
+    for await (const row of this.sourceDb.createQueryReader(sql)) {
+      const relationshipId = row.ecinstanceid;
+      const relationshipClass = row.classname;
+      await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
+      await this._yieldManager.allowYield();
+    }
   }
 
   /** Export a relationship from the source iModel. */
