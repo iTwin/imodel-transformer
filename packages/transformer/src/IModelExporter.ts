@@ -10,7 +10,6 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   ChangedECInstance,
-  ChangesetECAdaptor,
   DefinitionModel,
   ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -23,7 +22,6 @@ import {
   IModelDb,
   IModelJsNative,
   Model,
-  PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   SqliteChangeOp,
@@ -1223,6 +1221,29 @@ export class ChangedInstanceIds {
       this.handleChange(this.element, changeType, change.ECInstanceId);
   }
 
+  public async addChangeKey(change: ChangeInstanceKey): Promise<void> {
+    if (!this._ecClassIdsInitialized) await this.setupECClassIds();
+    const ecClassId = change.classId;
+    if (ecClassId === undefined)
+      throw new Error(
+        `ECClassId was not found for id: ${change.instanceId}! Table is : ${change.tableName}`
+      );
+
+    const changeType: SqliteChangeOp | undefined = change.op;
+    if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
+
+    if (this.isRelationship(ecClassId))
+      this.handleChange(this.relationship, changeType, change.instanceId);
+    else if (this.isCodeSpec(ecClassId))
+      this.handleChange(this.codeSpec, changeType, change.instanceId);
+    else if (this.isAspect(ecClassId))
+      this.handleChange(this.aspect, changeType, change.instanceId);
+    else if (this.isModel(ecClassId))
+      this.handleChange(this.model, changeType, change.instanceId);
+    else if (this.isElement(ecClassId))
+      this.handleChange(this.element, changeType, change.instanceId);
+  }
+
   /**
    * This method should only be called inside [[IModelTransformer.addCustomChanges]].
    * It adds the provided change to the element changes maintained by this instance of ChangedInstanceIds.
@@ -1454,25 +1475,270 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
+    const processor = new ChangesetProcessor(opts.iModel);
 
-    for (const csFile of csFileProps) {
-      const csReader = SqliteChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: opts.iModel,
-        disableSchemaCheck: true,
-      });
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
-      }
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
+    // row will be skip could cause some other issue.
+    processor.setActionForWhenIdReuseDetected("Skip");
+    await processor.processFiles(csFileProps, changedInstanceIds);
+    return changedInstanceIds;
+  }
+}
 
-      for (const change of changes) {
-        await changedInstanceIds.addChange(change);
+/**
+ * Information about an ECDb table used during changeset processing.
+ * @internal
+ */
+interface TableInfo {
+  readonly exclusiveRootClassId: Id64String;
+  readonly isClassIdVirtual: boolean;
+}
+
+/**
+ * Represents a changed instance key extracted from a changeset.
+ * @internal
+ */
+interface ChangeInstanceKey {
+  /** The ECInstanceId of the changed instance */
+  instanceId: Id64String;
+  /** The ECClassId of the changed instance. May be undefined if not available from the changeset. */
+  classId?: Id64String;
+  /** Indicates if the instance ID was reused (i.e., ClassId changed during an update operation) */
+  isIdReused?: true;
+  /** The type of change operation performed on the instance */
+  op: SqliteChangeOp;
+  /** The name of the ECDb table containing the changed instance */
+  tableName: string;
+}
+
+type ActionOnIdReuseDetected = "Skip" | "Fail";
+/**
+ * Processes changesets to extract changed instance information.
+ * This class reads changeset files and populates a ChangedInstanceIds object with the changes.
+ * @internal
+ */
+class ChangesetProcessor {
+  private _cacheTables = new Map<string, TableInfo>();
+  private _onIdReuseDetected: ActionOnIdReuseDetected = "Fail";
+  public constructor(public readonly db: IModelDb) {}
+
+  /**
+   * Sets the action to take when ID reuse is detected during changeset processing.
+   * @param value The action to take - either "Skip" to ignore reused IDs or "Fail" to throw an error.
+   * @remarks ID reuse occurs when an ECInstanceId is deleted and then reinserted with a different ECClassId.
+   * The default behavior is "Fail" which logs an error when ID reuse is detected.
+   */
+  public setActionForWhenIdReuseDetected(value: ActionOnIdReuseDetected) {
+    this._onIdReuseDetected = value;
+  }
+
+  /**
+   * Processes multiple changeset files sequentially.
+   * @param csFileProps Array of changeset file properties to process.
+   * @param store The ChangedInstanceIds object to populate with extracted changes.
+   */
+  public async processFiles(
+    csFileProps: ChangesetFileProps[],
+    store: ChangedInstanceIds
+  ) {
+    for (const csFileProp of csFileProps) {
+      await this.processFile(csFileProp, store);
+    }
+  }
+
+  /**
+   * Processes a single changeset file and extracts changed instance information.
+   * @param csFileProp The changeset file properties.
+   * @param store The ChangedInstanceIds object to populate with extracted changes.
+   * @remarks This method reads through the changeset file, processes each row, and adds valid changes
+   * to the store. Duplicate changes (based on instanceId and classId) are skipped, and rows where
+   * the ClassId was reused are also filtered out.
+   */
+  public async processFile(
+    csFileProp: ChangesetFileProps,
+    store: ChangedInstanceIds
+  ) {
+    const instanceKeySet = new Set<string>();
+    const makeKey = (val: ChangeInstanceKey) =>
+      `${val.instanceId}-${val.classId}`;
+    const csReader = SqliteChangesetReader.openFile({
+      fileName: csFileProp.pathname,
+      db: this.db,
+      disableSchemaCheck: true,
+    });
+
+    try {
+      while (csReader.step()) {
+        const row = this.processRow(csReader);
+        // SKIP over row where ClassId was reused
+        if (row) {
+          if (row.isIdReused)
+            if (this._onIdReuseDetected === "Fail") {
+              throw new Error(
+                `ClassId changed during update for instance ${row.instanceId}`
+              );
+            } else {
+              continue;
+            }
+
+          const key = makeKey(row);
+          if (!instanceKeySet.has(key)) {
+            instanceKeySet.add(key);
+            await store.addChangeKey(row);
+          }
+        }
       }
+    } finally {
       csReader.close();
     }
-    return changedInstanceIds;
+  }
+
+  /**
+   * Processes a single row from the changeset reader and extracts change information.
+   * @param reader The SqliteChangesetReader positioned at the current row.
+   * @returns A ChangeInstanceKey object containing the extracted change information, or undefined
+   * if the row should be skipped (e.g., system tables, invalid primary keys).
+   * @remarks This method handles special cases such as virtual ClassId columns, ClassId changes
+   * during updates (ID reuse), and falls back to querying the database when ClassId is not
+   * available in the changeset.
+   */
+  private processRow(
+    reader: SqliteChangesetReader
+  ): ChangeInstanceKey | undefined {
+    const tableName = reader.tableName;
+    if (
+      tableName.startsWith("ec_") ||
+      tableName.startsWith("be_") ||
+      tableName.startsWith("dgn_")
+    )
+      return;
+
+    const tableInfo = this.getTable(tableName);
+    if (!tableInfo) {
+      return undefined;
+    }
+
+    const pks = reader.primaryKeyValues;
+    if (pks.length !== 1) return undefined;
+
+    const instanceId = reader.primaryKeyValues[0] as string;
+    const kClassIdColumnIndex = 1;
+    let classId: Id64String | undefined;
+    let isIdReused: true | undefined;
+    if (tableInfo.isClassIdVirtual) {
+      classId = tableInfo.exclusiveRootClassId;
+    } else {
+      if (reader.op === "Updated") {
+        const oldClassId = reader.getChangeValueId(kClassIdColumnIndex, "Old");
+        const newClassId = reader.getChangeValueId(kClassIdColumnIndex, "New");
+        if (oldClassId !== newClassId) {
+          Logger.logError(
+            loggerCategory,
+            `ClassId changed during update for instance ${instanceId}`
+          );
+          isIdReused = true;
+        }
+        classId =
+          newClassId ||
+          oldClassId ||
+          this.getClassIdFromDb(reader.tableName, instanceId);
+      } else if (reader.op === "Inserted") {
+        classId = reader.getChangeValueId(
+          kClassIdColumnIndex,
+          "New"
+        ) as Id64String;
+      } else if (reader.op === "Deleted") {
+        classId = reader.getChangeValueId(
+          kClassIdColumnIndex,
+          "Old"
+        ) as Id64String;
+      }
+    }
+
+    return {
+      instanceId,
+      classId,
+      op: reader.op,
+      isIdReused,
+      tableName,
+    };
+  }
+  /**
+   * Retrieves the ECClassId for a given instance directly from the database.
+   * @param tableName The name of the table containing the instance.
+   * @param instanceId The ECInstanceId to look up.
+   * @returns The ECClassId if found, undefined otherwise.
+   * @remarks This is used as a fallback when the ClassId cannot be determined from the changeset itself.
+   */
+  private getClassIdFromDb(
+    tableName: string,
+    instanceId: Id64String
+  ): Id64String | undefined {
+    try {
+      return this.db?.withPreparedSqliteStatement(
+        `SELECT [ECClassId] FROM [${tableName}] WHERE [rowId]=?`,
+        (stmt) => {
+          stmt.bindId(1, instanceId);
+          return stmt.step() === DbResult.BE_SQLITE_ROW
+            ? stmt.getValueId(0)
+            : undefined;
+        }
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Retrieves table metadata from the ECDb schema tables.
+   * @param tableName The name of the table to look up.
+   * @returns TableInfo containing the table's exclusive root class ID and whether ClassId is virtual,
+   * or undefined if the table is not found.
+   * @remarks Results are cached to avoid repeated database queries for the same table.
+   * The exclusive root class ID is used for tables with virtual ClassId columns where all instances
+   * share the same class.
+   */
+  private getTable(tableName: string): TableInfo | undefined {
+    if (this._cacheTables.has(tableName))
+      return this._cacheTables.get(tableName);
+
+    const sql = `
+      SELECT
+        JSON_OBJECT (
+        'exclusiveRootClassId', FORMAT ('0x%x',
+          COALESCE (
+            [t].[ExclusiveRootClassId], (
+              SELECT [parent].[ExclusiveRootClassId]
+              FROM [ec_Table] [parent]
+              WHERE [parent].[Id] = [t].[ParentTableId] AND [parent].[Type] = 1))),
+        'isClassIdVirtual', (
+          SELECT
+            [c].[IsVirtual]
+          FROM
+            [ec_Column] [c]
+          WHERE
+            [c].[Name] = 'ECClassId' AND [c].[TableId] = [t].[Id]
+        )
+      )
+      FROM [ec_Table] [t]
+      WHERE
+        [t].[Name] = ?;
+    `;
+
+    return this.db.withPreparedSqliteStatement(sql, (stmt) => {
+      stmt.bindString(1, tableName);
+      if (stmt.step() === DbResult.BE_SQLITE_ROW) {
+        const table = JSON.parse(stmt.getValueString(0), (key, value) => {
+          if (value === null) return undefined;
+
+          if (key === "isClassIdVirtual") return value === 0 ? false : true;
+
+          return value;
+        }) as TableInfo;
+
+        this._cacheTables.set(tableName, table);
+        return table;
+      }
+      return undefined;
+    });
   }
 }
