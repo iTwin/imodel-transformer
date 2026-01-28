@@ -1513,20 +1513,19 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  private _queryElemIdByFedGuid(
+  // Deprecate?
+  private async _queryElemIdByFedGuid(
     db: IModelDb,
     fedGuid: GuidString
-  ): Id64String | undefined {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return db.withPreparedStatement(
-      "SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=?",
-      (stmt) => {
-        stmt.bindGuid(1, fedGuid);
-        if (stmt.step() === DbResult.BE_SQLITE_ROW)
-          return stmt.getValue(0).getId();
-        else return undefined;
-      }
-    );
+  ): Promise<Id64String | undefined> {
+    const sql =
+      "SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=:fedGuid";
+    const params = new QueryBinder().bindString("fedGuid", fedGuid);
+    const reader = db.createQueryReader(sql, params);
+    if (await reader.step()) {
+      return reader.current.ecinstanceid;
+    }
+    return undefined;
   }
 
   /** Returns `true` if *brute force* delete detections should be run.
@@ -2019,7 +2018,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportElement]($transformer) that imports an element into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElement]] and then [IModelImporter.importElement]($transformer) to update the target iModel.
    */
-  public override onExportElement(sourceElement: Element): void {
+  public override async onExportElement(sourceElement: Element): Promise<void> {
     let targetElementId: Id64String = Id64.invalid;
     let targetElementProps: ElementProps;
     if (this._options.wasSourceIModelCopiedToTarget) {
@@ -2038,8 +2037,7 @@ export class IModelTransformer extends IModelExportHandler {
       sourceElement.federationGuid !== undefined
     ) {
       targetElementId =
-        this._queryElemIdByFedGuid(
-          this.targetDb,
+        this.targetDb.elements.getIdFromFederationGuid(
           sourceElement.federationGuid
         ) ?? Id64.invalid;
       if (Id64.isValid(targetElementId))
@@ -3202,7 +3200,8 @@ export class IModelTransformer extends IModelExportHandler {
 
       // Check for targetId using sourceId's fedguid if we didn't find an esa.
       if (fedGuid) {
-        const targetId = this._queryElemIdByFedGuid(this.targetDb, fedGuid);
+        const targetId =
+          this.targetDb.elements.getIdFromFederationGuid(fedGuid);
         return targetId;
       }
       return undefined;

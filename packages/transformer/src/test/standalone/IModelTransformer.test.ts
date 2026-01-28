@@ -869,6 +869,8 @@ describe("IModelTransformer", () => {
       sourceDb.models.getModel<PhysicalModel>(sourceModelId);
     const sourceModelExtents: AxisAlignedBox3d = sourceModel.queryExtents();
     assert.deepEqual(sourceModelExtents, new Range3d(1, 0, 0, 10, 9, 1));
+
+    sourceDb.saveChanges();
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -1587,10 +1589,10 @@ describe("IModelTransformer", () => {
       ): void {
         ++this.modelCount;
       }
-      public override onExportElement(
+      public override async onExportElement(
         _element: Element,
         _isUpdate: boolean | undefined
-      ): void {
+      ): Promise<void> {
         assert.fail("Should not visit element when visitElements=false");
       }
       public override onExportRelationship(
@@ -3260,6 +3262,8 @@ describe("IModelTransformer", () => {
       model: IModelDb.dictionaryId,
       code: Code.createEmpty(),
     } as ElementProps);
+
+    sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",

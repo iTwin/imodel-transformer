@@ -89,7 +89,7 @@ describe("IModelExporter", () => {
     });
 
     class TestFlatImportHandler extends IModelExportHandler {
-      public override onExportElement(elem: Element): void {
+      public override async onExportElement(elem: Element): Promise<void> {
         if (elem instanceof GeometryPart)
           flatTargetDb.elements.insertElement(elem.toJSON());
       }

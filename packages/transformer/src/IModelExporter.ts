@@ -174,10 +174,10 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportElement(
+  public async onExportElement(
     _element: Element,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /**
    * Do any asynchronous actions before exporting an element
@@ -763,29 +763,31 @@ export class IModelExporter {
     } else {
       sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId ORDER BY ECInstanceId`;
     }
-    // const params = new QueryBinder().bindId("modelId",modelId);
-    // if (skipRootSubject) {
-    //   params.bindId("rootSubjectId", IModel.rootSubjectId)
-    // }
-    // for await (const row of this.sourceDb.createQueryReader(sql, params)) {
-    //   await this.exportElement(row.id);
-    //   await this._yieldManager.allowYield();
-    // }
+    const params = new QueryBinder().bindId("modelId", modelId);
+    if (skipRootSubject) {
+      params.bindId("rootSubjectId", IModel.rootSubjectId);
+    }
+    for await (const row of this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    })) {
+      await this.exportElement(row.id);
+      await this._yieldManager.allowYield();
+    }
     // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    await this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      async (statement: ECSqlStatement): Promise<void> => {
-        statement.bindId("modelId", modelId);
-        if (skipRootSubject) {
-          statement.bindId("rootSubjectId", IModel.rootSubjectId);
-        }
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          await this.exportElement(statement.getValue(0).getId());
-          await this._yieldManager.allowYield();
-        }
-      }
-    );
+    // await this.sourceDb.withPreparedStatement(
+    //   sql,
+    //   // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
+    //   async (statement: ECSqlStatement): Promise<void> => {
+    //     statement.bindId("modelId", modelId);
+    //     if (skipRootSubject) {
+    //       statement.bindId("rootSubjectId", IModel.rootSubjectId);
+    //     }
+    //     while (DbResult.BE_SQLITE_ROW === statement.step()) {
+    //       await this.exportElement(statement.getValue(0).getId());
+    //       await this._yieldManager.allowYield();
+    //     }
+    //   }
+    // );
   }
 
   /** Export the sub-models directly below the specified model.
@@ -796,33 +798,33 @@ export class IModelExporter {
     const definitionModelIds: Id64String[] = [];
     const otherModelIds: Id64String[] = [];
     const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
-    // const params = new QueryBinder().bindId("parentModelId", parentModelId);
-    // for await (const row of this.sourceDb.createQueryReader(sql, params)) {
-    //   const modelId: Id64String = row.ecinstanceid;
-    //   const model: Model = this.sourceDb.models.getModel(modelId);
-    //   if (model instanceof DefinitionModel) {
-    //     definitionModelIds.push(modelId);
-    //   } else {
-    //     otherModelIds.push(modelId);
-    //   }
-    // }
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      (statement: ECSqlStatement): void => {
-        statement.bindId("parentModelId", parentModelId);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const modelId: Id64String = statement.getValue(0).getId();
-          const model: Model = this.sourceDb.models.getModel(modelId);
-          if (model instanceof DefinitionModel) {
-            definitionModelIds.push(modelId);
-          } else {
-            otherModelIds.push(modelId);
-          }
-        }
+    const params = new QueryBinder().bindId("parentModelId", parentModelId);
+    for await (const row of this.sourceDb.createQueryReader(sql, params)) {
+      const modelId: Id64String = row.ecinstanceid;
+      const model: Model = this.sourceDb.models.getModel(modelId);
+      if (model instanceof DefinitionModel) {
+        definitionModelIds.push(modelId);
+      } else {
+        otherModelIds.push(modelId);
       }
-    );
+    }
+    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
+    // this.sourceDb.withPreparedStatement(
+    //   sql,
+    //   // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
+    //   (statement: ECSqlStatement): void => {
+    //     statement.bindId("parentModelId", parentModelId);
+    //     while (DbResult.BE_SQLITE_ROW === statement.step()) {
+    //       const modelId: Id64String = statement.getValue(0).getId();
+    //       const model: Model = this.sourceDb.models.getModel(modelId);
+    //       if (model instanceof DefinitionModel) {
+    //         definitionModelIds.push(modelId);
+    //       } else {
+    //         otherModelIds.push(modelId);
+    //       }
+    //     }
+    //   }
+    // );
     // export DefinitionModels before other types of Models
     for (const definitionModelId of definitionModelIds) {
       await this.exportModel(definitionModelId);
@@ -913,7 +915,7 @@ export class IModelExporter {
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
     if (this.shouldExportElement(element)) {
       await this.handler.preExportElement(element);
-      this.handler.onExportElement(element, isUpdate);
+      await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._exportElementAspectsStrategy.exportElementAspectsForElement(
         elementId

@@ -1947,7 +1947,7 @@ describe("IModelTransformerHub", () => {
         public override async onExportElement(sourceElement: Element) {
           if (sourceElement.id === modelSelectorId)
             didExportModelSelector = true;
-          return super.onExportElement(sourceElement);
+          return await super.onExportElement(sourceElement);
         }
       }
 

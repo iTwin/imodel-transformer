@@ -1185,6 +1185,8 @@ describe("Catalog", () => {
         path.basename(acmeCatalogDbFile),
         acmeCatalogDbFile
       );
+
+      iModelDb.saveChanges();
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
         iModelDb,
@@ -1281,6 +1283,8 @@ describe("Catalog", () => {
         path.basename(bestCatalogDbFile),
         bestCatalogDbFile
       );
+
+      iModelDb.saveChanges();
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
         iModelDb,
@@ -1357,6 +1361,7 @@ describe("Catalog", () => {
         path.basename(testCatalogDbFile),
         testCatalogDbFile
       );
+      iModelDb.saveChanges();
       const catalogTemplateRecipeIds = queryTemplateRecipeIds(
         catalogDb,
         catalogContainer.id

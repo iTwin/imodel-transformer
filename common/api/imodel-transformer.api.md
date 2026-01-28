@@ -181,7 +181,7 @@ export abstract class IModelExportHandler {
     onDeleteModel(_modelId: Id64String): void;
     onDeleteRelationship(_relInstanceId: Id64String): void;
     onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): void;
-    onExportElement(_element: Element_2, _isUpdate: boolean | undefined): void;
+    onExportElement(_element: Element_2, _isUpdate: boolean | undefined): Promise<void>;
     onExportElementMultiAspects(_aspects: ElementMultiAspect[]): void;
     onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): void;
     onExportFont(_font: FontProps, _isUpdate: boolean | undefined): void;
@@ -305,7 +305,7 @@ export class IModelTransformer extends IModelExportHandler {
     onDeleteModel(sourceModelId: Id64String): void;
     onDeleteRelationship(sourceRelInstanceId: Id64String): void;
     onExportCodeSpec(sourceCodeSpec: CodeSpec): void;
-    onExportElement(sourceElement: Element_2): void;
+    onExportElement(sourceElement: Element_2): Promise<void>;
     onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): void;
     onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): void;
     onExportFont(font: FontProps, _isUpdate: boolean | undefined): void;
