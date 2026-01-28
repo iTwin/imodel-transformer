@@ -773,21 +773,6 @@ export class IModelExporter {
       await this.exportElement(row.id);
       await this._yieldManager.allowYield();
     }
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    // await this.sourceDb.withPreparedStatement(
-    //   sql,
-    //   // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    //   async (statement: ECSqlStatement): Promise<void> => {
-    //     statement.bindId("modelId", modelId);
-    //     if (skipRootSubject) {
-    //       statement.bindId("rootSubjectId", IModel.rootSubjectId);
-    //     }
-    //     while (DbResult.BE_SQLITE_ROW === statement.step()) {
-    //       await this.exportElement(statement.getValue(0).getId());
-    //       await this._yieldManager.allowYield();
-    //     }
-    //   }
-    // );
   }
 
   /** Export the sub-models directly below the specified model.
@@ -808,23 +793,6 @@ export class IModelExporter {
         otherModelIds.push(modelId);
       }
     }
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    // this.sourceDb.withPreparedStatement(
-    //   sql,
-    //   // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    //   (statement: ECSqlStatement): void => {
-    //     statement.bindId("parentModelId", parentModelId);
-    //     while (DbResult.BE_SQLITE_ROW === statement.step()) {
-    //       const modelId: Id64String = statement.getValue(0).getId();
-    //       const model: Model = this.sourceDb.models.getModel(modelId);
-    //       if (model instanceof DefinitionModel) {
-    //         definitionModelIds.push(modelId);
-    //       } else {
-    //         otherModelIds.push(modelId);
-    //       }
-    //     }
-    //   }
-    // );
     // export DefinitionModels before other types of Models
     for (const definitionModelId of definitionModelIds) {
       await this.exportModel(definitionModelId);
