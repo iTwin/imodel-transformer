@@ -178,7 +178,7 @@ export class IModelExporter {
 // @beta
 export abstract class IModelExportHandler {
     onDeleteElement(_elementId: Id64String): void;
-    onDeleteModel(_modelId: Id64String): void;
+    onDeleteModel(_modelId: Id64String): Promise<void>;
     onDeleteRelationship(_relInstanceId: Id64String): void;
     onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): void;
     onExportElement(_element: Element_2, _isUpdate: boolean | undefined): Promise<void>;
@@ -204,7 +204,7 @@ export class IModelImporter {
     constructor(targetDb: IModelDb, options?: IModelImportOptions);
     computeProjectExtents(): void;
     deleteElement(elementId: Id64String): void;
-    deleteModel(modelId: Id64String): void;
+    deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): void;
     readonly doNotUpdateElementIds: Set<string>;
     finalize(): void;
@@ -217,7 +217,7 @@ export class IModelImporter {
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
     protected onDeleteElement(elementId: Id64String): void;
     protected onDeleteElementAspect(targetElementAspect: ElementAspect): void;
-    protected onDeleteModel(modelId: Id64String): void;
+    protected onDeleteModel(modelId: Id64String): Promise<void>;
     protected onDeleteRelationship(relationshipProps: RelationshipPropsForDelete): void;
     protected onInsertElement(elementProps: ElementProps): Id64String;
     protected onInsertElementAspect(aspectProps: ElementAspectProps): Id64String;
@@ -294,7 +294,7 @@ export class IModelTransformer extends IModelExportHandler {
         targetScopeElementId: Id64String;
         forceOldRelationshipProvenanceMethod: boolean;
     }): ExternalSourceAspectProps;
-    protected initScopeProvenance(): void;
+    protected initScopeProvenance(): Promise<void>;
     // (undocumented)
     get isForwardSynchronization(): boolean;
     // (undocumented)
@@ -302,7 +302,7 @@ export class IModelTransformer extends IModelExportHandler {
     // (undocumented)
     static noEsaSyncDirectionErrorMessage: string;
     onDeleteElement(sourceElementId: Id64String): void;
-    onDeleteModel(sourceModelId: Id64String): void;
+    onDeleteModel(sourceModelId: Id64String): Promise<void>;
     onDeleteRelationship(sourceRelInstanceId: Id64String): void;
     onExportCodeSpec(sourceCodeSpec: CodeSpec): void;
     onExportElement(sourceElement: Element_2): Promise<void>;

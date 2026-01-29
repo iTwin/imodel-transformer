@@ -418,15 +418,15 @@ export class IModelImporter {
   /** Delete the specified Model from the target iModel.
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteModel`.
    */
-  protected onDeleteModel(modelId: Id64String): void {
+  protected async onDeleteModel(modelId: Id64String): Promise<void> {
     this.targetDb.models.deleteModel(modelId);
     Logger.logInfo(loggerCategory, `Deleted model ${modelId}`);
     this.trackProgress();
   }
 
   /** Delete the specified Model from the target iModel. */
-  public deleteModel(modelId: Id64String): void {
-    this.onDeleteModel(modelId);
+  public async deleteModel(modelId: Id64String): Promise<void> {
+    await this.onDeleteModel(modelId);
   }
 
   /** Format an Element for the Logger. */

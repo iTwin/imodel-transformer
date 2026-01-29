@@ -155,7 +155,7 @@ export abstract class IModelExportHandler {
   public onExportModel(_model: Model, _isUpdate: boolean | undefined): void {}
 
   /** Called when a model should be deleted. */
-  public onDeleteModel(_modelId: Id64String): void {}
+  public async onDeleteModel(_modelId: Id64String): Promise<void> {}
 
   /** If `true` is returned, then the element will be exported.
    * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
@@ -476,7 +476,7 @@ export class IModelExporter {
     if (this.visitElements) {
       // must delete models first since they have a constraint on the submodeling element which may also be deleted
       for (const modelId of this._sourceDbChanges.model.deleteIds) {
-        this.handler.onDeleteModel(modelId);
+        await this.handler.onDeleteModel(modelId);
       }
       for (const elementId of this._sourceDbChanges.element.deleteIds) {
         // We don't know how the handler wants to handle deletions, and we don't have enough information

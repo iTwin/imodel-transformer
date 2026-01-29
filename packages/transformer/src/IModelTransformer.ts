@@ -1051,7 +1051,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns the last synced version (changesetId) on the target scope's external source aspect,
    *          if this was a [BriefcaseDb]($backend)
    */
-  protected initScopeProvenance(): void {
+  protected async initScopeProvenance(): Promise<void> {
     const aspectProps = {
       id: undefined as string | undefined,
       version: undefined as string | undefined,
@@ -1089,17 +1089,14 @@ export class IModelTransformer extends IModelExportHandler {
         LIMIT 1
       `;
 
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      const hasConflictingScope = this.provenanceDb.withPreparedStatement(
-        sql,
-        // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-        (statement: ECSqlStatement): boolean => {
-          statement.bindId("elementId", aspectProps.element.id);
-          statement.bindId("scopeId", aspectProps.scope.id); // this scope.id can never be invalid, we create it above
-          statement.bindString("kind", aspectProps.kind);
-          return DbResult.BE_SQLITE_ROW === statement.step();
-        }
-      );
+      const params = new QueryBinder();
+      params.bindId("elementId", aspectProps.element.id);
+      params.bindId("scopeId", aspectProps.scope.id); // this scope.id can never be invalid, we create it above
+      params.bindString("kind", aspectProps.kind);
+      const reader = this.provenanceDb.createQueryReader(sql, params, {
+        usePrimaryConn: true,
+      });
+      const hasConflictingScope = await reader.step();
 
       if (hasConflictingScope) {
         throw new IModelError(
@@ -2183,7 +2180,9 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Override of [IModelExportHandler.onDeleteModel]($transformer) that is called when [IModelExporter]($transformer) detects that a [Model]($backend) has been deleted from the source iModel. */
-  public override onDeleteModel(sourceModelId: Id64String): void {
+  public override async onDeleteModel(
+    sourceModelId: Id64String
+  ): Promise<void> {
     // It is possible and apparently occasionally sensical to delete a model without deleting its underlying element.
     // - If only the model is deleted, [[initFromExternalSourceAspects]] will have already remapped the underlying element since it still exists.
     // - If both were deleted, [[remapDeletedSourceEntities]] will find and remap the deleted element making this operation valid
@@ -2203,22 +2202,10 @@ export class IModelTransformer extends IModelExportHandler {
     `;
 
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      const isDefinitionPartition = this.targetDb.withPreparedStatement(
-        sql,
-        (stmt) => {
-          stmt.bindId("targetModelId", targetModelId);
-          const val: DbResult = stmt.step();
-          switch (val) {
-            case DbResult.BE_SQLITE_ROW:
-              return true;
-            case DbResult.BE_SQLITE_DONE:
-              return false;
-            default:
-              assert(false, `unexpected db result: '${JSON.stringify(stmt)}'`);
-          }
-        }
-      );
+      const params = new QueryBinder().bindId("targetModelId", targetModelId);
+      const reader = this.targetDb.createQueryReader(sql, params);
+      const isDefinitionPartition = await reader.step();
+
       if (isDefinitionPartition) {
         // Skipping model deletion because model's partition will also be deleted.
         // It expects that model will be present and will fail if it's missing.
@@ -2228,7 +2215,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     try {
-      this.importer.deleteModel(targetModelId);
+      await this.importer.deleteModel(targetModelId);
     } catch (error) {
       const isDeletionProhibitedErr =
         error instanceof IModelError &&
@@ -2962,7 +2949,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async initialize(): Promise<void> {
     if (this._initialized) return;
 
-    this.initScopeProvenance();
+    await this.initScopeProvenance();
 
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
     await this.context.initialize();
