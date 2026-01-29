@@ -2556,14 +2556,13 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
    */
   public override onExportRelationship(sourceRelationship: Relationship): void {
-    const sourceFedGuid = queryElemFedGuid(
-      this.sourceDb,
+    const sourceFedGuid = this.sourceDb.elements.getFederationGuidFromId(
       sourceRelationship.sourceId
     );
-    const targetFedGuid = queryElemFedGuid(
-      this.sourceDb,
+    const targetFedGuid = this.sourceDb.elements.getFederationGuidFromId(
       sourceRelationship.targetId
     );
+
     const targetRelationshipProps =
       this.onTransformRelationship(sourceRelationship);
     const targetRelationshipInstanceId = this.importer.importRelationship(
@@ -3659,6 +3658,7 @@ export class TemplateModelCloner extends IModelTransformer {
   }
 }
 
+//Deprecate in preference of imodeldb.elements.getFederationGuidFromId()?
 function queryElemFedGuid(db: IModelDb, elemId: Id64String) {
   // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
   return db.withPreparedStatement(
