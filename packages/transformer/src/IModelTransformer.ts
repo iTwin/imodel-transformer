@@ -1428,7 +1428,7 @@ export class IModelTransformer extends IModelExportHandler {
       const provenanceRelInstanceId =
         provenanceRelInstId !== undefined
           ? (provenanceRelInstId as string)
-          : this._queryTargetRelId(sourceRelInfo);
+          : await this._queryTargetRelId(sourceRelInfo);
       return {
         aspectId,
         relationshipId: provenanceRelInstanceId,
@@ -1436,11 +1436,11 @@ export class IModelTransformer extends IModelExportHandler {
     } else return undefined;
   }
 
-  private _queryTargetRelId(sourceRelInfo: {
+  private async _queryTargetRelId(sourceRelInfo: {
     classFullName: string;
     sourceId: Id64String;
     targetId: Id64String;
-  }): Id64String | undefined {
+  }): Promise<Id64String | undefined> {
     const targetRelInfo = {
       sourceId: this.context.findTargetElementId(sourceRelInfo.sourceId),
       targetId: this.context.findTargetElementId(sourceRelInfo.targetId),
@@ -1450,35 +1450,33 @@ export class IModelTransformer extends IModelExportHandler {
       targetRelInfo.targetId === undefined
     )
       return undefined; // couldn't find an element, rel is invalid or deleted
-
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return this.targetDb.withPreparedStatement(
-      `
-      SELECT ECInstanceId
-      FROM bis.ElementRefersToElements
-      WHERE SourceECInstanceId=?
-        AND TargetECInstanceId=?
-        AND ECClassId=?
-    `,
-      (stmt) => {
-        stmt.bindId(1, targetRelInfo.sourceId);
-        stmt.bindId(2, targetRelInfo.targetId);
-        stmt.bindId(
-          3,
-          this._targetClassNameToClassId(sourceRelInfo.classFullName)
-        );
-        if (stmt.step() !== DbResult.BE_SQLITE_ROW) return undefined;
-        return stmt.getValue(0).getId();
-      }
+    const sql = `
+      select ecinstanceid
+      from bis.elementreferstoelements
+      where sourceecinstanceid=?
+        and targetecinstanceid=?
+        and ecclassid=?
+    `;
+    const params = new QueryBinder();
+    params.bindId(1, targetRelInfo.sourceId);
+    params.bindId(2, targetRelInfo.targetId);
+    params.bindId(
+      3,
+      await this._targetClassNameToClassId(sourceRelInfo.classFullName)
     );
+    const result = this.targetDb.createQueryReader(sql, params);
+    if (await result.step()) return result.current.id;
+    else return undefined;
   }
 
   private _targetClassNameToClassIdCache = new Map<string, string>();
 
-  private _targetClassNameToClassId(classFullName: string): Id64String {
+  private async _targetClassNameToClassId(
+    classFullName: string
+  ): Promise<Id64String> {
     let classId = this._targetClassNameToClassIdCache.get(classFullName);
     if (classId === undefined) {
-      classId = this._getRelClassId(this.targetDb, classFullName);
+      classId = await this._getRelClassId(this.targetDb, classFullName);
       this._targetClassNameToClassIdCache.set(classFullName, classId);
     }
     return classId;
@@ -1486,27 +1484,26 @@ export class IModelTransformer extends IModelExportHandler {
 
   // NOTE: this doesn't handle remapped element classes,
   // but is only used for relationships rn
-  private _getRelClassId(db: IModelDb, classFullName: string): Id64String {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return db.withPreparedStatement(
-      `
+  private async _getRelClassId(
+    db: IModelDb,
+    classFullName: string
+  ): Promise<Id64String> {
+    const sql = `
       SELECT c.ECInstanceId
       FROM ECDbMeta.ECClassDef c
       JOIN ECDbMeta.ECSchemaDef s ON c.Schema.Id=s.ECInstanceId
       WHERE s.Name=? AND c.Name=?
-    `,
-      (stmt) => {
-        const [schemaName, className] =
-          classFullName.indexOf(".") !== -1
-            ? classFullName.split(".")
-            : classFullName.split(":");
-        stmt.bindString(1, schemaName);
-        stmt.bindString(2, className);
-        if (stmt.step() === DbResult.BE_SQLITE_ROW)
-          return stmt.getValue(0).getId();
-        assert(false, "relationship was not found");
-      }
-    );
+    `;
+    const params = new QueryBinder();
+    const [schemaName, className] =
+      classFullName.indexOf(".") !== -1
+        ? classFullName.split(".")
+        : classFullName.split(":");
+    params.bindString(1, schemaName);
+    params.bindString(2, className);
+    const result = db.createQueryReader(sql, params);
+    if (await result.step()) return result.current.id;
+    assert(false, "relationship was not found");
   }
 
   // Deprecate?
