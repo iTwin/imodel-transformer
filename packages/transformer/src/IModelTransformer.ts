@@ -1220,14 +1220,14 @@ export class IModelTransformer extends IModelExportHandler {
    * @note provenance is done by federation guids where possible
    * @note this may execute on each element more than once! Only use in cases where that is handled
    */
-  public static forEachTrackedElement(args: {
+  public static async forEachTrackedElement(args: {
     provenanceSourceDb: IModelDb;
     provenanceDb: IModelDb;
     targetScopeElementId: Id64String;
     isReverseSynchronization: boolean;
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
     skipPropagateChangesToRootElements: boolean;
-  }): void {
+  }): Promise<void> {
     if (args.provenanceDb === args.provenanceSourceDb) return;
 
     if (!args.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
@@ -1261,53 +1261,41 @@ export class IModelTransformer extends IModelExportHandler {
     // we could get the intersection of fed guids in one query, not sure if it would be faster
     // OR we could do a raw sqlite query...
 
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    sourceDb.withStatement(elementIdByFedGuidQuery, (sourceStmt) =>
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      targetDb.withStatement(elementIdByFedGuidQuery, (targetStmt) => {
-        if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-        let sourceRow = sourceStmt.getRow() as {
-          federationGuid?: GuidString;
-          id: Id64String;
-        };
-        if (targetStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-        let targetRow = targetStmt.getRow() as {
-          federationGuid?: GuidString;
-          id: Id64String;
-        };
-
-        // NOTE: these comparisons rely upon the lowercase of the guid,
-        // and the fact that '0' < '9' < a' < 'f' in ascii/utf8
-        while (true) {
-          const currSourceRow = sourceRow,
-            currTargetRow = targetRow;
-          if (
-            currSourceRow.federationGuid !== undefined &&
-            currTargetRow.federationGuid !== undefined &&
-            currSourceRow.federationGuid === currTargetRow.federationGuid
-          ) {
-            // data flow direction is always sourceDb -> targetDb and it does not depend on where the explicit element provenance is stored
-            args.fn(sourceRow.id, targetRow.id);
-          }
-          if (
-            currTargetRow.federationGuid === undefined ||
-            (currSourceRow.federationGuid !== undefined &&
-              currSourceRow.federationGuid >= currTargetRow.federationGuid)
-          ) {
-            if (targetStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-            targetRow = targetStmt.getRow();
-          }
-          if (
-            currSourceRow.federationGuid === undefined ||
-            (currTargetRow.federationGuid !== undefined &&
-              currSourceRow.federationGuid <= currTargetRow.federationGuid)
-          ) {
-            if (sourceStmt.step() !== DbResult.BE_SQLITE_ROW) return;
-            sourceRow = sourceStmt.getRow();
-          }
-        }
-      })
-    );
+    const sourceReader = sourceDb.createQueryReader(elementIdByFedGuidQuery);
+    const targetReader = targetDb.createQueryReader(elementIdByFedGuidQuery);
+    let hasSourceRow = await sourceReader.step();
+    let hasTargetRow = await targetReader.step();
+    while (hasSourceRow && hasTargetRow) {
+      const sourceFedGuid = sourceReader.current.federationGuid as
+        | GuidString
+        | undefined;
+      const targetFedGuid = targetReader.current.federationGuid as
+        | GuidString
+        | undefined;
+      if (
+        sourceFedGuid !== undefined &&
+        targetFedGuid !== undefined &&
+        sourceFedGuid === targetFedGuid
+      ) {
+        // data flow direction is always sourceDb -> targetDb and it does not depend on where the explicit element provenance is stored
+        args.fn(
+          sourceReader.current.id as Id64String,
+          targetReader.current.id as Id64String
+        );
+      }
+      if (
+        targetFedGuid === undefined ||
+        (sourceFedGuid !== undefined && sourceFedGuid >= targetFedGuid)
+      ) {
+        hasTargetRow = await targetReader.step();
+      }
+      if (
+        sourceFedGuid === undefined ||
+        (targetFedGuid !== undefined && sourceFedGuid <= targetFedGuid)
+      ) {
+        hasSourceRow = await sourceReader.step();
+      }
+    }
 
     // query for provenanceDb
     const provenanceAspectsQuery = `
@@ -1321,33 +1309,32 @@ export class IModelTransformer extends IModelExportHandler {
     // victims of the old provenance method that have both fedguids and an inserted aspect.
     // But this is a private function with one known caller where that doesn't matter
 
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    args.provenanceDb.withPreparedStatement(
+    const runFnInDataFlowDirection = (
+      sourceId: Id64String,
+      targetId: Id64String
+    ) =>
+      args.isReverseSynchronization
+        ? args.fn(sourceId, targetId)
+        : args.fn(targetId, sourceId);
+    const params = new QueryBinder();
+    params.bindId("scopeId", args.targetScopeElementId);
+    params.bindString("kind", ExternalSourceAspect.Kind.Element);
+    const provenanceReader = args.provenanceDb.createQueryReader(
       provenanceAspectsQuery,
-      (stmt): void => {
-        const runFnInDataFlowDirection = (
-          sourceId: Id64String,
-          targetId: Id64String
-        ) =>
-          args.isReverseSynchronization
-            ? args.fn(sourceId, targetId)
-            : args.fn(targetId, sourceId);
-        stmt.bindId("scopeId", args.targetScopeElementId);
-        stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
-        while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-          // ExternalSourceAspect.Identifier is of type string
-          const aspectIdentifier: Id64String = stmt.getValue(0).getString();
-          const elementId: Id64String = stmt.getValue(1).getId();
-          runFnInDataFlowDirection(elementId, aspectIdentifier);
-        }
-      }
+      params
     );
+    for await (const row of provenanceReader) {
+      // ExternalSourceAspect.Identifier is of type string
+      const aspectIdentifier: Id64String = row[0];
+      const elementId: Id64String = row.id;
+      runFnInDataFlowDirection(elementId, aspectIdentifier);
+    }
   }
 
-  private forEachTrackedElement(
+  private async forEachTrackedElement(
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void
-  ): void {
-    return IModelTransformer.forEachTrackedElement({
+  ): Promise<void> {
+    return await IModelTransformer.forEachTrackedElement({
       provenanceSourceDb: this.provenanceSourceDb,
       provenanceDb: this.provenanceDb,
       targetScopeElementId: this.targetScopeElementId,
@@ -2998,7 +2985,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns void
    */
   private async processChangesets(): Promise<void> {
-    this.forEachTrackedElement(
+    await this.forEachTrackedElement(
       (sourceElementId: Id64String, targetElementId: Id64String) => {
         this.context.remapElement(sourceElementId, targetElementId);
       }
