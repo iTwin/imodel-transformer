@@ -1365,27 +1365,25 @@ export class IModelTransformer extends IModelExportHandler {
    * @param entityInProvenanceSourceId
    * @returns the elementId that the ESA is stored on, esa.Element.Id
    */
-  private _queryProvenanceForElement(
+  private async _queryProvenanceForElement(
     entityInProvenanceSourceId: Id64String
-  ): Id64String | undefined {
+  ): Promise<Id64String | undefined> {
     // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return this.provenanceDb.withPreparedStatement(
-      `
+    const sql = `
         SELECT esa.Element.Id
         FROM Bis.ExternalSourceAspect esa
         WHERE esa.Kind=?
           AND esa.Scope.Id=?
           AND esa.Identifier=?
-      `,
-      (stmt) => {
-        stmt.bindString(1, ExternalSourceAspect.Kind.Element);
-        stmt.bindId(2, this.targetScopeElementId);
-        stmt.bindString(3, entityInProvenanceSourceId);
-        if (stmt.step() === DbResult.BE_SQLITE_ROW)
-          return stmt.getValue(0).getId();
-        else return undefined;
-      }
-    );
+      `;
+    const params = new QueryBinder();
+    params.bindString(1, ExternalSourceAspect.Kind.Element);
+    params.bindId(2, this.targetScopeElementId);
+    params.bindString(3, entityInProvenanceSourceId);
+    const result = this.provenanceDb.createQueryReader(sql, params);
+    if (await result.step()) {
+      return result.current.id;
+    } else return undefined;
   }
 
   /**
@@ -1395,49 +1393,47 @@ export class IModelTransformer extends IModelExportHandler {
    * @param entityInProvenanceSourceId
    * @returns
    */
-  private _queryProvenanceForRelationship(
+  private async _queryProvenanceForRelationship(
     entityInProvenanceSourceId: Id64String,
     sourceRelInfo: {
       classFullName: string;
       sourceId: Id64String;
       targetId: Id64String;
     }
-  ):
+  ): Promise<
     | {
         aspectId: Id64String;
         /** if undefined, the relationship could not be found, perhaps it was deleted */
         relationshipId: Id64String | undefined;
       }
-    | undefined {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return this.provenanceDb.withPreparedStatement(
-      `
-        SELECT
-          ECInstanceId,
-          JSON_EXTRACT(JsonProperties, '$.targetRelInstanceId'),
-          JSON_EXTRACT(JsonProperties, '$.provenanceRelInstanceId')
-        FROM Bis.ExternalSourceAspect
-        WHERE Kind=?
-          AND Scope.Id=?
-          AND Identifier=?
-      `,
-      (stmt) => {
-        stmt.bindString(1, ExternalSourceAspect.Kind.Relationship);
-        stmt.bindId(2, this.targetScopeElementId);
-        stmt.bindString(3, entityInProvenanceSourceId);
-        if (stmt.step() !== DbResult.BE_SQLITE_ROW) return undefined;
-
-        const aspectId = stmt.getValue(0).getId();
-        const provenanceRelInstIdVal = stmt.getValue(2);
-        const provenanceRelInstanceId = !provenanceRelInstIdVal.isNull
-          ? provenanceRelInstIdVal.getString()
+    | undefined
+  > {
+    const sql = `
+      SELECT
+        ECInstanceId,
+        JSON_EXTRACT(JsonProperties, '$.provenanceRelInstanceId') AS provenanceRelInstId
+      FROM Bis.ExternalSourceAspect
+      WHERE Kind=?
+        AND Scope.Id=?
+        AND Identifier=?
+    `;
+    const params = new QueryBinder();
+    params.bindString(1, ExternalSourceAspect.Kind.Relationship);
+    params.bindId(2, this.targetScopeElementId);
+    params.bindString(3, entityInProvenanceSourceId);
+    const result = this.provenanceDb.createQueryReader(sql, params);
+    if (await result.step()) {
+      const aspectId = result.current.id;
+      const provenanceRelInstId = result.current.provenanceRelInstId;
+      const provenanceRelInstanceId =
+        provenanceRelInstId !== undefined
+          ? (provenanceRelInstId as string)
           : this._queryTargetRelId(sourceRelInfo);
-        return {
-          aspectId,
-          relationshipId: provenanceRelInstanceId,
-        };
-      }
-    );
+      return {
+        aspectId,
+        relationshipId: provenanceRelInstanceId,
+      };
+    } else return undefined;
   }
 
   private _queryTargetRelId(sourceRelInfo: {
@@ -3226,7 +3222,7 @@ export class IModelTransformer extends IModelExportHandler {
           targetIdInTarget: targetIdOfRelationshipInTarget,
         });
       } else if (this.sourceDb === this.provenanceSourceDb) {
-        const relProvenance = this._queryProvenanceForRelationship(
+        const relProvenance = await this._queryProvenanceForRelationship(
           changedInstanceId,
           {
             classFullName: classFullName ?? "",
@@ -3244,7 +3240,7 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       let targetId = await getTargetIdFromSourceId(changedInstanceId);
       if (targetId === undefined && this.sourceDb === this.provenanceSourceDb) {
-        targetId = this._queryProvenanceForElement(changedInstanceId);
+        targetId = await this._queryProvenanceForElement(changedInstanceId);
       }
       // since we are processing one changeset at a time, we can see local source deletes
       // of entities that were never synced and can be safely ignored
