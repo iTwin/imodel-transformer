@@ -1566,7 +1566,9 @@ export class IModelTransformer extends IModelExportHandler {
    * @note A subclass can override this method to provide custom transform behavior.
    * @note This can be called more than once for an element in arbitrary order, so it should not have side-effects.
    */
-  public onTransformElement(sourceElement: Element): ElementProps {
+  public async onTransformElement(
+    sourceElement: Element
+  ): Promise<ElementProps> {
     Logger.logTrace(
       loggerCategory,
       `onTransformElement(${
@@ -1785,7 +1787,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  protected completePartiallyCommittedElements() {
+  protected async completePartiallyCommittedElements() {
     for (const sourceElementId of this._partiallyCommittedElementIds) {
       const sourceElement = this.sourceDb.elements.getElement({
         id: sourceElementId,
@@ -1799,12 +1801,12 @@ export class IModelTransformer extends IModelExportHandler {
         );
       }
 
-      const targetProps = this.onTransformElement(sourceElement);
+      const targetProps = await this.onTransformElement(sourceElement);
       this.targetDb.elements.updateElement({ ...targetProps, id: targetId });
     }
   }
 
-  protected completePartiallyCommittedAspects() {
+  protected async completePartiallyCommittedAspects() {
     for (const sourceAspectId of this._partiallyCommittedAspectIds) {
       const sourceAspect = this.sourceDb.elements.getAspect(sourceAspectId);
       const targetAspectId = this.context.findTargetAspectId(sourceAspectId);
@@ -1813,7 +1815,8 @@ export class IModelTransformer extends IModelExportHandler {
           `source-target aspect mapping not found for aspect "${sourceAspectId}" when completing partially committed aspects. This is a bug.`
         );
       }
-      const targetAspectProps = this.onTransformElementAspect(sourceAspect);
+      const targetAspectProps =
+        await this.onTransformElementAspect(sourceAspect);
       this.targetDb.elements.updateAspect({
         ...targetAspectProps,
         id: targetAspectId,
@@ -1821,7 +1824,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private doAllReferencesExistInTarget(entity: ConcreteEntity) {
+  private async doAllReferencesExistInTarget(entity: ConcreteEntity) {
     let allReferencesExist = true;
     for (const referenceId of entity.getReferenceIds()) {
       const referencedEntityId = EntityReferences.toId64(referenceId);
@@ -1835,7 +1838,9 @@ export class IModelTransformer extends IModelExportHandler {
 
       if (
         allReferencesExist &&
-        !EntityReferences.isValid(this.context.findTargetEntityId(referenceId))
+        !EntityReferences.isValid(
+          await this.context.findTargetEntityId(referenceId)
+        )
       ) {
         // if we care about references existing then we cannot return early and must check all other references.
         if (this._options.danglingReferencesBehavior === "ignore") {
@@ -2006,7 +2011,7 @@ export class IModelTransformer extends IModelExportHandler {
         this.targetDb.elements.getElementProps(targetElementId);
     } else {
       targetElementId = this.context.findTargetElementId(sourceElement.id);
-      targetElementProps = this.onTransformElement(sourceElement);
+      targetElementProps = await this.onTransformElement(sourceElement);
     }
 
     // if an existing remapping was not yet found, check by FederationGuid
@@ -2057,7 +2062,7 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
-    if (!this.doAllReferencesExistInTarget(sourceElement)) {
+    if (!(await this.doAllReferencesExistInTarget(sourceElement))) {
       this._partiallyCommittedElementIds.add(sourceElement.id);
     }
 
@@ -2716,11 +2721,11 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportElementUniqueAspect]($transformer) that imports an ElementUniqueAspect into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformElementAspect]] and then [IModelImporter.importElementUniqueAspect]($transformer) to update the target iModel.
    */
-  public override onExportElementUniqueAspect(
+  public override async onExportElementUniqueAspect(
     sourceAspect: ElementUniqueAspect
-  ): void {
-    const targetAspectProps = this.onTransformElementAspect(sourceAspect);
-    if (!this.doAllReferencesExistInTarget(sourceAspect)) {
+  ): Promise<void> {
+    const targetAspectProps = await this.onTransformElementAspect(sourceAspect);
+    if (!(await this.doAllReferencesExistInTarget(sourceAspect))) {
       this._partiallyCommittedAspectIds.add(sourceAspect.id);
     }
     const targetId = this.importer.importElementUniqueAspect(targetAspectProps);
@@ -2731,21 +2736,21 @@ export class IModelTransformer extends IModelExportHandler {
    * This override calls [[onTransformElementAspect]] for each ElementMultiAspect and then [IModelImporter.importElementMultiAspects]($transformer) to update the target iModel.
    * @note ElementMultiAspects are handled as a group to make it easier to differentiate between insert, update, and delete.
    */
-  public override onExportElementMultiAspects(
+  public override async onExportElementMultiAspects(
     sourceAspects: ElementMultiAspect[]
-  ): void {
+  ): Promise<void> {
     // Transform source ElementMultiAspects into target ElementAspectProps
-    const targetAspectPropsArray = sourceAspects.map((srcA) =>
-      this.onTransformElementAspect(srcA)
+    const targetAspectPropsArray = sourceAspects.map(
+      async (srcA) => await this.onTransformElementAspect(srcA)
     );
-    sourceAspects.forEach((a) => {
-      if (!this.doAllReferencesExistInTarget(a)) {
+    sourceAspects.forEach(async (a) => {
+      if (!(await this.doAllReferencesExistInTarget(a))) {
         this._partiallyCommittedAspectIds.add(a.id);
       }
     });
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
     const targetIds = this.importer.importElementMultiAspects(
-      targetAspectPropsArray,
+      await Promise.all(targetAspectPropsArray),
       (a) => {
         const isExternalSourceAspectFromTransformer =
           a instanceof ExternalSourceAspect &&
@@ -2766,11 +2771,11 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns ElementAspectProps for the target iModel.
    * @note A subclass can override this method to provide custom transform behavior.
    */
-  protected onTransformElementAspect(
+  protected async onTransformElementAspect(
     sourceElementAspect: ElementAspect
-  ): ElementAspectProps {
+  ): Promise<ElementAspectProps> {
     const targetElementAspectProps =
-      this.context.cloneElementAspect(sourceElementAspect);
+      await this.context.cloneElementAspect(sourceElementAspect);
     return targetElementAspectProps;
   }
 
@@ -2934,8 +2939,8 @@ export class IModelTransformer extends IModelExportHandler {
     this.context.remapElement(sourceSubjectId, targetSubjectId);
     await this.processChildElements(sourceSubjectId);
     await this.processSubjectSubModels(sourceSubjectId);
-    this.completePartiallyCommittedElements();
-    this.completePartiallyCommittedAspects();
+    await this.completePartiallyCommittedElements();
+    await this.completePartiallyCommittedAspects();
   }
 
   /** state to prevent reinitialization, @see [[initialize]] */
@@ -3390,9 +3395,9 @@ export class IModelTransformer extends IModelExportHandler {
     } else {
       await this.exporter.exportModel(IModel.repositoryModelId);
     }
-    this.completePartiallyCommittedElements();
+    await this.completePartiallyCommittedElements();
     await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
-    this.completePartiallyCommittedAspects();
+    await this.completePartiallyCommittedAspects();
     await this.exporter.exportRelationships(
       ElementRefersToElements.classFullName
     );
@@ -3446,8 +3451,8 @@ export class IModelTransformer extends IModelExportHandler {
   private async processChanges(options: ProcessChangesOptions): Promise<void> {
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(this.getExportInitOpts(options));
-    this.completePartiallyCommittedElements();
-    this.completePartiallyCommittedAspects();
+    await this.completePartiallyCommittedElements();
+    await this.completePartiallyCommittedAspects();
 
     if (this._options.optimizeGeometry)
       this.importer.optimizeGeometry(this._options.optimizeGeometry);
@@ -3581,12 +3586,16 @@ export class TemplateModelCloner extends IModelTransformer {
   }
 
   /** Cloning from a template requires this override of onTransformElement. */
-  public override onTransformElement(sourceElement: Element): ElementProps {
+  public override async onTransformElement(
+    sourceElement: Element
+  ): Promise<ElementProps> {
     const referenceIds = sourceElement.getReferenceIds();
-    referenceIds.forEach((referenceId) => {
+    for (const referenceId of referenceIds) {
       // TODO: consider going through all definition elements at once and remapping them to themselves
       if (
-        !EntityReferences.isValid(this.context.findTargetEntityId(referenceId))
+        !EntityReferences.isValid(
+          await this.context.findTargetEntityId(referenceId)
+        )
       ) {
         if (this.context.isBetweenIModels) {
           throw new IModelError(
@@ -3612,9 +3621,9 @@ export class TemplateModelCloner extends IModelTransformer {
           }
         }
       }
-    });
+    }
 
-    const targetElementProps: ElementProps = super.onTransformElement(
+    const targetElementProps: ElementProps = await super.onTransformElement(
       sourceElement
     );
     targetElementProps.federationGuid = Guid.createValue(); // clone from template should create a new federationGuid

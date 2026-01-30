@@ -202,15 +202,17 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportElementUniqueAspect(
+  public async onExportElementUniqueAspect(
     _aspect: ElementUniqueAspect,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /** Called when ElementMultiAspects should be exported.
    * @note This should be overridden to actually do the export.
    */
-  public onExportElementMultiAspects(_aspects: ElementMultiAspect[]): void {}
+  public async onExportElementMultiAspects(
+    _aspects: ElementMultiAspect[]
+  ): Promise<void> {}
 
   /** If `true` is returned, then the relationship will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
@@ -343,9 +345,9 @@ export class IModelExporter {
     this._exportElementAspectsStrategy = new elementAspectsStrategy(
       this.sourceDb,
       {
-        onExportElementMultiAspects: (aspects) =>
+        onExportElementMultiAspects: async (aspects) =>
           this.handler.onExportElementMultiAspects(aspects),
-        onExportElementUniqueAspect: (aspect, isUpdate) =>
+        onExportElementUniqueAspect: async (aspect, isUpdate) =>
           this.handler.onExportElementUniqueAspect(aspect, isUpdate),
         shouldExportElementAspect: (aspect) =>
           this.handler.shouldExportElementAspect(aspect),

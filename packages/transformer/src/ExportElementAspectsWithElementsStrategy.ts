@@ -37,7 +37,7 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
             const isKnownUpdate = this.aspectChanges
               ? isUpdateChange
               : undefined;
-            this.handler.onExportElementUniqueAspect(
+            await this.handler.onExportElementUniqueAspect(
               uniqueAspect,
               isKnownUpdate
             );
@@ -55,7 +55,7 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
       .filter((a) => this.shouldExportElementAspect(a));
 
     if (multiAspects.length > 0) {
-      this.handler.onExportElementMultiAspects(multiAspects);
+      await this.handler.onExportElementMultiAspects(multiAspects);
       return this.handler.trackProgress();
     }
   }

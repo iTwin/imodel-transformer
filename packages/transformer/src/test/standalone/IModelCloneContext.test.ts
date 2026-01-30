@@ -134,9 +134,9 @@ describe("IModelCloneContext", () => {
         sourceRelationshipIds.push(row.id);
       }
       let atLeastOneRelIdMissMatches = false;
-      sourceRelationshipIds.forEach((sourceRelId) => {
+      for (const sourceRelId of sourceRelationshipIds) {
         const targetRelId = EntityReferences.toId64(
-          transformer.context.findTargetEntityId(
+          await transformer.context.findTargetEntityId(
             EntityReferences.fromEntityType(
               sourceRelId,
               ConcreteEntityTypes.Relationship
@@ -152,7 +152,7 @@ describe("IModelCloneContext", () => {
 
         if (!atLeastOneRelIdMissMatches)
           atLeastOneRelIdMissMatches = targetRelId !== sourceRelId;
-      });
+      }
       /**
        * If this fails, then relationship ids match, and we don't really know if sourceDb and targetDb relationship ids differ.
        * It doesn't mean that functionality fails by itself.

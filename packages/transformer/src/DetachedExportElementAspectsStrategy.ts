@@ -57,7 +57,9 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
         if (
           batchedElementMultiAspects[0].element.id !== multiAspect.element.id
         ) {
-          this.handler.onExportElementMultiAspects(batchedElementMultiAspects);
+          await this.handler.onExportElementMultiAspects(
+            batchedElementMultiAspects
+          );
           await this.handler.trackProgress();
           batchedElementMultiAspects = [];
         }
@@ -68,7 +70,9 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
 
     if (batchedElementMultiAspects.length > 0) {
       // aspects that are left in the array have not been exported
-      this.handler.onExportElementMultiAspects(batchedElementMultiAspects);
+      await this.handler.onExportElementMultiAspects(
+        batchedElementMultiAspects
+      );
       await this.handler.trackProgress();
     }
   }

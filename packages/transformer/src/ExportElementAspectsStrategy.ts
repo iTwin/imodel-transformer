@@ -24,8 +24,10 @@ export interface ElementAspectsHandler {
   onExportElementUniqueAspect(
     uniqueAspect: ElementUniqueAspect,
     isUpdate?: boolean | undefined
-  ): void;
-  onExportElementMultiAspects(multiAspects: ElementMultiAspect[]): void;
+  ): Promise<void>;
+  onExportElementMultiAspects(
+    multiAspects: ElementMultiAspect[]
+  ): Promise<void>;
   trackProgress: () => Promise<void>;
 }
 

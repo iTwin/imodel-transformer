@@ -1574,8 +1574,10 @@ export class IModelTransformer3d extends IModelTransformer {
     this._transform3d = transform3d;
   }
   /** Override transformElement to apply a 3d transform to all GeometricElement3d instances. */
-  public override onTransformElement(sourceElement: Element): ElementProps {
-    const targetElementProps: ElementProps = super.onTransformElement(
+  public override async onTransformElement(
+    sourceElement: Element
+  ): Promise<ElementProps> {
+    const targetElementProps: ElementProps = await super.onTransformElement(
       sourceElement
     );
     if (sourceElement instanceof GeometricElement3d) {
@@ -1818,8 +1820,12 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override transformElement to make sure that all target Elements have a FederationGuid */
-  public override onTransformElement(sourceElement: Element): ElementProps {
-    const targetElementProps: any = super.onTransformElement(sourceElement);
+  public override async onTransformElement(
+    sourceElement: Element
+  ): Promise<ElementProps> {
+    const targetElementProps: any = await super.onTransformElement(
+      sourceElement
+    );
     if (!targetElementProps.federationGuid) {
       targetElementProps.federationGuid = Guid.createValue();
     }
@@ -1847,10 +1853,10 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override transformElementAspect to remap Source*Aspect --> Target*Aspect */
-  public override onTransformElementAspect(
+  public override async onTransformElementAspect(
     sourceElementAspect: ElementAspect
-  ): ElementAspectProps {
-    const targetElementAspectProps: any = super.onTransformElementAspect(
+  ): Promise<ElementAspectProps> {
+    const targetElementAspectProps: any = await super.onTransformElementAspect(
       sourceElementAspect
     );
     if (
@@ -1924,16 +1930,16 @@ export class AspectTrackingTransformer extends IModelTransformer {
     ElementMultiAspect[]
   >();
 
-  public override onExportElementMultiAspects(
+  public override async onExportElementMultiAspects(
     sourceAspects: ElementMultiAspect[]
-  ): void {
+  ): Promise<void> {
     const elementId = sourceAspects[0].element.id;
     assert(
       !this.exportedAspectIdsByElement.has(elementId),
       "tried to export element multi aspects for an element more than once"
     );
     this.exportedAspectIdsByElement.set(elementId, sourceAspects);
-    return super.onExportElementMultiAspects(sourceAspects);
+    return await super.onExportElementMultiAspects(sourceAspects);
   }
 }
 
@@ -2297,10 +2303,10 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeLine(`[Element] ${elementId}, DELETE`);
     super.onDeleteElement(elementId);
   }
-  public override onExportElementUniqueAspect(
+  public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     const indentLevel: number = this.getIndentLevelForElementAspect(aspect);
     this.writeLine(
       `[Aspect] ${aspect.classFullName}, ${aspect.id}${this.formatOperationName(
@@ -2308,11 +2314,11 @@ export class IModelToTextFileExporter extends IModelExportHandler {
       )}`,
       indentLevel
     );
-    super.onExportElementUniqueAspect(aspect, isUpdate);
+    await super.onExportElementUniqueAspect(aspect, isUpdate);
   }
-  public override onExportElementMultiAspects(
+  public override async onExportElementMultiAspects(
     aspects: ElementMultiAspect[]
-  ): void {
+  ): Promise<void> {
     const indentLevel: number = this.getIndentLevelForElementAspect(aspects[0]);
     for (const aspect of aspects) {
       this.writeLine(
@@ -2320,7 +2326,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         indentLevel
       );
     }
-    super.onExportElementMultiAspects(aspects);
+    await super.onExportElementMultiAspects(aspects);
   }
   public override async onExportRelationship(
     relationship: Relationship,
@@ -2435,20 +2441,20 @@ export class ClassCounter extends IModelExportHandler {
     this.incrementClassCount(this._elementClassCounts, element.classFullName);
     await super.onExportElement(element, isUpdate);
   }
-  public override onExportElementUniqueAspect(
+  public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(this._aspectClassCounts, aspect.classFullName);
-    super.onExportElementUniqueAspect(aspect, isUpdate);
+    await super.onExportElementUniqueAspect(aspect, isUpdate);
   }
-  public override onExportElementMultiAspects(
+  public override async onExportElementMultiAspects(
     aspects: ElementMultiAspect[]
-  ): void {
+  ): Promise<void> {
     for (const aspect of aspects) {
       this.incrementClassCount(this._aspectClassCounts, aspect.classFullName);
     }
-    super.onExportElementMultiAspects(aspects);
+    await super.onExportElementMultiAspects(aspects);
   }
   public override async onExportRelationship(
     relationship: Relationship,

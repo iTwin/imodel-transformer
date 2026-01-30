@@ -17,6 +17,7 @@ import {
   EntityReference,
   IModel,
   IModelError,
+  QueryBinder,
   RelatedElement,
   RelatedElementProps,
 } from "@itwin/core-common";
@@ -31,7 +32,7 @@ import {
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { Property } from "@itwin/ecschema-metadata";
+import { parseClassModifier, Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -121,7 +122,9 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Look up a target [EntityReference]($bentley) from a source [EntityReference]($bentley)
    * @returns the target CodeSpecId or a [EntityReference]($bentley) containing [Id64.invalid]($bentley) if a mapping is not found.
    */
-  public findTargetEntityId(sourceEntityId: EntityReference): EntityReference {
+  public async findTargetEntityId(
+    sourceEntityId: EntityReference
+  ): Promise<EntityReference> {
     const [type, rawId] = EntityReferences.split(sourceEntityId);
     if (Id64.isValid(rawId)) {
       switch (type) {
@@ -169,9 +172,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
               ELSE 'error'
             END
           `;
-          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-          const relInSource = this.sourceDb.withPreparedStatement(
-            `
+          const sql = `
             SELECT
               SourceECInstanceId,
               TargetECInstanceId,
@@ -181,31 +182,65 @@ export class IModelCloneContext extends IModelElementCloneContext {
               (${makeGetConcreteEntityTypeSql("TargetECClassId")}) AS TargetType
             FROM BisCore:ElementRefersToElements
             WHERE ECInstanceId=?
-            `,
-            (stmt) => {
-              stmt.bindId(1, rawId);
-              let status: DbResult;
-              while ((status = stmt.step()) === DbResult.BE_SQLITE_ROW) {
-                const sourceId = stmt.getValue(0).getId();
-                const targetId = stmt.getValue(1).getId();
-                const sourceType = stmt.getValue(2).getString() as
-                  | ConcreteEntityTypes
-                  | "error";
-                const targetType = stmt.getValue(3).getString() as
-                  | ConcreteEntityTypes
-                  | "error";
-                if (sourceType === "error" || targetType === "error")
-                  throw Error("relationship end had unknown root class");
-                return {
-                  sourceId: `${sourceType}${sourceId}`,
-                  targetId: `${targetType}${targetId}`,
-                } as const;
-              }
-              if (status !== DbResult.BE_SQLITE_DONE)
-                throw new IModelError(status, "unexpected query failure");
-              return undefined;
+            `;
+          const params = new QueryBinder().bindId(1, rawId);
+          const reader = this.sourceDb.createQueryReader(sql, params);
+          const relInSource = await (async () => {
+            if (await reader.step()) {
+              const sourceId = reader.current[0];
+              const targetId = reader.current[1];
+              const sourceType = reader.current[2] as
+                | ConcreteEntityTypes
+                | "error";
+              const targetType = reader.current[3] as
+                | ConcreteEntityTypes
+                | "error";
+              if (sourceType === "error" || targetType === "error")
+                throw Error("relationship end had unknown root class");
+              return {
+                sourceId: `${sourceType}${sourceId}`,
+                targetId: `${targetType}${targetId}`,
+              } as const;
             }
-          );
+            return undefined;
+          })();
+          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
+          // const relInSource = this.sourceDb.withPreparedStatement(
+          //   `
+          //   SELECT
+          //     SourceECInstanceId,
+          //     TargetECInstanceId,
+          //     (${makeGetConcreteEntityTypeSql(
+          //       "SourceECClassId"
+          //     )}) AS SourceType,
+          //     (${makeGetConcreteEntityTypeSql("TargetECClassId")}) AS TargetType
+          //   FROM BisCore:ElementRefersToElements
+          //   WHERE ECInstanceId=?
+          //   `,
+          //   (stmt) => {
+          //     stmt.bindId(1, rawId);
+          //     let status: DbResult;
+          //     while ((status = stmt.step()) === DbResult.BE_SQLITE_ROW) {
+          //       const sourceId = stmt.getValue(0).getId();
+          //       const targetId = stmt.getValue(1).getId();
+          //       const sourceType = stmt.getValue(2).getString() as
+          //         | ConcreteEntityTypes
+          //         | "error";
+          //       const targetType = stmt.getValue(3).getString() as
+          //         | ConcreteEntityTypes
+          //         | "error";
+          //       if (sourceType === "error" || targetType === "error")
+          //         throw Error("relationship end had unknown root class");
+          //       return {
+          //         sourceId: `${sourceType}${sourceId}`,
+          //         targetId: `${targetType}${targetId}`,
+          //       } as const;
+          //     }
+          //     if (status !== DbResult.BE_SQLITE_DONE)
+          //       throw new IModelError(status, "unexpected query failure");
+          //     return undefined;
+          //   }
+          // );
           if (relInSource === undefined) break;
           // just in case prevent recursion
           if (
@@ -216,8 +251,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
               "link table relationship end was resolved to itself. This should be impossible"
             );
           const relInTarget = {
-            sourceId: this.findTargetEntityId(relInSource.sourceId),
-            targetId: this.findTargetEntityId(relInSource.targetId),
+            sourceId: await this.findTargetEntityId(relInSource.sourceId),
+            targetId: await this.findTargetEntityId(relInSource.targetId),
           };
           // return a null
           if (
@@ -254,12 +289,13 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public cloneElementAspect(
+  public async cloneElementAspect(
     sourceElementAspect: ElementAspect
-  ): ElementAspectProps {
+  ): Promise<ElementAspectProps> {
     const targetElementAspectProps: ElementAspectProps =
       sourceElementAspect.toJSON();
     targetElementAspectProps.id = undefined;
+    const targetEntityIds: Promise<void>[] = [];
     sourceElementAspect.forEach((name, property) => {
       if (property.isNavigation()) {
         const sourceNavProp: RelatedElementProps | undefined =
@@ -274,15 +310,20 @@ export class IModelCloneContext extends IModelElementCloneContext {
             navPropRefType !== undefined,
             `nav prop ref type for '${name}' was not in the cache, this is a bug.`
           );
-          const targetEntityReference = this.findTargetEntityId(
-            EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType)
+          targetEntityIds.push(
+            this.findTargetEntityId(
+              EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType)
+            ).then((targetEntityReference) => {
+              const targetEntityId = EntityReferences.toId64(
+                targetEntityReference
+              );
+              // spread the property in case toJSON did not deep-clone
+              (targetElementAspectProps as any)[ECJsNames.toJsName(name)] = {
+                ...(targetElementAspectProps as any)[ECJsNames.toJsName(name)],
+                id: targetEntityId,
+              };
+            })
           );
-          const targetEntityId = EntityReferences.toId64(targetEntityReference);
-          // spread the property in case toJSON did not deep-clone
-          (targetElementAspectProps as any)[ECJsNames.toJsName(name)] = {
-            ...(targetElementAspectProps as any)[ECJsNames.toJsName(name)],
-            id: targetEntityId,
-          };
         }
       } else if (property.isPrimitive() && "Id" === property.extendedTypeName) {
         (targetElementAspectProps as any)[ECJsNames.toJsName(name)] =
@@ -291,6 +332,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
           );
       }
     });
+    await Promise.all(targetEntityIds);
     return targetElementAspectProps;
   }
 }

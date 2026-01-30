@@ -182,8 +182,8 @@ export abstract class IModelExportHandler {
     onDeleteRelationship(_relInstanceId: Id64String): void;
     onExportCodeSpec(_codeSpec: CodeSpec, _isUpdate: boolean | undefined): void;
     onExportElement(_element: Element_2, _isUpdate: boolean | undefined): Promise<void>;
-    onExportElementMultiAspects(_aspects: ElementMultiAspect[]): void;
-    onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): void;
+    onExportElementMultiAspects(_aspects: ElementMultiAspect[]): Promise<void>;
+    onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): Promise<void>;
     onExportFont(_font: FontProps, _isUpdate: boolean | undefined): void;
     onExportModel(_model: Model, _isUpdate: boolean | undefined): void;
     onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined): Promise<void>;
@@ -253,9 +253,9 @@ export class IModelTransformer extends IModelExportHandler {
     calculateTransformFromHelmertTransforms(): Transform | undefined;
     combineElements(sourceElementIds: Id64Array, targetElementId: Id64String): void;
     // (undocumented)
-    protected completePartiallyCommittedAspects(): void;
+    protected completePartiallyCommittedAspects(): Promise<void>;
     // (undocumented)
-    protected completePartiallyCommittedElements(): void;
+    protected completePartiallyCommittedElements(): Promise<void>;
     readonly context: IModelCloneContext;
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
@@ -306,14 +306,14 @@ export class IModelTransformer extends IModelExportHandler {
     onDeleteRelationship(sourceRelInstanceId: Id64String): void;
     onExportCodeSpec(sourceCodeSpec: CodeSpec): void;
     onExportElement(sourceElement: Element_2): Promise<void>;
-    onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): void;
-    onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): void;
+    onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): Promise<void>;
+    onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): Promise<void>;
     onExportFont(font: FontProps, _isUpdate: boolean | undefined): void;
     onExportModel(sourceModel: Model): void;
     onExportRelationship(sourceRelationship: Relationship): Promise<void>;
     onExportSchema(schema: ECSchemaMetaData.Schema): Promise<void | ExportSchemaResult>;
-    onTransformElement(sourceElement: Element_2): ElementProps;
-    protected onTransformElementAspect(sourceElementAspect: ElementAspect): ElementAspectProps;
+    onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
+    protected onTransformElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps>;
     onTransformModel(sourceModel: Model, targetModeledElementId: Id64String): ModelProps;
     protected onTransformRelationship(sourceRelationship: Relationship): RelationshipProps;
     // (undocumented)
@@ -442,7 +442,7 @@ export interface TargetScopeProvenanceJsonProps {
 // @beta
 export class TemplateModelCloner extends IModelTransformer {
     constructor(sourceDb: IModelDb, targetDb?: IModelDb);
-    onTransformElement(sourceElement: Element_2): ElementProps;
+    onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     placeTemplate2d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement2d): Promise<Map<Id64String, Id64String>>;
     placeTemplate3d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement3d): Promise<Map<Id64String, Id64String>>;
 }
