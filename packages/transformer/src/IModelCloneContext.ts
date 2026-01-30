@@ -204,43 +204,6 @@ export class IModelCloneContext extends IModelElementCloneContext {
             }
             return undefined;
           })();
-          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-          // const relInSource = this.sourceDb.withPreparedStatement(
-          //   `
-          //   SELECT
-          //     SourceECInstanceId,
-          //     TargetECInstanceId,
-          //     (${makeGetConcreteEntityTypeSql(
-          //       "SourceECClassId"
-          //     )}) AS SourceType,
-          //     (${makeGetConcreteEntityTypeSql("TargetECClassId")}) AS TargetType
-          //   FROM BisCore:ElementRefersToElements
-          //   WHERE ECInstanceId=?
-          //   `,
-          //   (stmt) => {
-          //     stmt.bindId(1, rawId);
-          //     let status: DbResult;
-          //     while ((status = stmt.step()) === DbResult.BE_SQLITE_ROW) {
-          //       const sourceId = stmt.getValue(0).getId();
-          //       const targetId = stmt.getValue(1).getId();
-          //       const sourceType = stmt.getValue(2).getString() as
-          //         | ConcreteEntityTypes
-          //         | "error";
-          //       const targetType = stmt.getValue(3).getString() as
-          //         | ConcreteEntityTypes
-          //         | "error";
-          //       if (sourceType === "error" || targetType === "error")
-          //         throw Error("relationship end had unknown root class");
-          //       return {
-          //         sourceId: `${sourceType}${sourceId}`,
-          //         targetId: `${targetType}${targetId}`,
-          //       } as const;
-          //     }
-          //     if (status !== DbResult.BE_SQLITE_DONE)
-          //       throw new IModelError(status, "unexpected query failure");
-          //     return undefined;
-          //   }
-          // );
           if (relInSource === undefined) break;
           // just in case prevent recursion
           if (
