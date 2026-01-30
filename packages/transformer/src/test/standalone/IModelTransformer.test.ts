@@ -1595,10 +1595,10 @@ describe("IModelTransformer", () => {
       ): Promise<void> {
         assert.fail("Should not visit element when visitElements=false");
       }
-      public override onExportRelationship(
+      public override async onExportRelationship(
         _relationship: Relationship,
         _isUpdate: boolean | undefined
-      ): void {
+      ): Promise<void> {
         assert.fail(
           "Should not visit relationship when visitRelationship=false"
         );

@@ -186,7 +186,7 @@ export abstract class IModelExportHandler {
     onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): void;
     onExportFont(_font: FontProps, _isUpdate: boolean | undefined): void;
     onExportModel(_model: Model, _isUpdate: boolean | undefined): void;
-    onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined): void;
+    onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined): Promise<void>;
     onExportSchema(_schema: Schema): Promise<void | ExportSchemaResult>;
     onProgress(): Promise<void>;
     onSkipElement(_elementId: Id64String): void;
@@ -293,7 +293,7 @@ export class IModelTransformer extends IModelExportHandler {
         isReverseSynchronization: boolean;
         targetScopeElementId: Id64String;
         forceOldRelationshipProvenanceMethod: boolean;
-    }): ExternalSourceAspectProps;
+    }): Promise<ExternalSourceAspectProps>;
     protected initScopeProvenance(): Promise<void>;
     // (undocumented)
     get isForwardSynchronization(): boolean;
@@ -310,7 +310,7 @@ export class IModelTransformer extends IModelExportHandler {
     onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): void;
     onExportFont(font: FontProps, _isUpdate: boolean | undefined): void;
     onExportModel(sourceModel: Model): void;
-    onExportRelationship(sourceRelationship: Relationship): void;
+    onExportRelationship(sourceRelationship: Relationship): Promise<void>;
     onExportSchema(schema: ECSchemaMetaData.Schema): Promise<void | ExportSchemaResult>;
     onTransformElement(sourceElement: Element_2): ElementProps;
     protected onTransformElementAspect(sourceElementAspect: ElementAspect): ElementAspectProps;

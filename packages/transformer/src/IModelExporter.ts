@@ -224,10 +224,10 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportRelationship(
+  public async onExportRelationship(
     _relationship: Relationship,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /** Called when a relationship should be deleted. */
   public onDeleteRelationship(_relInstanceId: Id64String): void {}
@@ -995,7 +995,7 @@ export class IModelExporter {
     }
     // relationship has passed standard exclusion rules, now give handler a chance to accept/reject export
     if (this.handler.shouldExportRelationship(relationship)) {
-      this.handler.onExportRelationship(relationship, isUpdate);
+      await this.handler.onExportRelationship(relationship, isUpdate);
       await this.trackProgress();
     }
   }

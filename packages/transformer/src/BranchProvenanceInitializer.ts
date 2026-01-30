@@ -183,17 +183,14 @@ export async function initializeBranchProvenance(
   );
   while (await relReader.step()) {
     const id: string = relReader.current.toRow().id;
-    const aspectProps = IModelTransformer.initRelationshipProvenanceOptions(
-      id,
-      id,
-      {
+    const aspectProps =
+      await IModelTransformer.initRelationshipProvenanceOptions(id, id, {
         isReverseSynchronization: false,
         targetScopeElementId: masterExternalSourceId,
         sourceDb: args.master,
         targetDb: args.branch,
         forceOldRelationshipProvenanceMethod: false,
-      }
-    );
+      });
     args.branch.elements.insertAspect(aspectProps);
   }
 

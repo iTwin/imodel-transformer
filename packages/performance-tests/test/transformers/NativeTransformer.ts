@@ -37,9 +37,11 @@ class ProgressTransformer extends IModelTransformer {
     this._increment();
     return await super.onExportElement(sourceElement);
   }
-  public override onExportRelationship(sourceRelationship: Relationship): void {
+  public override async onExportRelationship(
+    sourceRelationship: Relationship
+  ): Promise<void> {
     this._increment();
-    return super.onExportRelationship(sourceRelationship);
+    return await super.onExportRelationship(sourceRelationship);
   }
 }
 

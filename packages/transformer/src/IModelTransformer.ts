@@ -856,7 +856,7 @@ export class IModelTransformer extends IModelExportHandler {
     return aspectProps;
   }
 
-  public static initRelationshipProvenanceOptions(
+  public static async initRelationshipProvenanceOptions(
     sourceRelInstanceId: Id64String,
     targetRelInstanceId: Id64String,
     args: {
@@ -866,7 +866,7 @@ export class IModelTransformer extends IModelExportHandler {
       targetScopeElementId: Id64String;
       forceOldRelationshipProvenanceMethod: boolean;
     }
-  ): ExternalSourceAspectProps {
+  ): Promise<ExternalSourceAspectProps> {
     const provenanceDb = args.isReverseSynchronization
       ? args.sourceDb
       : args.targetDb;
@@ -877,15 +877,17 @@ export class IModelTransformer extends IModelExportHandler {
       ? sourceRelInstanceId
       : targetRelInstanceId;
 
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    const elementId = provenanceDb.withPreparedStatement(
-      "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?",
-      (stmt) => {
-        stmt.bindId(1, provenanceRelInstanceId);
-        nodeAssert(stmt.step() === DbResult.BE_SQLITE_ROW);
-        return stmt.getValue(0).getId();
-      }
+    const sql =
+      "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?";
+    const params = new QueryBinder().bindId(1, provenanceRelInstanceId);
+    const reader = provenanceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
+    nodeAssert(
+      await reader.step(),
+      "relationship provenance query returned no rows"
     );
+    const elementId = reader.current[0];
 
     const jsonProperties = args.forceOldRelationshipProvenanceMethod
       ? { targetRelInstanceId }
@@ -936,11 +938,11 @@ export class IModelTransformer extends IModelExportHandler {
    * The `identifier` property of the ExternalSourceAspect will be the ECInstanceId of the relationship in the master iModel.
    * The ECInstanceId of the relationship in the branch iModel will be stored in the JsonProperties of the ExternalSourceAspect.
    */
-  private initRelationshipProvenance(
+  private async initRelationshipProvenance(
     sourceRelationship: Relationship,
     targetRelInstanceId: Id64String
-  ): ExternalSourceAspectProps {
-    return IModelTransformer.initRelationshipProvenanceOptions(
+  ): Promise<ExternalSourceAspectProps> {
+    return await IModelTransformer.initRelationshipProvenanceOptions(
       sourceRelationship.id,
       targetRelInstanceId,
       {
@@ -2529,7 +2531,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportRelationship]($transformer) that imports a relationship into the target iModel when it is exported from the source iModel.
    * This override calls [[onTransformRelationship]] and then [IModelImporter.importRelationship]($transformer) to update the target iModel.
    */
-  public override onExportRelationship(sourceRelationship: Relationship): void {
+  public override async onExportRelationship(
+    sourceRelationship: Relationship
+  ): Promise<void> {
     const sourceFedGuid = this.sourceDb.elements.getFederationGuidFromId(
       sourceRelationship.sourceId
     );
@@ -2553,7 +2557,7 @@ export class IModelTransformer extends IModelExportHandler {
         ? sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`
         : undefined;
       if (!provenance) {
-        const aspectProps = this.initRelationshipProvenance(
+        const aspectProps = await this.initRelationshipProvenance(
           sourceRelationship,
           targetRelationshipInstanceId
         );

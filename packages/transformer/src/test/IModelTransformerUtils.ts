@@ -2322,10 +2322,10 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     }
     super.onExportElementMultiAspects(aspects);
   }
-  public override onExportRelationship(
+  public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
       this._firstRelationship = false;
@@ -2335,7 +2335,7 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         relationship.id
       }${this.formatOperationName(isUpdate)}`
     );
-    super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(relationship, isUpdate);
   }
   public override onDeleteRelationship(relInstanceId: Id64String): void {
     this.writeLine(`[Relationship] ${relInstanceId}, DELETE`);
@@ -2450,15 +2450,15 @@ export class ClassCounter extends IModelExportHandler {
     }
     super.onExportElementMultiAspects(aspects);
   }
-  public override onExportRelationship(
+  public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(
       this._relationshipClassCounts,
       relationship.classFullName
     );
-    super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(relationship, isUpdate);
   }
 }
 
