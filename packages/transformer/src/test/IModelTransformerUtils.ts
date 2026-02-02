@@ -644,24 +644,18 @@ export async function assertIdentityTransformation(
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
           // so we query the prop instead of the checking for the property on the element
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
-          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-          const relationTargetInSourceId = sourceDb.withPreparedStatement(
-            sql,
-            (stmt) => {
-              stmt.bindId("id", sourceElemId);
-              stmt.step();
-              return stmt.getValue(0).getId() ?? Id64.invalid;
-            }
-          );
-          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-          const relationTargetInTargetId = targetDb.withPreparedStatement(
-            sql,
-            (stmt) => {
-              stmt.bindId("id", targetElemId);
-              expect(stmt.step()).to.equal(DbResult.BE_SQLITE_ROW);
-              return stmt.getValue(0).getId() ?? Id64.invalid;
-            }
-          );
+          const sourceParams = new QueryBinder().bindId("id", sourceElemId);
+          const sourceReader = sourceDb.createQueryReader(sql, sourceParams);
+          await sourceReader.step();
+          const relationTargetInSourceId =
+            sourceReader.current.id ?? Id64.invalid;
+
+          const targetParams = new QueryBinder().bindId("id", targetElemId);
+          const targetReader = targetDb.createQueryReader(sql, targetParams);
+          await targetReader.step();
+          const relationTargetInTargetId =
+            targetReader.current.id ?? Id64.invalid;
+
           const mappedRelationTargetInTargetId = (
             propName === "codeSpec" ? remapCodeSpec : remapElem
           )(relationTargetInSourceId);
