@@ -256,9 +256,13 @@ describe("IModelTransformer", () => {
         "=============="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
-        forceExternalSourceAspectProvenance: true,
-      });
+      const transformer = await TestIModelTransformer.create(
+        sourceDb,
+        targetImporter,
+        {
+          forceExternalSourceAspectProvenance: true,
+        }
+      );
       assert.isTrue(transformer.context.isBetweenIModels);
       await transformer.process();
       assert.isAtLeast(targetImporter.numModelsInserted, 1);
@@ -370,9 +374,13 @@ describe("IModelTransformer", () => {
         "================="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
-        forceExternalSourceAspectProvenance: true,
-      });
+      const transformer = await TestIModelTransformer.create(
+        sourceDb,
+        targetImporter,
+        {
+          forceExternalSourceAspectProvenance: true,
+        }
+      );
       await transformer.process();
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
@@ -425,9 +433,13 @@ describe("IModelTransformer", () => {
         "==============================="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
-        forceExternalSourceAspectProvenance: true,
-      });
+      const transformer = await TestIModelTransformer.create(
+        sourceDb,
+        targetImporter,
+        {
+          forceExternalSourceAspectProvenance: true,
+        }
+      );
       await transformer.process();
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
@@ -611,7 +623,7 @@ describe("IModelTransformer", () => {
     assert.isTrue(Id64.isValidId64(targetSubjectId));
     targetDb.saveChanges();
     // Import from beneath source Subject into target Subject
-    const transformer = new TestIModelTransformer(sourceDb, targetDb);
+    const transformer = await TestIModelTransformer.create(sourceDb, targetDb);
     await transformer.processFonts();
     await transformer.processSubject(sourceSubjectId, targetSubjectId);
     await transformer.processRelationships(
@@ -1793,7 +1805,7 @@ describe("IModelTransformer", () => {
     });
     targetDb.updateProjectExtents(sourceDb.projectExtents);
 
-    const transformer = new FilterByViewTransformer(
+    const transformer = await FilterByViewTransformer.create(
       sourceDb,
       targetDb,
       exportViewId

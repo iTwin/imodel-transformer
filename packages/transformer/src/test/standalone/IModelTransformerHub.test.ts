@@ -399,11 +399,15 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.updateIds.size, 0);
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
-          argsForProcessChanges: {
-            startChangeset: { id: sourceDb.changeset.id },
-          },
-        });
+        const transformer = await TestIModelTransformer.create(
+          sourceDb,
+          targetDb,
+          {
+            argsForProcessChanges: {
+              startChangeset: { id: sourceDb.changeset.id },
+            },
+          }
+        );
         transformer["_allowNoScopingESA"] = true;
         await transformer.process();
         transformer.dispose();
@@ -476,7 +480,7 @@ describe("IModelTransformerHub", () => {
           ElementRefersToElements.classFullName
         );
         const targetImporter = new CountingIModelImporter(targetDb);
-        const transformer = new TestIModelTransformer(
+        const transformer = await TestIModelTransformer.create(
           sourceDb,
           targetImporter,
           { argsForProcessChanges: {} }
@@ -561,9 +565,13 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.codeSpec.deleteIds.size, 0);
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
-          argsForProcessChanges: {},
-        });
+        const transformer = await TestIModelTransformer.create(
+          sourceDb,
+          targetDb,
+          {
+            argsForProcessChanges: {},
+          }
+        );
         await transformer.process();
         transformer.dispose();
         targetDb.saveChanges();

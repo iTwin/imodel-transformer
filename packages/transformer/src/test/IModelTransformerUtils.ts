@@ -26,7 +26,6 @@ import {
   DisplayStyle3d,
   DrawingCategory,
   DrawingGraphicRepresentsElement,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -81,6 +80,7 @@ import {
   ModelSelectorProps,
   PhysicalElementProps,
   Placement3d,
+  QueryBinder,
   QueryRowFormat,
   SkyBoxImageProps,
   SkyBoxImageType,
@@ -927,15 +927,11 @@ export async function assertIdentityTransformation(
       TargetECInstanceId: relTargetInTarget,
     });
     const relInTarget = targetRelationshipsToFind.get(relInTargetKey);
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    const relClassName = sourceDb.withPreparedStatement(
-      "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?",
-      (s) => {
-        s.bindId(1, relInSource.ECClassId);
-        s.step();
-        return s.getValue(0).getString();
-      }
-    );
+    const sql = "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?";
+    const params = new QueryBinder().bindId(1, relInSource.ECClassId);
+    const reader = sourceDb.createQueryReader(sql, params);
+    await reader.step();
+    const relClassName = reader.current[0];
     expect(
       relInTarget,
       `rel ${relClassName}:${relInSource.SourceECInstanceId}->${relInSource.TargetECInstanceId} was missing`
@@ -1628,7 +1624,30 @@ export class FilterByViewTransformer extends IModelTransformer {
   private readonly _exportCategorySelectorId: Id64String;
   private readonly _exportDisplayStyleId: Id64String;
   private readonly _exportModelIds: Id64Set;
-  public constructor(
+
+  /** Static factory method for async initialization */
+  public static async create(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    exportViewDefinitionId: Id64String
+  ): Promise<FilterByViewTransformer> {
+    const transformer = new FilterByViewTransformer(
+      sourceDb,
+      targetDb,
+      exportViewDefinitionId
+    );
+    const exportCategorySelector =
+      sourceDb.elements.getElement<CategorySelector>(
+        transformer._exportCategorySelectorId,
+        CategorySelector
+      );
+    await transformer.excludeCategoriesExcept(
+      Id64.toIdSet(exportCategorySelector.categories)
+    );
+    return transformer;
+  }
+
+  private constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
     exportViewDefinitionId: Id64String
@@ -1643,14 +1662,6 @@ export class FilterByViewTransformer extends IModelTransformer {
     this._exportCategorySelectorId = exportViewDefinition.categorySelectorId;
     this._exportModelSelectorId = exportViewDefinition.modelSelectorId;
     this._exportDisplayStyleId = exportViewDefinition.displayStyleId;
-    const exportCategorySelector =
-      sourceDb.elements.getElement<CategorySelector>(
-        exportViewDefinition.categorySelectorId,
-        CategorySelector
-      );
-    this.excludeCategoriesExcept(
-      Id64.toIdSet(exportCategorySelector.categories)
-    );
     const exportModelSelector = sourceDb.elements.getElement<ModelSelector>(
       exportViewDefinition.modelSelectorId,
       ModelSelector
@@ -1658,21 +1669,17 @@ export class FilterByViewTransformer extends IModelTransformer {
     this._exportModelIds = Id64.toIdSet(exportModelSelector.models);
   }
   /** Excludes categories not referenced by the export view's CategorySelector */
-  private excludeCategoriesExcept(exportCategoryIds: Id64Set): void {
+  private async excludeCategoriesExcept(
+    exportCategoryIds: Id64Set
+  ): Promise<void> {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      (statement: ECSqlStatement): void => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const categoryId = statement.getValue(0).getId();
-          if (!exportCategoryIds.has(categoryId)) {
-            this.exporter.excludeElementsInCategory(categoryId);
-          }
-        }
+    const reader = this.sourceDb.createQueryReader(sql);
+    for await (const row of reader) {
+      const categoryId = row[0] as Id64String;
+      if (!exportCategoryIds.has(categoryId)) {
+        this.exporter.excludeElementsInCategory(categoryId);
       }
-    );
+    }
   }
   /** Override of IModelTransformer.shouldExportElement that excludes other ViewDefinition-related elements that are not associated with the *export* ViewDefinition. */
   public override shouldExportElement(sourceElement: Element): boolean {
@@ -1696,7 +1703,17 @@ export class FilterByViewTransformer extends IModelTransformer {
  * and records transformation data in the iModel itself.
  */
 export class TestIModelTransformer extends IModelTransformer {
-  public constructor(
+  public static async create(
+    source: IModelDb | IModelExporter,
+    target: IModelDb | IModelImporter,
+    options?: IModelTransformOptions
+  ): Promise<TestIModelTransformer> {
+    const transformer = new TestIModelTransformer(source, target, options);
+    await transformer.initSubCategoryFilters();
+    return transformer;
+  }
+
+  private constructor(
     source: IModelDb | IModelExporter,
     target: IModelDb | IModelImporter,
     options?: IModelTransformOptions
@@ -1706,7 +1723,6 @@ export class TestIModelTransformer extends IModelTransformer {
     this.initCodeSpecRemapping();
     this.initCategoryRemapping();
     this.initClassRemapping();
-    this.initSubCategoryFilters();
   }
 
   /** Initialize some sample exclusion rules for testing */
@@ -1791,24 +1807,21 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** */
-  private initSubCategoryFilters(): void {
+  private async initSubCategoryFilters(): Promise<void> {
     assert.isFalse(this.context.hasSubCategoryFilter);
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:codeValue`;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      (statement: ECSqlStatement): void => {
-        statement.bindString("codeValue", "FilteredSubCategory");
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const subCategoryId = statement.getValue(0).getId();
-          assert.isFalse(this.context.isSubCategoryFiltered(subCategoryId));
-          this.context.filterSubCategory(subCategoryId);
-          this.exporter.excludeElement(subCategoryId);
-          assert.isTrue(this.context.isSubCategoryFiltered(subCategoryId));
-        }
-      }
+    const params = new QueryBinder().bindString(
+      "codeValue",
+      "FilteredSubCategory"
     );
+    const reader = this.sourceDb.createQueryReader(sql, params);
+    for await (const row of reader) {
+      const subCategoryId = row[0] as Id64String;
+      assert.isFalse(this.context.isSubCategoryFiltered(subCategoryId));
+      this.context.filterSubCategory(subCategoryId);
+      this.exporter.excludeElement(subCategoryId);
+      assert.isTrue(this.context.isSubCategoryFiltered(subCategoryId));
+    }
     assert.isTrue(this.context.hasSubCategoryFilter);
   }
 
@@ -2053,6 +2066,12 @@ export class CountingIModelImporter extends IModelImporter {
 
 /** Specialization of IModelImporter that creates an InformationRecordElement for each PhysicalElement that it imports. */
 export class RecordingIModelImporter extends CountingIModelImporter {
+  /** Cache mapping PhysicalPartition IDs to their corresponding record partition IDs */
+  private _recordPartitionIdByPhysicalPartitionId = new Map<
+    Id64String,
+    Id64String
+  >();
+
   public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
     super(targetDb, options);
   }
@@ -2076,6 +2095,11 @@ export class RecordingIModelImporter extends CountingIModelImporter {
           sourceId: modeledElement.id,
           targetId: recordPartitionId,
         });
+        // Cache the mapping to avoid needing to query later
+        this._recordPartitionIdByPhysicalPartitionId.set(
+          modeledElement.id,
+          recordPartitionId
+        );
       }
     }
     return modelId;
@@ -2086,10 +2110,9 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     const elementId: Id64String = super.onInsertElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(
-        element.model
-      );
-      if (Id64.isValidId64(recordPartitionId)) {
+      const recordPartitionId =
+        this._recordPartitionIdByPhysicalPartitionId.get(element.model);
+      if (recordPartitionId && Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Insert", recordPartitionId, element);
       }
     }
@@ -2101,10 +2124,9 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       elementProps.id!
     );
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(
-        element.model
-      );
-      if (Id64.isValidId64(recordPartitionId)) {
+      const recordPartitionId =
+        this._recordPartitionIdByPhysicalPartitionId.get(element.model);
+      if (recordPartitionId && Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Update", recordPartitionId, element);
       }
     }
@@ -2112,29 +2134,13 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   protected override onDeleteElement(elementId: Id64String): void {
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(
-        element.model
-      );
-      if (Id64.isValidId64(recordPartitionId)) {
+      const recordPartitionId =
+        this._recordPartitionIdByPhysicalPartitionId.get(element.model);
+      if (recordPartitionId && Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Delete", recordPartitionId, element);
       }
     }
     super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
-  }
-  private getRecordPartitionId(physicalPartitionId: Id64String): Id64String {
-    const sql =
-      "SELECT TargetECInstanceId FROM ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords WHERE SourceECInstanceId=:physicalPartitionId";
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return this.targetDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      (statement: ECSqlStatement): Id64String => {
-        statement.bindId("physicalPartitionId", physicalPartitionId);
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getId()
-          : Id64.invalid;
-      }
-    );
   }
   private insertAuditRecord(
     operation: string,
