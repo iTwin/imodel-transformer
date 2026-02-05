@@ -17,7 +17,6 @@ import {
   DrawingCategory,
   DrawingGraphic,
   DrawingModel,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementMultiAspect,
@@ -98,6 +97,7 @@ import {
   PhysicalElementProps,
   Placement3d,
   ProfileOptions,
+  QueryBinder,
   QueryRowFormat,
   RelatedElement,
   RelationshipProps,
@@ -225,15 +225,15 @@ describe("IModelTransformer", () => {
     await TransformerExtensiveTestScenario.prepareTargetDb(targetDb);
     targetDb.saveChanges();
 
-    const numSourceUniqueAspects = count(
+    const numSourceUniqueAspects = await count(
       sourceDb,
       ElementUniqueAspect.classFullName
     );
-    const numSourceMultiAspects = count(
+    const numSourceMultiAspects = await count(
       sourceDb,
       ElementMultiAspect.classFullName
     );
-    const numSourceRelationships = count(
+    const numSourceRelationships = await count(
       sourceDb,
       ElementRefersToElements.classFullName
     );
@@ -274,34 +274,37 @@ describe("IModelTransformer", () => {
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.isAtLeast(targetImporter.numRelationshipsInserted, 1);
       assert.equal(targetImporter.numRelationshipsUpdated, 0);
+      targetDb.saveChanges();
       assert.isAtLeast(
-        count(targetDb, ElementRefersToElements.classFullName),
+        await count(targetDb, ElementRefersToElements.classFullName),
         1
       );
       assert.isAtLeast(
-        count(targetDb, InformationRecordPartition.classFullName),
+        await count(targetDb, InformationRecordPartition.classFullName),
         1
       );
       assert.isAtLeast(
-        count(targetDb, InformationRecordModel.classFullName),
+        await count(targetDb, InformationRecordModel.classFullName),
         1
       );
       assert.isAtLeast(
-        count(
+        await count(
           targetDb,
           "ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords"
         ),
         1
       );
       assert.isAtLeast(
-        count(targetDb, "ExtensiveTestScenarioTarget:AuditRecord"),
+        await count(targetDb, "ExtensiveTestScenarioTarget:AuditRecord"),
         1
       );
       assert.equal(
         3,
-        count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
+        await count(
+          targetDb,
+          "ExtensiveTestScenarioTarget:TargetInformationRecord"
+        )
       );
-      targetDb.saveChanges();
       TransformerExtensiveTestScenario.assertTargetDbContents(
         sourceDb,
         targetDb,
@@ -311,20 +314,20 @@ describe("IModelTransformer", () => {
       transformer.dispose();
     }
 
-    const numTargetElements = count(targetDb, Element.classFullName);
-    const numTargetUniqueAspects = count(
+    const numTargetElements = await count(targetDb, Element.classFullName);
+    const numTargetUniqueAspects = await count(
       targetDb,
       ElementUniqueAspect.classFullName
     );
-    const numTargetMultiAspects = count(
+    const numTargetMultiAspects = await count(
       targetDb,
       ElementMultiAspect.classFullName
     );
-    const numTargetExternalSourceAspects = count(
+    const numTargetExternalSourceAspects = await count(
       targetDb,
       ExternalSourceAspect.classFullName
     );
-    const numTargetRelationships = count(
+    const numTargetRelationships = await count(
       targetDb,
       ElementRefersToElements.classFullName
     );
@@ -396,21 +399,24 @@ describe("IModelTransformer", () => {
       // assert.equal(numTargetElements, count(targetDb, Element.classFullName), "Second import should not add elements");
       assert.equal(
         numTargetExternalSourceAspects,
-        count(targetDb, ExternalSourceAspect.classFullName),
+        await count(targetDb, ExternalSourceAspect.classFullName),
         "Second import should not add aspects"
       );
       assert.equal(
         numTargetRelationships,
-        count(targetDb, ElementRefersToElements.classFullName),
+        await count(targetDb, ElementRefersToElements.classFullName),
         "Second import should not add relationships"
       );
       assert.equal(
         3,
-        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
+        await count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
       );
       assert.equal(
         3,
-        count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
+        await count(
+          targetDb,
+          "ExtensiveTestScenarioTarget:TargetInformationRecord"
+        )
       );
       transformer.dispose();
     }
@@ -465,14 +471,17 @@ describe("IModelTransformer", () => {
         numTargetRelationships +
           targetImporter.numRelationshipsInserted -
           targetImporter.numRelationshipsDeleted,
-        count(targetDb, ElementRefersToElements.classFullName)
+        await count(targetDb, ElementRefersToElements.classFullName)
       );
       // We deleted one of the 3 SourceInformationRecords in TransformerExtensiveTestScenario.updateDb, so expect to find 2 now.
       expect(
-        count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
+        await count(
+          targetDb,
+          "ExtensiveTestScenarioTarget:TargetInformationRecord"
+        )
       ).to.equal(2);
       expect(
-        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
+        await count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
       ).to.equal(2);
       transformer.dispose();
     }
@@ -501,19 +510,22 @@ describe("IModelTransformer", () => {
       createClassViews: true,
     });
 
-    const numMasterElements = count(masterDb, Element.classFullName);
-    const numMasterRelationships = count(
+    const numMasterElements = await count(masterDb, Element.classFullName);
+    const numMasterRelationships = await count(
       masterDb,
       ElementRefersToElements.classFullName
     );
     assert.isAtLeast(numMasterElements, 12);
     assert.isAtLeast(numMasterRelationships, 1);
-    assert.equal(numMasterElements, count(branchDb, Element.classFullName));
+    assert.equal(
+      numMasterElements,
+      await count(branchDb, Element.classFullName)
+    );
     assert.equal(
       numMasterRelationships,
-      count(branchDb, ElementRefersToElements.classFullName)
+      await count(branchDb, ElementRefersToElements.classFullName)
     );
-    assert.equal(0, count(branchDb, ExternalSourceAspect.classFullName));
+    assert.equal(0, await count(branchDb, ExternalSourceAspect.classFullName));
 
     // Ensure that master to branch synchronization did not add any new Elements or Relationships, but did add ExternalSourceAspects
     const masterToBranchTransformer = new IModelTransformer(
@@ -524,32 +536,35 @@ describe("IModelTransformer", () => {
     await masterToBranchTransformer.process();
     masterToBranchTransformer.dispose();
     branchDb.saveChanges();
-    assert.equal(numMasterElements, count(branchDb, Element.classFullName));
+    assert.equal(
+      numMasterElements,
+      await count(branchDb, Element.classFullName)
+    );
     assert.equal(
       numMasterRelationships,
-      count(branchDb, ElementRefersToElements.classFullName)
+      await count(branchDb, ElementRefersToElements.classFullName)
     );
-    assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 1); // provenance aspect added for target scope element
+    assert.equal(await count(branchDb, ExternalSourceAspect.classFullName), 1); // provenance aspect added for target scope element
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    branchDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      statement.bindString("kind", ExternalSourceAspect.Kind.Element);
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const masterElementId = statement.getValue(0).getString(); // ExternalSourceAspect.Identifier is of type string
-        const branchElementId = statement.getValue(1).getId();
-        assert.equal(masterElementId, branchElementId);
-      }
-    });
+    const params = new QueryBinder().bindString(
+      "kind",
+      ExternalSourceAspect.Kind.Element
+    );
+    for await (const row of branchDb.createQueryReader(sql, params)) {
+      const masterElementId = row[0];
+      const branchElementId = row[1];
+      assert.equal(masterElementId, branchElementId);
+    }
 
     // Make changes to simulate working on the branch
     TransformerExtensiveTestScenario.updateDb(branchDb);
     TransformerExtensiveTestScenario.assertUpdatesInDb(branchDb);
     branchDb.saveChanges();
 
-    const numBranchElements = count(branchDb, Element.classFullName);
-    const numBranchRelationships = count(
+    const numBranchElements = await count(branchDb, Element.classFullName);
+    const numBranchRelationships = await count(
       branchDb,
       ElementRefersToElements.classFullName
     );
@@ -566,28 +581,27 @@ describe("IModelTransformer", () => {
     branchToMasterTransformer.dispose();
     masterDb.saveChanges();
     TransformerExtensiveTestScenario.assertUpdatesInDb(masterDb, false);
-    assert.equal(numBranchElements, count(masterDb, Element.classFullName) - 5); // processAll cannot detect deletes when isReverseSynchronization=true
+    assert.equal(
+      numBranchElements,
+      (await count(masterDb, Element.classFullName)) - 5
+    ); // processAll cannot detect deletes when isReverseSynchronization=true
     assert.equal(
       numBranchRelationships,
-      count(masterDb, ElementRefersToElements.classFullName) - 1
+      (await count(masterDb, ElementRefersToElements.classFullName)) - 1
     ); // processAll cannot detect deletes when isReverseSynchronization=true
-    assert.equal(0, count(masterDb, ExternalSourceAspect.classFullName));
+    assert.equal(0, await count(masterDb, ExternalSourceAspect.classFullName));
 
     masterDb.close();
     branchDb.close();
   });
 
-  function count(iModelDb: IModelDb, classFullName: string): number {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return iModelDb.withPreparedStatement(
-      `SELECT COUNT(*) FROM ${classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      (statement: ECSqlStatement): number => {
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getInteger()
-          : 0;
-      }
-    );
+  async function count(
+    iModelDb: IModelDb,
+    classFullName: string
+  ): Promise<number> {
+    const sql = `SELECT COUNT(*) FROM ${classFullName}`;
+    const reader = iModelDb.createQueryReader(sql);
+    return (await reader.step()) ? reader.current[0] : 0;
   }
 
   it("should import everything below a Subject", async () => {
@@ -651,7 +665,7 @@ describe("IModelTransformer", () => {
       "CompatibilityTestSeed.bim"
     );
     const sourceDb = SnapshotDb.openFile(sourceFileName);
-    const numSourceElements = count(sourceDb, Element.classFullName);
+    const numSourceElements = await count(sourceDb, Element.classFullName);
     assert.exists(sourceDb);
     assert.isAtLeast(numSourceElements, 12);
     // create target iModel
@@ -677,8 +691,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
     await transformer.process();
+    targetDb.saveChanges();
     transformer.dispose();
-    const numTargetElements = count(targetDb, Element.classFullName);
+    const numTargetElements = await count(targetDb, Element.classFullName);
     assert.isAtLeast(numTargetElements, numSourceElements);
     assert.deepEqual(sourceDb.ecefLocation, targetDb.ecefLocation);
     // clean up
@@ -763,7 +778,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     // verify target contents
-    assert.equal(1, count(sourceDb, RepositoryLink.classFullName));
+    assert.equal(1, await count(sourceDb, RepositoryLink.classFullName));
     const targetRepositoryId = targetDb.elements.queryElementIdByCode(
       LinkElement.createCode(targetDb, IModel.repositoryModelId, "master.dgn")
     )!;
@@ -962,9 +977,9 @@ describe("IModelTransformer", () => {
     };
     const sourceElementId21 = sourceDb.elements.insertElement(elementProps21);
     sourceDb.saveChanges();
-    assert.equal(count(sourceDb, PhysicalPartition.classFullName), 2);
-    assert.equal(count(sourceDb, PhysicalModel.classFullName), 2);
-    assert.equal(count(sourceDb, PhysicalObject.classFullName), 2);
+    assert.equal(await count(sourceDb, PhysicalPartition.classFullName), 2);
+    assert.equal(await count(sourceDb, PhysicalModel.classFullName), 2);
+    assert.equal(await count(sourceDb, PhysicalObject.classFullName), 2);
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -1003,9 +1018,9 @@ describe("IModelTransformer", () => {
       "PhysicalModel-Combined",
       "Original CodeValue should be retained"
     );
-    assert.equal(count(targetDb, PhysicalPartition.classFullName), 1);
-    assert.equal(count(targetDb, PhysicalModel.classFullName), 1);
-    assert.equal(count(targetDb, PhysicalObject.classFullName), 2);
+    assert.equal(await count(targetDb, PhysicalPartition.classFullName), 1);
+    assert.equal(await count(targetDb, PhysicalModel.classFullName), 1);
+    assert.equal(await count(targetDb, PhysicalObject.classFullName), 2);
 
     transformer.dispose();
     sourceDb.close();
@@ -3194,23 +3209,25 @@ describe("IModelTransformer", () => {
 
     targetDb.saveChanges();
 
-    const targetExternalSourceAspects = new Array<any>();
-    const targetMyUniqueAspects = new Array<any>();
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    targetDb.withStatement("SELECT * FROM bis.ExternalSourceAspect", (stmt) =>
-      targetExternalSourceAspects.push(...stmt)
-    );
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    targetDb.withStatement("SELECT * FROM TestSchema1.MyUniqueAspect", (stmt) =>
-      targetMyUniqueAspects.push(...stmt)
-    );
+    const targetExternalSourceAspects: any[] = [];
+    const targetMyUniqueAspects: any[] = [];
+    for await (const row of targetDb.createQueryReader(
+      "SELECT * FROM bis.ExternalSourceAspect"
+    )) {
+      targetExternalSourceAspects.push(row.toRow());
+    }
+    for await (const row of targetDb.createQueryReader(
+      "SELECT * FROM TestSchema1.MyUniqueAspect"
+    )) {
+      targetMyUniqueAspects.push(row.toRow());
+    }
 
     expect(targetMyUniqueAspects).to.have.lengthOf(1);
-    expect(targetMyUniqueAspects[0].myProp1).to.equal(
+    expect(targetMyUniqueAspects[0].MyProp1).to.equal(
       uniqueAspectProps.myProp1
     );
     expect(targetExternalSourceAspects).to.have.lengthOf(1);
-    expect(targetExternalSourceAspects[0].identifier).to.equal(
+    expect(targetExternalSourceAspects[0].Identifier).to.equal(
       multiAspectProps.identifier
     );
 
@@ -3316,19 +3333,22 @@ describe("IModelTransformer", () => {
 
     targetDb.saveChanges();
 
-    function getNavPropContent(db: IModelDb) {
-      let results = new Array<{ id: Id64String; navProp: RelatedElement }>();
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      db.withPreparedStatement(
-        "SELECT ECInstanceId, navProp FROM TestGeneratedClasses.TestElementWithNavProp",
-        (stmt) => {
-          results = [...stmt];
-        }
-      );
+    async function getNavPropContent(db: IModelDb) {
+      const results: Array<{ id: Id64String; navProp: RelatedElement }> = [];
+      for await (const row of db.createQueryReader(
+        "SELECT ECInstanceId, navProp FROM TestGeneratedClasses.TestElementWithNavProp"
+      )) {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        const navPropRaw = row[1] as { Id: Id64String };
+        results.push({
+          id: row[0] as Id64String,
+          navProp: RelatedElement.fromJSON({ id: navPropRaw.Id })!,
+        });
+      }
       return results;
     }
 
-    for (const navPropHolderInSource of getNavPropContent(sourceDb)) {
+    for (const navPropHolderInSource of await getNavPropContent(sourceDb)) {
       const navPropHolderInTargetId = transformer.context.findTargetElementId(
         navPropHolderInSource.id
       );
@@ -3348,8 +3368,8 @@ describe("IModelTransformer", () => {
       expect((navPropHolderInTarget as any)?.navProp?.id).not.to.be.undefined;
     }
 
-    expect(getNavPropContent(sourceDb)).to.have.length(1);
-    expect(getNavPropContent(targetDb)).to.have.length(1);
+    expect(await getNavPropContent(sourceDb)).to.have.length(1);
+    expect(await getNavPropContent(targetDb)).to.have.length(1);
 
     sourceDb.close();
     targetDb.close();
@@ -3496,11 +3516,12 @@ describe("IModelTransformer", () => {
 
     targetDb.saveChanges();
 
-    const targetRelationships = new Array<any>();
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    targetDb.withStatement("SELECT * FROM ts1.MyElemRefersToElem", (stmt) =>
-      targetRelationships.push(...stmt)
-    );
+    const targetRelationships: any[] = [];
+    for await (const row of targetDb.createQueryReader(
+      "SELECT * FROM ts1.MyElemRefersToElem"
+    )) {
+      targetRelationships.push(row.toRow());
+    }
 
     expect(targetRelationships).to.have.lengthOf(1);
     expect(targetRelationships[0].prop).to.equal(relProps.prop);
@@ -4147,22 +4168,18 @@ describe("IModelTransformer", () => {
       );
     };
 
-    const getCodeValEcSql = (
+    const getCodeValEcSql = async (
       db: IModelDb,
       args: { initialVal: string; expected: string; expectedMatchCount: number }
     ) => {
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      db.withStatement(
-        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
-        (stmt) => {
-          let rows = 0;
-          for (const { codeValue } of stmt) {
-            rows++;
-            expect(codeValue).to.equal(args.expected);
-          }
-          expect(rows).to.equal(args.expectedMatchCount);
-        }
-      );
+      let rows = 0;
+      for await (const row of db.createQueryReader(
+        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`
+      )) {
+        rows++;
+        expect(row.codeValue).to.equal(args.expected);
+      }
+      expect(rows).to.equal(args.expectedMatchCount);
     };
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
@@ -4176,7 +4193,7 @@ describe("IModelTransformer", () => {
         expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
-      getCodeValEcSql(sourceDb, {
+      await getCodeValEcSql(sourceDb, {
         initialVal,
         expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
@@ -4198,7 +4215,7 @@ describe("IModelTransformer", () => {
         expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
-      getCodeValEcSql(sourceDb, {
+      await getCodeValEcSql(sourceDb, {
         initialVal,
         expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
@@ -4250,7 +4267,11 @@ describe("IModelTransformer", () => {
         expected,
         expectedMatchCount,
       });
-      getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });
+      await getCodeValEcSql(targetDb, {
+        initialVal,
+        expected,
+        expectedMatchCount,
+      });
     }
 
     transformer.dispose();
@@ -4748,15 +4769,11 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
     targetDb.saveChanges();
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    targetDb.withPreparedStatement(
-      "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'",
-      (statement) => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          assert(statement.getValue(0).isNull);
-        }
-      }
-    );
+    const sql =
+      "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'";
+    for await (const row of targetDb.createQueryReader(sql)) {
+      assert(row[0] === null || row[0] === undefined);
+    }
   });
 
   it("should transform all aspects when detachedAspectProcessing is turned on", async () => {
@@ -4816,7 +4833,7 @@ describe("IModelTransformer", () => {
     targetDb.saveChanges();
 
     // assert
-    const numSourceSubjectIds = count(sourceDb, Subject.classFullName);
+    const numSourceSubjectIds = await count(sourceDb, Subject.classFullName);
     const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
 
     expect(elementIds.size).to.be.equal(numSourceSubjectIds);
@@ -5253,21 +5270,17 @@ describe("IModelTransformer", () => {
     await transformer.process();
     targetDb.saveChanges();
 
-    const getTestViewElements = (imodelDb: IModelDb) => {
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      return imodelDb.withPreparedStatement(
-        "SELECT * FROM TestGeneratedClassesNew.TestView",
-        (statement) => {
-          const viewElements = [];
-          while (DbResult.BE_SQLITE_ROW === statement.step()) {
-            viewElements.push(statement.getRow());
-          }
-          return viewElements;
-        }
-      );
+    const getTestViewElements = async (imodelDb: IModelDb) => {
+      const viewElements = [];
+      for await (const row of imodelDb.createQueryReader(
+        "SELECT * FROM TestGeneratedClassesNew.TestView"
+      )) {
+        viewElements.push(row.toRow());
+      }
+      return viewElements;
     };
-    const sourceViews = getTestViewElements(sourceDb);
-    const targetViews = getTestViewElements(targetDb);
+    const sourceViews = await getTestViewElements(sourceDb);
+    const targetViews = await getTestViewElements(targetDb);
 
     expect(sourceViews.length).to.equal(targetViews.length).and.to.equal(2);
     expect(sourceViews[0]).to.deep.equal(targetViews[0]);
