@@ -3648,20 +3648,18 @@ export class TemplateModelCloner extends IModelTransformer {
 }
 
 //Deprecate in preference of imodeldb.elements.getFederationGuidFromId()?
-function queryElemFedGuid(db: IModelDb, elemId: Id64String) {
-  // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-  return db.withPreparedStatement(
-    `
+async function queryElemFedGuid(
+  db: IModelDb,
+  elemId: Id64String
+): Promise<GuidString> {
+  const sql = `
     SELECT FederationGuid
     FROM bis.Element
     WHERE ECInstanceId=?
-  `,
-    (stmt) => {
-      stmt.bindId(1, elemId);
-      assert(stmt.step() === DbResult.BE_SQLITE_ROW);
-      const result = stmt.getValue(0).getGuid();
-      assert(stmt.step() === DbResult.BE_SQLITE_DONE);
-      return result;
-    }
-  );
+  `;
+  const params = new QueryBinder().bindId(1, elemId);
+  const reader = db.createQueryReader(sql, params);
+  assert(await reader.step(), "element not found");
+  const result = reader.current.federationGuid as GuidString;
+  return result;
 }
