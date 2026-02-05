@@ -1527,38 +1527,38 @@ export class IModelTransformer extends IModelExportHandler {
    * @note you do not need to call this directly unless processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
-  public async detectElementDeletes(): Promise<void> {
-    const sql = `
-      SELECT Identifier, Element.Id
-      FROM BisCore.ExternalSourceAspect
-      WHERE Scope.Id=:scopeId
-        AND Kind=:kind
-    `;
+  // public async detectElementDeletes(): Promise<void> {
+  //   const sql = `
+  //     SELECT Identifier, Element.Id
+  //     FROM BisCore.ExternalSourceAspect
+  //     WHERE Scope.Id=:scopeId
+  //       AND Kind=:kind
+  //   `;
 
-    nodeAssert(
-      !this.isReverseSynchronization,
-      "synchronizations with processChanges already detect element deletes, don't call detectElementDeletes"
-    );
+  //   nodeAssert(
+  //     !this.isReverseSynchronization,
+  //     "synchronizations with processChanges already detect element deletes, don't call detectElementDeletes"
+  //   );
 
-    // Reported issue: https://github.com/iTwin/itwinjs-core/issues/7989
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    this.provenanceDb.withPreparedStatement(sql, (stmt) => {
-      stmt.bindId("scopeId", this.targetScopeElementId);
-      stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
-      while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-        // ExternalSourceAspect.Identifier is of type string
-        const aspectIdentifier = stmt.getValue(0).getString();
-        if (!Id64.isValidId64(aspectIdentifier)) {
-          continue;
-        }
-        const targetElemId = stmt.getValue(1).getId();
-        const wasDeletedInSource = !EntityUnifier.exists(this.sourceDb, {
-          entityReference: `e${aspectIdentifier}`,
-        });
-        if (wasDeletedInSource) this.importer.deleteElement(targetElemId);
-      }
-    });
-  }
+  //   // Reported issue: https://github.com/iTwin/itwinjs-core/issues/7989
+  //   // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
+  //   this.provenanceDb.withPreparedStatement(sql, (stmt) => {
+  //     stmt.bindId("scopeId", this.targetScopeElementId);
+  //     stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
+  //     while (DbResult.BE_SQLITE_ROW === stmt.step()) {
+  //       // ExternalSourceAspect.Identifier is of type string
+  //       const aspectIdentifier = stmt.getValue(0).getString();
+  //       if (!Id64.isValidId64(aspectIdentifier)) {
+  //         continue;
+  //       }
+  //       const targetElemId = stmt.getValue(1).getId();
+  //       const wasDeletedInSource = !EntityUnifier.exists(this.sourceDb, {
+  //         entityReference: `e${aspectIdentifier}`,
+  //       });
+  //       if (wasDeletedInSource) this.importer.deleteElement(targetElemId);
+  //     }
+  //   });
+  // }
 
   /** Transform the specified sourceElement into ElementProps for the target iModel.
    * @param sourceElement The Element from the source iModel to transform.
@@ -2637,52 +2637,52 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are undefined, so it only needs to be called directly when processing a subset of an iModel.
    * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
    */
-  public async detectRelationshipDeletes(): Promise<void> {
-    if (this.isReverseSynchronization) {
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Cannot detect deletes when isReverseSynchronization=true"
-      );
-    }
-    const aspectDeleteIds: Id64String[] = [];
-    const sql = `
-      SELECT ECInstanceId, Identifier, JsonProperties
-      FROM ${ExternalSourceAspect.classFullName} aspect
-      WHERE aspect.Scope.Id=:scopeId
-        AND aspect.Kind=:kind
-    `;
-    const params = new QueryBinder().bindId(
-      "scopeId",
-      this.targetScopeElementId
-    );
-    params.bindString("kind", ExternalSourceAspect.Kind.Relationship);
-    for await (const row of this.targetDb.createQueryReader(sql, params)) {
-      const sourceRelInstanceId: Id64String = Id64.fromJSON(row[1]);
-      if (
-        undefined ===
-        this.sourceDb.relationships.tryGetInstanceProps(
-          ElementRefersToElements.classFullName,
-          sourceRelInstanceId
-        )
-      ) {
-        // this function exists only to support some in-imodel transformations, which must
-        // use the old (external source aspect) provenance method anyway so we don't need to support
-        // new provenance
-        const json: any = JSON.parse(row[2]);
-        const targetRelInstanceId =
-          json.targetRelInstanceId ?? json.provenanceRelInstanceId;
-        if (targetRelInstanceId) {
-          this.importer.deleteRelationship({
-            id: targetRelInstanceId,
-            classFullName: ElementRefersToElements.classFullName,
-          });
-        }
-        aspectDeleteIds.push(row.id);
-      }
-      await this._yieldManager.allowYield();
-    }
-    this.targetDb.elements.deleteAspect(aspectDeleteIds);
-  }
+  // public async detectRelationshipDeletes(): Promise<void> {
+  //   if (this.isReverseSynchronization) {
+  //     throw new IModelError(
+  //       IModelStatus.BadRequest,
+  //       "Cannot detect deletes when isReverseSynchronization=true"
+  //     );
+  //   }
+  //   const aspectDeleteIds: Id64String[] = [];
+  //   const sql = `
+  //     SELECT ECInstanceId, Identifier, JsonProperties
+  //     FROM ${ExternalSourceAspect.classFullName} aspect
+  //     WHERE aspect.Scope.Id=:scopeId
+  //       AND aspect.Kind=:kind
+  //   `;
+  //   const params = new QueryBinder().bindId(
+  //     "scopeId",
+  //     this.targetScopeElementId
+  //   );
+  //   params.bindString("kind", ExternalSourceAspect.Kind.Relationship);
+  //   for await (const row of this.targetDb.createQueryReader(sql, params)) {
+  //     const sourceRelInstanceId: Id64String = Id64.fromJSON(row[1]);
+  //     if (
+  //       undefined ===
+  //       this.sourceDb.relationships.tryGetInstanceProps(
+  //         ElementRefersToElements.classFullName,
+  //         sourceRelInstanceId
+  //       )
+  //     ) {
+  //       // this function exists only to support some in-imodel transformations, which must
+  //       // use the old (external source aspect) provenance method anyway so we don't need to support
+  //       // new provenance
+  //       const json: any = JSON.parse(row[2]);
+  //       const targetRelInstanceId =
+  //         json.targetRelInstanceId ?? json.provenanceRelInstanceId;
+  //       if (targetRelInstanceId) {
+  //         this.importer.deleteRelationship({
+  //           id: targetRelInstanceId,
+  //           classFullName: ElementRefersToElements.classFullName,
+  //         });
+  //       }
+  //       aspectDeleteIds.push(row.id);
+  //     }
+  //     await this._yieldManager.allowYield();
+  //   }
+  //   this.targetDb.elements.deleteAspect(aspectDeleteIds);
+  // }
 
   /** Transform the specified sourceRelationship into RelationshipProps for the target iModel.
    * @param sourceRelationship The Relationship from the source iModel to be transformed.
@@ -3405,10 +3405,12 @@ export class IModelTransformer extends IModelExportHandler {
       this._options.forceExternalSourceAspectProvenance &&
       this.shouldDetectDeletes()
     ) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      await this.detectElementDeletes();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      await this.detectRelationshipDeletes();
+      Logger.logWarning(
+        loggerCategory,
+        "This workflows was deprecated in v1 and is no longer supported"
+      );
+      //   await this.detectElementDeletes();
+      //   await this.detectRelationshipDeletes();
     }
 
     if (this._options.optimizeGeometry)

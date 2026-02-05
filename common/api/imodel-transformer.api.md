@@ -259,10 +259,6 @@ export class IModelTransformer extends IModelExportHandler {
     readonly context: IModelCloneContext;
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
-    // @deprecated
-    detectElementDeletes(): Promise<void>;
-    // @deprecated
-    detectRelationshipDeletes(): Promise<void>;
     static determineSyncType(sourceDb: IModelDb, targetDb: IModelDb,
     targetScopeElementId: Id64String): "forward" | "reverse";
     dispose(): void;
