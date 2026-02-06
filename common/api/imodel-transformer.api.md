@@ -260,7 +260,7 @@ export class IModelTransformer extends IModelExportHandler {
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     static determineSyncType(sourceDb: IModelDb, targetDb: IModelDb,
-    targetScopeElementId: Id64String): "forward" | "reverse";
+    targetScopeElementId: Id64String): Promise<"forward" | "reverse">;
     dispose(): void;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
@@ -272,9 +272,13 @@ export class IModelTransformer extends IModelExportHandler {
         fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
         skipPropagateChangesToRootElements: boolean;
     }): Promise<void>;
+    // (undocumented)
+    getIsForwardSynchronization(): Promise<boolean>;
+    // (undocumented)
+    getIsReverseSynchronization(): Promise<boolean>;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
-    initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): ExternalSourceAspectProps;
+    initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): Promise<ExternalSourceAspectProps>;
     static initElementProvenanceOptions(sourceElementId: Id64String, targetElementId: Id64String, args: {
         sourceDb: IModelDb;
         targetDb: IModelDb;
@@ -292,14 +296,10 @@ export class IModelTransformer extends IModelExportHandler {
     }): Promise<ExternalSourceAspectProps>;
     protected initScopeProvenance(): Promise<void>;
     // (undocumented)
-    get isForwardSynchronization(): boolean;
-    // (undocumented)
-    get isReverseSynchronization(): boolean;
-    // (undocumented)
     static noEsaSyncDirectionErrorMessage: string;
     onDeleteElement(sourceElementId: Id64String): void;
     onDeleteModel(sourceModelId: Id64String): Promise<void>;
-    onDeleteRelationship(sourceRelInstanceId: Id64String): void;
+    onDeleteRelationship(sourceRelInstanceId: Id64String): Promise<void>;
     onExportCodeSpec(sourceCodeSpec: CodeSpec): void;
     onExportElement(sourceElement: Element_2): Promise<void>;
     onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): Promise<void>;
@@ -329,15 +329,15 @@ export class IModelTransformer extends IModelExportHandler {
     processRelationships(baseRelClassFullName: string): Promise<void>;
     processSchemas(): Promise<void>;
     processSubject(sourceSubjectId: Id64String, targetSubjectId: Id64String): Promise<void>;
-    get provenanceDb(): IModelDb;
+    provenanceDb(): Promise<IModelDb>;
     static get provenanceElementAspectClasses(): (typeof Entity)[];
     static get provenanceElementClasses(): (typeof Entity)[];
-    get provenanceSourceDb(): IModelDb;
-    static queryScopeExternalSourceAspect(dbToQuery: IModelDb, aspectProps: ExternalSourceAspectProps): {
+    provenanceSourceDb(): Promise<IModelDb>;
+    static queryScopeExternalSourceAspect(dbToQuery: IModelDb, aspectProps: ExternalSourceAspectProps): Promise<{
         aspectId: Id64String;
         version?: string;
         jsonProperties?: string;
-    } | undefined;
+    } | undefined>;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): boolean;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): boolean;
@@ -347,14 +347,14 @@ export class IModelTransformer extends IModelExportHandler {
     shouldExportRelationship(_sourceRelationship: Relationship): boolean;
     shouldExportSchema(schemaKey: ECSchemaMetaData.SchemaKey): boolean;
     readonly sourceDb: IModelDb;
-    protected get synchronizationVersion(): ChangesetIndexAndId;
+    protected synchronizationVersion(): Promise<ChangesetIndexAndId>;
     readonly targetDb: IModelDb;
     get targetScopeElementId(): Id64String;
     // (undocumented)
-    protected tryGetProvenanceScopeAspect(): ExternalSourceAspect | undefined;
+    protected tryGetProvenanceScopeAspect(): Promise<ExternalSourceAspect | undefined>;
     updateSynchronizationVersion({ initializeReverseSyncVersion, }?: {
         initializeReverseSyncVersion?: boolean | undefined;
-    }): void;
+    }): Promise<void>;
 }
 
 // @beta

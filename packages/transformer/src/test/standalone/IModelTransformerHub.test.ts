@@ -277,7 +277,7 @@ describe("IModelTransformerHub", () => {
         targetBriefcase
       );
       await transformer2.process();
-      transformer2.updateSynchronizationVersion({
+      await transformer2.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       const scopingEsa2 = transformer2["_targetScopeProvenanceProps"];
@@ -1955,7 +1955,7 @@ describe("IModelTransformerHub", () => {
         public override async onExportElement(sourceElement: Element) {
           if (sourceElement.id === modelSelectorId)
             didExportModelSelector = true;
-          return await super.onExportElement(sourceElement);
+          return super.onExportElement(sourceElement);
         }
       }
 
@@ -5098,7 +5098,7 @@ describe("IModelTransformerHub", () => {
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       transformer.exporter.excludeElement(documentListModel);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5323,7 +5323,7 @@ describe("IModelTransformerHub", () => {
       // Exclude all drawings
       transformer.exporter.excludeElement(parentDrawing1.id!);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5518,7 +5518,7 @@ describe("IModelTransformerHub", () => {
       // will exclude 'PM2'
       transformer.exporter.excludeElement(physicalModel2Id);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5684,7 +5684,7 @@ describe("IModelTransformerHub", () => {
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5780,7 +5780,7 @@ describe("IModelTransformerHub", () => {
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
