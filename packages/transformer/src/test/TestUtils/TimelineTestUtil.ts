@@ -44,20 +44,22 @@ const saveAndPushChanges = async (
 export const deleted = Symbol("DELETED");
 
 // NOTE: this is not done optimally
-export function getIModelState(db: IModelDb): TimelineIModelElemState {
+export async function getIModelState(
+  db: IModelDb
+): Promise<TimelineIModelElemState> {
   const result = {} as TimelineIModelElemState;
-
-  // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-  const elemIds = db.withPreparedStatement(
-    `
+  const elemIds = [];
+  const sql = `
     SELECT ECInstanceId
     FROM Bis.Element
     WHERE ECInstanceId>${IModelDb.dictionaryId}
       -- ignore the known required elements set in 'populateTimelineSeed'
       AND CodeValue NOT IN ('SpatialCategory', 'PhysicalModel')
-  `,
-    (s) => [...s].map((row) => row.id)
-  );
+  `;
+  const reader = db.createQueryReader(sql, undefined, { usePrimaryConn: true });
+  for await (const row of reader) {
+    elemIds.push(row.id);
+  }
 
   for (const elemId of elemIds) {
     const elem = db.elements.getElement(elemId);
@@ -72,20 +74,22 @@ export function getIModelState(db: IModelDb): TimelineIModelElemState {
       : elem.toJSON();
   }
 
-  // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-  const supportedRelIds = db.withPreparedStatement(
-    `
-    SELECT erte.ECInstanceId, erte.ECClassId,
-        se.ECInstanceId AS SourceId, se.UserLabel AS SourceUserLabel,
-        te.ECInstanceId AS TargetId, te.UserLabel AS TargetUserLabel
+  const supportedRelIds = [];
+  const supportedRelIdsSql = `
+    SELECT erte.ECInstanceId AS id, ec_classname(erte.ECClassId, 's.c') AS className,
+        se.ECInstanceId AS sourceId, se.UserLabel AS sourceUserLabel,
+        te.ECInstanceId AS targetId, te.UserLabel AS targetUserLabel
     FROM Bis.ElementRefersToElements erte
     JOIN Bis.Element se
       ON se.ECInstanceId=erte.SourceECInstanceId
     JOIN Bis.Element te
       ON te.ECInstanceId=erte.TargetECInstanceId
-  `,
-    (s) => [...s]
-  );
+  `;
+  for await (const row of db.createQueryReader(supportedRelIdsSql, undefined, {
+    usePrimaryConn: true,
+  })) {
+    supportedRelIds.push(row.toRow());
+  }
 
   for (const {
     id,
@@ -136,12 +140,13 @@ export function populateTimelineSeed(
   db.performCheckpoint();
 }
 
-export function assertElemState(
+export async function assertElemState(
   db: IModelDb,
   state: TimelineIModelElemStateDelta,
   { subset = false } = {}
-): void {
-  expect(getIModelState(db)).to.deep.subsetEqual(state, {
+): Promise<void> {
+  const imodelState = await getIModelState(db);
+  expect(imodelState).to.deep.subsetEqual(state, {
     useSubsetEquality: subset,
   });
 }
@@ -471,7 +476,7 @@ export async function runTimeline(
             newTrackedIModel.db.close();
             newTrackedIModel.db = await BriefcaseDb.open({ fileName });
           }
-          newTrackedIModel.state = getIModelState(newIModelDb);
+          newTrackedIModel.state = await getIModelState(newIModelDb);
         } else
           maintainObjects(
             newIModelDb,
@@ -485,7 +490,7 @@ export async function runTimeline(
       }
 
       if (seed) {
-        assertElemState(newIModelDb, seed.state);
+        await assertElemState(newIModelDb, seed.state);
       }
     }
 
@@ -510,7 +515,7 @@ export async function runTimeline(
 
         let targetStateBefore: TimelineIModelElemState | undefined;
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
-          targetStateBefore = getIModelState(target.db);
+          targetStateBefore = await getIModelState(target.db);
 
         const syncer = new IModelTransformer(source.db, target.db, {
           ...transformerOpts,
@@ -558,7 +563,7 @@ export async function runTimeline(
           /* eslint-enable no-console */
         }
 
-        target.state = getIModelState(target.db); // update the tracking state
+        target.state = await getIModelState(target.db); // update the tracking state
 
         if (!expectThrow) {
           if (!isForwardSync)
@@ -577,7 +582,7 @@ export async function runTimeline(
             alreadySeenIModel.db.close();
             alreadySeenIModel.db = await BriefcaseDb.open({ fileName });
           }
-          alreadySeenIModel.state = getIModelState(alreadySeenIModel.db);
+          alreadySeenIModel.state = await getIModelState(alreadySeenIModel.db);
           stateMsg =
             `${iModelName} becomes: ${JSON.stringify(
               alreadySeenIModel.state
