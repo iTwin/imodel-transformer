@@ -20,7 +20,6 @@ import {
   DocumentListModel,
   Drawing,
   DrawingModel,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
@@ -829,39 +828,32 @@ describe("IModelTransformerHub", () => {
       await transformer.process();
       transformer.dispose();
 
-      const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      targetDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-        let objectCounter = 0;
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const targetElementId = statement.getValue(0).getId();
-          const targetElement = targetDb.elements.getElement<PhysicalObject>({
-            id: targetElementId,
-            wantGeometry: true,
-          });
-          assert.exists(targetElement.geom);
-          assert.isFalse(targetElement.calculateRange3d().isNull);
-          const targetElementModelId = statement.getValue(1).getId();
-          assert.equal(targetModelId, targetElementModelId);
-          ++objectCounter;
-        }
-        assert.equal(185, objectCounter);
-      });
+      const sql = `SELECT ECInstanceId, Model.Id AS modelId FROM ${PhysicalObject.classFullName}`;
+      let objectCounter = 0;
+      for await (const row of targetDb.createQueryReader(sql)) {
+        const targetElementId = row.id;
+        const targetElement = targetDb.elements.getElement<PhysicalObject>({
+          id: targetElementId,
+          wantGeometry: true,
+        });
+        assert.exists(targetElement.geom);
+        assert.isFalse(targetElement.calculateRange3d().isNull);
+        const targetElementModelId = row.modelId;
+        assert.equal(targetModelId, targetElementModelId);
+        ++objectCounter;
+      }
+      assert.equal(185, objectCounter);
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
-      // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-      const modelId = targetDb.withPreparedStatement(
-        `SELECT ECInstanceId, isPrivate FROM ${PhysicalModel.classFullName}`,
-        // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-        (statement: ECSqlStatement) => {
-          if (DbResult.BE_SQLITE_ROW === statement.step()) {
-            const isPrivate = statement.getValue(1).getBoolean();
-            assert.isFalse(isPrivate);
-            return statement.getValue(0).getId();
-          }
-          return Id64.invalid;
-        }
+      let modelId = Id64.invalid;
+      const modelReader = targetDb.createQueryReader(
+        `SELECT ECInstanceId, isPrivate FROM ${PhysicalModel.classFullName}`
       );
+      if (await modelReader.step()) {
+        const isPrivate = modelReader.current.isPrivate;
+        assert.isFalse(isPrivate);
+        modelId = modelReader.current.id;
+      }
       assert.isTrue(Id64.isValidId64(modelId));
 
       const physicalPartition =
@@ -2071,19 +2063,10 @@ describe("IModelTransformerHub", () => {
       await transformer.process();
 
       const elementCodeValueMap = new Map<Id64String, string>();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.withStatement(
-        `SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`,
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        (statement: ECSqlStatement) => {
-          while (statement.step() === DbResult.BE_SQLITE_ROW) {
-            elementCodeValueMap.set(
-              statement.getValue(0).getId(),
-              statement.getValue(1).getString()
-            );
-          }
-        }
-      );
+      const sql = `SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`;
+      for await (const row of targetDb.createQueryReader(sql)) {
+        elementCodeValueMap.set(row[0], row[1]);
+      }
 
       // make sure provenance was tracked for all elements
       expect(count(sourceDb, Element.classFullName)).to.equal(4 + 3); // 2 Subjects, 2 PhysicalPartitions + 0x1, 0x10, 0xe
@@ -4213,24 +4196,24 @@ describe("IModelTransformerHub", () => {
       },
       // eslint-disable-next-line @typescript-eslint/no-shadow
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
           expect(branch.db.changeset.index).to.equal(8);
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
-
-          const externalAspectCounts = (db: IModelDb) =>
-            // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-            db.withPreparedStatement(
-              `
+          const sql = `
           SELECT e.ECInstanceId as elementId, COUNT(*) as aspectCount FROM bis.ExternalSourceAspect esa
           JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
           GROUP BY e.ECInstanceId
-          `,
-              // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-              (s: ECSqlStatement) => [...s]
-            );
+          `;
+          const externalAspectCounts = async (db: IModelDb) => {
+            const results = [];
+            for await (const row of db.createQueryReader(sql)) {
+              results.push(row.toRow());
+            }
+            return results;
+          };
 
           expect(count(branch.db, "bis.ExternalSourceAspect")).to.be.equal(
             count(master.db, "bis.Element") + 1
@@ -4239,7 +4222,7 @@ describe("IModelTransformerHub", () => {
             count(master.db, "bis.Element")
           );
 
-          externalAspectCounts(branch.db).forEach((value) => {
+          (await externalAspectCounts(branch.db)).forEach((value) => {
             const { elementId, aspectCount } = value;
             if (elementId === targetScopeElementId)
               expect(aspectCount).to.equal(2);
