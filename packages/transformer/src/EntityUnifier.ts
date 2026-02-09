@@ -12,7 +12,7 @@ import * as assert from "assert";
 import {
   ConcreteEntityTypes,
   EntityReference,
-  IModelError,
+  QueryBinder,
 } from "@itwin/core-common";
 import {
   ConcreteEntity,
@@ -24,7 +24,7 @@ import {
   IModelDb,
   Relationship,
 } from "@itwin/core-backend";
-import { DbResult, Id64 } from "@itwin/core-bentley";
+import { Id64 } from "@itwin/core-bentley";
 
 /** @internal */
 export namespace EntityUnifier {
@@ -54,7 +54,7 @@ export namespace EntityUnifier {
       );
   }
 
-  export function exists(
+  export async function exists(
     db: IModelDb,
     arg: { entity: ConcreteEntity } | { entityReference: EntityReference }
   ) {
@@ -70,16 +70,9 @@ export namespace EntityUnifier {
 
     if (id === undefined || Id64.isInvalid(id)) return false;
 
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return db.withPreparedStatement(
-      `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
-      (stmt) => {
-        stmt.bindId(1, id);
-        const matchesResult = stmt.step();
-        if (matchesResult === DbResult.BE_SQLITE_ROW) return true;
-        if (matchesResult === DbResult.BE_SQLITE_DONE) return false;
-        else throw new IModelError(matchesResult, "query failed");
-      }
-    );
+    const sql = `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`;
+    const params = new QueryBinder().bindId(1, id);
+    const reader = db.createQueryReader(sql, params, { usePrimaryConn: true });
+    return reader.step();
   }
 }

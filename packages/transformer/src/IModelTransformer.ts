@@ -1862,17 +1862,17 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       if (this._options.danglingReferencesBehavior === "reject") {
-        this.assertReferenceExistsInSource(referenceId, entity);
+        await this.assertReferenceExistsInSource(referenceId, entity);
       }
     }
     return allReferencesExist;
   }
 
-  private assertReferenceExistsInSource(
+  private async assertReferenceExistsInSource(
     referenceId: EntityReference,
     entity: ConcreteEntity
   ) {
-    const referencedExistsInSource = EntityUnifier.exists(this.sourceDb, {
+    const referencedExistsInSource = await EntityUnifier.exists(this.sourceDb, {
       entityReference: referenceId,
     });
     if (!referencedExistsInSource) {
@@ -1984,7 +1984,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (unresolvedReferences.length > 0) {
       for (const reference of unresolvedReferences) {
-        const processState = this.getElemTransformState(reference);
+        const processState = await this.getElemTransformState(reference);
         // must export element first
         if (processState.needsElemImport)
           await this.exporter.exportElement(reference);
@@ -1994,20 +1994,20 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private getElemTransformState(elementId: Id64String) {
-    const dbHasModel = (db: IModelDb, id: Id64String) => {
+  private async getElemTransformState(elementId: Id64String) {
+    const dbHasModel = async (db: IModelDb, id: Id64String) => {
       const maybeModelId = EntityReferences.fromEntityType(
         id,
         ConcreteEntityTypes.Model
       );
       return EntityUnifier.exists(db, { entityReference: maybeModelId });
     };
-    const isSubModeled = dbHasModel(this.sourceDb, elementId);
+    const isSubModeled = await dbHasModel(this.sourceDb, elementId);
     const idOfElemInTarget = this.context.findTargetElementId(elementId);
     const isElemInTarget = Id64.invalid !== idOfElemInTarget;
     const needsModelImport =
       isSubModeled &&
-      (!isElemInTarget || !dbHasModel(this.targetDb, idOfElemInTarget));
+      (!isElemInTarget || !(await dbHasModel(this.targetDb, idOfElemInTarget)));
     return { needsElemImport: !isElemInTarget, needsModelImport };
   }
 

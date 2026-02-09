@@ -32,7 +32,7 @@ import {
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { parseClassModifier, Property } from "@itwin/ecschema-metadata";
+import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -147,7 +147,9 @@ export class IModelCloneContext extends IModelElementCloneContext {
           // Check if the model exists, `findTargetElementId` may have worked because the element exists when the model doesn't.
           // That can occur in the transformer since a submodeled element is imported before its submodel.
           if (
-            EntityUnifier.exists(this.targetDb, { entityReference: targetId })
+            await EntityUnifier.exists(this.targetDb, {
+              entityReference: targetId,
+            })
           )
             return targetId;
           break;
