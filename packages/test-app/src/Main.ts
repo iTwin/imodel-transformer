@@ -412,9 +412,9 @@ void (async () => {
 
     if (args.validation) {
       // validate that there are no issues with the sourceDb to ensure that IModelTransformer is starting from a consistent state
-      ElementUtils.validateCategorySelectors(sourceDb);
-      ElementUtils.validateModelSelectors(sourceDb);
-      ElementUtils.validateDisplayStyles(sourceDb);
+      await ElementUtils.validateCategorySelectors(sourceDb);
+      await ElementUtils.validateModelSelectors(sourceDb);
+      await ElementUtils.validateDisplayStyles(sourceDb);
     }
 
     if (args.targetITwinId) {
@@ -525,7 +525,8 @@ void (async () => {
     }
 
     if (args.logProvenanceScopes) {
-      const sourceScopeIds = ElementUtils.queryProvenanceScopeIds(sourceDb);
+      const sourceScopeIds =
+        await ElementUtils.queryProvenanceScopeIds(sourceDb);
       if (sourceScopeIds.size === 0) {
         Logger.logInfo(loggerCategory, "Source Provenance Scope: Not Found");
       } else {
@@ -538,7 +539,8 @@ void (async () => {
           )
         );
       }
-      const targetScopeIds = ElementUtils.queryProvenanceScopeIds(targetDb);
+      const targetScopeIds =
+        await ElementUtils.queryProvenanceScopeIds(targetDb);
       if (targetScopeIds.size === 0) {
         Logger.logInfo(loggerCategory, "Target Provenance Scope: Not Found");
       } else {
@@ -600,14 +602,14 @@ void (async () => {
     }
 
     if (args.exportViewDefinition) {
-      ElementUtils.insertViewDefinition(targetDb, "Default", true);
+      await ElementUtils.insertViewDefinition(targetDb, "Default", true);
     }
 
     if (args.validation) {
       // validate that there are no issues with the targetDb after transformation
-      ElementUtils.validateCategorySelectors(targetDb);
-      ElementUtils.validateModelSelectors(targetDb);
-      ElementUtils.validateDisplayStyles(targetDb);
+      await ElementUtils.validateCategorySelectors(targetDb);
+      await ElementUtils.validateModelSelectors(targetDb);
+      await ElementUtils.validateDisplayStyles(targetDb);
     }
   } catch (error: any) {
     process.stdout.write(`${error.message}\n${error.stack}`);
