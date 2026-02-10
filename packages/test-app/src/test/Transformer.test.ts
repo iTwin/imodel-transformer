@@ -7,7 +7,6 @@ import { assert } from "chai";
 import * as path from "path";
 import {
   Category,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   GeometricElement2d,
@@ -21,8 +20,13 @@ import {
   SpatialCategory,
   SpatialElement,
 } from "@itwin/core-backend";
-import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
-import { Code, PhysicalElementProps, QueryBinder } from "@itwin/core-common";
+import { Logger, LogLevel } from "@itwin/core-bentley";
+import {
+  Code,
+  PhysicalElementProps,
+  QueryBinder,
+  QueryRowFormat,
+} from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 import { loggerCategory, Transformer } from "../Transformer";
@@ -70,17 +74,14 @@ describe("imodel-transformer", () => {
     return outputFileName;
   }
 
-  function count(iModelDb: IModelDb, classFullName: string): number {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    return iModelDb.withPreparedStatement(
-      `SELECT COUNT(*) FROM ${classFullName}`,
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      (statement: ECSqlStatement): number => {
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getInteger()
-          : 0;
-      }
-    );
+  async function count(
+    iModelDb: IModelDb,
+    classFullName: string
+  ): Promise<number> {
+    const result = await iModelDb
+      .createQueryReader(`SELECT COUNT(*) FROM ${classFullName}`)
+      .next();
+    return result.done ? 0 : (result.value[0] as number);
   }
 
   it("should should simplify Element geometry in the target iModel", async () => {
@@ -95,9 +96,12 @@ describe("imodel-transformer", () => {
     await Transformer.transformAll(sourceDb, targetDb, {
       simplifyElementGeometry: true,
     });
-    const numSourceElements = count(sourceDb, Element.classFullName);
+    const numSourceElements = await count(sourceDb, Element.classFullName);
     assert.isAtLeast(numSourceElements, 50);
-    assert.equal(count(targetDb, Element.classFullName), numSourceElements);
+    assert.equal(
+      await count(targetDb, Element.classFullName),
+      numSourceElements
+    );
     targetDb.close();
   });
 
@@ -113,17 +117,17 @@ describe("imodel-transformer", () => {
     await Transformer.transformAll(sourceDb, targetDb, {
       combinePhysicalModels: true,
     });
-    const numSourceSpatialElements = count(
+    const numSourceSpatialElements = await count(
       sourceDb,
       SpatialElement.classFullName
     );
     assert.isAtLeast(numSourceSpatialElements, 6);
     assert.equal(
-      count(targetDb, SpatialElement.classFullName),
+      await count(targetDb, SpatialElement.classFullName),
       numSourceSpatialElements
     );
-    assert.equal(count(targetDb, PhysicalPartition.classFullName), 1);
-    assert.isAtLeast(count(sourceDb, PhysicalPartition.classFullName), 2);
+    assert.equal(await count(targetDb, PhysicalPartition.classFullName), 1);
+    assert.isAtLeast(await count(sourceDb, PhysicalPartition.classFullName), 2);
     targetDb.close();
   });
 
@@ -283,13 +287,12 @@ describe("imodel-transformer", () => {
     async function getStructInstances(
       db: IModelDb
     ): Promise<typeof elementProps | {}> {
-      let result: any = [{}];
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      db.withPreparedStatement(
+      const result = db.createQueryReader(
         "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
-        (stmtResult) => (result = stmtResult)
+        undefined,
+        { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
-      return [...result][0];
+      return (await result.step()) ? result.current.toRow() : {};
     }
 
     assert.deepEqual(await getStructInstances(newSchemaSourceDb), elementProps);
@@ -363,13 +366,12 @@ describe("imodel-transformer", () => {
     async function getStructValue(
       db: IModelDb
     ): Promise<typeof elementProps | {}> {
-      let result: any = [{}];
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      db.withPreparedStatement(
+      const result = db.createQueryReader(
         "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
-        (stmtResult) => (result = stmtResult)
+        undefined,
+        { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
-      return [...result][0];
+      return (await result.step()) ? result.current.toRow() : {};
     }
 
     assert.deepEqual(await getStructValue(newSchemaSourceDb), elementProps);
