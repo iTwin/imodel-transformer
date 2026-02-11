@@ -1509,8 +1509,8 @@ describe("IModelTransformerHub", () => {
       { branch1: { 21: deleted, 30: 1 } },
       { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
       {
-        assert({ master, branch1 }) {
-          assertElemState(master.db, {
+        async assert({ master, branch1 }) {
+          await assertElemState(master.db, {
             // relationship props are a lot to type out so let's grab those from the branch
             ...branch1.state,
             // double check deletions propagated by sync
@@ -1522,8 +1522,8 @@ describe("IModelTransformerHub", () => {
       },
       { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
       {
-        assert({ master, branch2 }) {
-          assertElemState(branch2.db, master.state);
+        async assert({ master, branch2 }) {
+          await assertElemState(branch2.db, master.state);
         },
       },
       { branch2: { 7: 1, 8: 1 } },
@@ -1531,7 +1531,7 @@ describe("IModelTransformerHub", () => {
       { master: { 7: 2, 9: 1 } },
       { master: { sync: ["branch2"] } }, // first master<-branch2 reverse sync
       {
-        assert({ master, branch1, branch2 }) {
+        async assert({ master, branch1, branch2 }) {
           for (const { db } of [master, branch1, branch2]) {
             const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
             expect(db.elements.getElement(elem1Id).federationGuid).to.be
@@ -1584,7 +1584,7 @@ describe("IModelTransformerHub", () => {
           }
 
           // branch2 won the conflict since it is the synchronization source
-          assertElemState(master.db, { 7: 1 }, { subset: true });
+          await assertElemState(master.db, { 7: 1 }, { subset: true });
         },
       },
       { master: { 6: 2 } },
@@ -1612,7 +1612,7 @@ describe("IModelTransformerHub", () => {
       },
       { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
       {
-        assert({ branch1 }) {
+        async assert({ branch1 }) {
           for (const rel of expectedRelationships) {
             expect(
               branch1.db.relationships.tryGetInstance(
@@ -1648,7 +1648,7 @@ describe("IModelTransformerHub", () => {
             ).to.be.true;
             expect(srcElemAspects.length).to.lessThanOrEqual(1);
           }
-          assertElemState(branch1.db, { 7: 1 }, { subset: true });
+          await assertElemState(branch1.db, { 7: 1 }, { subset: true });
         },
       },
       // 7 originally came from branch2. Modify it.
@@ -1658,9 +1658,9 @@ describe("IModelTransformerHub", () => {
       // Forward sync master to branch2 with the change to 7.
       { branch2: { sync: ["master"] } },
       {
-        assert({ master, branch1, branch2 }) {
+        async assert({ master, branch1, branch2 }) {
           for (const imodel of [master, branch1, branch2]) {
-            assertElemState(imodel.db, { 7: 10 }, { subset: true });
+            await assertElemState(imodel.db, { 7: 10 }, { subset: true });
           }
         },
       },
@@ -1770,7 +1770,7 @@ describe("IModelTransformerHub", () => {
         replayTransformer.dispose();
       }
       sourceDb.close();
-      assertElemState(replayedDb, master.state); // should have same ending state as masterDb
+      await assertElemState(replayedDb, master.state); // should have same ending state as masterDb
 
       // make sure there are no deletes in the replay history (all elements that were eventually deleted from masterDb were excluded)
       const replayedDbChangesets = await IModelHost[
@@ -3729,7 +3729,6 @@ describe("IModelTransformerHub", () => {
       { master: { 1: 1, 2: 2, 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           const scopeProvenanceCandidates = branch.db.elements
@@ -3853,7 +3852,6 @@ describe("IModelTransformerHub", () => {
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
       { branch: { 5: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           const scopeProvenanceCandidates = branch.db.elements
@@ -3904,13 +3902,13 @@ describe("IModelTransformerHub", () => {
         },
       },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           // Assert that we skipped the changeset: { branch: { 1: 2, 4: 1 } } during our reverse sync.
           const expectedState = { 1: 1, 2: 2, 3: 1, 5: 1 };
           expect(master.state).to.deep.equal(expectedState);
           expect(branch.state).to.deep.equal({ ...expectedState, 1: 2, 4: 1 });
-          assertElemState(master.db, expectedState);
-          assertElemState(branch.db, { ...expectedState, 1: 2, 4: 1 });
+          await assertElemState(master.db, expectedState);
+          await assertElemState(branch.db, { ...expectedState, 1: 2, 4: 1 });
         },
       },
       // repeat all above for forward sync scenario!
@@ -3957,14 +3955,14 @@ describe("IModelTransformerHub", () => {
         },
       },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           // Assert that we skipped the changeset: { master: { 2: 4, 6: 1, } }, during our forward sync.. making it so those properties didn't make it to the branch.
           const expectedMasterState = { 1: 1, 2: 4, 3: 1, 5: 1, 6: 1, 7: 1 };
           const expectedBranchState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1, 7: 1 };
           expect(master.state).to.deep.equal(expectedMasterState);
           expect(branch.state).to.deep.equal(expectedBranchState);
-          assertElemState(master.db, expectedMasterState);
-          assertElemState(branch.db, expectedBranchState);
+          await assertElemState(master.db, expectedMasterState);
+          await assertElemState(branch.db, expectedBranchState);
         },
       },
     ];
@@ -4086,7 +4084,6 @@ describe("IModelTransformerHub", () => {
       { master: { 1: 1, 2: 2, 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           const scopeProvenanceCandidates = branch.db.elements
@@ -4194,7 +4191,6 @@ describe("IModelTransformerHub", () => {
           ],
         },
       },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         async assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
@@ -4258,12 +4254,12 @@ describe("IModelTransformerHub", () => {
       { branch: { 5: 1 } },
       { master: { sync: ["branch"] } },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
           expect(master.state).to.deep.equal(expectedState);
           expect(branch.state).to.deep.equal(expectedState);
-          assertElemState(master.db, expectedState);
-          assertElemState(branch.db, expectedState);
+          await assertElemState(master.db, expectedState);
+          await assertElemState(branch.db, expectedState);
         },
       },
     ];
@@ -4288,7 +4284,6 @@ describe("IModelTransformerHub", () => {
         { master: { 1: 1 } },
         { branch: { branch: "master" } },
         { branch: { 1: 2, 4: 1 } },
-        // eslint-disable-next-line @typescript-eslint/no-shadow
         {
           branch: {
             manualUpdate(branch) {
@@ -4342,7 +4337,6 @@ describe("IModelTransformerHub", () => {
           },
         },
         { master: { sync: ["branch"] } },
-        // eslint-disable-next-line @typescript-eslint/no-shadow
         {
           assert({ master, branch }) {
             const dictionaryModelMaster = master.db.models.getModel(
@@ -4511,12 +4505,12 @@ describe("IModelTransformerHub", () => {
       { branch: { 5: 1 } },
       { master: { sync: ["branch"] } },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
           expect(master.state).to.deep.equal(expectedState);
           expect(branch.state).to.deep.equal(expectedState);
-          assertElemState(master.db, expectedState);
-          assertElemState(branch.db, expectedState);
+          await assertElemState(master.db, expectedState);
+          await assertElemState(branch.db, expectedState);
         },
       },
     ];

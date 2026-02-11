@@ -9,7 +9,6 @@ import * as fs from "fs";
 import * as inspector from "inspector";
 import {
   CompressedId64Set,
-  DbResult,
   Guid,
   Id64,
   Id64Set,
@@ -1948,7 +1947,7 @@ export class AspectTrackingTransformer extends IModelTransformer {
       "tried to export element multi aspects for an element more than once"
     );
     this.exportedAspectIdsByElement.set(elementId, sourceAspects);
-    return await super.onExportElementMultiAspects(sourceAspects);
+    return super.onExportElementMultiAspects(sourceAspects);
   }
 }
 
@@ -1978,7 +1977,7 @@ export class AssertOrderTransformer extends IModelTransformer {
       throw Error(
         `${this.errPrologue}. '${elem.id}' came before the expected '${this._exportOrderQueue[0]}'. ${this.errEpilogue}`
       );
-    return await super.onExportElement(elem);
+    return super.onExportElement(elem);
   }
 
   public override async process() {

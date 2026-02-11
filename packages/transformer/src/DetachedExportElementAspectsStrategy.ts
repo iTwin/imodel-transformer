@@ -38,7 +38,10 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
           this.aspectChanges === undefined || isInsertChange || isUpdateChange;
         if (doExport) {
           const isKnownUpdate = this.aspectChanges ? isUpdateChange : undefined;
-          this.handler.onExportElementUniqueAspect(uniqueAspect, isKnownUpdate);
+          await this.handler.onExportElementUniqueAspect(
+            uniqueAspect,
+            isKnownUpdate
+          );
           await this.handler.trackProgress();
         }
       }

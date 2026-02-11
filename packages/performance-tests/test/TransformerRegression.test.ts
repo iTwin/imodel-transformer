@@ -17,7 +17,7 @@ import {
   IModelHost,
   IModelHostConfiguration,
 } from "@itwin/core-backend";
-import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
+import { Logger, LogLevel } from "@itwin/core-bentley";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { Reporter } from "@itwin/perf-tools";

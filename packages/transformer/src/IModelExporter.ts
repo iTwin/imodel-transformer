@@ -12,7 +12,6 @@ import {
   ChangedECInstance,
   ChangesetECAdaptor,
   DefinitionModel,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -31,7 +30,6 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
-  DbResult,
   Id64,
   Id64Arg,
   Id64Set,
