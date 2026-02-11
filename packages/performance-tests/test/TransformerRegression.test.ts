@@ -181,20 +181,12 @@ async function runRegressionTests() {
             fileName: sourceFileName,
             readonly: true,
           });
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          const fedGuidSaturation = sourceDb.withStatement(
-            `
-            SELECT
-            CAST(SUM(hasGuid) AS DOUBLE)/COUNT(*) ratio 
-            FROM (
-              SELECT IIF(FederationGuid IS NOT NULL, 1, 0) AS hasGuid,
-              1 AS [total] FROM bis.Element
-            )`,
-            (stmt) => {
-              assert(stmt.step() === DbResult.BE_SQLITE_ROW);
-              return stmt.getValue(0).getDouble();
-            }
+          const fedGuidReader = sourceDb.createQueryReader(
+            "SELECT CAST(SUM(IIF(FederationGuid IS NOT NULL, 1, 0)) AS DOUBLE)/COUNT(*) AS ratio FROM bis.Element"
           );
+          const fedGuidSaturation = (await fedGuidReader.step())
+            ? (fedGuidReader.current[0] as number)
+            : 0;
           Logger.logInfo(
             loggerCategory,
             `Federation Guid Saturation '${fedGuidSaturation}'`

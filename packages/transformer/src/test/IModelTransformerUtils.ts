@@ -646,15 +646,17 @@ export async function assertIdentityTransformation(
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
           const sourceParams = new QueryBinder().bindId("id", sourceElemId);
           const sourceReader = sourceDb.createQueryReader(sql, sourceParams);
-          await sourceReader.step();
-          const relationTargetInSourceId =
-            sourceReader.current.id ?? Id64.invalid;
+
+          const relationTargetInSourceId = (await sourceReader.step())
+            ? sourceReader.current.id
+            : Id64.invalid;
 
           const targetParams = new QueryBinder().bindId("id", targetElemId);
           const targetReader = targetDb.createQueryReader(sql, targetParams);
-          await targetReader.step();
-          const relationTargetInTargetId =
-            targetReader.current.id ?? Id64.invalid;
+
+          const relationTargetInTargetId = (await targetReader.step())
+            ? targetReader.current.id
+            : Id64.invalid;
 
           const mappedRelationTargetInTargetId = (
             propName === "codeSpec" ? remapCodeSpec : remapElem

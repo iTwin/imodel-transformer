@@ -145,19 +145,19 @@ export async function initializeBranchProvenance(
     /* eslint-enable @typescript-eslint/no-require-imports */
   } as ExternalSourceProps);
 
-  const fedGuidLessElemsSql = `
+  const fedGuidlessElemsSql = `
     SELECT ECInstanceId AS id
     FROM Bis.Element
     WHERE FederationGuid IS NULL
       AND ECInstanceId NOT IN (0x1, 0xe, 0x10) /* ignore special elems */
   `;
   const elemReader = args.branch.createQueryReader(
-    fedGuidLessElemsSql,
+    fedGuidlessElemsSql,
     undefined,
     { usePrimaryConn: true }
   );
-  while (await elemReader.step()) {
-    const id: string = elemReader.current.toRow().id;
+  for await (const row of elemReader) {
+    const id: string = row.id;
     const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
@@ -167,7 +167,7 @@ export async function initializeBranchProvenance(
     args.branch.elements.insertAspect(aspectProps);
   }
 
-  const fedGuidLessRelsSql = `
+  const fedGuidlessRelsSql = `
     SELECT erte.ECInstanceId as id
     FROM Bis.ElementRefersToElements erte
     JOIN bis.Element se
@@ -177,12 +177,12 @@ export async function initializeBranchProvenance(
       WHERE se.FederationGuid IS NULL
       OR te.FederationGuid IS NULL`;
   const relReader = args.branch.createQueryReader(
-    fedGuidLessRelsSql,
+    fedGuidlessRelsSql,
     undefined,
     { usePrimaryConn: true }
   );
-  while (await relReader.step()) {
-    const id: string = relReader.current.toRow().id;
+  for await (const row of relReader) {
+    const id: string = row.id;
     const aspectProps =
       await IModelTransformer.initRelationshipProvenanceOptions(id, id, {
         isReverseSynchronization: false,

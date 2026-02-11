@@ -478,7 +478,6 @@ export class IModelTransformer extends IModelExportHandler {
     // }
     // return undefined;
 
-    // Old implementation using withPreparedStatement (kept for reference):
     // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     return dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
       statement.bindId("elementId", aspectProps.element.id);
