@@ -225,25 +225,27 @@ export class IModelCloneContext extends IModelElementCloneContext {
             !EntityReferences.isValid(relInTarget.targetId)
           )
             break;
-          // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-          const relInTargetId = this.targetDb.withPreparedStatement(
-            `
+          const relInTargetSql = `
             SELECT ECInstanceId
             FROM BisCore:ElementRefersToElements
             WHERE SourceECInstanceId=?
               AND TargetECInstanceId=?
-            `,
-            (stmt) => {
-              stmt.bindId(1, EntityReferences.toId64(relInTarget.sourceId));
-              stmt.bindId(2, EntityReferences.toId64(relInTarget.targetId));
-              const status: DbResult = stmt.step();
-              if (status === DbResult.BE_SQLITE_ROW)
-                return stmt.getValue(0).getId();
-              if (status !== DbResult.BE_SQLITE_DONE)
-                throw new IModelError(status, "unexpected query failure");
-              return Id64.invalid;
-            }
+            `;
+          const relInTargetParams = new QueryBinder();
+          relInTargetParams.bindId(
+            1,
+            EntityReferences.toId64(relInTarget.sourceId)
           );
+          relInTargetParams.bindId(
+            2,
+            EntityReferences.toId64(relInTarget.targetId)
+          );
+          const relInTargetResult = await this.targetDb
+            .createQueryReader(relInTargetSql, relInTargetParams)
+            .next();
+          const relInTargetId = relInTargetResult.done
+            ? Id64.invalid
+            : relInTargetResult.value.id;
           return `r${relInTargetId}`;
         }
       }

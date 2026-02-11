@@ -1366,7 +1366,6 @@ export class IModelTransformer extends IModelExportHandler {
   private async _queryProvenanceForElement(
     entityInProvenanceSourceId: Id64String
   ): Promise<Id64String | undefined> {
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
     const sql = `
         SELECT esa.Element.Id
         FROM Bis.ExternalSourceAspect esa
@@ -1553,7 +1552,6 @@ export class IModelTransformer extends IModelExportHandler {
   //   );
 
   //   // Reported issue: https://github.com/iTwin/itwinjs-core/issues/7989
-  //   // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
   //   this.provenanceDb.withPreparedStatement(sql, (stmt) => {
   //     stmt.bindId("scopeId", this.targetScopeElementId);
   //     stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
