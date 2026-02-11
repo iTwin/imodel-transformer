@@ -602,7 +602,7 @@ void (async () => {
     }
 
     if (args.exportViewDefinition) {
-      await ElementUtils.insertViewDefinition(targetDb, "Default", true);
+      await ElementUtils.insertViewDefinition(targetDb, "Default");
     }
 
     if (args.validation) {
