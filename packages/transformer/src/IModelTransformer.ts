@@ -3164,7 +3164,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (targetId === undefined) {
         throw new IModelError(
           IModelStatus.BadElement,
-          "targetId should aquired from source id or element provenance"
+          "targetId should be acquired from source id or element provenance"
         );
       }
 
@@ -3341,8 +3341,6 @@ export class IModelTransformer extends IModelExportHandler {
         loggerCategory,
         "This workflows was deprecated in v1 and is no longer supported"
       );
-      //   await this.detectElementDeletes();
-      //   await this.detectRelationshipDeletes();
     }
 
     if (this._options.optimizeGeometry)

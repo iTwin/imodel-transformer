@@ -266,15 +266,16 @@ export class IModelCloneContext extends IModelElementCloneContext {
       sourceElementAspect.toJSON();
     targetElementAspectProps.id = undefined;
     const targetEntityIds: Promise<void>[] = [];
-    sourceElementAspect.forEach((name, property) => {
+    sourceElementAspect.forEach((ecName, property) => {
+      const name = ECJsNames.toJsName(ecName);
       if (property.isNavigation()) {
         const sourceNavProp: RelatedElementProps | undefined =
-          sourceElementAspect.asAny[ECJsNames.toJsName(name)];
+          sourceElementAspect.asAny[name];
         if (sourceNavProp?.id) {
           const navPropRefType = this._refTypesCache.getNavPropRefType(
             sourceElementAspect.schemaName,
             sourceElementAspect.className,
-            ECJsNames.toJsName(name)
+            name
           );
           assert(
             navPropRefType !== undefined,
@@ -288,18 +289,17 @@ export class IModelCloneContext extends IModelElementCloneContext {
                 targetEntityReference
               );
               // spread the property in case toJSON did not deep-clone
-              (targetElementAspectProps as any)[ECJsNames.toJsName(name)] = {
-                ...(targetElementAspectProps as any)[ECJsNames.toJsName(name)],
+              (targetElementAspectProps as any)[name] = {
+                ...(targetElementAspectProps as any)[name],
                 id: targetEntityId,
               };
             })
           );
         }
       } else if (property.isPrimitive() && "Id" === property.extendedTypeName) {
-        (targetElementAspectProps as any)[ECJsNames.toJsName(name)] =
-          this.findTargetElementId(
-            sourceElementAspect.asAny[ECJsNames.toJsName(name)]
-          );
+        (targetElementAspectProps as any)[name] = this.findTargetElementId(
+          sourceElementAspect.asAny[name]
+        );
       }
     });
     await Promise.all(targetEntityIds);
