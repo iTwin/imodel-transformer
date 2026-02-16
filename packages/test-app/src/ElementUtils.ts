@@ -28,7 +28,9 @@ export namespace ElementUtils {
   ): Promise<Id64Set> {
     const elementIds = new Set<Id64String>();
     const sql = `SELECT ECInstanceId FROM ${classFullName}`;
-    for await (const row of iModelDb.createQueryReader(sql)) {
+    for await (const row of iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       elementIds.add(row.id);
     }
     return elementIds;
@@ -120,7 +122,9 @@ export namespace ElementUtils {
         "kind",
         ExternalSourceAspect.Kind.Scope
       );
-      for await (const row of iModelDb.createQueryReader(sql, bindings)) {
+      for await (const row of iModelDb.createQueryReader(sql, bindings, {
+        usePrimaryConn: true,
+      })) {
         elementIds.add(row.id);
       }
     }
@@ -186,7 +190,9 @@ export namespace ElementUtils {
   ): Promise<Id64Array> {
     const modelIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${modelClassFullName} WHERE IsTemplate=false`;
-    for await (const row of iModelDb.createQueryReader(sql)) {
+    for await (const row of iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       modelIds.push(row.id);
     }
     return modelIds;
@@ -197,7 +203,9 @@ export namespace ElementUtils {
   ): Promise<Id64Array> {
     const categoryIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    for await (const row of iModelDb.createQueryReader(sql)) {
+    for await (const row of iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       categoryIds.push(row.id);
     }
     return categoryIds;

@@ -79,7 +79,9 @@ describe("imodel-transformer", () => {
     classFullName: string
   ): Promise<number> {
     const result = await iModelDb
-      .createQueryReader(`SELECT COUNT(*) FROM ${classFullName}`)
+      .createQueryReader(`SELECT COUNT(*) FROM ${classFullName}`, undefined, {
+        usePrimaryConn: true,
+      })
       .next();
     return result.done ? 0 : (result.value[0] as number);
   }
@@ -158,7 +160,8 @@ describe("imodel-transformer", () => {
             const queryResult = await db
               .createQueryReader(
                 `SELECT COUNT(*) FROM ${className} e JOIN bis.Category c ON e.category.id=c.ECInstanceId WHERE c.CodeValue=:category`,
-                QueryBinder.from({ category: testCategory })
+                QueryBinder.from({ category: testCategory }),
+                { usePrimaryConn: true }
               )
               .next();
             const value = queryResult.value[0];

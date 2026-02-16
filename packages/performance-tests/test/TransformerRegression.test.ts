@@ -182,7 +182,9 @@ async function runRegressionTests() {
             readonly: true,
           });
           const fedGuidReader = sourceDb.createQueryReader(
-            "SELECT CAST(SUM(IIF(FederationGuid IS NOT NULL, 1, 0)) AS DOUBLE)/COUNT(*) AS ratio FROM bis.Element"
+            "SELECT CAST(SUM(IIF(FederationGuid IS NOT NULL, 1, 0)) AS DOUBLE)/COUNT(*) AS ratio FROM bis.Element",
+            undefined,
+            { usePrimaryConn: true }
           );
           const fedGuidSaturation = (await fedGuidReader.step())
             ? (fedGuidReader.current[0] as number)

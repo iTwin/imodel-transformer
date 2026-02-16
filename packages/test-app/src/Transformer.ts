@@ -233,7 +233,11 @@ export class Transformer extends IModelTransformer {
 
     // query for and log the number of source Elements that will be processed
     const elemCountResult = await this.sourceDb
-      .createQueryReader(`SELECT COUNT(*) FROM ${Element.classFullName}`)
+      .createQueryReader(
+        `SELECT COUNT(*) FROM ${Element.classFullName}`,
+        undefined,
+        { usePrimaryConn: true }
+      )
       .next();
     this._numSourceElements = elemCountResult.done
       ? 0
@@ -246,7 +250,9 @@ export class Transformer extends IModelTransformer {
     // query for and log the number of source Relationships that will be processed
     const relCountResult = await this.sourceDb
       .createQueryReader(
-        `SELECT COUNT(*) FROM ${ElementRefersToElements.classFullName}`
+        `SELECT COUNT(*) FROM ${ElementRefersToElements.classFullName}`,
+        undefined,
+        { usePrimaryConn: true }
       )
       .next();
     this._numSourceRelationships = relCountResult.done
@@ -269,7 +275,8 @@ export class Transformer extends IModelTransformer {
       const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=?`;
       for await (const row of this.sourceDb.createQueryReader(
         sql,
-        QueryBinder.from([subCategoryName])
+        QueryBinder.from([subCategoryName]),
+        { usePrimaryConn: true }
       )) {
         this.excludeSubCategory(row.id);
       }
@@ -301,7 +308,8 @@ export class Transformer extends IModelTransformer {
       const sql = `SELECT ECInstanceId FROM ${Category.classFullName} WHERE CodeValue=?`;
       for await (const row of this.sourceDb.createQueryReader(
         sql,
-        QueryBinder.from([categoryName])
+        QueryBinder.from([categoryName]),
+        { usePrimaryConn: true }
       )) {
         const categoryId = row.id;
         this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
@@ -436,7 +444,9 @@ export class Transformer extends IModelTransformer {
   private async deleteUnusedGeometryParts(): Promise<void> {
     const geometryPartIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${GeometryPart.classFullName}`;
-    for await (const row of this.sourceDb.createQueryReader(sql)) {
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       geometryPartIds.push(row.id);
     }
     this.targetDb.elements.deleteDefinitionElements(geometryPartIds); // will delete only if unused
