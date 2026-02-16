@@ -2113,7 +2113,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
         });
         // Cache the mapping to avoid needing to query later
         this._recordPartitionIdByPhysicalPartitionId.set(
-          modeledElement.id,
+          modelId,
           recordPartitionId
         );
       }

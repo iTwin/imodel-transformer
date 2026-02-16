@@ -572,7 +572,7 @@ export class IModelExporter {
     for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
       usePrimaryConn: true,
     })) {
-      await this.exportCodeSpecByName(row.name);
+      await this.exportCodeSpecByName(row[0]);
     }
   }
 
@@ -791,7 +791,7 @@ export class IModelExporter {
     for await (const row of this.sourceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     })) {
-      const modelId: Id64String = row.ecinstanceid;
+      const modelId: Id64String = row.id;
       const model: Model = this.sourceDb.models.getModel(modelId);
       if (model instanceof DefinitionModel) {
         definitionModelIds.push(modelId);
@@ -944,7 +944,7 @@ export class IModelExporter {
       loggerCategory,
       `exportRelationships(${baseRelClassFullName})`
     );
-    const sql = `SELECT r.ECInstanceId, ec_className(r.ECClassId, 's.c') as ClassName FROM ${baseRelClassFullName} r
+    const sql = `SELECT r.ECInstanceId, ec_className(r.ECClassId, 's.c') as className FROM ${baseRelClassFullName} r
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
@@ -952,7 +952,7 @@ export class IModelExporter {
       usePrimaryConn: true,
     })) {
       const relationshipId = row.id;
-      const relationshipClass = row.classname;
+      const relationshipClass = row.className;
       await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
       await this._yieldManager.allowYield();
     }

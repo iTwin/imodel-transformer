@@ -7,7 +7,7 @@ on:
 
 jobs:
   check-change-files:
-    if: github.ref == 'refs/heads/main'
+    if: github.bas_ref == 'main'
     runs-on: ubuntu-latest
     name: Check change files 
 
