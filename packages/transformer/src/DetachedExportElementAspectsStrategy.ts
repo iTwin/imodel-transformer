@@ -112,7 +112,8 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       new QueryBinder().bindString(
         "baseClassName",
         baseElementAspectClassFullName
-      )
+      ),
+      { usePrimaryConn: true }
     );
     const aspectClassesAsyncQueryReader =
       ensureECSqlReaderIsAsyncIterableIterator(aspectClassesQueryReader);
@@ -132,7 +133,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       const aspectQueryReader = this.sourceDb.createQueryReader(
         getAspectPropsSql,
         new QueryBinder().bindId("classId", classId),
-        { rowFormat: QueryRowFormat.UseJsPropertyNames }
+        { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }
       );
       const aspectAsyncQueryReader =
         ensureECSqlReaderIsAsyncIterableIterator(aspectQueryReader);

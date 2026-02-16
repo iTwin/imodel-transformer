@@ -148,7 +148,9 @@ export class ECReferenceTypesCache {
       ORDER BY s.ECInstanceId
     `;
 
-    for await (const row of imodel.createQueryReader(query)) {
+    for await (const row of imodel.createQueryReader(query, undefined, {
+      usePrimaryConn: true,
+    })) {
       const schemaName = row.name;
       const startTime = performance.now();
       Logger.logTrace(

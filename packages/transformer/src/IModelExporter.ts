@@ -529,7 +529,9 @@ export class IModelExporter {
       ORDER BY ECInstanceId
     `;
     const schemaNamesToExport: string[] = [];
-    for await (const row of this.sourceDb.createQueryReader(sql)) {
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       const schemaName = row[0];
       const versionMajor = row[1];
       const versionWrite = row[2];
@@ -567,7 +569,9 @@ export class IModelExporter {
   public async exportCodeSpecs(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportCodeSpecs()");
     const sql = "SELECT Name FROM BisCore:CodeSpec ORDER BY ECInstanceId";
-    for await (const row of this.sourceDb.createQueryReader(sql)) {
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       await this.exportCodeSpecByName(row.name);
     }
   }
@@ -784,7 +788,9 @@ export class IModelExporter {
     const otherModelIds: Id64String[] = [];
     const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
     const params = new QueryBinder().bindId("parentModelId", parentModelId);
-    for await (const row of this.sourceDb.createQueryReader(sql, params)) {
+    for await (const row of this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    })) {
       const modelId: Id64String = row.ecinstanceid;
       const model: Model = this.sourceDb.models.getModel(modelId);
       if (model instanceof DefinitionModel) {
@@ -942,8 +948,10 @@ export class IModelExporter {
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
-    for await (const row of this.sourceDb.createQueryReader(sql)) {
-      const relationshipId = row.ecinstanceid;
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      const relationshipId = row.id;
       const relationshipClass = row.classname;
       await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
       await this._yieldManager.allowYield();
@@ -1090,7 +1098,9 @@ export class ChangedInstanceIds {
       baseClass: string
     ) => {
       for await (const row of this._db.createQueryReader(
-        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`
+        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`,
+        undefined,
+        { usePrimaryConn: true }
       )) {
         setToModify.add(row.ECInstanceId);
       }
@@ -1297,7 +1307,9 @@ export class ChangedInstanceIds {
         SELECT parentId FROM hierarchy where parentId is not null
     `;
     const parentModelIds = new Set<Id64String>();
-    for await (const row of this._db.createQueryReader(ecQuery, params)) {
+    for await (const row of this._db.createQueryReader(ecQuery, params, {
+      usePrimaryConn: true,
+    })) {
       // Transformer handles update as insert when element does not exist in target.
       // Which means that in scenario where child and parent model are filtered out from target,
       // and child element is inserted trough custom change, its parent model will be marked as updated.
@@ -1320,7 +1332,9 @@ export class ChangedInstanceIds {
         OR InVirtualSet(:elementIds, SourceECInstanceId)`;
 
     const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
-    const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+    const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
+      usePrimaryConn: true,
+    });
 
     for await (const row of queryReader) {
       this.handleChange(this.relationship, "Inserted", row.ECInstanceId);
@@ -1334,7 +1348,9 @@ export class ChangedInstanceIds {
     ]) {
       const ecQuery = `Select ECInstanceId from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
       const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
-      const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+      const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
+        usePrimaryConn: true,
+      });
       for await (const row of queryReader) {
         this.addCustomAspectChange("Inserted", row.toArray()[0]);
       }

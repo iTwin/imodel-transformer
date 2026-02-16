@@ -185,7 +185,9 @@ export class IModelCloneContext extends IModelElementCloneContext {
             WHERE ECInstanceId=?
             `;
           const params = new QueryBinder().bindId(1, rawId);
-          const reader = this.sourceDb.createQueryReader(sql, params);
+          const reader = this.sourceDb.createQueryReader(sql, params, {
+            usePrimaryConn: true,
+          });
           const relInSource = await (async () => {
             if (await reader.step()) {
               const sourceId = reader.current[0];
@@ -240,7 +242,9 @@ export class IModelCloneContext extends IModelElementCloneContext {
             EntityReferences.toId64(relInTarget.targetId)
           );
           const relInTargetResult = await this.targetDb
-            .createQueryReader(relInTargetSql, relInTargetParams)
+            .createQueryReader(relInTargetSql, relInTargetParams, {
+              usePrimaryConn: true,
+            })
             .next();
           const relInTargetId = relInTargetResult.done
             ? Id64.invalid

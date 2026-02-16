@@ -1271,8 +1271,16 @@ export class IModelTransformer extends IModelExportHandler {
     // we could get the intersection of fed guids in one query, not sure if it would be faster
     // OR we could do a raw sqlite query...
 
-    const sourceReader = sourceDb.createQueryReader(elementIdByFedGuidQuery);
-    const targetReader = targetDb.createQueryReader(elementIdByFedGuidQuery);
+    const sourceReader = sourceDb.createQueryReader(
+      elementIdByFedGuidQuery,
+      undefined,
+      { usePrimaryConn: true }
+    );
+    const targetReader = targetDb.createQueryReader(
+      elementIdByFedGuidQuery,
+      undefined,
+      { usePrimaryConn: true }
+    );
     let hasSourceRow = await sourceReader.step();
     let hasTargetRow = await targetReader.step();
     while (hasSourceRow && hasTargetRow) {
@@ -1331,7 +1339,8 @@ export class IModelTransformer extends IModelExportHandler {
     params.bindString("kind", ExternalSourceAspect.Kind.Element);
     const provenanceReader = args.provenanceDb.createQueryReader(
       provenanceAspectsQuery,
-      params
+      params,
+      { usePrimaryConn: true }
     );
     for await (const row of provenanceReader) {
       // ExternalSourceAspect.Identifier is of type string
@@ -1376,7 +1385,9 @@ export class IModelTransformer extends IModelExportHandler {
     params.bindString(1, ExternalSourceAspect.Kind.Element);
     params.bindId(2, this.targetScopeElementId);
     params.bindString(3, entityInProvenanceSourceId);
-    const result = (await this.provenanceDb()).createQueryReader(sql, params);
+    const result = (await this.provenanceDb()).createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
     if (await result.step()) {
       return result.current.id;
     } else return undefined;
@@ -1417,7 +1428,9 @@ export class IModelTransformer extends IModelExportHandler {
     params.bindString(1, ExternalSourceAspect.Kind.Relationship);
     params.bindId(2, this.targetScopeElementId);
     params.bindString(3, entityInProvenanceSourceId);
-    const result = (await this.provenanceDb()).createQueryReader(sql, params);
+    const result = (await this.provenanceDb()).createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
     if (await result.step()) {
       const aspectId = result.current.id;
       const provenanceRelInstId = result.current.provenanceRelInstId;
@@ -1460,7 +1473,9 @@ export class IModelTransformer extends IModelExportHandler {
       3,
       await this._targetClassNameToClassId(sourceRelInfo.classFullName)
     );
-    const result = this.targetDb.createQueryReader(sql, params);
+    const result = this.targetDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
     if (await result.step()) return result.current.id;
     else return undefined;
   }
@@ -1497,24 +1512,9 @@ export class IModelTransformer extends IModelExportHandler {
         : classFullName.split(":");
     params.bindString(1, schemaName);
     params.bindString(2, className);
-    const result = db.createQueryReader(sql, params);
+    const result = db.createQueryReader(sql, params, { usePrimaryConn: true });
     if (await result.step()) return result.current.id;
     assert(false, "relationship was not found");
-  }
-
-  // Deprecate?
-  private async _queryElemIdByFedGuid(
-    db: IModelDb,
-    fedGuid: GuidString
-  ): Promise<Id64String | undefined> {
-    const sql =
-      "SELECT ECInstanceId FROM Bis.Element WHERE FederationGuid=:fedGuid";
-    const params = new QueryBinder().bindString("fedGuid", fedGuid);
-    const reader = db.createQueryReader(sql, params);
-    if (await reader.step()) {
-      return reader.current.ecinstanceid;
-    }
-    return undefined;
   }
 
   /** Returns `true` if *brute force* delete detections should be run.
@@ -1526,48 +1526,6 @@ export class IModelTransformer extends IModelExportHandler {
 
     return this._syncType === "not-sync";
   }
-
-  /**
-   * Detect Element deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against Elements
-   * in the source iModel.
-   * deprecated in 1.x. Do not use this. // FIXME<MIKE>: how to better explain this?
-   * This method is only called during [[process]] when [[IModelTransformOptions.argsForProcessChanges]] is undefined and the option
-   * [[IModelTransformOptions.forceExternalSourceAspectProvenance]] is enabled. It is not
-   * necessary when calling [[process]] with [[IModelTransformOptions.argsForProcessChanges]] defined, since changeset information is sufficient.
-   * @note you do not need to call this directly unless processing a subset of an iModel.
-   * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
-   */
-  // public async detectElementDeletes(): Promise<void> {
-  //   const sql = `
-  //     SELECT Identifier, Element.Id
-  //     FROM BisCore.ExternalSourceAspect
-  //     WHERE Scope.Id=:scopeId
-  //       AND Kind=:kind
-  //   `;
-
-  //   nodeAssert(
-  //     !this.isReverseSynchronization,
-  //     "synchronizations with processChanges already detect element deletes, don't call detectElementDeletes"
-  //   );
-
-  //   // Reported issue: https://github.com/iTwin/itwinjs-core/issues/7989
-  //   this.provenanceDb.withPreparedStatement(sql, (stmt) => {
-  //     stmt.bindId("scopeId", this.targetScopeElementId);
-  //     stmt.bindString("kind", ExternalSourceAspect.Kind.Element);
-  //     while (DbResult.BE_SQLITE_ROW === stmt.step()) {
-  //       // ExternalSourceAspect.Identifier is of type string
-  //       const aspectIdentifier = stmt.getValue(0).getString();
-  //       if (!Id64.isValidId64(aspectIdentifier)) {
-  //         continue;
-  //       }
-  //       const targetElemId = stmt.getValue(1).getId();
-  //       const wasDeletedInSource = !EntityUnifier.exists(this.sourceDb, {
-  //         entityReference: `e${aspectIdentifier}`,
-  //       });
-  //       if (wasDeletedInSource) this.importer.deleteElement(targetElemId);
-  //     }
-  //   });
-  // }
 
   /** Transform the specified sourceElement into ElementProps for the target iModel.
    * @param sourceElement The Element from the source iModel to transform.
@@ -2221,7 +2179,9 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (this.exporter.sourceDbChanges?.element.deleteIds.has(sourceModelId)) {
       const params = new QueryBinder().bindId("targetModelId", targetModelId);
-      const reader = this.targetDb.createQueryReader(sql, params);
+      const reader = this.targetDb.createQueryReader(sql, params, {
+        usePrimaryConn: true,
+      });
       const isDefinitionPartition = await reader.step();
 
       if (isDefinitionPartition) {
@@ -2296,7 +2256,8 @@ export class IModelTransformer extends IModelExportHandler {
     const params = new QueryBinder().bindId("subjectId", sourceSubjectId);
     for await (const row of this.sourceDb.createQueryReader(
       childDefinitionPartitionSql,
-      params
+      params,
+      { usePrimaryConn: true }
     )) {
       await this.processModel(row.id);
     }
@@ -2305,7 +2266,8 @@ export class IModelTransformer extends IModelExportHandler {
     const childPartitionSql = `SELECT ECInstanceId FROM ${InformationPartitionElement.classFullName} WHERE Parent.Id=:subjectId`;
     for await (const row of this.sourceDb.createQueryReader(
       childPartitionSql,
-      params
+      params,
+      { usePrimaryConn: true }
     )) {
       const modelId: Id64String = row.id;
       const model: Model = this.sourceDb.models.getModel(modelId);
@@ -2318,7 +2280,8 @@ export class IModelTransformer extends IModelExportHandler {
     const childSubjectSql = `SELECT ECInstanceId FROM ${Subject.classFullName} WHERE Parent.Id=:subjectId`;
     for await (const row of this.sourceDb.createQueryReader(
       childSubjectSql,
-      params
+      params,
+      { usePrimaryConn: true }
     )) {
       await this.processSubjectSubModels(row.id);
     }
@@ -2646,59 +2609,6 @@ export class IModelTransformer extends IModelExportHandler {
 
   private _yieldManager = new YieldManager();
 
-  /** Detect Relationship deletes using ExternalSourceAspects in the target iModel and a *brute force* comparison against relationships in the source iModel.
-   * @deprecated in 1.x. Don't use this anymore
-   * @see [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided.
-   * @note This method is called from [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are undefined, so it only needs to be called directly when processing a subset of an iModel.
-   * @throws [[IModelError]] If the required provenance information is not available to detect deletes.
-   */
-  // public async detectRelationshipDeletes(): Promise<void> {
-  //   if (this.isReverseSynchronization) {
-  //     throw new IModelError(
-  //       IModelStatus.BadRequest,
-  //       "Cannot detect deletes when isReverseSynchronization=true"
-  //     );
-  //   }
-  //   const aspectDeleteIds: Id64String[] = [];
-  //   const sql = `
-  //     SELECT ECInstanceId, Identifier, JsonProperties
-  //     FROM ${ExternalSourceAspect.classFullName} aspect
-  //     WHERE aspect.Scope.Id=:scopeId
-  //       AND aspect.Kind=:kind
-  //   `;
-  //   const params = new QueryBinder().bindId(
-  //     "scopeId",
-  //     this.targetScopeElementId
-  //   );
-  //   params.bindString("kind", ExternalSourceAspect.Kind.Relationship);
-  //   for await (const row of this.targetDb.createQueryReader(sql, params)) {
-  //     const sourceRelInstanceId: Id64String = Id64.fromJSON(row[1]);
-  //     if (
-  //       undefined ===
-  //       this.sourceDb.relationships.tryGetInstanceProps(
-  //         ElementRefersToElements.classFullName,
-  //         sourceRelInstanceId
-  //       )
-  //     ) {
-  //       // this function exists only to support some in-imodel transformations, which must
-  //       // use the old (external source aspect) provenance method anyway so we don't need to support
-  //       // new provenance
-  //       const json: any = JSON.parse(row[2]);
-  //       const targetRelInstanceId =
-  //         json.targetRelInstanceId ?? json.provenanceRelInstanceId;
-  //       if (targetRelInstanceId) {
-  //         this.importer.deleteRelationship({
-  //           id: targetRelInstanceId,
-  //           classFullName: ElementRefersToElements.classFullName,
-  //         });
-  //       }
-  //       aspectDeleteIds.push(row.id);
-  //     }
-  //     await this._yieldManager.allowYield();
-  //   }
-  //   this.targetDb.elements.deleteAspect(aspectDeleteIds);
-  // }
-
   /** Transform the specified sourceRelationship into RelationshipProps for the target iModel.
    * @param sourceRelationship The Relationship from the source iModel to be transformed.
    * @returns RelationshipProps for the target iModel.
@@ -3017,13 +2927,17 @@ export class IModelTransformer extends IModelExportHandler {
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
-      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)"
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementDrivesElement)",
+      undefined,
+      { usePrimaryConn: true }
     )) {
       relationshipECClassIdsToSkip.add(row.ECInstanceId);
     }
     const relationshipECClassIds = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
-      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)"
+      "SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (BisCore.ElementRefersToElements)",
+      undefined,
+      { usePrimaryConn: true }
     )) {
       relationshipECClassIds.add(row.ECInstanceId);
     }
@@ -3176,7 +3090,8 @@ export class IModelTransformer extends IModelExportHandler {
             this.targetScopeElementId,
             ExternalSourceAspect.Kind.Element,
             id,
-          ])
+          ]),
+          { usePrimaryConn: true }
         )) {
           identifierValue = row.Identifier;
         }
@@ -3664,21 +3579,4 @@ export class TemplateModelCloner extends IModelTransformer {
     this._sourceIdToTargetIdMap?.set(sourceElement.id, Id64.invalid); // keep track of (source) elementIds from the template model, but the target hasn't been inserted yet
     return targetElementProps;
   }
-}
-
-//Deprecate in preference of imodeldb.elements.getFederationGuidFromId()?
-async function queryElemFedGuid(
-  db: IModelDb,
-  elemId: Id64String
-): Promise<GuidString> {
-  const sql = `
-    SELECT FederationGuid
-    FROM bis.Element
-    WHERE ECInstanceId=?
-  `;
-  const params = new QueryBinder().bindId(1, elemId);
-  const reader = db.createQueryReader(sql, params);
-  assert(await reader.step(), "element not found");
-  const result = reader.current.federationGuid as GuidString;
-  return result;
 }

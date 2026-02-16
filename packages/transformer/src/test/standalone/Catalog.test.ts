@@ -752,7 +752,9 @@ async function queryDefinitionGroupIds(
   const sql = `SELECT ECInstanceId FROM ${DefinitionGroup.classFullName} WHERE Model.Id=:modelId`;
   const groupIds = new Set<Id64String>();
   const params = new QueryBinder().bindId("modelId", containerId);
-  for await (const row of db.createQueryReader(sql, params)) {
+  for await (const row of db.createQueryReader(sql, params, {
+    usePrimaryConn: true,
+  })) {
     groupIds.add(row.id);
   }
   return groupIds;
@@ -831,7 +833,9 @@ async function queryTypeDefinitionIds(
   const sql = `SELECT ECInstanceId FROM ${TypeDefinitionElement.classFullName} WHERE Recipe.Id=:templateRecipeId`;
   const typeDefinitionIds = new Set<Id64String>();
   const params = new QueryBinder().bindId("templateRecipeId", templateRecipeId);
-  for await (const row of db.createQueryReader(sql, params)) {
+  for await (const row of db.createQueryReader(sql, params, {
+    usePrimaryConn: true,
+  })) {
     typeDefinitionIds.add(row.id);
   }
   return typeDefinitionIds;
@@ -863,7 +867,7 @@ async function queryEquipmentId(
   const sql =
     "SELECT ECInstanceId FROM TestDomain:Equipment WHERE Model.Id=:modelId LIMIT 1";
   const params = new QueryBinder().bindId("modelId", templateModelId);
-  const reader = db.createQueryReader(sql, params);
+  const reader = db.createQueryReader(sql, params, { usePrimaryConn: true });
   return (await reader.step()) ? reader.current.id : undefined;
 }
 
@@ -1001,7 +1005,9 @@ class CatalogImporter extends IModelTransformer {
       return;
     }
     const sql = `SELECT ECInstanceId,CodeValue FROM ${SpatialCategory.classFullName}`;
-    for await (const row of this.sourceDb.createQueryReader(sql)) {
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       const sourceCategoryId = row.id;
       const sourceCategoryName = row[1];
       if (this._targetSpatialCategories.has(sourceCategoryName)) {
@@ -1020,7 +1026,9 @@ class CatalogImporter extends IModelTransformer {
       return;
     }
     const sql = `SELECT ECInstanceId,CodeValue FROM ${DrawingCategory.classFullName}`;
-    for await (const row of this.sourceDb.createQueryReader(sql)) {
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
       const sourceCategoryId = row.id;
       const sourceCategoryName = row[1];
       if (this._targetDrawingCategories.has(sourceCategoryName)) {
@@ -1226,7 +1234,9 @@ describe("Catalog", () => {
         "containerName",
         "Best Product Line B"
       );
-      const reader = catalogDb.createQueryReader(catalogContainerSql, params);
+      const reader = catalogDb.createQueryReader(catalogContainerSql, params, {
+        usePrimaryConn: true,
+      });
       let catalogContainerId = Id64.invalid;
       for await (const row of reader) {
         catalogContainerId = row[0] as Id64String;
@@ -1384,7 +1394,11 @@ describe("Catalog", () => {
     const componentPlacer = new TemplateModelCloner(iModelDb);
     const physicalTypeSql = `SELECT ECInstanceId FROM ${PhysicalType.classFullName}`;
     const physicalTypeIds = new Set<Id64String>();
-    for await (const row of iModelDb.createQueryReader(physicalTypeSql)) {
+    for await (const row of iModelDb.createQueryReader(
+      physicalTypeSql,
+      undefined,
+      { usePrimaryConn: true }
+    )) {
       physicalTypeIds.add(row[0] as Id64String);
     }
     let x = 0;

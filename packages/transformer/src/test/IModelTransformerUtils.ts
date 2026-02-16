@@ -608,7 +608,9 @@ export async function assertIdentityTransformation(
   const targetElemIds = new Set<Id64String>();
 
   for await (const row of sourceDb.createQueryReader(
-    "SELECT ECInstanceId FROM bis.Element"
+    "SELECT ECInstanceId FROM bis.Element",
+    undefined,
+    { usePrimaryConn: true }
   )) {
     const sourceElemId = row.id;
     const targetElemId = remapElem(sourceElemId);
@@ -644,14 +646,18 @@ export async function assertIdentityTransformation(
           // so we query the prop instead of the checking for the property on the element
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
           const sourceParams = new QueryBinder().bindId("id", sourceElemId);
-          const sourceReader = sourceDb.createQueryReader(sql, sourceParams);
+          const sourceReader = sourceDb.createQueryReader(sql, sourceParams, {
+            usePrimaryConn: true,
+          });
 
           const relationTargetInSourceId = (await sourceReader.step())
             ? sourceReader.current.id
             : Id64.invalid;
 
           const targetParams = new QueryBinder().bindId("id", targetElemId);
-          const targetReader = targetDb.createQueryReader(sql, targetParams);
+          const targetReader = targetDb.createQueryReader(sql, targetParams, {
+            usePrimaryConn: true,
+          });
 
           const relationTargetInTargetId = (await targetReader.step())
             ? targetReader.current.id
@@ -776,7 +782,9 @@ export async function assertIdentityTransformation(
   }
 
   for await (const row of targetDb.createQueryReader(
-    "SELECT ECInstanceId FROM bis.Element"
+    "SELECT ECInstanceId FROM bis.Element",
+    undefined,
+    { usePrimaryConn: true }
   )) {
     const targetElemId = row.id;
     if (!targetElemIds.has(targetElemId)) {
@@ -830,7 +838,9 @@ export async function assertIdentityTransformation(
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
   const targetModelIds = new Set<Id64String>();
   for await (const row of sourceDb.createQueryReader(
-    "SELECT ECInstanceId FROM bis.Model"
+    "SELECT ECInstanceId FROM bis.Model",
+    undefined,
+    { usePrimaryConn: true }
   )) {
     const sourceModelId = row.id;
     const targetModelId = remapElem(sourceModelId);
@@ -853,7 +863,9 @@ export async function assertIdentityTransformation(
   }
 
   for await (const row of targetDb.createQueryReader(
-    "SELECT ECInstanceId FROM bis.Model"
+    "SELECT ECInstanceId FROM bis.Model",
+    undefined,
+    { usePrimaryConn: true }
   )) {
     const targetModelId = row.id;
     if (!targetModelIds.has(targetModelId)) {
@@ -884,7 +896,10 @@ export async function assertIdentityTransformation(
   const query = {
     ecsql: "SELECT * FROM bis.ElementRefersToElements",
     params: undefined,
-    config: { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
+    config: {
+      rowFormat: QueryRowFormat.UseECSqlPropertyNames,
+      usePrimaryConn: true,
+    },
   };
 
   const sourceRelationships = new Map<string, any>();
@@ -924,7 +939,9 @@ export async function assertIdentityTransformation(
     const relInTarget = targetRelationshipsToFind.get(relInTargetKey);
     const sql = "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?";
     const params = new QueryBinder().bindId(1, relInSource.ECClassId);
-    const reader = sourceDb.createQueryReader(sql, params);
+    const reader = sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
     await reader.step();
     const relClassName = reader.current[0];
     expect(
@@ -1668,7 +1685,9 @@ export class FilterByViewTransformer extends IModelTransformer {
     exportCategoryIds: Id64Set
   ): Promise<void> {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    const reader = this.sourceDb.createQueryReader(sql);
+    const reader = this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    });
     for await (const row of reader) {
       const categoryId = row[0] as Id64String;
       if (!exportCategoryIds.has(categoryId)) {
@@ -1809,7 +1828,9 @@ export class TestIModelTransformer extends IModelTransformer {
       "codeValue",
       "FilteredSubCategory"
     );
-    const reader = this.sourceDb.createQueryReader(sql, params);
+    const reader = this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
     for await (const row of reader) {
       const subCategoryId = row[0] as Id64String;
       assert.isFalse(this.context.isSubCategoryFiltered(subCategoryId));
