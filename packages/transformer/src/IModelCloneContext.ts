@@ -50,10 +50,10 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public override cloneElement(
+  public override async cloneElement(
     sourceElement: Element,
     cloneOptions?: IModelJsNative.CloneElementOptions
-  ): ElementProps {
+  ): Promise<ElementProps> {
     const targetElementProps: ElementProps = this[
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
@@ -94,7 +94,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
     const jsClass = this.sourceDb.getJsClass<typeof Element>(
       sourceElement.classFullName
     );
-    jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
+    await jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
     return targetElementProps;
   }
 

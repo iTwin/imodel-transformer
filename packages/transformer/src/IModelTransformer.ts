@@ -1542,7 +1542,7 @@ export class IModelTransformer extends IModelExportHandler {
         sourceElement.id
       }) "${sourceElement.getDisplayLabel()}"`
     );
-    const targetElementProps: ElementProps = this.context.cloneElement(
+    const targetElementProps: ElementProps = await this.context.cloneElement(
       sourceElement,
       { binaryGeometry: this._options.cloneUsingBinaryGeometry }
     );
