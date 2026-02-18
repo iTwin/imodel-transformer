@@ -48,12 +48,7 @@ import {
   IModelError,
   QueryBinder,
 } from "@itwin/core-common";
-import {
-  ECVersion,
-  Schema,
-  SchemaKey,
-  SchemaLoader,
-} from "@itwin/ecschema-metadata";
+import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import * as nodeAssert from "assert";
 import {
@@ -528,7 +523,7 @@ export class IModelExporter {
       }
       ORDER BY ECInstanceId
     `;
-    const schemaNamesToExport: string[] = [];
+    const schemaKeysToExport: SchemaKey[] = [];
     for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
       usePrimaryConn: true,
     })) {
@@ -541,18 +536,18 @@ export class IModelExporter {
         new ECVersion(versionMajor, versionWrite, versionMinor)
       );
       if (this.handler.shouldExportSchema(schemaKey)) {
-        schemaNamesToExport.push(schemaName);
+        schemaKeysToExport.push(schemaKey);
       }
     }
-    if (schemaNamesToExport.length === 0) return;
+    if (schemaKeysToExport.length === 0) return;
 
-    const schemaLoader = new SchemaLoader((name: string) =>
-      this.sourceDb.getSchemaProps(name)
-    );
     await Promise.all(
-      schemaNamesToExport.map(async (schemaName) => {
-        const schema = schemaLoader.getSchema(schemaName);
-        Logger.logTrace(loggerCategory, `exportSchema(${schemaName})`);
+      schemaKeysToExport.map(async (schemaKey) => {
+        const schema = await this.sourceDb.schemaContext.getSchema(schemaKey);
+        if (!schema) {
+          throw new Error(`Failed to load schema: ${schemaKey.name}`);
+        }
+        Logger.logTrace(loggerCategory, `exportSchema(${schemaKey.name})`);
         return this.handler.onExportSchema(schema);
       })
     );

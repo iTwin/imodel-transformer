@@ -128,20 +128,19 @@ export class ECReferenceTypesCache {
 
   /** initialize from an imodel with metadata */
   public async initAllSchemasInIModel(imodel: IModelDb): Promise<void> {
-    let totalSchemaCount = 0;
-    let schemaCompletedCount = 0;
+    let schemaCount = 0;
 
     const initStartTime = performance.now();
 
     const query = `
       WITH RECURSIVE refs(SchemaId) AS (
         SELECT ECInstanceId FROM ECDbMeta.ECSchemaDef WHERE Name='BisCore'
-        UNION ALL
+        UNION
         SELECT sr.SourceECInstanceId
         FROM ECDbMeta.SchemaHasSchemaReferences sr
         JOIN refs ON sr.TargetECInstanceId = refs.SchemaId
       )
-      SELECT DISTINCT s.Name as name
+      SELECT s.Name as name
       FROM refs
       JOIN ECDbMeta.ECSchemaDef s ON refs.SchemaId=s.ECInstanceId
       -- ensure schema dependency order
@@ -159,28 +158,22 @@ export class ECReferenceTypesCache {
       );
       const schemaItemKey = new SchemaKey(schemaName);
       const schema = await imodel.schemaContext.getSchema(schemaItemKey);
-      if (schema) {
-        await this.considerInitSchema(schema);
-        const endTime = performance.now();
-        Logger.logTrace(
-          TransformerLoggerCategory.ECReferenceTypesCache,
-          `Completed schema: ${schemaName} in ${(endTime - startTime).toFixed(2)}ms`
-        );
-        schemaCompletedCount++;
-      } else {
-        Logger.logInfo(
-          TransformerLoggerCategory.ECReferenceTypesCache,
-          `Did not load schema: ${schemaName}`
-        );
+      if (!schema) {
+        throw new Error(`Failed to load schema: ${schemaName}`);
       }
-
-      totalSchemaCount++;
+      await this.considerInitSchema(schema);
+      const endTime = performance.now();
+      Logger.logTrace(
+        TransformerLoggerCategory.ECReferenceTypesCache,
+        `Completed schema: ${schemaName} in ${(endTime - startTime).toFixed(2)}ms`
+      );
+      schemaCount++;
     }
 
     const initEndTime = performance.now();
     Logger.logTrace(
       TransformerLoggerCategory.ECReferenceTypesCache,
-      `Schemas completed out of total: ${schemaCompletedCount} / ${totalSchemaCount} in ${(initEndTime - initStartTime).toFixed(2)}ms`
+      `Completed ${schemaCount} schemas in ${(initEndTime - initStartTime).toFixed(2)}ms`
     );
   }
 
