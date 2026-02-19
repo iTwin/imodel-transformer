@@ -809,7 +809,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Return the IModelDb where IModelTransformer will store its provenance.
    * @note This will be [[targetDb]] except when it is a reverse synchronization. In that case it be [[sourceDb]].
    */
-  public async provenanceDb(): Promise<IModelDb> {
+  public async getProvenanceDb(): Promise<IModelDb> {
     return (await this.getIsReverseSynchronization())
       ? this.sourceDb
       : this.targetDb;
@@ -818,7 +818,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
    * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
    */
-  public async provenanceSourceDb(): Promise<IModelDb> {
+  public async getProvenanceSourceDb(): Promise<IModelDb> {
     return (await this.getIsReverseSynchronization())
       ? this.targetDb
       : this.sourceDb;
@@ -996,7 +996,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note empty string and -1 for changeset and index if it was transformed before federation guid update (pre 1.x) and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] === "unsafe-migrate".
    * @throws if the version is not found in a preexisting scope aspect and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] !== "unsafe-migrate"
    */
-  protected async synchronizationVersion(): Promise<ChangesetIndexAndId> {
+  protected async getSynchronizationVersion(): Promise<ChangesetIndexAndId> {
     if (this._cachedSynchronizationVersion === undefined) {
       const provenanceScopeAspect = await this.tryGetProvenanceScopeAspect();
       if (!provenanceScopeAspect) {
@@ -1037,19 +1037,19 @@ export class IModelTransformer extends IModelExportHandler {
   > {
     const scopeProvenanceAspectProps =
       await IModelTransformer.queryScopeExternalSourceAspect(
-        await this.provenanceDb(),
+        await this.getProvenanceDb(),
         {
           id: undefined,
           classFullName: ExternalSourceAspect.classFullName,
           scope: { id: IModel.rootSubjectId },
           kind: ExternalSourceAspect.Kind.Scope,
           element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
-          identifier: (await this.provenanceSourceDb()).iModelId,
+          identifier: (await this.getProvenanceSourceDb()).iModelId,
         }
       );
 
     return scopeProvenanceAspectProps !== undefined
-      ? ((await this.provenanceDb()).elements.getAspect(
+      ? ((await this.getProvenanceDb()).elements.getAspect(
           scopeProvenanceAspectProps.aspectId
         ) as ExternalSourceAspect)
       : undefined;
@@ -1062,8 +1062,8 @@ export class IModelTransformer extends IModelExportHandler {
    *          if this was a [BriefcaseDb]($backend)
    */
   protected async initScopeProvenance(): Promise<void> {
-    const provenanceDb = await this.provenanceDb();
-    const sourceProvenanceDb = await this.provenanceSourceDb();
+    const provenanceDb = await this.getProvenanceDb();
+    const sourceProvenanceDb = await this.getProvenanceSourceDb();
     const aspectProps = {
       id: undefined as string | undefined,
       version: undefined as string | undefined,
@@ -1354,8 +1354,8 @@ export class IModelTransformer extends IModelExportHandler {
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void
   ): Promise<void> {
     return IModelTransformer.forEachTrackedElement({
-      provenanceSourceDb: await this.provenanceSourceDb(),
-      provenanceDb: await this.provenanceDb(),
+      provenanceSourceDb: await this.getProvenanceSourceDb(),
+      provenanceDb: await this.getProvenanceDb(),
       targetScopeElementId: this.targetScopeElementId,
       isReverseSynchronization: await this.getIsReverseSynchronization(),
       fn,
@@ -1385,9 +1385,13 @@ export class IModelTransformer extends IModelExportHandler {
     params.bindString(1, ExternalSourceAspect.Kind.Element);
     params.bindId(2, this.targetScopeElementId);
     params.bindString(3, entityInProvenanceSourceId);
-    const result = (await this.provenanceDb()).createQueryReader(sql, params, {
-      usePrimaryConn: true,
-    });
+    const result = (await this.getProvenanceDb()).createQueryReader(
+      sql,
+      params,
+      {
+        usePrimaryConn: true,
+      }
+    );
     if (await result.step()) {
       return result.current.id;
     } else return undefined;
@@ -1428,9 +1432,13 @@ export class IModelTransformer extends IModelExportHandler {
     params.bindString(1, ExternalSourceAspect.Kind.Relationship);
     params.bindId(2, this.targetScopeElementId);
     params.bindString(3, entityInProvenanceSourceId);
-    const result = (await this.provenanceDb()).createQueryReader(sql, params, {
-      usePrimaryConn: true,
-    });
+    const result = (await this.getProvenanceDb()).createQueryReader(
+      sql,
+      params,
+      {
+        usePrimaryConn: true,
+      }
+    );
     if (await result.step()) {
       const aspectId = result.current.id;
       const provenanceRelInstId = result.current.provenanceRelInstId;
@@ -2084,7 +2092,7 @@ export class IModelTransformer extends IModelExportHandler {
     // physical consolidation is an example of a 'joining' transform
     // FIXME: verify at finalization time that we don't lose provenance on new elements
     // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
-    const provenanceDb = await this.provenanceDb();
+    const provenanceDb = await this.getProvenanceDb();
     if (!this._options.noProvenance) {
       let provenance:
         | Parameters<typeof this.markLastProvenance>[0]
@@ -2456,7 +2464,7 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
 
-    (await this.provenanceDb()).elements.updateAspect({
+    (await this.getProvenanceDb()).elements.updateAspect({
       ...this._targetScopeProvenanceProps,
       jsonProperties: JSON.stringify(
         this._targetScopeProvenanceProps.jsonProperties
@@ -2526,7 +2534,7 @@ export class IModelTransformer extends IModelExportHandler {
       targetRelationshipProps
     );
 
-    const provenanceDb = await this.provenanceDb();
+    const provenanceDb = await this.getProvenanceDb();
     if (
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
@@ -2596,7 +2604,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (deletedRelData.provenanceAspectId) {
       try {
-        (await this.provenanceDb()).elements.deleteAspect(
+        (await this.getProvenanceDb()).elements.deleteAspect(
           deletedRelData.provenanceAspectId
         );
       } catch (error: any) {
@@ -3060,7 +3068,7 @@ export class IModelTransformer extends IModelExportHandler {
     // we need a connected iModel with changes to remap elements with deletions
     const notConnectedModel = this.sourceDb.iTwinId === undefined;
     const noChanges =
-      (await this.synchronizationVersion()).index ===
+      (await this.getSynchronizationVersion()).index ===
         this.sourceDb.changeset.index &&
       (this.exporter.sourceDbChanges === undefined ||
         !this.exporter.sourceDbChanges.hasChanges);
@@ -3071,7 +3079,7 @@ export class IModelTransformer extends IModelExportHandler {
      * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
      */
     const changeDataInProvenanceDb =
-      this.sourceDb === (await this.provenanceDb());
+      this.sourceDb === (await this.getProvenanceDb());
 
     const getTargetIdFromSourceId = async (id: Id64String) => {
       let identifierValue: string | undefined;
@@ -3132,7 +3140,7 @@ export class IModelTransformer extends IModelExportHandler {
           sourceIdInTarget: sourceIdOfRelationshipInTarget,
           targetIdInTarget: targetIdOfRelationshipInTarget,
         });
-      } else if (this.sourceDb === (await this.provenanceSourceDb())) {
+      } else if (this.sourceDb === (await this.getProvenanceSourceDb())) {
         const relProvenance = await this._queryProvenanceForRelationship(
           changedInstanceId,
           {
@@ -3152,7 +3160,7 @@ export class IModelTransformer extends IModelExportHandler {
       let targetId = await getTargetIdFromSourceId(changedInstanceId);
       if (
         targetId === undefined &&
-        this.sourceDb === (await this.provenanceSourceDb())
+        this.sourceDb === (await this.getProvenanceSourceDb())
       ) {
         targetId = await this._queryProvenanceForElement(changedInstanceId);
       }
@@ -3194,7 +3202,7 @@ export class IModelTransformer extends IModelExportHandler {
       return;
     }
 
-    const syncVersion = await this.synchronizationVersion();
+    const syncVersion = await this.getSynchronizationVersion();
     const noChanges = syncVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
       this._sourceChangeDataState = "no-changes";
@@ -3419,7 +3427,7 @@ export class IModelTransformer extends IModelExportHandler {
             ? { startChangeset }
             : {
                 startChangeset: {
-                  index: (await this.synchronizationVersion()).index + 1,
+                  index: (await this.getSynchronizationVersion()).index + 1,
                 },
               }),
     };

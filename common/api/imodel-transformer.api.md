@@ -276,6 +276,9 @@ export class IModelTransformer extends IModelExportHandler {
     getIsForwardSynchronization(): Promise<boolean>;
     // (undocumented)
     getIsReverseSynchronization(): Promise<boolean>;
+    getProvenanceDb(): Promise<IModelDb>;
+    getProvenanceSourceDb(): Promise<IModelDb>;
+    protected getSynchronizationVersion(): Promise<ChangesetIndexAndId>;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
     initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): Promise<ExternalSourceAspectProps>;
@@ -329,10 +332,8 @@ export class IModelTransformer extends IModelExportHandler {
     processRelationships(baseRelClassFullName: string): Promise<void>;
     processSchemas(): Promise<void>;
     processSubject(sourceSubjectId: Id64String, targetSubjectId: Id64String): Promise<void>;
-    provenanceDb(): Promise<IModelDb>;
     static get provenanceElementAspectClasses(): (typeof Entity)[];
     static get provenanceElementClasses(): (typeof Entity)[];
-    provenanceSourceDb(): Promise<IModelDb>;
     static queryScopeExternalSourceAspect(dbToQuery: IModelDb, aspectProps: ExternalSourceAspectProps): Promise<{
         aspectId: Id64String;
         version?: string;
@@ -347,7 +348,6 @@ export class IModelTransformer extends IModelExportHandler {
     shouldExportRelationship(_sourceRelationship: Relationship): boolean;
     shouldExportSchema(schemaKey: ECSchemaMetaData.SchemaKey): boolean;
     readonly sourceDb: IModelDb;
-    protected synchronizationVersion(): Promise<ChangesetIndexAndId>;
     readonly targetDb: IModelDb;
     get targetScopeElementId(): Id64String;
     // (undocumented)

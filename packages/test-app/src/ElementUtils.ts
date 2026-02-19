@@ -140,7 +140,6 @@ export namespace ElementUtils {
   export async function insertViewDefinition(
     iModelDb: IModelDb,
     name: string
-    // makeDefault?: boolean
   ): Promise<Id64String> {
     const definitionModelId = IModel.dictionaryId;
     const viewCode = ViewDefinition.createCode(
@@ -176,9 +175,6 @@ export namespace ElementUtils {
         displayStyleId,
         iModelDb.projectExtents
       );
-      // if (makeDefault) {
-      //   iModelDb.views.setDefaultViewId(viewId);
-      // }
       iModelDb.saveChanges("Inserted ViewDefinition");
     }
     return viewId;
