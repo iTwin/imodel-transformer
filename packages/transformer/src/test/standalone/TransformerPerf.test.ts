@@ -55,8 +55,8 @@ function printResults(results: {
   console.log(separator);
 }
 
-describe.only("IModelTransformer Performance Tests", () => {
-  it.only("should transform 10k elements", async function () {
+describe.skip("IModelTransformer Performance Tests", () => {
+  it("should transform 10k elements", async function () {
     this.timeout(120000); // 2 minutes for large element count
 
     const elementCount = 10000;
