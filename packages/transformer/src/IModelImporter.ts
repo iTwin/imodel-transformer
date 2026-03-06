@@ -75,6 +75,11 @@ export interface IModelImportOptions {
    * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
+  /**
+   * Aquire locks on elements during import
+   * @default false
+   */
+  aquireElementLocks: false;
 }
 
 /** Base class for importing data into an iModel.
@@ -180,7 +185,7 @@ export class IModelImporter {
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
-  public importModel(modelProps: ModelProps): void {
+  public async importModel(modelProps: ModelProps): Promise<void> {
     if (undefined === modelProps.id || !Id64.isValidId64(modelProps.id))
       throw new IModelError(
         IModelStatus.InvalidId,
@@ -197,7 +202,7 @@ export class IModelImporter {
     try {
       const model = this.targetDb.models.getModel(modelProps.id); // throws IModelError.NotFound if model does not exist
       if (hasEntityChanged(model, modelProps, this._modelPropertiesToIgnore)) {
-        this.onUpdateModel(modelProps);
+        await this.onUpdateModel(modelProps);
       }
     } catch (error) {
       // catch NotFound error and insertModel
@@ -205,7 +210,7 @@ export class IModelImporter {
         error instanceof IModelError &&
         error.errorNumber === IModelStatus.NotFound
       ) {
-        this.onInsertModel(modelProps);
+        await this.onInsertModel(modelProps);
         return;
       }
       throw error;
@@ -215,7 +220,7 @@ export class IModelImporter {
   /** Create a new Model from the specified ModelProps and insert it into the target iModel.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertModel`.
    */
-  protected onInsertModel(modelProps: ModelProps): Id64String {
+  protected async onInsertModel(modelProps: ModelProps): Promise<Id64String> {
     try {
       const modelId: Id64String = this.targetDb.models.insertModel(modelProps);
       Logger.logInfo(
@@ -237,7 +242,7 @@ export class IModelImporter {
   /** Update an existing Model in the target iModel from the specified ModelProps.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateModel`.
    */
-  protected onUpdateModel(modelProps: ModelProps): void {
+  protected async onUpdateModel(modelProps: ModelProps): Promise<void> {
     this.targetDb.models.updateModel(modelProps);
     Logger.logInfo(
       loggerCategory,
@@ -332,6 +337,10 @@ export class IModelImporter {
     elementProps: ElementProps
   ): Promise<Id64String> {
     try {
+      if (this.options.aquireElementLocks) {
+        await this.targetDb.locks.acquireLocks({ shared: elementProps.model });
+      }
+
       const elementId = this.targetDb.elements.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
       });
@@ -372,6 +381,9 @@ export class IModelImporter {
     if (!elementProps.id) {
       throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
     }
+    if (this.options.aquireElementLocks) {
+      await this.targetDb.locks.acquireLocks({ exclusive: elementProps.id });
+    }
     this.targetDb.elements.updateElement(elementProps);
     Logger.logInfo(
       loggerCategory,
@@ -397,6 +409,9 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
   protected async onDeleteElement(elementId: Id64String): Promise<void> {
+    if (this.options.aquireElementLocks) {
+      await this.targetDb.locks.acquireLocks({ exclusive: elementId });
+    }
     deleteElementTreeCascade(this.targetDb, elementId);
     Logger.logInfo(
       loggerCategory,

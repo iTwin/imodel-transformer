@@ -255,6 +255,12 @@ export interface IModelTransformOptions {
    * @default false
    */
   tryAlignGeolocation?: boolean;
+
+  /**
+   * Aquire locks on elements during import
+   * @default false
+   */
+  aquireElementLocks: false;
 }
 
 /**
@@ -632,6 +638,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
+      aquireElementLocks: options?.aquireElementLocks ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -671,6 +678,7 @@ export class IModelTransformer extends IModelExportHandler {
           this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
           this._options.skipPropagateChangesToRootElements,
+        aquireElementLocks: this._options.aquireElementLocks,
       });
     } else {
       this.importer = target;
@@ -2144,7 +2152,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onExportModel]($transformer) that is called when a Model should be exported from the source iModel.
    * This override calls [[onTransformModel]] and then [IModelImporter.importModel]($transformer) to update the target iModel.
    */
-  public override onExportModel(sourceModel: Model): void {
+  public override async onExportModel(sourceModel: Model): Promise<void> {
     if (
       this._options.skipPropagateChangesToRootElements &&
       IModel.repositoryModelId === sourceModel.id
@@ -2162,7 +2170,7 @@ export class IModelTransformer extends IModelExportHandler {
       sourceModel,
       targetModeledElementId
     );
-    this.importer.importModel(targetModelProps);
+    await this.importer.importModel(targetModelProps);
   }
 
   /** Override of [IModelExportHandler.onDeleteModel]($transformer) that is called when [IModelExporter]($transformer) detects that a [Model]($backend) has been deleted from the source iModel. */

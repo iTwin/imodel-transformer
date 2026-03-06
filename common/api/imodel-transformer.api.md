@@ -185,7 +185,7 @@ export abstract class IModelExportHandler {
     onExportElementMultiAspects(_aspects: ElementMultiAspect[]): Promise<void>;
     onExportElementUniqueAspect(_aspect: ElementUniqueAspect, _isUpdate: boolean | undefined): Promise<void>;
     onExportFont(_font: FontProps, _isUpdate: boolean | undefined): void;
-    onExportModel(_model: Model, _isUpdate: boolean | undefined): void;
+    onExportModel(_model: Model, _isUpdate: boolean | undefined): Promise<void>;
     onExportRelationship(_relationship: Relationship, _isUpdate: boolean | undefined): Promise<void>;
     onExportSchema(_schema: Schema): Promise<void | ExportSchemaResult>;
     onProgress(): Promise<void>;
@@ -212,7 +212,7 @@ export class IModelImporter {
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
     filterFunc?: (a: ElementMultiAspect) => boolean): Id64String[];
     importElementUniqueAspect(aspectProps: ElementAspectProps): Id64String;
-    importModel(modelProps: ModelProps): void;
+    importModel(modelProps: ModelProps): Promise<void>;
     importRelationship(relationshipProps: RelationshipProps): Id64String;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
     protected onDeleteElement(elementId: Id64String): Promise<void>;
@@ -221,12 +221,12 @@ export class IModelImporter {
     protected onDeleteRelationship(relationshipProps: RelationshipPropsForDelete): void;
     protected onInsertElement(elementProps: ElementProps): Promise<Id64String>;
     protected onInsertElementAspect(aspectProps: ElementAspectProps): Id64String;
-    protected onInsertModel(modelProps: ModelProps): Id64String;
+    protected onInsertModel(modelProps: ModelProps): Promise<Id64String>;
     protected onInsertRelationship(relationshipProps: RelationshipProps): Id64String;
     protected onProgress(): void;
     protected onUpdateElement(elementProps: ElementProps): Promise<void>;
     protected onUpdateElementAspect(aspectProps: ElementAspectProps): void;
-    protected onUpdateModel(modelProps: ModelProps): void;
+    protected onUpdateModel(modelProps: ModelProps): Promise<void>;
     protected onUpdateRelationship(relationshipProps: RelationshipProps): void;
     optimizeGeometry(options: OptimizeGeometryOptions): void;
     readonly options: Required<IModelImportOptions>;
@@ -308,7 +308,7 @@ export class IModelTransformer extends IModelExportHandler {
     onExportElementMultiAspects(sourceAspects: ElementMultiAspect[]): Promise<void>;
     onExportElementUniqueAspect(sourceAspect: ElementUniqueAspect): Promise<void>;
     onExportFont(font: FontProps, _isUpdate: boolean | undefined): void;
-    onExportModel(sourceModel: Model): void;
+    onExportModel(sourceModel: Model): Promise<void>;
     onExportRelationship(sourceRelationship: Relationship): Promise<void>;
     onExportSchema(schema: ECSchemaMetaData.Schema): Promise<void | ExportSchemaResult>;
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;

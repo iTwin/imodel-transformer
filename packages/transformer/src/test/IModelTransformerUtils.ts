@@ -2028,13 +2028,17 @@ export class CountingIModelImporter extends IModelImporter {
   public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
     super(targetDb, options);
   }
-  protected override onInsertModel(modelProps: ModelProps): Id64String {
+  protected override async onInsertModel(
+    modelProps: ModelProps
+  ): Promise<Id64String> {
     this.numModelsInserted++;
     return super.onInsertModel(modelProps);
   }
-  protected override onUpdateModel(modelProps: ModelProps): void {
+  protected override async onUpdateModel(
+    modelProps: ModelProps
+  ): Promise<void> {
     this.numModelsUpdated++;
-    super.onUpdateModel(modelProps);
+    await super.onUpdateModel(modelProps);
   }
   protected override async onInsertElement(
     elementProps: ElementProps
@@ -2097,8 +2101,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
     super(targetDb, options);
   }
-  protected override onInsertModel(modelProps: ModelProps): Id64String {
-    const modelId: Id64String = super.onInsertModel(modelProps);
+  protected override async onInsertModel(
+    modelProps: ModelProps
+  ): Promise<Id64String> {
+    const modelId: Id64String = await super.onInsertModel(modelProps);
     const model: Model = this.targetDb.models.getModel(modelId);
     if (model instanceof PhysicalModel) {
       const modeledElement: Element = this.targetDb.elements.getElement(
@@ -2308,17 +2314,17 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeLine(`[Font] ${font.id}, ${font.name}`);
     super.onExportFont(font, isUpdate);
   }
-  public override onExportModel(
+  public override async onExportModel(
     model: Model,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.writeSeparator();
     this.writeLine(
       `[Model] ${model.classFullName}, ${model.id}, ${
         model.name
       }${this.formatOperationName(isUpdate)}`
     );
-    super.onExportModel(model, isUpdate);
+    await super.onExportModel(model, isUpdate);
   }
   public override async onExportElement(
     element: Element,
@@ -2461,12 +2467,12 @@ export class ClassCounter extends IModelExportHandler {
     });
     IModelJsFs.appendFileSync(this.outputFileName, "\n");
   }
-  public override onExportModel(
+  public override async onExportModel(
     model: Model,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(this._modelClassCounts, model.classFullName);
-    super.onExportModel(model, isUpdate);
+    await super.onExportModel(model, isUpdate);
   }
   public override async onExportElement(
     element: Element,

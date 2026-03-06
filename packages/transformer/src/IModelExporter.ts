@@ -145,7 +145,10 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportModel(_model: Model, _isUpdate: boolean | undefined): void {}
+  public async onExportModel(
+    _model: Model,
+    _isUpdate: boolean | undefined
+  ): Promise<void> {}
 
   /** Called when a model should be deleted. */
   public async onDeleteModel(_modelId: Id64String): Promise<void> {}
@@ -717,7 +720,7 @@ export class IModelExporter {
         return; // not in changeset, don't export
       }
     }
-    this.handler.onExportModel(model, isUpdate);
+    await this.handler.onExportModel(model, isUpdate);
     return this.trackProgress();
   }
 
