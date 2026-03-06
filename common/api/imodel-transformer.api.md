@@ -203,28 +203,28 @@ export abstract class IModelExportHandler {
 export class IModelImporter {
     constructor(targetDb: IModelDb, options?: IModelImportOptions);
     computeProjectExtents(): void;
-    deleteElement(elementId: Id64String): void;
+    deleteElement(elementId: Id64String): Promise<void>;
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): void;
     readonly doNotUpdateElementIds: Set<string>;
     finalize(): void;
-    importElement(elementProps: ElementProps): Id64String;
+    importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
     filterFunc?: (a: ElementMultiAspect) => boolean): Id64String[];
     importElementUniqueAspect(aspectProps: ElementAspectProps): Id64String;
     importModel(modelProps: ModelProps): void;
     importRelationship(relationshipProps: RelationshipProps): Id64String;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
-    protected onDeleteElement(elementId: Id64String): void;
+    protected onDeleteElement(elementId: Id64String): Promise<void>;
     protected onDeleteElementAspect(targetElementAspect: ElementAspect): void;
     protected onDeleteModel(modelId: Id64String): Promise<void>;
     protected onDeleteRelationship(relationshipProps: RelationshipPropsForDelete): void;
-    protected onInsertElement(elementProps: ElementProps): Id64String;
+    protected onInsertElement(elementProps: ElementProps): Promise<Id64String>;
     protected onInsertElementAspect(aspectProps: ElementAspectProps): Id64String;
     protected onInsertModel(modelProps: ModelProps): Id64String;
     protected onInsertRelationship(relationshipProps: RelationshipProps): Id64String;
     protected onProgress(): void;
-    protected onUpdateElement(elementProps: ElementProps): void;
+    protected onUpdateElement(elementProps: ElementProps): Promise<void>;
     protected onUpdateElementAspect(aspectProps: ElementAspectProps): void;
     protected onUpdateModel(modelProps: ModelProps): void;
     protected onUpdateRelationship(relationshipProps: RelationshipProps): void;
@@ -300,7 +300,7 @@ export class IModelTransformer extends IModelExportHandler {
     protected initScopeProvenance(): Promise<void>;
     // (undocumented)
     static noEsaSyncDirectionErrorMessage: string;
-    onDeleteElement(sourceElementId: Id64String): void;
+    onDeleteElement(sourceElementId: Id64String): Promise<void>;
     onDeleteModel(sourceModelId: Id64String): Promise<void>;
     onDeleteRelationship(sourceRelInstanceId: Id64String): Promise<void>;
     onExportCodeSpec(sourceCodeSpec: CodeSpec): void;

@@ -2074,7 +2074,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (!this._options.wasSourceIModelCopiedToTarget) {
-      this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
+      await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
 
     if (targetElementProps.id === undefined) {
@@ -2131,11 +2131,13 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteElement]($transformer).
    */
-  public override onDeleteElement(sourceElementId: Id64String): void {
+  public override async onDeleteElement(
+    sourceElementId: Id64String
+  ): Promise<void> {
     const targetElementId: Id64String =
       this.context.findTargetElementId(sourceElementId);
     if (Id64.isValidId64(targetElementId)) {
-      this.importer.deleteElement(targetElementId);
+      await this.importer.deleteElement(targetElementId);
     }
   }
 

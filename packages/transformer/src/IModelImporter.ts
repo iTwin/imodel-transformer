@@ -256,9 +256,9 @@ export class IModelImporter {
    * Tries to update an element with the specified element properties.
    * If a duplicate code error occurs, it assigns a new unique code value and retries the update
    */
-  private tryUpdateElement(elemProps: ElementProps) {
+  private async tryUpdateElement(elemProps: ElementProps) {
     try {
-      this.onUpdateElement(elemProps);
+      await this.onUpdateElement(elemProps);
     } catch (err) {
       if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
         assert(
@@ -269,7 +269,7 @@ export class IModelImporter {
         this._duplicateCodeValueMap.set(elemProps.id!, elemProps.code.value);
         // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
         elemProps.code.value = Guid.createValue();
-        this.onUpdateElement(elemProps);
+        await this.onUpdateElement(elemProps);
       } else {
         throw err;
       }
@@ -277,7 +277,7 @@ export class IModelImporter {
   }
 
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
-  public importElement(elementProps: ElementProps): Id64String {
+  public async importElement(elementProps: ElementProps): Promise<Id64String> {
     if (
       undefined !== elementProps.id &&
       this.doNotUpdateElement(elementProps.id)
@@ -305,20 +305,20 @@ export class IModelImporter {
         (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) ||
         this._rootElementIds.has(elementProps.id)
       ) {
-        this.onUpdateElement(elementProps);
+        await this.onUpdateElement(elementProps);
       } else {
         if (this._elementsToUpdateDuringPreserveIds.has(elementProps.id)) {
-          this.tryUpdateElement(elementProps);
+          await this.tryUpdateElement(elementProps);
           this._elementsToUpdateDuringPreserveIds.delete(elementProps.id);
         } else {
-          this.onInsertElement(elementProps);
+          await this.onInsertElement(elementProps);
         }
       }
     } else {
       if (undefined !== elementProps.id) {
-        this.tryUpdateElement(elementProps);
+        await this.tryUpdateElement(elementProps);
       } else {
-        elementProps.id = this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
+        elementProps.id = await this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
     }
     return elementProps.id;
@@ -328,7 +328,9 @@ export class IModelImporter {
    * @returns The Id of the newly inserted Element.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
-  protected onInsertElement(elementProps: ElementProps): Id64String {
+  protected async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
     try {
       const elementId = this.targetDb.elements.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
@@ -366,7 +368,7 @@ export class IModelImporter {
   /** Update an existing Element in the target iModel from the specified ElementProps.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateElement`.
    */
-  protected onUpdateElement(elementProps: ElementProps): void {
+  protected async onUpdateElement(elementProps: ElementProps): Promise<void> {
     if (!elementProps.id) {
       throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
     }
@@ -394,7 +396,7 @@ export class IModelImporter {
    * Will delete special elements like definition elements and subjects.
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
-  protected onDeleteElement(elementId: Id64String): void {
+  protected async onDeleteElement(elementId: Id64String): Promise<void> {
     deleteElementTreeCascade(this.targetDb, elementId);
     Logger.logInfo(
       loggerCategory,
@@ -404,7 +406,7 @@ export class IModelImporter {
   }
 
   /** Delete the specified Element from the target iModel. */
-  public deleteElement(elementId: Id64String): void {
+  public async deleteElement(elementId: Id64String): Promise<void> {
     if (this.doNotUpdateElement(elementId)) {
       Logger.logInfo(
         loggerCategory,
@@ -412,7 +414,7 @@ export class IModelImporter {
       );
       return;
     }
-    this.onDeleteElement(elementId);
+    await this.onDeleteElement(elementId);
   }
 
   /** Delete the specified Model from the target iModel.

@@ -2036,17 +2036,23 @@ export class CountingIModelImporter extends IModelImporter {
     this.numModelsUpdated++;
     super.onUpdateModel(modelProps);
   }
-  protected override onInsertElement(elementProps: ElementProps): Id64String {
+  protected override async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
     this.numElementsInserted++;
     return super.onInsertElement(elementProps);
   }
-  protected override onUpdateElement(elementProps: ElementProps): void {
+  protected override async onUpdateElement(
+    elementProps: ElementProps
+  ): Promise<void> {
     this.numElementsUpdated++;
-    super.onUpdateElement(elementProps);
+    await super.onUpdateElement(elementProps);
   }
-  protected override onDeleteElement(elementId: Id64String): void {
+  protected override async onDeleteElement(
+    elementId: Id64String
+  ): Promise<void> {
     this.numElementsExplicitlyDeleted++;
-    super.onDeleteElement(elementId);
+    await super.onDeleteElement(elementId);
   }
   protected override onInsertElementAspect(
     aspectProps: ElementAspectProps
@@ -2120,10 +2126,12 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     }
     return modelId;
   }
-  protected override onInsertElement(elementProps: ElementProps): Id64String {
+  protected override async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
     // during insertion it is possible that elements are inserted with partial. Account for that so that operations below don't throw.
     this.accountForPartialViewDefinition2d(elementProps);
-    const elementId: Id64String = super.onInsertElement(elementProps);
+    const elementId: Id64String = await super.onInsertElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
       const recordPartitionId =
@@ -2134,8 +2142,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     }
     return elementId;
   }
-  protected override onUpdateElement(elementProps: ElementProps): void {
-    super.onUpdateElement(elementProps);
+  protected override async onUpdateElement(
+    elementProps: ElementProps
+  ): Promise<void> {
+    await super.onUpdateElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(
       elementProps.id!
     );
@@ -2147,7 +2157,9 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       }
     }
   }
-  protected override onDeleteElement(elementId: Id64String): void {
+  protected override async onDeleteElement(
+    elementId: Id64String
+  ): Promise<void> {
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
       const recordPartitionId =
@@ -2156,7 +2168,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
         this.insertAuditRecord("Delete", recordPartitionId, element);
       }
     }
-    super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
+    await super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
   }
   private insertAuditRecord(
     operation: string,
