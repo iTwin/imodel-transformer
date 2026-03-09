@@ -2058,17 +2058,17 @@ export class CountingIModelImporter extends IModelImporter {
     this.numElementsExplicitlyDeleted++;
     await super.onDeleteElement(elementId);
   }
-  protected override onInsertElementAspect(
+  protected override async onInsertElementAspect(
     aspectProps: ElementAspectProps
-  ): Id64String {
+  ): Promise<Id64String> {
     this.numElementAspectsInserted++;
     return super.onInsertElementAspect(aspectProps);
   }
-  protected override onUpdateElementAspect(
+  protected override async onUpdateElementAspect(
     aspectProps: ElementAspectProps
-  ): void {
+  ): Promise<void> {
     this.numElementAspectsUpdated++;
-    super.onUpdateElementAspect(aspectProps);
+    await super.onUpdateElementAspect(aspectProps);
   }
   protected override onInsertRelationship(
     relationshipProps: RelationshipProps
@@ -2209,10 +2209,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
  */
 export class AspectTrackingImporter extends IModelImporter {
   public importedAspectIdsByElement = new Map<Id64String, Id64String[]>();
-  public override importElementMultiAspects(
+  public override async importElementMultiAspects(
     ...args: Parameters<IModelImporter["importElementMultiAspects"]>
   ) {
-    const resultTargetIds = super.importElementMultiAspects(...args);
+    const resultTargetIds = await super.importElementMultiAspects(...args);
     const [aspectsProps] = args;
     const elementId = aspectsProps[0].element.id;
     assert(

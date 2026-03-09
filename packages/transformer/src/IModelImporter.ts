@@ -79,7 +79,7 @@ export interface IModelImportOptions {
    * Aquire locks on elements during import
    * @default false
    */
-  aquireElementLocks: false;
+  aquireElementLocks?: false;
 }
 
 /** Base class for importing data into an iModel.
@@ -157,6 +157,7 @@ export class IModelImporter {
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
+      aquireElementLocks: options?.aquireElementLocks ?? false,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
   }
@@ -243,6 +244,9 @@ export class IModelImporter {
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateModel`.
    */
   protected async onUpdateModel(modelProps: ModelProps): Promise<void> {
+    if (this.options.aquireElementLocks) {
+      await this.targetDb.locks.acquireLocks({ exclusive: modelProps.id });
+    }
     this.targetDb.models.updateModel(modelProps);
     Logger.logInfo(
       loggerCategory,
@@ -436,6 +440,9 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteModel`.
    */
   protected async onDeleteModel(modelId: Id64String): Promise<void> {
+    if (this.options.aquireElementLocks) {
+      await this.targetDb.locks.acquireLocks({ exclusive: modelId });
+    }
     this.targetDb.models.deleteModel(modelId);
     Logger.logInfo(loggerCategory, `Deleted model ${modelId}`);
     this.trackProgress();
@@ -457,9 +464,9 @@ export class IModelImporter {
   }
 
   /** Import an ElementUniqueAspect into the target iModel. */
-  public importElementUniqueAspect(
+  public async importElementUniqueAspect(
     aspectProps: ElementAspectProps
-  ): Id64String {
+  ): Promise<Id64String> {
     const aspects: ElementAspect[] = this.targetDb.elements.getAspects(
       aspectProps.element.id,
       aspectProps.classFullName
@@ -468,7 +475,7 @@ export class IModelImporter {
       return this.onInsertElementAspect(aspectProps);
     } else if (hasEntityChanged(aspects[0], aspectProps)) {
       aspectProps.id = aspects[0].id;
-      this.onUpdateElementAspect(aspectProps);
+      await this.onUpdateElementAspect(aspectProps);
     }
     return aspects[0].id;
   }
@@ -479,11 +486,11 @@ export class IModelImporter {
    * @note For insert vs. update reasons, it is important to process all ElementMultiAspects owned by an Element at once since we don't have aspect-specific provenance.
    * @returns the array of ids of the resulting ElementMultiAspects, in the same order of the aspectPropsArray parameter
    */
-  public importElementMultiAspects(
+  public async importElementMultiAspects(
     aspectPropsArray: ElementAspectProps[],
     /** caller must use this to enforce any aspects added by IModelTransformer are not considered for update */
     filterFunc: (a: ElementMultiAspect) => boolean = () => true
-  ): Id64String[] {
+  ): Promise<Id64String[]> {
     const result = new Array<Id64String | undefined>(
       aspectPropsArray.length
     ).fill(undefined);
@@ -500,7 +507,7 @@ export class IModelImporter {
     });
 
     // Handle ElementMultiAspects in groups by class
-    aspectClassFullNames.forEach((aspectClassFullName: string) => {
+    for (const aspectClassFullName of aspectClassFullNames) {
       const proposedAspects = aspectPropsArray
         .map((props, index) => ({ props, index }))
         .filter(({ props }) => aspectClassFullName === props.classFullName);
@@ -511,36 +518,42 @@ export class IModelImporter {
         .filter(({ props }) => filterFunc(props));
 
       if (proposedAspects.length >= currentAspects.length) {
-        proposedAspects.forEach(({ props, index: resultIndex }, index) => {
+        for (const [
+          index,
+          { props, index: resultIndex },
+        ] of proposedAspects.entries()) {
           let id: Id64String;
           if (index < currentAspects.length) {
             id = currentAspects[index].props.id;
             props.id = id;
             if (hasEntityChanged(currentAspects[index].props, props)) {
-              this.onUpdateElementAspect(props);
+              await this.onUpdateElementAspect(props);
             }
             id = props.id;
           } else {
-            id = this.onInsertElementAspect(props);
+            id = await this.onInsertElementAspect(props);
           }
           result[resultIndex] = id;
-        });
+        }
       } else {
-        currentAspects.forEach(({ props, index: resultIndex }, index) => {
+        for (const [
+          index,
+          { props, index: resultIndex },
+        ] of currentAspects.entries()) {
           let id: Id64String;
           if (index < proposedAspects.length) {
             id = props.id;
             proposedAspects[index].props.id = id;
             if (hasEntityChanged(props, proposedAspects[index].props)) {
-              this.onUpdateElementAspect(proposedAspects[index].props);
+              await this.onUpdateElementAspect(proposedAspects[index].props);
             }
             result[resultIndex] = id;
           } else {
-            this.onDeleteElementAspect(props);
+            await this.onDeleteElementAspect(props);
           }
-        });
+        }
       }
-    });
+    }
 
     assert(result.every((r) => typeof r !== undefined));
     return result as Id64String[];
@@ -549,8 +562,15 @@ export class IModelImporter {
   /** Insert the ElementAspect into the target iModel.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElementAspect`.
    */
-  protected onInsertElementAspect(aspectProps: ElementAspectProps): Id64String {
+  protected async onInsertElementAspect(
+    aspectProps: ElementAspectProps
+  ): Promise<Id64String> {
     try {
+      if (this.options.aquireElementLocks) {
+        await this.targetDb.locks.acquireLocks({
+          exclusive: aspectProps.element.id,
+        });
+      }
       const id = this.targetDb.elements.insertAspect(aspectProps);
       Logger.logInfo(
         loggerCategory,
@@ -571,7 +591,14 @@ export class IModelImporter {
   /** Update the ElementAspect within the target iModel.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateElementAspect`.
    */
-  protected onUpdateElementAspect(aspectProps: ElementAspectProps): void {
+  protected async onUpdateElementAspect(
+    aspectProps: ElementAspectProps
+  ): Promise<void> {
+    if (this.options.aquireElementLocks) {
+      await this.targetDb.locks.acquireLocks({
+        exclusive: aspectProps.element.id,
+      });
+    }
     this.targetDb.elements.updateAspect(aspectProps);
     Logger.logInfo(
       loggerCategory,
@@ -583,7 +610,14 @@ export class IModelImporter {
   /** Delete the specified ElementAspect from the target iModel.
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElementAspect`.
    */
-  protected onDeleteElementAspect(targetElementAspect: ElementAspect): void {
+  protected async onDeleteElementAspect(
+    targetElementAspect: ElementAspect
+  ): Promise<void> {
+    if (this.options.aquireElementLocks) {
+      await this.targetDb.locks.acquireLocks({
+        exclusive: targetElementAspect.element.id,
+      });
+    }
     this.targetDb.elements.deleteAspect(targetElementAspect.id);
     Logger.logInfo(
       loggerCategory,

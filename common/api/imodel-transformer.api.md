@@ -210,22 +210,22 @@ export class IModelImporter {
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
-    filterFunc?: (a: ElementMultiAspect) => boolean): Id64String[];
-    importElementUniqueAspect(aspectProps: ElementAspectProps): Id64String;
+    filterFunc?: (a: ElementMultiAspect) => boolean): Promise<Id64String[]>;
+    importElementUniqueAspect(aspectProps: ElementAspectProps): Promise<Id64String>;
     importModel(modelProps: ModelProps): Promise<void>;
     importRelationship(relationshipProps: RelationshipProps): Id64String;
     markElementToUpdateDuringPreserveIds(elementId: Id64String): void;
     protected onDeleteElement(elementId: Id64String): Promise<void>;
-    protected onDeleteElementAspect(targetElementAspect: ElementAspect): void;
+    protected onDeleteElementAspect(targetElementAspect: ElementAspect): Promise<void>;
     protected onDeleteModel(modelId: Id64String): Promise<void>;
     protected onDeleteRelationship(relationshipProps: RelationshipPropsForDelete): void;
     protected onInsertElement(elementProps: ElementProps): Promise<Id64String>;
-    protected onInsertElementAspect(aspectProps: ElementAspectProps): Id64String;
+    protected onInsertElementAspect(aspectProps: ElementAspectProps): Promise<Id64String>;
     protected onInsertModel(modelProps: ModelProps): Promise<Id64String>;
     protected onInsertRelationship(relationshipProps: RelationshipProps): Id64String;
     protected onProgress(): void;
     protected onUpdateElement(elementProps: ElementProps): Promise<void>;
-    protected onUpdateElementAspect(aspectProps: ElementAspectProps): void;
+    protected onUpdateElementAspect(aspectProps: ElementAspectProps): Promise<void>;
     protected onUpdateModel(modelProps: ModelProps): Promise<void>;
     protected onUpdateRelationship(relationshipProps: RelationshipProps): void;
     optimizeGeometry(options: OptimizeGeometryOptions): void;
@@ -236,6 +236,7 @@ export class IModelImporter {
 
 // @beta
 export interface IModelImportOptions {
+    aquireElementLocks?: false;
     autoExtendProjectExtents?: boolean | {
         excludeOutliers: boolean;
     };
@@ -359,6 +360,7 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export interface IModelTransformOptions {
+    aquireElementLocks?: false;
     argsForProcessChanges?: ProcessChangesOptions;
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;

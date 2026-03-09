@@ -260,7 +260,7 @@ export interface IModelTransformOptions {
    * Aquire locks on elements during import
    * @default false
    */
-  aquireElementLocks: false;
+  aquireElementLocks?: false;
 }
 
 /**
@@ -2671,7 +2671,8 @@ export class IModelTransformer extends IModelExportHandler {
     if (!(await this.doAllReferencesExistInTarget(sourceAspect))) {
       this._partiallyCommittedAspectIds.add(sourceAspect.id);
     }
-    const targetId = this.importer.importElementUniqueAspect(targetAspectProps);
+    const targetId =
+      await this.importer.importElementUniqueAspect(targetAspectProps);
     this.context.remapElementAspect(sourceAspect.id, targetId);
   }
 
@@ -2692,7 +2693,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     });
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
-    const targetIds = this.importer.importElementMultiAspects(
+    const targetIds = await this.importer.importElementMultiAspects(
       await Promise.all(targetAspectPropsArray),
       (a) => {
         const isExternalSourceAspectFromTransformer =
