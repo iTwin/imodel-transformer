@@ -153,7 +153,8 @@ describe("IModelTransformerHub", () => {
 
   const createPopulatedIModelHubIModel = async (
     iModelName: string,
-    prepareIModel?: (iModel: SnapshotDb) => void | Promise<void>
+    prepareIModel?: (iModel: SnapshotDb) => void | Promise<void>,
+    noLocks: boolean = true
   ): Promise<string> => {
     // Create and push seed of IModel
     const seedFileName = path.join(outputDir, `${iModelName}.bim`);
@@ -173,7 +174,7 @@ describe("IModelTransformerHub", () => {
       iModelName,
       description: "source",
       version0: seedFileName,
-      noLocks: true,
+      noLocks: noLocks ? true : undefined,
     });
     return iModelId;
   };
@@ -623,6 +624,91 @@ describe("IModelTransformerHub", () => {
       ].queryChangesets({ accessToken, iModelId: targetIModelId });
       assert.equal(sourceIModelChangeSets.length, 2);
       assert.equal(targetIModelChangeSets.length, 2);
+
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    } finally {
+      try {
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
+  it.only("Transform source iModel to target iModel with locks", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      "TransformerSourceWithLocks",
+      async (sourceSeedDb) => {
+        await TestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
+      },
+      false // noLocks = false, so locks are required
+    );
+
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      "TransformerTargetWithLocks",
+      async (targetSeedDb) => {
+        await TransformerExtensiveTestScenario.prepareTargetDb(targetSeedDb);
+      },
+      false // noLocks = false, so locks are required
+    );
+
+    try {
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+
+      // Acquire locks on source before populating (needed since noLocks=false)
+      await sourceDb.locks.acquireLocks({
+        shared: IModel.rootSubjectId,
+        exclusive: IModel.rootSubjectId,
+      });
+
+      // Populate source and push
+      TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Populate source",
+      });
+
+      // Use aquireElementLocks option so transformer acquires locks automatically on target
+      const transformer = await TestIModelTransformer.create(
+        sourceDb,
+        targetDb,
+        {
+          aquireElementLocks: true,
+          argsForProcessChanges: {
+            startChangeset: { id: sourceDb.changeset.id },
+          },
+        }
+      );
+      transformer["_allowNoScopingESA"] = true;
+      await transformer.process();
+      transformer.dispose();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({ accessToken, description: "Import #1" });
+
+      // Verify transformation was successful
+      TransformerExtensiveTestScenario.assertTargetDbContents(
+        sourceDb,
+        targetDb
+      );
 
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);

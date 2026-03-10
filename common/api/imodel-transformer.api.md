@@ -236,7 +236,7 @@ export class IModelImporter {
 
 // @beta
 export interface IModelImportOptions {
-    aquireElementLocks?: false;
+    aquireElementLocks?: boolean;
     autoExtendProjectExtents?: boolean | {
         excludeOutliers: boolean;
     };
@@ -360,7 +360,7 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export interface IModelTransformOptions {
-    aquireElementLocks?: false;
+    aquireElementLocks?: boolean;
     argsForProcessChanges?: ProcessChangesOptions;
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;

@@ -260,7 +260,7 @@ export interface IModelTransformOptions {
    * Aquire locks on elements during import
    * @default false
    */
-  aquireElementLocks?: false;
+  aquireElementLocks?: boolean;
 }
 
 /**
@@ -1126,6 +1126,11 @@ export class IModelTransformer extends IModelExportHandler {
         );
       }
       if (!this._options.noProvenance) {
+        if (this._options.aquireElementLocks) {
+          await provenanceDb.locks.acquireLocks({
+            exclusive: aspectProps.scope.id,
+          });
+        }
         const id = provenanceDb.elements.insertAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -2119,9 +2124,14 @@ export class IModelTransformer extends IModelExportHandler {
             provenanceDb,
             aspectProps
           );
-        if (foundEsaProps === undefined)
+        if (foundEsaProps === undefined) {
+          if (this._options.aquireElementLocks) {
+            await provenanceDb.locks.acquireLocks({
+              exclusive: aspectProps.scope.id,
+            });
+          }
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
-        else {
+        } else {
           // Since initElementProvenance sets a property 'version' on the aspectProps that we wish to persist in the provenanceDb, only grab the id from the foundEsaProps.
           aspectProps.id = foundEsaProps.aspectId;
           provenanceDb.elements.updateAspect(aspectProps);
@@ -2566,6 +2576,11 @@ export class IModelTransformer extends IModelExportHandler {
           );
         // onExportRelationship doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
         if (undefined === foundEsaProps) {
+          if (this._options.aquireElementLocks) {
+            await provenanceDb.locks.acquireLocks({
+              exclusive: aspectProps.scope.id,
+            });
+          }
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
         }
         provenance = aspectProps as MarkRequired<

@@ -79,7 +79,7 @@ export interface IModelImportOptions {
    * Aquire locks on elements during import
    * @default false
    */
-  aquireElementLocks?: false;
+  aquireElementLocks?: boolean;
 }
 
 /** Base class for importing data into an iModel.
