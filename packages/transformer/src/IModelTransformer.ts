@@ -678,7 +678,7 @@ export class IModelTransformer extends IModelExportHandler {
           this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
           this._options.skipPropagateChangesToRootElements,
-        aquireElementLocks: this._options.aquireElementLocks,
+        acquireElementLocks: this._options.acquireElementLocks,
       });
     } else {
       this.importer = target;
