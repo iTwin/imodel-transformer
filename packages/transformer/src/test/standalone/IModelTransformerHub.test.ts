@@ -644,7 +644,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("Transform source iModel to target iModel with locks", async () => {
+  it("Transform source iModel to target iModel with locks", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSourceWithLocks",
       async (sourceSeedDb) => {
@@ -681,6 +681,18 @@ describe("IModelTransformerHub", () => {
 
       // Populate source and push
       TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+
+      // Insert a physical model that we'll delete later to test onDeleteModel
+      const tempModelId = PhysicalModel.insert(
+        sourceDb,
+        IModel.rootSubjectId,
+        "TempModelToDelete"
+      );
+      // Capture federation GUID for later verification
+      const tempModelFedGuid =
+        sourceDb.elements.getElement(tempModelId).federationGuid;
+      assert.isDefined(tempModelFedGuid);
+
       sourceDb.saveChanges();
       await sourceDb.pushChanges({
         accessToken,
@@ -709,6 +721,77 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         targetDb
       );
+
+      // Verify temp model exists in target after first transform (using fed guid)
+      const targetTempModelElement = targetDb.elements.tryGetElement({
+        federationGuid: tempModelFedGuid,
+      });
+      assert.isDefined(targetTempModelElement);
+      const targetTempModelId = targetTempModelElement.id;
+
+      // Now delete an element and the temp model from source to test onDeleteElement and onDeleteModel
+      // Find a physical object to delete (tests onDeleteElement)
+      const physicalObjectId = sourceDb
+        .queryEntityIds({
+          from: PhysicalObject.classFullName,
+          limit: 1,
+        })
+        .values()
+        .next().value!;
+      assert.isTrue(Id64.isValidId64(physicalObjectId));
+
+      // Save federation GUID before deleting so we can verify deletion in target
+      const physicalObjectFedGuid =
+        sourceDb.elements.getElement(physicalObjectId).federationGuid;
+      assert.isDefined(physicalObjectFedGuid);
+
+      // Acquire locks for the elements we're about to delete
+      await sourceDb.locks.acquireLocks({
+        exclusive: [physicalObjectId, tempModelId],
+      });
+
+      // Delete the physical object (element)
+      sourceDb.elements.deleteElement(physicalObjectId);
+
+      // Delete the temp model and its partition element to test onDeleteModel
+      // Must delete model first, then the partition element
+      sourceDb.models.deleteModel(tempModelId);
+      sourceDb.elements.deleteElement(tempModelId);
+
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Delete element and model",
+      });
+
+      // Run another transform to propagate deletions
+      const transformer2 = await TestIModelTransformer.create(
+        sourceDb,
+        targetDb,
+        {
+          aquireElementLocks: true,
+          argsForProcessChanges: {},
+        }
+      );
+      await transformer2.process();
+      transformer2.dispose();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Import #2 - deletions",
+      });
+
+      // Verify deletions propagated to target
+      // The physical object should be deleted (using fed guid)
+      const targetPhysicalObjectAfterDelete = targetDb.elements.tryGetElement({
+        federationGuid: physicalObjectFedGuid,
+      });
+      assert.isUndefined(targetPhysicalObjectAfterDelete);
+
+      // The temp model should be deleted from target (check using tryGetModel)
+      const targetTempModelAfterDelete =
+        targetDb.models.tryGetModel(targetTempModelId);
+      assert.isUndefined(targetTempModelAfterDelete);
 
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);

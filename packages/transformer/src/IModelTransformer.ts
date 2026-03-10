@@ -1154,6 +1154,11 @@ export class IModelTransformer extends IModelExportHandler {
           "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
           { oldProps, newProps: aspectProps }
         );
+        if (this._options.aquireElementLocks) {
+          await provenanceDb.locks.acquireLocks({
+            exclusive: aspectProps.scope.id,
+          });
+        }
         provenanceDb.elements.updateAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -1805,6 +1810,11 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const targetAspectProps =
         await this.onTransformElementAspect(sourceAspect);
+      if (this._options.aquireElementLocks) {
+        await this.targetDb.locks.acquireLocks({
+          exclusive: targetAspectProps.element.id,
+        });
+      }
       this.targetDb.elements.updateAspect({
         ...targetAspectProps,
         id: targetAspectId,
@@ -2134,6 +2144,11 @@ export class IModelTransformer extends IModelExportHandler {
         } else {
           // Since initElementProvenance sets a property 'version' on the aspectProps that we wish to persist in the provenanceDb, only grab the id from the foundEsaProps.
           aspectProps.id = foundEsaProps.aspectId;
+          if (this._options.aquireElementLocks) {
+            await provenanceDb.locks.acquireLocks({
+              exclusive: aspectProps.scope.id,
+            });
+          }
           provenanceDb.elements.updateAspect(aspectProps);
         }
 
@@ -2482,6 +2497,13 @@ export class IModelTransformer extends IModelExportHandler {
         loggerCategory,
         `new pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
       );
+    }
+    if (this._options.aquireElementLocks) {
+      await (
+        await this.getProvenanceDb()
+      ).locks.acquireLocks({
+        exclusive: this._targetScopeProvenanceProps.element.id,
+      });
     }
 
     (await this.getProvenanceDb()).elements.updateAspect({
