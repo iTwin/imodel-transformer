@@ -76,8 +76,12 @@ export interface IModelImportOptions {
    */
   skipPropagateChangesToRootElements?: boolean;
   /**
-   * Aquire locks on elements during import
+   * Acquire locks on elements during import
    * @default false
+   */
+  acquireElementLocks?: boolean;
+  /**
+   * @deprecated Use [[acquireElementLocks]] instead.
    */
   aquireElementLocks?: boolean;
 }
