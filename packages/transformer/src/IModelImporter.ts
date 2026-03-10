@@ -80,10 +80,6 @@ export interface IModelImportOptions {
    * @default false
    */
   acquireElementLocks?: boolean;
-  /**
-   * @deprecated Use [[acquireElementLocks]] instead.
-   */
-  aquireElementLocks?: boolean;
 }
 
 /** Base class for importing data into an iModel.
@@ -161,7 +157,7 @@ export class IModelImporter {
       simplifyElementGeometry: options?.simplifyElementGeometry ?? false,
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
-      aquireElementLocks: options?.aquireElementLocks ?? false,
+      acquireElementLocks: options?.acquireElementLocks ?? false,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
   }
@@ -248,7 +244,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateModel`.
    */
   protected async onUpdateModel(modelProps: ModelProps): Promise<void> {
-    if (this.options.aquireElementLocks) {
+    if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({ exclusive: modelProps.id });
     }
     this.targetDb.models.updateModel(modelProps);
@@ -345,7 +341,7 @@ export class IModelImporter {
     elementProps: ElementProps
   ): Promise<Id64String> {
     try {
-      if (this.options.aquireElementLocks) {
+      if (this.options.acquireElementLocks) {
         await this.targetDb.locks.acquireLocks({ shared: elementProps.model });
       }
 
@@ -389,7 +385,7 @@ export class IModelImporter {
     if (!elementProps.id) {
       throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
     }
-    if (this.options.aquireElementLocks) {
+    if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({ exclusive: elementProps.id });
     }
     this.targetDb.elements.updateElement(elementProps);
@@ -417,7 +413,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
   protected async onDeleteElement(elementId: Id64String): Promise<void> {
-    if (this.options.aquireElementLocks) {
+    if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({ exclusive: elementId });
     }
     deleteElementTreeCascade(this.targetDb, elementId);
@@ -444,7 +440,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteModel`.
    */
   protected async onDeleteModel(modelId: Id64String): Promise<void> {
-    if (this.options.aquireElementLocks) {
+    if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({ exclusive: modelId });
     }
     this.targetDb.models.deleteModel(modelId);
@@ -570,7 +566,7 @@ export class IModelImporter {
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
     try {
-      if (this.options.aquireElementLocks) {
+      if (this.options.acquireElementLocks) {
         await this.targetDb.locks.acquireLocks({
           exclusive: aspectProps.element.id,
         });
@@ -598,7 +594,7 @@ export class IModelImporter {
   protected async onUpdateElementAspect(
     aspectProps: ElementAspectProps
   ): Promise<void> {
-    if (this.options.aquireElementLocks) {
+    if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({
         exclusive: aspectProps.element.id,
       });
@@ -617,7 +613,7 @@ export class IModelImporter {
   protected async onDeleteElementAspect(
     targetElementAspect: ElementAspect
   ): Promise<void> {
-    if (this.options.aquireElementLocks) {
+    if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({
         exclusive: targetElementAspect.element.id,
       });

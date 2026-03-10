@@ -236,7 +236,7 @@ export class IModelImporter {
 
 // @beta
 export interface IModelImportOptions {
-    aquireElementLocks?: boolean;
+    acquireElementLocks?: boolean;
     autoExtendProjectExtents?: boolean | {
         excludeOutliers: boolean;
     };

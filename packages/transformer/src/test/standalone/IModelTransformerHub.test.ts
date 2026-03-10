@@ -699,12 +699,12 @@ describe("IModelTransformerHub", () => {
         description: "Populate source",
       });
 
-      // Use aquireElementLocks option so transformer acquires locks automatically on target
+      // Use acquireElementLocks option so transformer acquires locks automatically on target
       const transformer = await TestIModelTransformer.create(
         sourceDb,
         targetDb,
         {
-          aquireElementLocks: true,
+          acquireElementLocks: true,
           argsForProcessChanges: {
             startChangeset: { id: sourceDb.changeset.id },
           },
@@ -769,7 +769,7 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         targetDb,
         {
-          aquireElementLocks: true,
+          acquireElementLocks: true,
           argsForProcessChanges: {},
         }
       );

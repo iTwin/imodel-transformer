@@ -638,7 +638,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
-      aquireElementLocks: options?.aquireElementLocks ?? false,
+      acquireElementLocks: options?.acquireElementLocks ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -1126,7 +1126,7 @@ export class IModelTransformer extends IModelExportHandler {
         );
       }
       if (!this._options.noProvenance) {
-        if (this._options.aquireElementLocks) {
+        if (this._options.acquireElementLocks) {
           await provenanceDb.locks.acquireLocks({
             exclusive: aspectProps.scope.id,
           });
@@ -1154,7 +1154,7 @@ export class IModelTransformer extends IModelExportHandler {
           "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
           { oldProps, newProps: aspectProps }
         );
-        if (this._options.aquireElementLocks) {
+        if (this._options.acquireElementLocks) {
           await provenanceDb.locks.acquireLocks({
             exclusive: aspectProps.scope.id,
           });
@@ -1810,7 +1810,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const targetAspectProps =
         await this.onTransformElementAspect(sourceAspect);
-      if (this._options.aquireElementLocks) {
+      if (this._options.acquireElementLocks) {
         await this.targetDb.locks.acquireLocks({
           exclusive: targetAspectProps.element.id,
         });
@@ -2135,7 +2135,7 @@ export class IModelTransformer extends IModelExportHandler {
             aspectProps
           );
         if (foundEsaProps === undefined) {
-          if (this._options.aquireElementLocks) {
+          if (this._options.acquireElementLocks) {
             await provenanceDb.locks.acquireLocks({
               exclusive: aspectProps.scope.id,
             });
@@ -2144,7 +2144,7 @@ export class IModelTransformer extends IModelExportHandler {
         } else {
           // Since initElementProvenance sets a property 'version' on the aspectProps that we wish to persist in the provenanceDb, only grab the id from the foundEsaProps.
           aspectProps.id = foundEsaProps.aspectId;
-          if (this._options.aquireElementLocks) {
+          if (this._options.acquireElementLocks) {
             await provenanceDb.locks.acquireLocks({
               exclusive: aspectProps.scope.id,
             });
@@ -2498,7 +2498,7 @@ export class IModelTransformer extends IModelExportHandler {
         `new pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
       );
     }
-    if (this._options.aquireElementLocks) {
+    if (this._options.acquireElementLocks) {
       await (
         await this.getProvenanceDb()
       ).locks.acquireLocks({
@@ -2598,7 +2598,7 @@ export class IModelTransformer extends IModelExportHandler {
           );
         // onExportRelationship doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
         if (undefined === foundEsaProps) {
-          if (this._options.aquireElementLocks) {
+          if (this._options.acquireElementLocks) {
             await provenanceDb.locks.acquireLocks({
               exclusive: aspectProps.scope.id,
             });
