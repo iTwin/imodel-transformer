@@ -257,10 +257,10 @@ export interface IModelTransformOptions {
   tryAlignGeolocation?: boolean;
 
   /**
-   * Aquire locks on elements during import
+   * Acquire locks on elements during import
    * @default false
    */
-  aquireElementLocks?: boolean;
+  acquireElementLocks?: boolean;
 }
 
 /**
