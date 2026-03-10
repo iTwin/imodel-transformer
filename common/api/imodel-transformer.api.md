@@ -360,7 +360,7 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export interface IModelTransformOptions {
-    aquireElementLocks?: boolean;
+    acquireElementLocks?: boolean;
     argsForProcessChanges?: ProcessChangesOptions;
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
