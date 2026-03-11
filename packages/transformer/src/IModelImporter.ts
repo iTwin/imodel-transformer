@@ -555,8 +555,8 @@ export class IModelImporter {
       }
     }
 
-    assert(result.every((r) => typeof r !== undefined));
-    return result as Id64String[];
+    assert(result.every((r) => r !== undefined));
+    return result;
   }
 
   /** Insert the ElementAspect into the target iModel.

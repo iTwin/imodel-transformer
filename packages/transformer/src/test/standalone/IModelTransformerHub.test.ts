@@ -675,7 +675,6 @@ describe("IModelTransformerHub", () => {
 
       // Acquire locks on source before populating (needed since noLocks=false)
       await sourceDb.locks.acquireLocks({
-        shared: IModel.rootSubjectId,
         exclusive: IModel.rootSubjectId,
       });
 
