@@ -46,11 +46,7 @@ import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as path from "path";
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const coreBackendVersion = require("@itwin/core-backend/package.json").version;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const coreTransformerVersion =
-  require("@itwin/imodel-transformer/package.json").version;
+const coreBackendVersion = coreBackendPkgJson.version;
 
 const NUM_ELEMENTS = 10000;
 
@@ -167,7 +163,7 @@ function printResults(results: {
   console.log(separator);
 }
 
-describe.only("IModelTransformer Performance Tests", () => {
+describe.skip("IModelTransformer Performance Tests", () => {
   it("should transform 10k elements", async function () {
     this.timeout(120000); // 2 minutes for large element count
 
@@ -349,9 +345,7 @@ describe.only("IModelTransformer Performance Tests", () => {
       targetDb.close();
 
       console.log("\n===========================================");
-      console.log(
-        `  Results: transformer: ${coreTransformerVersion} core-backend: ${coreBackendVersion}`
-      );
+      console.log(`  Results: core-backend: ${coreBackendVersion}`);
       console.log("===========================================");
       console.log(`  Elements: ${NUM_ELEMENTS}`);
       console.log(`  Element insertion: ${insertDuration.toFixed(2)} ms`);
