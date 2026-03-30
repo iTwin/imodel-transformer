@@ -96,6 +96,7 @@ import {
   RelatedElement,
   SourceAndTarget,
 } from "@itwin/core-common";
+
 import {
   ChangedInstanceIds,
   ExportChangesOptions,
@@ -241,6 +242,12 @@ export interface IModelTransformOptions {
    * @default true
    */
   skipPropagateChangesToRootElements?: boolean;
+
+  /**
+   * If no changesets are present on source db, perform exportAll()
+   * @default true
+   */
+  exportAllIfNoChangesetsPresent?: boolean;
 
   /**
    * Arguments to use for the processing of changes. The args being defined or not defined will influence the behavior of @see [[IModelTransformer.process]].
@@ -496,6 +503,8 @@ export class IModelTransformer extends IModelExportHandler {
         options?.branchRelationshipDataBehavior ?? "reject",
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
+      exportAllIfNoChangesetsPresent:
+        options?.exportAllIfNoChangesetsPresent ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
     };
     // check if authorization client is defined
@@ -2568,6 +2577,8 @@ export class IModelTransformer extends IModelExportHandler {
     return {
       skipPropagateChangesToRootElements:
         this._options.skipPropagateChangesToRootElements,
+      exportAllIfNoChangesetsPresent:
+        this._options.exportAllIfNoChangesetsPresent,
       ...(this._csFileProps
         ? { csFileProps: this._csFileProps }
         : this._changesetRanges
