@@ -2011,7 +2011,8 @@ export class IModelTransformer extends IModelExportHandler {
       // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
       // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
       targetElementProps.code.value = targetElementProps.code.value ?? "";
-      const maybeTargetElementId = this.targetDb.elements.queryElementIdByCode(
+      const maybeTargetElementId = await this.queryElementIdByCode(
+        this.targetDb,
         targetElementProps.code as Required<CodeProps>
       );
       if (undefined !== maybeTargetElementId) {
@@ -2126,6 +2127,31 @@ export class IModelTransformer extends IModelExportHandler {
       }
       this.markLastProvenance(provenance, { isRelationship: false });
     }
+  }
+
+  // In iTwin js 5.x Elements.queryElementIdByCode() uses Code class to query id:
+  // https://github.com/iTwin/itwinjs-core/blob/master/core/backend/src/IModelDb.ts#L2779
+  // Code class constructor trims white spaces from code value.
+  // Custom implementation of queryElementIdByCode() was added to support querying elements with code values that have trailing whitespaces.
+  // It mimicks 4.x implementation: https://github.com/iTwin/itwinjs-core/blob/9c8b394ec3878a39764be81f928fd8b0b9115d31/core/backend/src/IModelDb.ts#L1882
+  private async queryElementIdByCode(
+    iModel: IModelDb,
+    code: Required<CodeProps>
+  ): Promise<Id64String | undefined> {
+    if (Id64.isInvalid(code.spec)) throw new Error("Invalid CodeSpec");
+
+    if (code.value === undefined) throw new Error("Invalid Code");
+
+    const query =
+      "SELECT ECInstanceId FROM BisCore:Element WHERE CodeSpec.Id=? AND CodeScope.Id=? AND CodeValue=?";
+    const queryBinder = new QueryBinder()
+      .bindId(1, code.spec)
+      .bindId(2, Id64.fromString(code.scope))
+      .bindString(3, code.value);
+    const queryReader = iModel.createQueryReader(query, queryBinder, {
+      usePrimaryConn: true,
+    });
+    return (await queryReader.step()) ? queryReader.current[0] : undefined;
   }
 
   /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.

@@ -4015,7 +4015,7 @@ describe("IModelTransformer", () => {
     newDb.close();
   });
 
-  it.skip("transforms code values with non standard space characters", async () => {
+  it("transforms code values with non standard space characters", async () => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "CodeValNbspSrc.bim"
@@ -4109,7 +4109,9 @@ describe("IModelTransformer", () => {
     ) => {
       let rows = 0;
       for await (const row of db.createQueryReader(
-        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`
+        `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
+        undefined,
+        { usePrimaryConn: true }
       )) {
         rows++;
         expect(row.codeValue).to.equal(args.expected);
