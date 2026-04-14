@@ -10,7 +10,6 @@ import * as Semver from "semver";
 import * as nodeAssert from "assert";
 import {
   assert,
-  DbResult,
   Guid,
   GuidString,
   Id64,
@@ -42,7 +41,6 @@ import {
   DefinitionModel,
   DefinitionPartition,
   ECSchemaXmlContext,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -461,42 +459,25 @@ export class IModelTransformer extends IModelExportHandler {
       LIMIT 1
     `;
 
-    // if (aspectProps.scope === undefined) return undefined;
+    if (aspectProps.scope === undefined) return undefined;
 
-    // const params = new QueryBinder();
-    // params.bindId("elementId", aspectProps.element.id);
-    // params.bindId("scopeId", aspectProps.scope.id);
-    // params.bindString("kind", aspectProps.kind);
-    // params.bindString("identifier", aspectProps.identifier);
+    const params = new QueryBinder()
+      .bindId("elementId", aspectProps.element.id)
+      .bindId("scopeId", aspectProps.scope.id)
+      .bindString("kind", aspectProps.kind)
+      .bindString("identifier", aspectProps.identifier);
 
-    // const reader = dbToQuery.createQueryReader(sql, params, {usePrimaryConn: true});
-    // if (await reader.step()) {
-    //   const aspectId = reader.current.id;
-    //   const version = reader.current.version as string | undefined;
-    //   const jsonProperties = reader.current.jsonProperties as string | undefined;
-    //   return { aspectId, version, jsonProperties };
-    // }
-    // return undefined;
-
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    return dbToQuery.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-      statement.bindId("elementId", aspectProps.element.id);
-      if (aspectProps.scope === undefined) return undefined; // return instead of binding an invalid id
-      statement.bindId("scopeId", aspectProps.scope.id);
-      statement.bindString("kind", aspectProps.kind);
-      statement.bindString("identifier", aspectProps.identifier);
-      if (DbResult.BE_SQLITE_ROW !== statement.step()) return undefined;
-      const aspectId = statement.getValue(0).getId();
-      const versionValue = statement.getValue(1);
-      const version = versionValue.isNull
-        ? undefined
-        : versionValue.getString();
-      const jsonPropsValue = statement.getValue(2);
-      const jsonProperties = jsonPropsValue.isNull
-        ? undefined
-        : jsonPropsValue.getString();
-      return { aspectId, version, jsonProperties };
-    });
+    return dbToQuery.withQueryReader(
+      sql,
+      (reader) => {
+        if (!reader.step()) return undefined;
+        const aspectId = reader.current[0] as Id64String;
+        const version = reader.current[1] as string | undefined;
+        const jsonProperties = reader.current[2] as string | undefined;
+        return { aspectId, version, jsonProperties };
+      },
+      params
+    );
   }
 
   /**
