@@ -811,6 +811,118 @@ describe("IModelTransformerHub", () => {
     }
   });
 
+  it("should release locks acquired during transformation when transformation fails", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      "TransformerSourceLockCleanup",
+      async (sourceSeedDb) => {
+        // Just need a few elements to trigger the failing transformer
+        const categoryId = SpatialCategory.insert(
+          sourceSeedDb,
+          IModel.dictionaryId,
+          "TestCategory",
+          { color: ColorDef.green.toJSON() }
+        );
+        const modelId = PhysicalModel.insert(
+          sourceSeedDb,
+          IModel.rootSubjectId,
+          "TestModel"
+        );
+        for (let i = 0; i < 10; i++) {
+          const props: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: `Element${i}`,
+          };
+          sourceSeedDb.elements.insertElement(props);
+        }
+      },
+      false // noLocks = false, so locks are required
+    );
+
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      "TransformerTargetLockCleanup",
+      undefined,
+      false // noLocks = false, so locks are required
+    );
+
+    try {
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+
+      // Acquire and PUSH a lock on target before transformation.
+      // This lock should be retained even if the transformation fails.
+      await targetDb.locks.acquireLocks({ exclusive: IModel.rootSubjectId });
+      const rootSubject = targetDb.elements.getElement(IModel.rootSubjectId);
+      rootSubject.setJsonProperty("preTransformLock", true);
+      rootSubject.update();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Pre-transform lock",
+        retainLocks: true,
+      });
+
+      assert.isTrue(targetDb.locks.holdsExclusiveLock(IModel.rootSubjectId));
+
+      // Transformer that fails after processing a few elements
+      class FailingTransformer extends IModelTransformer {
+        private _count = 0;
+        public override async onExportElement(el: Element): Promise<void> {
+          if (++this._count > 5) throw new Error("Deliberate failure");
+          await super.onExportElement(el);
+        }
+      }
+
+      // Run transformation - expect it to fail
+      await expect(
+        (async () => {
+          const transformer = new FailingTransformer(sourceDb, targetDb, {
+            acquireElementLocks: true,
+          });
+          transformer["_allowNoScopingESA"] = true;
+          await transformer.process();
+          transformer.dispose();
+        })()
+      ).to.be.rejectedWith("Deliberate failure");
+
+      // Pre-transformation lock should still be held
+      assert.isTrue(
+        targetDb.locks.holdsExclusiveLock(IModel.rootSubjectId),
+        "Pre-transformation lock should still be held"
+      );
+
+      // Unsaved changes should have been abandoned during cleanup
+      assert.isFalse(targetDb.txns.hasUnsavedChanges);
+
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    } finally {
+      try {
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
   it("should consolidate PhysicalModels", async () => {
     const sourceIModelName: string =
       IModelTransformerTestUtils.generateUniqueName("ConsolidateModelsSource");

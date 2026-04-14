@@ -31,6 +31,7 @@ import {
   Vector3d,
 } from "@itwin/core-geometry";
 import {
+  BriefcaseDb,
   BriefcaseManager,
   ChangedECInstance,
   ChangesetECAdaptor,
@@ -666,6 +667,18 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
+
+    // Validate acquireElementLocks option - only valid for BriefcaseDb targets
+    if (
+      this._options.acquireElementLocks &&
+      !(this.targetDb instanceof BriefcaseDb)
+    ) {
+      throw new IModelError(
+        IModelStatus.BadArg,
+        "acquireElementLocks option requires targetDb to be a BriefcaseDb"
+      );
+    }
+
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -3368,9 +3381,29 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.logSettings();
 
-    return this._options.argsForProcessChanges !== undefined
-      ? this.processChanges(this._options.argsForProcessChanges)
-      : this.processAll();
+    try {
+      return this._options.argsForProcessChanges !== undefined
+        ? await this.processChanges(this._options.argsForProcessChanges)
+        : await this.processAll();
+    } catch (error) {
+      // If acquireElementLocks is enabled, clean up locks on failure.
+      // Constructor validates that targetDb is a BriefcaseDb when this option is set.
+      if (this._options.acquireElementLocks) {
+        try {
+          const briefcaseDb = this.targetDb as BriefcaseDb;
+          if (briefcaseDb.txns.hasUnsavedChanges) {
+            briefcaseDb.abandonChanges();
+            await briefcaseDb.locks.abandonLocksForCurrentUnsavedTxn();
+          }
+        } catch (cleanupError) {
+          Logger.logWarning(
+            loggerCategory,
+            `Failed to cleanup locks after transformation error: ${String(cleanupError)}`
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
