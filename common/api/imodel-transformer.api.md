@@ -353,7 +353,7 @@ export class IModelTransformer extends IModelExportHandler {
     get targetScopeElementId(): Id64String;
     // (undocumented)
     protected tryGetProvenanceScopeAspect(): Promise<ExternalSourceAspect | undefined>;
-    updateSynchronizationVersion({ initializeReverseSyncVersion, }?: {
+    updateSynchronizationVersion(input?: {
         initializeReverseSyncVersion?: boolean | undefined;
     }): Promise<void>;
 }

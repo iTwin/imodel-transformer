@@ -18,22 +18,130 @@ import { assert } from "chai";
 import {
   Code,
   ColorDef,
+  GeometryStreamBuilder,
+  GeometryStreamProps,
   IModel,
   PhysicalElementProps,
   Placement3d,
 } from "@itwin/core-common";
-import { Point3d } from "@itwin/core-geometry";
 import {
+  Box,
+  Point3d,
+  Range3d,
+  YawPitchRollAngles,
+} from "@itwin/core-geometry";
+import {
+  IModelHost,
+  IModelJsFs,
   PhysicalModel,
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
+  StandaloneDb,
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import { IModelTransformer } from "../../IModelTransformer";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import * as path from "path";
+
+const coreBackendVersion = coreBackendPkgJson.version;
+
+const NUM_ELEMENTS = 10000;
+
+function initOutputFile(filename: string): string {
+  const outputDirName = path.join(__dirname, "output");
+  if (!IModelJsFs.existsSync(outputDirName)) {
+    IModelJsFs.mkdirSync(outputDirName);
+  }
+  const outputFileName = path.join(outputDirName, filename);
+  if (IModelJsFs.existsSync(outputFileName)) {
+    IModelJsFs.removeSync(outputFileName);
+  }
+  return outputFileName;
+}
+
+function createBoxGeometry(): GeometryStreamProps {
+  const builder = new GeometryStreamBuilder();
+  const box = Box.createRange(
+    Range3d.create(Point3d.createZero(), new Point3d(1, 1, 1)),
+    true
+  );
+  if (box) {
+    builder.appendGeometry(box);
+  }
+  return builder.geometryStream;
+}
+
+interface SourceResult {
+  db: StandaloneDb;
+  insertDuration: number;
+}
+
+async function createSourceWithElements(
+  numElements: number
+): Promise<SourceResult> {
+  const sourceFileName = initOutputFile("perftest_source.bim");
+
+  const sourceDb = StandaloneDb.createEmpty(sourceFileName, {
+    rootSubject: { name: "PerfTest Source" },
+  });
+
+  // Create a SpatialCategory
+  const categoryId = SpatialCategory.insert(
+    sourceDb,
+    IModel.dictionaryId,
+    "TestCategory",
+    { color: ColorDef.blue.toJSON() }
+  );
+
+  // Create a PhysicalModel
+  const physicalModelId = PhysicalModel.insert(
+    sourceDb,
+    IModel.rootSubjectId,
+    "TestPhysicalModel"
+  );
+
+  // Insert elements with geometry
+  const geometry = createBoxGeometry();
+
+  console.log(`Inserting ${numElements} elements into source iModel...`);
+  const insertStartTime = performance.now();
+
+  for (let i = 0; i < numElements; i++) {
+    const elementProps: PhysicalElementProps = {
+      classFullName: "Generic:PhysicalObject",
+      model: physicalModelId,
+      category: categoryId,
+      code: Code.createEmpty(),
+      userLabel: `TestElement_${i}`,
+      geom: geometry,
+      placement: {
+        origin: new Point3d(i * 2, 0, 0),
+        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+      },
+    };
+    sourceDb.elements.insertElement(elementProps);
+  }
+
+  const insertEndTime = performance.now();
+  const insertDuration = insertEndTime - insertStartTime;
+
+  sourceDb.saveChanges("Inserted test elements");
+
+  return { db: sourceDb, insertDuration };
+}
+
+function createEmptyTarget(): StandaloneDb {
+  const targetFileName = initOutputFile("perftest_target.bim");
+
+  const targetDb = StandaloneDb.createEmpty(targetFileName, {
+    rootSubject: { name: "PerfTest Target" },
+  });
+
+  return targetDb;
+}
 
 function printResults(results: {
   elementCount: number;
@@ -123,7 +231,10 @@ describe.skip("IModelTransformer Performance Tests", () => {
     });
 
     // Transform
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const transformer = new IModelTransformer(sourceDb, targetDb, {
+      loadSourceGeometry: true,
+      noProvenance: true,
+    });
 
     const schemasStartTime = performance.now();
     await transformer.processSchemas();
@@ -154,5 +265,101 @@ describe.skip("IModelTransformer Performance Tests", () => {
     transformer.dispose();
     sourceDb.close();
     targetDb.close();
+  });
+
+  it("should transform 10k elements (extended?)", async function () {
+    console.log("===========================================");
+    console.log("  iModel Transformer Performance Test");
+    console.log(`  Elements: ${NUM_ELEMENTS}`);
+    console.log("===========================================\n");
+
+    let hostOptions = {};
+    if (coreBackendVersion === "5.6.1")
+      hostOptions = { disableThinnedNativeInstanceWorkflow: true };
+
+    await IModelHost.startup(hostOptions);
+
+    try {
+      // Create source iModel with elements
+      const { db: sourceDb, insertDuration } =
+        await createSourceWithElements(NUM_ELEMENTS);
+      console.log(`Source iModel created: ${sourceDb.pathName}`);
+
+      // Create empty target iModel
+      const targetDb = createEmptyTarget();
+      console.log(`Target iModel created: ${targetDb.pathName}`);
+
+      // Create transformer
+      const transformer = new IModelTransformer(sourceDb, targetDb, {
+        loadSourceGeometry: true,
+        noProvenance: true,
+      });
+
+      // Time schema processing
+      console.log("Processing schemas...");
+
+      // Start CPU profiling for schemas
+      // const schemaSession = new inspector.Session();
+      // schemaSession.connect();
+      // await schemaSession.post("Profiler.enable");
+      // await schemaSession.post("Profiler.start");
+
+      const schemaStartTime = performance.now();
+      await transformer.processSchemas();
+      const schemaEndTime = performance.now();
+      const schemaDuration = schemaEndTime - schemaStartTime;
+
+      // Stop CPU profiling and save
+      // const { profile: schemaProfile } = await schemaSession.post("Profiler.stop");
+      // const schemaProfilePath = path.join(__dirname, "output", `10kElemProcessSchemas${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
+      // fs.writeFileSync(schemaProfilePath, JSON.stringify(schemaProfile));
+      // console.log(`Schema CPU profile saved to: ${schemaProfilePath}`);
+      // schemaSession.disconnect();
+
+      // Time the transformation process
+      console.log("Running transformer.process()...");
+
+      // Start CPU profiling
+      // const session = new inspector.Session();
+      // session.connect();
+      // await session.post("Profiler.enable");
+      // await session.post("Profiler.start");
+
+      const processStartTime = performance.now();
+      await transformer.process();
+      const processEndTime = performance.now();
+      const processDuration = processEndTime - processStartTime;
+
+      // // Stop CPU profiling and save
+      // const { profile } = await session.post("Profiler.stop");
+      // const profilePath = path.join(__dirname, "output", `10kElemTransform${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
+      // fs.writeFileSync(profilePath, JSON.stringify(profile));
+      // console.log(`CPU profile saved to: ${profilePath}`);
+      // session.disconnect();
+
+      // Cleanup
+      transformer.dispose();
+      targetDb.saveChanges("Transformation complete");
+
+      sourceDb.close();
+      targetDb.close();
+
+      console.log("\n===========================================");
+      console.log(`  Results: core-backend: ${coreBackendVersion}`);
+      console.log("===========================================");
+      console.log(`  Elements: ${NUM_ELEMENTS}`);
+      console.log(`  Element insertion: ${insertDuration.toFixed(2)} ms`);
+      console.log(`  Schema processing: ${schemaDuration.toFixed(2)} ms`);
+      console.log(`  process() duration: ${processDuration.toFixed(2)} ms`);
+      console.log(
+        `  Avg per element: ${(processDuration / NUM_ELEMENTS).toFixed(4)} ms`
+      );
+      console.log("===========================================");
+    } catch (error) {
+      console.error("Error during performance test:", error);
+      throw error;
+    } finally {
+      await IModelHost.shutdown();
+    }
   });
 });

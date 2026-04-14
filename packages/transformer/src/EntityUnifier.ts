@@ -12,7 +12,7 @@ import * as assert from "assert";
 import {
   ConcreteEntityTypes,
   EntityReference,
-  IModelError,
+  QueryBinder,
 } from "@itwin/core-common";
 import {
   ConcreteEntity,
@@ -24,7 +24,7 @@ import {
   IModelDb,
   Relationship,
 } from "@itwin/core-backend";
-import { DbResult, Id64 } from "@itwin/core-bentley";
+import { Id64 } from "@itwin/core-bentley";
 import { _instanceKeyCache } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 
 /** @internal */
@@ -71,17 +71,8 @@ export namespace EntityUnifier {
 
     if (id === undefined || Id64.isInvalid(id)) return false;
 
-    // Using createQueryReader() causes significant perf regression
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    return db.withPreparedStatement(
-      `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
-      (stmt) => {
-        stmt.bindId(1, id);
-        const matchesResult = stmt.step();
-        if (matchesResult === DbResult.BE_SQLITE_ROW) return true;
-        if (matchesResult === DbResult.BE_SQLITE_DONE) return false;
-        else throw new IModelError(matchesResult, "query failed");
-      }
-    );
+    const query = `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=:id`;
+    const params = new QueryBinder().bindId("id", id);
+    return db.withQueryReader(query, (reader) => reader.step(), params);
   }
 }
