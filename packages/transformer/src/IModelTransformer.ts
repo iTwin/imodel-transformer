@@ -1122,7 +1122,7 @@ export class IModelTransformer extends IModelExportHandler {
       if (!this._options.noProvenance) {
         if (this._options.acquireElementLocks) {
           await provenanceDb.locks.acquireLocks({
-            exclusive: aspectProps.scope.id,
+            exclusive: aspectProps.element.id,
           });
         }
         const id = provenanceDb.elements.insertAspect({
@@ -2132,7 +2132,7 @@ export class IModelTransformer extends IModelExportHandler {
         if (foundEsaProps === undefined) {
           if (this._options.acquireElementLocks) {
             await provenanceDb.locks.acquireLocks({
-              exclusive: aspectProps.scope.id,
+              exclusive: aspectProps.element.id,
             });
           }
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
@@ -2141,7 +2141,7 @@ export class IModelTransformer extends IModelExportHandler {
           aspectProps.id = foundEsaProps.aspectId;
           if (this._options.acquireElementLocks) {
             await provenanceDb.locks.acquireLocks({
-              exclusive: aspectProps.scope.id,
+              exclusive: aspectProps.element.id,
             });
           }
           provenanceDb.elements.updateAspect(aspectProps);
