@@ -1545,10 +1545,10 @@ describe("IModelTransformer", () => {
         this.iModelExporter = new IModelExporter(iModelDb);
         this.iModelExporter.registerHandler(this);
       }
-      public override onExportModel(
+      public override async onExportModel(
         _model: Model,
         _isUpdate: boolean | undefined
-      ): void {
+      ): Promise<void> {
         ++this.modelCount;
       }
       public override async onExportElement(

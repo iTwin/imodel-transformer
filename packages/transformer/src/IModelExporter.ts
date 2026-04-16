@@ -128,24 +128,30 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportCodeSpec(
+  public async onExportCodeSpec(
     _codeSpec: CodeSpec,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /** Called when a font should be exported.
    * @param font The font to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportFont(_font: FontProps, _isUpdate: boolean | undefined): void {}
+  public async onExportFont(
+    _font: FontProps,
+    _isUpdate: boolean | undefined
+  ): Promise<void> {}
 
   /** Called when a model should be exported.
    * @param model The model to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportModel(_model: Model, _isUpdate: boolean | undefined): void {}
+  public async onExportModel(
+    _model: Model,
+    _isUpdate: boolean | undefined
+  ): Promise<void> {}
 
   /** Called when a model should be deleted. */
   public async onDeleteModel(_modelId: Id64String): Promise<void> {}
@@ -160,7 +166,7 @@ export abstract class IModelExportHandler {
   /** Called when element is skipped instead of exported.
    * @note When an element is skipped, exporter will not export any of its child elements. Because of this, [[onSkipElement]] will not be invoked for any children of a "skipped" element.
    */
-  public onSkipElement(_elementId: Id64String): void {}
+  public async onSkipElement(_elementId: Id64String): Promise<void> {}
 
   /** Called when an element should be exported.
    * @param element The element to export
@@ -181,7 +187,7 @@ export abstract class IModelExportHandler {
   public async preExportElement(_element: Element): Promise<void> {}
 
   /** Called when an element should be deleted. */
-  public onDeleteElement(_elementId: Id64String): void {}
+  public async onDeleteElement(_elementId: Id64String): Promise<void> {}
 
   /** If `true` is returned, then the ElementAspect will be exported.
    * @note This method can optionally be overridden to exclude an individual ElementAspect from the export. The base implementation always returns `true`.
@@ -225,7 +231,9 @@ export abstract class IModelExportHandler {
   ): Promise<void> {}
 
   /** Called when a relationship should be deleted. */
-  public onDeleteRelationship(_relInstanceId: Id64String): void {}
+  public async onDeleteRelationship(
+    _relInstanceId: Id64String
+  ): Promise<void> {}
 
   /** If `true` is returned, then the schema will be exported.
    * @note This method can optionally be overridden to exclude an individual schema from the export. The base implementation always returns `true`.
@@ -481,7 +489,7 @@ export class IModelExporter {
         // In the future, the handler may be responsible for doing the work of finding out which elements were cascade deleted,
         // and returning them for the exporter to use to avoid double-deleting with error ignoring
         try {
-          this.handler.onDeleteElement(elementId);
+          await this.handler.onDeleteElement(elementId);
         } catch (err: unknown) {
           const isMissingErr =
             err instanceof IModelError &&
@@ -494,7 +502,7 @@ export class IModelExporter {
     if (this.visitRelationships) {
       for (const relInstanceId of this._sourceDbChanges.relationship
         .deleteIds) {
-        this.handler.onDeleteRelationship(relInstanceId);
+        await this.handler.onDeleteRelationship(relInstanceId);
       }
     }
 
@@ -598,7 +606,7 @@ export class IModelExporter {
         loggerCategory,
         `exportCodeSpec(${codeSpecName})${this.getChangeOpSuffix(isUpdate)}`
       );
-      this.handler.onExportCodeSpec(codeSpec, isUpdate);
+      await this.handler.onExportCodeSpec(codeSpec, isUpdate);
       return this.trackProgress();
     }
   }
@@ -643,7 +651,7 @@ export class IModelExporter {
       loggerCategory,
       `exportFontByFamily(${fontProps.name}, ${fontProps.type})`
     );
-    this.handler.onExportFont(fontProps, true);
+    await this.handler.onExportFont(fontProps, true);
     return this.trackProgress();
   }
 
@@ -717,7 +725,7 @@ export class IModelExporter {
         return; // not in changeset, don't export
       }
     }
-    this.handler.onExportModel(model, isUpdate);
+    await this.handler.onExportModel(model, isUpdate);
     return this.trackProgress();
   }
 
@@ -859,7 +867,7 @@ export class IModelExporter {
     // Return early if the elementId is already in the excludedElementIds, that way we don't need to load the element from the db.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
-      this.handler.onSkipElement(elementId);
+      await this.handler.onSkipElement(elementId);
       return;
     }
 
@@ -891,7 +899,7 @@ export class IModelExporter {
       );
       return this.exportChildElements(elementId);
     } else {
-      this.handler.onSkipElement(element.id);
+      await this.handler.onSkipElement(element.id);
     }
   }
 

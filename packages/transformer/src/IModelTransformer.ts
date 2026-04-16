@@ -2056,7 +2056,7 @@ export class IModelTransformer extends IModelExportHandler {
     }
 
     if (!this._options.wasSourceIModelCopiedToTarget) {
-      this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
+      await this.importer.importElement(targetElementProps); // don't need to import if iModel was copied
     }
 
     if (targetElementProps.id === undefined) {
@@ -2138,18 +2138,20 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.
    * This override propagates the delete to the target iModel via [IModelImporter.deleteElement]($transformer).
    */
-  public override onDeleteElement(sourceElementId: Id64String): void {
+  public override async onDeleteElement(
+    sourceElementId: Id64String
+  ): Promise<void> {
     const targetElementId: Id64String =
       this.context.findTargetElementId(sourceElementId);
     if (Id64.isValidId64(targetElementId)) {
-      this.importer.deleteElement(targetElementId);
+      await this.importer.deleteElement(targetElementId);
     }
   }
 
   /** Override of [IModelExportHandler.onExportModel]($transformer) that is called when a Model should be exported from the source iModel.
    * This override calls [[onTransformModel]] and then [IModelImporter.importModel]($transformer) to update the target iModel.
    */
-  public override onExportModel(sourceModel: Model): void {
+  public override async onExportModel(sourceModel: Model): Promise<void> {
     if (
       this._options.skipPropagateChangesToRootElements &&
       IModel.repositoryModelId === sourceModel.id
@@ -2167,7 +2169,7 @@ export class IModelTransformer extends IModelExportHandler {
       sourceModel,
       targetModeledElementId
     );
-    this.importer.importModel(targetModelProps);
+    await this.importer.importModel(targetModelProps);
   }
 
   /** Override of [IModelExportHandler.onDeleteModel]($transformer) that is called when [IModelExporter]($transformer) detects that a [Model]($backend) has been deleted from the source iModel. */
@@ -2537,7 +2539,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     const targetRelationshipProps =
       this.onTransformRelationship(sourceRelationship);
-    const targetRelationshipInstanceId = this.importer.importRelationship(
+    const targetRelationshipInstanceId = await this.importer.importRelationship(
       targetRelationshipProps
     );
 
@@ -2603,7 +2605,7 @@ export class IModelTransformer extends IModelExportHandler {
         targetId: deletedRelData.targetIdInTarget,
       } as SourceAndTarget)?.id;
     if (id) {
-      this.importer.deleteRelationship({
+      await this.importer.deleteRelationship({
         id,
         classFullName: deletedRelData.classFullName,
       });
@@ -2668,7 +2670,8 @@ export class IModelTransformer extends IModelExportHandler {
     if (!(await this.doAllReferencesExistInTarget(sourceAspect))) {
       this._partiallyCommittedAspectIds.add(sourceAspect.id);
     }
-    const targetId = this.importer.importElementUniqueAspect(targetAspectProps);
+    const targetId =
+      await this.importer.importElementUniqueAspect(targetAspectProps);
     this.context.remapElementAspect(sourceAspect.id, targetId);
   }
 
@@ -2689,7 +2692,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     });
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
-    const targetIds = this.importer.importElementMultiAspects(
+    const targetIds = await this.importer.importElementMultiAspects(
       await Promise.all(targetAspectPropsArray),
       (a) => {
         const isExternalSourceAspectFromTransformer =
@@ -2833,10 +2836,10 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Override of [IModelExportHandler.onExportFont]($transformer) that imports a font into the target iModel when it is exported from the source iModel. */
-  public override onExportFont(
+  public override async onExportFont(
     font: FontProps,
     _isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.context.importFont(font.id);
   }
 
@@ -2864,7 +2867,9 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Override of [IModelExportHandler.onExportCodeSpec]($transformer) that imports a CodeSpec into the target iModel when it is exported from the source iModel. */
-  public override onExportCodeSpec(sourceCodeSpec: CodeSpec): void {
+  public override async onExportCodeSpec(
+    sourceCodeSpec: CodeSpec
+  ): Promise<void> {
     this.context.importCodeSpec(sourceCodeSpec.id);
   }
 

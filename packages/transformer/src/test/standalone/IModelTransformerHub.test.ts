@@ -1937,7 +1937,9 @@ describe("IModelTransformerHub", () => {
       let didExportModelSelector = false,
         didImportModelSelector = false;
       class IModelImporterInjected extends IModelImporter {
-        public override importElement(sourceElement: ElementProps): Id64String {
+        public override async importElement(
+          sourceElement: ElementProps
+        ): Promise<Id64String> {
           if (sourceElement.id === modelSelectorId)
             didImportModelSelector = true;
           return super.importElement(sourceElement);

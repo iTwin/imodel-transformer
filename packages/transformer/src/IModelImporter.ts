@@ -180,7 +180,7 @@ export class IModelImporter {
   }
 
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
-  public importModel(modelProps: ModelProps): void {
+  public async importModel(modelProps: ModelProps): Promise<void> {
     if (undefined === modelProps.id || !Id64.isValidId64(modelProps.id))
       throw new IModelError(
         IModelStatus.InvalidId,
@@ -197,7 +197,7 @@ export class IModelImporter {
     try {
       const model = this.targetDb.models.getModel(modelProps.id); // throws IModelError.NotFound if model does not exist
       if (hasEntityChanged(model, modelProps, this._modelPropertiesToIgnore)) {
-        this.onUpdateModel(modelProps);
+        await this.onUpdateModel(modelProps);
       }
     } catch (error) {
       // catch NotFound error and insertModel
@@ -205,7 +205,7 @@ export class IModelImporter {
         error instanceof IModelError &&
         error.errorNumber === IModelStatus.NotFound
       ) {
-        this.onInsertModel(modelProps);
+        await this.onInsertModel(modelProps);
         return;
       }
       throw error;
@@ -215,14 +215,14 @@ export class IModelImporter {
   /** Create a new Model from the specified ModelProps and insert it into the target iModel.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertModel`.
    */
-  protected onInsertModel(modelProps: ModelProps): Id64String {
+  protected async onInsertModel(modelProps: ModelProps): Promise<Id64String> {
     try {
       const modelId: Id64String = this.targetDb.models.insertModel(modelProps);
       Logger.logInfo(
         loggerCategory,
         `Inserted ${this.formatModelForLogger(modelProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       return modelId;
     } catch (error) {
       if (!this.targetDb.containsClass(modelProps.classFullName)) {
@@ -237,13 +237,13 @@ export class IModelImporter {
   /** Update an existing Model in the target iModel from the specified ModelProps.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateModel`.
    */
-  protected onUpdateModel(modelProps: ModelProps): void {
+  protected async onUpdateModel(modelProps: ModelProps): Promise<void> {
     this.targetDb.models.updateModel(modelProps);
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatModelForLogger(modelProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Format a Model for the Logger. */
@@ -256,9 +256,9 @@ export class IModelImporter {
    * Tries to update an element with the specified element properties.
    * If a duplicate code error occurs, it assigns a new unique code value and retries the update
    */
-  private tryUpdateElement(elemProps: ElementProps) {
+  private async tryUpdateElement(elemProps: ElementProps) {
     try {
-      this.onUpdateElement(elemProps);
+      await this.onUpdateElement(elemProps);
     } catch (err) {
       if ((err as IModelError).errorNumber === IModelStatus.DuplicateCode) {
         assert(
@@ -269,7 +269,7 @@ export class IModelImporter {
         this._duplicateCodeValueMap.set(elemProps.id!, elemProps.code.value);
         // Using NULL code values as an alternative is not valid because definition elements cannot have NULL code values.
         elemProps.code.value = Guid.createValue();
-        this.onUpdateElement(elemProps);
+        await this.onUpdateElement(elemProps);
       } else {
         throw err;
       }
@@ -277,7 +277,7 @@ export class IModelImporter {
   }
 
   /** Import the specified ElementProps (either as an insert or an update) into the target iModel. */
-  public importElement(elementProps: ElementProps): Id64String {
+  public async importElement(elementProps: ElementProps): Promise<Id64String> {
     if (
       undefined !== elementProps.id &&
       this.doNotUpdateElement(elementProps.id)
@@ -305,20 +305,20 @@ export class IModelImporter {
         (isSubCategory(elementProps) && isDefaultSubCategory(elementProps)) ||
         this._rootElementIds.has(elementProps.id)
       ) {
-        this.onUpdateElement(elementProps);
+        await this.onUpdateElement(elementProps);
       } else {
         if (this._elementsToUpdateDuringPreserveIds.has(elementProps.id)) {
-          this.tryUpdateElement(elementProps);
+          await this.tryUpdateElement(elementProps);
           this._elementsToUpdateDuringPreserveIds.delete(elementProps.id);
         } else {
-          this.onInsertElement(elementProps);
+          await this.onInsertElement(elementProps);
         }
       }
     } else {
       if (undefined !== elementProps.id) {
-        this.tryUpdateElement(elementProps);
+        await this.tryUpdateElement(elementProps);
       } else {
-        elementProps.id = this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
+        elementProps.id = await this.onInsertElement(elementProps); // targetElementProps.id assigned by insertElement
       }
     }
     return elementProps.id;
@@ -328,7 +328,9 @@ export class IModelImporter {
    * @returns The Id of the newly inserted Element.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElement`.
    */
-  protected onInsertElement(elementProps: ElementProps): Id64String {
+  protected async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
     try {
       const elementId = this.targetDb.elements.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
@@ -339,7 +341,7 @@ export class IModelImporter {
         loggerCategory,
         `Inserted ${this.formatElementForLogger(elementProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       if (this.options.simplifyElementGeometry) {
         this.targetDb.simplifyElementGeometry({
           id: elementId,
@@ -366,7 +368,7 @@ export class IModelImporter {
   /** Update an existing Element in the target iModel from the specified ElementProps.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateElement`.
    */
-  protected onUpdateElement(elementProps: ElementProps): void {
+  protected async onUpdateElement(elementProps: ElementProps): Promise<void> {
     if (!elementProps.id) {
       throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
     }
@@ -375,7 +377,7 @@ export class IModelImporter {
       loggerCategory,
       `Updated ${this.formatElementForLogger(elementProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
     if (this.options.simplifyElementGeometry) {
       this.targetDb.simplifyElementGeometry({
         id: elementProps.id,
@@ -394,17 +396,17 @@ export class IModelImporter {
    * Will delete special elements like definition elements and subjects.
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
-  protected onDeleteElement(elementId: Id64String): void {
+  protected async onDeleteElement(elementId: Id64String): Promise<void> {
     deleteElementTreeCascade(this.targetDb, elementId);
     Logger.logInfo(
       loggerCategory,
       `Deleted element ${elementId} and its descendants`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Element from the target iModel. */
-  public deleteElement(elementId: Id64String): void {
+  public async deleteElement(elementId: Id64String): Promise<void> {
     if (this.doNotUpdateElement(elementId)) {
       Logger.logInfo(
         loggerCategory,
@@ -412,7 +414,7 @@ export class IModelImporter {
       );
       return;
     }
-    this.onDeleteElement(elementId);
+    await this.onDeleteElement(elementId);
   }
 
   /** Delete the specified Model from the target iModel.
@@ -421,7 +423,7 @@ export class IModelImporter {
   protected async onDeleteModel(modelId: Id64String): Promise<void> {
     this.targetDb.models.deleteModel(modelId);
     Logger.logInfo(loggerCategory, `Deleted model ${modelId}`);
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Model from the target iModel. */
@@ -440,9 +442,9 @@ export class IModelImporter {
   }
 
   /** Import an ElementUniqueAspect into the target iModel. */
-  public importElementUniqueAspect(
+  public async importElementUniqueAspect(
     aspectProps: ElementAspectProps
-  ): Id64String {
+  ): Promise<Id64String> {
     const aspects: ElementAspect[] = this.targetDb.elements.getAspects(
       aspectProps.element.id,
       aspectProps.classFullName
@@ -451,7 +453,7 @@ export class IModelImporter {
       return this.onInsertElementAspect(aspectProps);
     } else if (hasEntityChanged(aspects[0], aspectProps)) {
       aspectProps.id = aspects[0].id;
-      this.onUpdateElementAspect(aspectProps);
+      await this.onUpdateElementAspect(aspectProps);
     }
     return aspects[0].id;
   }
@@ -462,11 +464,11 @@ export class IModelImporter {
    * @note For insert vs. update reasons, it is important to process all ElementMultiAspects owned by an Element at once since we don't have aspect-specific provenance.
    * @returns the array of ids of the resulting ElementMultiAspects, in the same order of the aspectPropsArray parameter
    */
-  public importElementMultiAspects(
+  public async importElementMultiAspects(
     aspectPropsArray: ElementAspectProps[],
     /** caller must use this to enforce any aspects added by IModelTransformer are not considered for update */
     filterFunc: (a: ElementMultiAspect) => boolean = () => true
-  ): Id64String[] {
+  ): Promise<Id64String[]> {
     const result = new Array<Id64String | undefined>(
       aspectPropsArray.length
     ).fill(undefined);
@@ -483,7 +485,7 @@ export class IModelImporter {
     });
 
     // Handle ElementMultiAspects in groups by class
-    aspectClassFullNames.forEach((aspectClassFullName: string) => {
+    for (const aspectClassFullName of aspectClassFullNames) {
       const proposedAspects = aspectPropsArray
         .map((props, index) => ({ props, index }))
         .filter(({ props }) => aspectClassFullName === props.classFullName);
@@ -494,36 +496,38 @@ export class IModelImporter {
         .filter(({ props }) => filterFunc(props));
 
       if (proposedAspects.length >= currentAspects.length) {
-        proposedAspects.forEach(({ props, index: resultIndex }, index) => {
+        for (let index = 0; index < proposedAspects.length; index++) {
+          const { props, index: resultIndex } = proposedAspects[index];
           let id: Id64String;
           if (index < currentAspects.length) {
             id = currentAspects[index].props.id;
             props.id = id;
             if (hasEntityChanged(currentAspects[index].props, props)) {
-              this.onUpdateElementAspect(props);
+              await this.onUpdateElementAspect(props);
             }
             id = props.id;
           } else {
-            id = this.onInsertElementAspect(props);
+            id = await this.onInsertElementAspect(props);
           }
           result[resultIndex] = id;
-        });
+        }
       } else {
-        currentAspects.forEach(({ props, index: resultIndex }, index) => {
+        for (let index = 0; index < currentAspects.length; index++) {
+          const { props, index: resultIndex } = currentAspects[index];
           let id: Id64String;
           if (index < proposedAspects.length) {
             id = props.id;
             proposedAspects[index].props.id = id;
             if (hasEntityChanged(props, proposedAspects[index].props)) {
-              this.onUpdateElementAspect(proposedAspects[index].props);
+              await this.onUpdateElementAspect(proposedAspects[index].props);
             }
             result[resultIndex] = id;
           } else {
-            this.onDeleteElementAspect(props);
+            await this.onDeleteElementAspect(props);
           }
-        });
+        }
       }
-    });
+    }
 
     assert(result.every((r) => typeof r !== undefined));
     return result as Id64String[];
@@ -532,14 +536,16 @@ export class IModelImporter {
   /** Insert the ElementAspect into the target iModel.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertElementAspect`.
    */
-  protected onInsertElementAspect(aspectProps: ElementAspectProps): Id64String {
+  protected async onInsertElementAspect(
+    aspectProps: ElementAspectProps
+  ): Promise<Id64String> {
     try {
       const id = this.targetDb.elements.insertAspect(aspectProps);
       Logger.logInfo(
         loggerCategory,
         `Inserted ${this.formatElementAspectForLogger(aspectProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       return id;
     } catch (error) {
       if (!this.targetDb.containsClass(aspectProps.classFullName)) {
@@ -554,25 +560,29 @@ export class IModelImporter {
   /** Update the ElementAspect within the target iModel.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateElementAspect`.
    */
-  protected onUpdateElementAspect(aspectProps: ElementAspectProps): void {
+  protected async onUpdateElementAspect(
+    aspectProps: ElementAspectProps
+  ): Promise<void> {
     this.targetDb.elements.updateAspect(aspectProps);
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatElementAspectForLogger(aspectProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified ElementAspect from the target iModel.
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElementAspect`.
    */
-  protected onDeleteElementAspect(targetElementAspect: ElementAspect): void {
+  protected async onDeleteElementAspect(
+    targetElementAspect: ElementAspect
+  ): Promise<void> {
     this.targetDb.elements.deleteAspect(targetElementAspect.id);
     Logger.logInfo(
       loggerCategory,
       `Deleted ${this.formatElementAspectForLogger(targetElementAspect)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Format an ElementAspect for the Logger. */
@@ -585,7 +595,9 @@ export class IModelImporter {
   /** Import the specified RelationshipProps (either as an insert or an update) into the target iModel.
    * @returns The instance Id of the inserted or updated Relationship.
    */
-  public importRelationship(relationshipProps: RelationshipProps): Id64String {
+  public async importRelationship(
+    relationshipProps: RelationshipProps
+  ): Promise<Id64String> {
     if (
       undefined === relationshipProps.sourceId ||
       !Id64.isValidId64(relationshipProps.sourceId)
@@ -620,7 +632,7 @@ export class IModelImporter {
       // if relationship found, update it
       relationshipProps.id = relationship.id;
       if (hasEntityChanged(relationship, relationshipProps)) {
-        this.onUpdateRelationship(relationshipProps);
+        await this.onUpdateRelationship(relationshipProps);
       }
       return relationshipProps.id;
     } else {
@@ -632,9 +644,9 @@ export class IModelImporter {
    * @returns The instance Id of the newly inserted relationship.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertRelationship`.
    */
-  protected onInsertRelationship(
+  protected async onInsertRelationship(
     relationshipProps: RelationshipProps
-  ): Id64String {
+  ): Promise<Id64String> {
     try {
       const targetRelInstanceId: Id64String =
         this.targetDb.relationships.insertInstance(relationshipProps);
@@ -642,7 +654,7 @@ export class IModelImporter {
         loggerCategory,
         `Inserted ${this.formatRelationshipForLogger(relationshipProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       return targetRelInstanceId;
     } catch (error) {
       if (!this.targetDb.containsClass(relationshipProps.classFullName)) {
@@ -657,7 +669,9 @@ export class IModelImporter {
   /** Update an existing Relationship in the target iModel from the specified RelationshipProps.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateRelationship`.
    */
-  protected onUpdateRelationship(relationshipProps: RelationshipProps): void {
+  protected async onUpdateRelationship(
+    relationshipProps: RelationshipProps
+  ): Promise<void> {
     if (!relationshipProps.id) {
       throw new IModelError(
         IModelStatus.InvalidId,
@@ -669,13 +683,13 @@ export class IModelImporter {
       loggerCategory,
       `Updated ${this.formatRelationshipForLogger(relationshipProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  protected onDeleteRelationship(
+  protected async onDeleteRelationship(
     relationshipProps: RelationshipPropsForDelete
-  ): void {
+  ): Promise<void> {
     // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
     this.targetDb.relationships.deleteInstance({
       id: relationshipProps.id,
@@ -685,14 +699,14 @@ export class IModelImporter {
       loggerCategory,
       `Deleted relationship ${relationshipProps.classFullName} id=${relationshipProps.id}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  public deleteRelationship(
+  public async deleteRelationship(
     relationshipProps: RelationshipPropsForDelete
-  ): void {
-    this.onDeleteRelationship(relationshipProps);
+  ): Promise<void> {
+    await this.onDeleteRelationship(relationshipProps);
   }
 
   /** Format a Relationship for the Logger. */
@@ -701,17 +715,17 @@ export class IModelImporter {
   }
 
   /** Tracks incremental progress */
-  private trackProgress(): void {
+  private async trackProgress(): Promise<void> {
     this._progressCounter++;
     if (0 === this._progressCounter % this.progressInterval) {
-      this.onProgress();
+      await this.onProgress();
     }
   }
 
   /** This method is called when IModelImporter has made incremental progress based on the [[progressInterval]] setting.
    * @note A subclass may override this method to report custom progress but should call `super.onProgress`.
    */
-  protected onProgress(): void {}
+  protected async onProgress(): Promise<void> {}
 
   /** Optionally compute the projectExtents for the target iModel depending on the options for this IModelImporter.
    * @note This method is automatically called from [IModelTransformer.process]($transformer).
