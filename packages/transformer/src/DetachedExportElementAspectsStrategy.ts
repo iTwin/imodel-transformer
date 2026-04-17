@@ -85,7 +85,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
     exportAspect: (aspect: T) => Promise<void>
   ) {
     for await (const aspect of this.queryAspects<T>(baseAspectClass)) {
-      if (!this.shouldExportElementAspect(aspect)) {
+      if (!(await this.shouldExportElementAspect(aspect))) {
         continue;
       }
 

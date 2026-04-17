@@ -1510,7 +1510,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This is only called if [[IModelTransformOptions.forceExternalSourceAspectProvenance]] option is true
    * @note Not relevant for [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are provided and change history is known.
    */
-  protected shouldDetectDeletes(): boolean {
+  protected async shouldDetectDeletes(): Promise<boolean> {
     nodeAssert(this._syncType !== undefined);
 
     return this._syncType === "not-sync";
@@ -1861,7 +1861,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.
    * @note Reaching this point means that the element has passed the standard exclusion checks in IModelExporter.
    */
-  public override shouldExportElement(_sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    _sourceElement: Element
+  ): Promise<boolean> {
     return true;
   }
 
@@ -2518,9 +2520,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.shouldExportRelationship]($transformer) that is called to determine if a [Relationship]($backend) should be exported.
    * @note Reaching this point means that the relationship has passed the standard exclusion checks in [IModelExporter]($transformer).
    */
-  public override shouldExportRelationship(
+  public override async shouldExportRelationship(
     _sourceRelationship: Relationship
-  ): boolean {
+  ): Promise<boolean> {
     return true;
   }
 
@@ -2654,7 +2656,9 @@ export class IModelTransformer extends IModelExportHandler {
     return targetRelationshipProps;
   }
 
-  public override shouldExportElementAspect(aspect: ElementAspect) {
+  public override async shouldExportElementAspect(
+    aspect: ElementAspect
+  ): Promise<boolean> {
     // This override is needed to ensure that aspects are not exported if their element is not exported.
     // This is needed in case DetachedExportElementAspectsStrategy is used.
     return this.context.findTargetElementId(aspect.element.id) !== Id64.invalid;
@@ -2731,9 +2735,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.shouldExportSchema]($transformer) that is called to determine if a schema should be exported
    * @note the default behavior doesn't import schemas older than those already in the target
    */
-  public override shouldExportSchema(
+  public override async shouldExportSchema(
     schemaKey: ECSchemaMetaData.SchemaKey
-  ): boolean {
+  ): Promise<boolean> {
     const versionInTarget = this.targetDb.querySchemaVersion(schemaKey.name);
     if (versionInTarget === undefined) return true;
     return Semver.gt(
@@ -2862,7 +2866,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Override of [IModelExportHandler.shouldExportCodeSpec]($transformer) that is called to determine if a CodeSpec should be exported from the source iModel.
    * @note Reaching this point means that the CodeSpec has passed the standard exclusion checks in [IModelExporter]($transformer).
    */
-  public override shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): boolean {
+  public override async shouldExportCodeSpec(
+    _sourceCodeSpec: CodeSpec
+  ): Promise<boolean> {
     return true;
   }
 
@@ -3355,7 +3361,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
     if (
       this._options.forceExternalSourceAspectProvenance &&
-      this.shouldDetectDeletes()
+      (await this.shouldDetectDeletes())
     ) {
       Logger.logWarning(
         loggerCategory,

@@ -165,7 +165,7 @@ export class IModelExporter {
     initialize(options: ExporterInitOptions): Promise<void>;
     progressInterval: number;
     registerHandler(handler: IModelExportHandler): void;
-    shouldExportElement(element: Element_2): boolean;
+    shouldExportElement(element: Element_2): Promise<boolean>;
     readonly sourceDb: IModelDb;
     get sourceDbChanges(): ChangedInstanceIds | undefined;
     visitElements: boolean;
@@ -192,11 +192,11 @@ export abstract class IModelExportHandler {
     onSkipElement(_elementId: Id64String): Promise<void>;
     // @internal
     preExportElement(_element: Element_2): Promise<void>;
-    shouldExportCodeSpec(_codeSpec: CodeSpec): boolean;
-    shouldExportElement(_element: Element_2): boolean;
-    shouldExportElementAspect(_aspect: ElementAspect): boolean;
-    shouldExportRelationship(_relationship: Relationship): boolean;
-    shouldExportSchema(_schemaKey: SchemaKey): boolean;
+    shouldExportCodeSpec(_codeSpec: CodeSpec): Promise<boolean>;
+    shouldExportElement(_element: Element_2): Promise<boolean>;
+    shouldExportElementAspect(_aspect: ElementAspect): Promise<boolean>;
+    shouldExportRelationship(_relationship: Relationship): Promise<boolean>;
+    shouldExportSchema(_schemaKey: SchemaKey): Promise<boolean>;
 }
 
 // @beta
@@ -340,13 +340,13 @@ export class IModelTransformer extends IModelExportHandler {
         jsonProperties?: string;
     } | undefined>;
     protected _schemaExportDir: string;
-    protected shouldDetectDeletes(): boolean;
-    shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): boolean;
-    shouldExportElement(_sourceElement: Element_2): boolean;
+    protected shouldDetectDeletes(): Promise<boolean>;
+    shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;
+    shouldExportElement(_sourceElement: Element_2): Promise<boolean>;
     // (undocumented)
-    shouldExportElementAspect(aspect: ElementAspect): boolean;
-    shouldExportRelationship(_sourceRelationship: Relationship): boolean;
-    shouldExportSchema(schemaKey: ECSchemaMetaData.SchemaKey): boolean;
+    shouldExportElementAspect(aspect: ElementAspect): Promise<boolean>;
+    shouldExportRelationship(_sourceRelationship: Relationship): Promise<boolean>;
+    shouldExportSchema(schemaKey: ECSchemaMetaData.SchemaKey): Promise<boolean>;
     readonly sourceDb: IModelDb;
     readonly targetDb: IModelDb;
     get targetScopeElementId(): Id64String;

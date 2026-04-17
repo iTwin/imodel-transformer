@@ -119,7 +119,7 @@ export abstract class IModelExportHandler {
   /** If `true` is returned, then the CodeSpec will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
    */
-  public shouldExportCodeSpec(_codeSpec: CodeSpec): boolean {
+  public async shouldExportCodeSpec(_codeSpec: CodeSpec): Promise<boolean> {
     return true;
   }
 
@@ -159,7 +159,7 @@ export abstract class IModelExportHandler {
   /** If `true` is returned, then the element will be exported.
    * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
    */
-  public shouldExportElement(_element: Element): boolean {
+  public async shouldExportElement(_element: Element): Promise<boolean> {
     return true;
   }
 
@@ -192,7 +192,9 @@ export abstract class IModelExportHandler {
   /** If `true` is returned, then the ElementAspect will be exported.
    * @note This method can optionally be overridden to exclude an individual ElementAspect from the export. The base implementation always returns `true`.
    */
-  public shouldExportElementAspect(_aspect: ElementAspect): boolean {
+  public async shouldExportElementAspect(
+    _aspect: ElementAspect
+  ): Promise<boolean> {
     return true;
   }
 
@@ -216,7 +218,9 @@ export abstract class IModelExportHandler {
   /** If `true` is returned, then the relationship will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
    */
-  public shouldExportRelationship(_relationship: Relationship): boolean {
+  public async shouldExportRelationship(
+    _relationship: Relationship
+  ): Promise<boolean> {
     return true;
   }
 
@@ -238,7 +242,7 @@ export abstract class IModelExportHandler {
   /** If `true` is returned, then the schema will be exported.
    * @note This method can optionally be overridden to exclude an individual schema from the export. The base implementation always returns `true`.
    */
-  public shouldExportSchema(_schemaKey: SchemaKey): boolean {
+  public async shouldExportSchema(_schemaKey: SchemaKey): Promise<boolean> {
     return true;
   }
 
@@ -350,7 +354,7 @@ export class IModelExporter {
           this.handler.onExportElementMultiAspects(aspects),
         onExportElementUniqueAspect: async (aspect, isUpdate) =>
           this.handler.onExportElementUniqueAspect(aspect, isUpdate),
-        shouldExportElementAspect: (aspect) =>
+        shouldExportElementAspect: async (aspect) =>
           this.handler.shouldExportElementAspect(aspect),
         trackProgress: async () => this.trackProgress(),
       }
@@ -543,7 +547,7 @@ export class IModelExporter {
         schemaName,
         new ECVersion(versionMajor, versionWrite, versionMinor)
       );
-      if (this.handler.shouldExportSchema(schemaKey)) {
+      if (await this.handler.shouldExportSchema(schemaKey)) {
         schemaKeysToExport.push(schemaKey);
       }
     }
@@ -601,7 +605,7 @@ export class IModelExporter {
       return;
     }
     // CodeSpec has passed standard exclusion rules, now give handler a chance to accept/reject export
-    if (this.handler.shouldExportCodeSpec(codeSpec)) {
+    if (await this.handler.shouldExportCodeSpec(codeSpec)) {
       Logger.logTrace(
         loggerCategory,
         `exportCodeSpec(${codeSpecName})${this.getChangeOpSuffix(isUpdate)}`
@@ -703,7 +707,7 @@ export class IModelExporter {
       wantBRepData: this.wantGeometry,
     });
     Logger.logTrace(loggerCategory, `exportModel(${modeledElementId})`);
-    if (this.shouldExportElement(modeledElement)) {
+    if (await this.shouldExportElement(modeledElement)) {
       await this.exportModelContainer(model);
       if (this.visitElements) {
         await this.exportModelContents(modeledElementId);
@@ -815,7 +819,7 @@ export class IModelExporter {
    * This considers the standard IModelExporter exclusion rules plus calls [IModelExportHandler.shouldExportElement]($transformer) for any custom exclusion rules.
    * @note This method is called from within [[exportChanges]] and [[exportAll]], so usually does not need to be called directly.
    */
-  public shouldExportElement(element: Element): boolean {
+  public async shouldExportElement(element: Element): Promise<boolean> {
     if (this._excludedElementIds.has(element.id)) {
       Logger.logInfo(loggerCategory, `Excluded element ${element.id} by Id`);
       return false;
@@ -890,7 +894,7 @@ export class IModelExporter {
       }, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`
     );
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
-    if (this.shouldExportElement(element)) {
+    if (await this.shouldExportElement(element)) {
       await this.handler.preExportElement(element);
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
@@ -1005,7 +1009,7 @@ export class IModelExporter {
       }
     }
     // relationship has passed standard exclusion rules, now give handler a chance to accept/reject export
-    if (this.handler.shouldExportRelationship(relationship)) {
+    if (await this.handler.shouldExportRelationship(relationship)) {
       await this.handler.onExportRelationship(relationship, isUpdate);
       await this.trackProgress();
     }
