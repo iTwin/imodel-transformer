@@ -644,7 +644,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("Transform source iModel to target iModel with locks", async () => {
+  it("Transform source iModel to target iModel with locks", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSourceWithLocks",
       async (sourceSeedDb) => {
@@ -811,7 +811,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  it.only("should release locks acquired during transformation when transformation fails", async () => {
+  it("should release locks acquired during transformation when transformation fails", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSourceLockCleanup",
       async (sourceSeedDb) => {

@@ -228,7 +228,7 @@ export class IModelImporter {
         loggerCategory,
         `Inserted ${this.formatModelForLogger(modelProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       return modelId;
     } catch (error) {
       if (!this.targetDb.containsClass(modelProps.classFullName)) {
@@ -252,7 +252,7 @@ export class IModelImporter {
       loggerCategory,
       `Updated ${this.formatModelForLogger(modelProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Format a Model for the Logger. */
@@ -354,7 +354,7 @@ export class IModelImporter {
         loggerCategory,
         `Inserted ${this.formatElementForLogger(elementProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       if (this.options.simplifyElementGeometry) {
         this.targetDb.simplifyElementGeometry({
           id: elementId,
@@ -393,7 +393,7 @@ export class IModelImporter {
       loggerCategory,
       `Updated ${this.formatElementForLogger(elementProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
     if (this.options.simplifyElementGeometry) {
       this.targetDb.simplifyElementGeometry({
         id: elementProps.id,
@@ -413,6 +413,15 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
   protected async onDeleteElement(elementId: Id64String): Promise<void> {
+    // Check if element exists before acquiring lock or deleting.
+    // Element may already be deleted via cascade from a parent deletion.
+    if (this.targetDb.elements.tryGetElement(elementId) === undefined) {
+      Logger.logInfo(
+        loggerCategory,
+        `Skipping delete of element ${elementId} - already deleted`
+      );
+      return;
+    }
     if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({ exclusive: elementId });
     }
@@ -421,7 +430,7 @@ export class IModelImporter {
       loggerCategory,
       `Deleted element ${elementId} and its descendants`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Element from the target iModel. */
@@ -440,12 +449,21 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteModel`.
    */
   protected async onDeleteModel(modelId: Id64String): Promise<void> {
+    // Check if model exists before acquiring lock or deleting.
+    // Model may already be deleted via cascade from a parent deletion.
+    if (this.targetDb.models.tryGetModel(modelId) === undefined) {
+      Logger.logInfo(
+        loggerCategory,
+        `Skipping delete of model ${modelId} - already deleted`
+      );
+      return;
+    }
     if (this.options.acquireElementLocks) {
       await this.targetDb.locks.acquireLocks({ exclusive: modelId });
     }
     this.targetDb.models.deleteModel(modelId);
     Logger.logInfo(loggerCategory, `Deleted model ${modelId}`);
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Model from the target iModel. */
@@ -518,10 +536,8 @@ export class IModelImporter {
         .filter(({ props }) => filterFunc(props));
 
       if (proposedAspects.length >= currentAspects.length) {
-        for (const [
-          index,
-          { props, index: resultIndex },
-        ] of proposedAspects.entries()) {
+        for (let index = 0; index < proposedAspects.length; index++) {
+          const { props, index: resultIndex } = proposedAspects[index];
           let id: Id64String;
           if (index < currentAspects.length) {
             id = currentAspects[index].props.id;
@@ -536,10 +552,8 @@ export class IModelImporter {
           result[resultIndex] = id;
         }
       } else {
-        for (const [
-          index,
-          { props, index: resultIndex },
-        ] of currentAspects.entries()) {
+        for (let index = 0; index < currentAspects.length; index++) {
+          const { props, index: resultIndex } = currentAspects[index];
           let id: Id64String;
           if (index < proposedAspects.length) {
             id = props.id;
@@ -576,7 +590,7 @@ export class IModelImporter {
         loggerCategory,
         `Inserted ${this.formatElementAspectForLogger(aspectProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       return id;
     } catch (error) {
       if (!this.targetDb.containsClass(aspectProps.classFullName)) {
@@ -604,7 +618,7 @@ export class IModelImporter {
       loggerCategory,
       `Updated ${this.formatElementAspectForLogger(aspectProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified ElementAspect from the target iModel.
@@ -623,7 +637,7 @@ export class IModelImporter {
       loggerCategory,
       `Deleted ${this.formatElementAspectForLogger(targetElementAspect)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Format an ElementAspect for the Logger. */
@@ -636,7 +650,9 @@ export class IModelImporter {
   /** Import the specified RelationshipProps (either as an insert or an update) into the target iModel.
    * @returns The instance Id of the inserted or updated Relationship.
    */
-  public importRelationship(relationshipProps: RelationshipProps): Id64String {
+  public async importRelationship(
+    relationshipProps: RelationshipProps
+  ): Promise<Id64String> {
     if (
       undefined === relationshipProps.sourceId ||
       !Id64.isValidId64(relationshipProps.sourceId)
@@ -671,7 +687,7 @@ export class IModelImporter {
       // if relationship found, update it
       relationshipProps.id = relationship.id;
       if (hasEntityChanged(relationship, relationshipProps)) {
-        this.onUpdateRelationship(relationshipProps);
+        await this.onUpdateRelationship(relationshipProps);
       }
       return relationshipProps.id;
     } else {
@@ -683,9 +699,9 @@ export class IModelImporter {
    * @returns The instance Id of the newly inserted relationship.
    * @note A subclass may override this method to customize insert behavior but should call `super.onInsertRelationship`.
    */
-  protected onInsertRelationship(
+  protected async onInsertRelationship(
     relationshipProps: RelationshipProps
-  ): Id64String {
+  ): Promise<Id64String> {
     try {
       const targetRelInstanceId: Id64String =
         this.targetDb.relationships.insertInstance(relationshipProps);
@@ -693,7 +709,7 @@ export class IModelImporter {
         loggerCategory,
         `Inserted ${this.formatRelationshipForLogger(relationshipProps)}`
       );
-      this.trackProgress();
+      await this.trackProgress();
       return targetRelInstanceId;
     } catch (error) {
       if (!this.targetDb.containsClass(relationshipProps.classFullName)) {
@@ -708,7 +724,9 @@ export class IModelImporter {
   /** Update an existing Relationship in the target iModel from the specified RelationshipProps.
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateRelationship`.
    */
-  protected onUpdateRelationship(relationshipProps: RelationshipProps): void {
+  protected async onUpdateRelationship(
+    relationshipProps: RelationshipProps
+  ): Promise<void> {
     if (!relationshipProps.id) {
       throw new IModelError(
         IModelStatus.InvalidId,
@@ -720,13 +738,13 @@ export class IModelImporter {
       loggerCategory,
       `Updated ${this.formatRelationshipForLogger(relationshipProps)}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  protected onDeleteRelationship(
+  protected async onDeleteRelationship(
     relationshipProps: RelationshipPropsForDelete
-  ): void {
+  ): Promise<void> {
     // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
     this.targetDb.relationships.deleteInstance({
       id: relationshipProps.id,
@@ -736,14 +754,14 @@ export class IModelImporter {
       loggerCategory,
       `Deleted relationship ${relationshipProps.classFullName} id=${relationshipProps.id}`
     );
-    this.trackProgress();
+    await this.trackProgress();
   }
 
   /** Delete the specified Relationship from the target iModel. */
-  public deleteRelationship(
+  public async deleteRelationship(
     relationshipProps: RelationshipPropsForDelete
-  ): void {
-    this.onDeleteRelationship(relationshipProps);
+  ): Promise<void> {
+    await this.onDeleteRelationship(relationshipProps);
   }
 
   /** Format a Relationship for the Logger. */
@@ -752,17 +770,17 @@ export class IModelImporter {
   }
 
   /** Tracks incremental progress */
-  private trackProgress(): void {
+  private async trackProgress(): Promise<void> {
     this._progressCounter++;
     if (0 === this._progressCounter % this.progressInterval) {
-      this.onProgress();
+      await this.onProgress();
     }
   }
 
   /** This method is called when IModelImporter has made incremental progress based on the [[progressInterval]] setting.
    * @note A subclass may override this method to report custom progress but should call `super.onProgress`.
    */
-  protected onProgress(): void {}
+  protected async onProgress(): Promise<void> {}
 
   /** Optionally compute the projectExtents for the target iModel depending on the options for this IModelImporter.
    * @note This method is automatically called from [IModelTransformer.process]($transformer).

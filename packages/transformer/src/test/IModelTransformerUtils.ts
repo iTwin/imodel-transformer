@@ -1620,7 +1620,9 @@ export class PhysicalModelConsolidator extends IModelTransformer {
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }
   /** Override shouldExportElement to remap PhysicalPartition instances. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (sourceElement instanceof PhysicalPartition) {
       this.combineElements([sourceElement.id], this._targetModelId);
       // NOTE: must allow export to continue so the PhysicalModel sub-modeling the PhysicalPartition is processed
@@ -1696,7 +1698,9 @@ export class FilterByViewTransformer extends IModelTransformer {
     }
   }
   /** Override of IModelTransformer.shouldExportElement that excludes other ViewDefinition-related elements that are not associated with the *export* ViewDefinition. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (sourceElement instanceof PhysicalPartition) {
       return this._exportModelIds.has(sourceElement.id);
     } else if (sourceElement instanceof SpatialViewDefinition) {
@@ -1842,7 +1846,9 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override shouldExportElement to exclude all elements from the Functional schema. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     return sourceElement.classFullName.startsWith(FunctionalSchema.schemaName)
       ? false
       : super.shouldExportElement(sourceElement);
@@ -2070,23 +2076,23 @@ export class CountingIModelImporter extends IModelImporter {
     this.numElementAspectsUpdated++;
     await super.onUpdateElementAspect(aspectProps);
   }
-  protected override onInsertRelationship(
+  protected override async onInsertRelationship(
     relationshipProps: RelationshipProps
-  ): Id64String {
+  ): Promise<Id64String> {
     this.numRelationshipsInserted++;
     return super.onInsertRelationship(relationshipProps);
   }
-  protected override onUpdateRelationship(
+  protected override async onUpdateRelationship(
     relationshipProps: RelationshipProps
-  ): void {
+  ): Promise<void> {
     this.numRelationshipsUpdated++;
-    super.onUpdateRelationship(relationshipProps);
+    await super.onUpdateRelationship(relationshipProps);
   }
-  protected override onDeleteRelationship(
+  protected override async onDeleteRelationship(
     relationshipProps: RelationshipPropsForDelete
-  ): void {
+  ): Promise<void> {
     this.numRelationshipsDeleted++;
-    super.onDeleteRelationship(relationshipProps);
+    await super.onDeleteRelationship(relationshipProps);
   }
 }
 
@@ -2292,27 +2298,27 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeLine(`[Schema] ${schema.name}`);
     return super.onExportSchema(schema);
   }
-  public override onExportCodeSpec(
+  public override async onExportCodeSpec(
     codeSpec: CodeSpec,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.writeLine(
       `[CodeSpec] ${codeSpec.id}, ${codeSpec.name}${this.formatOperationName(
         isUpdate
       )}`
     );
-    super.onExportCodeSpec(codeSpec, isUpdate);
+    await super.onExportCodeSpec(codeSpec, isUpdate);
   }
-  public override onExportFont(
+  public override async onExportFont(
     font: FontProps,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     if (this._firstFont) {
       this.writeSeparator();
       this._firstFont = false;
     }
     this.writeLine(`[Font] ${font.id}, ${font.name}`);
-    super.onExportFont(font, isUpdate);
+    await super.onExportFont(font, isUpdate);
   }
   public override async onExportModel(
     model: Model,
@@ -2339,9 +2345,9 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     );
     await super.onExportElement(element, isUpdate);
   }
-  public override onDeleteElement(elementId: Id64String): void {
+  public override async onDeleteElement(elementId: Id64String): Promise<void> {
     this.writeLine(`[Element] ${elementId}, DELETE`);
-    super.onDeleteElement(elementId);
+    await super.onDeleteElement(elementId);
   }
   public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
@@ -2383,9 +2389,11 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     );
     await super.onExportRelationship(relationship, isUpdate);
   }
-  public override onDeleteRelationship(relInstanceId: Id64String): void {
+  public override async onDeleteRelationship(
+    relInstanceId: Id64String
+  ): Promise<void> {
     this.writeLine(`[Relationship] ${relInstanceId}, DELETE`);
-    super.onDeleteRelationship(relInstanceId);
+    await super.onDeleteRelationship(relInstanceId);
   }
 }
 
