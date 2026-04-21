@@ -119,7 +119,7 @@ export class Transformer extends IModelTransformer {
     options?: TransformerOptions
   ): Promise<IModelTransformer> {
     class IsolateElementsTransformer extends Transformer {
-      public override shouldExportElement(sourceElement: Element) {
+      public override async shouldExportElement(sourceElement: Element) {
         if (
           !includeChildren &&
           (isolatedElementIds.some((id) => sourceElement.parent?.id === id) ||
@@ -348,7 +348,9 @@ export class Transformer extends IModelTransformer {
   /** Override that counts elements processed and optionally remaps PhysicalPartitions.
    * @note Override of IModelExportHandler.shouldExportElement
    */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (this._numSourceElementsProcessed < this._numSourceElements) {
       // with deferred element processing, the number processed can be more than the total
       ++this._numSourceElementsProcessed;
@@ -373,9 +375,9 @@ export class Transformer extends IModelTransformer {
     return super.onTransformElement(sourceElement);
   }
 
-  public override shouldExportRelationship(
+  public override async shouldExportRelationship(
     relationship: Relationship
-  ): boolean {
+  ): Promise<boolean> {
     if (this._numSourceRelationshipsProcessed < this._numSourceRelationships) {
       ++this._numSourceRelationshipsProcessed;
     }

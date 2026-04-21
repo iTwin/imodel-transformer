@@ -1545,10 +1545,10 @@ describe("IModelTransformer", () => {
         this.iModelExporter = new IModelExporter(iModelDb);
         this.iModelExporter.registerHandler(this);
       }
-      public override onExportModel(
+      public override async onExportModel(
         _model: Model,
         _isUpdate: boolean | undefined
-      ): void {
+      ): Promise<void> {
         ++this.modelCount;
       }
       public override async onExportElement(
@@ -2399,11 +2399,15 @@ describe("IModelTransformer", () => {
     }
 
     class FilterCategoryTransformer extends IModelTransformer {
-      public override shouldExportElement(elem: Element): boolean {
+      public override async shouldExportElement(
+        elem: Element
+      ): Promise<boolean> {
         if (!filterCategoryTransformationPredicate(elem)) return false;
         return super.shouldExportElement(elem);
       }
-      public override shouldExportRelationship(rel: Relationship): boolean {
+      public override async shouldExportRelationship(
+        rel: Relationship
+      ): Promise<boolean> {
         if (!filterRelationshipsToChangeIds(rel)) return false;
         return super.shouldExportRelationship(rel);
       }
@@ -4512,7 +4516,9 @@ describe("IModelTransformer", () => {
     class SkipElementTransformer extends IModelTransformer {
       public skippedElement = Id64.invalid;
 
-      public override shouldExportElement(sourceElement: Element): boolean {
+      public override async shouldExportElement(
+        sourceElement: Element
+      ): Promise<boolean> {
         return this.skippedElement !== sourceElement.id;
       }
     }

@@ -1620,7 +1620,9 @@ export class PhysicalModelConsolidator extends IModelTransformer {
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }
   /** Override shouldExportElement to remap PhysicalPartition instances. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (sourceElement instanceof PhysicalPartition) {
       this.combineElements([sourceElement.id], this._targetModelId);
       // NOTE: must allow export to continue so the PhysicalModel sub-modeling the PhysicalPartition is processed
@@ -1696,7 +1698,9 @@ export class FilterByViewTransformer extends IModelTransformer {
     }
   }
   /** Override of IModelTransformer.shouldExportElement that excludes other ViewDefinition-related elements that are not associated with the *export* ViewDefinition. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (sourceElement instanceof PhysicalPartition) {
       return this._exportModelIds.has(sourceElement.id);
     } else if (sourceElement instanceof SpatialViewDefinition) {
@@ -1842,7 +1846,9 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override shouldExportElement to exclude all elements from the Functional schema. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     return sourceElement.classFullName.startsWith(FunctionalSchema.schemaName)
       ? false
       : super.shouldExportElement(sourceElement);
@@ -2028,55 +2034,65 @@ export class CountingIModelImporter extends IModelImporter {
   public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
     super(targetDb, options);
   }
-  protected override onInsertModel(modelProps: ModelProps): Id64String {
+  protected override async onInsertModel(
+    modelProps: ModelProps
+  ): Promise<Id64String> {
     this.numModelsInserted++;
     return super.onInsertModel(modelProps);
   }
-  protected override onUpdateModel(modelProps: ModelProps): void {
+  protected override async onUpdateModel(
+    modelProps: ModelProps
+  ): Promise<void> {
     this.numModelsUpdated++;
-    super.onUpdateModel(modelProps);
+    await super.onUpdateModel(modelProps);
   }
-  protected override onInsertElement(elementProps: ElementProps): Id64String {
+  protected override async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
     this.numElementsInserted++;
     return super.onInsertElement(elementProps);
   }
-  protected override onUpdateElement(elementProps: ElementProps): void {
+  protected override async onUpdateElement(
+    elementProps: ElementProps
+  ): Promise<void> {
     this.numElementsUpdated++;
-    super.onUpdateElement(elementProps);
+    await super.onUpdateElement(elementProps);
   }
-  protected override onDeleteElement(elementId: Id64String): void {
+  protected override async onDeleteElement(
+    elementId: Id64String
+  ): Promise<void> {
     this.numElementsExplicitlyDeleted++;
-    super.onDeleteElement(elementId);
+    await super.onDeleteElement(elementId);
   }
-  protected override onInsertElementAspect(
+  protected override async onInsertElementAspect(
     aspectProps: ElementAspectProps
-  ): Id64String {
+  ): Promise<Id64String> {
     this.numElementAspectsInserted++;
     return super.onInsertElementAspect(aspectProps);
   }
-  protected override onUpdateElementAspect(
+  protected override async onUpdateElementAspect(
     aspectProps: ElementAspectProps
-  ): void {
+  ): Promise<void> {
     this.numElementAspectsUpdated++;
-    super.onUpdateElementAspect(aspectProps);
+    await super.onUpdateElementAspect(aspectProps);
   }
-  protected override onInsertRelationship(
+  protected override async onInsertRelationship(
     relationshipProps: RelationshipProps
-  ): Id64String {
+  ): Promise<Id64String> {
     this.numRelationshipsInserted++;
     return super.onInsertRelationship(relationshipProps);
   }
-  protected override onUpdateRelationship(
+  protected override async onUpdateRelationship(
     relationshipProps: RelationshipProps
-  ): void {
+  ): Promise<void> {
     this.numRelationshipsUpdated++;
-    super.onUpdateRelationship(relationshipProps);
+    await super.onUpdateRelationship(relationshipProps);
   }
-  protected override onDeleteRelationship(
+  protected override async onDeleteRelationship(
     relationshipProps: RelationshipPropsForDelete
-  ): void {
+  ): Promise<void> {
     this.numRelationshipsDeleted++;
-    super.onDeleteRelationship(relationshipProps);
+    await super.onDeleteRelationship(relationshipProps);
   }
 }
 
@@ -2091,8 +2107,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
   public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
     super(targetDb, options);
   }
-  protected override onInsertModel(modelProps: ModelProps): Id64String {
-    const modelId: Id64String = super.onInsertModel(modelProps);
+  protected override async onInsertModel(
+    modelProps: ModelProps
+  ): Promise<Id64String> {
+    const modelId: Id64String = await super.onInsertModel(modelProps);
     const model: Model = this.targetDb.models.getModel(modelId);
     if (model instanceof PhysicalModel) {
       const modeledElement: Element = this.targetDb.elements.getElement(
@@ -2120,10 +2138,12 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     }
     return modelId;
   }
-  protected override onInsertElement(elementProps: ElementProps): Id64String {
+  protected override async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
     // during insertion it is possible that elements are inserted with partial. Account for that so that operations below don't throw.
     this.accountForPartialViewDefinition2d(elementProps);
-    const elementId: Id64String = super.onInsertElement(elementProps);
+    const elementId: Id64String = await super.onInsertElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
       const recordPartitionId =
@@ -2134,8 +2154,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     }
     return elementId;
   }
-  protected override onUpdateElement(elementProps: ElementProps): void {
-    super.onUpdateElement(elementProps);
+  protected override async onUpdateElement(
+    elementProps: ElementProps
+  ): Promise<void> {
+    await super.onUpdateElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(
       elementProps.id!
     );
@@ -2147,7 +2169,9 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       }
     }
   }
-  protected override onDeleteElement(elementId: Id64String): void {
+  protected override async onDeleteElement(
+    elementId: Id64String
+  ): Promise<void> {
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
       const recordPartitionId =
@@ -2156,7 +2180,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
         this.insertAuditRecord("Delete", recordPartitionId, element);
       }
     }
-    super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
+    await super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
   }
   private insertAuditRecord(
     operation: string,
@@ -2191,10 +2215,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
  */
 export class AspectTrackingImporter extends IModelImporter {
   public importedAspectIdsByElement = new Map<Id64String, Id64String[]>();
-  public override importElementMultiAspects(
+  public override async importElementMultiAspects(
     ...args: Parameters<IModelImporter["importElementMultiAspects"]>
   ) {
-    const resultTargetIds = super.importElementMultiAspects(...args);
+    const resultTargetIds = await super.importElementMultiAspects(...args);
     const [aspectsProps] = args;
     const elementId = aspectsProps[0].element.id;
     assert(
@@ -2274,39 +2298,39 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeLine(`[Schema] ${schema.name}`);
     return super.onExportSchema(schema);
   }
-  public override onExportCodeSpec(
+  public override async onExportCodeSpec(
     codeSpec: CodeSpec,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.writeLine(
       `[CodeSpec] ${codeSpec.id}, ${codeSpec.name}${this.formatOperationName(
         isUpdate
       )}`
     );
-    super.onExportCodeSpec(codeSpec, isUpdate);
+    await super.onExportCodeSpec(codeSpec, isUpdate);
   }
-  public override onExportFont(
+  public override async onExportFont(
     font: FontProps,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     if (this._firstFont) {
       this.writeSeparator();
       this._firstFont = false;
     }
     this.writeLine(`[Font] ${font.id}, ${font.name}`);
-    super.onExportFont(font, isUpdate);
+    await super.onExportFont(font, isUpdate);
   }
-  public override onExportModel(
+  public override async onExportModel(
     model: Model,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.writeSeparator();
     this.writeLine(
       `[Model] ${model.classFullName}, ${model.id}, ${
         model.name
       }${this.formatOperationName(isUpdate)}`
     );
-    super.onExportModel(model, isUpdate);
+    await super.onExportModel(model, isUpdate);
   }
   public override async onExportElement(
     element: Element,
@@ -2321,9 +2345,9 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     );
     await super.onExportElement(element, isUpdate);
   }
-  public override onDeleteElement(elementId: Id64String): void {
+  public override async onDeleteElement(elementId: Id64String): Promise<void> {
     this.writeLine(`[Element] ${elementId}, DELETE`);
-    super.onDeleteElement(elementId);
+    await super.onDeleteElement(elementId);
   }
   public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
@@ -2365,9 +2389,11 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     );
     await super.onExportRelationship(relationship, isUpdate);
   }
-  public override onDeleteRelationship(relInstanceId: Id64String): void {
+  public override async onDeleteRelationship(
+    relInstanceId: Id64String
+  ): Promise<void> {
     this.writeLine(`[Relationship] ${relInstanceId}, DELETE`);
-    super.onDeleteRelationship(relInstanceId);
+    await super.onDeleteRelationship(relInstanceId);
   }
 }
 
@@ -2449,12 +2475,12 @@ export class ClassCounter extends IModelExportHandler {
     });
     IModelJsFs.appendFileSync(this.outputFileName, "\n");
   }
-  public override onExportModel(
+  public override async onExportModel(
     model: Model,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(this._modelClassCounts, model.classFullName);
-    super.onExportModel(model, isUpdate);
+    await super.onExportModel(model, isUpdate);
   }
   public override async onExportElement(
     element: Element,
