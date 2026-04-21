@@ -47,9 +47,9 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
       this.excludedElementAspectClassFullNames
     );
     const multiAspects: ElementMultiAspect[] = [];
-    for (const a of allMultiAspects) {
-      if (await this.shouldExportElementAspect(a)) {
-        multiAspects.push(a);
+    for (const aspect of allMultiAspects) {
+      if (await this.shouldExportElementAspect(aspect)) {
+        multiAspects.push(aspect);
       }
     }
 

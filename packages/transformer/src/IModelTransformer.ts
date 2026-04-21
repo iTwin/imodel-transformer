@@ -2690,11 +2690,11 @@ export class IModelTransformer extends IModelExportHandler {
     const targetAspectPropsArray = sourceAspects.map(async (srcA) =>
       this.onTransformElementAspect(srcA)
     );
-    sourceAspects.forEach(async (a) => {
+    for (const a of sourceAspects) {
       if (!(await this.doAllReferencesExistInTarget(a))) {
         this._partiallyCommittedAspectIds.add(a.id);
       }
-    });
+    }
     // const targetAspectsToImport = targetAspectPropsArray.filter((targetAspect, i) => hasEntityChanged(sourceAspects[i], targetAspect));
     const targetIds = await this.importer.importElementMultiAspects(
       await Promise.all(targetAspectPropsArray),
