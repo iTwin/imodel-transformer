@@ -407,7 +407,7 @@ describe("IModelTransformerHub", () => {
             },
           }
         );
-        transformer["_allowNoScopingESA"] = true;
+        transformer["_syncTypeResolver"].allowNoScopingESA = true;
         await transformer.process();
         transformer.dispose();
         targetDb.saveChanges();
@@ -3381,7 +3381,7 @@ describe("IModelTransformerHub", () => {
         includeSourceProvenance: true,
         argsForProcessChanges: {},
       });
-      transformer["_allowNoScopingESA"] = true;
+      transformer["_syncTypeResolver"].allowNoScopingESA = true;
 
       // run first transformation
       await transformer.process();

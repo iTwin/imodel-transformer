@@ -259,8 +259,6 @@ export class IModelTransformer extends IModelExportHandler {
     readonly context: IModelCloneContext;
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
-    static determineSyncType(sourceDb: IModelDb, targetDb: IModelDb,
-    targetScopeElementId: Id64String): Promise<"forward" | "reverse">;
     dispose(): void;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
@@ -298,8 +296,6 @@ export class IModelTransformer extends IModelExportHandler {
         forceOldRelationshipProvenanceMethod: boolean;
     }): Promise<ExternalSourceAspectProps>;
     protected initScopeProvenance(): Promise<void>;
-    // (undocumented)
-    static noEsaSyncDirectionErrorMessage: string;
     onDeleteElement(sourceElementId: Id64String): Promise<void>;
     onDeleteModel(sourceModelId: Id64String): Promise<void>;
     onDeleteRelationship(sourceRelInstanceId: Id64String): Promise<void>;
@@ -334,11 +330,6 @@ export class IModelTransformer extends IModelExportHandler {
     processSubject(sourceSubjectId: Id64String, targetSubjectId: Id64String): Promise<void>;
     static get provenanceElementAspectClasses(): (typeof Entity)[];
     static get provenanceElementClasses(): (typeof Entity)[];
-    static queryScopeExternalSourceAspect(dbToQuery: IModelDb, aspectProps: ExternalSourceAspectProps): Promise<{
-        aspectId: Id64String;
-        version?: string;
-        jsonProperties?: string;
-    } | undefined>;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): Promise<boolean>;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;

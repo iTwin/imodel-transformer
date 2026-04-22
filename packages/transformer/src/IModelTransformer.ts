@@ -110,6 +110,8 @@ import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
+import { SyncTypeResolver } from "./SyncTypeResolver";
+import type { SyncType } from "./SyncTypeResolver";
 import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
@@ -374,8 +376,6 @@ export interface RelationshipPropsForDelete {
   classFullName: string;
 }
 
-type SyncType = "not-sync" | "forward" | "reverse";
-
 /** Base class used to transform a source iModel into a different target iModel.
  * @see [iModel Transformation and Data Exchange]($docs/learning/transformer/index.md), [IModelExporter]($transformer), [IModelImporter]($transformer)
  * @beta
@@ -402,7 +402,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @beta
    */
   private _linearSpatialTransform?: Transform;
-  private _syncType?: SyncType;
+  private _syncTypeResolver!: SyncTypeResolver;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
@@ -421,148 +421,12 @@ export class IModelTransformer extends IModelExportHandler {
     "targetScopeElementId" | "danglingReferencesBehavior"
   >;
 
-  /**
-   * A private variable meant to be set by tests which have an outdated way of setting up transforms. In all synchronizations today we expect to find an ESA in the branch db which describes the master -> branch relationship.
-   * The exception to this is the first transform aka the provenance initializing transform which requires that the master imodel and the branch imodel are identical at the time of provenance initialization.
-   * A couple ofoutdated tests run their first transform providing a source and targetdb that are slightly different which is no longer supported. In order to not remove these tests which are still providing value
-   * this private property on the IModelTransformer exists.
-   */
-  private _allowNoScopingESA = false;
-
-  public static noEsaSyncDirectionErrorMessage =
-    "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true.";
-
-  /**
-   * Queries for an esa which matches the props in the provided aspectProps.
-   * @param dbToQuery db to run the query on for scope external source
-   * @param aspectProps aspectProps to search for @see ExternalSourceAspectProps
-   */
-  public static async queryScopeExternalSourceAspect(
-    dbToQuery: IModelDb,
-    aspectProps: ExternalSourceAspectProps
-  ): Promise<
-    | {
-        aspectId: Id64String;
-        version?: string;
-        /** stringified json */
-        jsonProperties?: string;
-      }
-    | undefined
-  > {
-    const sql = `
-      SELECT ECInstanceId, Version, JsonProperties
-      FROM ${ExternalSourceAspect.classFullName}
-      WHERE Element.Id=:elementId
-        AND Scope.Id=:scopeId
-        AND Kind=:kind
-        AND Identifier=:identifier
-      LIMIT 1
-    `;
-
-    if (aspectProps.scope === undefined) return undefined;
-
-    const params = new QueryBinder()
-      .bindId("elementId", aspectProps.element.id)
-      .bindId("scopeId", aspectProps.scope.id)
-      .bindString("kind", aspectProps.kind)
-      .bindString("identifier", aspectProps.identifier);
-
-    return dbToQuery.withQueryReader(
-      sql,
-      (reader) => {
-        if (!reader.step()) return undefined;
-        const aspectId = reader.current[0] as Id64String;
-        const version = reader.current[1] as string | undefined;
-        const jsonProperties = reader.current[2] as string | undefined;
-        return { aspectId, version, jsonProperties };
-      },
-      params
-    );
-  }
-
-  /**
-   * Determines the sync direction "forward" or "reverse" of a given sourceDb and targetDb by looking for the scoping ESA.
-   * If the sourceDb's iModelId is found as the identifier of the expected scoping ESA in the targetDb, then it is a forward synchronization.
-   * If the targetDb's iModelId is found as the identifier of the expected scoping ESA in the sourceDb, then it is a reverse synchronization.
-   * @throws if no scoping ESA can be found in either the sourceDb or targetDb which describes a master branch relationship between the two databases.
-   * @returns "forward" or "reverse"
-   */
-  public static async determineSyncType(
-    sourceDb: IModelDb,
-    targetDb: IModelDb,
-    /** @see [[IModelTransformOptions.targetScopeElementId]] */
-    targetScopeElementId: Id64String
-  ): Promise<"forward" | "reverse"> {
-    const aspectProps = {
-      id: undefined as string | undefined,
-      version: undefined as string | undefined,
-      classFullName: ExternalSourceAspect.classFullName,
-      element: {
-        id: targetScopeElementId,
-        relClassName: ElementOwnsExternalSourceAspects.classFullName,
-      },
-      scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
-      identifier: sourceDb.iModelId,
-      kind: ExternalSourceAspect.Kind.Scope,
-      jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
-    };
-    /** First check if the targetDb is the branch (branch is the @see provenanceDb) */
-    const esaPropsFromTargetDb = await this.queryScopeExternalSourceAspect(
-      targetDb,
-      aspectProps
-    );
-    if (esaPropsFromTargetDb !== undefined) {
-      return "forward"; // we found an esa assuming targetDb is the provenanceDb/branch so this is a forward sync.
-    }
-
-    // Now check if the sourceDb is the branch
-    aspectProps.identifier = targetDb.iModelId;
-    const esaPropsFromSourceDb = await this.queryScopeExternalSourceAspect(
-      sourceDb,
-      aspectProps
-    );
-
-    if (esaPropsFromSourceDb !== undefined) {
-      return "reverse"; // we found an esa assuming sourceDb is the provenanceDb/branch so this is a reverse sync.
-    }
-    throw new Error(this.noEsaSyncDirectionErrorMessage);
-  }
-
-  private async determineSyncType(): Promise<SyncType> {
-    if (this._isProvenanceInitTransform) {
-      return "forward";
-    }
-    if (!this._options.argsForProcessChanges) {
-      return "not-sync";
-    }
-    try {
-      return await IModelTransformer.determineSyncType(
-        this.sourceDb,
-        this.targetDb,
-        this.targetScopeElementId
-      );
-    } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message === IModelTransformer.noEsaSyncDirectionErrorMessage &&
-        this._allowNoScopingESA
-      ) {
-        return "forward";
-      }
-      throw err;
-    }
-  }
-
   public async getIsReverseSynchronization(): Promise<boolean> {
-    if (this._syncType === undefined)
-      this._syncType = await this.determineSyncType();
-    return this._syncType === "reverse";
+    return this._syncTypeResolver.getIsReverseSynchronization();
   }
 
   public async getIsForwardSynchronization(): Promise<boolean> {
-    if (this._syncType === undefined)
-      this._syncType = await this.determineSyncType();
-    return this._syncType === "forward";
+    return this._syncTypeResolver.getIsForwardSynchronization();
   }
 
   private _changesetRanges: [number, number][] | undefined = undefined;
@@ -680,6 +544,13 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
+    this._syncTypeResolver = new SyncTypeResolver({
+      sourceDb: this.sourceDb,
+      targetDb: this.targetDb,
+      targetScopeElementId: this._options.targetScopeElementId,
+      isProvenanceInitTransform: this._isProvenanceInitTransform,
+      hasArgsForProcessChanges: !!this._options.argsForProcessChanges,
+    });
     if (this._options.tryAlignGeolocation) {
       if (
         this.sourceDb.geographicCoordinateSystem ||
@@ -1017,7 +888,7 @@ export class IModelTransformer extends IModelExportHandler {
     ExternalSourceAspect | undefined
   > {
     const scopeProvenanceAspectProps =
-      await IModelTransformer.queryScopeExternalSourceAspect(
+      await SyncTypeResolver.queryScopeExternalSourceAspect(
         await this.getProvenanceDb(),
         {
           id: undefined,
@@ -1059,11 +930,10 @@ export class IModelTransformer extends IModelExportHandler {
       jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
     };
 
-    const foundEsaProps =
-      await IModelTransformer.queryScopeExternalSourceAspect(
-        provenanceDb,
-        aspectProps
-      ); // this query includes "identifier"
+    const foundEsaProps = await SyncTypeResolver.queryScopeExternalSourceAspect(
+      provenanceDb,
+      aspectProps
+    ); // this query includes "identifier"
 
     if (foundEsaProps === undefined) {
       aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
@@ -1511,9 +1381,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Not relevant for [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are provided and change history is known.
    */
   protected async shouldDetectDeletes(): Promise<boolean> {
-    nodeAssert(this._syncType !== undefined);
-
-    return this._syncType === "not-sync";
+    return this._syncTypeResolver.getResolvedSyncType() === "not-sync";
   }
 
   /** Transform the specified sourceElement into ElementProps for the target iModel.
@@ -2091,7 +1959,7 @@ export class IModelTransformer extends IModelExportHandler {
           targetElementProps.id
         );
         const foundEsaProps =
-          await IModelTransformer.queryScopeExternalSourceAspect(
+          await SyncTypeResolver.queryScopeExternalSourceAspect(
             provenanceDb,
             aspectProps
           );
@@ -2561,7 +2429,7 @@ export class IModelTransformer extends IModelExportHandler {
           targetRelationshipInstanceId
         );
         const foundEsaProps =
-          await IModelTransformer.queryScopeExternalSourceAspect(
+          await SyncTypeResolver.queryScopeExternalSourceAspect(
             provenanceDb,
             aspectProps
           );
