@@ -70,7 +70,6 @@ import {
   ChangesetFileProps,
   ChangesetIndexAndId,
   Code,
-  CodeProps,
   CodeSpec,
   ConcreteEntityTypes,
   ECJsNames,
@@ -106,6 +105,7 @@ import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
+import { ElementResolver } from "./ElementResolver";
 import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
@@ -389,6 +389,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _linearSpatialTransform?: Transform;
   private _syncTypeResolver!: SyncTypeResolver;
   private _provenanceManager!: ProvenanceManager;
+  private _elementResolver!: ElementResolver;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
@@ -540,8 +541,16 @@ export class IModelTransformer extends IModelExportHandler {
         this._syncTypeResolver.getIsReverseSynchronization(),
       transformerOptions: this._options,
       startingChangesetIndices: this._startingChangesetIndices,
-      queryTargetRelationshipId: (sourceRelInfo) =>
+      queryTargetRelationshipId: async (sourceRelInfo) =>
         this._queryTargetRelId(sourceRelInfo),
+    });
+    this._elementResolver = new ElementResolver({
+      targetDb: this.targetDb,
+      isBetweenIModels: this.context.isBetweenIModels,
+      findTargetElementId: (sourceId) =>
+        this.context.findTargetElementId(sourceId),
+      remapElement: (sourceId, targetId) =>
+        this.context.remapElement(sourceId, targetId),
     });
     if (this._options.tryAlignGeolocation) {
       if (
@@ -1327,49 +1336,12 @@ export class IModelTransformer extends IModelExportHandler {
       targetElementProps =
         this.targetDb.elements.getElementProps(targetElementId);
     } else {
-      targetElementId = this.context.findTargetElementId(sourceElement.id);
       targetElementProps = await this.onTransformElement(sourceElement);
-    }
-
-    // if an existing remapping was not yet found, check by FederationGuid
-    if (
-      this.context.isBetweenIModels &&
-      !Id64.isValid(targetElementId) &&
-      sourceElement.federationGuid !== undefined
-    ) {
-      targetElementId =
-        this.targetDb.elements.getIdFromFederationGuid(
-          sourceElement.federationGuid
-        ) ?? Id64.invalid;
-      if (Id64.isValid(targetElementId))
-        this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found
-    }
-
-    // if an existing remapping was not yet found, check by Code as long as the CodeScope is valid (invalid means a missing reference so not worth checking)
-    if (
-      !Id64.isValidId64(targetElementId) &&
-      Id64.isValidId64(targetElementProps.code.scope)
-    ) {
-      // respond the same way to undefined code value as the @see Code class, but don't use that class because it trims
-      // whitespace from the value, and there are iModels out there with untrimmed whitespace that we ought not to trim
-      targetElementProps.code.value = targetElementProps.code.value ?? "";
-      const maybeTargetElementId = await this.queryElementIdByCode(
-        this.targetDb,
-        targetElementProps.code as Required<CodeProps>
+      const resolution = await this._elementResolver.resolveTargetElementId(
+        sourceElement,
+        targetElementProps
       );
-      if (undefined !== maybeTargetElementId) {
-        const maybeTargetElem =
-          this.targetDb.elements.getElement(maybeTargetElementId);
-        if (
-          maybeTargetElem.classFullName === targetElementProps.classFullName
-        ) {
-          // ensure code remapping doesn't change the target class
-          targetElementId = maybeTargetElementId;
-          this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found by Code
-        } else {
-          targetElementProps.code = Code.createEmpty(); // clear out invalid code
-        }
-      }
+      targetElementId = resolution.targetElementId;
     }
 
     if (!this.hasElementChanged(sourceElement)) {
@@ -1464,31 +1436,6 @@ export class IModelTransformer extends IModelExportHandler {
         }
       }
     }
-  }
-
-  // In iTwin js 5.x Elements.queryElementIdByCode() uses Code class to query id:
-  // https://github.com/iTwin/itwinjs-core/blob/master/core/backend/src/IModelDb.ts#L2779
-  // Code class constructor trims white spaces from code value.
-  // Custom implementation of queryElementIdByCode() was added to support querying elements with code values that have trailing whitespaces.
-  // It mimicks 4.x implementation: https://github.com/iTwin/itwinjs-core/blob/9c8b394ec3878a39764be81f928fd8b0b9115d31/core/backend/src/IModelDb.ts#L1882
-  private async queryElementIdByCode(
-    iModel: IModelDb,
-    code: Required<CodeProps>
-  ): Promise<Id64String | undefined> {
-    if (Id64.isInvalid(code.spec)) throw new Error("Invalid CodeSpec");
-
-    if (code.value === undefined) throw new Error("Invalid Code");
-
-    const query =
-      "SELECT ECInstanceId FROM BisCore:Element WHERE CodeSpec.Id=? AND CodeScope.Id=? AND CodeValue=?";
-    const queryBinder = new QueryBinder()
-      .bindId(1, code.spec)
-      .bindId(2, Id64.fromString(code.scope))
-      .bindString(3, code.value);
-    const queryReader = iModel.createQueryReader(query, queryBinder, {
-      usePrimaryConn: true,
-    });
-    return (await queryReader.step()) ? queryReader.current[0] : undefined;
   }
 
   /** Override of [IModelExportHandler.onDeleteElement]($transformer) that is called when [IModelExporter]($transformer) detects that an Element has been deleted from the source iModel.
