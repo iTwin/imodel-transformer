@@ -8,12 +8,9 @@ import {
   ExternalSourceAspect,
   IModelDb,
 } from "@itwin/core-backend";
-import {
-  ExternalSourceAspectProps,
-  IModel,
-  QueryBinder,
-} from "@itwin/core-common";
+import { IModel } from "@itwin/core-common";
 import type { TargetScopeProvenanceJsonProps } from "./IModelTransformer";
+import { ProvenanceManager } from "./ProvenanceManager";
 
 /** @internal */
 export type SyncType = "not-sync" | "forward" | "reverse";
@@ -48,54 +45,6 @@ export class SyncTypeResolver {
   }
 
   /**
-   * Queries for an ESA which matches the props in the provided aspectProps.
-   * @param dbToQuery db to run the query on for scope external source
-   * @param aspectProps aspectProps to search for
-   */
-  public static async queryScopeExternalSourceAspect(
-    dbToQuery: IModelDb,
-    aspectProps: ExternalSourceAspectProps
-  ): Promise<
-    | {
-        aspectId: Id64String;
-        version?: string;
-        /** stringified json */
-        jsonProperties?: string;
-      }
-    | undefined
-  > {
-    const sql = `
-      SELECT ECInstanceId, Version, JsonProperties
-      FROM ${ExternalSourceAspect.classFullName}
-      WHERE Element.Id=:elementId
-        AND Scope.Id=:scopeId
-        AND Kind=:kind
-        AND Identifier=:identifier
-      LIMIT 1
-    `;
-
-    if (aspectProps.scope === undefined) return undefined;
-
-    const params = new QueryBinder()
-      .bindId("elementId", aspectProps.element.id)
-      .bindId("scopeId", aspectProps.scope.id)
-      .bindString("kind", aspectProps.kind)
-      .bindString("identifier", aspectProps.identifier);
-
-    return dbToQuery.withQueryReader(
-      sql,
-      (reader) => {
-        if (!reader.step()) return undefined;
-        const aspectId = reader.current[0] as Id64String;
-        const version = reader.current[1] as string | undefined;
-        const jsonProperties = reader.current[2] as string | undefined;
-        return { aspectId, version, jsonProperties };
-      },
-      params
-    );
-  }
-
-  /**
    * Determines the sync direction "forward" or "reverse" of a given sourceDb and targetDb by looking for the scoping ESA.
    * If the sourceDb's iModelId is found as the identifier of the expected scoping ESA in the targetDb, then it is a forward synchronization.
    * If the targetDb's iModelId is found as the identifier of the expected scoping ESA in the sourceDb, then it is a reverse synchronization.
@@ -122,7 +71,7 @@ export class SyncTypeResolver {
     };
     // First check if the targetDb is the branch (branch is the provenanceDb)
     const esaPropsFromTargetDb =
-      await SyncTypeResolver.queryScopeExternalSourceAspect(
+      await ProvenanceManager.queryScopeExternalSourceAspect(
         targetDb,
         aspectProps
       );
@@ -133,7 +82,7 @@ export class SyncTypeResolver {
     // Now check if the sourceDb is the branch
     aspectProps.identifier = targetDb.iModelId;
     const esaPropsFromSourceDb =
-      await SyncTypeResolver.queryScopeExternalSourceAspect(
+      await ProvenanceManager.queryScopeExternalSourceAspect(
         sourceDb,
         aspectProps
       );

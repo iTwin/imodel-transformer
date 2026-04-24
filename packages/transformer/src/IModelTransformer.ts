@@ -11,7 +11,6 @@ import * as nodeAssert from "assert";
 import {
   assert,
   Guid,
-  GuidString,
   Id64,
   Id64Array,
   Id64Set,
@@ -45,15 +44,11 @@ import {
   Element,
   ElementAspect,
   ElementMultiAspect,
-  ElementOwnsExternalSourceAspects,
   ElementRefersToElements,
   ElementUniqueAspect,
   Entity,
   EntityReferences,
-  ExternalSource,
   ExternalSourceAspect,
-  ExternalSourceAttachment,
-  FolderLink,
   GeometricElement,
   GeometricElement3d,
   IModelDb,
@@ -70,7 +65,6 @@ import {
   SqliteChangeOp,
   SqliteChangesetReader,
   Subject,
-  SynchronizationConfigLink,
 } from "@itwin/core-backend";
 import {
   ChangesetFileProps,
@@ -111,19 +105,10 @@ import { IModelCloneContext } from "./IModelCloneContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
-import type { SyncType } from "./SyncTypeResolver";
+import { ProvenanceManager } from "./ProvenanceManager";
 import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
-
-const nullLastProvenanceEntityInfo = {
-  entityId: Id64.invalid,
-  aspectId: Id64.invalid,
-  aspectVersion: "",
-  aspectKind: ExternalSourceAspect.Kind.Element,
-};
-
-type LastProvenanceEntityInfo = typeof nullLastProvenanceEntityInfo;
 
 /** Options provided to the [[IModelTransformer]] constructor.
  * @beta
@@ -403,6 +388,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _linearSpatialTransform?: Transform;
   private _syncTypeResolver!: SyncTypeResolver;
+  private _provenanceManager!: ProvenanceManager;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
   public get targetScopeElementId(): Id64String {
@@ -439,17 +425,12 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** The element classes that are considered to define provenance in the iModel */
   public static get provenanceElementClasses(): (typeof Entity)[] {
-    return [
-      FolderLink,
-      SynchronizationConfigLink,
-      ExternalSource,
-      ExternalSourceAttachment,
-    ];
+    return ProvenanceManager.provenanceElementClasses;
   }
 
   /** The element aspect classes that are considered to define provenance in the iModel */
   public static get provenanceElementAspectClasses(): (typeof Entity)[] {
-    return [ExternalSourceAspect];
+    return ProvenanceManager.provenanceElementAspectClasses;
   }
 
   /** Construct a new IModelTransformer
@@ -550,6 +531,17 @@ export class IModelTransformer extends IModelExportHandler {
       targetScopeElementId: this._options.targetScopeElementId,
       isProvenanceInitTransform: this._isProvenanceInitTransform,
       hasArgsForProcessChanges: !!this._options.argsForProcessChanges,
+    });
+    this._provenanceManager = new ProvenanceManager({
+      sourceDb: this.sourceDb,
+      targetDb: this.targetDb,
+      targetScopeElementId: this._options.targetScopeElementId,
+      getIsReverseSynchronization: async () =>
+        this._syncTypeResolver.getIsReverseSynchronization(),
+      transformerOptions: this._options,
+      startingChangesetIndices: this._startingChangesetIndices,
+      queryTargetRelationshipId: (sourceRelInfo) =>
+        this._queryTargetRelId(sourceRelInfo),
     });
     if (this._options.tryAlignGeolocation) {
       if (
@@ -662,18 +654,14 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This will be [[targetDb]] except when it is a reverse synchronization. In that case it be [[sourceDb]].
    */
   public async getProvenanceDb(): Promise<IModelDb> {
-    return (await this.getIsReverseSynchronization())
-      ? this.sourceDb
-      : this.targetDb;
+    return this._provenanceManager.getProvenanceDb();
   }
 
   /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
    * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
    */
   public async getProvenanceSourceDb(): Promise<IModelDb> {
-    return (await this.getIsReverseSynchronization())
-      ? this.targetDb
-      : this.sourceDb;
+    return this._provenanceManager.getProvenanceSourceDb();
   }
 
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
@@ -688,27 +676,11 @@ export class IModelTransformer extends IModelExportHandler {
       targetScopeElementId: Id64String;
     }
   ): ExternalSourceAspectProps {
-    const elementId = args.isReverseSynchronization
-      ? sourceElementId
-      : targetElementId;
-    const version = args.isReverseSynchronization
-      ? args.targetDb.elements.queryLastModifiedTime(targetElementId)
-      : args.sourceDb.elements.queryLastModifiedTime(sourceElementId);
-    const aspectIdentifier = args.isReverseSynchronization
-      ? targetElementId
-      : sourceElementId;
-    const aspectProps: ExternalSourceAspectProps = {
-      classFullName: ExternalSourceAspect.classFullName,
-      element: {
-        id: elementId,
-        relClassName: ElementOwnsExternalSourceAspects.classFullName,
-      },
-      scope: { id: args.targetScopeElementId },
-      identifier: aspectIdentifier,
-      kind: ExternalSourceAspect.Kind.Element,
-      version,
-    };
-    return aspectProps;
+    return ProvenanceManager.initElementProvenanceOptions(
+      sourceElementId,
+      targetElementId,
+      args
+    );
   }
 
   public static async initRelationshipProvenanceOptions(
@@ -722,45 +694,11 @@ export class IModelTransformer extends IModelExportHandler {
       forceOldRelationshipProvenanceMethod: boolean;
     }
   ): Promise<ExternalSourceAspectProps> {
-    const provenanceDb = args.isReverseSynchronization
-      ? args.sourceDb
-      : args.targetDb;
-    const aspectIdentifier = args.isReverseSynchronization
-      ? targetRelInstanceId
-      : sourceRelInstanceId;
-    const provenanceRelInstanceId = args.isReverseSynchronization
-      ? sourceRelInstanceId
-      : targetRelInstanceId;
-
-    const sql =
-      "SELECT SourceECInstanceId FROM bis.ElementRefersToElements WHERE ECInstanceId=?";
-    const params = new QueryBinder().bindId(1, provenanceRelInstanceId);
-    const reader = provenanceDb.createQueryReader(sql, params, {
-      usePrimaryConn: true,
-    });
-    nodeAssert(
-      await reader.step(),
-      "relationship provenance query returned no rows"
+    return ProvenanceManager.initRelationshipProvenanceOptions(
+      sourceRelInstanceId,
+      targetRelInstanceId,
+      args
     );
-    const elementId = reader.current[0];
-
-    const jsonProperties = args.forceOldRelationshipProvenanceMethod
-      ? { targetRelInstanceId }
-      : { provenanceRelInstanceId };
-
-    const aspectProps: ExternalSourceAspectProps = {
-      classFullName: ExternalSourceAspect.classFullName,
-      element: {
-        id: elementId,
-        relClassName: ElementOwnsExternalSourceAspects.classFullName,
-      },
-      scope: { id: args.targetScopeElementId },
-      identifier: aspectIdentifier,
-      kind: ExternalSourceAspect.Kind.Relationship,
-      jsonProperties: JSON.stringify(jsonProperties),
-    };
-
-    return aspectProps;
   }
 
   /**
@@ -770,53 +708,6 @@ export class IModelTransformer extends IModelExportHandler {
    * This exists only to facilitate testing that the transformer can handle the older, flawed method
    */
   private _forceOldRelationshipProvenanceMethod = false;
-
-  /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
-  public async initElementProvenance(
-    sourceElementId: Id64String,
-    targetElementId: Id64String
-  ): Promise<ExternalSourceAspectProps> {
-    return IModelTransformer.initElementProvenanceOptions(
-      sourceElementId,
-      targetElementId,
-      {
-        isReverseSynchronization: await this.getIsReverseSynchronization(),
-        targetScopeElementId: this.targetScopeElementId,
-        sourceDb: this.sourceDb,
-        targetDb: this.targetDb,
-      }
-    );
-  }
-
-  /** Create an ExternalSourceAspectProps in a standard way for a Relationship in an iModel --> iModel transformations.
-   * The ExternalSourceAspect is meant to be owned by the Element in the target iModel that is the `sourceId` of transformed relationship.
-   * The `identifier` property of the ExternalSourceAspect will be the ECInstanceId of the relationship in the master iModel.
-   * The ECInstanceId of the relationship in the branch iModel will be stored in the JsonProperties of the ExternalSourceAspect.
-   */
-  private async initRelationshipProvenance(
-    sourceRelationship: Relationship,
-    targetRelInstanceId: Id64String
-  ): Promise<ExternalSourceAspectProps> {
-    return IModelTransformer.initRelationshipProvenanceOptions(
-      sourceRelationship.id,
-      targetRelInstanceId,
-      {
-        sourceDb: this.sourceDb,
-        targetDb: this.targetDb,
-        isReverseSynchronization: await this.getIsReverseSynchronization(),
-        targetScopeElementId: this.targetScopeElementId,
-        forceOldRelationshipProvenanceMethod:
-          this._forceOldRelationshipProvenanceMethod,
-      }
-    );
-  }
-
-  /** NOTE: the json properties must be converted to string before insertion */
-  private _targetScopeProvenanceProps:
-    | (Omit<ExternalSourceAspectProps, "jsonProperties"> & {
-        jsonProperties: TargetScopeProvenanceJsonProps;
-      })
-    | undefined = undefined;
 
   /**
    * Index of the changeset that the transformer was at when the transformation begins (was constructed).
@@ -829,16 +720,15 @@ export class IModelTransformer extends IModelExportHandler {
       }
     | undefined = undefined;
 
-  private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
-    undefined;
-
-  /**
-   * We cache the synchronization version to avoid querying the target scoping ESA multiple times.
-   * If the target scoping ESA is ever updated we need to clear any potentially cached sync version otherwise we will get stale values.
-   * Sets this._cachedSynchronizationVersion to undefined.
-   */
-  private clearCachedSynchronizationVersion() {
-    this._cachedSynchronizationVersion = undefined;
+  /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
+  public async initElementProvenance(
+    sourceElementId: Id64String,
+    targetElementId: Id64String
+  ): Promise<ExternalSourceAspectProps> {
+    return this._provenanceManager.initElementProvenance(
+      sourceElementId,
+      targetElementId
+    );
   }
 
   /** the changeset in the scoping element's source version found for this transformation
@@ -849,35 +739,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @throws if the version is not found in a preexisting scope aspect and @see [[IModelTransformOptions.branchRelationshipDataBehavior]] !== "unsafe-migrate"
    */
   protected async getSynchronizationVersion(): Promise<ChangesetIndexAndId> {
-    if (this._cachedSynchronizationVersion === undefined) {
-      const provenanceScopeAspect = await this.tryGetProvenanceScopeAspect();
-      if (!provenanceScopeAspect) {
-        return { index: -1, id: "" }; // first synchronization.
-      }
-
-      const version = (await this.getIsReverseSynchronization())
-        ? (
-            JSON.parse(
-              provenanceScopeAspect.jsonProperties ?? "{}"
-            ) as TargetScopeProvenanceJsonProps
-          ).reverseSyncVersion
-        : provenanceScopeAspect.version;
-      if (
-        !version &&
-        this._options.branchRelationshipDataBehavior === "unsafe-migrate"
-      ) {
-        return { index: -1, id: "" }; // previous synchronization was done before fed guid update.
-      }
-      if (version === undefined) {
-        throw new Error(`Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.
-         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'`);
-      }
-      const [id, index] = version === "" ? ["", -1] : version.split(";");
-      if (Number.isNaN(Number(index)))
-        throw new Error("Could not parse version data from scope aspect");
-      this._cachedSynchronizationVersion = { index: Number(index), id }; // synchronization version found and cached.
-    }
-    return this._cachedSynchronizationVersion;
+    return this._provenanceManager.getSynchronizationVersion();
   }
 
   /**
@@ -887,192 +749,27 @@ export class IModelTransformer extends IModelExportHandler {
   protected async tryGetProvenanceScopeAspect(): Promise<
     ExternalSourceAspect | undefined
   > {
-    const scopeProvenanceAspectProps =
-      await SyncTypeResolver.queryScopeExternalSourceAspect(
-        await this.getProvenanceDb(),
-        {
-          id: undefined,
-          classFullName: ExternalSourceAspect.classFullName,
-          scope: { id: IModel.rootSubjectId },
-          kind: ExternalSourceAspect.Kind.Scope,
-          element: { id: this.targetScopeElementId ?? IModel.rootSubjectId },
-          identifier: (await this.getProvenanceSourceDb()).iModelId,
-        }
-      );
-
-    return scopeProvenanceAspectProps !== undefined
-      ? ((await this.getProvenanceDb()).elements.getAspect(
-          scopeProvenanceAspectProps.aspectId
-        ) as ExternalSourceAspect)
-      : undefined;
+    return this._provenanceManager.tryGetProvenanceScopeAspect();
   }
 
   /**
    * Make sure there are no conflicting other scope-type external source aspects on the *target scope element*,
    * If there are none at all, insert one, then this must be a first synchronization.
-   * @returns the last synced version (changesetId) on the target scope's external source aspect,
-   *          if this was a [BriefcaseDb]($backend)
    */
   protected async initScopeProvenance(): Promise<void> {
-    const provenanceDb = await this.getProvenanceDb();
-    const sourceProvenanceDb = await this.getProvenanceSourceDb();
-    const aspectProps = {
-      id: undefined as string | undefined,
-      version: undefined as string | undefined,
-      classFullName: ExternalSourceAspect.classFullName,
-      element: {
-        id: this.targetScopeElementId,
-        relClassName: ElementOwnsExternalSourceAspects.classFullName,
-      },
-      scope: { id: IModel.rootSubjectId }, // the root Subject scopes scope elements
-      identifier: sourceProvenanceDb.iModelId,
-      kind: ExternalSourceAspect.Kind.Scope,
-      jsonProperties: undefined as TargetScopeProvenanceJsonProps | undefined,
-    };
-
-    const foundEsaProps = await SyncTypeResolver.queryScopeExternalSourceAspect(
-      provenanceDb,
-      aspectProps
-    ); // this query includes "identifier"
-
-    if (foundEsaProps === undefined) {
-      aspectProps.version = ""; // empty since never before transformed. Will be updated in [[finalizeTransformation]]
-      aspectProps.jsonProperties = {
-        pendingReverseSyncChangesetIndices: [],
-        pendingSyncChangesetIndices: [],
-        reverseSyncVersion: "", // empty since never before transformed. Will be updated in first reverse sync
-      };
-
-      // this query does not include "identifier" to find possible conflicts
-      const sql = `
-        SELECT ECInstanceId
-        FROM ${ExternalSourceAspect.classFullName}
-        WHERE Element.Id=:elementId
-          AND Scope.Id=:scopeId
-          AND Kind=:kind
-        LIMIT 1
-      `;
-
-      const params = new QueryBinder();
-      params.bindId("elementId", aspectProps.element.id);
-      params.bindId("scopeId", aspectProps.scope.id); // this scope.id can never be invalid, we create it above
-      params.bindString("kind", aspectProps.kind);
-      const reader = provenanceDb.createQueryReader(sql, params, {
-        usePrimaryConn: true,
-      });
-      const hasConflictingScope = await reader.step();
-
-      if (hasConflictingScope) {
-        throw new IModelError(
-          IModelStatus.InvalidId,
-          "Provenance scope conflict"
-        );
-      }
-      if (!this._options.noProvenance) {
-        const id = provenanceDb.elements.insertAspect({
-          ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
-        });
-        aspectProps.id = id;
-        // Busting a potential cached version
-        this.clearCachedSynchronizationVersion();
-      }
-    } else {
-      // foundEsaProps is defined.
-      aspectProps.id = foundEsaProps.aspectId;
-      aspectProps.version = foundEsaProps.version;
-      aspectProps.jsonProperties = foundEsaProps.jsonProperties
-        ? JSON.parse(foundEsaProps.jsonProperties)
-        : undefined;
-      // Clone oldProps incase they're changed for logging purposes
-      const oldProps = JSON.parse(JSON.stringify(aspectProps));
-      if (this.handleUnsafeMigrate(aspectProps)) {
-        Logger.logInfo(
-          loggerCategory,
-          "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
-          { oldProps, newProps: aspectProps }
-        );
-        provenanceDb.elements.updateAspect({
-          ...aspectProps,
-          jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
-        });
-        // Busting a potential cached version
-        this.clearCachedSynchronizationVersion();
-      }
-    }
-
-    this._targetScopeProvenanceProps =
-      aspectProps as typeof this._targetScopeProvenanceProps;
+    return this._provenanceManager.initScopeProvenance();
   }
 
-  /** Returns true if a change was made to the aspectProps. */
-  private handleUnsafeMigrate(aspectProps: {
-    version?: string;
-    jsonProperties?: TargetScopeProvenanceJsonProps;
-  }): boolean {
-    let madeChange = false;
-    if (this._options.branchRelationshipDataBehavior !== "unsafe-migrate")
-      return madeChange;
-    const fallbackSyncVersionToUse =
-      this._options.argsForProcessChanges?.unsafeFallbackSyncVersion ?? "";
-    const fallbackReverseSyncVersionToUse =
-      this._options.argsForProcessChanges?.unsafeFallbackReverseSyncVersion ??
-      "";
-
-    if (
-      aspectProps.version === undefined ||
-      (aspectProps.version === "" &&
-        aspectProps.version !== fallbackSyncVersionToUse)
-    ) {
-      aspectProps.version = fallbackSyncVersionToUse;
-      madeChange = true;
-    }
-
-    if (aspectProps.jsonProperties === undefined) {
-      aspectProps.jsonProperties = {
-        pendingReverseSyncChangesetIndices: [],
-        pendingSyncChangesetIndices: [],
-        reverseSyncVersion: fallbackReverseSyncVersionToUse,
-      };
-      madeChange = true;
-    } else if (
-      aspectProps.jsonProperties.reverseSyncVersion === undefined ||
-      (aspectProps.jsonProperties.reverseSyncVersion === "" &&
-        aspectProps.jsonProperties.reverseSyncVersion !==
-          fallbackReverseSyncVersionToUse)
-    ) {
-      aspectProps.jsonProperties.reverseSyncVersion =
-        fallbackReverseSyncVersionToUse;
-      madeChange = true;
-    }
-
-    /**
-     * This case will only be hit when:
-     *  - first transformation was performed on pre-fedguid transformer.
-     *  - a second processAll transformation was performed on the same target-source iModels post-fedguid transformer.
-     *  - change processing was invoked on for the second 'initial' transformation.
-     *  NOTE: This case likely does not exist anymore, but we will keep it just to be sure.
-     */
-    if (
-      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices ===
-      undefined
-    ) {
-      Logger.logWarning(
-        loggerCategory,
-        "Property pendingReverseSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
-      );
-      aspectProps.jsonProperties.pendingReverseSyncChangesetIndices = [];
-      madeChange = true;
-    }
-    if (aspectProps.jsonProperties.pendingSyncChangesetIndices === undefined) {
-      Logger.logWarning(
-        loggerCategory,
-        "Property pendingSyncChangesetIndices missing on the jsonProperties of the scoping ESA. Setting to []."
-      );
-      aspectProps.jsonProperties.pendingSyncChangesetIndices = [];
-      madeChange = true;
-    }
-    return madeChange;
+  /**
+   * Updates the synchronization version on the scope ESA.
+   */
+  public async updateSynchronizationVersion({
+    initializeReverseSyncVersion = false,
+  } = {}) {
+    return this._provenanceManager.updateSynchronizationVersion({
+      initializeReverseSyncVersion,
+      sourceChangeDataState: this._sourceChangeDataState,
+    });
   }
 
   /**
@@ -1089,219 +786,13 @@ export class IModelTransformer extends IModelExportHandler {
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
     skipPropagateChangesToRootElements: boolean;
   }): Promise<void> {
-    if (args.provenanceDb === args.provenanceSourceDb) return;
-
-    if (!args.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
-      throw new IModelError(
-        IModelStatus.BadSchema,
-        "The BisCore schema version of the target database is too old"
-      );
-    }
-
-    const sourceDb = args.isReverseSynchronization
-      ? args.provenanceDb
-      : args.provenanceSourceDb;
-    const targetDb = args.isReverseSynchronization
-      ? args.provenanceSourceDb
-      : args.provenanceDb;
-
-    // query for provenanceDb
-    const elementIdByFedGuidQuery = `
-      SELECT e.ECInstanceId, FederationGuid
-      FROM bis.Element e
-      ${
-        args.skipPropagateChangesToRootElements
-          ? "WHERE e.ECInstanceId NOT IN (0x1, 0xe, 0x10) -- special static elements"
-          : ""
-      }
-      ORDER BY FederationGuid
-    `;
-
-    // iterate through sorted list of fed guids from both dbs to get the intersection
-    // NOTE: if we exposed the native attach database support,
-    // we could get the intersection of fed guids in one query, not sure if it would be faster
-    // OR we could do a raw sqlite query...
-
-    const sourceReader = sourceDb.createQueryReader(
-      elementIdByFedGuidQuery,
-      undefined,
-      { usePrimaryConn: true }
-    );
-    const targetReader = targetDb.createQueryReader(
-      elementIdByFedGuidQuery,
-      undefined,
-      { usePrimaryConn: true }
-    );
-    let hasSourceRow = await sourceReader.step();
-    let hasTargetRow = await targetReader.step();
-    while (hasSourceRow && hasTargetRow) {
-      const sourceFedGuid = sourceReader.current.federationGuid as
-        | GuidString
-        | undefined;
-      const targetFedGuid = targetReader.current.federationGuid as
-        | GuidString
-        | undefined;
-      if (
-        sourceFedGuid !== undefined &&
-        targetFedGuid !== undefined &&
-        sourceFedGuid === targetFedGuid
-      ) {
-        // data flow direction is always sourceDb -> targetDb and it does not depend on where the explicit element provenance is stored
-        args.fn(
-          sourceReader.current.id as Id64String,
-          targetReader.current.id as Id64String
-        );
-      }
-      if (
-        targetFedGuid === undefined ||
-        (sourceFedGuid !== undefined && sourceFedGuid >= targetFedGuid)
-      ) {
-        hasTargetRow = await targetReader.step();
-      }
-      if (
-        sourceFedGuid === undefined ||
-        (targetFedGuid !== undefined && sourceFedGuid <= targetFedGuid)
-      ) {
-        hasSourceRow = await sourceReader.step();
-      }
-    }
-
-    // query for provenanceDb
-    const provenanceAspectsQuery = `
-      SELECT esa.Identifier, Element.Id
-      FROM bis.ExternalSourceAspect esa
-      WHERE Scope.Id=:scopeId
-        AND Kind=:kind
-    `;
-
-    // Technically this will a second time call the function (as documented) on
-    // victims of the old provenance method that have both fedguids and an inserted aspect.
-    // But this is a private function with one known caller where that doesn't matter
-
-    const runFnInDataFlowDirection = (
-      sourceId: Id64String,
-      targetId: Id64String
-    ) =>
-      args.isReverseSynchronization
-        ? args.fn(sourceId, targetId)
-        : args.fn(targetId, sourceId);
-    const params = new QueryBinder();
-    params.bindId("scopeId", args.targetScopeElementId);
-    params.bindString("kind", ExternalSourceAspect.Kind.Element);
-    const provenanceReader = args.provenanceDb.createQueryReader(
-      provenanceAspectsQuery,
-      params,
-      { usePrimaryConn: true }
-    );
-    for await (const row of provenanceReader) {
-      // ExternalSourceAspect.Identifier is of type string
-      const aspectIdentifier: Id64String = row[0];
-      const elementId: Id64String = row.id;
-      runFnInDataFlowDirection(elementId, aspectIdentifier);
-    }
+    return ProvenanceManager.forEachTrackedElement(args);
   }
 
   private async forEachTrackedElement(
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void
   ): Promise<void> {
-    return IModelTransformer.forEachTrackedElement({
-      provenanceSourceDb: await this.getProvenanceSourceDb(),
-      provenanceDb: await this.getProvenanceDb(),
-      targetScopeElementId: this.targetScopeElementId,
-      isReverseSynchronization: await this.getIsReverseSynchronization(),
-      fn,
-      skipPropagateChangesToRootElements:
-        this._options.skipPropagateChangesToRootElements ?? true,
-    });
-  }
-
-  /**
-   * Queries the provenanceDb for an ESA whose identifier is equal to the provided 'entityInProvenanceSourceId'.
-   * The identifier on the ESA is the id of the element in the [[IModelTransformer.provenanceSourceDb]]
-   * Therefore it only makes sense to call this function when you have an id in the provenanceSourceDb.
-   * @param entityInProvenanceSourceId
-   * @returns the elementId that the ESA is stored on, esa.Element.Id
-   */
-  private async _queryProvenanceForElement(
-    entityInProvenanceSourceId: Id64String
-  ): Promise<Id64String | undefined> {
-    const sql = `
-        SELECT esa.Element.Id
-        FROM Bis.ExternalSourceAspect esa
-        WHERE esa.Kind=?
-          AND esa.Scope.Id=?
-          AND esa.Identifier=?
-      `;
-    const params = new QueryBinder();
-    params.bindString(1, ExternalSourceAspect.Kind.Element);
-    params.bindId(2, this.targetScopeElementId);
-    params.bindString(3, entityInProvenanceSourceId);
-    const result = (await this.getProvenanceDb()).createQueryReader(
-      sql,
-      params,
-      {
-        usePrimaryConn: true,
-      }
-    );
-    if (await result.step()) {
-      return result.current.id;
-    } else return undefined;
-  }
-
-  /**
-   * Queries the provenanceDb for an ESA whose identifier is equal to the provided 'entityInProvenanceSourceId'.
-   * The identifier on the ESA is the id of the relationship in the [[IModelTransformer.provenanceSourceDb]]
-   * Therefore it only makes sense to call this function when you have an id in the provenanceSourceDb.
-   * @param entityInProvenanceSourceId
-   * @returns
-   */
-  private async _queryProvenanceForRelationship(
-    entityInProvenanceSourceId: Id64String,
-    sourceRelInfo: {
-      classFullName: string;
-      sourceId: Id64String;
-      targetId: Id64String;
-    }
-  ): Promise<
-    | {
-        aspectId: Id64String;
-        /** if undefined, the relationship could not be found, perhaps it was deleted */
-        relationshipId: Id64String | undefined;
-      }
-    | undefined
-  > {
-    const sql = `
-      SELECT
-        ECInstanceId,
-        JSON_EXTRACT(JsonProperties, '$.provenanceRelInstanceId') AS provenanceRelInstId
-      FROM Bis.ExternalSourceAspect
-      WHERE Kind=?
-        AND Scope.Id=?
-        AND Identifier=?
-    `;
-    const params = new QueryBinder();
-    params.bindString(1, ExternalSourceAspect.Kind.Relationship);
-    params.bindId(2, this.targetScopeElementId);
-    params.bindString(3, entityInProvenanceSourceId);
-    const result = (await this.getProvenanceDb()).createQueryReader(
-      sql,
-      params,
-      {
-        usePrimaryConn: true,
-      }
-    );
-    if (await result.step()) {
-      const aspectId = result.current.id;
-      const provenanceRelInstId = result.current.provenanceRelInstId;
-      const provenanceRelInstanceId =
-        provenanceRelInstId !== undefined
-          ? (provenanceRelInstId as string)
-          : await this._queryTargetRelId(sourceRelInfo);
-      return {
-        aspectId,
-        relationshipId: provenanceRelInstanceId,
-      };
-    } else return undefined;
+    return this._provenanceManager.forEachTrackedElement(fn);
   }
 
   private async _queryTargetRelId(sourceRelInfo: {
@@ -1946,8 +1437,9 @@ export class IModelTransformer extends IModelExportHandler {
     // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
     const provenanceDb = await this.getProvenanceDb();
     if (!this._options.noProvenance) {
-      let provenance:
-        | Parameters<typeof this.markLastProvenance>[0]
+      const provenance:
+        | string
+        | MarkRequired<ExternalSourceAspectProps, "id">
         | undefined =
         this._options.forceExternalSourceAspectProvenance ||
         this._elementsWithExplicitlyTrackedProvenance.has(sourceElement.id)
@@ -1959,7 +1451,7 @@ export class IModelTransformer extends IModelExportHandler {
           targetElementProps.id
         );
         const foundEsaProps =
-          await SyncTypeResolver.queryScopeExternalSourceAspect(
+          await ProvenanceManager.queryScopeExternalSourceAspect(
             provenanceDb,
             aspectProps
           );
@@ -1970,13 +1462,7 @@ export class IModelTransformer extends IModelExportHandler {
           aspectProps.id = foundEsaProps.aspectId;
           provenanceDb.elements.updateAspect(aspectProps);
         }
-
-        provenance = aspectProps as MarkRequired<
-          ExternalSourceAspectProps,
-          "id"
-        >;
       }
-      this.markLastProvenance(provenance, { isRelationship: false });
     }
   }
 
@@ -2203,155 +1689,6 @@ export class IModelTransformer extends IModelExportHandler {
     return targetModelProps;
   }
 
-  /**
-   * Called at the end of a transformation,
-   * updates the target scope element to say that transformation up through the
-   * source's changeset has been performed. Also stores all changesets that occurred
-   * during the transformation as "pending synchronization changeset indices" @see TargetScopeProvenanceJsonProps
-   *
-   * You generally should not call this function yourself and use [[process]] with [[IModelTransformOptions.argsForProcessChanges]] provided instead.
-   * It is public for unsupported use cases of custom synchronization transforms.
-   * @note If [[IModelTransformOptions.argsForProcessChanges]] is not defined in this transformation, this function will return early without updating the sync version,
-   * unless the `initializeReverseSyncVersion` option is set to `true`
-   *
-   * The `initializeReverseSyncVersion` is added to set the reverse synchronization version during a forward synchronization.
-   * When set to `true`, it saves the reverse sync version as the current changeset of the targetDb. This is typically used for the first transformation between a master and branch iModel.
-   * Setting `initializeReverseSyncVersion` to `true` has the effect of making it so any changesets in the branch iModel at the time of the first transformation will be ignored during any future reverse synchronizations from the branch to the master iModel.
-   *
-   * Note that typically, the reverseSyncVersion is saved as the last changeset merged from the branch into master.
-   * Setting initializeReverseSyncVersion to true during a forward transformation could overwrite this correct reverseSyncVersion and should only be done during the first transformation between a master and branch iModel.
-   */
-  public async updateSynchronizationVersion({
-    initializeReverseSyncVersion = false,
-  } = {}) {
-    const shouldSkipSyncVersionUpdate =
-      !initializeReverseSyncVersion &&
-      this._sourceChangeDataState !== "has-changes";
-    if (shouldSkipSyncVersionUpdate) return;
-
-    nodeAssert(this._targetScopeProvenanceProps);
-
-    const sourceVersion = `${this.sourceDb.changeset.id};${this.sourceDb.changeset.index}`;
-    const targetVersion = `${this.targetDb.changeset.id};${this.targetDb.changeset.index}`;
-
-    if (await this.getIsReverseSynchronization()) {
-      const oldVersion =
-        this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
-
-      Logger.logInfo(
-        loggerCategory,
-        `updating reverse version from ${oldVersion} to ${sourceVersion}`
-      );
-      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
-        sourceVersion;
-    } else {
-      Logger.logInfo(
-        loggerCategory,
-        `updating sync version from ${this._targetScopeProvenanceProps.version} to ${sourceVersion}`
-      );
-      this._targetScopeProvenanceProps.version = sourceVersion;
-
-      // save reverse sync version
-      if (initializeReverseSyncVersion) {
-        Logger.logInfo(
-          loggerCategory,
-          `updating reverse sync version from ${this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion} to ${targetVersion}`
-        );
-        this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
-          targetVersion;
-      }
-    }
-
-    if (
-      this._options.argsForProcessChanges ||
-      (this._startingChangesetIndices && initializeReverseSyncVersion)
-    ) {
-      nodeAssert(
-        this.targetDb.changeset.index !== undefined &&
-          this._startingChangesetIndices !== undefined,
-        "updateSynchronizationVersion was called without change history"
-      );
-
-      // Store in a local variable, so typescript knows it's defined (due to the assert above)
-      const startingChangesetIndices = this._startingChangesetIndices;
-      const jsonProps = this._targetScopeProvenanceProps.jsonProperties;
-
-      Logger.logTrace(
-        loggerCategory,
-        `previous pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`
-      );
-      Logger.logTrace(
-        loggerCategory,
-        `previous pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
-      );
-
-      const pendingSyncChangesetIndicesKey =
-        "pendingSyncChangesetIndices" as const;
-      const pendingReverseSyncChangesetIndicesKey =
-        "pendingReverseSyncChangesetIndices" as const;
-
-      // Determine which keys to clear and update based on the synchronization direction
-      let syncChangesetsToClearKey;
-      let syncChangesetsToUpdateKey;
-
-      if (await this.getIsReverseSynchronization()) {
-        syncChangesetsToClearKey = pendingReverseSyncChangesetIndicesKey;
-        syncChangesetsToUpdateKey = pendingSyncChangesetIndicesKey;
-      } else {
-        syncChangesetsToClearKey = pendingSyncChangesetIndicesKey;
-        syncChangesetsToUpdateKey = pendingReverseSyncChangesetIndicesKey;
-      }
-
-      // NOTE that as documented in [[processChanges]], this assumes that right after
-      // transformation finalization, the work will be saved immediately, otherwise we've
-      // just marked this changeset as a synchronization to ignore, and the user can add other
-      // stuff to it which would break future synchronizations
-      for (
-        let i = startingChangesetIndices.target + 1;
-        i <= this.targetDb.changeset.index + 1;
-        i++
-      )
-        jsonProps[syncChangesetsToUpdateKey].push(i);
-      // Only keep the changeset indices which are greater than the source, this means they haven't been processed yet.
-      jsonProps[syncChangesetsToClearKey] = jsonProps[
-        syncChangesetsToClearKey
-      ].filter((csIndex) => {
-        return csIndex > startingChangesetIndices.source;
-      });
-
-      // if reverse sync then we may have received provenance changes which should be marked as sync changes
-      if (await this.getIsReverseSynchronization()) {
-        nodeAssert(
-          this.sourceDb.changeset.index !== undefined,
-          "changeset didn't exist"
-        );
-        for (
-          let i = startingChangesetIndices.source + 1;
-          i <= this.sourceDb.changeset.index + 1;
-          i++
-        )
-          jsonProps.pendingReverseSyncChangesetIndices.push(i);
-      }
-
-      Logger.logTrace(
-        loggerCategory,
-        `new pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`
-      );
-      Logger.logTrace(
-        loggerCategory,
-        `new pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
-      );
-    }
-
-    (await this.getProvenanceDb()).elements.updateAspect({
-      ...this._targetScopeProvenanceProps,
-      jsonProperties: JSON.stringify(
-        this._targetScopeProvenanceProps.jsonProperties
-      ) as any,
-    });
-    this.clearCachedSynchronizationVersion();
-  }
-
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private async finalizeTransformation() {
     this.importer.finalize();
@@ -2418,18 +1755,19 @@ export class IModelTransformer extends IModelExportHandler {
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
     ) {
-      let provenance:
-        | Parameters<typeof this.markLastProvenance>[0]
-        | undefined = !this._options.forceExternalSourceAspectProvenance
-        ? sourceFedGuid && targetFedGuid && `${sourceFedGuid}/${targetFedGuid}`
-        : undefined;
-      if (!provenance) {
-        const aspectProps = await this.initRelationshipProvenance(
-          sourceRelationship,
-          targetRelationshipInstanceId
-        );
+      const needsEsaProvenance = !this._options
+        .forceExternalSourceAspectProvenance
+        ? !(sourceFedGuid && targetFedGuid)
+        : true;
+      if (needsEsaProvenance) {
+        const aspectProps =
+          await this._provenanceManager.initRelationshipProvenance(
+            sourceRelationship.id,
+            targetRelationshipInstanceId,
+            this._forceOldRelationshipProvenanceMethod
+          );
         const foundEsaProps =
-          await SyncTypeResolver.queryScopeExternalSourceAspect(
+          await ProvenanceManager.queryScopeExternalSourceAspect(
             provenanceDb,
             aspectProps
           );
@@ -2437,12 +1775,7 @@ export class IModelTransformer extends IModelExportHandler {
         if (undefined === foundEsaProps) {
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
         }
-        provenance = aspectProps as MarkRequired<
-          ExternalSourceAspectProps,
-          "id"
-        >;
       }
-      this.markLastProvenance(provenance, { isRelationship: true });
     }
   }
 
@@ -3027,14 +2360,15 @@ export class IModelTransformer extends IModelExportHandler {
           targetIdInTarget: targetIdOfRelationshipInTarget,
         });
       } else if (this.sourceDb === (await this.getProvenanceSourceDb())) {
-        const relProvenance = await this._queryProvenanceForRelationship(
-          changedInstanceId,
-          {
-            classFullName: classFullName ?? "",
-            sourceId: sourceIdOfRelationshipInSource,
-            targetId: targetIdOfRelationshipInSource,
-          }
-        );
+        const relProvenance =
+          await this._provenanceManager.queryProvenanceForRelationship(
+            changedInstanceId,
+            {
+              classFullName: classFullName ?? "",
+              sourceId: sourceIdOfRelationshipInSource,
+              targetId: targetIdOfRelationshipInSource,
+            }
+          );
         if (relProvenance && relProvenance.relationshipId)
           this._deletedSourceRelationshipData?.set(changedInstanceId, {
             classFullName: classFullName ?? "",
@@ -3048,7 +2382,10 @@ export class IModelTransformer extends IModelExportHandler {
         targetId === undefined &&
         this.sourceDb === (await this.getProvenanceSourceDb())
       ) {
-        targetId = await this._queryProvenanceForElement(changedInstanceId);
+        targetId =
+          await this._provenanceManager.queryProvenanceForElement(
+            changedInstanceId
+          );
       }
       // since we are processing one changeset at a time, we can see local source deletes
       // of entities that were never synced and can be safely ignored
@@ -3133,16 +2470,8 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
 
-    nodeAssert(
-      this._targetScopeProvenanceProps,
-      "_targetScopeProvenanceProps should be set by now"
-    );
-
-    const changesetsToSkip = (await this.getIsReverseSynchronization())
-      ? this._targetScopeProvenanceProps.jsonProperties
-          .pendingReverseSyncChangesetIndices
-      : this._targetScopeProvenanceProps.jsonProperties
-          .pendingSyncChangesetIndices;
+    const changesetsToSkip =
+      await this._provenanceManager.getChangesetsToSkip();
 
     Logger.logTrace(loggerCategory, `changesets to skip: ${changesetsToSkip}`);
     this._changesetRanges = rangesFromRangeAndSkipped(
@@ -3242,27 +2571,6 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.importer.computeProjectExtents();
     await this.finalizeTransformation();
-  }
-
-  /** previous provenance, either a federation guid, a `${sourceFedGuid}/${targetFedGuid}` pair, or required aspect props */
-  private _lastProvenanceEntityInfo: string | LastProvenanceEntityInfo =
-    nullLastProvenanceEntityInfo;
-
-  private markLastProvenance(
-    sourceAspect: string | MarkRequired<ExternalSourceAspectProps, "id">,
-    { isRelationship = false }
-  ) {
-    this._lastProvenanceEntityInfo =
-      typeof sourceAspect === "string"
-        ? sourceAspect
-        : {
-            entityId: sourceAspect.element.id,
-            aspectId: sourceAspect.id,
-            aspectVersion: sourceAspect.version ?? "",
-            aspectKind: isRelationship
-              ? ExternalSourceAspect.Kind.Relationship
-              : ExternalSourceAspect.Kind.Element,
-          };
   }
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.

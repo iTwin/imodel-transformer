@@ -248,7 +248,9 @@ describe("IModelTransformerHub", () => {
         targetBriefcase
       );
       await transformer1.process();
-      const scopingEsa1 = transformer1["_targetScopeProvenanceProps"];
+      const scopingEsa1 = (transformer1["_provenanceManager"] as any)[
+        "_targetScopeProvenanceProps"
+      ];
       const reverseSyncVersion1 =
         scopingEsa1?.jsonProperties.reverseSyncVersion;
       assert.isEmpty(reverseSyncVersion1);
@@ -279,7 +281,9 @@ describe("IModelTransformerHub", () => {
       await transformer2.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
-      const scopingEsa2 = transformer2["_targetScopeProvenanceProps"];
+      const scopingEsa2 = (transformer2["_provenanceManager"] as any)[
+        "_targetScopeProvenanceProps"
+      ];
       const reverseSyncVersion2 =
         scopingEsa2?.jsonProperties.reverseSyncVersion;
       assert.isNotEmpty(reverseSyncVersion2);
@@ -2211,7 +2215,9 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
-    let scopingEsa = transformer["_targetScopeProvenanceProps"];
+    let scopingEsa = (transformer["_provenanceManager"] as any)[
+      "_targetScopeProvenanceProps"
+    ];
     expect(
       scopingEsa?.jsonProperties.pendingSyncChangesetIndices.length
     ).to.equal(1);
@@ -2239,7 +2245,9 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
-    scopingEsa = transformer["_targetScopeProvenanceProps"];
+    scopingEsa = (transformer["_provenanceManager"] as any)[
+      "_targetScopeProvenanceProps"
+    ];
     expect(
       scopingEsa?.jsonProperties.pendingSyncChangesetIndices
     ).to.deep.equal([4]);
