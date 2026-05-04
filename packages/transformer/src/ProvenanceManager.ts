@@ -27,36 +27,12 @@ import {
 } from "@itwin/core-common";
 import type { Entity } from "@itwin/core-backend";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import type { TargetScopeProvenanceJsonProps } from "./IModelTransformer";
+import type {
+  IModelTransformOptions,
+  TargetScopeProvenanceJsonProps,
+} from "./IModelTransformer";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
-
-/** Options for constructing a ProvenanceManager.
- * @internal
- */
-export interface ProvenanceManagerOptions {
-  sourceDb: IModelDb;
-  targetDb: IModelDb;
-  targetScopeElementId: Id64String;
-  getIsReverseSynchronization: () => Promise<boolean>;
-  /** Mutable options read at call time, not construction time. */
-  transformerOptions: {
-    noProvenance?: boolean;
-    branchRelationshipDataBehavior?: "reject" | "unsafe-migrate";
-    argsForProcessChanges?: {
-      unsafeFallbackSyncVersion?: string;
-      unsafeFallbackReverseSyncVersion?: string;
-    };
-    skipPropagateChangesToRootElements?: boolean;
-  };
-  startingChangesetIndices?: { target: number; source: number };
-  /** Callback to resolve a target relationship ID from source relationship info (legacy fallback). */
-  queryTargetRelationshipId?: (sourceRelInfo: {
-    classFullName: string;
-    sourceId: Id64String;
-    targetId: Id64String;
-  }) => Promise<Id64String | undefined>;
-}
 
 /**
  * Manages provenance scope aspects and synchronization versioning.
@@ -65,7 +41,20 @@ export interface ProvenanceManagerOptions {
  * @internal
  */
 export class ProvenanceManager {
-  private readonly _opts: ProvenanceManagerOptions;
+  private readonly _sourceDb: IModelDb;
+  private readonly _targetDb: IModelDb;
+  private readonly _targetScopeElementId: Id64String;
+  private readonly _transformerOptions: IModelTransformOptions;
+  private readonly _isReverseSynchronization: () => Promise<boolean>;
+  private readonly _startingChangesetIndices?: {
+    target: number;
+    source: number;
+  };
+  private readonly _queryTargetRelationshipId?: (sourceRelInfo: {
+    classFullName: string;
+    sourceId: Id64String;
+    targetId: Id64String;
+  }) => Promise<Id64String | undefined>;
 
   /** NOTE: the json properties must be converted to string before insertion */
   private _targetScopeProvenanceProps:
@@ -77,8 +66,26 @@ export class ProvenanceManager {
   private _cachedSynchronizationVersion: ChangesetIndexAndId | undefined =
     undefined;
 
-  public constructor(opts: ProvenanceManagerOptions) {
-    this._opts = opts;
+  public constructor(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetScopeElementId: Id64String,
+    transformerOptions: IModelTransformOptions,
+    isReverseSynchronization: () => Promise<boolean>,
+    startingChangesetIndices?: { target: number; source: number },
+    queryTargetRelationshipId?: (sourceRelInfo: {
+      classFullName: string;
+      sourceId: Id64String;
+      targetId: Id64String;
+    }) => Promise<Id64String | undefined>
+  ) {
+    this._sourceDb = sourceDb;
+    this._targetDb = targetDb;
+    this._targetScopeElementId = targetScopeElementId;
+    this._transformerOptions = transformerOptions;
+    this._isReverseSynchronization = isReverseSynchronization;
+    this._startingChangesetIndices = startingChangesetIndices;
+    this._queryTargetRelationshipId = queryTargetRelationshipId;
   }
 
   // ── Static provenance metadata ──────────────────────────────────────────
@@ -280,18 +287,18 @@ export class ProvenanceManager {
    * This will be targetDb except when it is a reverse synchronization, in which case it will be sourceDb.
    */
   public async getProvenanceDb(): Promise<IModelDb> {
-    return (await this._opts.getIsReverseSynchronization())
-      ? this._opts.sourceDb
-      : this._opts.targetDb;
+    return (await this._isReverseSynchronization())
+      ? this._sourceDb
+      : this._targetDb;
   }
 
   /** Return the IModelDb where entities referred to by stored provenance live.
    * This will be sourceDb except when it is a reverse synchronization, in which case it will be targetDb.
    */
   public async getProvenanceSourceDb(): Promise<IModelDb> {
-    return (await this._opts.getIsReverseSynchronization())
-      ? this._opts.targetDb
-      : this._opts.sourceDb;
+    return (await this._isReverseSynchronization())
+      ? this._targetDb
+      : this._sourceDb;
   }
 
   // ── Scope aspect management ────────────────────────────────────────────
@@ -312,7 +319,7 @@ export class ProvenanceManager {
           scope: { id: IModel.rootSubjectId },
           kind: ExternalSourceAspect.Kind.Scope,
           element: {
-            id: this._opts.targetScopeElementId ?? IModel.rootSubjectId,
+            id: this._targetScopeElementId ?? IModel.rootSubjectId,
           },
           identifier: (await this.getProvenanceSourceDb()).iModelId,
         }
@@ -337,7 +344,7 @@ export class ProvenanceManager {
       version: undefined as string | undefined,
       classFullName: ExternalSourceAspect.classFullName,
       element: {
-        id: this._opts.targetScopeElementId,
+        id: this._targetScopeElementId,
         relClassName: ElementOwnsExternalSourceAspects.classFullName,
       },
       scope: { id: IModel.rootSubjectId },
@@ -385,7 +392,7 @@ export class ProvenanceManager {
           "Provenance scope conflict"
         );
       }
-      if (!this._opts.transformerOptions.noProvenance) {
+      if (!this._transformerOptions.noProvenance) {
         const id = provenanceDb.elements.insertAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -425,15 +432,15 @@ export class ProvenanceManager {
   }): boolean {
     let madeChange = false;
     if (
-      this._opts.transformerOptions.branchRelationshipDataBehavior !==
+      this._transformerOptions.branchRelationshipDataBehavior !==
       "unsafe-migrate"
     )
       return madeChange;
     const fallbackSyncVersionToUse =
-      this._opts.transformerOptions.argsForProcessChanges
+      this._transformerOptions.argsForProcessChanges
         ?.unsafeFallbackSyncVersion ?? "";
     const fallbackReverseSyncVersionToUse =
-      this._opts.transformerOptions.argsForProcessChanges
+      this._transformerOptions.argsForProcessChanges
         ?.unsafeFallbackReverseSyncVersion ?? "";
 
     if (
@@ -506,7 +513,7 @@ export class ProvenanceManager {
         return { index: -1, id: "" };
       }
 
-      const version = (await this._opts.getIsReverseSynchronization())
+      const version = (await this._isReverseSynchronization())
         ? (
             JSON.parse(
               provenanceScopeAspect.jsonProperties ?? "{}"
@@ -515,7 +522,7 @@ export class ProvenanceManager {
         : provenanceScopeAspect.version;
       if (
         !version &&
-        this._opts.transformerOptions.branchRelationshipDataBehavior ===
+        this._transformerOptions.branchRelationshipDataBehavior ===
           "unsafe-migrate"
       ) {
         return { index: -1, id: "" };
@@ -541,7 +548,7 @@ export class ProvenanceManager {
       this._targetScopeProvenanceProps,
       "_targetScopeProvenanceProps should be set by now"
     );
-    return (await this._opts.getIsReverseSynchronization())
+    return (await this._isReverseSynchronization())
       ? this._targetScopeProvenanceProps.jsonProperties
           .pendingReverseSyncChangesetIndices
       : this._targetScopeProvenanceProps.jsonProperties
@@ -566,10 +573,10 @@ export class ProvenanceManager {
 
     nodeAssert(this._targetScopeProvenanceProps);
 
-    const sourceVersion = `${this._opts.sourceDb.changeset.id};${this._opts.sourceDb.changeset.index}`;
-    const targetVersion = `${this._opts.targetDb.changeset.id};${this._opts.targetDb.changeset.index}`;
+    const sourceVersion = `${this._sourceDb.changeset.id};${this._sourceDb.changeset.index}`;
+    const targetVersion = `${this._targetDb.changeset.id};${this._targetDb.changeset.index}`;
 
-    if (await this._opts.getIsReverseSynchronization()) {
+    if (await this._isReverseSynchronization()) {
       const oldVersion =
         this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
 
@@ -596,13 +603,13 @@ export class ProvenanceManager {
       }
     }
 
-    const startingChangesetIndices = this._opts.startingChangesetIndices;
+    const startingChangesetIndices = this._startingChangesetIndices;
     if (
-      this._opts.transformerOptions.argsForProcessChanges ||
+      !!this._transformerOptions.argsForProcessChanges ||
       (startingChangesetIndices && initializeReverseSyncVersion)
     ) {
       nodeAssert(
-        this._opts.targetDb.changeset.index !== undefined &&
+        this._targetDb.changeset.index !== undefined &&
           startingChangesetIndices !== undefined,
         "updateSynchronizationVersion was called without change history"
       );
@@ -626,7 +633,7 @@ export class ProvenanceManager {
       let syncChangesetsToClearKey;
       let syncChangesetsToUpdateKey;
 
-      if (await this._opts.getIsReverseSynchronization()) {
+      if (await this._isReverseSynchronization()) {
         syncChangesetsToClearKey = pendingReverseSyncChangesetIndicesKey;
         syncChangesetsToUpdateKey = pendingSyncChangesetIndicesKey;
       } else {
@@ -636,7 +643,7 @@ export class ProvenanceManager {
 
       for (
         let i = startingChangesetIndices.target + 1;
-        i <= this._opts.targetDb.changeset.index + 1;
+        i <= this._targetDb.changeset.index + 1;
         i++
       )
         jsonProps[syncChangesetsToUpdateKey].push(i);
@@ -646,14 +653,14 @@ export class ProvenanceManager {
         return csIndex > startingChangesetIndices.source;
       });
 
-      if (await this._opts.getIsReverseSynchronization()) {
+      if (await this._isReverseSynchronization()) {
         nodeAssert(
-          this._opts.sourceDb.changeset.index !== undefined,
+          this._sourceDb.changeset.index !== undefined,
           "changeset didn't exist"
         );
         for (
           let i = startingChangesetIndices.source + 1;
-          i <= this._opts.sourceDb.changeset.index + 1;
+          i <= this._sourceDb.changeset.index + 1;
           i++
         )
           jsonProps.pendingReverseSyncChangesetIndices.push(i);
@@ -776,11 +783,10 @@ export class ProvenanceManager {
       sourceElementId,
       targetElementId,
       {
-        isReverseSynchronization:
-          await this._opts.getIsReverseSynchronization(),
-        targetScopeElementId: this._opts.targetScopeElementId,
-        sourceDb: this._opts.sourceDb,
-        targetDb: this._opts.targetDb,
+        isReverseSynchronization: await this._isReverseSynchronization(),
+        targetScopeElementId: this._targetScopeElementId,
+        sourceDb: this._sourceDb,
+        targetDb: this._targetDb,
       }
     );
   }
@@ -795,11 +801,10 @@ export class ProvenanceManager {
       sourceRelInstanceId,
       targetRelInstanceId,
       {
-        sourceDb: this._opts.sourceDb,
-        targetDb: this._opts.targetDb,
-        isReverseSynchronization:
-          await this._opts.getIsReverseSynchronization(),
-        targetScopeElementId: this._opts.targetScopeElementId,
+        sourceDb: this._sourceDb,
+        targetDb: this._targetDb,
+        isReverseSynchronization: await this._isReverseSynchronization(),
+        targetScopeElementId: this._targetScopeElementId,
         forceOldRelationshipProvenanceMethod,
       }
     );
@@ -823,7 +828,7 @@ export class ProvenanceManager {
       `;
     const params = new QueryBinder();
     params.bindString(1, ExternalSourceAspect.Kind.Element);
-    params.bindId(2, this._opts.targetScopeElementId);
+    params.bindId(2, this._targetScopeElementId);
     params.bindString(3, entityInProvenanceSourceId);
     const result = (await this.getProvenanceDb()).createQueryReader(
       sql,
@@ -868,7 +873,7 @@ export class ProvenanceManager {
     `;
     const params = new QueryBinder();
     params.bindString(1, ExternalSourceAspect.Kind.Relationship);
-    params.bindId(2, this._opts.targetScopeElementId);
+    params.bindId(2, this._targetScopeElementId);
     params.bindString(3, entityInProvenanceSourceId);
     const result = (await this.getProvenanceDb()).createQueryReader(
       sql,
@@ -883,7 +888,7 @@ export class ProvenanceManager {
       const provenanceRelInstanceId =
         provenanceRelInstId !== undefined
           ? (provenanceRelInstId as string)
-          : await this._opts.queryTargetRelationshipId?.(sourceRelInfo);
+          : await this._queryTargetRelationshipId?.(sourceRelInfo);
       return {
         aspectId,
         relationshipId: provenanceRelInstanceId,
@@ -898,12 +903,11 @@ export class ProvenanceManager {
     return ProvenanceManager.forEachTrackedElement({
       provenanceSourceDb: await this.getProvenanceSourceDb(),
       provenanceDb: await this.getProvenanceDb(),
-      targetScopeElementId: this._opts.targetScopeElementId,
-      isReverseSynchronization: await this._opts.getIsReverseSynchronization(),
+      targetScopeElementId: this._targetScopeElementId,
+      isReverseSynchronization: await this._isReverseSynchronization(),
       fn,
       skipPropagateChangesToRootElements:
-        this._opts.transformerOptions.skipPropagateChangesToRootElements ??
-        true,
+        this._transformerOptions.skipPropagateChangesToRootElements ?? true,
     });
   }
 }

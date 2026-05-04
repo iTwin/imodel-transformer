@@ -409,11 +409,11 @@ export class IModelTransformer extends IModelExportHandler {
   >;
 
   public async getIsReverseSynchronization(): Promise<boolean> {
-    return this._syncTypeResolver.getIsReverseSynchronization();
+    return (await this._syncTypeResolver.getSyncType()) === "reverse";
   }
 
   public async getIsForwardSynchronization(): Promise<boolean> {
-    return this._syncTypeResolver.getIsForwardSynchronization();
+    return (await this._syncTypeResolver.getSyncType()) === "forward";
   }
 
   private _changesetRanges: [number, number][] | undefined = undefined;
@@ -526,24 +526,22 @@ export class IModelTransformer extends IModelExportHandler {
       (this.targetDb as any).codeValueBehavior = "exact";
     }
     /* eslint-enable @itwin/no-internal */
-    this._syncTypeResolver = new SyncTypeResolver({
-      sourceDb: this.sourceDb,
-      targetDb: this.targetDb,
-      targetScopeElementId: this._options.targetScopeElementId,
-      isProvenanceInitTransform: this._isProvenanceInitTransform,
-      hasArgsForProcessChanges: !!this._options.argsForProcessChanges,
-    });
-    this._provenanceManager = new ProvenanceManager({
-      sourceDb: this.sourceDb,
-      targetDb: this.targetDb,
-      targetScopeElementId: this._options.targetScopeElementId,
-      getIsReverseSynchronization: async () =>
-        this._syncTypeResolver.getIsReverseSynchronization(),
-      transformerOptions: this._options,
-      startingChangesetIndices: this._startingChangesetIndices,
-      queryTargetRelationshipId: async (sourceRelInfo) =>
-        this._queryTargetRelId(sourceRelInfo),
-    });
+    this._syncTypeResolver = new SyncTypeResolver(
+      this.sourceDb,
+      this.targetDb,
+      this._options.targetScopeElementId,
+      !!this._isProvenanceInitTransform,
+      !!this._options.argsForProcessChanges
+    );
+    this._provenanceManager = new ProvenanceManager(
+      this.sourceDb,
+      this.targetDb,
+      this._options.targetScopeElementId,
+      this._options,
+      async () => this.getIsReverseSynchronization(),
+      this._startingChangesetIndices,
+      async (sourceRelInfo) => this._queryTargetRelId(sourceRelInfo)
+    );
     this._elementResolver = new ElementResolver({
       targetDb: this.targetDb,
       isBetweenIModels: this.context.isBetweenIModels,
@@ -881,7 +879,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note Not relevant for [[process]] when [[IModelTransformOptions.argsForProcessChanges]] are provided and change history is known.
    */
   protected async shouldDetectDeletes(): Promise<boolean> {
-    return this._syncTypeResolver.getResolvedSyncType() === "not-sync";
+    return (await this._syncTypeResolver.getSyncType()) === "not-sync";
   }
 
   /** Transform the specified sourceElement into ElementProps for the target iModel.

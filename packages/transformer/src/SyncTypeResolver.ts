@@ -15,18 +15,6 @@ import { ProvenanceManager } from "./ProvenanceManager";
 /** @internal */
 export type SyncType = "not-sync" | "forward" | "reverse";
 
-/** Options for constructing a SyncTypeResolver.
- * @internal
- */
-export interface SyncTypeResolverOptions {
-  sourceDb: IModelDb;
-  targetDb: IModelDb;
-  targetScopeElementId: Id64String;
-  isProvenanceInitTransform?: boolean;
-  allowNoScopingESA?: boolean;
-  hasArgsForProcessChanges?: boolean;
-}
-
 /**
  * Encapsulates sync direction determination logic.
  * Given a source and target iModel, resolves whether the transformation is
@@ -38,16 +26,34 @@ export class SyncTypeResolver {
     "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true.";
 
   private _syncType?: SyncType;
-  private readonly _opts: SyncTypeResolverOptions;
+  private _allowNoScopingESA: boolean;
+  private readonly _sourceDb: IModelDb;
+  private readonly _targetDb: IModelDb;
+  private readonly _targetScopeElementId: Id64String;
+  private readonly _isProvenanceInitTransform: boolean;
+  private readonly _isSyncTransform: boolean;
 
-  public constructor(opts: SyncTypeResolverOptions) {
-    this._opts = opts;
+  public constructor(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetScopeElementId: Id64String,
+    isProvenanceInitTransform: boolean = false,
+    isSyncTransform: boolean = false,
+    allowNoScopingESA: boolean = false
+  ) {
+    this._sourceDb = sourceDb;
+    this._targetDb = targetDb;
+    this._targetScopeElementId = targetScopeElementId;
+    this._isProvenanceInitTransform = isProvenanceInitTransform;
+    this._isSyncTransform = isSyncTransform;
+    this._allowNoScopingESA = allowNoScopingESA;
   }
 
   /**
    * Determines the sync direction "forward" or "reverse" of a given sourceDb and targetDb by looking for the scoping ESA.
    * If the sourceDb's iModelId is found as the identifier of the expected scoping ESA in the targetDb, then it is a forward synchronization.
    * If the targetDb's iModelId is found as the identifier of the expected scoping ESA in the sourceDb, then it is a reverse synchronization.
+   * @note This is a standalone utility that does not depend on instance state.
    * @throws if no scoping ESA can be found in either the sourceDb or targetDb which describes a master branch relationship between the two databases.
    * @returns "forward" or "reverse"
    */
@@ -93,57 +99,41 @@ export class SyncTypeResolver {
     throw new Error(SyncTypeResolver.noEsaSyncDirectionErrorMessage);
   }
 
-  private async resolve(): Promise<SyncType> {
-    if (this._opts.isProvenanceInitTransform) {
-      return "forward";
-    }
-    if (!this._opts.hasArgsForProcessChanges) {
-      return "not-sync";
-    }
-    try {
-      return await SyncTypeResolver.determineSyncType(
-        this._opts.sourceDb,
-        this._opts.targetDb,
-        this._opts.targetScopeElementId
-      );
-    } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message === SyncTypeResolver.noEsaSyncDirectionErrorMessage &&
-        this._opts.allowNoScopingESA
-      ) {
-        return "forward";
+  /** Returns the sync type, lazily resolving it on first call. */
+  public async getSyncType(): Promise<SyncType> {
+    if (this._syncType === undefined) {
+      if (this._isProvenanceInitTransform) {
+        this._syncType = "forward";
+      } else if (!this._isSyncTransform) {
+        this._syncType = "not-sync";
+      } else {
+        try {
+          this._syncType = await SyncTypeResolver.determineSyncType(
+            this._sourceDb,
+            this._targetDb,
+            this._targetScopeElementId
+          );
+        } catch (err) {
+          if (
+            err instanceof Error &&
+            err.message === SyncTypeResolver.noEsaSyncDirectionErrorMessage &&
+            this._allowNoScopingESA
+          ) {
+            this._syncType = "forward";
+          } else {
+            throw err;
+          }
+        }
       }
-      throw err;
     }
-  }
-
-  /** Returns true if this is a reverse synchronization. Lazily resolves the sync type. */
-  public async getIsReverseSynchronization(): Promise<boolean> {
-    if (this._syncType === undefined) this._syncType = await this.resolve();
-    return this._syncType === "reverse";
-  }
-
-  /** Returns true if this is a forward synchronization. Lazily resolves the sync type. */
-  public async getIsForwardSynchronization(): Promise<boolean> {
-    if (this._syncType === undefined) this._syncType = await this.resolve();
-    return this._syncType === "forward";
+    return this._syncType;
   }
 
   public get allowNoScopingESA(): boolean {
-    return this._opts.allowNoScopingESA ?? false;
+    return this._allowNoScopingESA;
   }
 
   public set allowNoScopingESA(value: boolean) {
-    this._opts.allowNoScopingESA = value;
-  }
-
-  /** Returns the resolved sync type. Asserts that it has already been resolved. */
-  public getResolvedSyncType(): SyncType {
-    if (this._syncType === undefined)
-      throw new Error(
-        "SyncType has not been resolved yet. Call getIsReverseSynchronization() or getIsForwardSynchronization() first."
-      );
-    return this._syncType;
+    this._allowNoScopingESA = value;
   }
 }
