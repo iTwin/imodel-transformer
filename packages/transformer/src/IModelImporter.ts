@@ -13,7 +13,6 @@ import {
   Logger,
 } from "@itwin/core-bentley";
 import {
-  AxisAlignedBox3d,
   Base64EncodedString,
   ECJsNames,
   ElementAspectProps,
