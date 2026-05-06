@@ -63,7 +63,7 @@ export class ElementCascadingDeleter extends ElementTreeDeleter {
 
     const params = new QueryBinder().bindId("scopeId", element);
 
-    this._iModel.withQueryReader(
+    this.txn.iModel.withQueryReader(
       query,
       (reader) => {
         for (const row of reader) {
