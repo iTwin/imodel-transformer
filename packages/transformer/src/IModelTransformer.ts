@@ -31,6 +31,7 @@ import {
   Vector3d,
 } from "@itwin/core-geometry";
 import {
+  BriefcaseDb,
   BriefcaseManager,
   ChangedECInstance,
   ChangesetECAdaptor,
@@ -253,6 +254,12 @@ export interface IModelTransformOptions {
    * @default false
    */
   tryAlignGeolocation?: boolean;
+
+  /**
+   * Acquire locks on elements during import
+   * @default false
+   */
+  acquireElementLocks?: boolean;
 }
 
 /**
@@ -613,6 +620,7 @@ export class IModelTransformer extends IModelExportHandler {
       skipPropagateChangesToRootElements:
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
+      acquireElementLocks: options?.acquireElementLocks ?? false,
     };
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
@@ -652,12 +660,25 @@ export class IModelTransformer extends IModelExportHandler {
           this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
           this._options.skipPropagateChangesToRootElements,
+        acquireElementLocks: this._options.acquireElementLocks,
       });
     } else {
       this.importer = target;
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
+
+    // Validate acquireElementLocks option - only valid for BriefcaseDb targets
+    if (
+      this._options.acquireElementLocks &&
+      !(this.targetDb instanceof BriefcaseDb)
+    ) {
+      throw new IModelError(
+        IModelStatus.BadArg,
+        "acquireElementLocks option requires targetDb to be a BriefcaseDb"
+      );
+    }
+
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -1099,6 +1120,11 @@ export class IModelTransformer extends IModelExportHandler {
         );
       }
       if (!this._options.noProvenance) {
+        if (this._options.acquireElementLocks) {
+          await provenanceDb.locks.acquireLocks({
+            exclusive: aspectProps.element.id,
+          });
+        }
         const id = provenanceDb.elements.insertAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -1122,6 +1148,11 @@ export class IModelTransformer extends IModelExportHandler {
           "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
           { oldProps, newProps: aspectProps }
         );
+        if (this._options.acquireElementLocks) {
+          await provenanceDb.locks.acquireLocks({
+            exclusive: aspectProps.element.id,
+          });
+        }
         provenanceDb.elements.updateAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -1773,6 +1804,11 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const targetAspectProps =
         await this.onTransformElementAspect(sourceAspect);
+      if (this._options.acquireElementLocks) {
+        await this.targetDb.locks.acquireLocks({
+          exclusive: targetAspectProps.element.id,
+        });
+      }
       this.targetDb.elements.updateAspect({
         ...targetAspectProps,
         id: targetAspectId,
@@ -2095,11 +2131,21 @@ export class IModelTransformer extends IModelExportHandler {
             provenanceDb,
             aspectProps
           );
-        if (foundEsaProps === undefined)
+        if (foundEsaProps === undefined) {
+          if (this._options.acquireElementLocks) {
+            await provenanceDb.locks.acquireLocks({
+              exclusive: aspectProps.element.id,
+            });
+          }
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
-        else {
+        } else {
           // Since initElementProvenance sets a property 'version' on the aspectProps that we wish to persist in the provenanceDb, only grab the id from the foundEsaProps.
           aspectProps.id = foundEsaProps.aspectId;
+          if (this._options.acquireElementLocks) {
+            await provenanceDb.locks.acquireLocks({
+              exclusive: aspectProps.element.id,
+            });
+          }
           provenanceDb.elements.updateAspect(aspectProps);
         }
 
@@ -2474,6 +2520,13 @@ export class IModelTransformer extends IModelExportHandler {
         `new pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
       );
     }
+    if (this._options.acquireElementLocks) {
+      await (
+        await this.getProvenanceDb()
+      ).locks.acquireLocks({
+        exclusive: this._targetScopeProvenanceProps.element.id,
+      });
+    }
 
     (await this.getProvenanceDb()).elements.updateAspect({
       ...this._targetScopeProvenanceProps,
@@ -2567,6 +2620,11 @@ export class IModelTransformer extends IModelExportHandler {
           );
         // onExportRelationship doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
         if (undefined === foundEsaProps) {
+          if (this._options.acquireElementLocks) {
+            await provenanceDb.locks.acquireLocks({
+              exclusive: aspectProps.element.id,
+            });
+          }
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
         }
         provenance = aspectProps as MarkRequired<
@@ -3329,9 +3387,29 @@ export class IModelTransformer extends IModelExportHandler {
 
     this.logSettings();
 
-    return this._options.argsForProcessChanges !== undefined
-      ? this.processChanges(this._options.argsForProcessChanges)
-      : this.processAll();
+    try {
+      return this._options.argsForProcessChanges !== undefined
+        ? await this.processChanges(this._options.argsForProcessChanges)
+        : await this.processAll();
+    } catch (error) {
+      // If acquireElementLocks is enabled, clean up locks on failure.
+      // Constructor validates that targetDb is a BriefcaseDb when this option is set.
+      if (this._options.acquireElementLocks) {
+        try {
+          const briefcaseDb = this.targetDb as BriefcaseDb;
+          if (briefcaseDb.txns.hasUnsavedChanges) {
+            briefcaseDb.abandonChanges();
+            await briefcaseDb.locks.abandonLocksForCurrentUnsavedTxn();
+          }
+        } catch (cleanupError) {
+          Logger.logWarning(
+            loggerCategory,
+            `Failed to cleanup locks after transformation error: ${String(cleanupError)}`
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.

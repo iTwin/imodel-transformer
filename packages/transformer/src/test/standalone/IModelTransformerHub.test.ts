@@ -153,7 +153,8 @@ describe("IModelTransformerHub", () => {
 
   const createPopulatedIModelHubIModel = async (
     iModelName: string,
-    prepareIModel?: (iModel: SnapshotDb) => void | Promise<void>
+    prepareIModel?: (iModel: SnapshotDb) => void | Promise<void>,
+    noLocks: boolean = true
   ): Promise<string> => {
     // Create and push seed of IModel
     const seedFileName = path.join(outputDir, `${iModelName}.bim`);
@@ -173,7 +174,7 @@ describe("IModelTransformerHub", () => {
       iModelName,
       description: "source",
       version0: seedFileName,
-      noLocks: true,
+      noLocks: noLocks ? true : undefined,
     });
     return iModelId;
   };
@@ -623,6 +624,285 @@ describe("IModelTransformerHub", () => {
       ].queryChangesets({ accessToken, iModelId: targetIModelId });
       assert.equal(sourceIModelChangeSets.length, 2);
       assert.equal(targetIModelChangeSets.length, 2);
+
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    } finally {
+      try {
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
+  it("Transform source iModel to target iModel with locks", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      "TransformerSourceWithLocks",
+      async (sourceSeedDb) => {
+        await TestUtils.ExtensiveTestScenario.prepareDb(sourceSeedDb);
+      },
+      false // noLocks = false, so locks are required
+    );
+
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      "TransformerTargetWithLocks",
+      async (targetSeedDb) => {
+        await TransformerExtensiveTestScenario.prepareTargetDb(targetSeedDb);
+      },
+      false // noLocks = false, so locks are required
+    );
+
+    try {
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+
+      // Acquire locks on source before populating (needed since noLocks=false)
+      await sourceDb.locks.acquireLocks({
+        exclusive: IModel.rootSubjectId,
+      });
+
+      // Populate source and push
+      TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+
+      // Insert a physical model that we'll delete later to test onDeleteModel
+      const tempModelId = PhysicalModel.insert(
+        sourceDb,
+        IModel.rootSubjectId,
+        "TempModelToDelete"
+      );
+      // Capture federation GUID for later verification
+      const tempModelFedGuid =
+        sourceDb.elements.getElement(tempModelId).federationGuid;
+      assert.isDefined(tempModelFedGuid);
+
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Populate source",
+      });
+
+      // Use acquireElementLocks option so transformer acquires locks automatically on target
+      const transformer = await TestIModelTransformer.create(
+        sourceDb,
+        targetDb,
+        {
+          acquireElementLocks: true,
+          argsForProcessChanges: {
+            startChangeset: { id: sourceDb.changeset.id },
+          },
+        }
+      );
+      transformer["_allowNoScopingESA"] = true;
+      await transformer.process();
+      transformer.dispose();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({ accessToken, description: "Import #1" });
+
+      // Verify transformation was successful
+      TransformerExtensiveTestScenario.assertTargetDbContents(
+        sourceDb,
+        targetDb
+      );
+
+      // Verify temp model exists in target after first transform (using fed guid)
+      const targetTempModelElement = targetDb.elements.tryGetElement({
+        federationGuid: tempModelFedGuid,
+      });
+      assert.isDefined(targetTempModelElement);
+      const targetTempModelId = targetTempModelElement.id;
+
+      // Now delete an element and the temp model from source to test onDeleteElement and onDeleteModel
+      // Find a physical object to delete (tests onDeleteElement)
+      const physicalObjectId = sourceDb
+        .queryEntityIds({
+          from: PhysicalObject.classFullName,
+          limit: 1,
+        })
+        .values()
+        .next().value!;
+      assert.isTrue(Id64.isValidId64(physicalObjectId));
+
+      // Save federation GUID before deleting so we can verify deletion in target
+      const physicalObjectFedGuid =
+        sourceDb.elements.getElement(physicalObjectId).federationGuid;
+      assert.isDefined(physicalObjectFedGuid);
+
+      // Acquire locks for the elements we're about to delete
+      await sourceDb.locks.acquireLocks({
+        exclusive: [physicalObjectId, tempModelId],
+      });
+
+      // Delete the physical object (element)
+      sourceDb.elements.deleteElement(physicalObjectId);
+
+      // Delete the temp model and its partition element to test onDeleteModel
+      // Must delete model first, then the partition element
+      sourceDb.models.deleteModel(tempModelId);
+      sourceDb.elements.deleteElement(tempModelId);
+
+      sourceDb.saveChanges();
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Delete element and model",
+      });
+
+      // Run another transform to propagate deletions
+      const transformer2 = await TestIModelTransformer.create(
+        sourceDb,
+        targetDb,
+        {
+          acquireElementLocks: true,
+          argsForProcessChanges: {},
+        }
+      );
+      await transformer2.process();
+      transformer2.dispose();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Import #2 - deletions",
+      });
+
+      // Verify deletions propagated to target
+      // The physical object should be deleted (using fed guid)
+      const targetPhysicalObjectAfterDelete = targetDb.elements.tryGetElement({
+        federationGuid: physicalObjectFedGuid,
+      });
+      assert.isUndefined(targetPhysicalObjectAfterDelete);
+
+      // The temp model should be deleted from target (check using tryGetModel)
+      const targetTempModelAfterDelete =
+        targetDb.models.tryGetModel(targetTempModelId);
+      assert.isUndefined(targetTempModelAfterDelete);
+
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+    } finally {
+      try {
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost[_hubAccess].deleteIModel({
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.log("can't destroy", err);
+      }
+    }
+  });
+
+  it("should release locks acquired during transformation when transformation fails", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      "TransformerSourceLockCleanup",
+      async (sourceSeedDb) => {
+        // Just need a few elements to trigger the failing transformer
+        const categoryId = SpatialCategory.insert(
+          sourceSeedDb,
+          IModel.dictionaryId,
+          "TestCategory",
+          { color: ColorDef.green.toJSON() }
+        );
+        const modelId = PhysicalModel.insert(
+          sourceSeedDb,
+          IModel.rootSubjectId,
+          "TestModel"
+        );
+        for (let i = 0; i < 10; i++) {
+          const props: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: `Element${i}`,
+          };
+          sourceSeedDb.elements.insertElement(props);
+        }
+      },
+      false // noLocks = false, so locks are required
+    );
+
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      "TransformerTargetLockCleanup",
+      undefined,
+      false // noLocks = false, so locks are required
+    );
+
+    try {
+      const sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      const targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+
+      // Acquire and PUSH a lock on target before transformation.
+      // This lock should be retained even if the transformation fails.
+      await targetDb.locks.acquireLocks({ exclusive: IModel.rootSubjectId });
+      const rootSubject = targetDb.elements.getElement(IModel.rootSubjectId);
+      rootSubject.setJsonProperty("preTransformLock", true);
+      rootSubject.update();
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Pre-transform lock",
+        retainLocks: true,
+      });
+
+      assert.isTrue(targetDb.locks.holdsExclusiveLock(IModel.rootSubjectId));
+
+      // Transformer that fails after processing a few elements
+      class FailingTransformer extends IModelTransformer {
+        private _count = 0;
+        public override async onExportElement(el: Element): Promise<void> {
+          if (++this._count > 5) throw new Error("Deliberate failure");
+          await super.onExportElement(el);
+        }
+      }
+
+      // Run transformation - expect it to fail
+      await expect(
+        (async () => {
+          const transformer = new FailingTransformer(sourceDb, targetDb, {
+            acquireElementLocks: true,
+          });
+          transformer["_allowNoScopingESA"] = true;
+          await transformer.process();
+          transformer.dispose();
+        })()
+      ).to.be.rejectedWith("Deliberate failure");
+
+      // Pre-transformation lock should still be held
+      assert.isTrue(
+        targetDb.locks.holdsExclusiveLock(IModel.rootSubjectId),
+        "Pre-transformation lock should still be held"
+      );
+
+      // Unsaved changes should have been abandoned during cleanup
+      assert.isFalse(targetDb.txns.hasUnsavedChanges);
 
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
