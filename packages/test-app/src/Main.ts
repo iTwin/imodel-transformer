@@ -38,7 +38,8 @@ const acquireAccessToken = async () =>
   IModelTransformerTestAppHost.acquireAccessToken();
 
 void (async () => {
-  let targetDb: IModelDb, sourceDb: IModelDb;
+  let targetDb: IModelDb | undefined;
+  let sourceDb: IModelDb | undefined;
   try {
     const envResult = dotenv.config({
       path: path.resolve(__dirname, "../.env"),
@@ -524,6 +525,10 @@ void (async () => {
       assert(false, "bad target argument");
     }
 
+    if (sourceDb === undefined || targetDb === undefined) {
+      throw new Error("sourceDb and targetDb must be defined at this point");
+    }
+
     if (args.logProvenanceScopes) {
       const sourceScopeIds =
         await ElementUtils.queryProvenanceScopeIds(sourceDb);
@@ -533,7 +538,7 @@ void (async () => {
         sourceScopeIds.forEach((scopeId) =>
           Logger.logInfo(
             loggerCategory,
-            `Source Provenance Scope: ${scopeId} ${sourceDb.elements
+            `Source Provenance Scope: ${scopeId} ${sourceDb!.elements
               .getElement(scopeId)
               .getDisplayLabel()}`
           )
@@ -547,7 +552,7 @@ void (async () => {
         targetScopeIds.forEach((scopeId) =>
           Logger.logInfo(
             loggerCategory,
-            `Target Provenance Scope: ${scopeId} ${targetDb.elements
+            `Target Provenance Scope: ${scopeId} ${targetDb!.elements
               .getElement(scopeId)
               .getDisplayLabel()}`
           )
@@ -614,10 +619,10 @@ void (async () => {
   } catch (error: any) {
     process.stdout.write(`${error.message}\n${error.stack}`);
   } finally {
-    if (targetDb! instanceof BriefcaseDb)
+    if (targetDb && targetDb instanceof BriefcaseDb)
       await targetDb.locks.releaseAllLocks();
-    targetDb!.close();
-    sourceDb!.close();
+    targetDb?.close();
+    sourceDb?.close();
     await IModelHost.shutdown();
     process.exit();
   }

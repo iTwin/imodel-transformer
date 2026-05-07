@@ -211,8 +211,7 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="SomeNumber" typeName="string" />
             ${
               version === "01.01"
-                ? // eslint-disable-next-line @typescript-eslint/quotes
-                  `<ECProperty propertyName="NewProperty" typeName="string" />`
+                ? '<ECProperty propertyName="NewProperty" typeName="string" />'
                 : ""
             }
           </ECStructClass >
@@ -221,8 +220,7 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="MyProp" typeName="string"/>
             ${
               version === "01.01"
-                ? // eslint-disable-next-line @typescript-eslint/quotes
-                  `<ECProperty propertyName="MyProp2" typeName="string" />`
+                ? '<ECProperty propertyName="MyProp2" typeName="string" />'
                 : ""
             }
             <ECStructArrayProperty propertyName="MyArray" typeName="TestStruct" minOccurs="0" maxOccurs="unbounded" />
@@ -289,7 +287,7 @@ describe("imodel-transformer", () => {
 
     async function getStructInstances(
       db: IModelDb
-    ): Promise<typeof elementProps | {}> {
+    ): Promise<typeof elementProps | object> {
       const result = db.createQueryReader(
         "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
         undefined,
@@ -368,7 +366,7 @@ describe("imodel-transformer", () => {
 
     async function getStructValue(
       db: IModelDb
-    ): Promise<typeof elementProps | {}> {
+    ): Promise<typeof elementProps | object> {
       const result = db.createQueryReader(
         "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
         undefined,
