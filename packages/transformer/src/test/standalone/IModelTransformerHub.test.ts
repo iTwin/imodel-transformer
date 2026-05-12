@@ -402,16 +402,12 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.updateIds.size, 0);
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
+        // Initial import uses processAll to establish provenance
         const transformer = await TestIModelTransformer.create(
           sourceDb,
           targetDb,
-          {
-            argsForProcessChanges: {
-              startChangeset: { id: sourceDb.changeset.id },
-            },
-          }
+          {}
         );
-        transformer["_syncTypeResolver"].allowNoScopingESA = true;
         await transformer.process();
         transformer.dispose();
         targetDb.saveChanges();
@@ -3385,11 +3381,10 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         DetachedExportElementAspectsStrategy
       );
+      // First transformation uses processAll (no argsForProcessChanges) to establish provenance
       const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
-        argsForProcessChanges: {},
       });
-      transformer["_syncTypeResolver"].allowNoScopingESA = true;
 
       // run first transformation
       await transformer.process();

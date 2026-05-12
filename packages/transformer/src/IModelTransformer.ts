@@ -2480,6 +2480,8 @@ export class IModelTransformer extends IModelExportHandler {
    * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    */
   private async processAll(): Promise<void> {
+    // processAll always has changes to process, so mark it as such for version tracking
+    this._sourceChangeDataState = "has-changes";
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 

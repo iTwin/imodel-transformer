@@ -26,7 +26,6 @@ export class SyncTypeResolver {
     "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true.";
 
   private _syncType?: SyncType;
-  private _allowNoScopingESA: boolean;
   private readonly _sourceDb: IModelDb;
   private readonly _targetDb: IModelDb;
   private readonly _targetScopeElementId: Id64String;
@@ -38,15 +37,13 @@ export class SyncTypeResolver {
     targetDb: IModelDb,
     targetScopeElementId: Id64String,
     isProvenanceInitTransform: boolean = false,
-    isSyncTransform: boolean = false,
-    allowNoScopingESA: boolean = false
+    isSyncTransform: boolean = false
   ) {
     this._sourceDb = sourceDb;
     this._targetDb = targetDb;
     this._targetScopeElementId = targetScopeElementId;
     this._isProvenanceInitTransform = isProvenanceInitTransform;
     this._isSyncTransform = isSyncTransform;
-    this._allowNoScopingESA = allowNoScopingESA;
   }
 
   /**
@@ -107,33 +104,13 @@ export class SyncTypeResolver {
       } else if (!this._isSyncTransform) {
         this._syncType = "not-sync";
       } else {
-        try {
-          this._syncType = await SyncTypeResolver.determineSyncType(
-            this._sourceDb,
-            this._targetDb,
-            this._targetScopeElementId
-          );
-        } catch (err) {
-          if (
-            err instanceof Error &&
-            err.message === SyncTypeResolver.noEsaSyncDirectionErrorMessage &&
-            this._allowNoScopingESA
-          ) {
-            this._syncType = "forward";
-          } else {
-            throw err;
-          }
-        }
+        this._syncType = await SyncTypeResolver.determineSyncType(
+          this._sourceDb,
+          this._targetDb,
+          this._targetScopeElementId
+        );
       }
     }
     return this._syncType;
-  }
-
-  public get allowNoScopingESA(): boolean {
-    return this._allowNoScopingESA;
-  }
-
-  public set allowNoScopingESA(value: boolean) {
-    this._allowNoScopingESA = value;
   }
 }

@@ -571,6 +571,9 @@ export class ProvenanceManager {
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";
     if (shouldSkipSyncVersionUpdate) return;
 
+    // If noProvenance is set, there's no scope ESA to update
+    if (this._transformerOptions.noProvenance) return;
+
     nodeAssert(this._targetScopeProvenanceProps);
 
     const sourceVersion = `${this._sourceDb.changeset.id};${this._sourceDb.changeset.index}`;
