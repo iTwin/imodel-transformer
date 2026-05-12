@@ -678,7 +678,7 @@ export class IModelTransformer extends IModelExportHandler {
     args: {
       sourceDb: IModelDb;
       targetDb: IModelDb;
-      // TODO: Consider making it optional and determining it through ESAs if not provided. This gives opportunity for people to determine it themselves using public static determineSyncType function.
+      // TODO: Consider making it optional and determining it through ESAs if not provided.
       isReverseSynchronization: boolean;
       targetScopeElementId: Id64String;
     }

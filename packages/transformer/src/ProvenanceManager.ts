@@ -557,15 +557,36 @@ export class ProvenanceManager {
 
   /**
    * Updates the synchronization version on the scope ESA.
-   * @param initializeReverseSyncVersion When true, saves the reverse sync version as the current changeset of the targetDb.
-   * @param sourceChangeDataState The current state of change data — used to skip updates when there are no changes.
+   *
+   * Called at the end of a transformation, updates the target scope element to record
+   * that transformation up through the source's changeset has been performed. Also stores
+   * all changesets that occurred during the transformation as "pending synchronization
+   * changeset indices" @see TargetScopeProvenanceJsonProps
+   *
+   * @param initializeReverseSyncVersion When true, saves the reverse sync version as the
+   * current changeset of the targetDb. This is typically used for the first transformation
+   * between a master and branch iModel. Setting this to true has the effect of making it so
+   * any changesets in the branch iModel at the time of the first transformation will be
+   * ignored during any future reverse synchronizations from the branch to the master iModel.
+   *
+   * Note that typically, the reverseSyncVersion is saved as the last changeset merged from
+   * the branch into master. Setting initializeReverseSyncVersion to true during a forward
+   * transformation could overwrite this correct reverseSyncVersion and should only be done
+   * during the first transformation between a master and branch iModel.
+   *
+   * @param sourceChangeDataState The current state of change data — used to skip updates
+   * when there are no changes.
    */
   public async updateSynchronizationVersion({
     initializeReverseSyncVersion = false,
     sourceChangeDataState,
   }: {
     initializeReverseSyncVersion?: boolean;
-    sourceChangeDataState: string;
+    sourceChangeDataState:
+      | "uninited"
+      | "has-changes"
+      | "no-changes"
+      | "unconnected";
   }) {
     const shouldSkipSyncVersionUpdate =
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";
