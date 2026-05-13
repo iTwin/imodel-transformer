@@ -73,6 +73,9 @@ export namespace EntityUnifier {
 
     const query = `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=:id`;
     const params = new QueryBinder().bindId("id", id);
-    return db.withQueryReader(query, (reader) => reader.step(), params);
+    const reader = db.createQueryReader(query, params, {
+      usePrimaryConn: true,
+    });
+    return reader.step();
   }
 }
