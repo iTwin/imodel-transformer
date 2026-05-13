@@ -5,16 +5,7 @@
 import { Id64, Id64String } from "@itwin/core-bentley";
 import { Element, IModelDb } from "@itwin/core-backend";
 import { Code, CodeProps, ElementProps, QueryBinder } from "@itwin/core-common";
-
-/** Options for constructing an ElementResolver.
- * @internal
- */
-export interface ElementResolverOptions {
-  targetDb: IModelDb;
-  isBetweenIModels: boolean;
-  findTargetElementId: (sourceId: Id64String) => Id64String;
-  remapElement: (sourceId: Id64String, targetId: Id64String) => void;
-}
+import type { IModelCloneContext } from "./IModelCloneContext";
 
 /** Result of resolving a target element ID for a source element. */
 export interface ElementResolutionResult {
@@ -32,10 +23,10 @@ export interface ElementResolutionResult {
  * @internal
  */
 export class ElementResolver {
-  private readonly _opts: ElementResolverOptions;
+  private readonly _context: IModelCloneContext;
 
-  public constructor(opts: ElementResolverOptions) {
-    this._opts = opts;
+  public constructor(context: IModelCloneContext) {
+    this._context = context;
   }
 
   /**
@@ -49,21 +40,21 @@ export class ElementResolver {
     sourceElement: Pick<Element, "id" | "federationGuid">,
     targetElementProps: ElementProps
   ): Promise<ElementResolutionResult> {
-    let targetElementId = this._opts.findTargetElementId(sourceElement.id);
+    let targetElementId = this._context.findTargetElementId(sourceElement.id);
     let codeCleared = false;
 
     // Strategy 2: check by FederationGuid
     if (
-      this._opts.isBetweenIModels &&
+      this._context.isBetweenIModels &&
       !Id64.isValid(targetElementId) &&
       sourceElement.federationGuid !== undefined
     ) {
       targetElementId =
-        this._opts.targetDb.elements.getIdFromFederationGuid(
+        this._context.targetDb.elements.getIdFromFederationGuid(
           sourceElement.federationGuid
         ) ?? Id64.invalid;
       if (Id64.isValid(targetElementId))
-        this._opts.remapElement(sourceElement.id, targetElementId);
+        this._context.remapElement(sourceElement.id, targetElementId);
     }
 
     // Strategy 3: check by Code (only if CodeScope is valid — invalid means a missing reference)
@@ -75,18 +66,18 @@ export class ElementResolver {
       // because it trims whitespace from the value, and there are iModels with untrimmed whitespace
       targetElementProps.code.value = targetElementProps.code.value ?? "";
       const maybeTargetElementId = await this.queryElementIdByCode(
-        this._opts.targetDb,
+        this._context.targetDb,
         targetElementProps.code as Required<CodeProps>
       );
       if (undefined !== maybeTargetElementId) {
         const maybeTargetElem =
-          this._opts.targetDb.elements.getElement(maybeTargetElementId);
+          this._context.targetDb.elements.getElement(maybeTargetElementId);
         if (
           maybeTargetElem.classFullName === targetElementProps.classFullName
         ) {
           // ensure code remapping doesn't change the target class
           targetElementId = maybeTargetElementId;
-          this._opts.remapElement(sourceElement.id, targetElementId);
+          this._context.remapElement(sourceElement.id, targetElementId);
         } else {
           targetElementProps.code = Code.createEmpty(); // clear out invalid code
           codeCleared = true;

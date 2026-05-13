@@ -388,7 +388,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private _linearSpatialTransform?: Transform;
   private _syncTypeResolver!: SyncTypeResolver;
-  private _provenanceManager!: ProvenanceManager;
+  protected _provenanceManager!: ProvenanceManager;
   private _elementResolver!: ElementResolver;
 
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances. */
@@ -407,15 +407,6 @@ export class IModelTransformer extends IModelExportHandler {
     IModelTransformOptions,
     "targetScopeElementId" | "danglingReferencesBehavior"
   >;
-
-  public async getIsReverseSynchronization(): Promise<boolean> {
-    return (await this._syncTypeResolver.getSyncType()) === "reverse";
-  }
-
-  public async getIsForwardSynchronization(): Promise<boolean> {
-    return (await this._syncTypeResolver.getSyncType()) === "forward";
-  }
-
   private _changesetRanges: [number, number][] | undefined = undefined;
 
   /**
@@ -507,18 +498,6 @@ export class IModelTransformer extends IModelExportHandler {
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
-    if (this.sourceDb.isBriefcase && this.targetDb.isBriefcase) {
-      nodeAssert(
-        this.sourceDb.changeset.index !== undefined &&
-          this.targetDb.changeset.index !== undefined,
-        "database has no changeset index"
-      );
-      this._startingChangesetIndices = {
-        target: this.targetDb.changeset.index,
-        source: this.sourceDb.changeset.index,
-      };
-    }
-
     // this internal is guaranteed stable for just transformer usage
     /* eslint-disable @itwin/no-internal */
     if (("codeValueBehavior" in this.sourceDb) as any) {
@@ -527,29 +506,17 @@ export class IModelTransformer extends IModelExportHandler {
     }
     /* eslint-enable @itwin/no-internal */
     this._syncTypeResolver = new SyncTypeResolver(
-      this.sourceDb,
-      this.targetDb,
+      this.context,
       this._options.targetScopeElementId,
       !!this._isProvenanceInitTransform,
       !!this._options.argsForProcessChanges
     );
     this._provenanceManager = new ProvenanceManager(
-      this.sourceDb,
-      this.targetDb,
       this._options.targetScopeElementId,
       this._options,
-      async () => this.getIsReverseSynchronization(),
-      this._startingChangesetIndices,
-      async (sourceRelInfo) => this._queryTargetRelId(sourceRelInfo)
+      this._syncTypeResolver
     );
-    this._elementResolver = new ElementResolver({
-      targetDb: this.targetDb,
-      isBetweenIModels: this.context.isBetweenIModels,
-      findTargetElementId: (sourceId) =>
-        this.context.findTargetElementId(sourceId),
-      remapElement: (sourceId, targetId) =>
-        this.context.remapElement(sourceId, targetId),
-    });
+    this._elementResolver = new ElementResolver(this.context);
     if (this._options.tryAlignGeolocation) {
       if (
         this.sourceDb.geographicCoordinateSystem ||
@@ -657,20 +624,6 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  /** Return the IModelDb where IModelTransformer will store its provenance.
-   * @note This will be [[targetDb]] except when it is a reverse synchronization. In that case it be [[sourceDb]].
-   */
-  public async getProvenanceDb(): Promise<IModelDb> {
-    return this._provenanceManager.getProvenanceDb();
-  }
-
-  /** Return the IModelDb where IModelTransformer looks for entities referred to by stored provenance.
-   * @note This will be [[sourceDb]] except when it is a reverse synchronization. In that case it be [[targetDb]].
-   */
-  public async getProvenanceSourceDb(): Promise<IModelDb> {
-    return this._provenanceManager.getProvenanceSourceDb();
-  }
-
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
   public static initElementProvenanceOptions(
     sourceElementId: Id64String,
@@ -715,17 +668,6 @@ export class IModelTransformer extends IModelExportHandler {
    * This exists only to facilitate testing that the transformer can handle the older, flawed method
    */
   private _forceOldRelationshipProvenanceMethod = false;
-
-  /**
-   * Index of the changeset that the transformer was at when the transformation begins (was constructed).
-   * Used to determine at the end which changesets were part of a synchronization.
-   */
-  private _startingChangesetIndices:
-    | {
-        target: number;
-        source: number;
-      }
-    | undefined = undefined;
 
   /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
   public async initElementProvenance(
@@ -800,78 +742,6 @@ export class IModelTransformer extends IModelExportHandler {
     fn: (sourceElementId: Id64String, targetElementId: Id64String) => void
   ): Promise<void> {
     return this._provenanceManager.forEachTrackedElement(fn);
-  }
-
-  private async _queryTargetRelId(sourceRelInfo: {
-    classFullName: string;
-    sourceId: Id64String;
-    targetId: Id64String;
-  }): Promise<Id64String | undefined> {
-    const targetRelInfo = {
-      sourceId: this.context.findTargetElementId(sourceRelInfo.sourceId),
-      targetId: this.context.findTargetElementId(sourceRelInfo.targetId),
-    };
-    if (
-      targetRelInfo.sourceId === undefined ||
-      targetRelInfo.targetId === undefined
-    )
-      return undefined; // couldn't find an element, rel is invalid or deleted
-    const sql = `
-      select ecinstanceid
-      from bis.elementreferstoelements
-      where sourceecinstanceid=?
-        and targetecinstanceid=?
-        and ecclassid=?
-    `;
-    const params = new QueryBinder();
-    params.bindId(1, targetRelInfo.sourceId);
-    params.bindId(2, targetRelInfo.targetId);
-    params.bindId(
-      3,
-      await this._targetClassNameToClassId(sourceRelInfo.classFullName)
-    );
-    const result = this.targetDb.createQueryReader(sql, params, {
-      usePrimaryConn: true,
-    });
-    if (await result.step()) return result.current.id;
-    else return undefined;
-  }
-
-  private _targetClassNameToClassIdCache = new Map<string, string>();
-
-  private async _targetClassNameToClassId(
-    classFullName: string
-  ): Promise<Id64String> {
-    let classId = this._targetClassNameToClassIdCache.get(classFullName);
-    if (classId === undefined) {
-      classId = await this._getRelClassId(this.targetDb, classFullName);
-      this._targetClassNameToClassIdCache.set(classFullName, classId);
-    }
-    return classId;
-  }
-
-  // NOTE: this doesn't handle remapped element classes,
-  // but is only used for relationships rn
-  private async _getRelClassId(
-    db: IModelDb,
-    classFullName: string
-  ): Promise<Id64String> {
-    const sql = `
-      SELECT c.ECInstanceId
-      FROM ECDbMeta.ECClassDef c
-      JOIN ECDbMeta.ECSchemaDef s ON c.Schema.Id=s.ECInstanceId
-      WHERE s.Name=? AND c.Name=?
-    `;
-    const params = new QueryBinder();
-    const [schemaName, className] =
-      classFullName.indexOf(".") !== -1
-        ? classFullName.split(".")
-        : classFullName.split(":");
-    params.bindString(1, schemaName);
-    params.bindString(2, className);
-    const result = db.createQueryReader(sql, params, { usePrimaryConn: true });
-    if (await result.step()) return result.current.id;
-    assert(false, "relationship was not found");
   }
 
   /** Returns `true` if *brute force* delete detections should be run.
@@ -1405,7 +1275,7 @@ export class IModelTransformer extends IModelExportHandler {
     // physical consolidation is an example of a 'joining' transform
     // FIXME: verify at finalization time that we don't lose provenance on new elements
     // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
-    const provenanceDb = await this.getProvenanceDb();
+    const provenanceDb = await this._provenanceManager.getProvenanceDb();
     if (!this._options.noProvenance) {
       const provenance:
         | string
@@ -1695,7 +1565,7 @@ export class IModelTransformer extends IModelExportHandler {
       targetRelationshipProps
     );
 
-    const provenanceDb = await this.getProvenanceDb();
+    const provenanceDb = await this._provenanceManager.getProvenanceDb();
     if (
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
@@ -1761,7 +1631,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (deletedRelData.provenanceAspectId) {
       try {
-        (await this.getProvenanceDb()).elements.deleteAspect(
+        (await this._provenanceManager.getProvenanceDb()).elements.deleteAspect(
           deletedRelData.provenanceAspectId
         );
       } catch (error: any) {
@@ -2243,7 +2113,7 @@ export class IModelTransformer extends IModelExportHandler {
      * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
      */
     const changeDataInProvenanceDb =
-      this.sourceDb === (await this.getProvenanceDb());
+      this.sourceDb === (await this._provenanceManager.getProvenanceDb());
 
     const getTargetIdFromSourceId = async (id: Id64String) => {
       let identifierValue: string | undefined;
@@ -2304,7 +2174,10 @@ export class IModelTransformer extends IModelExportHandler {
           sourceIdInTarget: sourceIdOfRelationshipInTarget,
           targetIdInTarget: targetIdOfRelationshipInTarget,
         });
-      } else if (this.sourceDb === (await this.getProvenanceSourceDb())) {
+      } else if (
+        this.sourceDb ===
+        (await this._provenanceManager.getProvenanceSourceDb())
+      ) {
         const relProvenance =
           await this._provenanceManager.queryProvenanceForRelationship(
             changedInstanceId,
@@ -2325,7 +2198,8 @@ export class IModelTransformer extends IModelExportHandler {
       let targetId = await getTargetIdFromSourceId(changedInstanceId);
       if (
         targetId === undefined &&
-        this.sourceDb === (await this.getProvenanceSourceDb())
+        this.sourceDb ===
+          (await this._provenanceManager.getProvenanceSourceDb())
       ) {
         targetId =
           await this._provenanceManager.queryProvenanceForElement(

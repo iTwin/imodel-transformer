@@ -10,6 +10,7 @@ import {
 } from "@itwin/core-backend";
 import { IModel } from "@itwin/core-common";
 import type { TargetScopeProvenanceJsonProps } from "./IModelTransformer";
+import type { IModelCloneContext } from "./IModelCloneContext";
 import { ProvenanceManager } from "./ProvenanceManager";
 
 /** @internal */
@@ -25,22 +26,20 @@ export class SyncTypeResolver {
   public static noEsaSyncDirectionErrorMessage =
     "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true.";
 
+  public readonly context: IModelCloneContext;
+
   private _syncType?: SyncType;
-  private readonly _sourceDb: IModelDb;
-  private readonly _targetDb: IModelDb;
   private readonly _targetScopeElementId: Id64String;
   private readonly _isProvenanceInitTransform: boolean;
   private readonly _isSyncTransform: boolean;
 
   public constructor(
-    sourceDb: IModelDb,
-    targetDb: IModelDb,
+    context: IModelCloneContext,
     targetScopeElementId: Id64String,
     isProvenanceInitTransform: boolean = false,
     isSyncTransform: boolean = false
   ) {
-    this._sourceDb = sourceDb;
-    this._targetDb = targetDb;
+    this.context = context;
     this._targetScopeElementId = targetScopeElementId;
     this._isProvenanceInitTransform = isProvenanceInitTransform;
     this._isSyncTransform = isSyncTransform;
@@ -105,12 +104,20 @@ export class SyncTypeResolver {
         this._syncType = "not-sync";
       } else {
         this._syncType = await SyncTypeResolver.determineSyncType(
-          this._sourceDb,
-          this._targetDb,
+          this.context.sourceDb,
+          this.context.targetDb,
           this._targetScopeElementId
         );
       }
     }
     return this._syncType;
+  }
+
+  public async getIsReverseSynchronization(): Promise<boolean> {
+    return (await this.getSyncType()) === "reverse";
+  }
+
+  public async getIsForwardSynchronization(): Promise<boolean> {
+    return (await this.getSyncType()) === "forward";
   }
 }

@@ -270,12 +270,6 @@ export class IModelTransformer extends IModelExportHandler {
         fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
         skipPropagateChangesToRootElements: boolean;
     }): Promise<void>;
-    // (undocumented)
-    getIsForwardSynchronization(): Promise<boolean>;
-    // (undocumented)
-    getIsReverseSynchronization(): Promise<boolean>;
-    getProvenanceDb(): Promise<IModelDb>;
-    getProvenanceSourceDb(): Promise<IModelDb>;
     protected getSynchronizationVersion(): Promise<ChangesetIndexAndId>;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
@@ -330,6 +324,8 @@ export class IModelTransformer extends IModelExportHandler {
     processSubject(sourceSubjectId: Id64String, targetSubjectId: Id64String): Promise<void>;
     static get provenanceElementAspectClasses(): (typeof Entity)[];
     static get provenanceElementClasses(): (typeof Entity)[];
+    // (undocumented)
+    protected _provenanceManager: ProvenanceManager;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): Promise<boolean>;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;
