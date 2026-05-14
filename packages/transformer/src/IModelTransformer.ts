@@ -624,43 +624,6 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  /** Create an ExternalSourceAspectProps in a standard way for an Element in an iModel --> iModel transformation. */
-  public static initElementProvenanceOptions(
-    sourceElementId: Id64String,
-    targetElementId: Id64String,
-    args: {
-      sourceDb: IModelDb;
-      targetDb: IModelDb;
-      // TODO: Consider making it optional and determining it through ESAs if not provided.
-      isReverseSynchronization: boolean;
-      targetScopeElementId: Id64String;
-    }
-  ): ExternalSourceAspectProps {
-    return ProvenanceManager.initElementProvenanceOptions(
-      sourceElementId,
-      targetElementId,
-      args
-    );
-  }
-
-  public static async initRelationshipProvenanceOptions(
-    sourceRelInstanceId: Id64String,
-    targetRelInstanceId: Id64String,
-    args: {
-      sourceDb: IModelDb;
-      targetDb: IModelDb;
-      isReverseSynchronization: boolean;
-      targetScopeElementId: Id64String;
-      forceOldRelationshipProvenanceMethod: boolean;
-    }
-  ): Promise<ExternalSourceAspectProps> {
-    return ProvenanceManager.initRelationshipProvenanceOptions(
-      sourceRelInstanceId,
-      targetRelInstanceId,
-      args
-    );
-  }
-
   /**
    * Previously the transformer would insert provenance always pointing to the "target" relationship.
    * It should (and now by default does) instead insert provenance pointing to the provenanceSource
@@ -719,29 +682,6 @@ export class IModelTransformer extends IModelExportHandler {
       initializeReverseSyncVersion,
       sourceChangeDataState: this._sourceChangeDataState,
     });
-  }
-
-  /**
-   * Iterate all matching federation guids and ExternalSourceAspects in the provenance iModel (target unless reverse sync)
-   * and call a function for each one.
-   * @note provenance is done by federation guids where possible
-   * @note this may execute on each element more than once! Only use in cases where that is handled
-   */
-  public static async forEachTrackedElement(args: {
-    provenanceSourceDb: IModelDb;
-    provenanceDb: IModelDb;
-    targetScopeElementId: Id64String;
-    isReverseSynchronization: boolean;
-    fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
-    skipPropagateChangesToRootElements: boolean;
-  }): Promise<void> {
-    return ProvenanceManager.forEachTrackedElement(args);
-  }
-
-  private async forEachTrackedElement(
-    fn: (sourceElementId: Id64String, targetElementId: Id64String) => void
-  ): Promise<void> {
-    return this._provenanceManager.forEachTrackedElement(fn);
   }
 
   /** Returns `true` if *brute force* delete detections should be run.
@@ -1948,7 +1888,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns void
    */
   private async processChangesets(): Promise<void> {
-    await this.forEachTrackedElement(
+    await this._provenanceManager.forEachTrackedElement(
       (sourceElementId: Id64String, targetElementId: Id64String) => {
         this.context.remapElement(sourceElementId, targetElementId);
       }

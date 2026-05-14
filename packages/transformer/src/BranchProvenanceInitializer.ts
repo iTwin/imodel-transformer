@@ -17,7 +17,7 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import * as assert from "assert";
-import { IModelTransformer } from "./IModelTransformer";
+import { ProvenanceManager } from "./ProvenanceManager";
 import { pathToFileURL } from "url";
 /**
  * @alpha
@@ -158,7 +158,7 @@ export async function initializeBranchProvenance(
   );
   for await (const row of elemReader) {
     const id: string = row.id;
-    const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
+    const aspectProps = ProvenanceManager.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
       sourceDb: args.master,
@@ -184,7 +184,7 @@ export async function initializeBranchProvenance(
   for await (const row of relReader) {
     const id: string = row.id;
     const aspectProps =
-      await IModelTransformer.initRelationshipProvenanceOptions(id, id, {
+      await ProvenanceManager.initRelationshipProvenanceOptions(id, id, {
         isReverseSynchronization: false,
         targetScopeElementId: masterExternalSourceId,
         sourceDb: args.master,

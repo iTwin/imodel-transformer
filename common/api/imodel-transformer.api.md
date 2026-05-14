@@ -262,33 +262,11 @@ export class IModelTransformer extends IModelExportHandler {
     dispose(): void;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
-    static forEachTrackedElement(args: {
-        provenanceSourceDb: IModelDb;
-        provenanceDb: IModelDb;
-        targetScopeElementId: Id64String;
-        isReverseSynchronization: boolean;
-        fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
-        skipPropagateChangesToRootElements: boolean;
-    }): Promise<void>;
     protected getSynchronizationVersion(): Promise<ChangesetIndexAndId>;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
     initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): Promise<ExternalSourceAspectProps>;
-    static initElementProvenanceOptions(sourceElementId: Id64String, targetElementId: Id64String, args: {
-        sourceDb: IModelDb;
-        targetDb: IModelDb;
-        isReverseSynchronization: boolean;
-        targetScopeElementId: Id64String;
-    }): ExternalSourceAspectProps;
     initialize(): Promise<void>;
-    // (undocumented)
-    static initRelationshipProvenanceOptions(sourceRelInstanceId: Id64String, targetRelInstanceId: Id64String, args: {
-        sourceDb: IModelDb;
-        targetDb: IModelDb;
-        isReverseSynchronization: boolean;
-        targetScopeElementId: Id64String;
-        forceOldRelationshipProvenanceMethod: boolean;
-    }): Promise<ExternalSourceAspectProps>;
     protected initScopeProvenance(): Promise<void>;
     onDeleteElement(sourceElementId: Id64String): Promise<void>;
     onDeleteModel(sourceModelId: Id64String): Promise<void>;
