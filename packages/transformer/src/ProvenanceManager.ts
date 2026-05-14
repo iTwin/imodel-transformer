@@ -2,7 +2,6 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as nodeAssert from "assert";
 import {
   GuidString,
   Id64String,
@@ -11,6 +10,7 @@ import {
 } from "@itwin/core-bentley";
 import {
   ElementOwnsExternalSourceAspects,
+  type Entity,
   ExternalSource,
   ExternalSourceAspect,
   ExternalSourceAttachment,
@@ -25,7 +25,6 @@ import {
   IModelError,
   QueryBinder,
 } from "@itwin/core-common";
-import type { Entity } from "@itwin/core-backend";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import type {
   IModelTransformOptions,
@@ -78,11 +77,11 @@ export class ProvenanceManager {
     const sourceDb = this.context.sourceDb;
     const targetDb = this.context.targetDb;
     if (sourceDb.isBriefcase && targetDb.isBriefcase) {
-      nodeAssert(
-        sourceDb.changeset.index !== undefined &&
-          targetDb.changeset.index !== undefined,
-        "database has no changeset index"
-      );
+      if (
+        sourceDb.changeset.index === undefined ||
+        targetDb.changeset.index === undefined
+      )
+        throw new Error("database has no changeset index");
       this._startingChangesetIndices = {
         target: targetDb.changeset.index,
         source: sourceDb.changeset.index,
@@ -467,6 +466,7 @@ export class ProvenanceManager {
         );
       }
       if (!this._transformerOptions.noProvenance) {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         const id = provenanceDb.elements.insertAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -487,6 +487,7 @@ export class ProvenanceManager {
           "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
           { oldProps, newProps: aspectProps }
         );
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         provenanceDb.elements.updateAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
@@ -618,15 +619,12 @@ export class ProvenanceManager {
    * Used by changeset initialization to determine which changesets have already been processed.
    */
   public async getChangesetsToSkip(): Promise<number[]> {
-    nodeAssert(
-      this._targetScopeProvenanceProps,
-      "_targetScopeProvenanceProps should be set by now"
-    );
+    if (this._targetScopeProvenanceProps === undefined)
+      throw new Error("_targetScopeProvenanceProps should be set by now");
+    const props = this._targetScopeProvenanceProps;
     return (await this._isReverseSynchronization())
-      ? this._targetScopeProvenanceProps.jsonProperties
-          .pendingReverseSyncChangesetIndices
-      : this._targetScopeProvenanceProps.jsonProperties
-          .pendingSyncChangesetIndices;
+      ? props.jsonProperties.pendingReverseSyncChangesetIndices
+      : props.jsonProperties.pendingSyncChangesetIndices;
   }
 
   /**
@@ -669,35 +667,34 @@ export class ProvenanceManager {
     // If noProvenance is set, there's no scope ESA to update
     if (this._transformerOptions.noProvenance) return;
 
-    nodeAssert(this._targetScopeProvenanceProps);
+    if (this._targetScopeProvenanceProps === undefined)
+      throw new Error("_targetScopeProvenanceProps should be set by now");
+    const scopeProps = this._targetScopeProvenanceProps;
 
     const sourceVersion = `${this.context.sourceDb.changeset.id};${this.context.sourceDb.changeset.index}`;
     const targetVersion = `${this.context.targetDb.changeset.id};${this.context.targetDb.changeset.index}`;
 
     if (await this._isReverseSynchronization()) {
-      const oldVersion =
-        this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion;
+      const oldVersion = scopeProps.jsonProperties.reverseSyncVersion;
 
       Logger.logInfo(
         loggerCategory,
         `updating reverse version from ${oldVersion} to ${sourceVersion}`
       );
-      this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
-        sourceVersion;
+      scopeProps.jsonProperties.reverseSyncVersion = sourceVersion;
     } else {
       Logger.logInfo(
         loggerCategory,
-        `updating sync version from ${this._targetScopeProvenanceProps.version} to ${sourceVersion}`
+        `updating sync version from ${scopeProps.version} to ${sourceVersion}`
       );
-      this._targetScopeProvenanceProps.version = sourceVersion;
+      scopeProps.version = sourceVersion;
 
       if (initializeReverseSyncVersion) {
         Logger.logInfo(
           loggerCategory,
-          `updating reverse sync version from ${this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion} to ${targetVersion}`
+          `updating reverse sync version from ${scopeProps.jsonProperties.reverseSyncVersion} to ${targetVersion}`
         );
-        this._targetScopeProvenanceProps.jsonProperties.reverseSyncVersion =
-          targetVersion;
+        scopeProps.jsonProperties.reverseSyncVersion = targetVersion;
       }
     }
 
@@ -706,21 +703,23 @@ export class ProvenanceManager {
       !!this._transformerOptions.argsForProcessChanges ||
       (startingChangesetIndices && initializeReverseSyncVersion)
     ) {
-      nodeAssert(
-        this.context.targetDb.changeset.index !== undefined &&
-          startingChangesetIndices !== undefined,
-        "updateSynchronizationVersion was called without change history"
-      );
+      if (
+        this.context.targetDb.changeset.index === undefined ||
+        startingChangesetIndices === undefined
+      )
+        throw new Error(
+          "updateSynchronizationVersion was called without change history"
+        );
 
-      const jsonProps = this._targetScopeProvenanceProps.jsonProperties;
+      const jsonProps = scopeProps.jsonProperties;
 
       Logger.logTrace(
         loggerCategory,
-        `previous pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`
+        `previous pendingReverseSyncChanges: ${String(jsonProps.pendingReverseSyncChangesetIndices)}`
       );
       Logger.logTrace(
         loggerCategory,
-        `previous pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
+        `previous pendingSyncChanges: ${String(jsonProps.pendingSyncChangesetIndices)}`
       );
 
       const pendingSyncChangesetIndicesKey =
@@ -752,10 +751,8 @@ export class ProvenanceManager {
       });
 
       if (await this._isReverseSynchronization()) {
-        nodeAssert(
-          this.context.sourceDb.changeset.index !== undefined,
-          "changeset didn't exist"
-        );
+        if (this.context.sourceDb.changeset.index === undefined)
+          throw new Error("changeset didn't exist");
         for (
           let i = startingChangesetIndices.source + 1;
           i <= this.context.sourceDb.changeset.index + 1;
@@ -766,19 +763,18 @@ export class ProvenanceManager {
 
       Logger.logTrace(
         loggerCategory,
-        `new pendingReverseSyncChanges: ${jsonProps.pendingReverseSyncChangesetIndices}`
+        `new pendingReverseSyncChanges: ${String(jsonProps.pendingReverseSyncChangesetIndices)}`
       );
       Logger.logTrace(
         loggerCategory,
-        `new pendingSyncChanges: ${jsonProps.pendingSyncChangesetIndices}`
+        `new pendingSyncChanges: ${String(jsonProps.pendingSyncChangesetIndices)}`
       );
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     (await this.getProvenanceDb()).elements.updateAspect({
-      ...this._targetScopeProvenanceProps,
-      jsonProperties: JSON.stringify(
-        this._targetScopeProvenanceProps.jsonProperties
-      ) as any,
+      ...scopeProps,
+      jsonProperties: JSON.stringify(scopeProps.jsonProperties) as any,
     });
     this.clearCachedSynchronizationVersion();
   }
@@ -847,10 +843,8 @@ export class ProvenanceManager {
     const reader = provenanceDb.createQueryReader(sql, params, {
       usePrimaryConn: true,
     });
-    nodeAssert(
-      await reader.step(),
-      "relationship provenance query returned no rows"
-    );
+    if (!(await reader.step()))
+      throw new Error("relationship provenance query returned no rows");
     const elementId = reader.current[0];
 
     const jsonProperties = args.forceOldRelationshipProvenanceMethod
