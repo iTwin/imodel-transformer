@@ -85,6 +85,7 @@ import {
   ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
+import { ProvenanceManager } from "../../ProvenanceManager";
 import {
   CountingIModelImporter,
   HubWrappers,
@@ -248,12 +249,20 @@ describe("IModelTransformerHub", () => {
         targetBriefcase
       );
       await transformer1.process();
-      const scopingEsa1 = (transformer1["_provenanceManager"] as any)[
-        "_targetScopeProvenanceProps"
-      ];
-      const reverseSyncVersion1 =
-        scopingEsa1?.jsonProperties.reverseSyncVersion;
-      assert.isEmpty(reverseSyncVersion1);
+      const scopeEsaResult1 =
+        await ProvenanceManager.queryScopeExternalSourceAspect(
+          targetBriefcase,
+          {
+            id: undefined,
+            classFullName: ExternalSourceAspect.classFullName,
+            scope: { id: IModel.rootSubjectId },
+            kind: ExternalSourceAspect.Kind.Scope,
+            element: { id: IModel.rootSubjectId },
+            identifier: sourceBriefcase.iModelId,
+          }
+        );
+      const jsonProps1 = JSON.parse(scopeEsaResult1?.jsonProperties ?? "{}");
+      assert.isEmpty(jsonProps1.reverseSyncVersion ?? "");
       targetBriefcase.saveChanges();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 1",
@@ -281,17 +290,26 @@ describe("IModelTransformerHub", () => {
       await transformer2.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
-      const scopingEsa2 = (transformer2["_provenanceManager"] as any)[
-        "_targetScopeProvenanceProps"
-      ];
-      const reverseSyncVersion2 =
-        scopingEsa2?.jsonProperties.reverseSyncVersion;
+      const scopeEsaResult2 =
+        await ProvenanceManager.queryScopeExternalSourceAspect(
+          targetBriefcase,
+          {
+            id: undefined,
+            classFullName: ExternalSourceAspect.classFullName,
+            scope: { id: IModel.rootSubjectId },
+            kind: ExternalSourceAspect.Kind.Scope,
+            element: { id: IModel.rootSubjectId },
+            identifier: sourceBriefcase.iModelId,
+          }
+        );
+      const jsonProps2 = JSON.parse(scopeEsaResult2?.jsonProperties ?? "{}");
+      const reverseSyncVersion2 = jsonProps2.reverseSyncVersion;
       assert.isNotEmpty(reverseSyncVersion2);
       const expectedReverseSyncVersion1 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
       assert.equal(reverseSyncVersion2, expectedReverseSyncVersion1);
       // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
       const lastPendingReverseSyncIndex1 =
-        scopingEsa2?.jsonProperties.pendingReverseSyncChangesetIndices.pop();
+        jsonProps2.pendingReverseSyncChangesetIndices?.pop();
       assert.equal(
         lastPendingReverseSyncIndex1,
         (targetBriefcase.changeset.index ?? 0) + 1
