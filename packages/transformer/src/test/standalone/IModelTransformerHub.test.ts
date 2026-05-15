@@ -2229,15 +2229,21 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
-    let scopingEsa = (transformer["_provenanceManager"] as any)[
-      "_targetScopeProvenanceProps"
-    ];
-    expect(
-      scopingEsa?.jsonProperties.pendingSyncChangesetIndices.length
-    ).to.equal(1);
-    expect(scopingEsa?.jsonProperties.pendingSyncChangesetIndices[0]).to.equal(
-      4
+    // Query scope ESA from database instead of reaching into private internals
+    let scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
+      sourceDb,
+      {
+        id: undefined,
+        classFullName: ExternalSourceAspect.classFullName,
+        scope: { id: IModel.rootSubjectId },
+        kind: ExternalSourceAspect.Kind.Scope,
+        element: { id: IModel.rootSubjectId },
+        identifier: targetDb.iModelId,
+      }
     );
+    let scopeJsonProps = JSON.parse(scopeEsaResult?.jsonProperties ?? "{}");
+    expect(scopeJsonProps.pendingSyncChangesetIndices?.length).to.equal(1);
+    expect(scopeJsonProps.pendingSyncChangesetIndices[0]).to.equal(4);
     transformer.dispose();
 
     // Open sourceDb not at tip
@@ -2259,12 +2265,19 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
-    scopingEsa = (transformer["_provenanceManager"] as any)[
-      "_targetScopeProvenanceProps"
-    ];
-    expect(
-      scopingEsa?.jsonProperties.pendingSyncChangesetIndices
-    ).to.deep.equal([4]);
+    scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
+      targetDb,
+      {
+        id: undefined,
+        classFullName: ExternalSourceAspect.classFullName,
+        scope: { id: IModel.rootSubjectId },
+        kind: ExternalSourceAspect.Kind.Scope,
+        element: { id: IModel.rootSubjectId },
+        identifier: sourceDbNotAtTip.iModelId,
+      }
+    );
+    scopeJsonProps = JSON.parse(scopeEsaResult?.jsonProperties ?? "{}");
+    expect(scopeJsonProps.pendingSyncChangesetIndices).to.deep.equal([4]);
     transformer.dispose();
   });
 
