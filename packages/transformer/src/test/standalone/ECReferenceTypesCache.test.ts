@@ -7,7 +7,7 @@ import { ConcreteEntityTypes } from "@itwin/core-common";
 import { assert, expect } from "chai";
 import * as path from "path";
 import { ECReferenceTypesCache } from "../../ECReferenceTypesCache";
-import { Relationship, SnapshotDb } from "@itwin/core-backend";
+import { Relationship, SnapshotDb, withEditTxn } from "@itwin/core-backend";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations";
 import * as Semver from "semver";
@@ -211,7 +211,9 @@ describe("ECReferenceTypesCache", () => {
     assert(ecdbMapVersion !== undefined);
     assert(Semver.gte(ecdbMapVersion, "2.0.4"));
     await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWithQueryView]);
-    emptyWithBrandNewBiscore.saveChanges();
+    withEditTxn(emptyWithBrandNewBiscore, (txn) => {
+      txn.saveChanges();
+    });
     await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
   });
 

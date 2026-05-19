@@ -6,12 +6,14 @@
 import { assert, expect } from "chai";
 import {
   BriefcaseDb,
+  EditTxn,
   IModelDb,
   IModelHost,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
@@ -129,14 +131,16 @@ export function populateTimelineSeed(
   db: IModelDb,
   state?: TimelineIModelElemStateDelta
 ): void {
-  SpatialCategory.insert(
-    db,
-    IModel.dictionaryId,
-    "SpatialCategory",
-    new SubCategoryAppearance()
-  );
-  PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
-  if (state) maintainObjects(db, state);
+  withEditTxn(db, "populate timeline seed", (txn) => {
+    SpatialCategory.insert(
+      txn,
+      IModel.dictionaryId,
+      "SpatialCategory",
+      new SubCategoryAppearance()
+    );
+    PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel");
+    if (state) maintainObjects(txn, state);
+  });
   db.performCheckpoint();
 }
 
@@ -152,73 +156,78 @@ export async function assertElemState(
 }
 
 function maintainObjects(
-  iModelDb: IModelDb,
+  iModelDb: IModelDb | EditTxn,
   delta: TimelineIModelElemStateDelta
 ): void {
-  const modelId = iModelDb.elements.queryElementIdByCode(
-    PhysicalPartition.createCode(
-      iModelDb,
-      IModel.rootSubjectId,
-      "PhysicalModel"
-    )
-  )!;
-  const categoryId = iModelDb.elements.queryElementIdByCode(
-    SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory")
-  )!;
+  const applyObjectDelta = (txn: EditTxn): void => {
+    const db = txn.iModel;
+    const modelId = db.elements.queryElementIdByCode(
+      PhysicalPartition.createCode(db, IModel.rootSubjectId, "PhysicalModel")
+    )!;
+    const categoryId = db.elements.queryElementIdByCode(
+      SpatialCategory.createCode(db, IModel.dictionaryId, "SpatialCategory")
+    )!;
 
-  for (const [elemName, upsertVal] of Object.entries(delta)) {
-    const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
-      (d as RelationshipProps).sourceId !== undefined;
+    for (const [elemName, upsertVal] of Object.entries(delta)) {
+      const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
+        (d as RelationshipProps).sourceId !== undefined;
 
-    if (isRel(upsertVal))
-      throw Error(
-        "adding relationships to the small delta format is not supported" +
-          "use a `manualUpdate` step instead"
-      );
+      if (isRel(upsertVal))
+        throw Error(
+          "adding relationships to the small delta format is not supported" +
+            "use a `manualUpdate` step instead"
+        );
 
-    const [id] = iModelDb.queryEntityIds({
-      from: "Bis.Element",
-      where: "UserLabel=?",
-      bindings: [elemName],
-    });
+      const [id] = db.queryEntityIds({
+        from: "Bis.Element",
+        where: "UserLabel=?",
+        bindings: [elemName],
+      });
 
-    if (upsertVal === deleted) {
-      assert(id, "tried to delete an element that wasn't in the database");
-      iModelDb.elements.deleteElement(id);
-      continue;
+      if (upsertVal === deleted) {
+        assert(id, "tried to delete an element that wasn't in the database");
+        txn.deleteElement(id);
+        continue;
+      }
+
+      const props: ElementProps | PhysicalElementProps =
+        typeof upsertVal !== "number"
+          ? upsertVal
+          : {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({
+                spec: IModelDb.rootSubjectId,
+                scope: IModelDb.rootSubjectId,
+                value: elemName,
+              }),
+              userLabel: elemName,
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: {
+                origin: Point3d.create(0, 0, 0),
+                angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+              },
+              jsonProperties: {
+                updateState: upsertVal,
+              },
+            };
+
+      props.id = id;
+
+      if (id === undefined) txn.insertElement(props);
+      else txn.updateElement(props);
     }
+  };
 
-    const props: ElementProps | PhysicalElementProps =
-      typeof upsertVal !== "number"
-        ? upsertVal
-        : {
-            classFullName: PhysicalObject.classFullName,
-            model: modelId,
-            category: categoryId,
-            code: new Code({
-              spec: IModelDb.rootSubjectId,
-              scope: IModelDb.rootSubjectId,
-              value: elemName,
-            }),
-            userLabel: elemName,
-            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-            placement: {
-              origin: Point3d.create(0, 0, 0),
-              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-            },
-            jsonProperties: {
-              updateState: upsertVal,
-            },
-          };
-
-    props.id = id;
-
-    if (id === undefined) iModelDb.elements.insertElement(props);
-    else iModelDb.elements.updateElement(props);
+  if (iModelDb instanceof EditTxn) {
+    applyObjectDelta(iModelDb);
+    return;
   }
 
-  // TODO: iModelDb.performCheckpoint?
-  iModelDb.saveChanges();
+  withEditTxn(iModelDb, applyObjectDelta);
 }
 
 export type TimelineElemState =

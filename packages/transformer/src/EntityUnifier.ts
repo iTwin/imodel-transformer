@@ -17,6 +17,7 @@ import {
 import {
   ConcreteEntity,
   ConcreteEntityProps,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -39,15 +40,17 @@ export namespace EntityUnifier {
   type EntityUpdater = (entityProps: ConcreteEntityProps) => void;
 
   /** needs to return a widened type otherwise typescript complains when result is used with a narrow type */
-  export function updaterFor(db: IModelDb, entity: ConcreteEntity) {
+  export function updaterFor(
+    _db: IModelDb,
+    entity: ConcreteEntity,
+    txn: EditTxn
+  ) {
     if (entity instanceof Element)
-      return db.elements.updateElement.bind(db.elements) as EntityUpdater;
+      return txn.updateElement.bind(txn) as EntityUpdater;
     else if (entity instanceof Relationship)
-      return db.relationships.updateInstance.bind(
-        db.relationships
-      ) as EntityUpdater;
+      return txn.updateRelationship.bind(txn) as EntityUpdater;
     else if (entity instanceof ElementAspect)
-      return db.elements.updateAspect.bind(db.elements) as EntityUpdater;
+      return txn.updateAspect.bind(txn) as EntityUpdater;
     else
       assert(
         false,

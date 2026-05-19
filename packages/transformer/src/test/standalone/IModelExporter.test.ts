@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementRefersToElements,
@@ -14,6 +15,7 @@ import {
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
 import {
@@ -64,12 +66,14 @@ describe("IModelExporter", () => {
       )
     );
 
-    const geomPartId = sourceDb.elements.insertElement({
-      classFullName: GeometryPart.classFullName,
-      model: IModel.dictionaryId,
-      code: Code.createEmpty(),
-      geom: builder.geometryStream,
-    } as GeometryPartProps);
+    const geomPartId = withEditTxn(sourceDb, (txn) =>
+      txn.insertElement({
+        classFullName: GeometryPart.classFullName,
+        model: IModel.dictionaryId,
+        code: Code.createEmpty(),
+        geom: builder.geometryStream,
+      } as GeometryPartProps)
+    );
 
     assert(Id64.isValidId64(geomPartId));
     const geomPartInSource = sourceDb.elements.getElement<GeometryPart>(
@@ -77,8 +81,6 @@ describe("IModelExporter", () => {
       GeometryPart
     );
     assert(geomPartInSource.geom?.[1]?.brep?.data !== undefined);
-
-    sourceDb.saveChanges();
 
     const flatTargetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelExporter",
@@ -88,10 +90,13 @@ describe("IModelExporter", () => {
       rootSubject: sourceDb.rootSubject,
     });
 
+    const flatTargetTxn = new EditTxn(flatTargetDb, "flat import");
+    flatTargetTxn.start();
+
     class TestFlatImportHandler extends IModelExportHandler {
       public override async onExportElement(elem: Element): Promise<void> {
         if (elem instanceof GeometryPart)
-          flatTargetDb.elements.insertElement(elem.toJSON());
+          flatTargetTxn.insertElement(elem.toJSON());
       }
     }
 
@@ -99,6 +104,7 @@ describe("IModelExporter", () => {
     exporter.registerHandler(new TestFlatImportHandler());
     exporter.wantGeometry = true;
     await expect(exporter.exportAll()).to.eventually.be.fulfilled;
+    flatTargetTxn.end("save");
 
     const geomPartInTarget = flatTargetDb.elements.getElement<GeometryPart>(
       { id: geomPartId, wantGeometry: true, wantBRepData: true },
@@ -119,68 +125,69 @@ describe("IModelExporter", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
-      const categoryId = SpatialCategory.insert(
-        sourceDb,
-        IModel.dictionaryId,
-        "SpatialCategory",
-        new SubCategoryAppearance()
-      );
-      const sourceModelId = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "PhysicalModel"
-      );
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-      };
-      const physicalObject1 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject2 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject3 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject4 =
-        sourceDb.elements.insertElement(physicalObjectProps);
+      let physicalObject1!: string;
+      let physicalObject2!: string;
+      let physicalObject3!: string;
+      let physicalObject4!: string;
+      withEditTxn(sourceDb, (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          new SubCategoryAppearance()
+        );
+        const sourceModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        );
+        const physicalObjectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: sourceModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+        };
+        physicalObject1 = txn.insertElement(physicalObjectProps);
+        physicalObject2 = txn.insertElement(physicalObjectProps);
+        physicalObject3 = txn.insertElement(physicalObjectProps);
+        physicalObject4 = txn.insertElement(physicalObjectProps);
 
-      const invalidRelationshipsProps: RelationshipProps[] = [
-        // target element will be deleted
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject1,
-          sourceId: physicalObject2,
-        },
-        // target and source elements are invalid
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: "",
-          sourceId: "",
-        },
-        // only target element is invalid
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: "",
-          sourceId: physicalObject3,
-        },
-        // only source element is invalid
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject4,
-          sourceId: "",
-        },
-      ];
+        const invalidRelationshipsProps: RelationshipProps[] = [
+          // target element will be deleted
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: physicalObject1,
+            sourceId: physicalObject2,
+          },
+          // target and source elements are invalid
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: "",
+            sourceId: "",
+          },
+          // only target element is invalid
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: "",
+            sourceId: physicalObject3,
+          },
+          // only source element is invalid
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: physicalObject4,
+            sourceId: "",
+          },
+        ];
 
-      invalidRelationshipsProps.forEach((props) =>
-        sourceDb.relationships.insertInstance(props)
-      );
-      // this is used to substitute low level C++ functions the connectors would used to introduce invalid relationships.
-      sourceDb.withSqliteStatement(
-        `DELETE FROM bis_Element WHERE Id = ${physicalObject1}`,
-        (stmt) => stmt.next()
-      );
-      sourceDb.saveChanges();
+        invalidRelationshipsProps.forEach((props) =>
+          txn.insertRelationship(props)
+        );
+        // this is used to substitute low level C++ functions the connectors would used to introduce invalid relationships.
+        sourceDb.withSqliteStatement(
+          `DELETE FROM bis_Element WHERE Id = ${physicalObject1}`,
+          (stmt) => stmt.next()
+        );
+      });
 
       const sourceRelationships = [];
       for await (const row of sourceDb.createQueryReader(

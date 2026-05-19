@@ -9,8 +9,8 @@
 import {
   BriefcaseDb,
   BriefcaseManager,
-  ChangedECInstance,
-  ChangesetECAdaptor,
+  ChangeInstance,
+  ChangesetReader,
   DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -22,11 +22,10 @@ import {
   IModelDb,
   IModelJsNative,
   Model,
-  PartialECChangeUnifier,
+  PartialChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   SqliteChangeOp,
-  SqliteChangesetReader,
 } from "@itwin/core-backend";
 import {
   assert,
@@ -680,7 +679,7 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportFontByNumber(fontNumber: number): Promise<void> {
-    /** sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts since fonts is not an ec table.
+    /** sourceDbChanges now works by using TS ChangesetReader which doesn't pick up changes to fonts since fonts is not an ec table.
      * So lets always export fonts for the time being by always setting isUpdate = true.
      * It is very rare and even problematic for the font table to reach a large size, so it is not a bottleneck in transforming changes.
      * See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
@@ -1179,14 +1178,14 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
+   * Adds the provided [[ChangeInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
+   * @param change ChangeInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
    */
-  public async addChange(change: ChangedECInstance): Promise<void> {
+  public async addChange(change: ChangeInstance): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    const ecClassId = change.ECClassId as string | undefined;
     if (ecClassId === undefined)
       throw new Error(
         `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
@@ -1449,17 +1448,15 @@ export class ChangedInstanceIds {
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
 
     for (const csFile of csFileProps) {
-      const csReader = SqliteChangesetReader.openFile({
+      const csReader = ChangesetReader.openFile({
         fileName: csFile.pathname,
         db: opts.iModel,
-        disableSchemaCheck: true,
       });
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
+      const ecChangeUnifier = new PartialChangeUnifier();
+      while (csReader.step()) {
+        ecChangeUnifier.appendFrom(csReader);
       }
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
+      const changes: ChangeInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {
         await changedInstanceIds.addChange(change);

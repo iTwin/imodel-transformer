@@ -32,6 +32,7 @@ import {
   GeometricElement,
   GeometryPart,
   Graphic3d,
+  GraphicalPartition3d,
   IModelDb,
   IModelElementCloneContext,
   IModelJsFs,
@@ -57,6 +58,7 @@ import {
   SubCategory,
   Subject,
   Texture,
+  withEditTxn,
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
@@ -143,6 +145,205 @@ import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
 
+function createTextureElement(
+  txn: any,
+  definitionModelId: Id64String,
+  name: string,
+  format: ImageSourceFormat,
+  data: string,
+  description?: string
+): Id64String {
+  return txn.insertElement({
+    classFullName: Texture.classFullName,
+    code: Texture.createCode(txn.iModel, definitionModelId, name),
+    format,
+    data,
+    description,
+    model: definitionModelId,
+    isPrivate: false,
+  });
+}
+
+function createRenderMaterialElement(
+  txn: any,
+  definitionModelId: Id64String,
+  materialName: string,
+  params: any
+): Id64String {
+  let maps;
+  const pbrNormal = params.normalMap?.scale;
+  if (params.patternMap || params.normalMap) {
+    const choose = (obj: any, key: string) => {
+      const pat = params.patternMap;
+      if (pat && undefined !== pat[key]) obj[key] = pat[key];
+      else if (params.normalMap && undefined !== params.normalMap[key])
+        obj[key] = params.normalMap[key];
+    };
+    const baseProps = {} as any;
+    choose(baseProps, "pattern_angle");
+    choose(baseProps, "pattern_u_flip");
+    choose(baseProps, "pattern_flip");
+    choose(baseProps, "pattern_scale");
+    choose(baseProps, "pattern_offset");
+    choose(baseProps, "pattern_scalemode");
+    choose(baseProps, "pattern_mapping");
+    choose(baseProps, "pattern_weight");
+    choose(baseProps, "pattern_useconstantlod");
+    choose(baseProps, "pattern_constantlod_repetitions");
+    choose(baseProps, "pattern_constantlod_offset");
+    choose(baseProps, "pattern_constantlod_mindistanceclamp");
+    choose(baseProps, "pattern_constantlod_maxdistanceclamp");
+    maps = {} as any;
+    if (params.patternMap)
+      maps.Pattern = { ...params.patternMap, ...baseProps };
+    if (params.normalMap) {
+      maps.Normal = {
+        ...params.normalMap,
+        ...baseProps,
+      };
+      delete maps.Normal.scale;
+    }
+  }
+  return txn.insertElement({
+    classFullName: RenderMaterialElement.classFullName,
+    code: RenderMaterialElement.createCode(
+      txn.iModel,
+      definitionModelId,
+      materialName
+    ),
+    paletteName: params.paletteName,
+    description: params.description,
+    jsonProperties: {
+      materialAssets: {
+        renderMaterial: {
+          HasBaseColor: params.color !== undefined,
+          color: params.color,
+          HasSpecularColor: params.specularColor !== undefined,
+          specular_color: params.specularColor,
+          HasFinish: params.finish !== undefined,
+          finish: params.finish,
+          HasTransmit: params.transmit !== undefined ? true : undefined,
+          transmit: params.transmit,
+          HasDiffuse: params.diffuse !== undefined,
+          diffuse: params.diffuse,
+          HasSpecular: params.specular !== undefined,
+          specular: params.specular,
+          HasReflect: params.reflect !== undefined,
+          reflect: params.reflect,
+          HasReflectColor: params.reflectColor !== undefined,
+          reflect_color: params.reflectColor,
+          Map: maps,
+          pbr_normal: pbrNormal,
+        },
+      },
+    },
+    model: definitionModelId,
+    isPrivate: false,
+  });
+}
+
+function saveLineStyleComponent(
+  txn: any,
+  name: string,
+  props: any,
+  compType: number
+): any {
+  const fileProps: any = { name, namespace: "dgn_LStyle" };
+  fileProps.id = txn.iModel.queryNextAvailableFileProperty(fileProps);
+  txn.saveFileProperty(fileProps, JSON.stringify(props));
+  return { compId: fileProps.id, compType };
+}
+
+function createStrokePatternComponent(txn: any, props: any) {
+  return saveLineStyleComponent(
+    txn,
+    "LineCodeV1",
+    props,
+    LineStyleDefinition.ComponentType.StrokePattern
+  );
+}
+
+function createPointSymbolComponent(txn: any, props: any) {
+  if (
+    !props.baseX &&
+    !props.baseY &&
+    !props.baseZ &&
+    !props.sizeX &&
+    !props.sizeY &&
+    !props.sizeZ
+  ) {
+    const geomPart = txn.iModel.elements.getElement(props.geomPartId);
+    props.baseX = geomPart.bbox.low.x;
+    props.baseY = geomPart.bbox.low.y;
+    props.baseZ = geomPart.bbox.low.z;
+    props.sizeX = geomPart.bbox.high.x;
+    props.sizeY = geomPart.bbox.high.y;
+    props.sizeZ = geomPart.bbox.high.z;
+  }
+  return saveLineStyleComponent(
+    txn,
+    "PointSymV1",
+    props,
+    LineStyleDefinition.ComponentType.PointSymbol
+  );
+}
+
+function createStrokePointComponent(txn: any, props: any) {
+  return saveLineStyleComponent(
+    txn,
+    "LinePointV1",
+    props,
+    LineStyleDefinition.ComponentType.StrokePoint
+  );
+}
+
+function createCompoundComponent(txn: any, props: any) {
+  return saveLineStyleComponent(
+    txn,
+    "CompoundV1",
+    props,
+    LineStyleDefinition.ComponentType.Compound
+  );
+}
+
+function createLineStyle(
+  txn: any,
+  scopeModelId: Id64String,
+  name: string,
+  props: any
+): Id64String {
+  if (undefined === props.flags)
+    props.flags = LineStyleDefinition.StyleFlags.NoSnap;
+  return txn.insertElement({
+    classFullName: "BisCore:LineStyle",
+    model: scopeModelId,
+    code: (LineStyle as any).createCode(txn.iModel, scopeModelId, name),
+    data: JSON.stringify(props),
+  });
+}
+
+function createGenericGraphicalModel3d(
+  txn: any,
+  parentSubjectId: Id64String,
+  name: string,
+  isPlanProjection?: boolean
+): Id64String {
+  const partitionId = txn.insertElement({
+    classFullName: GraphicalPartition3d.classFullName,
+    model: IModel.repositoryModelId,
+    parent: {
+      id: parentSubjectId,
+      relClassName: "BisCore:SubjectOwnsPartitionElements",
+    },
+    code: GraphicalPartition3d.createCode(txn.iModel, parentSubjectId, name),
+  });
+  return txn.insertModel({
+    classFullName: GenericGraphicalModel3d.classFullName,
+    modeledElement: { id: partitionId },
+    isPlanProjection,
+  } as ModelProps);
+}
+
 describe("IModelTransformer", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
@@ -166,8 +367,9 @@ describe("IModelTransformer", () => {
           createClassViews: true,
         });
         await TransformerExtensiveTestScenario.prepareDb(db);
-        TransformerExtensiveTestScenario.populateDb(db);
-        db.saveChanges();
+        withEditTxn(db, () => {
+          TransformerExtensiveTestScenario.populateDb(db);
+        });
         return db;
       })());
     }
@@ -222,8 +424,9 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "TestIModelTransformer-Target" },
     });
-    await TransformerExtensiveTestScenario.prepareTargetDb(targetDb);
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await TransformerExtensiveTestScenario.prepareTargetDb(targetDb);
+    });
 
     const numSourceUniqueAspects = await count(
       sourceDb,
@@ -264,8 +467,9 @@ describe("IModelTransformer", () => {
         }
       );
       assert.isTrue(transformer.context.isBetweenIModels);
-      await transformer.process();
-      targetDb.saveChanges();
+      await withEditTxn(targetDb, async () => {
+        await transformer.process();
+      });
       assert.isAtLeast(targetImporter.numModelsInserted, 1);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.isAtLeast(targetImporter.numElementsInserted, 1);
@@ -468,9 +672,10 @@ describe("IModelTransformer", () => {
       branchDb,
       { wasSourceIModelCopiedToTarget: true }
     ); // Note use of `wasSourceIModelCopiedToTarget` flag
-    await masterToBranchTransformer.process();
+    await withEditTxn(branchDb, async () => {
+      await masterToBranchTransformer.process();
+    });
     masterToBranchTransformer.dispose();
-    branchDb.saveChanges();
     assert.equal(
       numMasterElements,
       await count(branchDb, Element.classFullName)
@@ -494,9 +699,10 @@ describe("IModelTransformer", () => {
     }
 
     // Make changes to simulate working on the branch
-    TransformerExtensiveTestScenario.updateDb(branchDb);
+    withEditTxn(branchDb, () => {
+      TransformerExtensiveTestScenario.updateDb(branchDb);
+    });
     TransformerExtensiveTestScenario.assertUpdatesInDb(branchDb);
-    branchDb.saveChanges();
 
     const numBranchElements = await count(branchDb, Element.classFullName);
     const numBranchRelationships = await count(
@@ -512,9 +718,10 @@ describe("IModelTransformer", () => {
       masterDb,
       { noProvenance: true }
     );
-    await branchToMasterTransformer.process();
+    await withEditTxn(masterDb, async () => {
+      await branchToMasterTransformer.process();
+    });
     branchToMasterTransformer.dispose();
-    masterDb.saveChanges();
     TransformerExtensiveTestScenario.assertUpdatesInDb(masterDb, false);
     assert.equal(
       numBranchElements,
@@ -553,7 +760,6 @@ describe("IModelTransformer", () => {
       Subject.createCode(sourceDb, IModel.rootSubjectId, "Subject")
     )!;
     assert.isTrue(Id64.isValidId64(sourceSubjectId));
-    sourceDb.saveChanges();
     // Target IModelDb
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -562,24 +768,27 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "TargetImportSubject" },
     });
-    await TransformerExtensiveTestScenario.prepareTargetDb(targetDb);
-    const targetSubjectId = Subject.insert(
-      targetDb,
-      IModel.rootSubjectId,
-      "Target Subject",
-      "Target Subject Description"
-    );
-    assert.isTrue(Id64.isValidId64(targetSubjectId));
-    targetDb.saveChanges();
+    const targetSubjectId = await withEditTxn(targetDb, async (txn) => {
+      await TransformerExtensiveTestScenario.prepareTargetDb(targetDb);
+      const insertedTargetSubjectId = Subject.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Target Subject",
+        "Target Subject Description"
+      );
+      assert.isTrue(Id64.isValidId64(insertedTargetSubjectId));
+      return insertedTargetSubjectId;
+    });
     // Import from beneath source Subject into target Subject
     const transformer = await TestIModelTransformer.create(sourceDb, targetDb);
-    await transformer.processFonts();
-    await transformer.processSubject(sourceSubjectId, targetSubjectId);
-    await transformer.processRelationships(
-      ElementRefersToElements.classFullName
-    );
+    await withEditTxn(targetDb, async () => {
+      await transformer.processFonts();
+      await transformer.processSubject(sourceSubjectId, targetSubjectId);
+      await transformer.processRelationships(
+        ElementRefersToElements.classFullName
+      );
+    });
     transformer.dispose();
-    targetDb.saveChanges();
     TransformerExtensiveTestScenario.assertTargetDbContents(
       sourceDb,
       targetDb,
@@ -624,9 +833,10 @@ describe("IModelTransformer", () => {
     assert.exists(targetDb);
     // import
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processSchemas();
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
     transformer.dispose();
     const numTargetElements = await count(targetDb, Element.classFullName);
     assert.isAtLeast(numTargetElements, numSourceElements);
@@ -645,56 +855,61 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Source Provenance Test" },
     });
-    const sourceRepositoryId = IModelTransformerTestUtils.insertRepositoryLink(
+    const { sourceRepositoryId, sourceExternalSourceId } = await withEditTxn(
       sourceDb,
-      "master.dgn",
-      "https://test.bentley.com/folder/master.dgn",
-      "DGN"
+      async (txn) => {
+        const sourceRepositoryId =
+          IModelTransformerTestUtils.insertRepositoryLink(
+            sourceDb,
+            "master.dgn",
+            "https://test.bentley.com/folder/master.dgn",
+            "DGN"
+          );
+        const sourceExternalSourceId =
+          IModelTransformerTestUtils.insertExternalSource(
+            sourceDb,
+            sourceRepositoryId,
+            "Default Model"
+          );
+        const sourceCategoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          { color: ColorDef.green.toJSON() }
+        );
+        const sourceModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical"
+        );
+        for (const x of [1, 2, 3]) {
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: sourceModelId,
+            category: sourceCategoryId,
+            code: Code.createEmpty(),
+            userLabel: `PhysicalObject(${x})`,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
+          };
+          const physicalObjectId = txn.insertElement(physicalObjectProps);
+          const aspectProps: ExternalSourceAspectProps = {
+            // simulate provenance from a Connector
+            classFullName: ExternalSourceAspect.classFullName,
+            element: {
+              id: physicalObjectId,
+              relClassName: ElementOwnsExternalSourceAspects.classFullName,
+            },
+            scope: { id: sourceExternalSourceId },
+            source: { id: sourceExternalSourceId },
+            identifier: `ID${x}`,
+            kind: ExternalSourceAspect.Kind.Element,
+          };
+          txn.insertAspect(aspectProps);
+        }
+        return { sourceRepositoryId, sourceExternalSourceId };
+      }
     );
-    const sourceExternalSourceId =
-      IModelTransformerTestUtils.insertExternalSource(
-        sourceDb,
-        sourceRepositoryId,
-        "Default Model"
-      );
-    const sourceCategoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const sourceModelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Physical"
-    );
-    for (const x of [1, 2, 3]) {
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: sourceCategoryId,
-        code: Code.createEmpty(),
-        userLabel: `PhysicalObject(${x})`,
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-        placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
-      };
-      const physicalObjectId =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const aspectProps: ExternalSourceAspectProps = {
-        // simulate provenance from a Connector
-        classFullName: ExternalSourceAspect.classFullName,
-        element: {
-          id: physicalObjectId,
-          relClassName: ElementOwnsExternalSourceAspects.classFullName,
-        },
-        scope: { id: sourceExternalSourceId },
-        source: { id: sourceExternalSourceId },
-        identifier: `ID${x}`,
-        kind: ExternalSourceAspect.Kind.Element,
-      };
-      sourceDb.elements.insertAspect(aspectProps);
-    }
-    sourceDb.saveChanges();
 
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -709,8 +924,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       includeSourceProvenance: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     // verify target contents
     assert.equal(1, await count(sourceDb, RepositoryLink.classFullName));
@@ -800,39 +1016,40 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Transform3d-Source" },
     });
-    const categoryId: Id64String = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const sourceModelId: Id64String = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Physical"
-    );
     const xArray: number[] = [1, 3, 5, 7, 9];
     const yArray: number[] = [0, 2, 4, 6, 8];
-    for (const x of xArray) {
-      for (const y of yArray) {
-        const physicalObjectProps1: PhysicalElementProps = {
-          classFullName: PhysicalObject.classFullName,
-          model: sourceModelId,
-          category: categoryId,
-          code: Code.createEmpty(),
-          userLabel: `PhysicalObject(${x},${y})`,
-          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-          placement: Placement3d.fromJSON({ origin: { x, y }, angles: {} }),
-        };
-        sourceDb.elements.insertElement(physicalObjectProps1);
+    const { categoryId, sourceModelId } = withEditTxn(sourceDb, (txn) => {
+      const categoryId: Id64String = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        { color: ColorDef.green.toJSON() }
+      );
+      const sourceModelId: Id64String = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Physical"
+      );
+      for (const x of xArray) {
+        for (const y of yArray) {
+          const physicalObjectProps1: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: sourceModelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: `PhysicalObject(${x},${y})`,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: Placement3d.fromJSON({ origin: { x, y }, angles: {} }),
+          };
+          txn.insertElement(physicalObjectProps1);
+        }
       }
-    }
+      return { categoryId, sourceModelId };
+    });
     const sourceModel: PhysicalModel =
       sourceDb.models.getModel<PhysicalModel>(sourceModelId);
     const sourceModelExtents: AxisAlignedBox3d = sourceModel.queryExtents();
     assert.deepEqual(sourceModelExtents, new Range3d(1, 0, 0, 10, 9, 1));
-
-    sourceDb.saveChanges();
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -850,7 +1067,9 @@ describe("IModelTransformer", () => {
       targetDb,
       transform3d
     );
-    await transformer.process();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
     const targetModelId: Id64String =
       transformer.context.findTargetElementId(sourceModelId);
     const targetModel: PhysicalModel =
@@ -875,43 +1094,54 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Separate Models" },
     });
-    const sourceCategoryId = SpatialCategory.insert(
+    const { sourceElementId11, sourceElementId21 } = withEditTxn(
       sourceDb,
-      IModel.dictionaryId,
-      "Category",
-      {}
+      (txn) => {
+        const sourceCategoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Category",
+          {}
+        );
+        const sourceModelId1 = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "M1"
+        );
+        const sourceModelId2 = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "M2"
+        );
+        const elementProps11: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: sourceModelId1,
+          code: Code.createEmpty(),
+          userLabel: "PhysicalObject-M1-E1",
+          category: sourceCategoryId,
+          geom: IModelTransformerTestUtils.createBox(new Point3d(1, 1, 1)),
+          placement: Placement3d.fromJSON({
+            origin: { x: 1, y: 1 },
+            angles: {},
+          }),
+        };
+        const sourceElementId11 = txn.insertElement(elementProps11);
+        const elementProps21: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: sourceModelId2,
+          code: Code.createEmpty(),
+          userLabel: "PhysicalObject-M2-E1",
+          category: sourceCategoryId,
+          geom: IModelTransformerTestUtils.createBox(new Point3d(2, 2, 2)),
+          placement: Placement3d.fromJSON({
+            origin: { x: 2, y: 2 },
+            angles: {},
+          }),
+        };
+        const sourceElementId21 = txn.insertElement(elementProps21);
+        return { sourceElementId11, sourceElementId21 };
+      }
     );
-    const sourceModelId1 = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "M1"
-    );
-    const sourceModelId2 = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "M2"
-    );
-    const elementProps11: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: sourceModelId1,
-      code: Code.createEmpty(),
-      userLabel: "PhysicalObject-M1-E1",
-      category: sourceCategoryId,
-      geom: IModelTransformerTestUtils.createBox(new Point3d(1, 1, 1)),
-      placement: Placement3d.fromJSON({ origin: { x: 1, y: 1 }, angles: {} }),
-    };
-    const sourceElementId11 = sourceDb.elements.insertElement(elementProps11);
-    const elementProps21: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: sourceModelId2,
-      code: Code.createEmpty(),
-      userLabel: "PhysicalObject-M2-E1",
-      category: sourceCategoryId,
-      geom: IModelTransformerTestUtils.createBox(new Point3d(2, 2, 2)),
-      placement: Placement3d.fromJSON({ origin: { x: 2, y: 2 }, angles: {} }),
-    };
-    const sourceElementId21 = sourceDb.elements.insertElement(elementProps21);
-    sourceDb.saveChanges();
     assert.equal(await count(sourceDb, PhysicalPartition.classFullName), 2);
     assert.equal(await count(sourceDb, PhysicalModel.classFullName), 2);
     assert.equal(await count(sourceDb, PhysicalObject.classFullName), 2);
@@ -923,10 +1153,8 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "Combined Model" },
     });
-    const targetModelId = PhysicalModel.insert(
-      targetDb,
-      IModel.rootSubjectId,
-      "PhysicalModel-Combined"
+    const targetModelId = withEditTxn(targetDb, (txn) =>
+      PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel-Combined")
     );
 
     const transformer = new PhysicalModelConsolidator(
@@ -934,8 +1162,9 @@ describe("IModelTransformer", () => {
       targetDb,
       targetModelId
     );
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     const targetElement11 = targetDb.elements.getElement(
       transformer.context.findTargetElementId(sourceElementId11)
@@ -999,7 +1228,9 @@ describe("IModelTransformer", () => {
         }
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      await transformerA2S.process();
+      await withEditTxn(iModelShared, async () => {
+        await transformerA2S.process();
+      });
       transformerA2S.dispose();
       // Make sure some properties, for example, description, can persist
       const teamIModelA: Subject = iModelA.elements.getElement<Subject>(
@@ -1010,7 +1241,6 @@ describe("IModelTransformer", () => {
       assert.equal(teamIModelA.description, sharedIModelA.description);
       IModelTransformerTestUtils.dumpIModelInfo(iModelA);
       iModelA.close();
-      iModelShared.saveChanges("Imported A");
       IModelTransformerTestUtils.assertSharedIModelContents(iModelShared, [
         "A",
       ]);
@@ -1043,11 +1273,12 @@ describe("IModelTransformer", () => {
         }
       );
       transformerB2S.context.remapElement(IModel.rootSubjectId, subjectId);
-      await transformerB2S.process();
+      await withEditTxn(iModelShared, async () => {
+        await transformerB2S.process();
+      });
       transformerB2S.dispose();
       IModelTransformerTestUtils.dumpIModelInfo(iModelB);
       iModelB.close();
-      iModelShared.saveChanges("Imported B");
       IModelTransformerTestUtils.assertSharedIModelContents(iModelShared, [
         "A",
         "B",
@@ -1209,19 +1440,19 @@ describe("IModelTransformer", () => {
     assert.exists(sourceIModelDb);
     assert.exists(targetIModelDb);
 
-    const sourceSubjectId: Id64String = Subject.insert(
+    const sourceSubjectId: Id64String = await withEditTxn(
       sourceIModelDb,
-      IModel.rootSubjectId,
-      "source"
+      async (txn) => Subject.insert(txn, IModel.rootSubjectId, "source")
     );
-    const targetSubjectId: Id64String = Subject.insert(
+    const targetSubjectId: Id64String = await withEditTxn(
       targetIModelDb,
-      IModel.rootSubjectId,
-      "target"
+      async (txn) => Subject.insert(txn, IModel.rootSubjectId, "target")
     );
     const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb);
     transformer.context.remapElement(sourceSubjectId, targetSubjectId);
-    await transformer.process();
+    await withEditTxn(targetIModelDb, async () => {
+      await transformer.process();
+    });
     transformer.dispose();
     const sourceIModelSubject: Subject =
       sourceIModelDb.elements.getElement<Subject>(sourceSubjectId);
@@ -1267,16 +1498,17 @@ describe("IModelTransformer", () => {
     );
     assert.exists(sourceIModelDb);
     assert.exists(targetIModelDb);
-    const targetSubjectId: Id64String = Subject.insert(
+    const targetSubjectId: Id64String = await withEditTxn(
       targetIModelDb,
-      IModel.rootSubjectId,
-      "target"
+      async (txn) => Subject.insert(txn, IModel.rootSubjectId, "target")
     );
     const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb, {
       danglingReferencesBehavior: "ignore",
     });
     transformer.context.remapElement(IModel.rootSubjectId, targetSubjectId);
-    await transformer.process();
+    await withEditTxn(targetIModelDb, async () => {
+      await transformer.process();
+    });
     transformer.dispose();
     const targetIModelSubject: Subject =
       targetIModelDb.elements.getElement<Subject>(targetSubjectId);
@@ -1313,15 +1545,21 @@ describe("IModelTransformer", () => {
     );
     assert.exists(sourceIModelDb);
     assert.exists(targetIModelDb);
-    const targetParentSubjectId: Id64String = Subject.insert(
+    const { targetParentSubjectId, targetChildSubjectId } = await withEditTxn(
       targetIModelDb,
-      IModel.rootSubjectId,
-      "targetParent"
-    );
-    const targetChildSubjectId: Id64String = Subject.insert(
-      targetIModelDb,
-      targetParentSubjectId,
-      "targetChild"
+      async (txn) => {
+        const targetParentSubjectId: Id64String = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "targetParent"
+        );
+        const targetChildSubjectId: Id64String = Subject.insert(
+          txn,
+          targetParentSubjectId,
+          "targetChild"
+        );
+        return { targetParentSubjectId, targetChildSubjectId };
+      }
     );
     const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb, {
       danglingReferencesBehavior: "ignore",
@@ -1330,7 +1568,9 @@ describe("IModelTransformer", () => {
       IModel.rootSubjectId,
       targetChildSubjectId
     );
-    await transformer.process();
+    await withEditTxn(targetIModelDb, async () => {
+      await transformer.process();
+    });
     transformer.dispose();
     const targetChildIModelSubject: Subject =
       targetIModelDb.elements.getElement<Subject>(targetChildSubjectId);
@@ -1505,11 +1745,12 @@ describe("IModelTransformer", () => {
       string1: "a",
       string2: "b",
     };
-    const sourceElementId = sourceDb.elements.insertElement(sourceElementProps);
+    const sourceElementId = await withEditTxn(sourceDb, async (txn) =>
+      txn.insertElement(sourceElementProps)
+    );
     const sourceElement = sourceDb.elements.getElement(sourceElementId);
     assert.equal(sourceElement.asAny.string1, "a");
     assert.equal(sourceElement.asAny.string2, "b");
-    sourceDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -1521,8 +1762,9 @@ describe("IModelTransformer", () => {
     await targetDb.importSchemas([cloneTestSchema101]);
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processElement(sourceElementId);
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processElement(sourceElementId);
+    });
 
     const targetElementId =
       transformer.context.findTargetElementId(sourceElementId);
@@ -1595,32 +1837,30 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "FilterByView-Source" },
     });
     const categoryNames: string[] = ["C1", "C2", "C3", "C4", "C5"];
-    categoryNames.forEach((categoryName) => {
-      const categoryId = SpatialCategory.insert(
-        sourceDb,
-        IModel.dictionaryId,
-        categoryName,
-        {}
-      );
-      CategorySelector.insert(sourceDb, IModel.dictionaryId, categoryName, [
-        categoryId,
-      ]);
-    });
     const modelNames: string[] = ["MA", "MB", "MC", "MD"];
-    modelNames.forEach((modelName) => {
-      const modelId = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        modelName
-      );
-      ModelSelector.insert(sourceDb, IModel.dictionaryId, modelName, [modelId]);
-    });
     const projectExtents = new Range3d();
-    const displayStyleId = DisplayStyle3d.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "DisplayStyle"
-    );
+    const displayStyleId = withEditTxn(sourceDb, (txn) => {
+      categoryNames.forEach((categoryName) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          categoryName,
+          {}
+        );
+        CategorySelector.insert(txn, IModel.dictionaryId, categoryName, [
+          categoryId,
+        ]);
+      });
+      modelNames.forEach((modelName) => {
+        const modelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          modelName
+        );
+        ModelSelector.insert(txn, IModel.dictionaryId, modelName, [modelId]);
+      });
+      return DisplayStyle3d.insert(txn, IModel.dictionaryId, "DisplayStyle");
+    });
     for (let x = 0; x < categoryNames.length; x++) {
       // eslint-disable-line @typescript-eslint/prefer-for-of
       const categoryId = sourceDb.elements.queryElementIdByCode(
@@ -1664,32 +1904,34 @@ describe("IModelTransformer", () => {
             angles: YawPitchRollAngles.createDegrees(0, 0, 0),
           },
         };
-        const physicalObjectId =
-          sourceDb.elements.insertElement(physicalObjectProps);
+        const physicalObjectId = withEditTxn(sourceDb, (txn) =>
+          txn.insertElement(physicalObjectProps)
+        );
         const physicalObject = sourceDb.elements.getElement<PhysicalObject>(
           physicalObjectId,
           PhysicalObject
         );
         const viewExtents = physicalObject.placement.calculateRange();
-        OrthographicViewDefinition.insert(
-          sourceDb,
-          IModel.dictionaryId,
-          `View-${categoryNames[x]}-${modelNames[y]}`,
-          modelSelectorId,
-          categorySelectorId,
-          displayStyleId,
-          viewExtents,
-          StandardViewIndex.Iso
-        );
+        withEditTxn(sourceDb, (txn) => {
+          OrthographicViewDefinition.insert(
+            txn,
+            IModel.dictionaryId,
+            `View-${categoryNames[x]}-${modelNames[y]}`,
+            modelSelectorId,
+            categorySelectorId,
+            displayStyleId,
+            viewExtents,
+            StandardViewIndex.Iso
+          );
+        });
         projectExtents.extendRange(viewExtents);
       }
     }
-    sourceDb.updateProjectExtents(projectExtents);
-    const exportCategorySelectorId = CategorySelector.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "Export",
-      [
+    withEditTxn(sourceDb, (txn) => {
+      txn.updateProjectExtents(projectExtents);
+    });
+    const exportCategorySelectorId = withEditTxn(sourceDb, (txn) =>
+      CategorySelector.insert(txn, IModel.dictionaryId, "Export", [
         sourceDb.elements.queryElementIdByCode(
           SpatialCategory.createCode(
             sourceDb,
@@ -1711,13 +1953,10 @@ describe("IModelTransformer", () => {
             categoryNames[4]
           )
         )!,
-      ]
+      ])
     );
-    const exportModelSelectorId = ModelSelector.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "Export",
-      [
+    const exportModelSelectorId = withEditTxn(sourceDb, (txn) =>
+      ModelSelector.insert(txn, IModel.dictionaryId, "Export", [
         sourceDb.elements.queryElementIdByCode(
           PhysicalPartition.createCode(
             sourceDb,
@@ -1732,19 +1971,20 @@ describe("IModelTransformer", () => {
             modelNames[3]
           )
         )!,
-      ]
+      ])
     );
-    const exportViewId = OrthographicViewDefinition.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "Export",
-      exportModelSelectorId,
-      exportCategorySelectorId,
-      displayStyleId,
-      projectExtents,
-      StandardViewIndex.Iso
+    const exportViewId = withEditTxn(sourceDb, (txn) =>
+      OrthographicViewDefinition.insert(
+        txn,
+        IModel.dictionaryId,
+        "Export",
+        exportModelSelectorId,
+        exportCategorySelectorId,
+        displayStyleId,
+        projectExtents,
+        StandardViewIndex.Iso
+      )
     );
-    sourceDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -1753,18 +1993,20 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "FilterByView-Target" },
     });
-    targetDb.updateProjectExtents(sourceDb.projectExtents);
+    withEditTxn(targetDb, (txn) => {
+      txn.updateProjectExtents(sourceDb.projectExtents);
+    });
 
     const transformer = await FilterByViewTransformer.create(
       sourceDb,
       targetDb,
       exportViewId
     );
-    await transformer.processSchemas();
-    await transformer.process();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
     transformer.dispose();
-
-    targetDb.saveChanges();
     targetDb.close();
     sourceDb.close();
   });
@@ -1811,8 +2053,9 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "Order Test" },
     });
 
-    await sourceDb.importSchemas([testSchema1Path, testSchema2Path]);
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await sourceDb.importSchemas([testSchema1Path, testSchema2Path]);
+    });
 
     class OrderedExporter extends IModelExporter {
       public override async exportSchemas() {
@@ -1842,13 +2085,13 @@ describe("IModelTransformer", () => {
 
     let error: any;
     try {
-      await transformer.processSchemas();
+      await withEditTxn(targetDb, async () => {
+        await transformer.processSchemas();
+      });
     } catch (_error) {
       error = _error;
     }
     assert.isUndefined(error);
-
-    targetDb.saveChanges();
     const targetImportedSchemasLoader = new SchemaLoader((name: string) =>
       targetDb.getSchemaProps(name)
     );
@@ -1874,8 +2117,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "FinallyFirstTest" },
     });
-    await sourceDb.importSchemas([cloneTestSchema100]);
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await sourceDb.importSchemas([cloneTestSchema100]);
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -1923,43 +2167,53 @@ describe("IModelTransformer", () => {
     });
 
     // create a document partition in our iModel's root
-    const documentListModelId = DocumentListModel.insert(
+    const { documentListModelId, myCodeSpecId } = await withEditTxn(
       sourceDb,
-      IModelDb.rootSubjectId,
-      "DocumentList"
+      async (txn) => {
+        const documentListModelId = DocumentListModel.insert(
+          txn,
+          IModelDb.rootSubjectId,
+          "DocumentList"
+        );
+
+        // add a drawing to the document partition's model
+        const drawingId = txn.insertElement({
+          classFullName: Drawing.classFullName,
+          model: documentListModelId,
+          code: Drawing.createCode(sourceDb, documentListModelId, "Drawing"),
+        });
+        expect(Id64.isValidId64(drawingId)).to.be.true;
+
+        // submodel our drawing with a DrawingModel
+        const model = sourceDb.models.createModel({
+          classFullName: DrawingModel.classFullName,
+          modeledElement: { id: drawingId },
+        });
+        txn.insertModel(model.toJSON());
+
+        const myCodeSpecId = sourceDb.codeSpecs.insert(
+          txn,
+          CodeSpec.create(
+            sourceDb,
+            "MyCodeSpec",
+            CodeScopeSpec.Type.RelatedElement
+          )
+        );
+
+        // insert a definition element which is scoped by a non-definition element (the drawing)
+        txn.insertElement({
+          classFullName: GenericPhysicalMaterial.classFullName,
+          model: IModel.dictionaryId,
+          code: new Code({
+            spec: myCodeSpecId,
+            scope: drawingId,
+            value: "physical material",
+          }),
+        } as DefinitionElementProps);
+
+        return { documentListModelId, myCodeSpecId };
+      }
     );
-
-    // add a drawing to the document partition's model
-    const drawingId = sourceDb.elements.insertElement({
-      classFullName: Drawing.classFullName,
-      model: documentListModelId,
-      code: Drawing.createCode(sourceDb, documentListModelId, "Drawing"),
-    });
-    expect(Id64.isValidId64(drawingId)).to.be.true;
-
-    // submodel our drawing with a DrawingModel
-    const model = sourceDb.models.createModel({
-      classFullName: DrawingModel.classFullName,
-      modeledElement: { id: drawingId },
-    });
-    sourceDb.models.insertModel(model.toJSON());
-
-    const myCodeSpecId = sourceDb.codeSpecs.insert(
-      CodeSpec.create(sourceDb, "MyCodeSpec", CodeScopeSpec.Type.RelatedElement)
-    );
-
-    // insert a definition element which is scoped by a non-definition element (the drawing)
-    const _physicalMaterialId = sourceDb.elements.insertElement({
-      classFullName: GenericPhysicalMaterial.classFullName,
-      model: IModel.dictionaryId,
-      code: new Code({
-        spec: myCodeSpecId,
-        scope: drawingId,
-        value: "physical material",
-      }),
-    } as DefinitionElementProps);
-
-    sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2005,79 +2259,84 @@ describe("IModelTransformer", () => {
     });
 
     // create a document partition in our iModel's root
-    const documentListModelId = DocumentListModel.insert(
-      sourceDb,
-      IModelDb.rootSubjectId,
-      "DocumentList"
-    );
+    const { documentListModelId, drawingGraphic2Id, _drawingGraphic1Id } =
+      await withEditTxn(sourceDb, async (txn) => {
+        const documentListModelId = DocumentListModel.insert(
+          txn,
+          IModelDb.rootSubjectId,
+          "DocumentList"
+        );
 
-    // add a drawing to the document partition's model
-    const drawing1Id = sourceDb.elements.insertElement({
-      classFullName: Drawing.classFullName,
-      model: documentListModelId,
-      code: Drawing.createCode(sourceDb, documentListModelId, "Drawing1"),
-    });
+        // add a drawing to the document partition's model
+        const drawing1Id = txn.insertElement({
+          classFullName: Drawing.classFullName,
+          model: documentListModelId,
+          code: Drawing.createCode(sourceDb, documentListModelId, "Drawing1"),
+        });
 
-    const drawing2Id = sourceDb.elements.insertElement({
-      classFullName: Drawing.classFullName,
-      model: documentListModelId,
-      code: Drawing.createCode(sourceDb, documentListModelId, "Drawing2"),
-    });
+        const drawing2Id = txn.insertElement({
+          classFullName: Drawing.classFullName,
+          model: documentListModelId,
+          code: Drawing.createCode(sourceDb, documentListModelId, "Drawing2"),
+        });
 
-    const drawingModel1 = sourceDb.models.createModel({
-      classFullName: DrawingModel.classFullName,
-      modeledElement: { id: drawing1Id },
-    });
-    const drawingModel1Id = sourceDb.models.insertModel(drawingModel1.toJSON());
+        const drawingModel1 = sourceDb.models.createModel({
+          classFullName: DrawingModel.classFullName,
+          modeledElement: { id: drawing1Id },
+        });
+        const drawingModel1Id = txn.insertModel(drawingModel1.toJSON());
 
-    const drawingModel2 = sourceDb.models.createModel({
-      classFullName: DrawingModel.classFullName,
-      modeledElement: { id: drawing2Id },
-    });
-    const drawingModel2Id = sourceDb.models.insertModel(drawingModel2.toJSON());
+        const drawingModel2 = sourceDb.models.createModel({
+          classFullName: DrawingModel.classFullName,
+          modeledElement: { id: drawing2Id },
+        });
+        const drawingModel2Id = txn.insertModel(drawingModel2.toJSON());
 
-    const modelCodeSpec = sourceDb.codeSpecs.insert(
-      CodeSpec.create(sourceDb, "ModelCodeSpec", CodeScopeSpec.Type.Model)
-    );
-    const relatedCodeSpecId = sourceDb.codeSpecs.insert(
-      CodeSpec.create(
-        sourceDb,
-        "RelatedCodeSpec",
-        CodeScopeSpec.Type.RelatedElement
-      )
-    );
+        const modelCodeSpec = sourceDb.codeSpecs.insert(
+          txn,
+          CodeSpec.create(sourceDb, "ModelCodeSpec", CodeScopeSpec.Type.Model)
+        );
+        const relatedCodeSpecId = sourceDb.codeSpecs.insert(
+          txn,
+          CodeSpec.create(
+            sourceDb,
+            "RelatedCodeSpec",
+            CodeScopeSpec.Type.RelatedElement
+          )
+        );
 
-    const categoryId = DrawingCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "DrawingCategory",
-      { color: ColorDef.green.toJSON() }
-    );
+        const categoryId = DrawingCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "DrawingCategory",
+          { color: ColorDef.green.toJSON() }
+        );
 
-    // we make drawingGraphic2 in drawingModel2 first
-    const drawingGraphic2Id = sourceDb.elements.insertElement({
-      classFullName: DrawingGraphic.classFullName,
-      model: drawingModel2Id,
-      code: new Code({
-        spec: modelCodeSpec,
-        scope: drawingModel2Id,
-        value: "drawing graphic 2",
-      }),
-      category: categoryId,
-    } as GeometricElement2dProps);
+        // we make drawingGraphic2 in drawingModel2 first
+        const drawingGraphic2Id = txn.insertElement({
+          classFullName: DrawingGraphic.classFullName,
+          model: drawingModel2Id,
+          code: new Code({
+            spec: modelCodeSpec,
+            scope: drawingModel2Id,
+            value: "drawing graphic 2",
+          }),
+          category: categoryId,
+        } as GeometricElement2dProps);
 
-    const _drawingGraphic1Id = sourceDb.elements.insertElement({
-      classFullName: DrawingGraphic.classFullName,
-      model: drawingModel1Id,
-      code: new Code({
-        spec: relatedCodeSpecId,
-        scope: drawingGraphic2Id,
-        value: "drawing graphic 1",
-      }),
-      category: categoryId,
-    } as GeometricElement2dProps);
+        const _drawingGraphic1Id = txn.insertElement({
+          classFullName: DrawingGraphic.classFullName,
+          model: drawingModel1Id,
+          code: new Code({
+            spec: relatedCodeSpecId,
+            scope: drawingGraphic2Id,
+            value: "drawing graphic 1",
+          }),
+          category: categoryId,
+        } as GeometricElement2dProps);
 
-    sourceDb.saveChanges();
+        return { documentListModelId, drawingGraphic2Id, _drawingGraphic1Id };
+      });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2185,8 +2444,9 @@ describe("IModelTransformer", () => {
     );
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processSchemas();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+    });
 
     assert(
       Semver.eq(
@@ -2257,99 +2517,108 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "PreserveId" },
     });
 
-    const spatialCateg1Id = SpatialCategory.insert(
-      sourceDb,
-      IModelDb.dictionaryId,
-      "spatial-category1",
-      { color: ColorDef.blue.toJSON() }
-    );
-    const spatialCateg2Id = SpatialCategory.insert(
-      sourceDb,
-      IModelDb.dictionaryId,
-      "spatial-category2",
-      { color: ColorDef.red.toJSON() }
-    );
-    const myPhysModelId = PhysicalModel.insert(
-      sourceDb,
-      IModelDb.rootSubjectId,
-      "myPhysicalModel"
-    );
-    const _physicalObjectIds = [
-      spatialCateg1Id,
-      spatialCateg2Id,
-      spatialCateg2Id,
-      spatialCateg2Id,
-      spatialCateg2Id,
-    ].map((categoryId, x) => {
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: myPhysModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-        userLabel: `PhysicalObject(${x})`,
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-        placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
-      };
-      const physicalObjectId =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      return physicalObjectId;
-    });
-
-    // these link table relationships (ElementRefersToElements > PartitionOriginatesFromRepository) are examples of non-element entities
-    const physicalPartitions = new Array(3)
-      .fill(null)
-      .map((_, index) =>
-        sourceDb.elements.insertElement({
-          classFullName: PhysicalPartition.classFullName,
-          model: IModelDb.rootSubjectId,
-          parent: {
-            id: IModelDb.rootSubjectId,
-            relClassName: ElementOwnsChildElements.classFullName,
-          },
-          code: PhysicalPartition.createCode(
-            sourceDb,
-            IModelDb.rootSubjectId,
-            `physical-partition-${index}`
-          ),
-        } as InformationPartitionElementProps)
-      )
-      .map((partitionId) => {
-        const modelId = sourceDb.models.insertModel({
-          classFullName: PhysicalModel.classFullName,
-          modeledElement: { id: partitionId },
-        } as ModelProps);
-        return { modelId, partitionId }; // these are the same id because of submodeling
-      });
-
-    const linksIds = new Array(2).fill(null).map((_, index) => {
-      const linkId = sourceDb.elements.insertElement({
-        classFullName: RepositoryLink.classFullName,
-        code: RepositoryLink.createCode(
-          sourceDb,
+    const { spatialCateg1Id, spatialCateg2Id, physicalPartitions, linksIds } =
+      await withEditTxn(sourceDb, async (txn) => {
+        const spatialCateg1Id = SpatialCategory.insert(
+          txn,
+          IModelDb.dictionaryId,
+          "spatial-category1",
+          { color: ColorDef.blue.toJSON() }
+        );
+        const spatialCateg2Id = SpatialCategory.insert(
+          txn,
+          IModelDb.dictionaryId,
+          "spatial-category2",
+          { color: ColorDef.red.toJSON() }
+        );
+        const myPhysModelId = PhysicalModel.insert(
+          txn,
           IModelDb.rootSubjectId,
-          `repo-link-${index}`
-        ),
-        model: IModelDb.rootSubjectId,
-        repositoryGuid: `2fd0e5ed-a4d7-40cd-be8a-57552f5736b${index}`, // random, doesn't matter, works for up to 10 of course
-        format: "my-format",
-      } as RepositoryLinkProps);
-      return linkId;
-    });
+          "myPhysicalModel"
+        );
+        const _physicalObjectIds = [
+          spatialCateg1Id,
+          spatialCateg2Id,
+          spatialCateg2Id,
+          spatialCateg2Id,
+          spatialCateg2Id,
+        ].map((categoryId, x) => {
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: myPhysModelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: `PhysicalObject(${x})`,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+            placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
+          };
+          const physicalObjectId = txn.insertElement(physicalObjectProps);
+          return physicalObjectId;
+        });
 
-    const _nonElementEntityIds = [
-      [physicalPartitions[1].partitionId, linksIds[0]],
-      [physicalPartitions[1].partitionId, linksIds[1]],
-      [physicalPartitions[2].partitionId, linksIds[0]],
-      [physicalPartitions[2].partitionId, linksIds[1]],
-    ].map(([sourceId, targetId]) =>
-      sourceDb.relationships.insertInstance({
-        classFullName: "BisCore:PartitionOriginatesFromRepository",
-        sourceId,
-        targetId,
-      })
-    );
+        // these link table relationships (ElementRefersToElements > PartitionOriginatesFromRepository) are examples of non-element entities
+        const physicalPartitions = new Array(3)
+          .fill(null)
+          .map((_, index) =>
+            txn.insertElement({
+              classFullName: PhysicalPartition.classFullName,
+              model: IModelDb.rootSubjectId,
+              parent: {
+                id: IModelDb.rootSubjectId,
+                relClassName: ElementOwnsChildElements.classFullName,
+              },
+              code: PhysicalPartition.createCode(
+                sourceDb,
+                IModelDb.rootSubjectId,
+                `physical-partition-${index}`
+              ),
+            } as InformationPartitionElementProps)
+          )
+          .map((partitionId) => {
+            const modelId = txn.insertModel({
+              classFullName: PhysicalModel.classFullName,
+              modeledElement: { id: partitionId },
+            } as ModelProps);
+            return { modelId, partitionId }; // these are the same id because of submodeling
+          });
 
-    sourceDb.saveChanges();
+        const linksIds = new Array(2).fill(null).map((_, index) => {
+          const linkId = txn.insertElement({
+            classFullName: RepositoryLink.classFullName,
+            code: RepositoryLink.createCode(
+              sourceDb,
+              IModelDb.rootSubjectId,
+              `repo-link-${index}`
+            ),
+            model: IModelDb.rootSubjectId,
+            repositoryGuid: `2fd0e5ed-a4d7-40cd-be8a-57552f5736b${index}`, // random, doesn't matter, works for up to 10 of course
+            format: "my-format",
+          } as RepositoryLinkProps);
+          return linkId;
+        });
+
+        const _nonElementEntityIds = [
+          [physicalPartitions[1].partitionId, linksIds[0]],
+          [physicalPartitions[1].partitionId, linksIds[1]],
+          [physicalPartitions[2].partitionId, linksIds[0]],
+          [physicalPartitions[2].partitionId, linksIds[1]],
+        ].map(([sourceId, targetId]) =>
+          txn.insertRelationship({
+            classFullName: "BisCore:PartitionOriginatesFromRepository",
+            sourceId,
+            targetId,
+          })
+        );
+
+        return {
+          spatialCateg1Id,
+          spatialCateg2Id,
+          physicalPartitions,
+          linksIds,
+          _physicalObjectIds,
+          _nonElementEntityIds,
+        };
+      });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2416,8 +2685,9 @@ describe("IModelTransformer", () => {
     const transformer = new FilterCategoryTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     const sourceContent = await getAllElementsInvariants(
       sourceDb,
@@ -2434,25 +2704,29 @@ describe("IModelTransformer", () => {
     expect(sourceRelations).to.deep.equal(targetRelations);
 
     // now try inserting both an element and a relationship into the target to check the two entity id sequences are fine
-    const spatialCateg3Id = SpatialCategory.insert(
-      targetDb,
-      IModelDb.dictionaryId,
-      "spatial-category3",
-      { color: ColorDef.black.toJSON() }
-    );
+    const { spatialCateg3Id, spatialCateg3Subcateg1Id, insertedInstance } =
+      withEditTxn(targetDb, (txn) => {
+        const spatialCateg3Id = SpatialCategory.insert(
+          txn,
+          IModelDb.dictionaryId,
+          "spatial-category3",
+          { color: ColorDef.black.toJSON() }
+        );
+        const spatialCateg3Subcateg1Id = SubCategory.insert(
+          txn,
+          spatialCateg3Id,
+          "spatial-categ-subcateg-1",
+          { color: ColorDef.white.toJSON() }
+        );
+        const insertedInstance = txn.insertRelationship({
+          classFullName: "BisCore:PartitionOriginatesFromRepository",
+          sourceId: physicalPartitions[1].partitionId,
+          targetId: linksIds[0],
+        });
+        return { spatialCateg3Id, spatialCateg3Subcateg1Id, insertedInstance };
+      });
     expect(Id64.isValid(spatialCateg3Id)).to.be.true;
-    const spatialCateg3Subcateg1Id = SubCategory.insert(
-      targetDb,
-      spatialCateg3Id,
-      "spatial-categ-subcateg-1",
-      { color: ColorDef.white.toJSON() }
-    );
     expect(Id64.isValid(spatialCateg3Subcateg1Id)).to.be.true;
-    const insertedInstance = targetDb.relationships.insertInstance({
-      classFullName: "BisCore:PartitionOriginatesFromRepository",
-      sourceId: physicalPartitions[1].partitionId,
-      targetId: linksIds[0],
-    });
     expect(Id64.isValid(insertedInstance)).to.be.true;
 
     sourceDb.close();
@@ -2473,8 +2747,9 @@ describe("IModelTransformer", () => {
       rootSubject: seedDb.rootSubject,
     });
     const seedTransformer = new IModelTransformer(seedDb, sourceDb);
-    await seedTransformer.process();
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await seedTransformer.process();
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2487,8 +2762,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
     const targetContent = await getAllElementsInvariants(targetDb);
@@ -2506,56 +2782,76 @@ describe("IModelTransformer", () => {
       rootSubject: { name: opts.name },
     });
 
-    const sourceCategoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const sourceModelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Physical"
-    );
-    const myPhysObjCodeSpec = CodeSpec.create(
-      sourceDb,
-      "myPhysicalObjects",
-      CodeScopeSpec.Type.ParentElement
-    );
-    const myPhysObjCodeSpecId = sourceDb.codeSpecs.insert(myPhysObjCodeSpec);
-    const physicalObjects = [1, 2].map((x) => {
-      const code = new Code({
-        spec: myPhysObjCodeSpecId,
-        scope: sourceModelId,
-        value: `PhysicalObject(${x})`,
+    const {
+      sourceCategoryId,
+      sourceModelId,
+      physicalObjects,
+      displayStyleId,
+      displayStyleCode,
+      myPhysObjCodeSpec,
+    } = withEditTxn(sourceDb, (txn) => {
+      const sourceCategoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        { color: ColorDef.green.toJSON() }
+      );
+      const sourceModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Physical"
+      );
+      const myPhysObjCodeSpec = CodeSpec.create(
+        sourceDb,
+        "myPhysicalObjects",
+        CodeScopeSpec.Type.ParentElement
+      );
+      const myPhysObjCodeSpecId = sourceDb.codeSpecs.insert(
+        txn,
+        myPhysObjCodeSpec
+      );
+      const physicalObjects = [1, 2].map((x) => {
+        const code = new Code({
+          spec: myPhysObjCodeSpecId,
+          scope: sourceModelId,
+          value: `PhysicalObject(${x})`,
+        });
+        const props: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: sourceModelId,
+          category: sourceCategoryId,
+          code,
+          userLabel: `PhysicalObject(${x})`,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
+        };
+        const id = txn.insertElement(props);
+        return { code, id };
       });
-      const props: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: sourceCategoryId,
-        code,
-        userLabel: `PhysicalObject(${x})`,
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-        placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
+      const displayStyleId = DisplayStyle3d.insert(
+        txn,
+        IModel.dictionaryId,
+        "MyDisplayStyle",
+        {
+          excludedElements: physicalObjects.map((o) => o.id),
+        }
+      );
+      const displayStyleCode =
+        sourceDb.elements.getElement(displayStyleId).code;
+
+      const physObjId2 = physicalObjects[1].id;
+      // this deletion makes the display style have an reference to a now-gone element
+      txn.deleteElement(physObjId2);
+
+      return {
+        sourceCategoryId,
+        sourceModelId,
+        physicalObjects,
+        displayStyleId,
+        displayStyleCode,
+        myPhysObjCodeSpec,
       };
-      const id = sourceDb.elements.insertElement(props);
-      return { code, id };
     });
-    const displayStyleId = DisplayStyle3d.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "MyDisplayStyle",
-      {
-        excludedElements: physicalObjects.map((o) => o.id),
-      }
-    );
-    const displayStyleCode = sourceDb.elements.getElement(displayStyleId).code;
-
-    const physObjId2 = physicalObjects[1].id;
-    // this deletion makes the display style have an reference to a now-gone element
-    sourceDb.elements.deleteElement(physObjId2);
-
-    sourceDb.saveChanges();
 
     return [
       sourceDb,
@@ -2579,7 +2875,6 @@ describe("IModelTransformer", () => {
         "SELECT Val FROM be_Local WHERE Name='bis_elementidsequence'",
         (s) => [...s]
       )[0].val;
-    sourceDb.saveChanges(); // save to make sure we get the latest id value
     const sourceNextId = nextId(sourceDb);
     const targetDb = createTarget();
     const pathName = targetDb.pathName;
@@ -2590,7 +2885,6 @@ describe("IModelTransformer", () => {
         assert(s.step() === DbResult.BE_SQLITE_DONE);
       }
     );
-    targetDb.saveChanges();
     targetDb.close();
     return StandaloneDb.openFile(pathName);
   }
@@ -2639,8 +2933,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
-    sourceDb.saveChanges();
+    withEditTxn(sourceDb, (txn) => {
+      Subject.insert(txn, IModel.rootSubjectId, "Subject1");
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2654,8 +2949,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     let sourceContent = await getAllElementsInvariants(sourceDb);
     let targetContent = await getAllElementsInvariants(targetDb);
@@ -2669,15 +2965,17 @@ describe("IModelTransformer", () => {
     );
     const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
     expect(targetSubjectId1).to.not.be.undefined;
-    targetDb.elements.deleteElement(targetSubjectId1!);
-    targetDb.saveChanges();
+    withEditTxn(targetDb, (txn) => {
+      txn.deleteElement(targetSubjectId1!);
+    });
 
     // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
+    });
 
     // verify that deleted element in target is added back - redundant check for explicitness
     const sourceElementJSON = sourceDb.elements
@@ -2704,12 +3002,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    const sourceSubjectId = Subject.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Subject1"
+    const sourceSubjectId = withEditTxn(sourceDb, (txn) =>
+      Subject.insert(txn, IModel.rootSubjectId, "Subject1")
     );
-    sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2723,8 +3018,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     let sourceContent = await getAllElementsInvariants(sourceDb);
     let targetContent = await getAllElementsInvariants(targetDb);
@@ -2735,15 +3031,17 @@ describe("IModelTransformer", () => {
       sourceDb.elements.getElement<Subject>(sourceSubjectId);
     const updatedDescription = "Subject1 Updated Description";
     sourceSubject.description = updatedDescription;
-    sourceDb.elements.updateElement(sourceSubject.toJSON());
-    sourceDb.saveChanges();
+    withEditTxn(sourceDb, (txn) => {
+      txn.updateElement(sourceSubject.toJSON());
+    });
 
     // Calling process() for second time with option to preserve elements in hopes of updating element with desired id
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await secondTransformer.process(); // should update description for subject element
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await secondTransformer.process(); // should update description for subject element
+    });
 
     // target subject should have updated description
     const targetSubjectDescription =
@@ -2772,8 +3070,9 @@ describe("IModelTransformer", () => {
       rootSubject: seedDb.rootSubject,
     });
     const seedTransformer = new IModelTransformer(seedDb, sourceDb);
-    await seedTransformer.process();
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await seedTransformer.process();
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2787,15 +3086,17 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     // should not throw error: duplicate code (65547)
     const thirdTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await thirdTransformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await thirdTransformer.process();
+    });
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
     const targetContent = await getAllElementsInvariants(targetDb);
@@ -2813,8 +3114,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
-    sourceDb.saveChanges();
+    withEditTxn(sourceDb, (txn) => {
+      Subject.insert(txn, IModel.rootSubjectId, "Subject1");
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2828,8 +3130,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
     const targetContent = await getAllElementsInvariants(targetDb);
@@ -2840,8 +3143,9 @@ describe("IModelTransformer", () => {
     const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
     expect(targetSubjectId).to.not.be.undefined;
 
-    targetDb.elements.deleteElement(targetSubjectId!);
-    targetDb.saveChanges();
+    withEditTxn(targetDb, (txn) => {
+      txn.deleteElement(targetSubjectId!);
+    });
 
     // save subject 1 element properties for new subject(it should have same fed guid and code)
     const targetSubjectProps = sourceDb.elements.getElementProps(
@@ -2851,9 +3155,10 @@ describe("IModelTransformer", () => {
     assert.isDefined(targetSubjectProps);
 
     // create new subject that is the same as subject 1 but has a different Id
-    const newSubjectId = targetDb.elements.insertElement(targetSubjectProps);
+    const newSubjectId = withEditTxn(targetDb, (txn) =>
+      txn.insertElement(targetSubjectProps)
+    );
     expect(newSubjectId).to.not.be.undefined;
-    targetDb.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of throwing expected error
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
@@ -2876,8 +3181,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
-    sourceDb.saveChanges();
+    withEditTxn(sourceDb, (txn) => {
+      Subject.insert(txn, IModel.rootSubjectId, "Subject1");
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2891,8 +3197,9 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
     });
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
     const targetContent = await getAllElementsInvariants(targetDb);
@@ -2907,8 +3214,9 @@ describe("IModelTransformer", () => {
     const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
     expect(targetSubjectId1).to.not.be.undefined;
 
-    targetDb.elements.deleteElement(targetSubjectId1!);
-    targetDb.saveChanges();
+    withEditTxn(targetDb, (txn) => {
+      txn.deleteElement(targetSubjectId1!);
+    });
 
     // save subject 1 element properties but only use the same id
     const newPropsForSubject3 = sourceDb.elements.getElementProps(
@@ -2924,12 +3232,10 @@ describe("IModelTransformer", () => {
 
     // insert an unrelated element that uses same id as subject1
     // insertElement public api does not support forceUseId option
-    const targetSubjectId3 = targetDb.elements.insertElement(
-      newPropsForSubject3,
-      { forceUseId: true }
+    const targetSubjectId3 = withEditTxn(targetDb, (txn) =>
+      txn.insertElement(newPropsForSubject3, { forceUseId: true })
     );
     expect(targetSubjectId3).to.not.be.undefined;
-    targetDb.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of of throwing expected error
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
@@ -3004,8 +3310,9 @@ describe("IModelTransformer", () => {
         createTargetDb,
         opts
       );
-      await expect(transformer.process()).not.to.be.rejected;
-      transformer.targetDb.saveChanges();
+      await withEditTxn(transformer.targetDb, async () => {
+        await expect(transformer.process()).not.to.be.rejected;
+      });
 
       expect(sourceDb.elements.tryGetElement(physicalObjects[1].id)).to.be
         .undefined;
@@ -3062,73 +3369,79 @@ describe("IModelTransformer", () => {
 
     const testSchemaPath =
       IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
-    await sourceDb.importSchemas([testSchemaPath]);
+    const { multiAspectProps, uniqueAspectProps } = await withEditTxn(
+      sourceDb,
+      async (txn) => {
+        await sourceDb.importSchemas([testSchemaPath]);
 
-    const myPhysicalModelId = PhysicalModel.insert(
-      sourceDb,
-      IModelDb.rootSubjectId,
-      "MyPhysicalModel"
-    );
-    const mySpatialCategId = SpatialCategory.insert(
-      sourceDb,
-      IModelDb.dictionaryId,
-      "MySpatialCateg",
-      { color: ColorDef.black.toJSON() }
-    );
-    const myPhysicalObjId = sourceDb.elements.insertElement({
-      classFullName: PhysicalObject.classFullName,
-      model: myPhysicalModelId,
-      category: mySpatialCategId,
-      code: Code.createEmpty(),
-      userLabel: "MyPhysicalObject",
-      geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-      placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
-    } as PhysicalElementProps);
-    // because they are definition elements, display styles will be transformed first
-    const myDisplayStyleId = DisplayStyle3d.insert(
-      sourceDb,
-      IModelDb.dictionaryId,
-      "MyDisplayStyle3d",
-      {
-        excludedElements: [myPhysicalObjId],
+        const myPhysicalModelId = PhysicalModel.insert(
+          txn,
+          IModelDb.rootSubjectId,
+          "MyPhysicalModel"
+        );
+        const mySpatialCategId = SpatialCategory.insert(
+          txn,
+          IModelDb.dictionaryId,
+          "MySpatialCateg",
+          { color: ColorDef.black.toJSON() }
+        );
+        const myPhysicalObjId = txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: myPhysicalModelId,
+          category: mySpatialCategId,
+          code: Code.createEmpty(),
+          userLabel: "MyPhysicalObject",
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
+        } as PhysicalElementProps);
+        // because they are definition elements, display styles will be transformed first
+        const myDisplayStyleId = DisplayStyle3d.insert(
+          txn,
+          IModelDb.dictionaryId,
+          "MyDisplayStyle3d",
+          {
+            excludedElements: [myPhysicalObjId],
+          }
+        );
+        const sourceRepositoryId =
+          IModelTransformerTestUtils.insertRepositoryLink(
+            sourceDb,
+            "external.repo",
+            "https://external.example.com/folder/external.repo",
+            "TEST"
+          );
+        const sourceExternalSourceId =
+          IModelTransformerTestUtils.insertExternalSource(
+            sourceDb,
+            sourceRepositoryId,
+            "HypotheticalDisplayConfigurer"
+          );
+        // simulate provenance from a connector as an example of a copied over element multi aspect
+        const multiAspectProps: ExternalSourceAspectProps = {
+          classFullName: ExternalSourceAspect.classFullName,
+          element: {
+            id: myDisplayStyleId,
+            relClassName: ElementOwnsExternalSourceAspects.classFullName,
+          },
+          scope: { id: sourceExternalSourceId },
+          source: { id: sourceExternalSourceId },
+          identifier: "ID",
+          kind: ExternalSourceAspect.Kind.Element,
+        };
+        txn.insertAspect(multiAspectProps);
+        const uniqueAspectProps = {
+          classFullName: "TestSchema1:MyUniqueAspect",
+          element: {
+            id: myDisplayStyleId,
+            relClassName: ElementOwnsUniqueAspect.classFullName,
+          },
+          // eslint-disable-next-line @typescript-eslint/naming-convention
+          myProp1: "prop_value",
+        };
+        txn.insertAspect(uniqueAspectProps);
+        return { multiAspectProps, uniqueAspectProps };
       }
     );
-    const sourceRepositoryId = IModelTransformerTestUtils.insertRepositoryLink(
-      sourceDb,
-      "external.repo",
-      "https://external.example.com/folder/external.repo",
-      "TEST"
-    );
-    const sourceExternalSourceId =
-      IModelTransformerTestUtils.insertExternalSource(
-        sourceDb,
-        sourceRepositoryId,
-        "HypotheticalDisplayConfigurer"
-      );
-    // simulate provenance from a connector as an example of a copied over element multi aspect
-    const multiAspectProps: ExternalSourceAspectProps = {
-      classFullName: ExternalSourceAspect.classFullName,
-      element: {
-        id: myDisplayStyleId,
-        relClassName: ElementOwnsExternalSourceAspects.classFullName,
-      },
-      scope: { id: sourceExternalSourceId },
-      source: { id: sourceExternalSourceId },
-      identifier: "ID",
-      kind: ExternalSourceAspect.Kind.Element,
-    };
-    sourceDb.elements.insertAspect(multiAspectProps);
-    const uniqueAspectProps = {
-      classFullName: "TestSchema1:MyUniqueAspect",
-      element: {
-        id: myDisplayStyleId,
-        relClassName: ElementOwnsUniqueAspect.classFullName,
-      },
-      // eslint-disable-next-line @typescript-eslint/naming-convention
-      myProp1: "prop_value",
-    };
-    sourceDb.elements.insertAspect(uniqueAspectProps);
-    sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3143,10 +3456,10 @@ describe("IModelTransformer", () => {
       noProvenance: true, // don't add transformer provenance aspects, makes querying for aspects later simpler
     });
 
-    await transformer.processSchemas();
-    await transformer.process();
-
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
 
     const targetExternalSourceAspects: any[] = [];
     const targetMyUniqueAspects: any[] = [];
@@ -3212,26 +3525,31 @@ describe("IModelTransformer", () => {
       </ECSchema>`
     );
 
-    await sourceDb.importSchemas([testSchema1Path]);
+    const { navPropTargetId, elemWithNavPropId } = await withEditTxn(
+      sourceDb,
+      async (txn) => {
+        await sourceDb.importSchemas([testSchema1Path]);
 
-    const navPropTargetId = sourceDb.elements.insertElement({
-      classFullName: "TestGeneratedClasses:TestEntity",
-      prop: "sample-value",
-      model: IModelDb.dictionaryId,
-      code: Code.createEmpty(),
-    } as ElementProps);
+        const navPropTargetId = txn.insertElement({
+          classFullName: "TestGeneratedClasses:TestEntity",
+          prop: "sample-value",
+          model: IModelDb.dictionaryId,
+          code: Code.createEmpty(),
+        } as ElementProps);
 
-    const elemWithNavPropId = sourceDb.elements.insertElement({
-      classFullName: "TestGeneratedClasses:TestElementWithNavProp",
-      navProp: {
-        id: navPropTargetId,
-        relClassName: "TestGeneratedClasses:ElemRel",
-      },
-      model: IModelDb.dictionaryId,
-      code: Code.createEmpty(),
-    } as ElementProps);
+        const elemWithNavPropId = txn.insertElement({
+          classFullName: "TestGeneratedClasses:TestElementWithNavProp",
+          navProp: {
+            id: navPropTargetId,
+            relClassName: "TestGeneratedClasses:ElemRel",
+          },
+          model: IModelDb.dictionaryId,
+          code: Code.createEmpty(),
+        } as ElementProps);
 
-    sourceDb.saveChanges();
+        return { navPropTargetId, elemWithNavPropId };
+      }
+    );
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3267,10 +3585,10 @@ describe("IModelTransformer", () => {
     }
 
     const transformer = new ProcessTargetLastTransformer(sourceDb, targetDb);
-    await transformer.processSchemas();
-    await transformer.process();
-
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
 
     async function getNavPropContent(db: IModelDb) {
       const results: Array<{ id: Id64String; navProp: RelatedElement }> = [];
@@ -3329,11 +3647,11 @@ describe("IModelTransformer", () => {
       from: "BisCore.PhysicalModel",
       limit: 1,
     });
-    const physicalModel = sourceDb.models.getModel(physicalModelId);
-    physicalModel.jsonProperties.formatter.fmtFlags.linPrec = 100;
-    physicalModel.update();
-
-    sourceDb.saveChanges();
+    withEditTxn(sourceDb, (txn) => {
+      const physicalModel = sourceDb.models.getModel(physicalModelId);
+      physicalModel.jsonProperties.formatter.fmtFlags.linPrec = 100;
+      txn.updateModel(physicalModel.toJSON());
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3344,10 +3662,10 @@ describe("IModelTransformer", () => {
     });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processSchemas();
-    await transformer.process();
-
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
 
     await assertIdentityTransformation(sourceDb, targetDb, transformer, {
       compareElemGeom: true,
@@ -3398,48 +3716,46 @@ describe("IModelTransformer", () => {
       </ECSchema>`
     );
 
-    await sourceDb.importSchemas([testSchema1Path]);
+    await withEditTxn(sourceDb, async (txn) => {
+      await sourceDb.importSchemas([testSchema1Path]);
 
-    const myPhysicalModelId = PhysicalModel.insert(
-      sourceDb,
-      IModelDb.rootSubjectId,
-      "MyPhysicalModel"
-    );
-    const mySpatialCategId = SpatialCategory.insert(
-      sourceDb,
-      IModelDb.dictionaryId,
-      "MySpatialCateg",
-      { color: ColorDef.black.toJSON() }
-    );
-    const myPhysicalObjId = sourceDb.elements.insertElement({
-      classFullName: PhysicalObject.classFullName,
-      model: myPhysicalModelId,
-      category: mySpatialCategId,
-      code: Code.createEmpty(),
-      userLabel: "MyPhysicalObject",
-      geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-      placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
-    } as PhysicalElementProps);
-    // because they are definition elements, display styles will be transformed first
-    const myDisplayStyleId = DisplayStyle3d.insert(
-      sourceDb,
-      IModelDb.dictionaryId,
-      "MyDisplayStyle3d",
-      {
-        excludedElements: [myPhysicalObjId],
-      }
-    );
-    const relProps = {
-      sourceId: myDisplayStyleId,
-      targetId: myPhysicalObjId,
-      classFullName: "TestSchema1:MyElemRefersToElem",
-      prop: "prop",
-    };
-    const _relInstId = sourceDb.relationships.insertInstance(
-      relProps as RelationshipProps
-    );
-
-    sourceDb.saveChanges();
+      const myPhysicalModelId = PhysicalModel.insert(
+        txn,
+        IModelDb.rootSubjectId,
+        "MyPhysicalModel"
+      );
+      const mySpatialCategId = SpatialCategory.insert(
+        txn,
+        IModelDb.dictionaryId,
+        "MySpatialCateg",
+        { color: ColorDef.black.toJSON() }
+      );
+      const myPhysicalObjId = txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: myPhysicalModelId,
+        category: mySpatialCategId,
+        code: Code.createEmpty(),
+        userLabel: "MyPhysicalObject",
+        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+        placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
+      } as PhysicalElementProps);
+      // because they are definition elements, display styles will be transformed first
+      const myDisplayStyleId = DisplayStyle3d.insert(
+        txn,
+        IModelDb.dictionaryId,
+        "MyDisplayStyle3d",
+        {
+          excludedElements: [myPhysicalObjId],
+        }
+      );
+      const relProps = {
+        sourceId: myDisplayStyleId,
+        targetId: myPhysicalObjId,
+        classFullName: "TestSchema1:MyElemRefersToElem",
+        prop: "prop",
+      };
+      txn.insertRelationship(relProps as RelationshipProps);
+    });
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "DeferredElementWithRelationships-Target.bim"
@@ -3450,10 +3766,10 @@ describe("IModelTransformer", () => {
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
 
-    await transformer.processSchemas();
-    await transformer.process();
-
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
 
     const targetRelationships: any[] = [];
     for await (const row of targetDb.createQueryReader(
@@ -3463,7 +3779,7 @@ describe("IModelTransformer", () => {
     }
 
     expect(targetRelationships).to.have.lengthOf(1);
-    expect(targetRelationships[0].prop).to.equal(relProps.prop);
+    expect(targetRelationships[0].prop).to.equal("prop");
 
     sinon.restore();
     sourceDb.close();
@@ -3562,42 +3878,42 @@ describe("IModelTransformer", () => {
       </ECSchema>`
     );
 
-    await sourceDb.importSchemas([testSchema1Path]);
+    await withEditTxn(sourceDb, async (txn) => {
+      await sourceDb.importSchemas([testSchema1Path]);
 
-    const a1Id = sourceDb.elements.insertElement({
-      classFullName: "TestSchema:A",
-      // will be updated later to include this
-      // anotherA: { id: a3Id, relClassName: "TestSchema:AtoA", },
-      model: IModelDb.dictionaryId,
-      code: Code.createEmpty(),
-    } as ElementProps);
+      const a1Id = txn.insertElement({
+        classFullName: "TestSchema:A",
+        // will be updated later to include this
+        // anotherA: { id: a3Id, relClassName: "TestSchema:AtoA", },
+        model: IModelDb.dictionaryId,
+        code: Code.createEmpty(),
+      } as ElementProps);
 
-    const a2Id = sourceDb.elements.insertElement({
-      classFullName: "TestSchema:A",
-      anotherA: { id: a1Id, relClassName: "TestSchema:AtoA" },
-      model: IModelDb.dictionaryId,
-      code: Code.createEmpty(),
-    } as ElementProps);
+      const a2Id = txn.insertElement({
+        classFullName: "TestSchema:A",
+        anotherA: { id: a1Id, relClassName: "TestSchema:AtoA" },
+        model: IModelDb.dictionaryId,
+        code: Code.createEmpty(),
+      } as ElementProps);
 
-    sourceDb.elements.updateElement({
-      id: a1Id,
-      anotherA: { id: a2Id, relClassName: "TestSchema:AtoA" },
-    } as any);
+      txn.updateElement({
+        id: a1Id,
+        anotherA: { id: a2Id, relClassName: "TestSchema:AtoA" },
+      } as any);
 
-    const a4Id = sourceDb.elements.insertElement({
-      classFullName: "TestSchema:A",
-      // will be updated later to include this
-      // anotherA: { id: a4Id, relClassName: "TestSchema:AtoA", },
-      model: IModelDb.dictionaryId,
-      code: Code.createEmpty(),
-    } as ElementProps);
+      const a4Id = txn.insertElement({
+        classFullName: "TestSchema:A",
+        // will be updated later to include this
+        // anotherA: { id: a4Id, relClassName: "TestSchema:AtoA", },
+        model: IModelDb.dictionaryId,
+        code: Code.createEmpty(),
+      } as ElementProps);
 
-    sourceDb.elements.updateElement({
-      id: a4Id,
-      anotherA: { id: a4Id, relClassName: "TestSchema:AtoA" },
-    } as any);
-
-    sourceDb.saveChanges();
+      txn.updateElement({
+        id: a4Id,
+        anotherA: { id: a4Id, relClassName: "TestSchema:AtoA" },
+      } as any);
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3608,10 +3924,10 @@ describe("IModelTransformer", () => {
     });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processSchemas();
-    await transformer.process();
-
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
 
     await assertIdentityTransformation(sourceDb, targetDb, transformer);
 
@@ -3636,21 +3952,22 @@ describe("IModelTransformer", () => {
       "DGN"
     );
 
-    const elem1Id = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "phys-model-in-target"
-    );
-    const extSrcAspect1: ExternalSourceAspectProps = {
-      classFullName: ExternalSourceAspect.classFullName,
-      element: { id: elem1Id },
-      kind: ExternalSourceAspect.Kind.Element,
-      identifier: Guid.empty, // doesn't matter, any identifier in the hypothetical source
-      scope: { id: sourceRepositoryId },
-    };
-    const _extSrcAspect1Id = sourceDb.elements.insertAspect(extSrcAspect1);
-
-    sourceDb.saveChanges();
+    const { elem1Id, extSrcAspect1 } = withEditTxn(sourceDb, (txn) => {
+      const elem1Id = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "phys-model-in-target"
+      );
+      const extSrcAspect1: ExternalSourceAspectProps = {
+        classFullName: ExternalSourceAspect.classFullName,
+        element: { id: elem1Id },
+        kind: ExternalSourceAspect.Kind.Element,
+        identifier: Guid.empty, // doesn't matter, any identifier in the hypothetical source
+        scope: { id: sourceRepositoryId },
+      };
+      txn.insertAspect(extSrcAspect1);
+      return { elem1Id, extSrcAspect1 };
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3698,56 +4015,58 @@ describe("IModelTransformer", () => {
     });
     await TransformerExtensiveTestScenario.prepareDb(sourceDb);
 
-    const spatialCategoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const physicalModelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "phys-model"
-    );
-    const physicalObj1InSourceId = sourceDb.elements.insertElement({
-      classFullName: PhysicalObject.classFullName,
-      model: physicalModelId,
-      category: spatialCategoryId,
-      code: Code.createEmpty(),
-      userLabel: "PhysicalObject1",
-      geom: TestUtils.IModelTestUtils.createBox(
-        Point3d.create(1, 1, 1),
-        spatialCategoryId
-      ),
-      placement: {
-        origin: Point3d.create(1, 1, 1),
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    } as PhysicalElementProps);
+    const physicalObj1InSourceId = withEditTxn(sourceDb, (txn) => {
+      const spatialCategoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        { color: ColorDef.green.toJSON() }
+      );
+      const physicalModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "phys-model"
+      );
+      const physicalObj1InSourceId = txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: physicalModelId,
+        category: spatialCategoryId,
+        code: Code.createEmpty(),
+        userLabel: "PhysicalObject1",
+        geom: TestUtils.IModelTestUtils.createBox(
+          Point3d.create(1, 1, 1),
+          spatialCategoryId
+        ),
+        placement: {
+          origin: Point3d.create(1, 1, 1),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      } as PhysicalElementProps);
 
-    sourceDb.elements.insertAspect({
-      classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
-      element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
-      value: "1",
-    } as ElementAspectProps);
-    sourceDb.elements.insertAspect({
-      classFullName: "ExtensiveTestScenario:SourceMultiAspect",
-      element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
-      commonDouble: 2.2,
-      commonString: "2",
-      commonLong: physicalObj1InSourceId,
-      sourceDouble: 22.2,
-      sourceString: "2",
-      sourceLong: physicalObj1InSourceId,
-      sourceGuid: Guid.createValue(),
-      extraString: "2",
-    } as ElementAspectProps);
-    sourceDb.elements.insertAspect({
-      classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
-      element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
-      value: "3",
-    } as ElementAspectProps);
-    sourceDb.saveChanges();
+      txn.insertAspect({
+        classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
+        element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
+        value: "1",
+      } as ElementAspectProps);
+      txn.insertAspect({
+        classFullName: "ExtensiveTestScenario:SourceMultiAspect",
+        element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
+        commonDouble: 2.2,
+        commonString: "2",
+        commonLong: physicalObj1InSourceId,
+        sourceDouble: 22.2,
+        sourceString: "2",
+        sourceLong: physicalObj1InSourceId,
+        sourceGuid: Guid.createValue(),
+        extraString: "2",
+      } as ElementAspectProps);
+      txn.insertAspect({
+        classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
+        element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
+        value: "3",
+      } as ElementAspectProps);
+      return physicalObj1InSourceId;
+    });
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3756,8 +4075,9 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "AspectIdOrderTarget" },
     });
-    await TransformerExtensiveTestScenario.prepareDb(targetDb);
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await TransformerExtensiveTestScenario.prepareDb(targetDb);
+    });
 
     const importer = new AspectTrackingImporter(targetDb);
     const transformer = new AspectTrackingTransformer(sourceDb, importer);
@@ -3833,8 +4153,9 @@ describe("IModelTransformer", () => {
           </ECEntityClass>
       </ECSchema>`;
 
-    await sourceDb.importSchemaStrings([testSchema1, testSchema2]);
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await sourceDb.importSchemaStrings([testSchema1, testSchema2]);
+    });
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3886,11 +4207,12 @@ describe("IModelTransformer", () => {
       </ECSchema>
     `;
 
-    await sourceDb.importSchemaStrings([
-      newReffedSchema,
-      fakeBisCoreUpdateText,
-    ]);
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await sourceDb.importSchemaStrings([
+        newReffedSchema,
+        fakeBisCoreUpdateText,
+      ]);
+    });
 
     const targetDb1File = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -4030,36 +4352,41 @@ describe("IModelTransformer", () => {
 
     const nbsp = "\xa0";
 
-    const spatialCategId = SpatialCategory.insert(
-      sourceDb,
-      IModelDb.dictionaryId,
-      `SpatialCategory${nbsp}`,
-      {}
-    );
-    const subCategId = Id64.fromUint32Pair(parseInt(spatialCategId, 16) + 1, 0);
-    const physModelId = PhysicalModel.insert(
-      sourceDb,
-      IModelDb.rootSubjectId,
-      `PhysicalModel${nbsp}`
-    );
+    const { physObjectId, physModelId, spatialCategId, subCategId } =
+      withEditTxn(sourceDb, (txn) => {
+        const spatialCategId = SpatialCategory.insert(
+          txn,
+          IModelDb.dictionaryId,
+          `SpatialCategory${nbsp}`,
+          {}
+        );
+        const subCategId = Id64.fromUint32Pair(
+          parseInt(spatialCategId, 16) + 1,
+          0
+        );
+        const physModelId = PhysicalModel.insert(
+          txn,
+          IModelDb.rootSubjectId,
+          `PhysicalModel${nbsp}`
+        );
 
-    const physObjectProps: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: physModelId,
-      category: spatialCategId,
-      code: new Code({
-        scope: "0x1",
-        spec: "0x1",
-        value: `PhysicalObject${nbsp}`,
-      }),
-      userLabel: `PhysicalObject${nbsp}`,
-      geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-      placement: Placement3d.fromJSON({ origin: { x: 0 }, angles: {} }),
-    };
+        const physObjectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: physModelId,
+          category: spatialCategId,
+          code: new Code({
+            scope: "0x1",
+            spec: "0x1",
+            value: `PhysicalObject${nbsp}`,
+          }),
+          userLabel: `PhysicalObject${nbsp}`,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: Placement3d.fromJSON({ origin: { x: 0 }, angles: {} }),
+        };
 
-    const physObjectId = sourceDb.elements.insertElement(physObjectProps);
-
-    sourceDb.saveChanges();
+        const physObjectId = txn.insertElement(physObjectProps);
+        return { physObjectId, physModelId, spatialCategId, subCategId };
+      });
 
     expect(sourceDb.elements.getElement(spatialCategId).code.value).to.equal(
       "SpatialCategory"
@@ -4087,8 +4414,14 @@ describe("IModelTransformer", () => {
         }
       );
 
-    for (const label of ["SpatialCategory", "PhysicalModel", "PhysicalObject"])
-      addNonBreakingSpaceToCodeValue(sourceDb, label);
+    withEditTxn(sourceDb, () => {
+      for (const label of [
+        "SpatialCategory",
+        "PhysicalModel",
+        "PhysicalObject",
+      ])
+        addNonBreakingSpaceToCodeValue(sourceDb, label);
+    });
 
     const getCodeValRawSqlite = (
       db: IModelDb,
@@ -4141,7 +4474,6 @@ describe("IModelTransformer", () => {
       });
     }
 
-    sourceDb.saveChanges();
     sourceDb.close();
     sourceDb = SnapshotDb.openFile(sourceDbFile);
 
@@ -4228,66 +4560,78 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Separate Models" },
     });
-    const codeSpec = CodeSpec.create(
+    const { element11, element12, element21, element22 } = withEditTxn(
       sourceDb,
-      "Test CodeSpec",
-      CodeScopeSpec.Type.Repository,
-      CodeScopeSpec.ScopeRequirement.ElementId
+      (txn) => {
+        const codeSpec = CodeSpec.create(
+          sourceDb,
+          "Test CodeSpec",
+          CodeScopeSpec.Type.Repository,
+          CodeScopeSpec.ScopeRequirement.ElementId
+        );
+        const codeSpecId = sourceDb.codeSpecs.insert(txn, codeSpec);
+        const category = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "TestCategory",
+          {}
+        );
+        const subject = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Clashing Codes Container"
+        );
+        const model1 = PhysicalModel.insert(txn, subject, "Model 1");
+        const model2 = PhysicalModel.insert(txn, subject, "Model 2");
+        const element11Props: PhysicalElementProps = {
+          category,
+          classFullName: PhysicalObject.classFullName,
+          code: new Code({
+            scope: model1,
+            spec: codeSpecId,
+            value: "Clashing code",
+          }),
+          model: model1,
+        };
+        const element11 = txn.insertElement(element11Props);
+        const element12Props: PhysicalElementProps = {
+          category,
+          classFullName: PhysicalObject.classFullName,
+          code: new Code({
+            scope: model1,
+            spec: codeSpecId,
+            value: "Element 1.2",
+          }),
+          model: model1,
+          parent: new ElementOwnsChildElements(element11),
+        };
+        const element12 = txn.insertElement(element12Props);
+        const element21Props: PhysicalElementProps = {
+          category,
+          classFullName: PhysicalObject.classFullName,
+          code: new Code({
+            scope: model2,
+            spec: codeSpecId,
+            value: "Clashing code",
+          }),
+          model: model2,
+        };
+        const element21 = txn.insertElement(element21Props);
+        const element22Props: PhysicalElementProps = {
+          category,
+          classFullName: PhysicalObject.classFullName,
+          code: new Code({
+            scope: model2,
+            spec: codeSpecId,
+            value: "Element 2.2",
+          }),
+          model: model2,
+          parent: new ElementOwnsChildElements(element21),
+        };
+        const element22 = txn.insertElement(element22Props);
+        return { element11, element12, element21, element22 };
+      }
     );
-    const codeSpecId = sourceDb.codeSpecs.insert(codeSpec);
-    const category = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "TestCategory",
-      {}
-    );
-    const subject = Subject.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Clashing Codes Container"
-    );
-    const model1 = PhysicalModel.insert(sourceDb, subject, "Model 1");
-    const model2 = PhysicalModel.insert(sourceDb, subject, "Model 2");
-    const element11Props: PhysicalElementProps = {
-      category,
-      classFullName: PhysicalObject.classFullName,
-      code: new Code({
-        scope: model1,
-        spec: codeSpecId,
-        value: "Clashing code",
-      }),
-      model: model1,
-    };
-    const element11 = sourceDb.elements.insertElement(element11Props);
-    const element12Props: PhysicalElementProps = {
-      category,
-      classFullName: PhysicalObject.classFullName,
-      code: new Code({ scope: model1, spec: codeSpecId, value: "Element 1.2" }),
-      model: model1,
-      parent: new ElementOwnsChildElements(element11),
-    };
-    const element12 = sourceDb.elements.insertElement(element12Props);
-    const element21Props: PhysicalElementProps = {
-      category,
-      classFullName: PhysicalObject.classFullName,
-      code: new Code({
-        scope: model2,
-        spec: codeSpecId,
-        value: "Clashing code",
-      }),
-      model: model2,
-    };
-    const element21 = sourceDb.elements.insertElement(element21Props);
-    const element22Props: PhysicalElementProps = {
-      category,
-      classFullName: PhysicalObject.classFullName,
-      code: new Code({ scope: model2, spec: codeSpecId, value: "Element 2.2" }),
-      model: model2,
-      parent: new ElementOwnsChildElements(element21),
-    };
-    const element22 = sourceDb.elements.insertElement(element22Props);
-
-    sourceDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -4298,8 +4642,9 @@ describe("IModelTransformer", () => {
     });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await expect(transformer.process()).not.to.be.rejected;
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await expect(transformer.process()).not.to.be.rejected;
+    });
 
     const targetElement11 = targetDb.elements.getElement(
       transformer.context.findTargetElementId(element11)
@@ -4363,12 +4708,13 @@ describe("IModelTransformer", () => {
       </ECSchema>
     `;
 
-    await sourceDb.importSchemaStrings([
-      longSchema1,
-      longSchema2,
-      reffingSchema,
-    ]);
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await sourceDb.importSchemaStrings([
+        longSchema1,
+        longSchema2,
+        reffingSchema,
+      ]);
+    });
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -4463,46 +4809,51 @@ describe("IModelTransformer", () => {
       </ECRelationshipClass>
     </ECSchema>
     `;
-    await sourceDb.importSchemaStrings([customSchema]);
-    const sourceCategoryId = SpatialCategory.insert(
+    const sourceReferencedElementId = await withEditTxn(
       sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      { color: ColorDef.blue.toJSON() }
-    );
-    const sourceModelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "PhysicalModel"
-    );
-    const sourceReferencedElementProps: PhysicalElementProps = {
-      classFullName: "CustomSchema:CustomPhysicalElement",
-      category: sourceCategoryId,
-      code: Code.createEmpty(),
-      userLabel: "Referenced Element",
-      model: sourceModelId,
-    };
-    const sourceReferencedElementId = sourceDb.elements.insertElement(
-      sourceReferencedElementProps
-    );
-    const defaultSourceReferencerElementProps = {
-      classFullName: "CustomSchema:CustomPhysicalElement",
-      category: sourceCategoryId,
-      code: Code.createEmpty(),
-      model: sourceModelId,
-      referencedElement: {
-        id: sourceReferencedElementId,
-        relClassName: "CustomSchema:CustomNavigationalPropertyRelationship",
-      },
-    };
+      async (txn) => {
+        await sourceDb.importSchemaStrings([customSchema]);
+        const sourceCategoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          { color: ColorDef.blue.toJSON() }
+        );
+        const sourceModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        );
+        const sourceReferencedElementProps: PhysicalElementProps = {
+          classFullName: "CustomSchema:CustomPhysicalElement",
+          category: sourceCategoryId,
+          code: Code.createEmpty(),
+          userLabel: "Referenced Element",
+          model: sourceModelId,
+        };
+        const sourceReferencedElementId = txn.insertElement(
+          sourceReferencedElementProps
+        );
+        const defaultSourceReferencerElementProps = {
+          classFullName: "CustomSchema:CustomPhysicalElement",
+          category: sourceCategoryId,
+          code: Code.createEmpty(),
+          model: sourceModelId,
+          referencedElement: {
+            id: sourceReferencedElementId,
+            relClassName: "CustomSchema:CustomNavigationalPropertyRelationship",
+          },
+        };
 
-    for (let i = 0; i < 10; ++i) {
-      sourceDb.elements.insertElement({
-        ...defaultSourceReferencerElementProps,
-        userLabel: `Referencer ${i}`,
-      });
-    }
-    sourceDb.saveChanges();
+        for (let i = 0; i < 10; ++i) {
+          txn.insertElement({
+            ...defaultSourceReferencerElementProps,
+            userLabel: `Referencer ${i}`,
+          });
+        }
+        return sourceReferencedElementId;
+      }
+    );
 
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -4525,9 +4876,10 @@ describe("IModelTransformer", () => {
 
     const transformer = new SkipElementTransformer(sourceDb, targetDb);
     transformer.skippedElement = sourceReferencedElementId;
-    await transformer.processSchemas();
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
     const sql =
       "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'";
     for await (const row of targetDb.createQueryReader(sql)) {
@@ -4545,30 +4897,31 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "DetachedAspectProcessing" },
     });
-    const elements = [
-      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
-      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
-    ];
+    const elements = withEditTxn(sourceDb, (txn) => {
+      const elements = [
+        Subject.insert(txn, IModel.rootSubjectId, "Subject1"),
+        Subject.insert(txn, IModel.rootSubjectId, "Subject2"),
+      ];
 
-    // 10 aspects in total (5 per element)
-    elements.forEach((element) => {
-      for (let i = 0; i < 5; ++i) {
-        const aspectProps: ExternalSourceAspectProps = {
-          classFullName: ExternalSourceAspect.classFullName,
-          element: new ElementOwnsExternalSourceAspects(element),
-          identifier: `${i}`,
-          kind: "Element",
-          scope: {
-            id: IModel.rootSubjectId,
-            relClassName: "BisCore:ElementScopesExternalSourceIdentifier",
-          },
-        };
+      // 10 aspects in total (5 per element)
+      elements.forEach((element) => {
+        for (let i = 0; i < 5; ++i) {
+          const aspectProps: ExternalSourceAspectProps = {
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(element),
+            identifier: `${i}`,
+            kind: "Element",
+            scope: {
+              id: IModel.rootSubjectId,
+              relClassName: "BisCore:ElementScopesExternalSourceIdentifier",
+            },
+          };
 
-        sourceDb.elements.insertAspect(aspectProps);
-      }
+          txn.insertAspect(aspectProps);
+        }
+      });
+      return elements;
     });
-
-    sourceDb.saveChanges();
 
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -4588,8 +4941,9 @@ describe("IModelTransformer", () => {
     });
 
     // act
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     // assert
     const numSourceSubjectIds = await count(sourceDb, Subject.classFullName);
@@ -4624,11 +4978,12 @@ describe("IModelTransformer", () => {
         name: "DetachedAspectProcessingWithReservedSQLiteKeyword",
       },
     });
-    const elements = [
-      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
-      Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
-    ];
-    const customSchema = `<?xml version="1.0" encoding="UTF-8"?>
+    const elements = await withEditTxn(sourceDb, async (txn) => {
+      const elements = [
+        Subject.insert(txn, IModel.rootSubjectId, "Subject1"),
+        Subject.insert(txn, IModel.rootSubjectId, "Subject2"),
+      ];
+      const customSchema = `<?xml version="1.0" encoding="UTF-8"?>
     <ECSchema schemaName="SELECT" alias="cs" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1" description="Custom schema to test aspect class which has SQLite reserved keyword as its name">
       <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
       <ECEntityClass typeName="JOIN" modifier="Sealed" description="Aspect class with SQLite reserved keyword">
@@ -4636,21 +4991,21 @@ describe("IModelTransformer", () => {
       </ECEntityClass>
     </ECSchema>
     `;
-    await sourceDb.importSchemaStrings([customSchema]);
+      await sourceDb.importSchemaStrings([customSchema]);
 
-    // 10 aspects in total (5 per element)
-    elements.forEach((element) => {
-      for (let i = 0; i < 5; ++i) {
-        const aspectProps: ElementAspectProps = {
-          classFullName: "SELECT:JOIN",
-          element: new ElementOwnsMultiAspects(element),
-        };
+      // 10 aspects in total (5 per element)
+      elements.forEach((element) => {
+        for (let i = 0; i < 5; ++i) {
+          const aspectProps: ElementAspectProps = {
+            classFullName: "SELECT:JOIN",
+            element: new ElementOwnsMultiAspects(element),
+          };
 
-        sourceDb.elements.insertAspect(aspectProps);
-      }
+          txn.insertAspect(aspectProps);
+        }
+      });
+      return elements;
     });
-
-    sourceDb.saveChanges();
 
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -4672,8 +5027,9 @@ describe("IModelTransformer", () => {
     });
 
     // act
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.process();
+    });
 
     // assert
     const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
@@ -4705,120 +5061,142 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Transform3d-Source" },
     });
-    const categoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const category = sourceDb.elements.getElement<SpatialCategory>(categoryId);
-    const sourceModelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Physical"
-    );
-
-    const renderMaterialBothImgsId = RenderMaterialElement.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "TextureMaterialBothImgs",
-      {
-        paletteName: "something",
-      }
-    );
-
-    const texture1Id = Texture.insertTexture(
-      sourceDb,
-      IModel.dictionaryId,
-      "Texture1",
-      ImageSourceFormat.Png,
-      TestUtils.samplePngTexture.base64,
-      "texture 1"
-    );
-    const texture2Id = Texture.insertTexture(
-      sourceDb,
-      IModel.dictionaryId,
-      "Texture2",
-      ImageSourceFormat.Png,
-      TestUtils.samplePngTexture.base64,
-      "texture 2"
-    );
-
-    const renderMaterialBothImgs =
-      sourceDb.elements.getElement<RenderMaterialElement>(
-        renderMaterialBothImgsId
-      );
-    // update the texture id into the model so that they are processed out of order (material exported before texture)
-    if (
-      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial
-        .Map === undefined
-    )
-      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map =
-        {};
-    if (
-      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map
-        .Pattern === undefined
-    )
-      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Pattern =
-        {};
-    if (
-      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map
-        .Normal === undefined
-    )
-      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Normal =
-        {};
-    renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.TextureId =
-      texture1Id;
-    renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Pattern.TextureId =
-      texture1Id;
-    renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Normal.TextureId =
-      texture2Id;
-    renderMaterialBothImgs.update();
-
-    const renderMaterialOnlyPatternId = RenderMaterialElement.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "TextureMaterialOnlyPattern",
-      {
-        paletteName: "something",
-        patternMap: {
-          TextureId: texture1Id, // eslint-disable-line @typescript-eslint/naming-convention
-        },
-      }
-    );
-
-    const renderMaterialOnlyNormalId = RenderMaterialElement.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "TextureMaterialOnlyNormal",
-      {
-        paletteName: "something",
-        normalMap: {
-          TextureId: texture2Id, // eslint-disable-line @typescript-eslint/naming-convention
-        },
-      }
-    );
-
-    const physObjs = [
+    const {
+      physObjs,
       renderMaterialBothImgsId,
       renderMaterialOnlyNormalId,
       renderMaterialOnlyPatternId,
-    ].map((renderMaterialId) => {
-      const physicalObjectProps1: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-        userLabel: "PhysicalObject",
-        geom: IModelTransformerTestUtils.createBox(
-          Point3d.create(1, 1, 1),
-          categoryId,
-          category.myDefaultSubCategoryId(),
-          renderMaterialId
-        ),
-        placement: Placement3d.fromJSON({ origin: { x: 0, y: 0 }, angles: {} }),
+      texture1Id,
+      texture2Id,
+    } = withEditTxn(sourceDb, (txn) => {
+      const categoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        { color: ColorDef.green.toJSON() }
+      );
+      const category =
+        sourceDb.elements.getElement<SpatialCategory>(categoryId);
+      const sourceModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Physical"
+      );
+
+      const renderMaterialBothImgsId = createRenderMaterialElement(
+        txn,
+        IModel.dictionaryId,
+        "TextureMaterialBothImgs",
+        {
+          paletteName: "something",
+        }
+      );
+
+      const texture1Id = createTextureElement(
+        txn,
+        IModel.dictionaryId,
+        "Texture1",
+        ImageSourceFormat.Png,
+        TestUtils.samplePngTexture.base64,
+        "texture 1"
+      );
+      const texture2Id = createTextureElement(
+        txn,
+        IModel.dictionaryId,
+        "Texture2",
+        ImageSourceFormat.Png,
+        TestUtils.samplePngTexture.base64,
+        "texture 2"
+      );
+
+      const renderMaterialBothImgs =
+        sourceDb.elements.getElement<RenderMaterialElement>(
+          renderMaterialBothImgsId
+        );
+      // update the texture id into the model so that they are processed out of order (material exported before texture)
+      if (
+        renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial
+          .Map === undefined
+      )
+        renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map =
+          {};
+      if (
+        renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map
+          .Pattern === undefined
+      )
+        renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Pattern =
+          {};
+      if (
+        renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map
+          .Normal === undefined
+      )
+        renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Normal =
+          {};
+      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.TextureId =
+        texture1Id;
+      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Pattern.TextureId =
+        texture1Id;
+      renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Normal.TextureId =
+        texture2Id;
+      txn.updateElement(renderMaterialBothImgs.toJSON());
+
+      const renderMaterialOnlyPatternId = createRenderMaterialElement(
+        txn,
+        IModel.dictionaryId,
+        "TextureMaterialOnlyPattern",
+        {
+          paletteName: "something",
+          patternMap: {
+            TextureId: texture1Id, // eslint-disable-line @typescript-eslint/naming-convention
+          },
+        }
+      );
+
+      const renderMaterialOnlyNormalId = createRenderMaterialElement(
+        txn,
+        IModel.dictionaryId,
+        "TextureMaterialOnlyNormal",
+        {
+          paletteName: "something",
+          normalMap: {
+            TextureId: texture2Id, // eslint-disable-line @typescript-eslint/naming-convention
+          },
+        }
+      );
+
+      const physObjs = [
+        renderMaterialBothImgsId,
+        renderMaterialOnlyNormalId,
+        renderMaterialOnlyPatternId,
+      ].map((renderMaterialId) => {
+        const physicalObjectProps1: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: sourceModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          userLabel: "PhysicalObject",
+          geom: IModelTransformerTestUtils.createBox(
+            Point3d.create(1, 1, 1),
+            categoryId,
+            category.myDefaultSubCategoryId(),
+            renderMaterialId
+          ),
+          placement: Placement3d.fromJSON({
+            origin: { x: 0, y: 0 },
+            angles: {},
+          }),
+        };
+        return txn.insertElement(physicalObjectProps1);
+      });
+
+      return {
+        physObjs,
+        renderMaterialBothImgsId,
+        renderMaterialOnlyNormalId,
+        renderMaterialOnlyPatternId,
+        texture1Id,
+        texture2Id,
       };
-      return sourceDb.elements.insertElement(physicalObjectProps1);
     });
 
     // create target iModel
@@ -4905,8 +5283,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "DynSchemaSource" },
     });
-    await sourceDb.importSchemaStrings([makeDynamicSchema("01.07.00")]);
-    sourceDb.saveChanges();
+    await withEditTxn(sourceDb, async () => {
+      await sourceDb.importSchemaStrings([makeDynamicSchema("01.07.00")]);
+    });
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -4915,8 +5294,9 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "DynSchemasTarget" },
     });
-    await targetDb.importSchemaStrings([makeDynamicSchema("01.05.02")]);
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await targetDb.importSchemaStrings([makeDynamicSchema("01.05.02")]);
+    });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     // expect this to not reject, adding chai as promised makes the error less readable
@@ -4981,53 +5361,55 @@ describe("IModelTransformer", () => {
     };
     const sourceDb = createSnapshot("ECView-Source");
     const targetDb = createSnapshot("ECView-Target");
-    await sourceDb.importSchemas([
-      path.join(KnownTestLocations.assetsDir, "TestQueryView.ecschema.xml"),
-    ]);
+    await withEditTxn(sourceDb, async (txn) => {
+      await sourceDb.importSchemas([
+        path.join(KnownTestLocations.assetsDir, "TestQueryView.ecschema.xml"),
+      ]);
 
-    const modelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "PhysicalModel"
-    );
-    const categoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      {}
-    );
-    const elementProps1: GeometricElement3dProps = {
-      category: categoryId,
-      model: modelId,
-      code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject1"),
-      classFullName: PhysicalObject.classFullName,
-      placement: {
-        origin: { x: 0, y: 0, z: 0 },
-        angles: { yaw: { degrees: 45 } },
-      },
-    };
-    const sourceElement1Id = sourceDb.elements.insertElement(elementProps1);
-    const elementProps2: GeometricElement3dProps = {
-      category: categoryId,
-      model: modelId,
-      code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject2"),
-      classFullName: PhysicalObject.classFullName,
-      parent: {
-        id: sourceElement1Id,
-        relClassName: ElementOwnsChildElements.classFullName,
-      },
-      placement: {
-        origin: { x: 0, y: 0, z: 0 },
-        angles: { yaw: { degrees: 90 } },
-      },
-    };
-    sourceDb.elements.insertElement(elementProps2);
-    sourceDb.saveChanges();
+      const modelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "PhysicalModel"
+      );
+      const categoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        {}
+      );
+      const elementProps1: GeometricElement3dProps = {
+        category: categoryId,
+        model: modelId,
+        code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject1"),
+        classFullName: PhysicalObject.classFullName,
+        placement: {
+          origin: { x: 0, y: 0, z: 0 },
+          angles: { yaw: { degrees: 45 } },
+        },
+      };
+      const sourceElement1Id = txn.insertElement(elementProps1);
+      const elementProps2: GeometricElement3dProps = {
+        category: categoryId,
+        model: modelId,
+        code: PhysicalType.createCode(sourceDb, modelId, "PhysicalObject2"),
+        classFullName: PhysicalObject.classFullName,
+        parent: {
+          id: sourceElement1Id,
+          relClassName: ElementOwnsChildElements.classFullName,
+        },
+        placement: {
+          origin: { x: 0, y: 0, z: 0 },
+          angles: { yaw: { degrees: 90 } },
+        },
+      };
+      txn.insertElement(elementProps2);
+    });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
-    await transformer.processSchemas();
-    await transformer.process();
-    targetDb.saveChanges();
+    await withEditTxn(targetDb, async () => {
+      await transformer.processSchemas();
+      await transformer.process();
+    });
 
     const getTestViewElements = async (imodelDb: IModelDb) => {
       const viewElements = [];
@@ -5061,107 +5443,101 @@ describe("IModelTransformer", () => {
     const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "LineStyle" },
     });
-    const subjectId = Subject.insert(
-      iModelDb,
-      IModel.rootSubjectId,
-      "My objects"
-    );
-    const defModelId = DefinitionModel.insert(
-      iModelDb,
-      subjectId,
-      "DefinitionModel"
-    );
+    const { lineStyle1Id, lineStyle2Id } = withEditTxn(iModelDb, (txn) => {
+      const subjectId = Subject.insert(txn, IModel.rootSubjectId, "My objects");
+      const defModelId = DefinitionModel.insert(
+        txn,
+        subjectId,
+        "DefinitionModel"
+      );
 
-    // Entires in be_Prop table:
-    const lsStrokes1: LineStyleDefinition.Strokes = [];
-    const lsStrokes2: LineStyleDefinition.Strokes = [];
-    lsStrokes1.push({
-      length: 4,
-      strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      // Entires in be_Prop table:
+      const lsStrokes1: LineStyleDefinition.Strokes = [];
+      const lsStrokes2: LineStyleDefinition.Strokes = [];
+      lsStrokes1.push({
+        length: 4,
+        strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      });
+      lsStrokes1.push({ length: 2 });
+      lsStrokes2.push({
+        length: 1,
+        strokeMode: LineStyleDefinition.StrokeMode.Dash,
+      });
+      lsStrokes2.push({ length: 1 });
+      const styleProps1 = createStrokePatternComponent(txn, {
+        descr: "line1",
+        strokes: lsStrokes1,
+      });
+      const styleProps2 = createStrokePatternComponent(txn, {
+        descr: "line2",
+        strokes: lsStrokes2,
+      });
+      styleProps2.unitDef = 2;
+
+      const lineStyle1Id = createLineStyle(
+        txn,
+        defModelId,
+        "LineStyle1",
+        styleProps1
+      );
+      const lineStyle2Id = createLineStyle(
+        txn,
+        defModelId,
+        "LineStyle2",
+        styleProps2
+      );
+
+      const category1Id = SpatialCategory.insert(
+        txn,
+        defModelId,
+        "Red category",
+        { color: ColorDef.red.toJSON() }
+      );
+      const category2Id = SpatialCategory.insert(
+        txn,
+        defModelId,
+        "Green category",
+        { color: ColorDef.green.toJSON() }
+      );
+
+      const modelId = createGenericGraphicalModel3d(txn, subjectId, "lines");
+
+      // Insert Line1
+      const code1 = Code.createEmpty();
+      code1.value = "line1";
+      const geometryBuilder1 = new GeometryStreamBuilder();
+      const geometryParams1 = new GeometryParams(category1Id);
+      geometryParams1.styleInfo = new LineStyle.Info(lineStyle1Id);
+      geometryBuilder1.appendGeometryParamsChange(geometryParams1);
+      geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
+      const graphicElement1Props: GeometricElement3dProps = {
+        category: category1Id,
+        model: modelId,
+        code: code1,
+        classFullName: Graphic3d.classFullName,
+        geom: geometryBuilder1.geometryStream,
+      };
+      txn.insertElement(graphicElement1Props);
+
+      // Insert Line2
+      const code2 = Code.createEmpty();
+      code2.value = "line2";
+      const geometryBuilder2 = new GeometryStreamBuilder();
+      const geometryParams2 = new GeometryParams(category2Id);
+      geometryParams2.styleInfo = new LineStyle.Info(lineStyle2Id);
+      geometryBuilder2.appendGeometryParamsChange(geometryParams2);
+      geometryBuilder2.appendGeometry(LineSegment3d.createXYXY(10, 0, 10, 50));
+      const graphicElement2Props: GeometricElement3dProps = {
+        category: category2Id,
+        model: modelId,
+        code: code2,
+        classFullName: Graphic3d.classFullName,
+        geom: geometryBuilder2.geometryStream,
+      };
+      txn.insertElement(graphicElement2Props);
+
+      return { lineStyle1Id, lineStyle2Id };
     });
-    lsStrokes1.push({ length: 2 });
-    lsStrokes2.push({
-      length: 1,
-      strokeMode: LineStyleDefinition.StrokeMode.Dash,
-    });
-    lsStrokes2.push({ length: 1 });
-    const styleProps1 = LineStyleDefinition.Utils.createStrokePatternComponent(
-      iModelDb,
-      { descr: "line1", strokes: lsStrokes1 }
-    );
-    const styleProps2 = LineStyleDefinition.Utils.createStrokePatternComponent(
-      iModelDb,
-      { descr: "line2", strokes: lsStrokes2 }
-    );
-    styleProps2.unitDef = 2;
-
-    const lineStyle1Id = LineStyleDefinition.Utils.createStyle(
-      iModelDb,
-      defModelId,
-      "LineStyle1",
-      styleProps1
-    );
-    const lineStyle2Id = LineStyleDefinition.Utils.createStyle(
-      iModelDb,
-      defModelId,
-      "LineStyle2",
-      styleProps2
-    );
-
-    const category1Id = SpatialCategory.insert(
-      iModelDb,
-      defModelId,
-      "Red category",
-      { color: ColorDef.red.toJSON() }
-    );
-    const category2Id = SpatialCategory.insert(
-      iModelDb,
-      defModelId,
-      "Green category",
-      { color: ColorDef.green.toJSON() }
-    );
-
-    const modelId = GenericGraphicalModel3d.insert(
-      iModelDb,
-      subjectId,
-      "lines"
-    );
-
-    // Insert Line1
-    const code1 = Code.createEmpty();
-    code1.value = "line1";
-    const geometryBuilder1 = new GeometryStreamBuilder();
-    const geometryParams1 = new GeometryParams(category1Id);
-    geometryParams1.styleInfo = new LineStyle.Info(lineStyle1Id);
-    geometryBuilder1.appendGeometryParamsChange(geometryParams1);
-    geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
-    const graphicElement1Props: GeometricElement3dProps = {
-      category: category1Id,
-      model: modelId,
-      code: code1,
-      classFullName: Graphic3d.classFullName,
-      geom: geometryBuilder1.geometryStream,
-    };
-    iModelDb.elements.insertElement(graphicElement1Props);
-
-    // Insert Line2
-    const code2 = Code.createEmpty();
-    code2.value = "line2";
-    const geometryBuilder2 = new GeometryStreamBuilder();
-    const geometryParams2 = new GeometryParams(category2Id);
-    geometryParams2.styleInfo = new LineStyle.Info(lineStyle2Id);
-    geometryBuilder2.appendGeometryParamsChange(geometryParams2);
-    geometryBuilder2.appendGeometry(LineSegment3d.createXYXY(10, 0, 10, 50));
-    const graphicElement2Props: GeometricElement3dProps = {
-      category: category2Id,
-      model: modelId,
-      code: code2,
-      classFullName: Graphic3d.classFullName,
-      geom: geometryBuilder2.geometryStream,
-    };
-    iModelDb.elements.insertElement(graphicElement2Props);
-
-    iModelDb.saveChanges();
 
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -5222,142 +5598,132 @@ describe("IModelTransformer", () => {
     const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "LineStyle" },
     });
-    const subjectId = Subject.insert(
-      iModelDb,
-      IModel.rootSubjectId,
-      "My objects"
-    );
-    const defModelId = DefinitionModel.insert(
-      iModelDb,
-      subjectId,
-      "DefinitionModel"
-    );
+    const styleId = withEditTxn(iModelDb, (txn) => {
+      const subjectId = Subject.insert(txn, IModel.rootSubjectId, "My objects");
+      const defModelId = DefinitionModel.insert(
+        txn,
+        subjectId,
+        "DefinitionModel"
+      );
 
-    const lsStrokes: LineStyleDefinition.Strokes = [];
-    lsStrokes.push({
-      length: 0.25,
-      orgWidth: 0.0,
-      endWidth: 0.025,
-      strokeMode: LineStyleDefinition.StrokeMode.Dash,
-      widthMode: LineStyleDefinition.StrokeWidth.Left,
-    });
-    lsStrokes.push({ length: 0.1 });
-    lsStrokes.push({
-      length: 0.1,
-      orgWidth: 0.025,
-      endWidth: 0.025,
-      strokeMode: LineStyleDefinition.StrokeMode.Dash,
-      widthMode: LineStyleDefinition.StrokeWidth.Full,
-    });
-    lsStrokes.push({ length: 0.1 });
-    lsStrokes.push({
-      length: 0.25,
-      orgWidth: 0.025,
-      endWidth: 0.0,
-      strokeMode: LineStyleDefinition.StrokeMode.Dash,
-      widthMode: LineStyleDefinition.StrokeWidth.Right,
-    });
-    lsStrokes.push({ length: 0.1 });
+      const lsStrokes: LineStyleDefinition.Strokes = [];
+      lsStrokes.push({
+        length: 0.25,
+        orgWidth: 0.0,
+        endWidth: 0.025,
+        strokeMode: LineStyleDefinition.StrokeMode.Dash,
+        widthMode: LineStyleDefinition.StrokeWidth.Left,
+      });
+      lsStrokes.push({ length: 0.1 });
+      lsStrokes.push({
+        length: 0.1,
+        orgWidth: 0.025,
+        endWidth: 0.025,
+        strokeMode: LineStyleDefinition.StrokeMode.Dash,
+        widthMode: LineStyleDefinition.StrokeWidth.Full,
+      });
+      lsStrokes.push({ length: 0.1 });
+      lsStrokes.push({
+        length: 0.25,
+        orgWidth: 0.025,
+        endWidth: 0.0,
+        strokeMode: LineStyleDefinition.StrokeMode.Dash,
+        widthMode: LineStyleDefinition.StrokeWidth.Right,
+      });
+      lsStrokes.push({ length: 0.1 });
 
-    const strokePatternData =
-      LineStyleDefinition.Utils.createStrokePatternComponent(iModelDb, {
+      const strokePatternData = createStrokePatternComponent(txn, {
         descr: "TestDashDotDashLineCode",
         strokes: lsStrokes,
       });
-    assert.isTrue(undefined !== strokePatternData);
+      assert.isTrue(undefined !== strokePatternData);
 
-    const partBuilder = new GeometryStreamBuilder();
-    partBuilder.appendGeometry(Arc3d.createXY(Point3d.createZero(), 0.05));
+      const partBuilder = new GeometryStreamBuilder();
+      partBuilder.appendGeometry(Arc3d.createXY(Point3d.createZero(), 0.05));
 
-    const partProps: GeometryPartProps = {
-      classFullName: GeometryPart.classFullName,
-      model: IModel.dictionaryId,
-      code: Code.createEmpty(),
-      geom: partBuilder.geometryStream,
-    };
-    const partId = iModelDb.elements.insertElement(partProps);
-    assert.isTrue(Id64.isValidId64(partId));
+      const partProps: GeometryPartProps = {
+        classFullName: GeometryPart.classFullName,
+        model: IModel.dictionaryId,
+        code: Code.createEmpty(),
+        geom: partBuilder.geometryStream,
+      };
+      const partId = txn.insertElement(partProps);
+      assert.isTrue(Id64.isValidId64(partId));
 
-    const pointSymbolData =
-      LineStyleDefinition.Utils.createPointSymbolComponent(iModelDb, {
+      const pointSymbolData = createPointSymbolComponent(txn, {
         geomPartId: partId,
       }); // base and size will be set automatically...
-    assert.isTrue(undefined !== pointSymbolData);
+      assert.isTrue(undefined !== pointSymbolData);
 
-    const lsSymbols: LineStyleDefinition.Symbols = [];
-    lsSymbols.push({
-      symId: pointSymbolData!.compId,
-      strokeNum: 1,
-      mod1: LineStyleDefinition.SymbolOptions.Center,
-    });
-    lsSymbols.push({
-      symId: pointSymbolData!.compId,
-      strokeNum: 3,
-      mod1: LineStyleDefinition.SymbolOptions.Center,
-    });
+      const lsSymbols: LineStyleDefinition.Symbols = [];
+      lsSymbols.push({
+        symId: pointSymbolData!.compId,
+        strokeNum: 1,
+        mod1: LineStyleDefinition.SymbolOptions.Center,
+      });
+      lsSymbols.push({
+        symId: pointSymbolData!.compId,
+        strokeNum: 3,
+        mod1: LineStyleDefinition.SymbolOptions.Center,
+      });
 
-    const strokePointData =
-      LineStyleDefinition.Utils.createStrokePointComponent(iModelDb, {
+      const strokePointData = createStrokePointComponent(txn, {
         descr: "TestGapSymbolsLinePoint",
         lcId: strokePatternData.compId,
         symbols: lsSymbols,
       });
-    assert.isTrue(undefined !== strokePointData);
+      assert.isTrue(undefined !== strokePointData);
 
-    const lsComponents: LineStyleDefinition.Components = [];
-    lsComponents.push({
-      id: strokePointData.compId,
-      type: strokePointData.compType,
+      const lsComponents: LineStyleDefinition.Components = [];
+      lsComponents.push({
+        id: strokePointData.compId,
+        type: strokePointData.compType,
+      });
+      lsComponents.push({
+        id: strokePatternData.compId,
+        type: strokePatternData.compType,
+      });
+
+      const compoundData = createCompoundComponent(txn, {
+        comps: lsComponents,
+      });
+      assert.isTrue(undefined !== compoundData);
+
+      const styleId = createLineStyle(
+        txn,
+        IModel.dictionaryId,
+        "TestDashCircleDotCircleDashStyle",
+        compoundData
+      );
+      assert.isTrue(Id64.isValidId64(styleId));
+
+      const category1Id = SpatialCategory.insert(
+        txn,
+        defModelId,
+        "Red category",
+        { color: ColorDef.red.toJSON() }
+      );
+
+      const modelId = createGenericGraphicalModel3d(txn, subjectId, "lines");
+      // Insert Line1
+      const code1 = Code.createEmpty();
+      code1.value = "line1";
+      const geometryBuilder1 = new GeometryStreamBuilder();
+      const geometryParams1 = new GeometryParams(category1Id);
+      geometryParams1.styleInfo = new LineStyle.Info(styleId);
+      geometryBuilder1.appendGeometryParamsChange(geometryParams1);
+      geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
+      const graphicElement1Props: GeometricElement3dProps = {
+        category: category1Id,
+        model: modelId,
+        code: code1,
+        classFullName: Graphic3d.classFullName,
+        geom: geometryBuilder1.geometryStream,
+      };
+      txn.insertElement(graphicElement1Props);
+
+      return styleId;
     });
-    lsComponents.push({
-      id: strokePatternData.compId,
-      type: strokePatternData.compType,
-    });
-
-    const compoundData = LineStyleDefinition.Utils.createCompoundComponent(
-      iModelDb,
-      { comps: lsComponents }
-    );
-    assert.isTrue(undefined !== compoundData);
-
-    const styleId = LineStyleDefinition.Utils.createStyle(
-      iModelDb,
-      IModel.dictionaryId,
-      "TestDashCircleDotCircleDashStyle",
-      compoundData
-    );
-    assert.isTrue(Id64.isValidId64(styleId));
-
-    const category1Id = SpatialCategory.insert(
-      iModelDb,
-      defModelId,
-      "Red category",
-      { color: ColorDef.red.toJSON() }
-    );
-
-    const modelId = GenericGraphicalModel3d.insert(
-      iModelDb,
-      subjectId,
-      "lines"
-    );
-    // Insert Line1
-    const code1 = Code.createEmpty();
-    code1.value = "line1";
-    const geometryBuilder1 = new GeometryStreamBuilder();
-    const geometryParams1 = new GeometryParams(category1Id);
-    geometryParams1.styleInfo = new LineStyle.Info(styleId);
-    geometryBuilder1.appendGeometryParamsChange(geometryParams1);
-    geometryBuilder1.appendGeometry(LineSegment3d.createXYXY(0, 0, 0, 50));
-    const graphicElement1Props: GeometricElement3dProps = {
-      category: category1Id,
-      model: modelId,
-      code: code1,
-      classFullName: Graphic3d.classFullName,
-      geom: geometryBuilder1.geometryStream,
-    };
-    iModelDb.elements.insertElement(graphicElement1Props);
-
-    iModelDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",

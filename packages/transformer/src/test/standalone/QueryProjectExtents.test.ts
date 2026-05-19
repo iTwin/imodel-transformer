@@ -13,6 +13,7 @@ import {
   BriefcaseManager,
   IModelJsFs,
   Subject,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { IModel } from "@itwin/core-common";
@@ -73,8 +74,9 @@ describe("computeProjectExtents with no geometry", () => {
         shared: [IModel.repositoryModelId],
         exclusive: [IModel.repositoryModelId],
       });
-      Subject.insert(iModelDb, IModel.rootSubjectId, "TestSubject");
-      iModelDb.saveChanges("Added subject");
+      withEditTxn(iModelDb, "Added subject", (txn) => {
+        Subject.insert(txn, IModel.rootSubjectId, "TestSubject");
+      });
 
       const originalExtents = iModelDb.projectExtents.clone();
       Logger.logInfo(

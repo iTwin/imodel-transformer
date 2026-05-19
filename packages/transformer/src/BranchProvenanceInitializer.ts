@@ -9,6 +9,7 @@ import {
   IModelDb,
   RepositoryLink,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { DbResult, Id64String, Logger, OpenMode } from "@itwin/core-bentley";
 import {
@@ -96,7 +97,13 @@ export async function initializeBranchProvenance(
         assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
-    args.branch.saveChanges();
+    withEditTxn(
+      args.branch,
+      "initializeBranchProvenance - fed guids",
+      (txn) => {
+        txn.saveChanges();
+      }
+    );
     args.branch.withSqliteStatement("DETACH DATABASE master", (s) => {
       const res = s.step();
       if (res !== DbResult.BE_SQLITE_DONE)
@@ -120,79 +127,94 @@ export async function initializeBranchProvenance(
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterRepoLinkId = args.branch.elements.insertElement({
-    classFullName: RepositoryLink.classFullName,
-    code: RepositoryLink.createCode(
-      args.branch,
-      IModelDb.repositoryModelId,
-      "example-code-value"
-    ),
-    model: IModelDb.repositoryModelId,
-    url: args.masterUrl,
-    format: "iModel",
-    repositoryGuid: args.master.iModelId,
-    description: args.masterDescription,
-  } as RepositoryLinkProps);
+  const { masterRepoLinkId, masterExternalSourceId } = await withEditTxn(
+    args.branch,
+    "initializeBranchProvenance",
+    async (txn) => {
+      const repoLinkId = txn.insertElement({
+        classFullName: RepositoryLink.classFullName,
+        code: RepositoryLink.createCode(
+          args.branch,
+          IModelDb.repositoryModelId,
+          "example-code-value"
+        ),
+        model: IModelDb.repositoryModelId,
+        url: args.masterUrl,
+        format: "iModel",
+        repositoryGuid: args.master.iModelId,
+        description: args.masterDescription,
+      } as RepositoryLinkProps);
 
-  const masterExternalSourceId = args.branch.elements.insertElement({
-    classFullName: ExternalSource.classFullName,
-    model: IModelDb.rootSubjectId,
-    code: Code.createEmpty(),
-    repository: new ExternalSourceIsInRepository(masterRepoLinkId),
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    connectorName: require("../../package.json").name,
-    connectorVersion: require("../../package.json").version,
-    /* eslint-enable @typescript-eslint/no-require-imports */
-  } as ExternalSourceProps);
+      const extSourceId = txn.insertElement({
+        classFullName: ExternalSource.classFullName,
+        model: IModelDb.rootSubjectId,
+        code: Code.createEmpty(),
+        repository: new ExternalSourceIsInRepository(repoLinkId),
+        /* eslint-disable @typescript-eslint/no-require-imports */
+        connectorName: require("../../package.json").name,
+        connectorVersion: require("../../package.json").version,
+        /* eslint-enable @typescript-eslint/no-require-imports */
+      } as ExternalSourceProps);
 
-  const fedGuidlessElemsSql = `
-    SELECT ECInstanceId AS id
-    FROM Bis.Element
-    WHERE FederationGuid IS NULL
-      AND ECInstanceId NOT IN (0x1, 0xe, 0x10) /* ignore special elems */
-  `;
-  const elemReader = args.branch.createQueryReader(
-    fedGuidlessElemsSql,
-    undefined,
-    { usePrimaryConn: true }
+      const fedGuidlessElemsSql = `
+        SELECT ECInstanceId AS id
+        FROM Bis.Element
+        WHERE FederationGuid IS NULL
+          AND ECInstanceId NOT IN (0x1, 0xe, 0x10) /* ignore special elems */
+      `;
+      const elemReader = args.branch.createQueryReader(
+        fedGuidlessElemsSql,
+        undefined,
+        { usePrimaryConn: true }
+      );
+      for await (const row of elemReader) {
+        const id: string = row.id;
+        const aspectProps = IModelTransformer.initElementProvenanceOptions(
+          id,
+          id,
+          {
+            isReverseSynchronization: false,
+            targetScopeElementId: extSourceId,
+            sourceDb: args.master,
+            targetDb: args.branch,
+          }
+        );
+        txn.insertAspect(aspectProps);
+      }
+
+      const fedGuidlessRelsSql = `
+        SELECT erte.ECInstanceId as id
+        FROM Bis.ElementRefersToElements erte
+        JOIN bis.Element se
+          ON se.ECInstanceId=erte.SourceECInstanceId
+        JOIN bis.Element te
+          ON te.ECInstanceId=erte.TargetECInstanceId
+          WHERE se.FederationGuid IS NULL
+          OR te.FederationGuid IS NULL`;
+      const relReader = args.branch.createQueryReader(
+        fedGuidlessRelsSql,
+        undefined,
+        { usePrimaryConn: true }
+      );
+      for await (const row of relReader) {
+        const id: string = row.id;
+        const aspectProps =
+          await IModelTransformer.initRelationshipProvenanceOptions(id, id, {
+            isReverseSynchronization: false,
+            targetScopeElementId: extSourceId,
+            sourceDb: args.master,
+            targetDb: args.branch,
+            forceOldRelationshipProvenanceMethod: false,
+          });
+        txn.insertAspect(aspectProps);
+      }
+
+      return {
+        masterRepoLinkId: repoLinkId,
+        masterExternalSourceId: extSourceId,
+      };
+    }
   );
-  for await (const row of elemReader) {
-    const id: string = row.id;
-    const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
-      isReverseSynchronization: false,
-      targetScopeElementId: masterExternalSourceId,
-      sourceDb: args.master,
-      targetDb: args.branch,
-    });
-    args.branch.elements.insertAspect(aspectProps);
-  }
-
-  const fedGuidlessRelsSql = `
-    SELECT erte.ECInstanceId as id
-    FROM Bis.ElementRefersToElements erte
-    JOIN bis.Element se
-      ON se.ECInstanceId=erte.SourceECInstanceId
-    JOIN bis.Element te
-      ON te.ECInstanceId=erte.TargetECInstanceId
-      WHERE se.FederationGuid IS NULL
-      OR te.FederationGuid IS NULL`;
-  const relReader = args.branch.createQueryReader(
-    fedGuidlessRelsSql,
-    undefined,
-    { usePrimaryConn: true }
-  );
-  for await (const row of relReader) {
-    const id: string = row.id;
-    const aspectProps =
-      await IModelTransformer.initRelationshipProvenanceOptions(id, id, {
-        isReverseSynchronization: false,
-        targetScopeElementId: masterExternalSourceId,
-        sourceDb: args.master,
-        targetDb: args.branch,
-        forceOldRelationshipProvenanceMethod: false,
-      });
-    args.branch.elements.insertAspect(aspectProps);
-  }
 
   if (args.createFedGuidsForMaster === true) {
     args.master.close();

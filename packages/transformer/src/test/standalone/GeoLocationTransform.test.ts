@@ -13,6 +13,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   Subject,
+  withEditTxn,
 } from "@itwin/core-backend";
 import {
   AdditionalTransform,
@@ -69,48 +70,48 @@ function createTestSnapshotDb(
   if (geolocData.geographicCRS !== undefined)
     imodelDb.setGeographicCoordinateSystem(geolocData.geographicCRS);
 
-  const subjectId = Subject.insert(
-    imodelDb,
-    IModelDb.rootSubjectId,
-    "Test Subject"
-  );
-  const defintionModelId = DefinitionModel.insert(
-    imodelDb,
-    subjectId,
-    "DefinitionModel"
-  );
-
-  const categoryId = SpatialCategory.insert(
-    imodelDb,
-    defintionModelId,
-    `${color} Category`,
-    { color: ColorDef.fromString(color).toJSON() }
-  );
-
-  const modelId = PhysicalModel.insert(imodelDb, subjectId, "Test Model");
-
   const builder = new GeometryStreamBuilder();
   builder.appendGeometry(Sphere.createCenterRadius(Point3d.createZero(), 1));
-  for (let i = 0; i < numElements; i++) {
-    // Arrange elements in a 2x2 grid, incrementing z every 4 elements
-    const x = (i % 2) * 5;
-    const y = (Math.floor(i / 2) % 2) * 5;
-    const z = Math.floor(i / 4) * 5;
+  withEditTxn(imodelDb, "Created test elements", (txn) => {
+    const subjectId = Subject.insert(
+      txn,
+      IModelDb.rootSubjectId,
+      "Test Subject"
+    );
+    const defintionModelId = DefinitionModel.insert(
+      txn,
+      subjectId,
+      "DefinitionModel"
+    );
 
-    const elementProps: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: modelId,
-      category: categoryId,
-      code: Code.createEmpty(),
-      geom: builder.geometryStream,
-      placement: {
-        origin: Point3d.create(x, y, z),
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    imodelDb.elements.insertElement(elementProps);
-  }
-  imodelDb.saveChanges("Created test elements");
+    const categoryId = SpatialCategory.insert(
+      txn,
+      defintionModelId,
+      `${color} Category`,
+      { color: ColorDef.fromString(color).toJSON() }
+    );
+
+    const modelId = PhysicalModel.insert(txn, subjectId, "Test Model");
+    for (let i = 0; i < numElements; i++) {
+      // Arrange elements in a 2x2 grid, incrementing z every 4 elements
+      const x = (i % 2) * 5;
+      const y = (Math.floor(i / 2) % 2) * 5;
+      const z = Math.floor(i / 4) * 5;
+
+      const elementProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        geom: builder.geometryStream,
+        placement: {
+          origin: Point3d.create(x, y, z),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+      txn.insertElement(elementProps);
+    }
+  });
 
   return imodelDb;
 }
@@ -204,7 +205,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transfrom.process();
-    targetDb.saveChanges("clone contents from source");
+    transfrom.importer.editTxn.saveChanges("clone contents from source");
 
     const srcElemPositionPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(
@@ -314,7 +315,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    transform.importer.editTxn.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -466,11 +467,12 @@ describe("Non Linear Geolocation Transformations", () => {
     const targetElem = targetElems[0];
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    srcElem.update();
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      srcElem.update(txn);
+    });
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    transform.importer.editTxn.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -544,8 +546,9 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    srcElem.update();
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      srcElem.update(txn);
+    });
 
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
@@ -558,7 +561,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    transform.importer.editTxn.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -632,8 +635,9 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    srcElem.update();
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      srcElem.update(txn);
+    });
 
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
@@ -646,7 +650,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    transform.importer.editTxn.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -715,7 +719,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    targetDb.saveChanges("clone contents from source");
+    transform.importer.editTxn.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);

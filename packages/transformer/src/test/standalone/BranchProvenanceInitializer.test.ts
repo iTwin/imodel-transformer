@@ -14,6 +14,7 @@ import {
   RepositoryLink,
   SpatialCategory,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import {
   initializeBranchProvenance,
@@ -143,7 +144,6 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
           masterDb = initProvenanceArgs.master as StandaloneDb;
           forkDb = initProvenanceArgs.branch as StandaloneDb;
-          forkDb.saveChanges();
 
           // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
           for (const sourceHasFedGuid of [true, false]) {
@@ -211,7 +211,6 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             master: masterDb,
             branch: forkDb,
           });
-          forkDb.saveChanges();
 
           // Save off the classicalTransformerBranchInit result and db for later comparison with the branchProvenance result and db.
           if (!createFedGuidsForMaster) {
@@ -294,69 +293,73 @@ function setupIModel(): [
   const generatedIModel = StandaloneDb.createEmpty(sourcePath, {
     rootSubject: { name: sourceFileName },
   });
-  const physModelId = PhysicalModel.insert(
-    generatedIModel,
-    IModelDb.rootSubjectId,
-    "physical model"
-  );
-  const categoryId = SpatialCategory.insert(
-    generatedIModel,
-    IModelDb.dictionaryId,
-    "spatial category",
-    {}
-  );
+
+  let physModelId!: string;
+  let categoryId!: string;
+  withEditTxn(generatedIModel, (txn) => {
+    physModelId = PhysicalModel.insert(
+      txn,
+      IModelDb.rootSubjectId,
+      "physical model"
+    );
+    categoryId = SpatialCategory.insert(
+      txn,
+      IModelDb.dictionaryId,
+      "spatial category",
+      {}
+    );
+  });
 
   for (const sourceHasFedGuid of [true, false]) {
     for (const targetHasFedGuid of [true, false]) {
-      const baseProps = {
-        classFullName: PhysicalObject.classFullName,
-        category: categoryId,
-        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-        placement: {
-          origin: Point3d.create(1, 1, 1),
-          angles: YawPitchRollAngles.createDegrees(1, 1, 1),
-        },
-        model: physModelId,
-      };
+      withEditTxn(generatedIModel, (txn) => {
+        const baseProps = {
+          classFullName: PhysicalObject.classFullName,
+          category: categoryId,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: {
+            origin: Point3d.create(1, 1, 1),
+            angles: YawPitchRollAngles.createDegrees(1, 1, 1),
+          },
+          model: physModelId,
+        };
 
-      const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
-      const sourceElem = new PhysicalObject(
-        {
-          ...baseProps,
-          code: Code.createEmpty(),
-          federationGuid: sourceFedGuid,
-        },
-        generatedIModel
-      ).insert();
+        const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
+        const sourceElem = new PhysicalObject(
+          {
+            ...baseProps,
+            code: Code.createEmpty(),
+            federationGuid: sourceFedGuid,
+          },
+          generatedIModel
+        ).insert(txn);
 
-      const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
-      const targetElem = new PhysicalObject(
-        {
-          ...baseProps,
-          code: Code.createEmpty(),
-          federationGuid: targetFedGuid,
-        },
-        generatedIModel
-      ).insert();
+        const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
+        const targetElem = new PhysicalObject(
+          {
+            ...baseProps,
+            code: Code.createEmpty(),
+            federationGuid: targetFedGuid,
+          },
+          generatedIModel
+        ).insert(txn);
 
-      generatedIModel.saveChanges();
+        sourceTargetFedGuidToElemIds.set(
+          [sourceHasFedGuid, targetHasFedGuid],
+          [sourceElem, targetElem]
+        );
 
-      sourceTargetFedGuidToElemIds.set(
-        [sourceHasFedGuid, targetHasFedGuid],
-        [sourceElem, targetElem]
-      );
-
-      const rel = new ElementGroupsMembers(
-        {
-          classFullName: ElementGroupsMembers.classFullName,
-          sourceId: sourceElem,
-          targetId: targetElem,
-          memberPriority: 1,
-        },
-        generatedIModel
-      );
-      rel.insert();
-      generatedIModel.saveChanges();
+        const rel = new ElementGroupsMembers(
+          {
+            classFullName: ElementGroupsMembers.classFullName,
+            sourceId: sourceElem,
+            targetId: targetElem,
+            memberPriority: 1,
+          },
+          generatedIModel
+        );
+        rel.insert(txn);
+      });
       generatedIModel.performCheckpoint();
     }
   }
@@ -367,34 +370,44 @@ async function classicalTransformerBranchInit(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterLinkRepoId = args.branch
-    .constructEntity<RepositoryLink, RepositoryLinkProps>({
-      classFullName: RepositoryLink.classFullName,
-      code: RepositoryLink.createCode(
-        args.branch,
-        IModelDb.repositoryModelId,
-        "test-imodel"
-      ),
-      model: IModelDb.repositoryModelId,
-      url: args.masterUrl,
-      format: "iModel",
-      repositoryGuid: args.master.iModelId,
-      description: args.masterDescription,
-    })
-    .insert();
+  const { masterLinkRepoId, masterExternalSourceId } = withEditTxn(
+    args.branch,
+    (txn) => {
+      const repoLinkId = args.branch
+        .constructEntity<RepositoryLink, RepositoryLinkProps>({
+          classFullName: RepositoryLink.classFullName,
+          code: RepositoryLink.createCode(
+            args.branch,
+            IModelDb.repositoryModelId,
+            "test-imodel"
+          ),
+          model: IModelDb.repositoryModelId,
+          url: args.masterUrl,
+          format: "iModel",
+          repositoryGuid: args.master.iModelId,
+          description: args.masterDescription,
+        })
+        .insert(txn);
 
-  const masterExternalSourceId = args.branch
-    .constructEntity<ExternalSource, ExternalSourceProps>({
-      classFullName: ExternalSource.classFullName,
-      model: IModelDb.rootSubjectId,
-      code: Code.createEmpty(),
-      repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-      connectorName: require("../../../../package.json").name,
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-      connectorVersion: require("../../../../package.json").version,
-    })
-    .insert();
+      const extSourceId = args.branch
+        .constructEntity<ExternalSource, ExternalSourceProps>({
+          classFullName: ExternalSource.classFullName,
+          model: IModelDb.rootSubjectId,
+          code: Code.createEmpty(),
+          repository: new ExternalSourceIsInRepository(repoLinkId),
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          connectorName: require("../../../../package.json").name,
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          connectorVersion: require("../../../../package.json").version,
+        })
+        .insert(txn);
+
+      return {
+        masterLinkRepoId: repoLinkId,
+        masterExternalSourceId: extSourceId,
+      };
+    }
+  );
 
   // initialize the branch provenance
   const branchInitializer = new IModelTransformer(args.master, args.branch, {
@@ -406,10 +419,7 @@ async function classicalTransformerBranchInit(
   });
 
   await branchInitializer.process();
-  // save+push our changes to whatever hub we're using
-  const description = "initialized branch iModel";
-  args.branch.saveChanges(description);
-
+  branchInitializer.importer.editTxn.saveChanges("initialized branch iModel");
   branchInitializer.dispose();
 
   return {

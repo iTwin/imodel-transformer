@@ -6,6 +6,7 @@
  * @module iModels
  */
 import {
+  EditTxn,
   ElementTreeDeleter,
   ElementTreeWalkerScope,
   IModelDb,
@@ -14,14 +15,14 @@ import { Id64String } from "@itwin/core-bentley";
 import { QueryBinder } from "@itwin/core-common";
 
 /** Deletes an element tree and code scope references starting with the specified top element. The top element is also deleted. Uses ElementCascadeDeleter.
- * @param iModel The iModel
+ * @param iModelOrTxn The iModel or EditTxn
  * @param topElement The parent of the sub-tree
  */
 export function deleteElementTreeCascade(
-  iModel: IModelDb,
+  iModelOrTxn: IModelDb | EditTxn,
   topElement: Id64String
 ): void {
-  const del = new ElementCascadingDeleter(iModel);
+  const del = new ElementCascadingDeleter(iModelOrTxn);
   del.deleteNormalElements(topElement);
   del.deleteSpecialElements();
 }
@@ -31,6 +32,15 @@ export function deleteElementTreeCascade(
  * Call deleteNormalElements on each tree. Then call deleteSpecialElements.
  */
 export class ElementCascadingDeleter extends ElementTreeDeleter {
+  constructor(iModelOrTxn: IModelDb | EditTxn) {
+    if (iModelOrTxn instanceof EditTxn) {
+      super(iModelOrTxn);
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      super(iModelOrTxn);
+    }
+  }
+
   protected shouldVisitCodeScopes(
     _elementId: Id64String,
     _scope: ElementTreeWalkerScope

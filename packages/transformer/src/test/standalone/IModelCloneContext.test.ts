@@ -12,6 +12,7 @@ import {
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Id64, Id64String } from "@itwin/core-bentley";
 import {
@@ -57,59 +58,56 @@ describe("IModelCloneContext", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
-      const categoryId = SpatialCategory.insert(
-        sourceDb,
-        IModel.dictionaryId,
-        "SpatialCategory",
-        new SubCategoryAppearance()
-      );
-      const sourceModelId = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "PhysicalModel"
-      );
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-      };
-      const physicalObject1 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject2 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject3 =
-        sourceDb.elements.insertElement(physicalObjectProps);
+      let physicalObject1!: Id64String;
+      let physicalObject2!: Id64String;
+      let physicalObject3!: Id64String;
+      withEditTxn(sourceDb, (txn) => {
+        const categoryId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "SpatialCategory",
+          new SubCategoryAppearance()
+        );
+        const sourceModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "PhysicalModel"
+        );
+        const physicalObjectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: sourceModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+        };
+        physicalObject1 = txn.insertElement(physicalObjectProps);
+        physicalObject2 = txn.insertElement(physicalObjectProps);
+        physicalObject3 = txn.insertElement(physicalObjectProps);
 
-      const relationshipsProps: RelationshipProps[] = [
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject1,
-          sourceId: physicalObject2,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject2,
-          sourceId: physicalObject1,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject2,
-          sourceId: physicalObject3,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject3,
-          sourceId: physicalObject2,
-        },
-      ];
+        const relationshipsProps: RelationshipProps[] = [
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: physicalObject1,
+            sourceId: physicalObject2,
+          },
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: physicalObject2,
+            sourceId: physicalObject1,
+          },
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: physicalObject2,
+            sourceId: physicalObject3,
+          },
+          {
+            classFullName: GraphicalElement3dRepresentsElement.classFullName,
+            targetId: physicalObject3,
+            sourceId: physicalObject2,
+          },
+        ];
 
-      relationshipsProps.forEach((props) =>
-        sourceDb.relationships.insertInstance(props)
-      );
-
-      // Save changes to source DB to ensure relationships are persisted
-      sourceDb.saveChanges();
+        relationshipsProps.forEach((props) => txn.insertRelationship(props));
+      });
 
       // Target IModelDb
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
@@ -122,7 +120,7 @@ describe("IModelCloneContext", () => {
       // Import from beneath source Subject into target Subject
       const transformer = new IModelTransformer(sourceDb, targetDb);
       await transformer.process();
-      targetDb.saveChanges();
+      transformer.importer.editTxn.saveChanges();
 
       // Assertion
       const sql = `SELECT r.ECInstanceId FROM ${ElementRefersToElements.classFullName} r

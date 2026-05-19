@@ -15,6 +15,7 @@ import {
   DrawingCategory,
   DrawingGraphic,
   DrawingModel,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementOwnsChildElements,
@@ -34,6 +35,7 @@ import {
   TemplateRecipe2d,
   TemplateRecipe3d,
   TypeDefinitionElement,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 import { KnownTestLocations as BackendKnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -118,181 +120,189 @@ async function createAcmeCatalog(dbFile: string): Promise<void> {
   await db.importSchemas([domainSchemaFilePath]);
   const manufacturerName = "ACME";
   const productLineName = `${manufacturerName} Product Line A`;
-  const containerCodeSpecId = db.codeSpecs.insert(
-    "ACME:Equipment",
-    CodeScopeSpec.Type.Repository
-  ); // A catalog creator should insert their own CodeSpec for DefinitionContainers
-  const templateGroupCodeSpecId = db.codeSpecs.insert(
-    "ACME:TemplateGroup",
-    CodeScopeSpec.Type.Model
-  );
-  const containerCode = createContainerCode(
-    containerCodeSpecId,
-    productLineName
-  );
-  const containerId = DefinitionContainer.insert(
-    db,
-    IModel.dictionaryId,
-    containerCode
-  ); // This sample has a DefinitionContainer per product line
-  const spatialCategoryId = SpatialCategory.insert(
-    db,
-    containerId,
-    "Equipment",
-    new SubCategoryAppearance()
-  ); // "Equipment" is the name of a standard domain SpatialCategory in this sample
-  const drawingCategoryId = DrawingCategory.insert(
-    db,
-    containerId,
-    "Symbols",
-    new SubCategoryAppearance()
-  ); // "Symbols" is the name of a standard domain DrawingCategory in this sample
+  withEditTxn(db, (txn) => {
+    const containerCodeSpecId = db.codeSpecs.insert(
+      txn,
+      "ACME:Equipment",
+      CodeScopeSpec.Type.Repository
+    ); // A catalog creator should insert their own CodeSpec for DefinitionContainers
+    const templateGroupCodeSpecId = db.codeSpecs.insert(
+      txn,
+      "ACME:TemplateGroup",
+      CodeScopeSpec.Type.Model
+    );
+    const containerCode = createContainerCode(
+      containerCodeSpecId,
+      productLineName
+    );
+    const containerId = DefinitionContainer.insert(
+      txn,
+      IModel.dictionaryId,
+      containerCode
+    ); // This sample has a DefinitionContainer per product line
+    const spatialCategoryId = SpatialCategory.insert(
+      txn,
+      containerId,
+      "Equipment",
+      new SubCategoryAppearance()
+    ); // "Equipment" is the name of a standard domain SpatialCategory in this sample
+    const drawingCategoryId = DrawingCategory.insert(
+      txn,
+      containerId,
+      "Symbols",
+      new SubCategoryAppearance()
+    ); // "Symbols" is the name of a standard domain DrawingCategory in this sample
 
-  const codeValue1 = "A-1 Series";
-  const physicalGeomProps1 = IModelTestUtils.createBox(new Point3d(1, 1, 1));
-  const physicalRecipeId1 = insertEquipmentRecipe(
-    db,
-    containerId,
-    spatialCategoryId,
-    codeValue1,
-    physicalGeomProps1
-  ); // a template recipe can be referenced by more than one PhysicalType
-  insertEquipmentType(
-    db,
-    containerId,
-    "A-101",
-    physicalRecipeId1,
-    manufacturerName,
-    productLineName
-  );
-  insertEquipmentType(
-    db,
-    containerId,
-    "A-102",
-    physicalRecipeId1,
-    manufacturerName,
-    productLineName
-  );
-  const symbolGeomProps1 = IModelTestUtils.createRectangle(
-    Point2d.create(1, 1)
-  );
-  const symbolRecipeId1 = insertSymbolRecipe(
-    db,
-    containerId,
-    drawingCategoryId,
-    codeValue1,
-    symbolGeomProps1
-  );
-  const groupProps1: DefinitionElementProps = {
-    classFullName: DefinitionGroup.classFullName,
-    model: containerId,
-    code: new Code({
-      spec: templateGroupCodeSpecId,
-      scope: containerId,
-      value: codeValue1,
-    }),
-  };
-  const groupId1 = db.elements.insertElement(groupProps1);
-  DefinitionGroupGroupsDefinitions.insert(db, groupId1, physicalRecipeId1);
-  DefinitionGroupGroupsDefinitions.insert(db, groupId1, symbolRecipeId1);
+    const codeValue1 = "A-1 Series";
+    const physicalGeomProps1 = IModelTestUtils.createBox(new Point3d(1, 1, 1));
+    const physicalRecipeId1 = insertEquipmentRecipe(
+      txn,
+      containerId,
+      spatialCategoryId,
+      codeValue1,
+      physicalGeomProps1
+    ); // a template recipe can be referenced by more than one PhysicalType
+    insertEquipmentType(
+      txn,
+      db,
+      containerId,
+      "A-101",
+      physicalRecipeId1,
+      manufacturerName,
+      productLineName
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerId,
+      "A-102",
+      physicalRecipeId1,
+      manufacturerName,
+      productLineName
+    );
+    const symbolGeomProps1 = IModelTestUtils.createRectangle(
+      Point2d.create(1, 1)
+    );
+    const symbolRecipeId1 = insertSymbolRecipe(
+      txn,
+      containerId,
+      drawingCategoryId,
+      codeValue1,
+      symbolGeomProps1
+    );
+    const groupProps1: DefinitionElementProps = {
+      classFullName: DefinitionGroup.classFullName,
+      model: containerId,
+      code: new Code({
+        spec: templateGroupCodeSpecId,
+        scope: containerId,
+        value: codeValue1,
+      }),
+    };
+    const groupId1 = txn.insertElement(groupProps1);
+    DefinitionGroupGroupsDefinitions.insert(txn, groupId1, physicalRecipeId1);
+    DefinitionGroupGroupsDefinitions.insert(txn, groupId1, symbolRecipeId1);
 
-  const codeValue2 = "A-2 Series";
-  const physicalGeomProps2 = IModelTestUtils.createBox(new Point3d(2, 2, 2));
-  const physicalRecipeId2 = insertEquipmentRecipe(
-    db,
-    containerId,
-    spatialCategoryId,
-    codeValue2,
-    physicalGeomProps2
-  );
-  insertEquipmentType(
-    db,
-    containerId,
-    "A-201",
-    physicalRecipeId2,
-    manufacturerName,
-    productLineName
-  );
-  insertEquipmentType(
-    db,
-    containerId,
-    "A-202",
-    physicalRecipeId2,
-    manufacturerName,
-    productLineName
-  );
-  insertEquipmentType(
-    db,
-    containerId,
-    "A-203",
-    physicalRecipeId2,
-    manufacturerName,
-    productLineName
-  );
-  const symbolGeomProps2 = IModelTestUtils.createRectangle(
-    Point2d.create(2, 2)
-  );
-  const symbolRecipeId2 = insertSymbolRecipe(
-    db,
-    containerId,
-    drawingCategoryId,
-    codeValue2,
-    symbolGeomProps2
-  );
-  const groupProps2: DefinitionElementProps = {
-    classFullName: DefinitionGroup.classFullName,
-    model: containerId,
-    code: new Code({
-      spec: templateGroupCodeSpecId,
-      scope: containerId,
-      value: codeValue2,
-    }),
-  };
-  const groupId2 = db.elements.insertElement(groupProps2);
-  DefinitionGroupGroupsDefinitions.insert(db, groupId2, physicalRecipeId2);
-  DefinitionGroupGroupsDefinitions.insert(db, groupId2, symbolRecipeId2);
+    const codeValue2 = "A-2 Series";
+    const physicalGeomProps2 = IModelTestUtils.createBox(new Point3d(2, 2, 2));
+    const physicalRecipeId2 = insertEquipmentRecipe(
+      txn,
+      containerId,
+      spatialCategoryId,
+      codeValue2,
+      physicalGeomProps2
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerId,
+      "A-201",
+      physicalRecipeId2,
+      manufacturerName,
+      productLineName
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerId,
+      "A-202",
+      physicalRecipeId2,
+      manufacturerName,
+      productLineName
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerId,
+      "A-203",
+      physicalRecipeId2,
+      manufacturerName,
+      productLineName
+    );
+    const symbolGeomProps2 = IModelTestUtils.createRectangle(
+      Point2d.create(2, 2)
+    );
+    const symbolRecipeId2 = insertSymbolRecipe(
+      txn,
+      containerId,
+      drawingCategoryId,
+      codeValue2,
+      symbolGeomProps2
+    );
+    const groupProps2: DefinitionElementProps = {
+      classFullName: DefinitionGroup.classFullName,
+      model: containerId,
+      code: new Code({
+        spec: templateGroupCodeSpecId,
+        scope: containerId,
+        value: codeValue2,
+      }),
+    };
+    const groupId2 = txn.insertElement(groupProps2);
+    DefinitionGroupGroupsDefinitions.insert(txn, groupId2, physicalRecipeId2);
+    DefinitionGroupGroupsDefinitions.insert(txn, groupId2, symbolRecipeId2);
 
-  const codeValue3 = "A-3 Series";
-  const physicalGeomProps3 = IModelTestUtils.createBox(new Point3d(3, 3, 3));
-  const physicalRecipeId3 = insertEquipmentRecipe(
-    db,
-    containerId,
-    spatialCategoryId,
-    codeValue3,
-    physicalGeomProps3
-  );
-  insertEquipmentType(
-    db,
-    containerId,
-    "A-301",
-    physicalRecipeId3,
-    manufacturerName,
-    productLineName
-  );
-  const symbolGeomProps3 = IModelTestUtils.createRectangle(
-    Point2d.create(3, 3)
-  );
-  const symbolRecipeId3 = insertSymbolRecipe(
-    db,
-    containerId,
-    drawingCategoryId,
-    codeValue3,
-    symbolGeomProps3
-  );
-  const groupProps3: DefinitionElementProps = {
-    classFullName: DefinitionGroup.classFullName,
-    model: containerId,
-    code: new Code({
-      spec: templateGroupCodeSpecId,
-      scope: containerId,
-      value: codeValue3,
-    }),
-  };
-  const groupId3 = db.elements.insertElement(groupProps3);
-  DefinitionGroupGroupsDefinitions.insert(db, groupId3, physicalRecipeId3);
-  DefinitionGroupGroupsDefinitions.insert(db, groupId3, symbolRecipeId3);
-
-  db.saveChanges();
+    const codeValue3 = "A-3 Series";
+    const physicalGeomProps3 = IModelTestUtils.createBox(new Point3d(3, 3, 3));
+    const physicalRecipeId3 = insertEquipmentRecipe(
+      txn,
+      containerId,
+      spatialCategoryId,
+      codeValue3,
+      physicalGeomProps3
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerId,
+      "A-301",
+      physicalRecipeId3,
+      manufacturerName,
+      productLineName
+    );
+    const symbolGeomProps3 = IModelTestUtils.createRectangle(
+      Point2d.create(3, 3)
+    );
+    const symbolRecipeId3 = insertSymbolRecipe(
+      txn,
+      containerId,
+      drawingCategoryId,
+      codeValue3,
+      symbolGeomProps3
+    );
+    const groupProps3: DefinitionElementProps = {
+      classFullName: DefinitionGroup.classFullName,
+      model: containerId,
+      code: new Code({
+        spec: templateGroupCodeSpecId,
+        scope: containerId,
+        value: codeValue3,
+      }),
+    };
+    const groupId3 = txn.insertElement(groupProps3);
+    DefinitionGroupGroupsDefinitions.insert(txn, groupId3, physicalRecipeId3);
+    DefinitionGroupGroupsDefinitions.insert(txn, groupId3, symbolRecipeId3);
+  });
   db.close();
 }
 
@@ -312,168 +322,179 @@ async function createBestCatalog(dbFile: string): Promise<void> {
   );
   await db.importSchemas([domainSchemaFilePath]);
   const manufacturerName = "Best";
-  const containerCodeSpecId = db.codeSpecs.insert(
-    `${manufacturerName}:Equipment`,
-    CodeScopeSpec.Type.Repository
-  );
+  withEditTxn(db, (txn) => {
+    const containerCodeSpecId = db.codeSpecs.insert(
+      txn,
+      `${manufacturerName}:Equipment`,
+      CodeScopeSpec.Type.Repository
+    );
 
-  // Product Line B
-  const productLineNameB = `${manufacturerName} Product Line B`;
-  const containerCodeB = createContainerCode(
-    containerCodeSpecId,
-    productLineNameB
-  );
-  const containerIdB = DefinitionContainer.insert(
-    db,
-    IModel.dictionaryId,
-    containerCodeB
-  );
-  const categoryIdB = SpatialCategory.insert(
-    db,
-    containerIdB,
-    "Equipment",
-    new SubCategoryAppearance()
-  );
+    // Product Line B
+    const productLineNameB = `${manufacturerName} Product Line B`;
+    const containerCodeB = createContainerCode(
+      containerCodeSpecId,
+      productLineNameB
+    );
+    const containerIdB = DefinitionContainer.insert(
+      txn,
+      IModel.dictionaryId,
+      containerCodeB
+    );
+    const categoryIdB = SpatialCategory.insert(
+      txn,
+      containerIdB,
+      "Equipment",
+      new SubCategoryAppearance()
+    );
 
-  const codeValueB2 = "B-2 Series";
-  const physicalGeomPropsB2 = IModelTestUtils.createCylinder(2);
-  const physicalRecipeIdB2 = insertEquipmentRecipe(
-    db,
-    containerIdB,
-    categoryIdB,
-    codeValueB2,
-    physicalGeomPropsB2
-  );
-  insertEquipmentType(
-    db,
-    containerIdB,
-    "B-201",
-    physicalRecipeIdB2,
-    manufacturerName,
-    productLineNameB
-  );
-  insertEquipmentType(
-    db,
-    containerIdB,
-    "B-202",
-    physicalRecipeIdB2,
-    manufacturerName,
-    productLineNameB
-  );
+    const codeValueB2 = "B-2 Series";
+    const physicalGeomPropsB2 = IModelTestUtils.createCylinder(2);
+    const physicalRecipeIdB2 = insertEquipmentRecipe(
+      txn,
+      containerIdB,
+      categoryIdB,
+      codeValueB2,
+      physicalGeomPropsB2
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdB,
+      "B-201",
+      physicalRecipeIdB2,
+      manufacturerName,
+      productLineNameB
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdB,
+      "B-202",
+      physicalRecipeIdB2,
+      manufacturerName,
+      productLineNameB
+    );
 
-  const codeValueB3 = "B-3 Series";
-  const physicalGeomPropsB3 = IModelTestUtils.createCylinder(3);
-  const physicalRecipeIdB3 = insertEquipmentRecipe(
-    db,
-    containerIdB,
-    categoryIdB,
-    codeValueB3,
-    physicalGeomPropsB3
-  );
-  insertEquipmentType(
-    db,
-    containerIdB,
-    "B-301",
-    physicalRecipeIdB3,
-    manufacturerName,
-    productLineNameB
-  );
-  insertEquipmentType(
-    db,
-    containerIdB,
-    "B-302",
-    physicalRecipeIdB3,
-    manufacturerName,
-    productLineNameB
-  );
-  insertEquipmentType(
-    db,
-    containerIdB,
-    "B-303",
-    physicalRecipeIdB3,
-    manufacturerName,
-    productLineNameB
-  );
-  insertEquipmentType(
-    db,
-    containerIdB,
-    "B-304",
-    physicalRecipeIdB3,
-    manufacturerName,
-    productLineNameB
-  );
+    const codeValueB3 = "B-3 Series";
+    const physicalGeomPropsB3 = IModelTestUtils.createCylinder(3);
+    const physicalRecipeIdB3 = insertEquipmentRecipe(
+      txn,
+      containerIdB,
+      categoryIdB,
+      codeValueB3,
+      physicalGeomPropsB3
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdB,
+      "B-301",
+      physicalRecipeIdB3,
+      manufacturerName,
+      productLineNameB
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdB,
+      "B-302",
+      physicalRecipeIdB3,
+      manufacturerName,
+      productLineNameB
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdB,
+      "B-303",
+      physicalRecipeIdB3,
+      manufacturerName,
+      productLineNameB
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdB,
+      "B-304",
+      physicalRecipeIdB3,
+      manufacturerName,
+      productLineNameB
+    );
 
-  // Product Line D
-  const productLineNameD = `${manufacturerName} Product Line D`;
-  const containerCodeD = createContainerCode(
-    containerCodeSpecId,
-    productLineNameD
-  );
-  const containerIdD = DefinitionContainer.insert(
-    db,
-    IModel.dictionaryId,
-    containerCodeD
-  );
-  const categoryIdD = SpatialCategory.insert(
-    db,
-    containerIdD,
-    "Equipment",
-    new SubCategoryAppearance()
-  );
+    // Product Line D
+    const productLineNameD = `${manufacturerName} Product Line D`;
+    const containerCodeD = createContainerCode(
+      containerCodeSpecId,
+      productLineNameD
+    );
+    const containerIdD = DefinitionContainer.insert(
+      txn,
+      IModel.dictionaryId,
+      containerCodeD
+    );
+    const categoryIdD = SpatialCategory.insert(
+      txn,
+      containerIdD,
+      "Equipment",
+      new SubCategoryAppearance()
+    );
 
-  const codeValueD1 = "D-1 Series";
-  const physicalGeomPropsD1 = IModelTestUtils.createCylinder(1);
-  const physicalRecipeIdD1 = insertEquipmentRecipe(
-    db,
-    containerIdD,
-    categoryIdD,
-    codeValueD1,
-    physicalGeomPropsD1
-  );
-  insertEquipmentType(
-    db,
-    containerIdD,
-    "D-101",
-    physicalRecipeIdD1,
-    manufacturerName,
-    productLineNameD
-  );
-  insertEquipmentType(
-    db,
-    containerIdD,
-    "D-102",
-    physicalRecipeIdD1,
-    manufacturerName,
-    productLineNameD
-  );
+    const codeValueD1 = "D-1 Series";
+    const physicalGeomPropsD1 = IModelTestUtils.createCylinder(1);
+    const physicalRecipeIdD1 = insertEquipmentRecipe(
+      txn,
+      containerIdD,
+      categoryIdD,
+      codeValueD1,
+      physicalGeomPropsD1
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdD,
+      "D-101",
+      physicalRecipeIdD1,
+      manufacturerName,
+      productLineNameD
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdD,
+      "D-102",
+      physicalRecipeIdD1,
+      manufacturerName,
+      productLineNameD
+    );
 
-  const codeValueD2 = "D-2 Series";
-  const physicalGeomPropsD2 = IModelTestUtils.createCylinder(2);
-  const physicalRecipeIdD2 = insertEquipmentRecipe(
-    db,
-    containerIdD,
-    categoryIdD,
-    codeValueD2,
-    physicalGeomPropsD2
-  );
-  insertEquipmentType(
-    db,
-    containerIdD,
-    "D-201",
-    physicalRecipeIdD2,
-    manufacturerName,
-    productLineNameD
-  );
-  insertEquipmentType(
-    db,
-    containerIdD,
-    "D-202",
-    physicalRecipeIdD2,
-    manufacturerName,
-    productLineNameD
-  );
-
-  db.saveChanges();
+    const codeValueD2 = "D-2 Series";
+    const physicalGeomPropsD2 = IModelTestUtils.createCylinder(2);
+    const physicalRecipeIdD2 = insertEquipmentRecipe(
+      txn,
+      containerIdD,
+      categoryIdD,
+      codeValueD2,
+      physicalGeomPropsD2
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdD,
+      "D-201",
+      physicalRecipeIdD2,
+      manufacturerName,
+      productLineNameD
+    );
+    insertEquipmentType(
+      txn,
+      db,
+      containerIdD,
+      "D-202",
+      physicalRecipeIdD2,
+      manufacturerName,
+      productLineNameD
+    );
+  });
   db.close();
 }
 
@@ -488,116 +509,116 @@ async function createTestCatalog(dbFile: string): Promise<void> {
     rootSubject: { name: "Test Catalog" },
     createClassViews,
   });
-  const containerCodeSpecId = db.codeSpecs.insert(
-    "Test:Components",
-    CodeScopeSpec.Type.Repository
-  );
-  const containerCode = createContainerCode(
-    containerCodeSpecId,
-    "Test Components"
-  );
-  const containerId = DefinitionContainer.insert(
-    db,
-    IModel.dictionaryId,
-    containerCode
-  );
-  const spatialCategoryId = SpatialCategory.insert(
-    db,
-    containerId,
-    "Test Components",
-    new SubCategoryAppearance()
-  );
-  const drawingCategoryId = DrawingCategory.insert(
-    db,
-    containerId,
-    "Test Components",
-    new SubCategoryAppearance()
-  );
+  withEditTxn(db, (txn) => {
+    const containerCodeSpecId = db.codeSpecs.insert(
+      txn,
+      "Test:Components",
+      CodeScopeSpec.Type.Repository
+    );
+    const containerCode = createContainerCode(
+      containerCodeSpecId,
+      "Test Components"
+    );
+    const containerId = DefinitionContainer.insert(
+      txn,
+      IModel.dictionaryId,
+      containerCode
+    );
+    const spatialCategoryId = SpatialCategory.insert(
+      txn,
+      containerId,
+      "Test Components",
+      new SubCategoryAppearance()
+    );
+    const drawingCategoryId = DrawingCategory.insert(
+      txn,
+      containerId,
+      "Test Components",
+      new SubCategoryAppearance()
+    );
 
-  // Cylinder component
-  const cylinderTemplateId = TemplateRecipe3d.insert(
-    db,
-    containerId,
-    "Cylinder Template"
-  );
-  const cylinderTemplateModel = db.models.getModel<PhysicalModel>(
-    cylinderTemplateId,
-    PhysicalModel
-  );
-  assert.isTrue(cylinderTemplateModel.isTemplate);
-  const cylinderProps: PhysicalElementProps = {
-    classFullName: PhysicalObject.classFullName,
-    model: cylinderTemplateId,
-    category: spatialCategoryId,
-    code: Code.createEmpty(),
-    userLabel: "Cylinder",
-    placement: {
-      origin: Point3d.createZero(),
-      angles: { yaw: 0, pitch: 0, roll: 0 },
-    },
-    geom: IModelTestUtils.createCylinder(1),
-  };
-  db.elements.insertElement(cylinderProps);
+    // Cylinder component
+    const cylinderTemplateId = TemplateRecipe3d.insert(
+      txn,
+      containerId,
+      "Cylinder Template"
+    );
+    const cylinderTemplateModel = db.models.getModel<PhysicalModel>(
+      cylinderTemplateId,
+      PhysicalModel
+    );
+    assert.isTrue(cylinderTemplateModel.isTemplate);
+    const cylinderProps: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: cylinderTemplateId,
+      category: spatialCategoryId,
+      code: Code.createEmpty(),
+      userLabel: "Cylinder",
+      placement: {
+        origin: Point3d.createZero(),
+        angles: { yaw: 0, pitch: 0, roll: 0 },
+      },
+      geom: IModelTestUtils.createCylinder(1),
+    };
+    txn.insertElement(cylinderProps);
 
-  // Assembly component
-  const assemblyTemplateId = TemplateRecipe3d.insert(
-    db,
-    containerId,
-    "Assembly Template"
-  );
-  assert.exists(db.models.getModel<PhysicalModel>(assemblyTemplateId));
-  const assemblyHeadProps: PhysicalElementProps = {
-    classFullName: PhysicalObject.classFullName,
-    model: assemblyTemplateId,
-    category: spatialCategoryId,
-    code: Code.createEmpty(),
-    userLabel: "Assembly Head",
-    placement: {
-      origin: Point3d.createZero(),
-      angles: { yaw: 0, pitch: 0, roll: 0 },
-    },
-    geom: IModelTestUtils.createCylinder(1),
-  };
-  const assemblyHeadId: Id64String =
-    db.elements.insertElement(assemblyHeadProps);
-  const childBoxProps: PhysicalElementProps = {
-    classFullName: PhysicalObject.classFullName,
-    model: assemblyTemplateId,
-    category: spatialCategoryId,
-    parent: new ElementOwnsChildElements(assemblyHeadId),
-    code: Code.createEmpty(),
-    userLabel: "Child",
-    placement: {
-      origin: Point3d.create(2, 0, 0),
-      angles: { yaw: 0, pitch: 0, roll: 0 },
-    },
-    geom: IModelTestUtils.createBox(Point3d.create(1, 1, 1)),
-  };
-  db.elements.insertElement(childBoxProps);
+    // Assembly component
+    const assemblyTemplateId = TemplateRecipe3d.insert(
+      txn,
+      containerId,
+      "Assembly Template"
+    );
+    assert.exists(db.models.getModel<PhysicalModel>(assemblyTemplateId));
+    const assemblyHeadProps: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: assemblyTemplateId,
+      category: spatialCategoryId,
+      code: Code.createEmpty(),
+      userLabel: "Assembly Head",
+      placement: {
+        origin: Point3d.createZero(),
+        angles: { yaw: 0, pitch: 0, roll: 0 },
+      },
+      geom: IModelTestUtils.createCylinder(1),
+    };
+    const assemblyHeadId: Id64String = txn.insertElement(assemblyHeadProps);
+    const childBoxProps: PhysicalElementProps = {
+      classFullName: PhysicalObject.classFullName,
+      model: assemblyTemplateId,
+      category: spatialCategoryId,
+      parent: new ElementOwnsChildElements(assemblyHeadId),
+      code: Code.createEmpty(),
+      userLabel: "Child",
+      placement: {
+        origin: Point3d.create(2, 0, 0),
+        angles: { yaw: 0, pitch: 0, roll: 0 },
+      },
+      geom: IModelTestUtils.createBox(Point3d.create(1, 1, 1)),
+    };
+    txn.insertElement(childBoxProps);
 
-  // 2d component
-  const drawingGraphicTemplateId = TemplateRecipe2d.insert(
-    db,
-    containerId,
-    "DrawingGraphic Template"
-  );
-  const drawingGraphicTemplateModel = db.models.getModel<DrawingModel>(
-    drawingGraphicTemplateId,
-    DrawingModel
-  );
-  assert.isTrue(drawingGraphicTemplateModel.isTemplate);
-  const drawingGraphicProps: GeometricElement2dProps = {
-    classFullName: DrawingGraphic.classFullName,
-    model: drawingGraphicTemplateId,
-    category: drawingCategoryId,
-    code: Code.createEmpty(),
-    userLabel: "DrawingGraphic",
-    placement: { origin: Point2d.createZero(), angle: 0 },
-    geom: IModelTestUtils.createRectangle(Point2d.create(1, 1)),
-  };
-  db.elements.insertElement(drawingGraphicProps);
-
-  db.saveChanges();
+    // 2d component
+    const drawingGraphicTemplateId = TemplateRecipe2d.insert(
+      txn,
+      containerId,
+      "DrawingGraphic Template"
+    );
+    const drawingGraphicTemplateModel = db.models.getModel<DrawingModel>(
+      drawingGraphicTemplateId,
+      DrawingModel
+    );
+    assert.isTrue(drawingGraphicTemplateModel.isTemplate);
+    const drawingGraphicProps: GeometricElement2dProps = {
+      classFullName: DrawingGraphic.classFullName,
+      model: drawingGraphicTemplateId,
+      category: drawingCategoryId,
+      code: Code.createEmpty(),
+      userLabel: "DrawingGraphic",
+      placement: { origin: Point2d.createZero(), angle: 0 },
+      geom: IModelTestUtils.createRectangle(Point2d.create(1, 1)),
+    };
+    txn.insertElement(drawingGraphicProps);
+  });
   db.close();
 }
 
@@ -675,13 +696,13 @@ async function indexCatalog(db: IModelDb, outputFile: string): Promise<void> {
  * @note This sample creates a single element in the template model, but 1-N elements are supported.
  */
 function insertEquipmentRecipe(
-  db: IModelDb,
+  txn: EditTxn,
   modelId: Id64String,
   categoryId: Id64String,
   codeValue: string,
   geom: GeometryStreamProps
 ): Id64String {
-  const templateId = TemplateRecipe3d.insert(db, modelId, codeValue);
+  const templateId = TemplateRecipe3d.insert(txn, modelId, codeValue);
   const equipmentProps: PhysicalElementProps = {
     classFullName: "TestDomain:Equipment",
     model: templateId, // the sub-model of the TemplateRecipe3d
@@ -694,18 +715,18 @@ function insertEquipmentRecipe(
     },
     geom,
   };
-  db.elements.insertElement(equipmentProps);
+  txn.insertElement(equipmentProps);
   return templateId;
 }
 
 function insertSymbolRecipe(
-  db: IModelDb,
+  txn: EditTxn,
   modelId: Id64String,
   categoryId: Id64String,
   codeValue: string,
   geom: GeometryStreamProps
 ): Id64String {
-  const templateId = TemplateRecipe2d.insert(db, modelId, codeValue);
+  const templateId = TemplateRecipe2d.insert(txn, modelId, codeValue);
   const drawingGraphicProps: GeometricElement2dProps = {
     classFullName: DrawingGraphic.classFullName,
     model: templateId, // the sub-model of the TemplateRecipe2d
@@ -715,7 +736,7 @@ function insertSymbolRecipe(
     placement: { origin: Point2d.createZero(), angle: 0 },
     geom,
   };
-  db.elements.insertElement(drawingGraphicProps);
+  txn.insertElement(drawingGraphicProps);
   return templateId;
 }
 
@@ -787,6 +808,7 @@ function queryEquipmentCategory(
 
 /** This mocks a domain-specific subclass of PhysicalType that would be defined by an aligned domain schema. */
 function insertEquipmentType(
+  txn: EditTxn,
   db: IModelDb,
   modelId: Id64String,
   codeValue: string,
@@ -805,7 +827,7 @@ function insertEquipmentType(
     manufacturerName,
     productLineName,
   };
-  return db.elements.insertElement(equipmentTypeProps);
+  return txn.insertElement(equipmentTypeProps);
 }
 
 function createEquipmentTypeCode(
@@ -895,14 +917,16 @@ function insertCatalogRepositoryLink(
   );
   const repositoryLinkId = iModelDb.elements.queryElementIdByCode(code);
   if (undefined === repositoryLinkId) {
-    const repositoryLinkProps: RepositoryLinkProps = {
-      classFullName: RepositoryLink.classFullName,
-      model: IModel.repositoryModelId,
-      code,
-      url,
-      format: "Catalog", // WIP: need to standardize format names
-    };
-    return iModelDb.elements.insertElement(repositoryLinkProps);
+    return withEditTxn(iModelDb, (txn) => {
+      const repositoryLinkProps: RepositoryLinkProps = {
+        classFullName: RepositoryLink.classFullName,
+        model: IModel.repositoryModelId,
+        code,
+        url,
+        format: "Catalog", // WIP: need to standardize format names
+      };
+      return txn.insertElement(repositoryLinkProps);
+    });
   }
   return repositoryLinkId;
 }
@@ -1108,31 +1132,35 @@ describe("Catalog", () => {
       "TestDomain.ecschema.xml"
     );
     await iModelDb.importSchemas([domainSchemaFilePath]);
-    const physicalModelId = PhysicalModel.insert(
-      iModelDb,
-      IModel.rootSubjectId,
-      "Physical"
-    );
-    const spatialCategoryId = SpatialCategory.insert(
-      iModelDb,
-      IModel.dictionaryId,
-      "Equipment",
-      new SubCategoryAppearance()
-    );
+    const [physicalModelId, spatialCategoryId, drawingId, drawingCategoryId] =
+      withEditTxn(iModelDb, (txn) => {
+        const physModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Physical"
+        );
+        const catId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Equipment",
+          new SubCategoryAppearance()
+        );
+        const docListModelId = DocumentListModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Drawings"
+        );
+        const drawId = Drawing.insert(txn, docListModelId, "Drawing1");
+        const drawCatId = DrawingCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "Symbols",
+          new SubCategoryAppearance()
+        );
+        return [physModelId, catId, drawId, drawCatId] as const;
+      });
     const standardSpatialCategories = new Map<string, Id64String>();
     standardSpatialCategories.set("Equipment", spatialCategoryId);
-    const drawingListModelId = DocumentListModel.insert(
-      iModelDb,
-      IModel.rootSubjectId,
-      "Drawings"
-    );
-    const drawingId = Drawing.insert(iModelDb, drawingListModelId, "Drawing1");
-    const drawingCategoryId = DrawingCategory.insert(
-      iModelDb,
-      IModel.dictionaryId,
-      "Symbols",
-      new SubCategoryAppearance()
-    );
     const standardDrawingCategories = new Map<string, Id64String>();
     standardDrawingCategories.set("Symbols", drawingCategoryId);
 
@@ -1143,8 +1171,6 @@ describe("Catalog", () => {
       assert.equal(catalogContainerIds.size, 1); // expected value from createAcmeCatalog
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
-          // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
@@ -1157,8 +1183,6 @@ describe("Catalog", () => {
         path.basename(acmeCatalogDbFile),
         acmeCatalogDbFile
       );
-
-      iModelDb.saveChanges();
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
         iModelDb,
@@ -1256,8 +1280,6 @@ describe("Catalog", () => {
         path.basename(bestCatalogDbFile),
         bestCatalogDbFile
       );
-
-      iModelDb.saveChanges();
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
         iModelDb,
@@ -1320,8 +1342,6 @@ describe("Catalog", () => {
       assert.equal(catalogContainerIds.size, 1); // expected value from createTestCatalog
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
-          // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
@@ -1334,7 +1354,6 @@ describe("Catalog", () => {
         path.basename(testCatalogDbFile),
         testCatalogDbFile
       );
-      iModelDb.saveChanges();
       const catalogTemplateRecipeIds = await queryTemplateRecipeIds(
         catalogDb,
         catalogContainer.id
@@ -1440,7 +1459,7 @@ describe("Catalog", () => {
           equipment.typeDefinition = new PhysicalElementIsOfType(
             physicalTypeId
           );
-          equipment.update();
+          equipment.update(componentPlacer.importer.editTxn);
           assert.isDefined(equipment.typeDefinition?.id);
         }
       }
@@ -1538,7 +1557,7 @@ describe("Catalog", () => {
 
     componentPlacer.dispose();
 
-    iModelDb.saveChanges();
+    withEditTxn(iModelDb, (txn) => txn.saveChanges());
     iModelDb.close();
   });
 
@@ -1587,7 +1606,7 @@ describe("Catalog", () => {
     });
 
     sourceDb.close();
-    targetDb.saveChanges();
+    withEditTxn(targetDb, (txn) => txn.saveChanges());
     targetDb.close();
   });
 });

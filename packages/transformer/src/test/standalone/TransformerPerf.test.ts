@@ -38,6 +38,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import { IModelTransformer } from "../../IModelTransformer";
@@ -88,47 +89,45 @@ async function createSourceWithElements(
     rootSubject: { name: "PerfTest Source" },
   });
 
-  // Create a SpatialCategory
-  const categoryId = SpatialCategory.insert(
-    sourceDb,
-    IModel.dictionaryId,
-    "TestCategory",
-    { color: ColorDef.blue.toJSON() }
-  );
-
-  // Create a PhysicalModel
-  const physicalModelId = PhysicalModel.insert(
-    sourceDb,
-    IModel.rootSubjectId,
-    "TestPhysicalModel"
-  );
-
   // Insert elements with geometry
   const geometry = createBoxGeometry();
 
   console.log(`Inserting ${numElements} elements into source iModel...`);
   const insertStartTime = performance.now();
 
-  for (let i = 0; i < numElements; i++) {
-    const elementProps: PhysicalElementProps = {
-      classFullName: "Generic:PhysicalObject",
-      model: physicalModelId,
-      category: categoryId,
-      code: Code.createEmpty(),
-      userLabel: `TestElement_${i}`,
-      geom: geometry,
-      placement: {
-        origin: new Point3d(i * 2, 0, 0),
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    sourceDb.elements.insertElement(elementProps);
-  }
+  withEditTxn(sourceDb, "Inserted test elements", (txn) => {
+    const categoryId = SpatialCategory.insert(
+      txn,
+      IModel.dictionaryId,
+      "TestCategory",
+      { color: ColorDef.blue.toJSON() }
+    );
+
+    const physicalModelId = PhysicalModel.insert(
+      txn,
+      IModel.rootSubjectId,
+      "TestPhysicalModel"
+    );
+
+    for (let i = 0; i < numElements; i++) {
+      const elementProps: PhysicalElementProps = {
+        classFullName: "Generic:PhysicalObject",
+        model: physicalModelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        userLabel: `TestElement_${i}`,
+        geom: geometry,
+        placement: {
+          origin: new Point3d(i * 2, 0, 0),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+      txn.insertElement(elementProps);
+    }
+  });
 
   const insertEndTime = performance.now();
   const insertDuration = insertEndTime - insertStartTime;
-
-  sourceDb.saveChanges("Inserted test elements");
 
   return { db: sourceDb, insertDuration };
 }
@@ -178,39 +177,39 @@ describe.skip("IModelTransformer Performance Tests", () => {
       rootSubject: { name: "Source 10k Elements Test" },
     });
 
-    // Set up category and model
-    const categoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "TestCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const modelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "TestPhysicalModel"
-    );
-
     // Insert 10k elements
     const geom = IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1));
     const insertStartTime = performance.now();
-    for (let i = 0; i < elementCount; i++) {
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: modelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-        userLabel: `Element-${i}`,
-        geom,
-        placement: Placement3d.fromJSON({
-          origin: { x: i % 100, y: Math.floor(i / 100), z: 0 },
-          angles: {},
-        }),
-      };
-      sourceDb.elements.insertElement(physicalObjectProps);
-    }
+    withEditTxn(sourceDb, (txn) => {
+      const categoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "TestCategory",
+        { color: ColorDef.green.toJSON() }
+      );
+      const modelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "TestPhysicalModel"
+      );
+
+      for (let i = 0; i < elementCount; i++) {
+        const physicalObjectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          userLabel: `Element-${i}`,
+          geom,
+          placement: Placement3d.fromJSON({
+            origin: { x: i % 100, y: Math.floor(i / 100), z: 0 },
+            angles: {},
+          }),
+        };
+        txn.insertElement(physicalObjectProps);
+      }
+    });
     const insertEndTime = performance.now();
-    sourceDb.saveChanges();
 
     // Verify source element count
     let sourceCount = 0;
@@ -243,7 +242,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     const startTime = performance.now();
     await transformer.process();
     const endTime = performance.now();
-    targetDb.saveChanges();
+    transformer.importer.editTxn.saveChanges();
 
     printResults({
       elementCount,
@@ -338,8 +337,8 @@ describe.skip("IModelTransformer Performance Tests", () => {
       // session.disconnect();
 
       // Cleanup
+      transformer.importer.editTxn.saveChanges("Transformation complete");
       transformer.dispose();
-      targetDb.saveChanges("Transformation complete");
 
       sourceDb.close();
       targetDb.close();
