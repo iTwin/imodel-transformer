@@ -262,6 +262,9 @@ export class IModelTransformer extends IModelExportHandler {
     dispose(): void;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
+    getIsForwardSynchronization(): Promise<boolean>;
+    getIsReverseSynchronization(): Promise<boolean>;
+    getProvenanceDb(): Promise<IModelDb>;
     protected getSynchronizationVersion(): Promise<ChangesetIndexAndId>;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;

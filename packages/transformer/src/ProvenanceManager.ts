@@ -90,7 +90,7 @@ export class ProvenanceManager {
   }
 
   private async _isReverseSynchronization(): Promise<boolean> {
-    return this._syncTypeResolver.getIsReverseSynchronization();
+    return (await this._syncTypeResolver.getSyncType()) === "reverse";
   }
 
   private async _queryTargetRelId(sourceRelInfo: {
@@ -359,7 +359,7 @@ export class ProvenanceManager {
   /** Return the IModelDb where provenance is stored.
    * This will be targetDb except when it is a reverse synchronization, in which case it will be sourceDb.
    */
-  public async getProvenanceDb(): Promise<IModelDb> {
+  private async getProvenanceDb(): Promise<IModelDb> {
     return (await this._isReverseSynchronization())
       ? this.context.sourceDb
       : this.context.targetDb;

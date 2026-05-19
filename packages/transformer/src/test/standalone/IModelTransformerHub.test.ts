@@ -2236,16 +2236,17 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
+    targetDb.saveChanges();
     // Query scope ESA from database instead of reaching into private internals
     let scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
-      sourceDb,
+      targetDb,
       {
         id: undefined,
         classFullName: ExternalSourceAspect.classFullName,
         scope: { id: IModel.rootSubjectId },
         kind: ExternalSourceAspect.Kind.Scope,
         element: { id: IModel.rootSubjectId },
-        identifier: targetDb.iModelId,
+        identifier: sourceDb.iModelId,
       }
     );
     let scopeJsonProps = JSON.parse(scopeEsaResult?.jsonProperties ?? "{}");
@@ -2272,6 +2273,7 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
+    targetDb.saveChanges();
     scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
       targetDb,
       {

@@ -673,6 +673,30 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /**
+   * Get the IModelDb where provenance (ExternalSourceAspects) is stored.
+   * This will be targetDb except when it is a reverse synchronization, in which case it will be sourceDb.
+   */
+  public async getProvenanceDb(): Promise<IModelDb> {
+    return (await this.getIsReverseSynchronization())
+      ? this.sourceDb
+      : this.targetDb;
+  }
+
+  /**
+   * Get whether this is a reverse synchronization.
+   */
+  public async getIsReverseSynchronization(): Promise<boolean> {
+    return (await this._syncTypeResolver.getSyncType()) === "reverse";
+  }
+
+  /**
+   * Get whether this is a forward synchronization.
+   */
+  public async getIsForwardSynchronization(): Promise<boolean> {
+    return (await this._syncTypeResolver.getSyncType()) === "forward";
+  }
+
+  /**
    * Updates the synchronization version on the scope ESA.
    */
   public async updateSynchronizationVersion({
@@ -1215,7 +1239,7 @@ export class IModelTransformer extends IModelExportHandler {
     // physical consolidation is an example of a 'joining' transform
     // FIXME: verify at finalization time that we don't lose provenance on new elements
     // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
-    const provenanceDb = await this._provenanceManager.getProvenanceDb();
+    const provenanceDb = await this.getProvenanceDb();
     if (!this._options.noProvenance) {
       const provenance:
         | string
@@ -1505,7 +1529,7 @@ export class IModelTransformer extends IModelExportHandler {
       targetRelationshipProps
     );
 
-    const provenanceDb = await this._provenanceManager.getProvenanceDb();
+    const provenanceDb = await this.getProvenanceDb();
     if (
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
@@ -1571,7 +1595,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (deletedRelData.provenanceAspectId) {
       try {
-        (await this._provenanceManager.getProvenanceDb()).elements.deleteAspect(
+        (await this.getProvenanceDb()).elements.deleteAspect(
           deletedRelData.provenanceAspectId
         );
       } catch (error: any) {
@@ -2053,7 +2077,7 @@ export class IModelTransformer extends IModelExportHandler {
      * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
      */
     const changeDataInProvenanceDb =
-      this.sourceDb === (await this._provenanceManager.getProvenanceDb());
+      this.sourceDb === (await this.getProvenanceDb());
 
     const getTargetIdFromSourceId = async (id: Id64String) => {
       let identifierValue: string | undefined;
