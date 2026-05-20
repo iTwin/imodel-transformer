@@ -5,11 +5,12 @@
 ```ts
 
 import { BriefcaseDb } from '@itwin/core-backend';
-import { ChangedECInstance } from '@itwin/core-backend';
+import { ChangeInstance } from '@itwin/core-backend';
 import { ChangesetFileProps } from '@itwin/core-common';
 import { ChangesetIndexAndId } from '@itwin/core-common';
 import { CodeSpec } from '@itwin/core-common';
 import * as ECSchemaMetaData from '@itwin/ecschema-metadata';
+import { EditTxn } from '@itwin/core-backend';
 import { Element as Element_2 } from '@itwin/core-backend';
 import { ElementAspect } from '@itwin/core-backend';
 import { ElementAspectProps } from '@itwin/core-common';
@@ -45,7 +46,7 @@ import { Transform } from '@itwin/core-geometry';
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
-    addChange(change: ChangedECInstance): Promise<void>;
+    addChange(change: ChangeInstance): Promise<void>;
     // @beta
     addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
     // @beta
@@ -201,12 +202,13 @@ export abstract class IModelExportHandler {
 
 // @beta
 export class IModelImporter {
-    constructor(targetDb: IModelDb, options?: IModelImportOptions);
+    constructor(targetDb: IModelDb, options?: IModelImportOptions, editTxn?: EditTxn);
     computeProjectExtents(): void;
     deleteElement(elementId: Id64String): Promise<void>;
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
+    readonly editTxn: EditTxn;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],

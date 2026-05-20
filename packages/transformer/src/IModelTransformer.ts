@@ -71,6 +71,7 @@ import {
   SqliteChangesetReader,
   Subject,
   SynchronizationConfigLink,
+  withEditTxn,
 } from "@itwin/core-backend";
 import {
   ChangesetFileProps,
@@ -730,6 +731,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
+    if (this.importer.editTxn.isActive) {
+      this.importer.editTxn.end("abandon");
+    }
     this.context[Symbol.dispose]();
   }
 
@@ -2475,11 +2479,14 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
 
-    (await this.getProvenanceDb()).elements.updateAspect({
-      ...this._targetScopeProvenanceProps,
-      jsonProperties: JSON.stringify(
-        this._targetScopeProvenanceProps.jsonProperties
-      ) as any,
+    const provenanceDb = await this.getProvenanceDb();
+    await withEditTxn(provenanceDb, "update synchronization version", (txn) => {
+      txn.updateAspect({
+        ...this._targetScopeProvenanceProps!,
+        jsonProperties: JSON.stringify(
+          this._targetScopeProvenanceProps!.jsonProperties
+        ) as any,
+      } as ElementAspectProps);
     });
     this.clearCachedSynchronizationVersion();
   }
@@ -2487,6 +2494,9 @@ export class IModelTransformer extends IModelExportHandler {
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private async finalizeTransformation() {
     this.importer.finalize();
+    // Save any remaining unsaved changes (e.g. provenance aspect writes) before updateSynchronizationVersion
+    const provenanceDb = await this.getProvenanceDb();
+    provenanceDb.saveChanges();
     await this.updateSynchronizationVersion({
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
     });
