@@ -3528,6 +3528,82 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
+  // Regression test for https://github.com/iTwin/imodel-transformer/issues/28
+  it("should succeed when element is deleted and element with the same code is re-added in the next changeset", async () => {
+    let categoryId: Id64String;
+    let modelId: Id64String;
+    let elementId: Id64String;
+    let displayStyleId: Id64String;
+
+    const timeline: Timeline = {
+      0: {
+        master: {
+          manualUpdate(db) {
+            categoryId = SpatialCategory.insert(
+              db,
+              IModel.dictionaryId,
+              "TestCategory",
+              {}
+            );
+            modelId = PhysicalModel.insert(
+              db,
+              IModel.rootSubjectId,
+              "TestPhysicalModel"
+            );
+            const physicalObjectProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+              userLabel: "TestElement",
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: Placement3d.fromJSON({
+                origin: { x: 0, y: 0 },
+                angles: {},
+              }),
+            };
+            elementId = db.elements.insertElement(physicalObjectProps);
+            displayStyleId = DisplayStyle3d.insert(
+              db,
+              IModel.dictionaryId,
+              "TestDisplayStyle",
+              { excludedElements: [elementId] }
+            );
+          },
+        },
+      },
+      1: { branch: { branch: "master" } },
+      2: {
+        master: {
+          manualUpdate(db) {
+            // Delete the DisplayStyle3d and re-insert one with the same code
+            db.elements.deleteDefinitionElements([displayStyleId]);
+            DisplayStyle3d.insert(db, IModel.dictionaryId, "TestDisplayStyle", {
+              excludedElements: [elementId],
+            });
+          },
+        },
+      },
+      3: { branch: { sync: ["master", { since: 2 }] } },
+    };
+
+    const { trackedIModels, tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    const branch = trackedIModels.get("branch")!;
+    expect(
+      count(branch.db, DisplayStyle3d.classFullName),
+      "target should contain one DisplayStyle3d element"
+    ).to.equal(1);
+
+    await tearDown();
+    sinon.restore();
+  });
+
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
     const masterIModelName = "MasterDeleteRelAndEnds";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);

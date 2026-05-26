@@ -415,6 +415,15 @@ export class IModelTransformer extends IModelExportHandler {
   protected _partiallyCommittedElementIds: Id64Set = new Set<Id64String>();
   protected _partiallyCommittedAspectIds: Id64Set = new Set<Id64String>();
 
+  /**
+   * Tracks target element IDs that were imported (inserted or updated) during the current
+   * transformation pass. Used to prevent deletion of target elements that have been remapped
+   * to a new source element in the same pass (e.g., when a source element is deleted and a
+   * new one with the same properties is added, causing a remap to the same target).
+   */
+  private _targetElementsImportedInCurrentTransform: Id64Set =
+    new Set<Id64String>();
+
   /** the options that were used to initialize this transformer */
   private readonly _options: MarkRequired<
     IModelTransformOptions,
@@ -2067,6 +2076,7 @@ export class IModelTransformer extends IModelExportHandler {
         "targetElementProps.id should be assigned by importElement"
       );
     }
+    this._targetElementsImportedInCurrentTransform.add(targetElementProps.id);
     this.context.remapElement(sourceElement.id, targetElementProps.id);
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
@@ -2146,7 +2156,15 @@ export class IModelTransformer extends IModelExportHandler {
     const targetElementId: Id64String =
       this.context.findTargetElementId(sourceElementId);
     if (Id64.isValidId64(targetElementId)) {
-      await this.importer.deleteElement(targetElementId);
+      // Skip deletion if this target element was already imported (inserted/updated) during
+      // this transformation pass. This handles the case where a source element is deleted and
+      // a new source element is remapped to the same target (e.g., delete + re-add with same
+      // properties). See https://github.com/iTwin/imodel-transformer/issues/28
+      if (
+        !this._targetElementsImportedInCurrentTransform.has(targetElementId)
+      ) {
+        await this.importer.deleteElement(targetElementId);
+      }
     }
   }
 
@@ -3338,6 +3356,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    */
   private async processAll(): Promise<void> {
+    this._targetElementsImportedInCurrentTransform.clear();
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
@@ -3407,6 +3426,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   private async processChanges(options: ProcessChangesOptions): Promise<void> {
+    this._targetElementsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(await this.getExportInitOpts(options));
     await this.completePartiallyCommittedElements();
