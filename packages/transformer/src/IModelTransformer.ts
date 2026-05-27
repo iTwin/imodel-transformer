@@ -2157,9 +2157,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.context.findTargetElementId(sourceElementId);
     if (Id64.isValidId64(targetElementId)) {
       // Skip deletion if this target element was already imported (inserted/updated) during
-      // this transformation pass. This handles the case where a source element is deleted and
-      // a new source element is remapped to the same target (e.g., delete + re-add with same
-      // properties). See https://github.com/iTwin/imodel-transformer/issues/28
+      // this transformation pass.
       if (
         !this._targetElementsImportedInCurrentTransform.has(targetElementId)
       ) {
