@@ -259,47 +259,18 @@ export class IModelTransformer extends IModelExportHandler {
     readonly context: IModelCloneContext;
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
-    static determineSyncType(sourceDb: IModelDb, targetDb: IModelDb,
-    targetScopeElementId: Id64String): Promise<"forward" | "reverse">;
     dispose(): void;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
-    static forEachTrackedElement(args: {
-        provenanceSourceDb: IModelDb;
-        provenanceDb: IModelDb;
-        targetScopeElementId: Id64String;
-        isReverseSynchronization: boolean;
-        fn: (sourceElementId: Id64String, targetElementId: Id64String) => void;
-        skipPropagateChangesToRootElements: boolean;
-    }): Promise<void>;
-    // (undocumented)
     getIsForwardSynchronization(): Promise<boolean>;
-    // (undocumented)
     getIsReverseSynchronization(): Promise<boolean>;
     getProvenanceDb(): Promise<IModelDb>;
-    getProvenanceSourceDb(): Promise<IModelDb>;
     protected getSynchronizationVersion(): Promise<ChangesetIndexAndId>;
     protected hasElementChanged(sourceElement: Element_2): boolean;
     readonly importer: IModelImporter;
     initElementProvenance(sourceElementId: Id64String, targetElementId: Id64String): Promise<ExternalSourceAspectProps>;
-    static initElementProvenanceOptions(sourceElementId: Id64String, targetElementId: Id64String, args: {
-        sourceDb: IModelDb;
-        targetDb: IModelDb;
-        isReverseSynchronization: boolean;
-        targetScopeElementId: Id64String;
-    }): ExternalSourceAspectProps;
     initialize(): Promise<void>;
-    // (undocumented)
-    static initRelationshipProvenanceOptions(sourceRelInstanceId: Id64String, targetRelInstanceId: Id64String, args: {
-        sourceDb: IModelDb;
-        targetDb: IModelDb;
-        isReverseSynchronization: boolean;
-        targetScopeElementId: Id64String;
-        forceOldRelationshipProvenanceMethod: boolean;
-    }): Promise<ExternalSourceAspectProps>;
     protected initScopeProvenance(): Promise<void>;
-    // (undocumented)
-    static noEsaSyncDirectionErrorMessage: string;
     onDeleteElement(sourceElementId: Id64String): Promise<void>;
     onDeleteModel(sourceModelId: Id64String): Promise<void>;
     onDeleteRelationship(sourceRelInstanceId: Id64String): Promise<void>;
@@ -334,11 +305,8 @@ export class IModelTransformer extends IModelExportHandler {
     processSubject(sourceSubjectId: Id64String, targetSubjectId: Id64String): Promise<void>;
     static get provenanceElementAspectClasses(): (typeof Entity)[];
     static get provenanceElementClasses(): (typeof Entity)[];
-    static queryScopeExternalSourceAspect(dbToQuery: IModelDb, aspectProps: ExternalSourceAspectProps): Promise<{
-        aspectId: Id64String;
-        version?: string;
-        jsonProperties?: string;
-    } | undefined>;
+    // (undocumented)
+    protected _provenanceManager: ProvenanceManager;
     protected _schemaExportDir: string;
     protected shouldDetectDeletes(): Promise<boolean>;
     shouldExportCodeSpec(_sourceCodeSpec: CodeSpec): Promise<boolean>;
