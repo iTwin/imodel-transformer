@@ -1290,6 +1290,20 @@ export class IModelTransformer extends IModelExportHandler {
         "targetElementProps.id should be assigned by importElement"
       );
     }
+
+    // If a pending delete maps to the same target element we just imported, remove it from
+    // the delete list.
+    if (this.exporter.sourceDbChanges) {
+      for (const deleteId of this.exporter.sourceDbChanges.element.deleteIds) {
+        if (
+          this.context.findTargetElementId(deleteId) === targetElementProps.id
+        ) {
+          this.exporter.sourceDbChanges.element.deleteIds.delete(deleteId);
+          break;
+        }
+      }
+    }
+
     this.context.remapElement(sourceElement.id, targetElementProps.id);
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
