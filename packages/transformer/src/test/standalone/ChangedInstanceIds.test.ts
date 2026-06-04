@@ -53,6 +53,7 @@ describe("ChangedInstanceIds", () => {
 
     sourceDb = prepareSnapshotDb("ChangedInstanceIds");
     // add data to source iModel
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceSubjectId = Subject.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -107,6 +108,7 @@ describe("ChangedInstanceIds", () => {
       childDrawing1.id!,
       childDrawing2.id!,
       0
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
     ).insert();
 
     parentRelationshipId = ElementGroupsMembers.create(
@@ -114,8 +116,10 @@ describe("ChangedInstanceIds", () => {
       parentDrawing.id!,
       parentDrawing2.id!,
       0
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
     ).insert();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
   });
 
@@ -138,6 +142,7 @@ describe("ChangedInstanceIds", () => {
     documentListModelId: Id64String,
     drawingName: string
   ): ElementProps {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const id = Drawing.insert(iModel, documentListModelId, drawingName);
     return iModel.elements.getElementProps(id);
   }
@@ -159,6 +164,7 @@ describe("ChangedInstanceIds", () => {
       identifier,
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return iModel.elements.insertAspect(aspectProps);
   }
 

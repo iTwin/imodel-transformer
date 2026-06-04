@@ -65,6 +65,7 @@ export default async function rawInserts(
     }
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   sourceDb.saveChanges();
 
   Logger.logInfo(

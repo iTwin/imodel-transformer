@@ -148,7 +148,6 @@ const setupTestData = async () => {
     },
     cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
   });
-  // eslint-disable-next-line @itwin/no-internal
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 

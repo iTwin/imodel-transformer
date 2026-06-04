@@ -1184,6 +1184,7 @@ export class ChangedInstanceIds {
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
    * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
    */
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   public async addChange(change: ChangedECInstance): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
@@ -1454,11 +1455,14 @@ export class ChangedInstanceIds {
         db: opts.iModel,
         disableSchemaCheck: true,
       });
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const csAdaptor = new ChangesetECAdaptor(csReader);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {

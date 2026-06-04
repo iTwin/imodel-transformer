@@ -41,12 +41,15 @@ export namespace EntityUnifier {
   /** needs to return a widened type otherwise typescript complains when result is used with a narrow type */
   export function updaterFor(db: IModelDb, entity: ConcreteEntity) {
     if (entity instanceof Element)
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return db.elements.updateElement.bind(db.elements) as EntityUpdater;
     else if (entity instanceof Relationship)
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return db.relationships.updateInstance.bind(
         db.relationships
       ) as EntityUpdater;
     else if (entity instanceof ElementAspect)
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return db.elements.updateAspect.bind(db.elements) as EntityUpdater;
     else
       assert(

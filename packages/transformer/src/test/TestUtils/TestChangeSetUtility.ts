@@ -34,10 +34,12 @@ export class TestChangeSetUtility {
         IModelTestUtils.getUniqueModelCode(this._iModel, "TestPhysicalModel"),
         true
       );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.saveChanges("Added test model");
   }
 
   private async addTestCategory(): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._categoryId = SpatialCategory.insert(
       this._iModel,
       IModel.dictionaryId,
@@ -46,10 +48,12 @@ export class TestChangeSetUtility {
         color: ColorDef.fromString("rgb(255,0,0)").toJSON(),
       })
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.saveChanges("Added test category");
   }
 
   private async addTestElements(): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.elements.insertElement(
       IModelTestUtils.createPhysicalObject(
         this._iModel,
@@ -57,6 +61,7 @@ export class TestChangeSetUtility {
         this._categoryId
       ).toJSON()
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.elements.insertElement(
       IModelTestUtils.createPhysicalObject(
         this._iModel,
@@ -64,6 +69,7 @@ export class TestChangeSetUtility {
         this._categoryId
       ).toJSON()
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.saveChanges("Added test elements");
   }
 

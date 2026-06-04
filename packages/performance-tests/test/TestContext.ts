@@ -42,7 +42,6 @@ export function getTShirtSizeFromName(name: string): TShirtSize {
 
 export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
   assert(IModelHost.authorizationClient !== undefined);
-  // eslint-disable-next-line @typescript-eslint/dot-notation, @itwin/no-internal
   const hubClient = (IModelHost[_hubAccess] as BackendIModelsAccess)[
     "_iModelsClient"
   ];
@@ -97,7 +96,6 @@ export async function downloadBriefcase(
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
   const asOf = briefcaseArg.asOf ?? IModelVersion.latest().toJSON();
-  // eslint-disable-next-line @itwin/no-internal
   const changeset = await IModelHost[_hubAccess].getChangesetFromVersion({
     ...briefcaseArg,
     version: IModelVersion.fromJSON(asOf),

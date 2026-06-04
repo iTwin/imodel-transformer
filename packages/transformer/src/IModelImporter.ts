@@ -216,6 +216,7 @@ export class IModelImporter {
    */
   protected async onInsertModel(modelProps: ModelProps): Promise<Id64String> {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const modelId: Id64String = this.targetDb.models.insertModel(modelProps);
       Logger.logInfo(
         loggerCategory,
@@ -237,6 +238,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateModel`.
    */
   protected async onUpdateModel(modelProps: ModelProps): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.models.updateModel(modelProps);
     Logger.logInfo(
       loggerCategory,
@@ -331,6 +333,7 @@ export class IModelImporter {
     elementProps: ElementProps
   ): Promise<Id64String> {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const elementId = this.targetDb.elements.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
       });
@@ -371,6 +374,7 @@ export class IModelImporter {
     if (!elementProps.id) {
       throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
     }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.elements.updateElement(elementProps);
     Logger.logInfo(
       loggerCategory,
@@ -420,6 +424,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteModel`.
    */
   protected async onDeleteModel(modelId: Id64String): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.models.deleteModel(modelId);
     Logger.logInfo(loggerCategory, `Deleted model ${modelId}`);
     await this.trackProgress();
@@ -539,6 +544,7 @@ export class IModelImporter {
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const id = this.targetDb.elements.insertAspect(aspectProps);
       Logger.logInfo(
         loggerCategory,
@@ -562,6 +568,7 @@ export class IModelImporter {
   protected async onUpdateElementAspect(
     aspectProps: ElementAspectProps
   ): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.elements.updateAspect(aspectProps);
     Logger.logInfo(
       loggerCategory,
@@ -576,6 +583,7 @@ export class IModelImporter {
   protected async onDeleteElementAspect(
     targetElementAspect: ElementAspect
   ): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.elements.deleteAspect(targetElementAspect.id);
     Logger.logInfo(
       loggerCategory,
@@ -648,6 +656,7 @@ export class IModelImporter {
   ): Promise<Id64String> {
     try {
       const targetRelInstanceId: Id64String =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         this.targetDb.relationships.insertInstance(relationshipProps);
       Logger.logInfo(
         loggerCategory,
@@ -677,6 +686,7 @@ export class IModelImporter {
         "Relationship instance Id not provided"
       );
     }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.relationships.updateInstance(relationshipProps);
     Logger.logInfo(
       loggerCategory,
@@ -690,6 +700,7 @@ export class IModelImporter {
     relationshipProps: RelationshipPropsForDelete
   ): Promise<void> {
     // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.relationships.deleteInstance({
       id: relationshipProps.id,
       classFullName: relationshipProps.classFullName,
@@ -765,6 +776,7 @@ export class IModelImporter {
         ? extentsWithOutliers
         : computedProjectExtents.extents;
       if (!newProjectExtents.isAlmostEqual(this.targetDb.projectExtents)) {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         this.targetDb.updateProjectExtents(newProjectExtents);
         Logger.logInfo(
           loggerCategory,
@@ -824,6 +836,7 @@ export class IModelImporter {
     for (const [elementId, codeValue] of this._duplicateCodeValueMap) {
       const element = this.targetDb.elements.getElement(elementId);
       element.code.value = codeValue;
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       element.update();
     }
     this._duplicateCodeValueMap.clear();

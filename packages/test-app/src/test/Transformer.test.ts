@@ -261,6 +261,7 @@ describe("imodel-transformer", () => {
 
     const transformedElemProps = elementProps;
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _newElemId = newSchemaSourceDb.elements.insertElement({
       classFullName: "Test:TestElement",
       model: firstModelId,
@@ -346,6 +347,7 @@ describe("imodel-transformer", () => {
       myProp: "10",
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _newElemId = newSchemaSourceDb.elements.insertElement({
       classFullName: "Test:TestElement",
       model: firstModelId,

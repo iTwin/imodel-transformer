@@ -45,11 +45,13 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
   setToStandalone(pathName);
   sourceDb = StandaloneDb.openFile(sourcePath, OpenMode.ReadWrite);
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const physModelId = PhysicalModel.insert(
     sourceDb,
     IModelDb.rootSubjectId,
     "physical model"
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const categoryId = SpatialCategory.insert(
     sourceDb,
     IModelDb.dictionaryId,
@@ -78,6 +80,7 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
           federationGuid: iModelParam.fedGuids ? undefined : Guid.empty, // Guid.empty = 00000000-0000-0000-0000-000000000000
         },
         sourceDb
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
       ).insert()
     );
 
@@ -91,12 +94,14 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
       sourceDb
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     rel.insert();
   }
 
   const iModelId = sourceDb.iModelId;
   const iTwinId = sourceDb.iTwinId;
   const filePath = sourceDb.pathName;
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   sourceDb.saveChanges();
   sourceDb.close();
   const iModelToTest: TestIModel = {

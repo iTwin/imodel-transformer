@@ -69,6 +69,7 @@ function createTestSnapshotDb(
   if (geolocData.geographicCRS !== undefined)
     imodelDb.setGeographicCoordinateSystem(geolocData.geographicCRS);
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const subjectId = Subject.insert(
     imodelDb,
     IModelDb.rootSubjectId,
@@ -80,6 +81,7 @@ function createTestSnapshotDb(
     "DefinitionModel"
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const categoryId = SpatialCategory.insert(
     imodelDb,
     defintionModelId,
@@ -87,6 +89,7 @@ function createTestSnapshotDb(
     { color: ColorDef.fromString(color).toJSON() }
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const modelId = PhysicalModel.insert(imodelDb, subjectId, "Test Model");
 
   const builder = new GeometryStreamBuilder();
@@ -108,8 +111,10 @@ function createTestSnapshotDb(
         angles: YawPitchRollAngles.createDegrees(0, 0, 0),
       },
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     imodelDb.elements.insertElement(elementProps);
   }
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   imodelDb.saveChanges("Created test elements");
 
   return imodelDb;
@@ -204,6 +209,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transfrom.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPositionPostTransform =
@@ -314,6 +320,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -466,10 +473,13 @@ describe("Non Linear Geolocation Transformations", () => {
     const targetElem = targetElems[0];
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     srcElem.update();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges("update placement of source element");
 
     await transform.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -544,7 +554,9 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     srcElem.update();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges("update placement of source element");
 
     const transformerOptions: IModelTransformOptions = {
@@ -558,6 +570,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -632,7 +645,9 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     srcElem.update();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges("update placement of source element");
 
     const transformerOptions: IModelTransformOptions = {
@@ -646,6 +661,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -715,6 +731,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =

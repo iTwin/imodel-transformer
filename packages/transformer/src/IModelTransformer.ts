@@ -965,6 +965,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       const targetProps = await this.onTransformElement(sourceElement);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       this.targetDb.elements.updateElement({ ...targetProps, id: targetId });
     }
   }
@@ -980,6 +981,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const targetAspectProps =
         await this.onTransformElementAspect(sourceAspect);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       this.targetDb.elements.updateAspect({
         ...targetAspectProps,
         id: targetAspectId,
@@ -1330,10 +1332,12 @@ export class IModelTransformer extends IModelExportHandler {
             aspectProps
           );
         if (foundEsaProps === undefined)
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
         else {
           // Since initElementProvenance sets a property 'version' on the aspectProps that we wish to persist in the provenanceDb, only grab the id from the foundEsaProps.
           aspectProps.id = foundEsaProps.aspectId;
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           provenanceDb.elements.updateAspect(aspectProps);
         }
       }
@@ -1628,6 +1632,7 @@ export class IModelTransformer extends IModelExportHandler {
           );
         // onExportRelationship doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
         if (undefined === foundEsaProps) {
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
         }
       }
@@ -1671,6 +1676,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (deletedRelData.provenanceAspectId) {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         (await this.getProvenanceDb()).elements.deleteAspect(
           deletedRelData.provenanceAspectId
         );
@@ -2054,14 +2060,18 @@ export class IModelTransformer extends IModelExportHandler {
         db: this.sourceDb,
         disableSchemaCheck: true,
       });
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const csAdaptor = new ChangesetECAdaptor(csReader);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const ecChangeUnifier = new PartialECChangeUnifier(this.sourceDb);
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const elemIdToScopeEsa = new Map<Id64String, ChangedECInstance>();
       for (const change of changes) {
         if (
@@ -2133,7 +2143,9 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns void
    */
   private async processDeletedOp(
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     change: ChangedECInstance,
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
     isRelationship: boolean,
     alreadyImportedElementInserts: Set<Id64String>,
@@ -2459,6 +2471,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.finalizeTransformation();
 
     const defaultSaveTargetChanges = () => {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       this.targetDb.saveChanges();
     };
 

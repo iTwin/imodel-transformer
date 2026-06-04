@@ -64,6 +64,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
     targetDb: IModelDb
   ): Promise<TransformRunner> {
     // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const masterLinkRepoId = targetDb.elements.insertElement({
       classFullName: RepositoryLink.classFullName,
       code: RepositoryLink.createCode(
@@ -78,6 +79,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
       description: "master iModel repository",
     } as RepositoryLinkProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const masterExternalSourceId = targetDb.elements.insertElement({
       classFullName: ExternalSource.classFullName,
       model: IModelDb.rootSubjectId,

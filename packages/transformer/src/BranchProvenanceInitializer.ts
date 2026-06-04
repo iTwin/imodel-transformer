@@ -96,6 +96,7 @@ export async function initializeBranchProvenance(
         assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     args.branch.saveChanges();
     args.branch.withSqliteStatement("DETACH DATABASE master", (s) => {
       const res = s.step();
@@ -120,6 +121,7 @@ export async function initializeBranchProvenance(
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const masterRepoLinkId = args.branch.elements.insertElement({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(
@@ -134,6 +136,7 @@ export async function initializeBranchProvenance(
     description: args.masterDescription,
   } as RepositoryLinkProps);
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const masterExternalSourceId = args.branch.elements.insertElement({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
@@ -164,6 +167,7 @@ export async function initializeBranchProvenance(
       sourceDb: args.master,
       targetDb: args.branch,
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     args.branch.elements.insertAspect(aspectProps);
   }
 
@@ -191,6 +195,7 @@ export async function initializeBranchProvenance(
         targetDb: args.branch,
         forceOldRelationshipProvenanceMethod: false,
       });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     args.branch.elements.insertAspect(aspectProps);
   }
 

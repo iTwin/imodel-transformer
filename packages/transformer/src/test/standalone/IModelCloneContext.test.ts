@@ -57,12 +57,14 @@ describe("IModelCloneContext", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categoryId = SpatialCategory.insert(
         sourceDb,
         IModel.dictionaryId,
         "SpatialCategory",
         new SubCategoryAppearance()
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceModelId = PhysicalModel.insert(
         sourceDb,
         IModel.rootSubjectId,
@@ -75,10 +77,13 @@ describe("IModelCloneContext", () => {
         code: Code.createEmpty(),
       };
       const physicalObject1 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const physicalObject2 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const physicalObject3 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
 
       const relationshipsProps: RelationshipProps[] = [
@@ -105,10 +110,12 @@ describe("IModelCloneContext", () => {
       ];
 
       relationshipsProps.forEach((props) =>
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.relationships.insertInstance(props)
       );
 
       // Save changes to source DB to ensure relationships are persisted
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.saveChanges();
 
       // Target IModelDb
@@ -122,6 +129,7 @@ describe("IModelCloneContext", () => {
       // Import from beneath source Subject into target Subject
       const transformer = new IModelTransformer(sourceDb, targetDb);
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       targetDb.saveChanges();
 
       // Assertion

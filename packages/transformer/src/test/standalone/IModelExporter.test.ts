@@ -64,6 +64,7 @@ describe("IModelExporter", () => {
       )
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const geomPartId = sourceDb.elements.insertElement({
       classFullName: GeometryPart.classFullName,
       model: IModel.dictionaryId,
@@ -78,6 +79,7 @@ describe("IModelExporter", () => {
     );
     assert(geomPartInSource.geom?.[1]?.brep?.data !== undefined);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const flatTargetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -91,6 +93,7 @@ describe("IModelExporter", () => {
     class TestFlatImportHandler extends IModelExportHandler {
       public override async onExportElement(elem: Element): Promise<void> {
         if (elem instanceof GeometryPart)
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           flatTargetDb.elements.insertElement(elem.toJSON());
       }
     }
@@ -119,12 +122,14 @@ describe("IModelExporter", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categoryId = SpatialCategory.insert(
         sourceDb,
         IModel.dictionaryId,
         "SpatialCategory",
         new SubCategoryAppearance()
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceModelId = PhysicalModel.insert(
         sourceDb,
         IModel.rootSubjectId,
@@ -137,12 +142,16 @@ describe("IModelExporter", () => {
         code: Code.createEmpty(),
       };
       const physicalObject1 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const physicalObject2 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const physicalObject3 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const physicalObject4 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
 
       const invalidRelationshipsProps: RelationshipProps[] = [
@@ -173,6 +182,7 @@ describe("IModelExporter", () => {
       ];
 
       invalidRelationshipsProps.forEach((props) =>
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.relationships.insertInstance(props)
       );
       // this is used to substitute low level C++ functions the connectors would used to introduce invalid relationships.
@@ -180,6 +190,7 @@ describe("IModelExporter", () => {
         `DELETE FROM bis_Element WHERE Id = ${physicalObject1}`,
         (stmt) => stmt.next()
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.saveChanges();
 
       const sourceRelationships = [];

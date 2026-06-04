@@ -21,6 +21,7 @@ export function deleteElementTreeCascade(
   iModel: IModelDb,
   topElement: Id64String
 ): void {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const del = new ElementCascadingDeleter(iModel);
   del.deleteNormalElements(topElement);
   del.deleteSpecialElements();
