@@ -81,6 +81,7 @@ export type ExporterInitOptions = ExportChangesOptions;
  */
 export type ExportChangesOptions = {
   skipPropagateChangesToRootElements?: boolean;
+  exportAllIfNoChangesetsPresent?: boolean;
 } /**
  * an array of ChangesetFileProps which are used to read the changesets and populate the ChangedInstanceIds using [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]]
  * @note mutually exclusive with @see changesetRanges, @see startChangeset and @see changedInstanceIds, so define one of the four, never more
@@ -451,8 +452,10 @@ export class IModelExporter {
       "" === this.sourceDb.changeset.id &&
       !this.sourceDbChanges?.hasChanges
     ) {
-      await this.exportAll(); // no changesets or custom changes, so revert to exportAll
-      return;
+      if (args?.exportAllIfNoChangesetsPresent) {
+        await this.exportAll(); // no changesets or custom changes, so revert to exportAll
+      }
+      return; // if not set, silent return and don't export anything
     }
 
     const startChangeset =
