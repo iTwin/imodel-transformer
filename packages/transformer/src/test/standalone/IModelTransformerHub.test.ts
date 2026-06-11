@@ -427,13 +427,14 @@ describe("IModelTransformerHub", () => {
           {}
         );
         await transformer.process();
-        // // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
-        // const syncVersionAfterProcessAll = await transformer["_provenanceManager"].getSynchronizationVersion();
-        // assert.equal(
-        //   syncVersionAfterProcessAll.index,
-        //   sourceDb.changeset.index,
-        //   "processAll should write sync version matching source changeset index"
-        // );
+        // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
+        const syncVersionAfterProcessAll =
+          await transformer["_provenanceManager"].getSynchronizationVersion();
+        assert.equal(
+          syncVersionAfterProcessAll.index,
+          sourceDb.changeset.index,
+          "processAll should write sync version matching source changeset index"
+        );
         transformer.dispose();
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
