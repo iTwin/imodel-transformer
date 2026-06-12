@@ -143,7 +143,7 @@ import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
 
-describe("IModelTransformer", () => {
+describe.only("IModelTransformer", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformer"
@@ -535,7 +535,9 @@ describe("IModelTransformer", () => {
     classFullName: string
   ): Promise<number> {
     const sql = `SELECT COUNT(*) FROM ${classFullName}`;
-    const reader = iModelDb.createQueryReader(sql);
+    const reader = iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    });
     return (await reader.step()) ? reader.current[0] : 0;
   }
 
