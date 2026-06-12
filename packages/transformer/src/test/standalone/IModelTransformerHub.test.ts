@@ -37,6 +37,7 @@ import {
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
+  PhysicalType,
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
@@ -65,6 +66,7 @@ import {
   DefinitionElementProps,
   ElementProps,
   ExternalSourceAspectProps,
+  GeometricElementProps,
   IModel,
   IModelError,
   IModelVersion,
@@ -114,7 +116,7 @@ import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElemen
 
 const { count } = IModelTestUtils;
 
-describe("IModelTransformerHub", () => {
+describe.only("IModelTransformerHub", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformerHub"
@@ -5277,41 +5279,6 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(sourceDb);
       await closeAndDeleteBriefcase(targetDb);
     });
-
-    async function prepareBriefcase(name: string) {
-      const iModelId = await HubWrappers.createIModel(
-        accessToken,
-        iTwinId,
-        name
-      );
-
-      const newBriefcase = await HubWrappers.downloadAndOpenBriefcase({
-        accessToken: await IModelHost.getAccessToken(),
-        iTwinId,
-        iModelId,
-        asOf: IModelVersion.latest().toJSON(),
-      });
-      await newBriefcase.locks.acquireLocks({
-        shared: "0x10",
-        exclusive: "0x1",
-      });
-      return newBriefcase;
-    }
-
-    async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
-      await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
-      // eslint-disable-next-line @itwin/no-internal
-      await IModelHost[_hubAccess].deleteIModel({
-        iTwinId,
-        iModelId: iModel.iModelId,
-      });
-    }
-
-    async function pushChanges(iModel: BriefcaseDb, description: string) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- helper function for test
-      iModel.saveChanges();
-      await iModel.pushChanges({ description, retainLocks: true });
-    }
     class CustomChangesTransformer extends IModelTransformer {
       constructor(
         source: IModelDb,
@@ -6402,4 +6369,158 @@ describe("IModelTransformerHub", () => {
       );
     }
   });
+
+  describe("processChanges", () => {
+    let sourceDb: BriefcaseDb;
+    let targetDb: BriefcaseDb;
+
+    beforeEach(async () => {
+      sourceDb = await prepareBriefcase("source");
+      targetDb = await prepareBriefcase("target");
+    });
+
+    afterEach(async () => {
+      await closeAndDeleteBriefcase(sourceDb);
+      await closeAndDeleteBriefcase(targetDb);
+    });
+
+    it("should transform successfully when eleemnt is deleted after existing elements were expanded into overflow table", async () => {
+      // Import initial schema with property count that does not require overflow table
+      const initialSchema = generateSchema(1, "SourceProperty", 5);
+      await sourceDb.importSchemaStrings([initialSchema]);
+      const elementId = createPhysicalElement(
+        sourceDb,
+        "DynamicTestSchema:DynamicPhysicalElement"
+      );
+      await pushChanges(sourceDb, "Initial schema and element creation");
+
+      // === Transformation 1: Run `process all` transformation ===
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.processSchemas();
+      await transformer.process();
+      await pushChanges(targetDb, "Transformation 1: Process All");
+
+      // Assert that element was transformed
+      const targetElement = IModelTestUtils.queryByUserLabel(
+        targetDb,
+        "TestClassElement"
+      );
+      expect(targetElement).to.not.equal(Id64.invalid);
+
+      // Update schema: Add enough properties to spill into overflow table (more than 32)
+      const expandedSchema = generateSchema(2, "SourceProperty", 100);
+      await sourceDb.importSchemaStrings([expandedSchema]);
+      await pushChanges(sourceDb, "Updated schema");
+
+      // Delete the element
+      sourceDb.elements.deleteElement(elementId);
+      await pushChanges(sourceDb, "Deleted element");
+
+      // === Transformation 2: Run `process changes` transformation ===
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: {},
+      });
+      await transformer.processSchemas();
+      await transformer.process();
+      await pushChanges(
+        targetDb,
+        "Transformation 2: Process Changes with deletion"
+      );
+
+      // Assert: Verify element is deleted in target
+      const targetElement2 = IModelTestUtils.queryByUserLabel(
+        targetDb,
+        "TestClassElement"
+      );
+      expect(
+        targetElement2,
+        "Element should be deleted in target iModel"
+      ).to.equal(Id64.invalid);
+    });
+
+    function generateSchema(
+      schemaVersion: number,
+      propertySuffix: string,
+      propertyCount: number
+    ): string {
+      const schemaName = "DynamicTestSchema";
+      const properties = Array.from(
+        { length: propertyCount },
+        (_, index) =>
+          `                <ECProperty propertyName="${propertySuffix}${index + 1}" typeName="string"/>`
+      ).join("\n");
+      const sourceSchema = `<?xml version="1.0" encoding="UTF-8"?>
+            <ECSchema schemaName="${schemaName}" alias="DTS" version="0${schemaVersion}.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+                <ECSchemaReference name="CoreCustomAttributes" version="01.00.03" alias="CoreCA"/>
+                <ECSchemaReference name="BisCore" version="01.00.16" alias="bis"/>
+                <ECCustomAttributes>
+                    <DynamicSchema xmlns="CoreCustomAttributes.01.00.03"/>
+                </ECCustomAttributes>
+                <ECEntityClass typeName="DynamicPhysicalElement" modifier="Sealed">
+                    <BaseClass>bis:PhysicalElement</BaseClass>
+                    ${properties}
+                </ECEntityClass>
+            </ECSchema>`;
+      return sourceSchema;
+    }
+
+    function createPhysicalElement(
+      db: IModelDb,
+      classFullName: string
+    ): Id64String {
+      const sourcePhysicalModelId = PhysicalModel.insert(
+        db,
+        IModelDb.rootSubjectId,
+        "SourcePhysicalModel"
+      );
+      const sourceCategoryId = SpatialCategory.insert(
+        db,
+        IModelDb.dictionaryId,
+        "SourceCategory",
+        {}
+      );
+      return db.elements.insertElement({
+        classFullName,
+        model: sourcePhysicalModelId,
+        category: sourceCategoryId,
+        code: PhysicalType.createCode(
+          db,
+          sourcePhysicalModelId,
+          "TestClassElement"
+        ),
+        userLabel: "TestClassElement",
+        SourceProperty1: "value1",
+      } as GeometricElementProps);
+    }
+  });
+
+  async function prepareBriefcase(name: string) {
+    const iModelId = await HubWrappers.createIModel(accessToken, iTwinId, name);
+
+    const newBriefcase = await HubWrappers.downloadAndOpenBriefcase({
+      accessToken: await IModelHost.getAccessToken(),
+      iTwinId,
+      iModelId,
+      asOf: IModelVersion.latest().toJSON(),
+    });
+    await newBriefcase.locks.acquireLocks({
+      shared: "0x10",
+      exclusive: "0x1",
+    });
+    return newBriefcase;
+  }
+
+  async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
+    await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
+    // eslint-disable-next-line @itwin/no-internal
+    await IModelHost[_hubAccess].deleteIModel({
+      iTwinId,
+      iModelId: iModel.iModelId,
+    });
+  }
+
+  async function pushChanges(iModel: BriefcaseDb, description: string) {
+    iModel.saveChanges();
+    await iModel.pushChanges({ description, retainLocks: true });
+  }
 });
