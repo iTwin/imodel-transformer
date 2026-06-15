@@ -34,6 +34,7 @@ import {
   Environment,
   ExternalSourceAspectProps,
   ExternalSourceProps,
+  FontType,
   GeometricElement2dProps,
   GeometryParams,
   GeometryPartProps,
@@ -1462,7 +1463,15 @@ export class ExtensiveTestScenario {
     FunctionalSchema.registerSchema();
   }
 
-  public static populateDb(sourceDb: IModelDb): void {
+  public static async populateDb(sourceDb: IModelDb): Promise<void> {
+    // make sure Arial is in the font table
+    const arialFontId = await sourceDb.fonts.acquireId({
+      name: "Arial",
+      type: FontType.TrueType,
+    });
+    expect(arialFontId).not.to.be.undefined;
+    expect(arialFontId).greaterThan(0);
+
     // Initialize project extents
     const projectExtents = new Range3d(-1000, -1000, -1000, 1000, 1000, 1000);
     sourceDb.updateProjectExtents(projectExtents);

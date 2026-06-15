@@ -371,7 +371,7 @@ describe("IModelTransformerHub", () => {
 
       if (true) {
         // initial import
-        TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+        await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
         sourceDb.saveChanges();
         await sourceDb.pushChanges({
           accessToken,

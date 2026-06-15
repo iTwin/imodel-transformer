@@ -27,7 +27,6 @@ export interface IModelParams {
   fedGuids: boolean;
 }
 
-// TODO: dedup with other packages
 // for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
 export function setToStandalone(iModelPath: string) {
   StandaloneDb.convertToStandalone(iModelPath);

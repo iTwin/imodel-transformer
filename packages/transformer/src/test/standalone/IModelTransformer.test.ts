@@ -143,7 +143,7 @@ import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
 
-describe.only("IModelTransformer", () => {
+describe("IModelTransformer", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformer"
@@ -166,7 +166,7 @@ describe.only("IModelTransformer", () => {
           createClassViews: true,
         });
         await TransformerExtensiveTestScenario.prepareDb(db);
-        TransformerExtensiveTestScenario.populateDb(db);
+        await TransformerExtensiveTestScenario.populateDb(db);
         db.saveChanges();
         return db;
       })());
