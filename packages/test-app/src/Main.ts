@@ -538,6 +538,7 @@ void (async () => {
         sourceScopeIds.forEach((scopeId) =>
           Logger.logInfo(
             loggerCategory,
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             `Source Provenance Scope: ${scopeId} ${sourceDb!.elements
               .getElement(scopeId)
               .getDisplayLabel()}`
@@ -552,6 +553,7 @@ void (async () => {
         targetScopeIds.forEach((scopeId) =>
           Logger.logInfo(
             loggerCategory,
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
             `Target Provenance Scope: ${scopeId} ${targetDb!.elements
               .getElement(scopeId)
               .getDisplayLabel()}`

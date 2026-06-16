@@ -24,7 +24,10 @@ import {
   ChangesetProps,
 } from "@itwin/core-common";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
-import { AzureClientStorage, BlockBlobClientWrapperFactory } from "@itwin/object-storage-azure";
+import {
+  AzureClientStorage,
+  BlockBlobClientWrapperFactory,
+} from "@itwin/object-storage-azure";
 import { loggerCategory } from "./Transformer";
 
 export class IModelTransformerTestAppHost {
@@ -155,6 +158,7 @@ export namespace IModelHubUtils {
     for await (const namedVersion of IModelTransformerTestAppHost.iModelClient.namedVersions.getRepresentationList(
       {
         iModelId,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         authorization: AccessTokenAdapter.toAuthorizationCallback(accessToken),
       }
     )) {

@@ -129,12 +129,14 @@ export function populateTimelineSeed(
   db: IModelDb,
   state?: TimelineIModelElemStateDelta
 ): void {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   SpatialCategory.insert(
     db,
     IModel.dictionaryId,
     "SpatialCategory",
     new SubCategoryAppearance()
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
   if (state) maintainObjects(db, state);
   db.performCheckpoint();
@@ -184,6 +186,7 @@ function maintainObjects(
 
     if (upsertVal === deleted) {
       assert(id, "tried to delete an element that wasn't in the database");
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelDb.elements.deleteElement(id);
       continue;
     }
@@ -213,11 +216,14 @@ function maintainObjects(
 
     props.id = id;
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     if (id === undefined) iModelDb.elements.insertElement(props);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     else iModelDb.elements.updateElement(props);
   }
 
   // TODO: iModelDb.performCheckpoint?
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   iModelDb.saveChanges();
 }
 

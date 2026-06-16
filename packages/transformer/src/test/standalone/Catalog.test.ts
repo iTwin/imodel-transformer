@@ -118,10 +118,12 @@ async function createAcmeCatalog(dbFile: string): Promise<void> {
   await db.importSchemas([domainSchemaFilePath]);
   const manufacturerName = "ACME";
   const productLineName = `${manufacturerName} Product Line A`;
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const containerCodeSpecId = db.codeSpecs.insert(
     "ACME:Equipment",
     CodeScopeSpec.Type.Repository
   ); // A catalog creator should insert their own CodeSpec for DefinitionContainers
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const templateGroupCodeSpecId = db.codeSpecs.insert(
     "ACME:TemplateGroup",
     CodeScopeSpec.Type.Model
@@ -130,17 +132,20 @@ async function createAcmeCatalog(dbFile: string): Promise<void> {
     containerCodeSpecId,
     productLineName
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const containerId = DefinitionContainer.insert(
     db,
     IModel.dictionaryId,
     containerCode
   ); // This sample has a DefinitionContainer per product line
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const spatialCategoryId = SpatialCategory.insert(
     db,
     containerId,
     "Equipment",
     new SubCategoryAppearance()
   ); // "Equipment" is the name of a standard domain SpatialCategory in this sample
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const drawingCategoryId = DrawingCategory.insert(
     db,
     containerId,
@@ -192,8 +197,11 @@ async function createAcmeCatalog(dbFile: string): Promise<void> {
       value: codeValue1,
     }),
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const groupId1 = db.elements.insertElement(groupProps1);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   DefinitionGroupGroupsDefinitions.insert(db, groupId1, physicalRecipeId1);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   DefinitionGroupGroupsDefinitions.insert(db, groupId1, symbolRecipeId1);
 
   const codeValue2 = "A-2 Series";
@@ -248,8 +256,11 @@ async function createAcmeCatalog(dbFile: string): Promise<void> {
       value: codeValue2,
     }),
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const groupId2 = db.elements.insertElement(groupProps2);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   DefinitionGroupGroupsDefinitions.insert(db, groupId2, physicalRecipeId2);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   DefinitionGroupGroupsDefinitions.insert(db, groupId2, symbolRecipeId2);
 
   const codeValue3 = "A-3 Series";
@@ -288,10 +299,14 @@ async function createAcmeCatalog(dbFile: string): Promise<void> {
       value: codeValue3,
     }),
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const groupId3 = db.elements.insertElement(groupProps3);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   DefinitionGroupGroupsDefinitions.insert(db, groupId3, physicalRecipeId3);
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   DefinitionGroupGroupsDefinitions.insert(db, groupId3, symbolRecipeId3);
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.saveChanges();
   db.close();
 }
@@ -312,6 +327,7 @@ async function createBestCatalog(dbFile: string): Promise<void> {
   );
   await db.importSchemas([domainSchemaFilePath]);
   const manufacturerName = "Best";
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const containerCodeSpecId = db.codeSpecs.insert(
     `${manufacturerName}:Equipment`,
     CodeScopeSpec.Type.Repository
@@ -323,11 +339,13 @@ async function createBestCatalog(dbFile: string): Promise<void> {
     containerCodeSpecId,
     productLineNameB
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const containerIdB = DefinitionContainer.insert(
     db,
     IModel.dictionaryId,
     containerCodeB
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const categoryIdB = SpatialCategory.insert(
     db,
     containerIdB,
@@ -409,11 +427,13 @@ async function createBestCatalog(dbFile: string): Promise<void> {
     containerCodeSpecId,
     productLineNameD
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const containerIdD = DefinitionContainer.insert(
     db,
     IModel.dictionaryId,
     containerCodeD
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const categoryIdD = SpatialCategory.insert(
     db,
     containerIdD,
@@ -473,6 +493,7 @@ async function createBestCatalog(dbFile: string): Promise<void> {
     productLineNameD
   );
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.saveChanges();
   db.close();
 }
@@ -488,6 +509,7 @@ async function createTestCatalog(dbFile: string): Promise<void> {
     rootSubject: { name: "Test Catalog" },
     createClassViews,
   });
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const containerCodeSpecId = db.codeSpecs.insert(
     "Test:Components",
     CodeScopeSpec.Type.Repository
@@ -496,17 +518,20 @@ async function createTestCatalog(dbFile: string): Promise<void> {
     containerCodeSpecId,
     "Test Components"
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const containerId = DefinitionContainer.insert(
     db,
     IModel.dictionaryId,
     containerCode
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const spatialCategoryId = SpatialCategory.insert(
     db,
     containerId,
     "Test Components",
     new SubCategoryAppearance()
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const drawingCategoryId = DrawingCategory.insert(
     db,
     containerId,
@@ -515,6 +540,7 @@ async function createTestCatalog(dbFile: string): Promise<void> {
   );
 
   // Cylinder component
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const cylinderTemplateId = TemplateRecipe3d.insert(
     db,
     containerId,
@@ -537,9 +563,11 @@ async function createTestCatalog(dbFile: string): Promise<void> {
     },
     geom: IModelTestUtils.createCylinder(1),
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.elements.insertElement(cylinderProps);
 
   // Assembly component
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const assemblyTemplateId = TemplateRecipe3d.insert(
     db,
     containerId,
@@ -559,6 +587,7 @@ async function createTestCatalog(dbFile: string): Promise<void> {
     geom: IModelTestUtils.createCylinder(1),
   };
   const assemblyHeadId: Id64String =
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     db.elements.insertElement(assemblyHeadProps);
   const childBoxProps: PhysicalElementProps = {
     classFullName: PhysicalObject.classFullName,
@@ -573,9 +602,11 @@ async function createTestCatalog(dbFile: string): Promise<void> {
     },
     geom: IModelTestUtils.createBox(Point3d.create(1, 1, 1)),
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.elements.insertElement(childBoxProps);
 
   // 2d component
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const drawingGraphicTemplateId = TemplateRecipe2d.insert(
     db,
     containerId,
@@ -595,8 +626,10 @@ async function createTestCatalog(dbFile: string): Promise<void> {
     placement: { origin: Point2d.createZero(), angle: 0 },
     geom: IModelTestUtils.createRectangle(Point2d.create(1, 1)),
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.elements.insertElement(drawingGraphicProps);
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.saveChanges();
   db.close();
 }
@@ -681,6 +714,7 @@ function insertEquipmentRecipe(
   codeValue: string,
   geom: GeometryStreamProps
 ): Id64String {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const templateId = TemplateRecipe3d.insert(db, modelId, codeValue);
   const equipmentProps: PhysicalElementProps = {
     classFullName: "TestDomain:Equipment",
@@ -694,6 +728,7 @@ function insertEquipmentRecipe(
     },
     geom,
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.elements.insertElement(equipmentProps);
   return templateId;
 }
@@ -705,6 +740,7 @@ function insertSymbolRecipe(
   codeValue: string,
   geom: GeometryStreamProps
 ): Id64String {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const templateId = TemplateRecipe2d.insert(db, modelId, codeValue);
   const drawingGraphicProps: GeometricElement2dProps = {
     classFullName: DrawingGraphic.classFullName,
@@ -715,6 +751,7 @@ function insertSymbolRecipe(
     placement: { origin: Point2d.createZero(), angle: 0 },
     geom,
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   db.elements.insertElement(drawingGraphicProps);
   return templateId;
 }
@@ -805,6 +842,7 @@ function insertEquipmentType(
     manufacturerName,
     productLineName,
   };
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   return db.elements.insertElement(equipmentTypeProps);
 }
 
@@ -902,6 +940,7 @@ function insertCatalogRepositoryLink(
       url,
       format: "Catalog", // WIP: need to standardize format names
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return iModelDb.elements.insertElement(repositoryLinkProps);
   }
   return repositoryLinkId;
@@ -1108,11 +1147,13 @@ describe("Catalog", () => {
       "TestDomain.ecschema.xml"
     );
     await iModelDb.importSchemas([domainSchemaFilePath]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physicalModelId = PhysicalModel.insert(
       iModelDb,
       IModel.rootSubjectId,
       "Physical"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const spatialCategoryId = SpatialCategory.insert(
       iModelDb,
       IModel.dictionaryId,
@@ -1126,7 +1167,9 @@ describe("Catalog", () => {
       IModel.rootSubjectId,
       "Drawings"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawingId = Drawing.insert(iModelDb, drawingListModelId, "Drawing1");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawingCategoryId = DrawingCategory.insert(
       iModelDb,
       IModel.dictionaryId,
@@ -1144,7 +1187,6 @@ describe("Catalog", () => {
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
           // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
@@ -1158,6 +1200,7 @@ describe("Catalog", () => {
         acmeCatalogDbFile
       );
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelDb.saveChanges();
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
@@ -1257,6 +1300,7 @@ describe("Catalog", () => {
         bestCatalogDbFile
       );
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelDb.saveChanges();
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
@@ -1321,7 +1365,6 @@ describe("Catalog", () => {
       const catalogContainer =
         catalogDb.elements.getElement<DefinitionContainer>(
           // if non-null assertion operator is removed pnpm -r docs throws "Argument of type 'string | undefined' is not assignable to parameter of type 'string | Code | ElementLoadProps'."
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
           catalogContainerIds.values().next().value!,
           DefinitionContainer
         );
@@ -1334,6 +1377,7 @@ describe("Catalog", () => {
         path.basename(testCatalogDbFile),
         testCatalogDbFile
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelDb.saveChanges();
       const catalogTemplateRecipeIds = await queryTemplateRecipeIds(
         catalogDb,
@@ -1440,6 +1484,7 @@ describe("Catalog", () => {
           equipment.typeDefinition = new PhysicalElementIsOfType(
             physicalTypeId
           );
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           equipment.update();
           assert.isDefined(equipment.typeDefinition?.id);
         }
@@ -1538,6 +1583,7 @@ describe("Catalog", () => {
 
     componentPlacer.dispose();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.saveChanges();
     iModelDb.close();
   });
@@ -1587,6 +1633,7 @@ describe("Catalog", () => {
     });
 
     sourceDb.close();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
     targetDb.close();
   });

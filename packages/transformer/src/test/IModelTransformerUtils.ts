@@ -134,6 +134,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       teamOrigin,
       teamColor
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.saveChanges();
     return iModelDb;
   }
@@ -193,6 +194,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
     teamOrigin: Point3d,
     teamColor: ColorDef
   ): void {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const contextSubjectId: Id64String = Subject.insert(
       teamDb,
       IModel.rootSubjectId,
@@ -219,6 +221,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       ColorDef.white
     );
     assert.isTrue(Id64.isValidId64(sharedSpatialCategoryId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sharedDrawingCategoryId = DrawingCategory.insert(
       teamDb,
       IModel.dictionaryId,
@@ -226,6 +229,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       new SubCategoryAppearance()
     );
     assert.isTrue(Id64.isValidId64(sharedDrawingCategoryId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physicalModelId = PhysicalModel.insert(
       teamDb,
       IModel.rootSubjectId,
@@ -246,6 +250,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       },
     };
     const physicalObjectId1: Id64String =
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       teamDb.elements.insertElement(physicalObjectProps1);
     assert.isTrue(Id64.isValidId64(physicalObjectId1));
     // insert PhysicalObject2 using "shared" SpatialCategory
@@ -262,6 +267,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       },
     };
     const physicalObjectId2: Id64String =
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       teamDb.elements.insertElement(physicalObjectProps2);
     assert.isTrue(Id64.isValidId64(physicalObjectId2));
   }
@@ -281,6 +287,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
     });
     assert.exists(iModelDb);
     teamNames.forEach((teamName: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const subjectId: Id64String = Subject.insert(
         iModelDb,
         IModel.rootSubjectId,
@@ -444,12 +451,14 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       `Definition${consolidatedName}`
     );
     assert.isTrue(Id64.isValidId64(definitionModelId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physicalModelId = PhysicalModel.insert(
       consolidatedDb,
       IModel.rootSubjectId,
       `Physical${consolidatedName}`
     );
     assert.isTrue(Id64.isValidId64(physicalModelId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     consolidatedDb.saveChanges();
     return consolidatedDb;
   }
@@ -518,8 +527,10 @@ function getAllElemMetaDataProperties(
     className: string,
     entity: Entity
   ): Record<string, Property> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const metaData = entity.getMetaDataSync();
     const allProperties = { ...metaData.getPropertiesSync() };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     entity.forEach((name, property) => {
       const base = elem.iModel.schemaContext.getSchemaItemSync(
         property.class.fullName
@@ -533,6 +544,7 @@ function getAllElemMetaDataProperties(
     return allProperties;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const classMetaData = elem.getMetaDataSync();
   if (!classMetaData || classMetaData instanceof RelationshipClass)
     return undefined;
@@ -978,20 +990,26 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     );
     await targetDb.importSchemas([targetSchemaFileName]);
     // Insert a target-only CodeSpec to test remapping
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetCodeSpecId: Id64String = targetDb.codeSpecs.insert(
       "TargetCodeSpec",
       CodeScopeSpec.Type.Model
     );
     assert.isTrue(Id64.isValidId64(targetCodeSpecId));
     // Insert some elements to avoid getting same IDs for sourceDb and targetDb
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const subjectId = Subject.insert(
       targetDb,
       IModel.rootSubjectId,
       "Only in Target"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S1");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S2");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S3");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S4");
     const targetPhysicalCategoryId =
       IModelTransformerTestUtils.insertSpatialCategory(
@@ -1490,9 +1508,9 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     assertTargetElement(viewId);
     const viewProps =
       targetDb.elements.getElementProps<SpatialViewDefinitionProps>(viewId);
-    assert.equal(viewProps.displayStyleId, displayStyle3dId);
-    assert.equal(viewProps.categorySelectorId, spatialCategorySelectorId);
-    assert.equal(viewProps.modelSelectorId, modelSelectorId);
+    assert.equal(viewProps.displayStyle?.id, displayStyle3dId);
+    assert.equal(viewProps.categorySelector?.id, spatialCategorySelectorId);
+    assert.equal(viewProps.modelSelector?.id, modelSelectorId);
     // AuxCoordSystem2d
     assert.equal(
       undefined,
@@ -1673,11 +1691,11 @@ export class FilterByViewTransformer extends IModelTransformer {
         exportViewDefinitionId,
         SpatialViewDefinition
       );
-    this._exportCategorySelectorId = exportViewDefinition.categorySelectorId;
-    this._exportModelSelectorId = exportViewDefinition.modelSelectorId;
-    this._exportDisplayStyleId = exportViewDefinition.displayStyleId;
+    this._exportCategorySelectorId = exportViewDefinition.categorySelector.id;
+    this._exportModelSelectorId = exportViewDefinition.modelSelector.id;
+    this._exportDisplayStyleId = exportViewDefinition.displayStyle.id;
     const exportModelSelector = sourceDb.elements.getElement<ModelSelector>(
-      exportViewDefinition.modelSelectorId,
+      exportViewDefinition.modelSelector.id,
       ModelSelector
     );
     this._exportModelIds = Id64.toIdSet(exportModelSelector.models);
@@ -2123,6 +2141,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
           parentSubjectId,
           `Records for ${model.name}`
         );
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         this.targetDb.relationships.insertInstance({
           classFullName:
             "ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords",
@@ -2195,6 +2214,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       operation,
       physicalElement: { id: physicalElement.id },
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return this.targetDb.elements.insertElement(auditRecord);
   }
   private accountForPartialViewDefinition2d(elementProps: ElementProps): void {

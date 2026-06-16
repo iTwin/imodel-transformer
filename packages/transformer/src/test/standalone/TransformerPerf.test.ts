@@ -89,6 +89,7 @@ async function createSourceWithElements(
   });
 
   // Create a SpatialCategory
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const categoryId = SpatialCategory.insert(
     sourceDb,
     IModel.dictionaryId,
@@ -97,6 +98,7 @@ async function createSourceWithElements(
   );
 
   // Create a PhysicalModel
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const physicalModelId = PhysicalModel.insert(
     sourceDb,
     IModel.rootSubjectId,
@@ -122,12 +124,14 @@ async function createSourceWithElements(
         angles: YawPitchRollAngles.createDegrees(0, 0, 0),
       },
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.insertElement(elementProps);
   }
 
   const insertEndTime = performance.now();
   const insertDuration = insertEndTime - insertStartTime;
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   sourceDb.saveChanges("Inserted test elements");
 
   return { db: sourceDb, insertDuration };
@@ -179,12 +183,14 @@ describe.skip("IModelTransformer Performance Tests", () => {
     });
 
     // Set up category and model
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const categoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "TestCategory",
       { color: ColorDef.green.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const modelId = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -207,9 +213,11 @@ describe.skip("IModelTransformer Performance Tests", () => {
           angles: {},
         }),
       };
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.elements.insertElement(physicalObjectProps);
     }
     const insertEndTime = performance.now();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     // Verify source element count
@@ -243,6 +251,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     const startTime = performance.now();
     await transformer.process();
     const endTime = performance.now();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     printResults({
@@ -339,6 +348,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
       // Cleanup
       transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       targetDb.saveChanges("Transformation complete");
 
       sourceDb.close();

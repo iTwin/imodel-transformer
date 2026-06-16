@@ -261,6 +261,7 @@ describe("imodel-transformer", () => {
 
     const transformedElemProps = elementProps;
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _newElemId = newSchemaSourceDb.elements.insertElement({
       classFullName: "Test:TestElement",
       model: firstModelId,
@@ -291,6 +292,7 @@ describe("imodel-transformer", () => {
       const result = db.createQueryReader(
         "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
         undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
       return (await result.step()) ? result.current.toRow() : {};
@@ -346,6 +348,7 @@ describe("imodel-transformer", () => {
       myProp: "10",
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _newElemId = newSchemaSourceDb.elements.insertElement({
       classFullName: "Test:TestElement",
       model: firstModelId,
@@ -370,6 +373,7 @@ describe("imodel-transformer", () => {
       const result = db.createQueryReader(
         "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
         undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
       return (await result.step()) ? result.current.toRow() : {};

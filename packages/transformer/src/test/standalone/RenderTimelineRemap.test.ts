@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import { expect } from "chai";
 import {
+  EditTxn,
   GenericSchema,
   PhysicalModel,
   PhysicalObject,
@@ -12,6 +13,7 @@ import {
   SpatialCategory,
   StandaloneDb,
   SubjectOwnsPartitionElements,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
 import { CompressedId64Set, Guid, Id64, Id64String } from "@itwin/core-bentley";
@@ -54,7 +56,8 @@ describe("RenderTimeline Remap", () => {
   }
 
   function insertTimeline(
-    imodel: StandaloneDb,
+    txn: EditTxn,
+    _imodel: StandaloneDb,
     scriptProps?: RenderSchedule.ScriptProps
   ): Id64String {
     const script = JSON.stringify(scriptProps ?? makeScriptProps());
@@ -64,10 +67,10 @@ describe("RenderTimeline Remap", () => {
       code: Code.createEmpty(),
       script,
     };
-    return imodel.elements.insertElement(props);
+    return txn.insertElement(props);
   }
 
-  function insertPhysicalModel(db: StandaloneDb): Id64String {
+  function insertPhysicalModel(txn: EditTxn, db: StandaloneDb): Id64String {
     const partitionProps = {
       classFullName: PhysicalPartition.classFullName,
       model: IModel.repositoryModelId,
@@ -79,7 +82,7 @@ describe("RenderTimeline Remap", () => {
       ),
     };
 
-    const partitionId = db.elements.insertElement(partitionProps);
+    const partitionId = txn.insertElement(partitionProps);
     expect(Id64.isValidId64(partitionId)).to.be.true;
 
     const model = db.models.createModel({
@@ -89,13 +92,14 @@ describe("RenderTimeline Remap", () => {
 
     expect(model instanceof PhysicalModel).to.be.true;
 
-    const modelId = db.models.insertModel(model.toJSON());
+    const modelId = txn.insertModel(model.toJSON());
     expect(Id64.isValidId64(modelId)).to.be.true;
     return modelId;
   }
 
   function insertPhysicalElement(
-    db: StandaloneDb,
+    txn: EditTxn,
+    _db: StandaloneDb,
     model: Id64String,
     category: Id64String
   ): Id64String {
@@ -125,7 +129,7 @@ describe("RenderTimeline Remap", () => {
       },
     };
 
-    const elemId = db.elements.insertElement(props);
+    const elemId = txn.insertElement(props);
     expect(Id64.isValid(elemId)).to.be.true;
     return elemId;
   }
@@ -146,38 +150,47 @@ describe("RenderTimeline Remap", () => {
 
   it("remaps schedule script Ids on clone", async () => {
     const sourceDb = createIModel("remap-source");
-    const model = insertPhysicalModel(sourceDb);
-    const category = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "cat",
-      {}
-    );
-    const elementIds: Id64String[] = [];
-    for (let i = 0; i < 3; i++)
-      elementIds.push(insertPhysicalElement(sourceDb, model, category));
+    const {
+      model: _model,
+      category: _category,
+      elementIds: _elementIds,
+      sourceTimelineId,
+      scriptProps,
+    } = withEditTxn(sourceDb, "setup source", (txn) => {
+      const modelId = insertPhysicalModel(txn, sourceDb);
+      const catId = SpatialCategory.insert(txn, IModel.dictionaryId, "cat", {});
+      const elemIds: Id64String[] = [];
+      for (let i = 0; i < 3; i++)
+        elemIds.push(insertPhysicalElement(txn, sourceDb, modelId, catId));
 
-    const scriptProps: RenderSchedule.ScriptProps = [
-      {
-        modelId: model,
-        elementTimelines: [
-          {
-            batchId: 1,
-            elementIds,
-            visibilityTimeline: [{ time: 42, value: 50 }],
-          },
-        ],
-      },
-    ];
+      const script: RenderSchedule.ScriptProps = [
+        {
+          modelId,
+          elementTimelines: [
+            {
+              batchId: 1,
+              elementIds: elemIds,
+              visibilityTimeline: [{ time: 42, value: 50 }],
+            },
+          ],
+        },
+      ];
 
-    const sourceTimelineId = insertTimeline(sourceDb, scriptProps);
-    sourceDb.saveChanges();
+      const timelineId = insertTimeline(txn, sourceDb, script);
+      return {
+        model: modelId,
+        category: catId,
+        elementIds: elemIds,
+        sourceTimelineId: timelineId,
+        scriptProps: script,
+      };
+    });
 
     // Make sure targetDb has more elements in it to start with than sourceDb does, so element Ids will be different.
     const targetDb = createIModel("remap-target");
-    for (let i = 0; i < 3; i++) insertPhysicalModel(targetDb);
-
-    targetDb.saveChanges();
+    withEditTxn(targetDb, "setup target", (txn) => {
+      for (let i = 0; i < 3; i++) insertPhysicalModel(txn, targetDb);
+    });
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.process();

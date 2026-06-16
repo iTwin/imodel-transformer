@@ -149,23 +149,27 @@ export namespace ElementUtils {
     );
     let viewId = iModelDb.elements.queryElementIdByCode(viewCode);
     if (viewId === undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const modelSelectorId = ModelSelector.insert(
         iModelDb,
         definitionModelId,
         name,
         await queryModelIds(iModelDb, SpatialModel.classFullName)
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categorySelectorId = CategorySelector.insert(
         iModelDb,
         definitionModelId,
         name,
         await querySpatialCategoryIds(iModelDb)
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const displayStyleId = DisplayStyle3d.insert(
         iModelDb,
         definitionModelId,
         name
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       viewId = SpatialViewDefinition.insertWithCamera(
         iModelDb,
         definitionModelId,
@@ -175,6 +179,7 @@ export namespace ElementUtils {
         displayStyleId,
         iModelDb.projectExtents
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelDb.saveChanges("Inserted ViewDefinition");
     }
     return viewId;
