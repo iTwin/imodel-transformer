@@ -167,6 +167,7 @@ describe("IModelTransformer", () => {
         });
         await TransformerExtensiveTestScenario.prepareDb(db);
         await TransformerExtensiveTestScenario.populateDb(db);
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         db.saveChanges();
         return db;
       })());

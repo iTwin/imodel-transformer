@@ -372,6 +372,7 @@ describe("IModelTransformerHub", () => {
       if (true) {
         // initial import
         await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.saveChanges();
         await sourceDb.pushChanges({
           accessToken,
