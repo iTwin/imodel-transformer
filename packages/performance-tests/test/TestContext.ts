@@ -8,6 +8,7 @@ import {
   IModelHost,
   RequestNewBriefcaseArg,
 } from "@itwin/core-backend";
+// eslint-disable-next-line @itwin/no-internal
 import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import { Logger } from "@itwin/core-bentley";
 import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
