@@ -108,7 +108,7 @@ export class ECReferenceTypesCache {
   private async getAbstractConstraintClass(
     constraint: RelationshipConstraint
   ): Promise<ECClass> {
-    const cacheKey = `${constraint.fullName}_${constraint.constraintClasses?.[0]?.fullName || "abstract"}`;
+    const cacheKey = `${constraint.relationshipClass.fullName}:${constraint.isSource ? "Source" : "Target"}`;
     const cached = this._constraintClassCache.get(cacheKey);
     if (cached) {
       return cached;

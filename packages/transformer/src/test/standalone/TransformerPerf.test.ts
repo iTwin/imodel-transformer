@@ -276,7 +276,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     targetDb.close();
   });
 
-  it("should transform 10k elements (extended?)", async function () {
+  it("should transform 10k elements using hub", async function () {
     console.log("===========================================");
     console.log("  iModel Transformer Performance Test");
     console.log(`  Elements: ${NUM_ELEMENTS}`);

@@ -371,8 +371,7 @@ describe("IModelTransformerHub", () => {
 
       if (true) {
         // initial import
-        TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from populateDb helper
+        await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
         sourceDb.saveChanges();
         await sourceDb.pushChanges({
           accessToken,
@@ -428,13 +427,14 @@ describe("IModelTransformerHub", () => {
           {}
         );
         await transformer.process();
-        // // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
-        // const syncVersionAfterProcessAll = await transformer["_provenanceManager"].getSynchronizationVersion();
-        // assert.equal(
-        //   syncVersionAfterProcessAll.index,
-        //   sourceDb.changeset.index,
-        //   "processAll should write sync version matching source changeset index"
-        // );
+        // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
+        const syncVersionAfterProcessAll =
+          await transformer["_provenanceManager"].getSynchronizationVersion();
+        assert.equal(
+          syncVersionAfterProcessAll.index,
+          sourceDb.changeset.index,
+          "processAll should write sync version matching source changeset index"
+        );
         transformer.dispose();
         // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
         targetDb.saveChanges();

@@ -117,7 +117,7 @@ export namespace ElementUtils {
   ): Promise<Id64Set> {
     const elementIds = new Set<Id64String>();
     if (iModelDb.containsClass(ExternalSourceAspect.classFullName)) {
-      const sql = `SELECT Element.Id FROM ${ExternalSourceAspect.classFullName} WHERE Kind=kind`;
+      const sql = `SELECT Element.Id AS id FROM ${ExternalSourceAspect.classFullName} WHERE Kind=:kind`;
       const bindings = new QueryBinder().bindString(
         "kind",
         ExternalSourceAspect.Kind.Scope

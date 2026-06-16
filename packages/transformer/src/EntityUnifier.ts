@@ -25,7 +25,6 @@ import {
   Relationship,
 } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
-import { _instanceKeyCache } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 
 /** @internal */
 export namespace EntityUnifier {

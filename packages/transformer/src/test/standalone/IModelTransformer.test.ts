@@ -166,8 +166,7 @@ describe("IModelTransformer", () => {
           createClassViews: true,
         });
         await TransformerExtensiveTestScenario.prepareDb(db);
-        TransformerExtensiveTestScenario.populateDb(db);
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        await TransformerExtensiveTestScenario.populateDb(db);
         db.saveChanges();
         return db;
       })());
@@ -541,7 +540,9 @@ describe("IModelTransformer", () => {
     classFullName: string
   ): Promise<number> {
     const sql = `SELECT COUNT(*) FROM ${classFullName}`;
-    const reader = iModelDb.createQueryReader(sql);
+    const reader = iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    });
     return (await reader.step()) ? reader.current[0] : 0;
   }
 
