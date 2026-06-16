@@ -292,6 +292,7 @@ describe("imodel-transformer", () => {
       const result = db.createQueryReader(
         "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
         undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
       return (await result.step()) ? result.current.toRow() : {};
@@ -372,6 +373,7 @@ describe("imodel-transformer", () => {
       const result = db.createQueryReader(
         "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
         undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
       return (await result.step()) ? result.current.toRow() : {};
