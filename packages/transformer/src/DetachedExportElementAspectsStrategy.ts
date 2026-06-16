@@ -133,6 +133,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       const aspectQueryReader = this.sourceDb.createQueryReader(
         getAspectPropsSql,
         new QueryBinder().bindId("classId", classId),
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }
       );
       const aspectAsyncQueryReader =

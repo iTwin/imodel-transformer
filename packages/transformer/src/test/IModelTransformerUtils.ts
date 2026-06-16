@@ -527,8 +527,10 @@ function getAllElemMetaDataProperties(
     className: string,
     entity: Entity
   ): Record<string, Property> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const metaData = entity.getMetaDataSync();
     const allProperties = { ...metaData.getPropertiesSync() };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     entity.forEach((name, property) => {
       const base = elem.iModel.schemaContext.getSchemaItemSync(
         property.class.fullName
@@ -542,6 +544,7 @@ function getAllElemMetaDataProperties(
     return allProperties;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const classMetaData = elem.getMetaDataSync();
   if (!classMetaData || classMetaData instanceof RelationshipClass)
     return undefined;

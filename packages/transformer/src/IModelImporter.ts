@@ -865,6 +865,7 @@ export function hasEntityChanged(
   namesToIgnore?: Set<string>
 ): boolean {
   let changed: boolean = false;
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   entity.forEach((propertyName: string, property: Property) => {
     if (!changed) {
       if (namesToIgnore && namesToIgnore.has(propertyName)) {
