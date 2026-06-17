@@ -12,7 +12,6 @@ import {
   ChangedECInstance,
   ChangesetECAdaptor,
   DefinitionModel,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -21,7 +20,6 @@ import {
   ElementUniqueAspect,
   GeometricElement,
   IModelDb,
-  IModelHost,
   IModelJsNative,
   Model,
   PartialECChangeUnifier,
@@ -32,7 +30,6 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
-  DbResult,
   Id64,
   Id64Arg,
   Id64Set,
@@ -44,17 +41,14 @@ import {
 import {
   ChangesetFileProps,
   CodeSpec,
+  FontFamilyDescriptor,
+  FontId,
   FontProps,
   IModel,
   IModelError,
   QueryBinder,
 } from "@itwin/core-common";
-import {
-  ECVersion,
-  Schema,
-  SchemaKey,
-  SchemaLoader,
-} from "@itwin/ecschema-metadata";
+import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import * as nodeAssert from "assert";
 import {
@@ -111,6 +105,7 @@ export type ExportChangesOptions = {
    * @default the current changeset of the sourceDb, if undefined
    */
   | { startChangeset: { id?: string; index?: number } }
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   | {}
 );
 
@@ -124,7 +119,7 @@ export abstract class IModelExportHandler {
   /** If `true` is returned, then the CodeSpec will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
    */
-  public shouldExportCodeSpec(_codeSpec: CodeSpec): boolean {
+  public async shouldExportCodeSpec(_codeSpec: CodeSpec): Promise<boolean> {
     return true;
   }
 
@@ -133,49 +128,55 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportCodeSpec(
+  public async onExportCodeSpec(
     _codeSpec: CodeSpec,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /** Called when a font should be exported.
    * @param font The font to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportFont(_font: FontProps, _isUpdate: boolean | undefined): void {}
+  public async onExportFont(
+    _font: FontProps,
+    _isUpdate: boolean | undefined
+  ): Promise<void> {}
 
   /** Called when a model should be exported.
    * @param model The model to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportModel(_model: Model, _isUpdate: boolean | undefined): void {}
+  public async onExportModel(
+    _model: Model,
+    _isUpdate: boolean | undefined
+  ): Promise<void> {}
 
   /** Called when a model should be deleted. */
-  public onDeleteModel(_modelId: Id64String): void {}
+  public async onDeleteModel(_modelId: Id64String): Promise<void> {}
 
   /** If `true` is returned, then the element will be exported.
    * @note This method can optionally be overridden to exclude an individual Element (and its children and ElementAspects) from the export. The base implementation always returns `true`.
    */
-  public shouldExportElement(_element: Element): boolean {
+  public async shouldExportElement(_element: Element): Promise<boolean> {
     return true;
   }
 
   /** Called when element is skipped instead of exported.
    * @note When an element is skipped, exporter will not export any of its child elements. Because of this, [[onSkipElement]] will not be invoked for any children of a "skipped" element.
    */
-  public onSkipElement(_elementId: Id64String): void {}
+  public async onSkipElement(_elementId: Id64String): Promise<void> {}
 
   /** Called when an element should be exported.
    * @param element The element to export
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportElement(
+  public async onExportElement(
     _element: Element,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /**
    * Do any asynchronous actions before exporting an element
@@ -186,12 +187,14 @@ export abstract class IModelExportHandler {
   public async preExportElement(_element: Element): Promise<void> {}
 
   /** Called when an element should be deleted. */
-  public onDeleteElement(_elementId: Id64String): void {}
+  public async onDeleteElement(_elementId: Id64String): Promise<void> {}
 
   /** If `true` is returned, then the ElementAspect will be exported.
    * @note This method can optionally be overridden to exclude an individual ElementAspect from the export. The base implementation always returns `true`.
    */
-  public shouldExportElementAspect(_aspect: ElementAspect): boolean {
+  public async shouldExportElementAspect(
+    _aspect: ElementAspect
+  ): Promise<boolean> {
     return true;
   }
 
@@ -200,20 +203,24 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportElementUniqueAspect(
+  public async onExportElementUniqueAspect(
     _aspect: ElementUniqueAspect,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /** Called when ElementMultiAspects should be exported.
    * @note This should be overridden to actually do the export.
    */
-  public onExportElementMultiAspects(_aspects: ElementMultiAspect[]): void {}
+  public async onExportElementMultiAspects(
+    _aspects: ElementMultiAspect[]
+  ): Promise<void> {}
 
   /** If `true` is returned, then the relationship will be exported.
    * @note This method can optionally be overridden to exclude an individual CodeSpec from the export. The base implementation always returns `true`.
    */
-  public shouldExportRelationship(_relationship: Relationship): boolean {
+  public async shouldExportRelationship(
+    _relationship: Relationship
+  ): Promise<boolean> {
     return true;
   }
 
@@ -222,18 +229,20 @@ export abstract class IModelExportHandler {
    * @param isUpdate If defined, then `true` indicates an UPDATE operation while `false` indicates an INSERT operation. If not defined, then INSERT vs. UPDATE is not known.
    * @note This should be overridden to actually do the export.
    */
-  public onExportRelationship(
+  public async onExportRelationship(
     _relationship: Relationship,
     _isUpdate: boolean | undefined
-  ): void {}
+  ): Promise<void> {}
 
   /** Called when a relationship should be deleted. */
-  public onDeleteRelationship(_relInstanceId: Id64String): void {}
+  public async onDeleteRelationship(
+    _relInstanceId: Id64String
+  ): Promise<void> {}
 
   /** If `true` is returned, then the schema will be exported.
    * @note This method can optionally be overridden to exclude an individual schema from the export. The base implementation always returns `true`.
    */
-  public shouldExportSchema(_schemaKey: SchemaKey): boolean {
+  public async shouldExportSchema(_schemaKey: SchemaKey): Promise<boolean> {
     return true;
   }
 
@@ -341,11 +350,11 @@ export class IModelExporter {
     this._exportElementAspectsStrategy = new elementAspectsStrategy(
       this.sourceDb,
       {
-        onExportElementMultiAspects: (aspects) =>
+        onExportElementMultiAspects: async (aspects) =>
           this.handler.onExportElementMultiAspects(aspects),
-        onExportElementUniqueAspect: (aspect, isUpdate) =>
+        onExportElementUniqueAspect: async (aspect, isUpdate) =>
           this.handler.onExportElementUniqueAspect(aspect, isUpdate),
-        shouldExportElementAspect: (aspect) =>
+        shouldExportElementAspect: async (aspect) =>
           this.handler.shouldExportElementAspect(aspect),
         trackProgress: async () => this.trackProgress(),
       }
@@ -474,7 +483,7 @@ export class IModelExporter {
     if (this.visitElements) {
       // must delete models first since they have a constraint on the submodeling element which may also be deleted
       for (const modelId of this._sourceDbChanges.model.deleteIds) {
-        this.handler.onDeleteModel(modelId);
+        await this.handler.onDeleteModel(modelId);
       }
       for (const elementId of this._sourceDbChanges.element.deleteIds) {
         // We don't know how the handler wants to handle deletions, and we don't have enough information
@@ -484,7 +493,7 @@ export class IModelExporter {
         // In the future, the handler may be responsible for doing the work of finding out which elements were cascade deleted,
         // and returning them for the exporter to use to avoid double-deleting with error ignoring
         try {
-          this.handler.onDeleteElement(elementId);
+          await this.handler.onDeleteElement(elementId);
         } catch (err: unknown) {
           const isMissingErr =
             err instanceof IModelError &&
@@ -497,7 +506,7 @@ export class IModelExporter {
     if (this.visitRelationships) {
       for (const relInstanceId of this._sourceDbChanges.relationship
         .deleteIds) {
-        this.handler.onDeleteRelationship(relInstanceId);
+        await this.handler.onDeleteRelationship(relInstanceId);
       }
     }
 
@@ -514,7 +523,6 @@ export class IModelExporter {
    * @note This must be called separately from [[exportAll]] or [[exportChanges]].
    */
   public async exportSchemas(): Promise<void> {
-    /* eslint-disable @typescript-eslint/indent */
     const sql = `
       SELECT s.Name, s.VersionMajor, s.VersionWrite, s.VersionMinor
       FROM ECDbMeta.ECSchemaDef s
@@ -527,34 +535,31 @@ export class IModelExporter {
       }
       ORDER BY ECInstanceId
     `;
-    /* eslint-enable @typescript-eslint/indent */
-    const schemaNamesToExport: string[] = [];
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    this.sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const schemaName = statement.getValue(0).getString();
-        const versionMajor = statement.getValue(1).getInteger();
-        const versionWrite = statement.getValue(2).getInteger();
-        const versionMinor = statement.getValue(3).getInteger();
-        const schemaKey = new SchemaKey(
-          schemaName,
-          new ECVersion(versionMajor, versionWrite, versionMinor)
-        );
-        if (this.handler.shouldExportSchema(schemaKey)) {
-          schemaNamesToExport.push(schemaName);
-        }
+    const schemaKeysToExport: SchemaKey[] = [];
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      const schemaName = row[0];
+      const versionMajor = row[1];
+      const versionWrite = row[2];
+      const versionMinor = row[3];
+      const schemaKey = new SchemaKey(
+        schemaName,
+        new ECVersion(versionMajor, versionWrite, versionMinor)
+      );
+      if (await this.handler.shouldExportSchema(schemaKey)) {
+        schemaKeysToExport.push(schemaKey);
       }
-    });
+    }
+    if (schemaKeysToExport.length === 0) return;
 
-    if (schemaNamesToExport.length === 0) return;
-
-    const schemaLoader = new SchemaLoader((name: string) =>
-      this.sourceDb.getSchemaProps(name)
-    );
     await Promise.all(
-      schemaNamesToExport.map(async (schemaName) => {
-        const schema = schemaLoader.getSchema(schemaName);
-        Logger.logTrace(loggerCategory, `exportSchema(${schemaName})`);
+      schemaKeysToExport.map(async (schemaKey) => {
+        const schema = await this.sourceDb.schemaContext.getSchema(schemaKey);
+        if (!schema) {
+          throw new Error(`Failed to load schema: ${schemaKey.name}`);
+        }
+        Logger.logTrace(loggerCategory, `exportSchema(${schemaKey.name})`);
         return this.handler.onExportSchema(schema);
       })
     );
@@ -571,17 +576,11 @@ export class IModelExporter {
   public async exportCodeSpecs(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportCodeSpecs()");
     const sql = "SELECT Name FROM BisCore:CodeSpec ORDER BY ECInstanceId";
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    await this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      async (statement: ECSqlStatement): Promise<void> => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const codeSpecName: string = statement.getValue(0).getString();
-          await this.exportCodeSpecByName(codeSpecName);
-        }
-      }
-    );
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      await this.exportCodeSpecByName(row[0]);
+    }
   }
 
   /** Export a single CodeSpec from the source iModel.
@@ -606,12 +605,12 @@ export class IModelExporter {
       return;
     }
     // CodeSpec has passed standard exclusion rules, now give handler a chance to accept/reject export
-    if (this.handler.shouldExportCodeSpec(codeSpec)) {
+    if (await this.handler.shouldExportCodeSpec(codeSpec)) {
       Logger.logTrace(
         loggerCategory,
         `exportCodeSpec(${codeSpecName})${this.getChangeOpSuffix(isUpdate)}`
       );
-      this.handler.onExportCodeSpec(codeSpec, isUpdate);
+      await this.handler.onExportCodeSpec(codeSpec, isUpdate);
       return this.trackProgress();
     }
   }
@@ -629,19 +628,51 @@ export class IModelExporter {
    */
   public async exportFonts(): Promise<void> {
     Logger.logTrace(loggerCategory, "exportFonts()");
-    for (const font of this.sourceDb.fontMap.fonts.values()) {
-      await this.exportFontByNumber(font.id);
+    for (const font of this.sourceDb.fonts.queryMappedFamilies()) {
+      await this.exportFontByFontProps(font);
+    }
+  }
+
+  /** Export a single font from the source iModel.
+   * @note multiple fonts can have the same font name, if a font with a specific type is needed use exportFontByFontFamilyDescriptor.
+   * If not this will only export the first font with this type in the db.
+   */
+  public async exportFontByName(fontName: string): Promise<void> {
+    Logger.logTrace(loggerCategory, `exportFontByName(${fontName})`);
+    const fontId: FontId | undefined = this.sourceDb.fonts.findId({
+      name: fontName,
+    });
+    if (undefined !== fontId) {
+      await this.exportFontByNumber(fontId);
     }
   }
 
   /** Export a single font from the source iModel.
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
-  public async exportFontByName(fontName: string): Promise<void> {
-    Logger.logTrace(loggerCategory, `exportFontByName(${fontName})`);
-    const font: FontProps | undefined = this.sourceDb.fontMap.getFont(fontName);
-    if (undefined !== font) {
-      await this.exportFontByNumber(font.id);
+  public async exportFontByFontProps(fontProps: FontProps): Promise<void> {
+    Logger.logTrace(
+      loggerCategory,
+      `exportFontByFamily(${fontProps.name}, ${fontProps.type})`
+    );
+    await this.handler.onExportFont(fontProps, true);
+    return this.trackProgress();
+  }
+
+  /** Export a single font from the source iModel.
+   * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
+   */
+  public async exportFontByFontFamilyDescriptor(
+    fontFamily: FontFamilyDescriptor
+  ): Promise<void> {
+    Logger.logTrace(
+      loggerCategory,
+      `exportFontByFamilyDescriptor(${fontFamily.name}, ${fontFamily.type})`
+    );
+    const fontId: FontId | undefined =
+      await this.sourceDb.fonts.acquireId(fontFamily);
+    if (undefined !== fontId) {
+      await this.exportFontByFontProps({ ...fontFamily, id: fontId });
     }
   }
 
@@ -654,13 +685,11 @@ export class IModelExporter {
      * It is very rare and even problematic for the font table to reach a large size, so it is not a bottleneck in transforming changes.
      * See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
      */
-    const isUpdate = true;
     Logger.logTrace(loggerCategory, `exportFontById(${fontNumber})`);
-    const font: FontProps | undefined =
-      this.sourceDb.fontMap.getFont(fontNumber);
+    const font: FontFamilyDescriptor | undefined =
+      this.sourceDb.fonts.findDescriptor(fontNumber);
     if (undefined !== font) {
-      this.handler.onExportFont(font, isUpdate);
-      return this.trackProgress();
+      await this.exportFontByFontFamilyDescriptor(font);
     }
   }
 
@@ -678,7 +707,7 @@ export class IModelExporter {
       wantBRepData: this.wantGeometry,
     });
     Logger.logTrace(loggerCategory, `exportModel(${modeledElementId})`);
-    if (this.shouldExportElement(modeledElement)) {
+    if (await this.shouldExportElement(modeledElement)) {
       await this.exportModelContainer(model);
       if (this.visitElements) {
         await this.exportModelContents(modeledElementId);
@@ -700,7 +729,7 @@ export class IModelExporter {
         return; // not in changeset, don't export
       }
     }
-    this.handler.onExportModel(model, isUpdate);
+    await this.handler.onExportModel(model, isUpdate);
     return this.trackProgress();
   }
 
@@ -745,21 +774,16 @@ export class IModelExporter {
     } else {
       sql = `SELECT ECInstanceId FROM ${elementClassFullName} WHERE Parent.Id IS NULL AND Model.Id=:modelId ORDER BY ECInstanceId`;
     }
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    await this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      async (statement: ECSqlStatement): Promise<void> => {
-        statement.bindId("modelId", modelId);
-        if (skipRootSubject) {
-          statement.bindId("rootSubjectId", IModel.rootSubjectId);
-        }
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          await this.exportElement(statement.getValue(0).getId());
-          await this._yieldManager.allowYield();
-        }
-      }
-    );
+    const params = new QueryBinder().bindId("modelId", modelId);
+    if (skipRootSubject) {
+      params.bindId("rootSubjectId", IModel.rootSubjectId);
+    }
+    for await (const row of this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    })) {
+      await this.exportElement(row.id);
+      await this._yieldManager.allowYield();
+    }
   }
 
   /** Export the sub-models directly below the specified model.
@@ -770,23 +794,18 @@ export class IModelExporter {
     const definitionModelIds: Id64String[] = [];
     const otherModelIds: Id64String[] = [];
     const sql = `SELECT ECInstanceId FROM ${Model.classFullName} WHERE ParentModel.Id=:parentModelId ORDER BY ECInstanceId`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      (statement: ECSqlStatement): void => {
-        statement.bindId("parentModelId", parentModelId);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const modelId: Id64String = statement.getValue(0).getId();
-          const model: Model = this.sourceDb.models.getModel(modelId);
-          if (model instanceof DefinitionModel) {
-            definitionModelIds.push(modelId);
-          } else {
-            otherModelIds.push(modelId);
-          }
-        }
+    const params = new QueryBinder().bindId("parentModelId", parentModelId);
+    for await (const row of this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    })) {
+      const modelId: Id64String = row.id;
+      const model: Model = this.sourceDb.models.getModel(modelId);
+      if (model instanceof DefinitionModel) {
+        definitionModelIds.push(modelId);
+      } else {
+        otherModelIds.push(modelId);
       }
-    );
+    }
     // export DefinitionModels before other types of Models
     for (const definitionModelId of definitionModelIds) {
       await this.exportModel(definitionModelId);
@@ -800,7 +819,7 @@ export class IModelExporter {
    * This considers the standard IModelExporter exclusion rules plus calls [IModelExportHandler.shouldExportElement]($transformer) for any custom exclusion rules.
    * @note This method is called from within [[exportChanges]] and [[exportAll]], so usually does not need to be called directly.
    */
-  public shouldExportElement(element: Element): boolean {
+  public async shouldExportElement(element: Element): Promise<boolean> {
     if (this._excludedElementIds.has(element.id)) {
       Logger.logInfo(loggerCategory, `Excluded element ${element.id} by Id`);
       return false;
@@ -852,7 +871,7 @@ export class IModelExporter {
     // Return early if the elementId is already in the excludedElementIds, that way we don't need to load the element from the db.
     if (this._excludedElementIds.has(elementId)) {
       Logger.logInfo(loggerCategory, `Excluded element ${elementId} by Id`);
-      this.handler.onSkipElement(elementId);
+      await this.handler.onSkipElement(elementId);
       return;
     }
 
@@ -875,16 +894,16 @@ export class IModelExporter {
       }, "${element.getDisplayLabel()}")${this.getChangeOpSuffix(isUpdate)}`
     );
     // the order and `await`ing of calls beyond here is depended upon by the IModelTransformer for a current bug workaround
-    if (this.shouldExportElement(element)) {
+    if (await this.shouldExportElement(element)) {
       await this.handler.preExportElement(element);
-      this.handler.onExportElement(element, isUpdate);
+      await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
       await this._exportElementAspectsStrategy.exportElementAspectsForElement(
         elementId
       );
       return this.exportChildElements(elementId);
     } else {
-      this.handler.onSkipElement(element.id);
+      await this.handler.onSkipElement(element.id);
     }
   }
 
@@ -932,25 +951,18 @@ export class IModelExporter {
       loggerCategory,
       `exportRelationships(${baseRelClassFullName})`
     );
-    const sql = `SELECT r.ECInstanceId, r.ECClassId FROM ${baseRelClassFullName} r
+    const sql = `SELECT r.ECInstanceId, ec_className(r.ECClassId, 's.c') as className FROM ${baseRelClassFullName} r
                   JOIN bis.Element s ON s.ECInstanceId = r.SourceECInstanceId
                   JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                   WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    await this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      async (statement: ECSqlStatement): Promise<void> => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const relationshipId = statement.getValue(0).getId();
-          const relationshipClass = statement
-            .getValue(1)
-            .getClassNameForClassId();
-          await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
-          await this._yieldManager.allowYield();
-        }
-      }
-    );
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      const relationshipId = row.id;
+      const relationshipClass = row.className;
+      await this.exportRelationship(relationshipClass, relationshipId); // must call exportRelationship using the actual classFullName, not baseRelClassFullName
+      await this._yieldManager.allowYield();
+    }
   }
 
   /** Export a relationship from the source iModel. */
@@ -997,8 +1009,8 @@ export class IModelExporter {
       }
     }
     // relationship has passed standard exclusion rules, now give handler a chance to accept/reject export
-    if (this.handler.shouldExportRelationship(relationship)) {
-      this.handler.onExportRelationship(relationship, isUpdate);
+    if (await this.handler.shouldExportRelationship(relationship)) {
+      await this.handler.onExportRelationship(relationship, isUpdate);
       await this.trackProgress();
     }
   }
@@ -1093,7 +1105,9 @@ export class ChangedInstanceIds {
       baseClass: string
     ) => {
       for await (const row of this._db.createQueryReader(
-        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`
+        `SELECT ECInstanceId FROM ECDbMeta.ECClassDef where ECInstanceId IS (${baseClass})`,
+        undefined,
+        { usePrimaryConn: true }
       )) {
         setToModify.add(row.ECInstanceId);
       }
@@ -1170,6 +1184,7 @@ export class ChangedInstanceIds {
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
    * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
    */
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   public async addChange(change: ChangedECInstance): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
@@ -1300,7 +1315,9 @@ export class ChangedInstanceIds {
         SELECT parentId FROM hierarchy where parentId is not null
     `;
     const parentModelIds = new Set<Id64String>();
-    for await (const row of this._db.createQueryReader(ecQuery, params)) {
+    for await (const row of this._db.createQueryReader(ecQuery, params, {
+      usePrimaryConn: true,
+    })) {
       // Transformer handles update as insert when element does not exist in target.
       // Which means that in scenario where child and parent model are filtered out from target,
       // and child element is inserted trough custom change, its parent model will be marked as updated.
@@ -1323,7 +1340,9 @@ export class ChangedInstanceIds {
         OR InVirtualSet(:elementIds, SourceECInstanceId)`;
 
     const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
-    const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+    const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
+      usePrimaryConn: true,
+    });
 
     for await (const row of queryReader) {
       this.handleChange(this.relationship, "Inserted", row.ECInstanceId);
@@ -1337,7 +1356,9 @@ export class ChangedInstanceIds {
     ]) {
       const ecQuery = `Select ECInstanceId from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
       const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
-      const queryReader = this._db.createQueryReader(ecQuery, queryBinder);
+      const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
+        usePrimaryConn: true,
+      });
       for await (const row of queryReader) {
         this.addCustomAspectChange("Inserted", row.toArray()[0]);
       }
@@ -1388,7 +1409,7 @@ export class ChangedInstanceIds {
             [
               startChangeset.index ??
                 (
-                  await IModelHost.hubAccess.queryChangeset({
+                  await BriefcaseManager.queryChangeset({
                     iModelId,
                     changeset: {
                       id: startChangeset.id ?? opts.iModel.changeset.id,
@@ -1397,7 +1418,7 @@ export class ChangedInstanceIds {
                 ).index,
               opts.iModel.changeset.index ??
                 (
-                  await IModelHost.hubAccess.queryChangeset({
+                  await BriefcaseManager.queryChangeset({
                     iModelId,
                     changeset: { id: opts.iModel.changeset.id },
                   })
@@ -1412,7 +1433,7 @@ export class ChangedInstanceIds {
         ? (
             await Promise.all(
               changesetRanges.map(async ([first, end]) =>
-                IModelHost.hubAccess.downloadChangesets({
+                BriefcaseManager.downloadChangesets({
                   iModelId,
                   range: { first, end },
                   targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
@@ -1434,11 +1455,14 @@ export class ChangedInstanceIds {
         db: opts.iModel,
         disableSchemaCheck: true,
       });
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const csAdaptor = new ChangesetECAdaptor(csReader);
-      const ecChangeUnifier = new PartialECChangeUnifier();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
       while (csAdaptor.step()) {
         ecChangeUnifier.appendFrom(csAdaptor);
       }
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
 
       for (const change of changes) {

@@ -9,7 +9,6 @@ import {
   ExternalSourceAspect,
   ExternalSourceIsInRepository,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   RepositoryLink,
@@ -26,7 +25,6 @@ import {
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import {
-  BriefcaseIdValue,
   Code,
   ExternalSourceProps,
   RepositoryLinkProps,
@@ -145,6 +143,7 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
           masterDb = initProvenanceArgs.master as StandaloneDb;
           forkDb = initProvenanceArgs.branch as StandaloneDb;
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           forkDb.saveChanges();
 
           // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
@@ -213,6 +212,7 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             master: masterDb,
             branch: forkDb,
           });
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           forkDb.saveChanges();
 
           // Save off the classicalTransformerBranchInit result and db for later comparison with the branchProvenance result and db.
@@ -296,11 +296,13 @@ function setupIModel(): [
   const generatedIModel = StandaloneDb.createEmpty(sourcePath, {
     rootSubject: { name: sourceFileName },
   });
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const physModelId = PhysicalModel.insert(
     generatedIModel,
     IModelDb.rootSubjectId,
     "physical model"
   );
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   const categoryId = SpatialCategory.insert(
     generatedIModel,
     IModelDb.dictionaryId,
@@ -329,6 +331,7 @@ function setupIModel(): [
           federationGuid: sourceFedGuid,
         },
         generatedIModel
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
       ).insert();
 
       const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
@@ -339,8 +342,10 @@ function setupIModel(): [
           federationGuid: targetFedGuid,
         },
         generatedIModel
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
       ).insert();
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       generatedIModel.saveChanges();
 
       sourceTargetFedGuidToElemIds.set(
@@ -357,7 +362,9 @@ function setupIModel(): [
         },
         generatedIModel
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       rel.insert();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       generatedIModel.saveChanges();
       generatedIModel.performCheckpoint();
     }
@@ -383,6 +390,7 @@ async function classicalTransformerBranchInit(
       repositoryGuid: args.master.iModelId,
       description: args.masterDescription,
     })
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     .insert();
 
   const masterExternalSourceId = args.branch
@@ -391,11 +399,12 @@ async function classicalTransformerBranchInit(
       model: IModelDb.rootSubjectId,
       code: Code.createEmpty(),
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorName: require("../../../../package.json").name,
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorVersion: require("../../../../package.json").version,
     })
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     .insert();
 
   // initialize the branch provenance
@@ -410,6 +419,7 @@ async function classicalTransformerBranchInit(
   await branchInitializer.process();
   // save+push our changes to whatever hub we're using
   const description = "initialized branch iModel";
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   args.branch.saveChanges(description);
 
   branchInitializer.dispose();
@@ -422,14 +432,5 @@ async function classicalTransformerBranchInit(
 }
 
 function setToStandalone(iModelName: string) {
-  // eslint-disable-next-line deprecation/deprecation
-  const nativeDb = new IModelHost.platform.DgnDb();
-  nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
-  nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-  nativeDb.saveChanges(); // save change to iTwinId
-  nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-  nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-  nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
-  nativeDb.saveChanges(); // save change to briefcaseId
-  nativeDb.closeFile();
+  StandaloneDb.convertToStandalone(iModelName);
 }

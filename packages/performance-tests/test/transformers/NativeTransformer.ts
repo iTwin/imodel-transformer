@@ -33,11 +33,13 @@ class ProgressTransformer extends IModelTransformer {
     if (this._count % 1000 === 0)
       Logger.logInfo(loggerCategory, `exported ${this._count} entities`);
   }
-  public override onExportElement(sourceElement: Element): void {
+  public override async onExportElement(sourceElement: Element): Promise<void> {
     this._increment();
     return super.onExportElement(sourceElement);
   }
-  public override onExportRelationship(sourceRelationship: Relationship): void {
+  public override async onExportRelationship(
+    sourceRelationship: Relationship
+  ): Promise<void> {
     this._increment();
     return super.onExportRelationship(sourceRelationship);
   }
@@ -62,6 +64,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
     targetDb: IModelDb
   ): Promise<TransformRunner> {
     // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const masterLinkRepoId = targetDb.elements.insertElement({
       classFullName: RepositoryLink.classFullName,
       code: RepositoryLink.createCode(
@@ -76,13 +79,14 @@ const nativeTransformerTestModule: TestTransformerModule = {
       description: "master iModel repository",
     } as RepositoryLinkProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const masterExternalSourceId = targetDb.elements.insertElement({
       classFullName: ExternalSource.classFullName,
       model: IModelDb.rootSubjectId,
       code: Code.createEmpty(),
       repository: new ExternalSourceIsInRepository(masterLinkRepoId),
       connectorName: "iModel Transformer",
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       connectorVersion: require("@itwin/imodel-transformer/package.json")
         .version,
     } as ExternalSourceProps);

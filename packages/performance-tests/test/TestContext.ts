@@ -8,12 +8,12 @@ import {
   IModelHost,
   RequestNewBriefcaseArg,
 } from "@itwin/core-backend";
+// eslint-disable-next-line @itwin/no-internal
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import { Logger } from "@itwin/core-bentley";
 import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
-import {
-  AccessTokenAdapter,
-  BackendIModelsAccess,
-} from "@itwin/imodels-access-backend";
+import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
+import { AccessTokenAdapter } from "@itwin/imodels-access-common";
 import assert from "assert";
 import { generateTestIModel } from "./iModelUtils";
 
@@ -43,16 +43,20 @@ export function getTShirtSizeFromName(name: string): TShirtSize {
 
 export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
   assert(IModelHost.authorizationClient !== undefined);
-  // eslint-disable-next-line @typescript-eslint/dot-notation, @itwin/no-internal
-  const hubClient = (IModelHost.hubAccess as BackendIModelsAccess)[
+  const hubClient = (IModelHost[_hubAccess] as BackendIModelsAccess)[
     "_iModelsClient"
   ];
 
   for (const iTwinId of testITwinIds) {
     const iModels = hubClient.iModels.getMinimalList({
-      authorization: AccessTokenAdapter.toAuthorizationCallback(
-        await IModelHost.authorizationClient.getAccessToken()
-      ),
+      authorization: AccessTokenAdapter.toAuthorizationCallback(async () => {
+        const authClient = IModelHost.authorizationClient;
+        if (!authClient) {
+          throw new Error("Authorization client is not initialized");
+        }
+        const authTok = await authClient.getAccessToken();
+        return authTok;
+      }),
       urlParams: { iTwinId },
     });
 
@@ -93,8 +97,7 @@ export async function downloadBriefcase(
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
   const asOf = briefcaseArg.asOf ?? IModelVersion.latest().toJSON();
-  // eslint-disable-next-line @itwin/no-internal
-  const changeset = await IModelHost.hubAccess.getChangesetFromVersion({
+  const changeset = await IModelHost[_hubAccess].getChangesetFromVersion({
     ...briefcaseArg,
     version: IModelVersion.fromJSON(asOf),
   });

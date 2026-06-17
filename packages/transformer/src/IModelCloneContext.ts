@@ -6,18 +6,17 @@
  * @module iModels
  */
 import * as assert from "assert";
-import { DbResult, Id64, Id64String, Logger } from "@itwin/core-bentley";
+import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,
   CodeScopeSpec,
   ConcreteEntityTypes,
+  ECJsNames,
   ElementAspectProps,
   ElementProps,
   EntityReference,
   IModel,
-  IModelError,
-  PrimitiveTypeCode,
-  PropertyMetaData,
+  QueryBinder,
   RelatedElement,
   RelatedElementProps,
 } from "@itwin/core-common";
@@ -32,6 +31,7 @@ import {
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -50,25 +50,24 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public override cloneElement(
+  public override async cloneElement(
     sourceElement: Element,
     cloneOptions?: IModelJsNative.CloneElementOptions
-  ): ElementProps {
+  ): Promise<ElementProps> {
     const targetElementProps: ElementProps = this[
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
-    sourceElement.forEachProperty(
-      (propertyName: string, meta: PropertyMetaData) => {
-        if (
-          meta.isNavigation &&
-          undefined === (sourceElement as any)[propertyName]
-        ) {
-          (targetElementProps as any)[propertyName] = RelatedElement.none;
-        }
-      },
-      false
-    ); // exclude custom because C++ has already handled them
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    sourceElement.forEach((name: string, property: Property) => {
+      if (
+        property.isNavigation() &&
+        undefined === (sourceElement as any)[ECJsNames.toJsName(name)]
+      ) {
+        (targetElementProps as any)[ECJsNames.toJsName(name)] =
+          RelatedElement.none;
+      }
+    }, false); // exclude custom because C++ has already handled them
     if (this.isBetweenIModels) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is between iModels
       targetElementProps.federationGuid = sourceElement.federationGuid;
@@ -96,7 +95,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
     const jsClass = this.sourceDb.getJsClass<typeof Element>(
       sourceElement.classFullName
     );
-    jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
+    await jsClass["onCloned"](this, sourceElement.toJSON(), targetElementProps);
     return targetElementProps;
   }
 
@@ -123,7 +122,9 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Look up a target [EntityReference]($bentley) from a source [EntityReference]($bentley)
    * @returns the target CodeSpecId or a [EntityReference]($bentley) containing [Id64.invalid]($bentley) if a mapping is not found.
    */
-  public findTargetEntityId(sourceEntityId: EntityReference): EntityReference {
+  public async findTargetEntityId(
+    sourceEntityId: EntityReference
+  ): Promise<EntityReference> {
     const [type, rawId] = EntityReferences.split(sourceEntityId);
     if (Id64.isValid(rawId)) {
       switch (type) {
@@ -146,7 +147,9 @@ export class IModelCloneContext extends IModelElementCloneContext {
           // Check if the model exists, `findTargetElementId` may have worked because the element exists when the model doesn't.
           // That can occur in the transformer since a submodeled element is imported before its submodel.
           if (
-            EntityUnifier.exists(this.targetDb, { entityReference: targetId })
+            await EntityUnifier.exists(this.targetDb, {
+              entityReference: targetId,
+            })
           )
             return targetId;
           break;
@@ -171,9 +174,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
               ELSE 'error'
             END
           `;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-          const relInSource = this.sourceDb.withPreparedStatement(
-            `
+          const sql = `
             SELECT
               SourceECInstanceId,
               TargetECInstanceId,
@@ -183,31 +184,30 @@ export class IModelCloneContext extends IModelElementCloneContext {
               (${makeGetConcreteEntityTypeSql("TargetECClassId")}) AS TargetType
             FROM BisCore:ElementRefersToElements
             WHERE ECInstanceId=?
-            `,
-            (stmt) => {
-              stmt.bindId(1, rawId);
-              let status: DbResult;
-              while ((status = stmt.step()) === DbResult.BE_SQLITE_ROW) {
-                const sourceId = stmt.getValue(0).getId();
-                const targetId = stmt.getValue(1).getId();
-                const sourceType = stmt.getValue(2).getString() as
-                  | ConcreteEntityTypes
-                  | "error";
-                const targetType = stmt.getValue(3).getString() as
-                  | ConcreteEntityTypes
-                  | "error";
-                if (sourceType === "error" || targetType === "error")
-                  throw Error("relationship end had unknown root class");
-                return {
-                  sourceId: `${sourceType}${sourceId}`,
-                  targetId: `${targetType}${targetId}`,
-                } as const;
-              }
-              if (status !== DbResult.BE_SQLITE_DONE)
-                throw new IModelError(status, "unexpected query failure");
-              return undefined;
+            `;
+          const params = new QueryBinder().bindId(1, rawId);
+          const reader = this.sourceDb.createQueryReader(sql, params, {
+            usePrimaryConn: true,
+          });
+          const relInSource = await (async () => {
+            if (await reader.step()) {
+              const sourceId = reader.current[0];
+              const targetId = reader.current[1];
+              const sourceType = reader.current[2] as
+                | ConcreteEntityTypes
+                | "error";
+              const targetType = reader.current[3] as
+                | ConcreteEntityTypes
+                | "error";
+              if (sourceType === "error" || targetType === "error")
+                throw Error("relationship end had unknown root class");
+              return {
+                sourceId: `${sourceType}${sourceId}`,
+                targetId: `${targetType}${targetId}`,
+              } as const;
             }
-          );
+            return undefined;
+          })();
           if (relInSource === undefined) break;
           // just in case prevent recursion
           if (
@@ -218,8 +218,8 @@ export class IModelCloneContext extends IModelElementCloneContext {
               "link table relationship end was resolved to itself. This should be impossible"
             );
           const relInTarget = {
-            sourceId: this.findTargetEntityId(relInSource.sourceId),
-            targetId: this.findTargetEntityId(relInSource.targetId),
+            sourceId: await this.findTargetEntityId(relInSource.sourceId),
+            targetId: await this.findTargetEntityId(relInSource.targetId),
           };
           // return a null
           if (
@@ -227,25 +227,29 @@ export class IModelCloneContext extends IModelElementCloneContext {
             !EntityReferences.isValid(relInTarget.targetId)
           )
             break;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-          const relInTargetId = this.targetDb.withPreparedStatement(
-            `
+          const relInTargetSql = `
             SELECT ECInstanceId
             FROM BisCore:ElementRefersToElements
             WHERE SourceECInstanceId=?
               AND TargetECInstanceId=?
-            `,
-            (stmt) => {
-              stmt.bindId(1, EntityReferences.toId64(relInTarget.sourceId));
-              stmt.bindId(2, EntityReferences.toId64(relInTarget.targetId));
-              const status: DbResult = stmt.step();
-              if (status === DbResult.BE_SQLITE_ROW)
-                return stmt.getValue(0).getId();
-              if (status !== DbResult.BE_SQLITE_DONE)
-                throw new IModelError(status, "unexpected query failure");
-              return Id64.invalid;
-            }
+            `;
+          const relInTargetParams = new QueryBinder();
+          relInTargetParams.bindId(
+            1,
+            EntityReferences.toId64(relInTarget.sourceId)
           );
+          relInTargetParams.bindId(
+            2,
+            EntityReferences.toId64(relInTarget.targetId)
+          );
+          const relInTargetResult = await this.targetDb
+            .createQueryReader(relInTargetSql, relInTargetParams, {
+              usePrimaryConn: true,
+            })
+            .next();
+          const relInTargetId = relInTargetResult.done
+            ? Id64.invalid
+            : relInTargetResult.value.id;
           return `r${relInTargetId}`;
         }
       }
@@ -256,44 +260,51 @@ export class IModelCloneContext extends IModelElementCloneContext {
   /** Clone the specified source Element into ElementProps for the target iModel.
    * @internal
    */
-  public cloneElementAspect(
+  public async cloneElementAspect(
     sourceElementAspect: ElementAspect
-  ): ElementAspectProps {
+  ): Promise<ElementAspectProps> {
     const targetElementAspectProps: ElementAspectProps =
       sourceElementAspect.toJSON();
     targetElementAspectProps.id = undefined;
-    sourceElementAspect.forEachProperty((propertyName, propertyMetaData) => {
-      if (propertyMetaData.isNavigation) {
+    const targetEntityIds: Promise<void>[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    sourceElementAspect.forEach((ecName, property) => {
+      const name = ECJsNames.toJsName(ecName);
+      if (property.isNavigation()) {
         const sourceNavProp: RelatedElementProps | undefined =
-          sourceElementAspect.asAny[propertyName];
+          sourceElementAspect.asAny[name];
         if (sourceNavProp?.id) {
           const navPropRefType = this._refTypesCache.getNavPropRefType(
             sourceElementAspect.schemaName,
             sourceElementAspect.className,
-            propertyName
+            name
           );
           assert(
             navPropRefType !== undefined,
-            `nav prop ref type for '${propertyName}' was not in the cache, this is a bug.`
+            `nav prop ref type for '${name}' was not in the cache, this is a bug.`
           );
-          const targetEntityReference = this.findTargetEntityId(
-            EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType)
+          targetEntityIds.push(
+            this.findTargetEntityId(
+              EntityReferences.fromEntityType(sourceNavProp.id, navPropRefType)
+            ).then((targetEntityReference) => {
+              const targetEntityId = EntityReferences.toId64(
+                targetEntityReference
+              );
+              // spread the property in case toJSON did not deep-clone
+              (targetElementAspectProps as any)[name] = {
+                ...(targetElementAspectProps as any)[name],
+                id: targetEntityId,
+              };
+            })
           );
-          const targetEntityId = EntityReferences.toId64(targetEntityReference);
-          // spread the property in case toJSON did not deep-clone
-          (targetElementAspectProps as any)[propertyName] = {
-            ...(targetElementAspectProps as any)[propertyName],
-            id: targetEntityId,
-          };
         }
-      } else if (
-        PrimitiveTypeCode.Long === propertyMetaData.primitiveType &&
-        "Id" === propertyMetaData.extendedType
-      ) {
-        (targetElementAspectProps as any)[propertyName] =
-          this.findTargetElementId(sourceElementAspect.asAny[propertyName]);
+      } else if (property.isPrimitive() && "Id" === property.extendedTypeName) {
+        (targetElementAspectProps as any)[name] = this.findTargetElementId(
+          sourceElementAspect.asAny[name]
+        );
       }
     });
+    await Promise.all(targetEntityIds);
     return targetElementAspectProps;
   }
 }

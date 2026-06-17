@@ -17,7 +17,7 @@ import {
   IModelHost,
   IModelHostConfiguration,
 } from "@itwin/core-backend";
-import { DbResult, Logger, LogLevel } from "@itwin/core-bentley";
+import { Logger, LogLevel } from "@itwin/core-bentley";
 import { IModelsClient } from "@itwin/imodels-client-authoring";
 import { NodeCliAuthorizationClient } from "@itwin/node-cli-authorization";
 import { Reporter } from "@itwin/perf-tools";
@@ -25,6 +25,10 @@ import { ReporterInfo } from "./ReporterUtils";
 import { TestBrowserAuthorizationClient } from "@itwin/oidc-signin-tool";
 import { TestTransformerModule } from "./TestTransformerModule";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
+import {
+  AzureClientStorage,
+  BlockBlobClientWrapperFactory,
+} from "@itwin/object-storage-azure";
 import {
   filterIModels,
   initOutputFile,
@@ -142,8 +146,8 @@ const setupTestData = async () => {
     api: {
       baseUrl: `https://${process.env.IMJS_URL_PREFIX}api.bentley.com/imodels`,
     },
+    cloudStorage: new AzureClientStorage(new BlockBlobClientWrapperFactory()),
   });
-  // eslint-disable-next-line @itwin/no-internal
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 
@@ -176,20 +180,14 @@ async function runRegressionTests() {
             fileName: sourceFileName,
             readonly: true,
           });
-          // eslint-disable-next-line deprecation/deprecation
-          const fedGuidSaturation = sourceDb.withStatement(
-            `
-            SELECT
-            CAST(SUM(hasGuid) AS DOUBLE)/COUNT(*) ratio 
-            FROM (
-              SELECT IIF(FederationGuid IS NOT NULL, 1, 0) AS hasGuid,
-              1 AS [total] FROM bis.Element
-            )`,
-            (stmt) => {
-              assert(stmt.step() === DbResult.BE_SQLITE_ROW);
-              return stmt.getValue(0).getDouble();
-            }
+          const fedGuidReader = sourceDb.createQueryReader(
+            "SELECT CAST(SUM(IIF(FederationGuid IS NOT NULL, 1, 0)) AS DOUBLE)/COUNT(*) AS ratio FROM bis.Element",
+            undefined,
+            { usePrimaryConn: true }
           );
+          const fedGuidSaturation = (await fedGuidReader.step())
+            ? (fedGuidReader.current[0] as number)
+            : 0;
           Logger.logInfo(
             loggerCategory,
             `Federation Guid Saturation '${fedGuidSaturation}'`

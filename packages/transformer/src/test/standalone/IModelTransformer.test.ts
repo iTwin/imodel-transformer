@@ -17,7 +17,6 @@ import {
   DrawingCategory,
   DrawingGraphic,
   DrawingModel,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementMultiAspect,
@@ -35,7 +34,6 @@ import {
   Graphic3d,
   IModelDb,
   IModelElementCloneContext,
-  IModelHost,
   IModelJsFs,
   InformationRecordModel,
   InformationRecordPartition,
@@ -76,7 +74,6 @@ import {
 } from "@itwin/core-bentley";
 import {
   AxisAlignedBox3d,
-  BriefcaseIdValue,
   Code,
   CodeScopeSpec,
   CodeSpec,
@@ -100,6 +97,7 @@ import {
   PhysicalElementProps,
   Placement3d,
   ProfileOptions,
+  QueryBinder,
   QueryRowFormat,
   RelatedElement,
   RelationshipProps,
@@ -168,7 +166,8 @@ describe("IModelTransformer", () => {
           createClassViews: true,
         });
         await TransformerExtensiveTestScenario.prepareDb(db);
-        TransformerExtensiveTestScenario.populateDb(db);
+        await TransformerExtensiveTestScenario.populateDb(db);
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         db.saveChanges();
         return db;
       })());
@@ -225,17 +224,18 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "TestIModelTransformer-Target" },
     });
     await TransformerExtensiveTestScenario.prepareTargetDb(targetDb);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
-    const numSourceUniqueAspects = count(
+    const numSourceUniqueAspects = await count(
       sourceDb,
       ElementUniqueAspect.classFullName
     );
-    const numSourceMultiAspects = count(
+    const numSourceMultiAspects = await count(
       sourceDb,
       ElementMultiAspect.classFullName
     );
-    const numSourceRelationships = count(
+    const numSourceRelationships = await count(
       sourceDb,
       ElementRefersToElements.classFullName
     );
@@ -258,11 +258,17 @@ describe("IModelTransformer", () => {
         "=============="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
-        forceExternalSourceAspectProvenance: true,
-      });
+      const transformer = await TestIModelTransformer.create(
+        sourceDb,
+        targetImporter,
+        {
+          forceExternalSourceAspectProvenance: true,
+        }
+      );
       assert.isTrue(transformer.context.isBetweenIModels);
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      targetDb.saveChanges();
       assert.isAtLeast(targetImporter.numModelsInserted, 1);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.isAtLeast(targetImporter.numElementsInserted, 1);
@@ -273,33 +279,35 @@ describe("IModelTransformer", () => {
       assert.isAtLeast(targetImporter.numRelationshipsInserted, 1);
       assert.equal(targetImporter.numRelationshipsUpdated, 0);
       assert.isAtLeast(
-        count(targetDb, ElementRefersToElements.classFullName),
+        await count(targetDb, ElementRefersToElements.classFullName),
         1
       );
       assert.isAtLeast(
-        count(targetDb, InformationRecordPartition.classFullName),
+        await count(targetDb, InformationRecordPartition.classFullName),
         1
       );
       assert.isAtLeast(
-        count(targetDb, InformationRecordModel.classFullName),
+        await count(targetDb, InformationRecordModel.classFullName),
         1
       );
       assert.isAtLeast(
-        count(
+        await count(
           targetDb,
           "ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords"
         ),
         1
       );
       assert.isAtLeast(
-        count(targetDb, "ExtensiveTestScenarioTarget:AuditRecord"),
+        await count(targetDb, "ExtensiveTestScenarioTarget:AuditRecord"),
         1
       );
       assert.equal(
         3,
-        count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
+        await count(
+          targetDb,
+          "ExtensiveTestScenarioTarget:TargetInformationRecord"
+        )
       );
-      targetDb.saveChanges();
       TransformerExtensiveTestScenario.assertTargetDbContents(
         sourceDb,
         targetDb,
@@ -309,20 +317,20 @@ describe("IModelTransformer", () => {
       transformer.dispose();
     }
 
-    const numTargetElements = count(targetDb, Element.classFullName);
-    const numTargetUniqueAspects = count(
+    const numTargetElements = await count(targetDb, Element.classFullName);
+    const numTargetUniqueAspects = await count(
       targetDb,
       ElementUniqueAspect.classFullName
     );
-    const numTargetMultiAspects = count(
+    const numTargetMultiAspects = await count(
       targetDb,
       ElementMultiAspect.classFullName
     );
-    const numTargetExternalSourceAspects = count(
+    const numTargetExternalSourceAspects = await count(
       targetDb,
       ExternalSourceAspect.classFullName
     );
-    const numTargetRelationships = count(
+    const numTargetRelationships = await count(
       targetDb,
       ElementRefersToElements.classFullName
     );
@@ -372,9 +380,13 @@ describe("IModelTransformer", () => {
         "================="
       );
       const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
-        forceExternalSourceAspectProvenance: true,
-      });
+      const transformer = await TestIModelTransformer.create(
+        sourceDb,
+        targetImporter,
+        {
+          forceExternalSourceAspectProvenance: true,
+        }
+      );
       await transformer.process();
       assert.equal(targetImporter.numModelsInserted, 0);
       assert.equal(targetImporter.numModelsUpdated, 0);
@@ -390,80 +402,25 @@ describe("IModelTransformer", () => {
       // assert.equal(numTargetElements, count(targetDb, Element.classFullName), "Second import should not add elements");
       assert.equal(
         numTargetExternalSourceAspects,
-        count(targetDb, ExternalSourceAspect.classFullName),
+        await count(targetDb, ExternalSourceAspect.classFullName),
         "Second import should not add aspects"
       );
       assert.equal(
         numTargetRelationships,
-        count(targetDb, ElementRefersToElements.classFullName),
+        await count(targetDb, ElementRefersToElements.classFullName),
         "Second import should not add relationships"
       );
       assert.equal(
         3,
-        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
+        await count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
       );
       assert.equal(
         3,
-        count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
+        await count(
+          targetDb,
+          "ExtensiveTestScenarioTarget:TargetInformationRecord"
+        )
       );
-      transformer.dispose();
-    }
-
-    if (true) {
-      // update source db, then import again
-      TransformerExtensiveTestScenario.updateDb(sourceDb);
-      sourceDb.saveChanges();
-      Logger.logInfo(TransformerLoggerCategory.IModelTransformer, "");
-      Logger.logInfo(
-        TransformerLoggerCategory.IModelTransformer,
-        "==============================="
-      );
-      Logger.logInfo(
-        TransformerLoggerCategory.IModelTransformer,
-        "Reimport after sourceDb update"
-      );
-      Logger.logInfo(
-        TransformerLoggerCategory.IModelTransformer,
-        "==============================="
-      );
-      const targetImporter = new RecordingIModelImporter(targetDb);
-      const transformer = new TestIModelTransformer(sourceDb, targetImporter, {
-        forceExternalSourceAspectProvenance: true,
-      });
-      await transformer.process();
-      assert.equal(targetImporter.numModelsInserted, 0);
-      assert.equal(targetImporter.numModelsUpdated, 0);
-      assert.equal(targetImporter.numElementsInserted, 1);
-      assert.equal(targetImporter.numElementsUpdated, 33);
-      /**
-       * There are 5 elements deleted in TransformerExtensiveTestScenario.updateDb, but only 4 detected.
-       * This is because PhysicalObject6's code is scoped to PhysicalObject5. When PhysicalObject5 is deleted, PhysicalObject6 is also deleted in the superclasses
-       * of the RecordingIModelImporter and therefore can't be detected by the RecordingIModelImporter.
-       * The deletion of PhysicalObject6 is asserted in [[TransformerExtensiveTestScenario.assertUpdatesInDb]] when assertDeletes is true.
-       */
-      assert.equal(targetImporter.numElementsExplicitlyDeleted, 4);
-      assert.equal(targetImporter.numElementAspectsInserted, 0);
-      assert.equal(targetImporter.numElementAspectsUpdated, 2);
-      assert.equal(targetImporter.numRelationshipsInserted, 2);
-      assert.equal(targetImporter.numRelationshipsUpdated, 1);
-
-      assert.equal(targetImporter.numRelationshipsDeleted, 1);
-      targetDb.saveChanges();
-      TransformerExtensiveTestScenario.assertUpdatesInDb(targetDb, true);
-
-      assert.equal(
-        numTargetRelationships +
-          targetImporter.numRelationshipsInserted -
-          targetImporter.numRelationshipsDeleted,
-        count(targetDb, ElementRefersToElements.classFullName)
-      );
-      // We deleted one of the 3 SourceInformationRecords in TransformerExtensiveTestScenario.updateDb, so expect to find 2 now.
-      expect(
-        count(targetDb, "ExtensiveTestScenarioTarget:TargetInformationRecord")
-      ).to.equal(2);
-      expect(
-        count(sourceDb, "ExtensiveTestScenario:SourceInformationRecord")
-      ).to.equal(2);
       transformer.dispose();
     }
 
@@ -491,19 +448,22 @@ describe("IModelTransformer", () => {
       createClassViews: true,
     });
 
-    const numMasterElements = count(masterDb, Element.classFullName);
-    const numMasterRelationships = count(
+    const numMasterElements = await count(masterDb, Element.classFullName);
+    const numMasterRelationships = await count(
       masterDb,
       ElementRefersToElements.classFullName
     );
     assert.isAtLeast(numMasterElements, 12);
     assert.isAtLeast(numMasterRelationships, 1);
-    assert.equal(numMasterElements, count(branchDb, Element.classFullName));
+    assert.equal(
+      numMasterElements,
+      await count(branchDb, Element.classFullName)
+    );
     assert.equal(
       numMasterRelationships,
-      count(branchDb, ElementRefersToElements.classFullName)
+      await count(branchDb, ElementRefersToElements.classFullName)
     );
-    assert.equal(0, count(branchDb, ExternalSourceAspect.classFullName));
+    assert.equal(0, await count(branchDb, ExternalSourceAspect.classFullName));
 
     // Ensure that master to branch synchronization did not add any new Elements or Relationships, but did add ExternalSourceAspects
     const masterToBranchTransformer = new IModelTransformer(
@@ -513,33 +473,38 @@ describe("IModelTransformer", () => {
     ); // Note use of `wasSourceIModelCopiedToTarget` flag
     await masterToBranchTransformer.process();
     masterToBranchTransformer.dispose();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     branchDb.saveChanges();
-    assert.equal(numMasterElements, count(branchDb, Element.classFullName));
+    assert.equal(
+      numMasterElements,
+      await count(branchDb, Element.classFullName)
+    );
     assert.equal(
       numMasterRelationships,
-      count(branchDb, ElementRefersToElements.classFullName)
+      await count(branchDb, ElementRefersToElements.classFullName)
     );
-    assert.equal(count(branchDb, ExternalSourceAspect.classFullName), 1); // provenance aspect added for target scope element
+    assert.equal(await count(branchDb, ExternalSourceAspect.classFullName), 1); // provenance aspect added for target scope element
 
     // Confirm that provenance (captured in ExternalSourceAspects) was set correctly
     const sql = `SELECT aspect.Identifier,aspect.Element.Id FROM ${ExternalSourceAspect.classFullName} aspect WHERE aspect.Kind=:kind`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    branchDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      statement.bindString("kind", ExternalSourceAspect.Kind.Element);
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        const masterElementId = statement.getValue(0).getString(); // ExternalSourceAspect.Identifier is of type string
-        const branchElementId = statement.getValue(1).getId();
-        assert.equal(masterElementId, branchElementId);
-      }
-    });
+    const params = new QueryBinder().bindString(
+      "kind",
+      ExternalSourceAspect.Kind.Element
+    );
+    for await (const row of branchDb.createQueryReader(sql, params)) {
+      const masterElementId = row[0];
+      const branchElementId = row[1];
+      assert.equal(masterElementId, branchElementId);
+    }
 
     // Make changes to simulate working on the branch
     TransformerExtensiveTestScenario.updateDb(branchDb);
     TransformerExtensiveTestScenario.assertUpdatesInDb(branchDb);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     branchDb.saveChanges();
 
-    const numBranchElements = count(branchDb, Element.classFullName);
-    const numBranchRelationships = count(
+    const numBranchElements = await count(branchDb, Element.classFullName);
+    const numBranchRelationships = await count(
       branchDb,
       ElementRefersToElements.classFullName
     );
@@ -554,30 +519,32 @@ describe("IModelTransformer", () => {
     );
     await branchToMasterTransformer.process();
     branchToMasterTransformer.dispose();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     masterDb.saveChanges();
     TransformerExtensiveTestScenario.assertUpdatesInDb(masterDb, false);
-    assert.equal(numBranchElements, count(masterDb, Element.classFullName) - 5); // processAll cannot detect deletes when isReverseSynchronization=true
+    assert.equal(
+      numBranchElements,
+      (await count(masterDb, Element.classFullName)) - 5
+    ); // processAll cannot detect deletes when isReverseSynchronization=true
     assert.equal(
       numBranchRelationships,
-      count(masterDb, ElementRefersToElements.classFullName) - 1
+      (await count(masterDb, ElementRefersToElements.classFullName)) - 1
     ); // processAll cannot detect deletes when isReverseSynchronization=true
-    assert.equal(0, count(masterDb, ExternalSourceAspect.classFullName));
+    assert.equal(0, await count(masterDb, ExternalSourceAspect.classFullName));
 
     masterDb.close();
     branchDb.close();
   });
 
-  function count(iModelDb: IModelDb, classFullName: string): number {
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    return iModelDb.withPreparedStatement(
-      `SELECT COUNT(*) FROM ${classFullName}`,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      (statement: ECSqlStatement): number => {
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getInteger()
-          : 0;
-      }
-    );
+  async function count(
+    iModelDb: IModelDb,
+    classFullName: string
+  ): Promise<number> {
+    const sql = `SELECT COUNT(*) FROM ${classFullName}`;
+    const reader = iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    });
+    return (await reader.step()) ? reader.current[0] : 0;
   }
 
   it("should import everything below a Subject", async () => {
@@ -594,6 +561,7 @@ describe("IModelTransformer", () => {
       Subject.createCode(sourceDb, IModel.rootSubjectId, "Subject")
     )!;
     assert.isTrue(Id64.isValidId64(sourceSubjectId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
     // Target IModelDb
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -604,6 +572,7 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "TargetImportSubject" },
     });
     await TransformerExtensiveTestScenario.prepareTargetDb(targetDb);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetSubjectId = Subject.insert(
       targetDb,
       IModel.rootSubjectId,
@@ -611,15 +580,17 @@ describe("IModelTransformer", () => {
       "Target Subject Description"
     );
     assert.isTrue(Id64.isValidId64(targetSubjectId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
     // Import from beneath source Subject into target Subject
-    const transformer = new TestIModelTransformer(sourceDb, targetDb);
+    const transformer = await TestIModelTransformer.create(sourceDb, targetDb);
     await transformer.processFonts();
     await transformer.processSubject(sourceSubjectId, targetSubjectId);
     await transformer.processRelationships(
       ElementRefersToElements.classFullName
     );
     transformer.dispose();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
     TransformerExtensiveTestScenario.assertTargetDbContents(
       sourceDb,
@@ -641,7 +612,7 @@ describe("IModelTransformer", () => {
       "CompatibilityTestSeed.bim"
     );
     const sourceDb = SnapshotDb.openFile(sourceFileName);
-    const numSourceElements = count(sourceDb, Element.classFullName);
+    const numSourceElements = await count(sourceDb, Element.classFullName);
     assert.exists(sourceDb);
     assert.isAtLeast(numSourceElements, 12);
     // create target iModel
@@ -667,8 +638,10 @@ describe("IModelTransformer", () => {
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    targetDb.saveChanges();
     transformer.dispose();
-    const numTargetElements = count(targetDb, Element.classFullName);
+    const numTargetElements = await count(targetDb, Element.classFullName);
     assert.isAtLeast(numTargetElements, numSourceElements);
     assert.deepEqual(sourceDb.ecefLocation, targetDb.ecefLocation);
     // clean up
@@ -697,12 +670,14 @@ describe("IModelTransformer", () => {
         sourceRepositoryId,
         "Default Model"
       );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceCategoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "SpatialCategory",
       { color: ColorDef.green.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceModelId = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -719,6 +694,7 @@ describe("IModelTransformer", () => {
         placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
       };
       const physicalObjectId =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const aspectProps: ExternalSourceAspectProps = {
         // simulate provenance from a Connector
@@ -732,8 +708,10 @@ describe("IModelTransformer", () => {
         identifier: `ID${x}`,
         kind: ExternalSourceAspect.Kind.Element,
       };
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.elements.insertAspect(aspectProps);
     }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     // create target iModel
@@ -750,10 +728,11 @@ describe("IModelTransformer", () => {
       includeSourceProvenance: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // verify target contents
-    assert.equal(1, count(sourceDb, RepositoryLink.classFullName));
+    assert.equal(1, await count(sourceDb, RepositoryLink.classFullName));
     const targetRepositoryId = targetDb.elements.queryElementIdByCode(
       LinkElement.createCode(targetDb, IModel.repositoryModelId, "master.dgn")
     )!;
@@ -840,12 +819,14 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Transform3d-Source" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const categoryId: Id64String = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "SpatialCategory",
       { color: ColorDef.green.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceModelId: Id64String = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -864,6 +845,7 @@ describe("IModelTransformer", () => {
           geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
           placement: Placement3d.fromJSON({ origin: { x, y }, angles: {} }),
         };
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps1);
       }
     }
@@ -871,6 +853,9 @@ describe("IModelTransformer", () => {
       sourceDb.models.getModel<PhysicalModel>(sourceModelId);
     const sourceModelExtents: AxisAlignedBox3d = sourceModel.queryExtents();
     assert.deepEqual(sourceModelExtents, new Range3d(1, 0, 0, 10, 9, 1));
+
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    sourceDb.saveChanges();
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -913,17 +898,20 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Separate Models" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceCategoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "Category",
       {}
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceModelId1 = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
       "M1"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceModelId2 = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -938,6 +926,7 @@ describe("IModelTransformer", () => {
       geom: IModelTransformerTestUtils.createBox(new Point3d(1, 1, 1)),
       placement: Placement3d.fromJSON({ origin: { x: 1, y: 1 }, angles: {} }),
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceElementId11 = sourceDb.elements.insertElement(elementProps11);
     const elementProps21: PhysicalElementProps = {
       classFullName: PhysicalObject.classFullName,
@@ -948,11 +937,13 @@ describe("IModelTransformer", () => {
       geom: IModelTransformerTestUtils.createBox(new Point3d(2, 2, 2)),
       placement: Placement3d.fromJSON({ origin: { x: 2, y: 2 }, angles: {} }),
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceElementId21 = sourceDb.elements.insertElement(elementProps21);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
-    assert.equal(count(sourceDb, PhysicalPartition.classFullName), 2);
-    assert.equal(count(sourceDb, PhysicalModel.classFullName), 2);
-    assert.equal(count(sourceDb, PhysicalObject.classFullName), 2);
+    assert.equal(await count(sourceDb, PhysicalPartition.classFullName), 2);
+    assert.equal(await count(sourceDb, PhysicalModel.classFullName), 2);
+    assert.equal(await count(sourceDb, PhysicalObject.classFullName), 2);
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -961,6 +952,7 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "Combined Model" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetModelId = PhysicalModel.insert(
       targetDb,
       IModel.rootSubjectId,
@@ -973,6 +965,7 @@ describe("IModelTransformer", () => {
       targetModelId
     );
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const targetElement11 = targetDb.elements.getElement(
@@ -991,9 +984,9 @@ describe("IModelTransformer", () => {
       "PhysicalModel-Combined",
       "Original CodeValue should be retained"
     );
-    assert.equal(count(targetDb, PhysicalPartition.classFullName), 1);
-    assert.equal(count(targetDb, PhysicalModel.classFullName), 1);
-    assert.equal(count(targetDb, PhysicalObject.classFullName), 2);
+    assert.equal(await count(targetDb, PhysicalPartition.classFullName), 1);
+    assert.equal(await count(targetDb, PhysicalModel.classFullName), 1);
+    assert.equal(await count(targetDb, PhysicalObject.classFullName), 2);
 
     transformer.dispose();
     sourceDb.close();
@@ -1048,6 +1041,7 @@ describe("IModelTransformer", () => {
       assert.equal(teamIModelA.description, sharedIModelA.description);
       IModelTransformerTestUtils.dumpIModelInfo(iModelA);
       iModelA.close();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelShared.saveChanges("Imported A");
       IModelTransformerTestUtils.assertSharedIModelContents(iModelShared, [
         "A",
@@ -1085,6 +1079,7 @@ describe("IModelTransformer", () => {
       transformerB2S.dispose();
       IModelTransformerTestUtils.dumpIModelInfo(iModelB);
       iModelB.close();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelShared.saveChanges("Imported B");
       IModelTransformerTestUtils.assertSharedIModelContents(iModelShared, [
         "A",
@@ -1247,11 +1242,13 @@ describe("IModelTransformer", () => {
     assert.exists(sourceIModelDb);
     assert.exists(targetIModelDb);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceSubjectId: Id64String = Subject.insert(
       sourceIModelDb,
       IModel.rootSubjectId,
       "source"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetSubjectId: Id64String = Subject.insert(
       targetIModelDb,
       IModel.rootSubjectId,
@@ -1305,6 +1302,7 @@ describe("IModelTransformer", () => {
     );
     assert.exists(sourceIModelDb);
     assert.exists(targetIModelDb);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetSubjectId: Id64String = Subject.insert(
       targetIModelDb,
       IModel.rootSubjectId,
@@ -1351,11 +1349,13 @@ describe("IModelTransformer", () => {
     );
     assert.exists(sourceIModelDb);
     assert.exists(targetIModelDb);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetParentSubjectId: Id64String = Subject.insert(
       targetIModelDb,
       IModel.rootSubjectId,
       "targetParent"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetChildSubjectId: Id64String = Subject.insert(
       targetIModelDb,
       targetParentSubjectId,
@@ -1397,7 +1397,7 @@ describe("IModelTransformer", () => {
       Subject.createCode(iModelA, IModel.rootSubjectId, "Context")
     );
     assert.isDefined(excludedId);
-    iModelExporterA.excludeElement(excludedId!);
+    iModelExporterA.excludeElement(excludedId);
 
     const subjectId: Id64String = IModelTransformerTestUtils.querySubjectId(
       iModelShared,
@@ -1441,7 +1441,7 @@ describe("IModelTransformer", () => {
 
     // Collect actual ids
     assert.isDefined(unresolvedElementMessage);
-    const actualIds = unresolvedElementMessage!
+    const actualIds = unresolvedElementMessage
       .split(messageStart)[1]
       .split(messageEnd)[0]
       .split(",");
@@ -1514,7 +1514,7 @@ describe("IModelTransformer", () => {
     assert.throws(() =>
       cloneContext.remapCodeSpec("SourceNotFound", "TargetNotFound")
     );
-    cloneContext.dispose();
+    cloneContext[Symbol.dispose]();
     iModelDb.close();
   });
 
@@ -1543,10 +1543,12 @@ describe("IModelTransformer", () => {
       string1: "a",
       string2: "b",
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceElementId = sourceDb.elements.insertElement(sourceElementProps);
     const sourceElement = sourceDb.elements.getElement(sourceElementId);
     assert.equal(sourceElement.asAny.string1, "a");
     assert.equal(sourceElement.asAny.string2, "b");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -1560,6 +1562,7 @@ describe("IModelTransformer", () => {
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processElement(sourceElementId);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const targetElementId =
@@ -1583,22 +1586,22 @@ describe("IModelTransformer", () => {
         this.iModelExporter = new IModelExporter(iModelDb);
         this.iModelExporter.registerHandler(this);
       }
-      public override onExportModel(
+      public override async onExportModel(
         _model: Model,
         _isUpdate: boolean | undefined
-      ): void {
+      ): Promise<void> {
         ++this.modelCount;
       }
-      public override onExportElement(
+      public override async onExportElement(
         _element: Element,
         _isUpdate: boolean | undefined
-      ): void {
+      ): Promise<void> {
         assert.fail("Should not visit element when visitElements=false");
       }
-      public override onExportRelationship(
+      public override async onExportRelationship(
         _relationship: Relationship,
         _isUpdate: boolean | undefined
-      ): void {
+      ): Promise<void> {
         assert.fail(
           "Should not visit relationship when visitRelationship=false"
         );
@@ -1634,26 +1637,31 @@ describe("IModelTransformer", () => {
     });
     const categoryNames: string[] = ["C1", "C2", "C3", "C4", "C5"];
     categoryNames.forEach((categoryName) => {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categoryId = SpatialCategory.insert(
         sourceDb,
         IModel.dictionaryId,
         categoryName,
         {}
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       CategorySelector.insert(sourceDb, IModel.dictionaryId, categoryName, [
         categoryId,
       ]);
     });
     const modelNames: string[] = ["MA", "MB", "MC", "MD"];
     modelNames.forEach((modelName) => {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const modelId = PhysicalModel.insert(
         sourceDb,
         IModel.rootSubjectId,
         modelName
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       ModelSelector.insert(sourceDb, IModel.dictionaryId, modelName, [modelId]);
     });
     const projectExtents = new Range3d();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const displayStyleId = DisplayStyle3d.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -1703,12 +1711,14 @@ describe("IModelTransformer", () => {
           },
         };
         const physicalObjectId =
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           sourceDb.elements.insertElement(physicalObjectProps);
         const physicalObject = sourceDb.elements.getElement<PhysicalObject>(
           physicalObjectId,
           PhysicalObject
         );
         const viewExtents = physicalObject.placement.calculateRange();
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         OrthographicViewDefinition.insert(
           sourceDb,
           IModel.dictionaryId,
@@ -1722,7 +1732,9 @@ describe("IModelTransformer", () => {
         projectExtents.extendRange(viewExtents);
       }
     }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.updateProjectExtents(projectExtents);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const exportCategorySelectorId = CategorySelector.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -1751,6 +1763,7 @@ describe("IModelTransformer", () => {
         )!,
       ]
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const exportModelSelectorId = ModelSelector.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -1772,6 +1785,7 @@ describe("IModelTransformer", () => {
         )!,
       ]
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const exportViewId = OrthographicViewDefinition.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -1782,6 +1796,7 @@ describe("IModelTransformer", () => {
       projectExtents,
       StandardViewIndex.Iso
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -1791,9 +1806,10 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "FilterByView-Target" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.updateProjectExtents(sourceDb.projectExtents);
 
-    const transformer = new FilterByViewTransformer(
+    const transformer = await FilterByViewTransformer.create(
       sourceDb,
       targetDb,
       exportViewId
@@ -1802,6 +1818,7 @@ describe("IModelTransformer", () => {
     await transformer.process();
     transformer.dispose();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
     targetDb.close();
     sourceDb.close();
@@ -1850,6 +1867,7 @@ describe("IModelTransformer", () => {
     });
 
     await sourceDb.importSchemas([testSchema1Path, testSchema2Path]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     class OrderedExporter extends IModelExporter {
@@ -1886,6 +1904,7 @@ describe("IModelTransformer", () => {
     }
     assert.isUndefined(error);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
     const targetImportedSchemasLoader = new SchemaLoader((name: string) =>
       targetDb.getSchemaProps(name)
@@ -1913,6 +1932,7 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "FinallyFirstTest" },
     });
     await sourceDb.importSchemas([cloneTestSchema100]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -1968,6 +1988,7 @@ describe("IModelTransformer", () => {
     );
 
     // add a drawing to the document partition's model
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawingId = sourceDb.elements.insertElement({
       classFullName: Drawing.classFullName,
       model: documentListModelId,
@@ -1980,13 +2001,16 @@ describe("IModelTransformer", () => {
       classFullName: DrawingModel.classFullName,
       modeledElement: { id: drawingId },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.models.insertModel(model.toJSON());
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myCodeSpecId = sourceDb.codeSpecs.insert(
       CodeSpec.create(sourceDb, "MyCodeSpec", CodeScopeSpec.Type.RelatedElement)
     );
 
     // insert a definition element which is scoped by a non-definition element (the drawing)
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _physicalMaterialId = sourceDb.elements.insertElement({
       classFullName: GenericPhysicalMaterial.classFullName,
       model: IModel.dictionaryId,
@@ -1997,6 +2021,7 @@ describe("IModelTransformer", () => {
       }),
     } as DefinitionElementProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2050,12 +2075,14 @@ describe("IModelTransformer", () => {
     );
 
     // add a drawing to the document partition's model
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawing1Id = sourceDb.elements.insertElement({
       classFullName: Drawing.classFullName,
       model: documentListModelId,
       code: Drawing.createCode(sourceDb, documentListModelId, "Drawing1"),
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawing2Id = sourceDb.elements.insertElement({
       classFullName: Drawing.classFullName,
       model: documentListModelId,
@@ -2066,17 +2093,21 @@ describe("IModelTransformer", () => {
       classFullName: DrawingModel.classFullName,
       modeledElement: { id: drawing1Id },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawingModel1Id = sourceDb.models.insertModel(drawingModel1.toJSON());
 
     const drawingModel2 = sourceDb.models.createModel({
       classFullName: DrawingModel.classFullName,
       modeledElement: { id: drawing2Id },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawingModel2Id = sourceDb.models.insertModel(drawingModel2.toJSON());
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const modelCodeSpec = sourceDb.codeSpecs.insert(
       CodeSpec.create(sourceDb, "ModelCodeSpec", CodeScopeSpec.Type.Model)
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const relatedCodeSpecId = sourceDb.codeSpecs.insert(
       CodeSpec.create(
         sourceDb,
@@ -2085,6 +2116,7 @@ describe("IModelTransformer", () => {
       )
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const categoryId = DrawingCategory.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -2093,6 +2125,7 @@ describe("IModelTransformer", () => {
     );
 
     // we make drawingGraphic2 in drawingModel2 first
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const drawingGraphic2Id = sourceDb.elements.insertElement({
       classFullName: DrawingGraphic.classFullName,
       model: drawingModel2Id,
@@ -2104,6 +2137,7 @@ describe("IModelTransformer", () => {
       category: categoryId,
     } as GeometricElement2dProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _drawingGraphic1Id = sourceDb.elements.insertElement({
       classFullName: DrawingGraphic.classFullName,
       model: drawingModel1Id,
@@ -2115,6 +2149,7 @@ describe("IModelTransformer", () => {
       category: categoryId,
     } as GeometricElement2dProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2179,16 +2214,7 @@ describe("IModelTransformer", () => {
 
   // for testing purposes only, based on SetToStandalone.ts, force a snapshot to mimic a standalone iModel
   function setToStandalone(iModelName: string) {
-    // eslint-disable-next-line deprecation/deprecation
-    const nativeDb = new IModelHost.platform.DgnDb();
-    nativeDb.openIModel(iModelName, OpenMode.ReadWrite);
-    nativeDb.setITwinId(Guid.empty); // empty iTwinId means "standalone"
-    nativeDb.saveChanges(); // save change to iTwinId
-    nativeDb.deleteAllTxns(); // necessary before resetting briefcaseId
-    nativeDb.resetBriefcaseId(BriefcaseIdValue.Unassigned); // standalone iModels should always have BriefcaseId unassigned
-    nativeDb.saveLocalValue("StandaloneEdit", JSON.stringify({ txns: true }));
-    nativeDb.saveChanges(); // save change to briefcaseId
-    nativeDb.closeFile();
+    StandaloneDb.convertToStandalone(iModelName);
   }
 
   it("biscore update is valid", async () => {
@@ -2233,6 +2259,7 @@ describe("IModelTransformer", () => {
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     assert(
@@ -2259,10 +2286,14 @@ describe("IModelTransformer", () => {
       "0xe", // id of realityDataSourcesModel
     ]);
     const result: Record<Id64String, any> = {};
-    // eslint-disable-next-line deprecation/deprecation
-    for await (const row of db.query("SELECT * FROM bis.Element", undefined, {
-      rowFormat: QueryRowFormat.UseJsPropertyNames,
-    })) {
+    for await (const row of db.createQueryReader(
+      "SELECT * FROM bis.Element",
+      undefined,
+      {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        rowFormat: QueryRowFormat.UseJsPropertyNames,
+      }
+    )) {
       if (!filterPredicate || filterPredicate(db.elements.getElement(row.id))) {
         const { lastMod: _lastMod, ...invariantPortion } = row;
         if (ignoreFedGuidElementIds.has(row.id))
@@ -2279,15 +2310,15 @@ describe("IModelTransformer", () => {
     filterPredicate?: (rel: { sourceId: string; targetId: string }) => boolean
   ): Promise<{ sourceId: Id64String; targetId: Id64String }[]> {
     const result = [];
-    // eslint-disable-next-line deprecation/deprecation
-    for await (const row of db.query(
+    for await (const row of db.createQueryReader(
       "SELECT * FROM bis.ElementRefersToElements",
       undefined,
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       { rowFormat: QueryRowFormat.UseJsPropertyNames }
     )) {
-      if (!filterPredicate || filterPredicate(row)) {
-        const { id: _id, ...invariantPortion } = row;
-        result.push(invariantPortion);
+      const { sourceId, targetId } = row;
+      if (!filterPredicate || filterPredicate({ sourceId, targetId })) {
+        result.push({ sourceId, targetId });
       }
     }
     return result;
@@ -2302,18 +2333,21 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "PreserveId" },
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const spatialCateg1Id = SpatialCategory.insert(
       sourceDb,
       IModelDb.dictionaryId,
       "spatial-category1",
       { color: ColorDef.blue.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const spatialCateg2Id = SpatialCategory.insert(
       sourceDb,
       IModelDb.dictionaryId,
       "spatial-category2",
       { color: ColorDef.red.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myPhysModelId = PhysicalModel.insert(
       sourceDb,
       IModelDb.rootSubjectId,
@@ -2336,6 +2370,7 @@ describe("IModelTransformer", () => {
         placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
       };
       const physicalObjectId =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       return physicalObjectId;
     });
@@ -2344,6 +2379,7 @@ describe("IModelTransformer", () => {
     const physicalPartitions = new Array(3)
       .fill(null)
       .map((_, index) =>
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement({
           classFullName: PhysicalPartition.classFullName,
           model: IModelDb.rootSubjectId,
@@ -2359,6 +2395,7 @@ describe("IModelTransformer", () => {
         } as InformationPartitionElementProps)
       )
       .map((partitionId) => {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         const modelId = sourceDb.models.insertModel({
           classFullName: PhysicalModel.classFullName,
           modeledElement: { id: partitionId },
@@ -2367,6 +2404,7 @@ describe("IModelTransformer", () => {
       });
 
     const linksIds = new Array(2).fill(null).map((_, index) => {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const linkId = sourceDb.elements.insertElement({
         classFullName: RepositoryLink.classFullName,
         code: RepositoryLink.createCode(
@@ -2387,6 +2425,7 @@ describe("IModelTransformer", () => {
       [physicalPartitions[2].partitionId, linksIds[0]],
       [physicalPartitions[2].partitionId, linksIds[1]],
     ].map(([sourceId, targetId]) =>
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.relationships.insertInstance({
         classFullName: "BisCore:PartitionOriginatesFromRepository",
         sourceId,
@@ -2394,6 +2433,7 @@ describe("IModelTransformer", () => {
       })
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2444,11 +2484,15 @@ describe("IModelTransformer", () => {
     }
 
     class FilterCategoryTransformer extends IModelTransformer {
-      public override shouldExportElement(elem: Element): boolean {
+      public override async shouldExportElement(
+        elem: Element
+      ): Promise<boolean> {
         if (!filterCategoryTransformationPredicate(elem)) return false;
         return super.shouldExportElement(elem);
       }
-      public override shouldExportRelationship(rel: Relationship): boolean {
+      public override async shouldExportRelationship(
+        rel: Relationship
+      ): Promise<boolean> {
         if (!filterRelationshipsToChangeIds(rel)) return false;
         return super.shouldExportRelationship(rel);
       }
@@ -2458,6 +2502,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(
@@ -2475,6 +2520,7 @@ describe("IModelTransformer", () => {
     expect(sourceRelations).to.deep.equal(targetRelations);
 
     // now try inserting both an element and a relationship into the target to check the two entity id sequences are fine
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const spatialCateg3Id = SpatialCategory.insert(
       targetDb,
       IModelDb.dictionaryId,
@@ -2482,6 +2528,7 @@ describe("IModelTransformer", () => {
       { color: ColorDef.black.toJSON() }
     );
     expect(Id64.isValid(spatialCateg3Id)).to.be.true;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const spatialCateg3Subcateg1Id = SubCategory.insert(
       targetDb,
       spatialCateg3Id,
@@ -2489,6 +2536,7 @@ describe("IModelTransformer", () => {
       { color: ColorDef.white.toJSON() }
     );
     expect(Id64.isValid(spatialCateg3Subcateg1Id)).to.be.true;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const insertedInstance = targetDb.relationships.insertInstance({
       classFullName: "BisCore:PartitionOriginatesFromRepository",
       sourceId: physicalPartitions[1].partitionId,
@@ -2515,6 +2563,7 @@ describe("IModelTransformer", () => {
     });
     const seedTransformer = new IModelTransformer(seedDb, sourceDb);
     await seedTransformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2529,6 +2578,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2547,12 +2597,14 @@ describe("IModelTransformer", () => {
       rootSubject: { name: opts.name },
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceCategoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "SpatialCategory",
       { color: ColorDef.green.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceModelId = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -2563,6 +2615,7 @@ describe("IModelTransformer", () => {
       "myPhysicalObjects",
       CodeScopeSpec.Type.ParentElement
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myPhysObjCodeSpecId = sourceDb.codeSpecs.insert(myPhysObjCodeSpec);
     const physicalObjects = [1, 2].map((x) => {
       const code = new Code({
@@ -2579,9 +2632,11 @@ describe("IModelTransformer", () => {
         geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
         placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
       };
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const id = sourceDb.elements.insertElement(props);
       return { code, id };
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const displayStyleId = DisplayStyle3d.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -2594,8 +2649,10 @@ describe("IModelTransformer", () => {
 
     const physObjId2 = physicalObjects[1].id;
     // this deletion makes the display style have an reference to a now-gone element
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.deleteElement(physObjId2);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     return [
@@ -2620,6 +2677,7 @@ describe("IModelTransformer", () => {
         "SELECT Val FROM be_Local WHERE Name='bis_elementidsequence'",
         (s) => [...s]
       )[0].val;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges(); // save to make sure we get the latest id value
     const sourceNextId = nextId(sourceDb);
     const targetDb = createTarget();
@@ -2631,6 +2689,7 @@ describe("IModelTransformer", () => {
         assert(s.step() === DbResult.BE_SQLITE_DONE);
       }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
     targetDb.close();
     return StandaloneDb.openFile(pathName);
@@ -2680,7 +2739,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2696,6 +2757,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     let sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2710,7 +2772,9 @@ describe("IModelTransformer", () => {
     );
     const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
     expect(targetSubjectId1).to.not.be.undefined;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.elements.deleteElement(targetSubjectId1!);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
@@ -2718,6 +2782,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // verify that deleted element in target is added back - redundant check for explicitness
@@ -2745,11 +2810,13 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceSubjectId = Subject.insert(
       sourceDb,
       IModel.rootSubjectId,
       "Subject1"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2765,6 +2832,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     let sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2776,7 +2844,9 @@ describe("IModelTransformer", () => {
       sourceDb.elements.getElement<Subject>(sourceSubjectId);
     const updatedDescription = "Subject1 Updated Description";
     sourceSubject.description = updatedDescription;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.updateElement(sourceSubject.toJSON());
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of updating element with desired id
@@ -2784,6 +2854,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await secondTransformer.process(); // should update description for subject element
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // target subject should have updated description
@@ -2814,6 +2885,7 @@ describe("IModelTransformer", () => {
     });
     const seedTransformer = new IModelTransformer(seedDb, sourceDb);
     await seedTransformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2829,6 +2901,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // should not throw error: duplicate code (65547)
@@ -2836,6 +2909,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await thirdTransformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2854,7 +2928,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2870,6 +2946,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2881,7 +2958,9 @@ describe("IModelTransformer", () => {
     const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
     expect(targetSubjectId).to.not.be.undefined;
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.elements.deleteElement(targetSubjectId!);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // save subject 1 element properties for new subject(it should have same fed guid and code)
@@ -2892,8 +2971,10 @@ describe("IModelTransformer", () => {
     assert.isDefined(targetSubjectProps);
 
     // create new subject that is the same as subject 1 but has a different Id
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const newSubjectId = targetDb.elements.insertElement(targetSubjectProps);
     expect(newSubjectId).to.not.be.undefined;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of throwing expected error
@@ -2917,7 +2998,9 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -2933,6 +3016,7 @@ describe("IModelTransformer", () => {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
@@ -2948,7 +3032,9 @@ describe("IModelTransformer", () => {
     const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
     expect(targetSubjectId1).to.not.be.undefined;
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.elements.deleteElement(targetSubjectId1!);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // save subject 1 element properties but only use the same id
@@ -2965,12 +3051,13 @@ describe("IModelTransformer", () => {
 
     // insert an unrelated element that uses same id as subject1
     // insertElement public api does not support forceUseId option
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    const targetSubjectId3 = targetDb.nativeDb.insertElement(
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const targetSubjectId3 = targetDb.elements.insertElement(
       newPropsForSubject3,
       { forceUseId: true }
     );
     expect(targetSubjectId3).to.not.be.undefined;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of of throwing expected error
@@ -3047,6 +3134,7 @@ describe("IModelTransformer", () => {
         opts
       );
       await expect(transformer.process()).not.to.be.rejected;
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       transformer.targetDb.saveChanges();
 
       expect(sourceDb.elements.tryGetElement(physicalObjects[1].id)).to.be
@@ -3106,17 +3194,20 @@ describe("IModelTransformer", () => {
       IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
     await sourceDb.importSchemas([testSchemaPath]);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myPhysicalModelId = PhysicalModel.insert(
       sourceDb,
       IModelDb.rootSubjectId,
       "MyPhysicalModel"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const mySpatialCategId = SpatialCategory.insert(
       sourceDb,
       IModelDb.dictionaryId,
       "MySpatialCateg",
       { color: ColorDef.black.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myPhysicalObjId = sourceDb.elements.insertElement({
       classFullName: PhysicalObject.classFullName,
       model: myPhysicalModelId,
@@ -3127,6 +3218,7 @@ describe("IModelTransformer", () => {
       placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
     } as PhysicalElementProps);
     // because they are definition elements, display styles will be transformed first
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myDisplayStyleId = DisplayStyle3d.insert(
       sourceDb,
       IModelDb.dictionaryId,
@@ -3159,6 +3251,7 @@ describe("IModelTransformer", () => {
       identifier: "ID",
       kind: ExternalSourceAspect.Kind.Element,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.insertAspect(multiAspectProps);
     const uniqueAspectProps = {
       classFullName: "TestSchema1:MyUniqueAspect",
@@ -3169,7 +3262,9 @@ describe("IModelTransformer", () => {
       // eslint-disable-next-line @typescript-eslint/naming-convention
       myProp1: "prop_value",
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.insertAspect(uniqueAspectProps);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -3188,25 +3283,28 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
-    const targetExternalSourceAspects = new Array<any>();
-    const targetMyUniqueAspects = new Array<any>();
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    targetDb.withStatement("SELECT * FROM bis.ExternalSourceAspect", (stmt) =>
-      targetExternalSourceAspects.push(...stmt)
-    );
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    targetDb.withStatement("SELECT * FROM TestSchema1.MyUniqueAspect", (stmt) =>
-      targetMyUniqueAspects.push(...stmt)
-    );
+    const targetExternalSourceAspects: any[] = [];
+    const targetMyUniqueAspects: any[] = [];
+    for await (const row of targetDb.createQueryReader(
+      "SELECT * FROM bis.ExternalSourceAspect"
+    )) {
+      targetExternalSourceAspects.push(row.toRow());
+    }
+    for await (const row of targetDb.createQueryReader(
+      "SELECT * FROM TestSchema1.MyUniqueAspect"
+    )) {
+      targetMyUniqueAspects.push(row.toRow());
+    }
 
     expect(targetMyUniqueAspects).to.have.lengthOf(1);
-    expect(targetMyUniqueAspects[0].myProp1).to.equal(
+    expect(targetMyUniqueAspects[0].MyProp1).to.equal(
       uniqueAspectProps.myProp1
     );
     expect(targetExternalSourceAspects).to.have.lengthOf(1);
-    expect(targetExternalSourceAspects[0].identifier).to.equal(
+    expect(targetExternalSourceAspects[0].Identifier).to.equal(
       multiAspectProps.identifier
     );
 
@@ -3254,6 +3352,7 @@ describe("IModelTransformer", () => {
 
     await sourceDb.importSchemas([testSchema1Path]);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const navPropTargetId = sourceDb.elements.insertElement({
       classFullName: "TestGeneratedClasses:TestEntity",
       prop: "sample-value",
@@ -3261,6 +3360,7 @@ describe("IModelTransformer", () => {
       code: Code.createEmpty(),
     } as ElementProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const elemWithNavPropId = sourceDb.elements.insertElement({
       classFullName: "TestGeneratedClasses:TestElementWithNavProp",
       navProp: {
@@ -3270,6 +3370,9 @@ describe("IModelTransformer", () => {
       model: IModelDb.dictionaryId,
       code: Code.createEmpty(),
     } as ElementProps);
+
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3308,21 +3411,25 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
-    function getNavPropContent(db: IModelDb) {
-      let results = new Array<{ id: Id64String; navProp: RelatedElement }>();
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      db.withPreparedStatement(
-        "SELECT ECInstanceId, navProp FROM TestGeneratedClasses.TestElementWithNavProp",
-        (stmt) => {
-          results = [...stmt];
-        }
-      );
+    async function getNavPropContent(db: IModelDb) {
+      const results: Array<{ id: Id64String; navProp: RelatedElement }> = [];
+      for await (const row of db.createQueryReader(
+        "SELECT ECInstanceId, navProp FROM TestGeneratedClasses.TestElementWithNavProp"
+      )) {
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        const navPropRaw = row[1] as { Id: Id64String };
+        results.push({
+          id: row[0] as Id64String,
+          navProp: RelatedElement.fromJSON({ id: navPropRaw.Id })!,
+        });
+      }
       return results;
     }
 
-    for (const navPropHolderInSource of getNavPropContent(sourceDb)) {
+    for (const navPropHolderInSource of await getNavPropContent(sourceDb)) {
       const navPropHolderInTargetId = transformer.context.findTargetElementId(
         navPropHolderInSource.id
       );
@@ -3342,8 +3449,8 @@ describe("IModelTransformer", () => {
       expect((navPropHolderInTarget as any)?.navProp?.id).not.to.be.undefined;
     }
 
-    expect(getNavPropContent(sourceDb)).to.have.length(1);
-    expect(getNavPropContent(targetDb)).to.have.length(1);
+    expect(await getNavPropContent(sourceDb)).to.have.length(1);
+    expect(await getNavPropContent(targetDb)).to.have.length(1);
 
     sourceDb.close();
     targetDb.close();
@@ -3366,8 +3473,10 @@ describe("IModelTransformer", () => {
     });
     const physicalModel = sourceDb.models.getModel(physicalModelId);
     physicalModel.jsonProperties.formatter.fmtFlags.linPrec = 100;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     physicalModel.update();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -3382,6 +3491,7 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     await assertIdentityTransformation(sourceDb, targetDb, transformer, {
@@ -3435,17 +3545,20 @@ describe("IModelTransformer", () => {
 
     await sourceDb.importSchemas([testSchema1Path]);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myPhysicalModelId = PhysicalModel.insert(
       sourceDb,
       IModelDb.rootSubjectId,
       "MyPhysicalModel"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const mySpatialCategId = SpatialCategory.insert(
       sourceDb,
       IModelDb.dictionaryId,
       "MySpatialCateg",
       { color: ColorDef.black.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myPhysicalObjId = sourceDb.elements.insertElement({
       classFullName: PhysicalObject.classFullName,
       model: myPhysicalModelId,
@@ -3456,6 +3569,7 @@ describe("IModelTransformer", () => {
       placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
     } as PhysicalElementProps);
     // because they are definition elements, display styles will be transformed first
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myDisplayStyleId = DisplayStyle3d.insert(
       sourceDb,
       IModelDb.dictionaryId,
@@ -3470,10 +3584,12 @@ describe("IModelTransformer", () => {
       classFullName: "TestSchema1:MyElemRefersToElem",
       prop: "prop",
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _relInstId = sourceDb.relationships.insertInstance(
       relProps as RelationshipProps
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3488,13 +3604,15 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
-    const targetRelationships = new Array<any>();
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    targetDb.withStatement("SELECT * FROM ts1.MyElemRefersToElem", (stmt) =>
-      targetRelationships.push(...stmt)
-    );
+    const targetRelationships: any[] = [];
+    for await (const row of targetDb.createQueryReader(
+      "SELECT * FROM ts1.MyElemRefersToElem"
+    )) {
+      targetRelationships.push(row.toRow());
+    }
 
     expect(targetRelationships).to.have.lengthOf(1);
     expect(targetRelationships[0].prop).to.equal(relProps.prop);
@@ -3598,6 +3716,7 @@ describe("IModelTransformer", () => {
 
     await sourceDb.importSchemas([testSchema1Path]);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const a1Id = sourceDb.elements.insertElement({
       classFullName: "TestSchema:A",
       // will be updated later to include this
@@ -3606,6 +3725,7 @@ describe("IModelTransformer", () => {
       code: Code.createEmpty(),
     } as ElementProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const a2Id = sourceDb.elements.insertElement({
       classFullName: "TestSchema:A",
       anotherA: { id: a1Id, relClassName: "TestSchema:AtoA" },
@@ -3613,11 +3733,13 @@ describe("IModelTransformer", () => {
       code: Code.createEmpty(),
     } as ElementProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.updateElement({
       id: a1Id,
       anotherA: { id: a2Id, relClassName: "TestSchema:AtoA" },
     } as any);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const a4Id = sourceDb.elements.insertElement({
       classFullName: "TestSchema:A",
       // will be updated later to include this
@@ -3626,11 +3748,13 @@ describe("IModelTransformer", () => {
       code: Code.createEmpty(),
     } as ElementProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.updateElement({
       id: a4Id,
       anotherA: { id: a4Id, relClassName: "TestSchema:AtoA" },
     } as any);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -3645,6 +3769,7 @@ describe("IModelTransformer", () => {
     await transformer.processSchemas();
     await transformer.process();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     await assertIdentityTransformation(sourceDb, targetDb, transformer);
@@ -3670,6 +3795,7 @@ describe("IModelTransformer", () => {
       "DGN"
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const elem1Id = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -3682,8 +3808,10 @@ describe("IModelTransformer", () => {
       identifier: Guid.empty, // doesn't matter, any identifier in the hypothetical source
       scope: { id: sourceRepositoryId },
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const _extSrcAspect1Id = sourceDb.elements.insertAspect(extSrcAspect1);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -3732,17 +3860,20 @@ describe("IModelTransformer", () => {
     });
     await TransformerExtensiveTestScenario.prepareDb(sourceDb);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const spatialCategoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "SpatialCategory",
       { color: ColorDef.green.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physicalModelId = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
       "phys-model"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physicalObj1InSourceId = sourceDb.elements.insertElement({
       classFullName: PhysicalObject.classFullName,
       model: physicalModelId,
@@ -3759,11 +3890,13 @@ describe("IModelTransformer", () => {
       },
     } as PhysicalElementProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.insertAspect({
       classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
       element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
       value: "1",
     } as ElementAspectProps);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.insertAspect({
       classFullName: "ExtensiveTestScenario:SourceMultiAspect",
       element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
@@ -3776,11 +3909,13 @@ describe("IModelTransformer", () => {
       sourceGuid: Guid.createValue(),
       extraString: "2",
     } as ElementAspectProps);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.insertAspect({
       classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
       element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
       value: "3",
     } as ElementAspectProps);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
@@ -3791,6 +3926,7 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "AspectIdOrderTarget" },
     });
     await TransformerExtensiveTestScenario.prepareDb(targetDb);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const importer = new AspectTrackingImporter(targetDb);
@@ -3868,6 +4004,7 @@ describe("IModelTransformer", () => {
       </ECSchema>`;
 
     await sourceDb.importSchemaStrings([testSchema1, testSchema2]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
@@ -3924,6 +4061,7 @@ describe("IModelTransformer", () => {
       newReffedSchema,
       fakeBisCoreUpdateText,
     ]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDb1File = IModelTransformerTestUtils.prepareOutputFile(
@@ -4006,8 +4144,6 @@ describe("IModelTransformer", () => {
       { sourceDb: newDb, targetSeed: oldDb, doUpgrade: false },
     ] as const;
 
-    /* eslint-disable @typescript-eslint/indent */
-    /* eslint-disable @typescript-eslint/indent */
     for (const sourceDb of sourceDbs)
       for (const targetSeed of targetSeeds)
         for (const doUpgrade of doUpgradeVariants) {
@@ -4066,6 +4202,7 @@ describe("IModelTransformer", () => {
 
     const nbsp = "\xa0";
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const spatialCategId = SpatialCategory.insert(
       sourceDb,
       IModelDb.dictionaryId,
@@ -4073,6 +4210,7 @@ describe("IModelTransformer", () => {
       {}
     );
     const subCategId = Id64.fromUint32Pair(parseInt(spatialCategId, 16) + 1, 0);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physModelId = PhysicalModel.insert(
       sourceDb,
       IModelDb.rootSubjectId,
@@ -4093,8 +4231,10 @@ describe("IModelTransformer", () => {
       placement: Placement3d.fromJSON({ origin: { x: 0 }, angles: {} }),
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physObjectId = sourceDb.elements.insertElement(physObjectProps);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     expect(sourceDb.elements.getElement(spatialCategId).code.value).to.equal(
@@ -4115,7 +4255,7 @@ describe("IModelTransformer", () => {
       initialCodeValue: string
     ) =>
       db.withSqliteStatement(
-        `UPDATE bis_Element SET CodeValue='${initialCodeValue}\xa0' WHERE CodeValue='${initialCodeValue}'`,
+        `UPDATE bis_Element SET CodeValue='${initialCodeValue}${nbsp}' WHERE CodeValue='${initialCodeValue}'`,
         (s) => {
           let result: DbResult;
           while ((result = s.step()) === DbResult.BE_SQLITE_ROW) {}
@@ -4143,22 +4283,20 @@ describe("IModelTransformer", () => {
       );
     };
 
-    const getCodeValEcSql = (
+    const getCodeValEcSql = async (
       db: IModelDb,
       args: { initialVal: string; expected: string; expectedMatchCount: number }
     ) => {
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      db.withStatement(
+      let rows = 0;
+      for await (const row of db.createQueryReader(
         `SELECT CodeValue FROM bis.Element WHERE CodeValue LIKE '${args.initialVal}%'`,
-        (stmt) => {
-          let rows = 0;
-          for (const { codeValue } of stmt) {
-            rows++;
-            expect(codeValue).to.equal(args.expected);
-          }
-          expect(rows).to.equal(args.expectedMatchCount);
-        }
-      );
+        undefined,
+        { usePrimaryConn: true }
+      )) {
+        rows++;
+        expect(row.codeValue).to.equal(args.expected);
+      }
+      expect(rows).to.equal(args.expectedMatchCount);
     };
 
     // eslint-disable-next-line @typescript-eslint/no-shadow
@@ -4169,16 +4307,17 @@ describe("IModelTransformer", () => {
     ] as const) {
       getCodeValRawSqlite(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
-      getCodeValEcSql(sourceDb, {
+      await getCodeValEcSql(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
     sourceDb.close();
     sourceDb = SnapshotDb.openFile(sourceDbFile);
@@ -4191,12 +4330,12 @@ describe("IModelTransformer", () => {
     ] as const) {
       getCodeValRawSqlite(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
-      getCodeValEcSql(sourceDb, {
+      await getCodeValEcSql(sourceDb, {
         initialVal,
-        expected: `${initialVal}\xa0`,
+        expected: `${initialVal}${nbsp}`,
         expectedMatchCount,
       });
     }
@@ -4240,20 +4379,17 @@ describe("IModelTransformer", () => {
       ["PhysicalModel", 1],
       ["PhysicalObject", 1],
     ] as const) {
-      // some versions of itwin.js do not have a code path for the transformer to preserve bad codes
-      const inITwinJsVersionWithExactCodeFeature = Semver.satisfies(
-        coreBackendPkgJson.version,
-        "^3.0.0 || ^4.1.1"
-      );
-      const expected = inITwinJsVersionWithExactCodeFeature
-        ? `${initialVal}\xa0`
-        : initialVal;
+      const expected = `${initialVal}${nbsp}`;
       getCodeValRawSqlite(targetDb, {
         initialVal,
         expected,
         expectedMatchCount,
       });
-      getCodeValEcSql(targetDb, { initialVal, expected, expectedMatchCount });
+      await getCodeValEcSql(targetDb, {
+        initialVal,
+        expected,
+        expectedMatchCount,
+      });
     }
 
     transformer.dispose();
@@ -4275,19 +4411,24 @@ describe("IModelTransformer", () => {
       CodeScopeSpec.Type.Repository,
       CodeScopeSpec.ScopeRequirement.ElementId
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const codeSpecId = sourceDb.codeSpecs.insert(codeSpec);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const category = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "TestCategory",
       {}
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const subject = Subject.insert(
       sourceDb,
       IModel.rootSubjectId,
       "Clashing Codes Container"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const model1 = PhysicalModel.insert(sourceDb, subject, "Model 1");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const model2 = PhysicalModel.insert(sourceDb, subject, "Model 2");
     const element11Props: PhysicalElementProps = {
       category,
@@ -4299,6 +4440,7 @@ describe("IModelTransformer", () => {
       }),
       model: model1,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const element11 = sourceDb.elements.insertElement(element11Props);
     const element12Props: PhysicalElementProps = {
       category,
@@ -4307,6 +4449,7 @@ describe("IModelTransformer", () => {
       model: model1,
       parent: new ElementOwnsChildElements(element11),
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const element12 = sourceDb.elements.insertElement(element12Props);
     const element21Props: PhysicalElementProps = {
       category,
@@ -4318,6 +4461,7 @@ describe("IModelTransformer", () => {
       }),
       model: model2,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const element21 = sourceDb.elements.insertElement(element21Props);
     const element22Props: PhysicalElementProps = {
       category,
@@ -4326,8 +4470,10 @@ describe("IModelTransformer", () => {
       model: model2,
       parent: new ElementOwnsChildElements(element21),
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const element22 = sourceDb.elements.insertElement(element22Props);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -4340,6 +4486,7 @@ describe("IModelTransformer", () => {
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await expect(transformer.process()).not.to.be.rejected;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const targetElement11 = targetDb.elements.getElement(
@@ -4360,190 +4507,6 @@ describe("IModelTransformer", () => {
     assert.notEqual(targetElement21.code.scope, IModel.rootSubjectId);
     assert.notEqual(targetElement22.code.scope, IModel.rootSubjectId);
 
-    transformer.dispose();
-    sourceDb.close();
-    targetDb.close();
-  });
-
-  it("detect element deletes works on children", async () => {
-    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "DetectElemDeletesChildren.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
-      rootSubject: { name: "DetectElemDeletes" },
-    });
-    const model = PhysicalModel.insert(
-      sourceDb,
-      IModelDb.rootSubjectId,
-      "Model 1"
-    );
-    const category = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "TestCategory",
-      {}
-    );
-    const obj = new PhysicalObject(
-      {
-        code: Code.createEmpty(),
-        model,
-        category,
-        classFullName: PhysicalObject.classFullName,
-      },
-      sourceDb
-    );
-    obj.insert();
-
-    sourceDb.saveChanges();
-
-    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "DetectElemDeletesChildrenTarget.bim"
-    );
-    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
-      rootSubject: { name: "Combined Model" },
-    });
-
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
-      forceExternalSourceAspectProvenance: true,
-    });
-    await expect(transformer.process()).not.to.be.rejected;
-    targetDb.saveChanges();
-    const modelInTarget = transformer.context.findTargetElementId(model);
-    const objInTarget = transformer.context.findTargetElementId(obj.id);
-
-    // delete from source for detectElementDeletes to handle
-    sourceDb.elements.deleteElement(obj.id);
-    sourceDb.models.deleteModel(model);
-    sourceDb.elements.deleteElement(model);
-
-    expect(sourceDb.models.tryGetModel(model)).to.be.undefined;
-    expect(sourceDb.elements.tryGetElement(model)).to.be.undefined;
-    expect(sourceDb.elements.tryGetElement(obj)).to.be.undefined;
-
-    sourceDb.saveChanges();
-
-    await expect(transformer.process()).not.to.be.rejected;
-    targetDb.saveChanges();
-
-    expect(sourceDb.models.tryGetModel(modelInTarget)).to.be.undefined;
-    expect(targetDb.elements.tryGetElement(modelInTarget)).to.be.undefined;
-    expect(targetDb.elements.tryGetElement(objInTarget)).to.be.undefined;
-
-    transformer.dispose();
-    sourceDb.close();
-    targetDb.close();
-  });
-
-  it("detect elements deletes skips elements where Identifier is not id", async () => {
-    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "SourceProvenance.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
-      rootSubject: { name: "Source Provenance Test" },
-    });
-    const sourceRepositoryId = IModelTransformerTestUtils.insertRepositoryLink(
-      sourceDb,
-      "master.dgn",
-      "https://test.bentley.com/folder/master.dgn",
-      "DGN"
-    );
-    const sourceExternalSourceId =
-      IModelTransformerTestUtils.insertExternalSource(
-        sourceDb,
-        sourceRepositoryId,
-        "Default Model"
-      );
-    const sourceCategoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "SpatialCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const sourceModelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Physical"
-    );
-    const sourcePhysicalObjectsToSkip = new Set<Id64String>();
-    for (const x of [1, 2, 3]) {
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: sourceCategoryId,
-        code: Code.createEmpty(),
-      };
-      const physicalObjectId =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      sourcePhysicalObjectsToSkip.add(physicalObjectId);
-      const externalSourceAspects: ExternalSourceAspectProps = {
-        classFullName: ExternalSourceAspect.classFullName,
-        element: {
-          id: physicalObjectId,
-          relClassName: ElementOwnsExternalSourceAspects.classFullName,
-        },
-        scope: { id: "0x1" },
-        source: { id: sourceExternalSourceId },
-        identifier: `notID${x}`,
-        kind: ExternalSourceAspect.Kind.Element,
-      };
-      sourceDb.elements.insertAspect(externalSourceAspects);
-    }
-
-    const objectProps: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: sourceModelId,
-      category: sourceCategoryId,
-      code: Code.createEmpty(),
-    };
-    const physicalObjectToDelete = sourceDb.elements.insertElement(objectProps);
-    const aspectProps: ExternalSourceAspectProps = {
-      classFullName: ExternalSourceAspect.classFullName,
-      element: {
-        id: physicalObjectToDelete,
-        relClassName: ElementOwnsExternalSourceAspects.classFullName,
-      },
-      scope: { id: "0x1" },
-      source: { id: sourceExternalSourceId },
-      identifier: "0x333",
-      kind: ExternalSourceAspect.Kind.Element,
-    };
-
-    sourceDb.elements.insertAspect(aspectProps);
-    sourceDb.saveChanges();
-
-    // create target iModel
-    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "SourceProvenance-Target.bim"
-    );
-    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
-      rootSubject: { name: "Source Provenance Test (Target)" },
-    });
-
-    // clone
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
-      includeSourceProvenance: true,
-      forceExternalSourceAspectProvenance: true,
-    });
-    await transformer.process();
-    targetDb.saveChanges();
-
-    // verify target contents
-    for (const sourceElementId of sourcePhysicalObjectsToSkip) {
-      const targetElementId =
-        transformer.context.findTargetElementId(sourceElementId);
-      expect(targetDb.elements.tryGetElement(targetElementId)).to.be.not
-        .undefined;
-    }
-    const deletedElement = transformer.context.findTargetElementId(
-      physicalObjectToDelete
-    );
-    expect(targetDb.elements.tryGetElement(deletedElement)).to.be.undefined;
-
-    // clean up
     transformer.dispose();
     sourceDb.close();
     targetDb.close();
@@ -4593,6 +4556,7 @@ describe("IModelTransformer", () => {
       longSchema2,
       reffingSchema,
     ]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
@@ -4689,12 +4653,14 @@ describe("IModelTransformer", () => {
     </ECSchema>
     `;
     await sourceDb.importSchemaStrings([customSchema]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceCategoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
       "SpatialCategory",
       { color: ColorDef.blue.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceModelId = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
@@ -4707,6 +4673,7 @@ describe("IModelTransformer", () => {
       userLabel: "Referenced Element",
       model: sourceModelId,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceReferencedElementId = sourceDb.elements.insertElement(
       sourceReferencedElementProps
     );
@@ -4722,11 +4689,13 @@ describe("IModelTransformer", () => {
     };
 
     for (let i = 0; i < 10; ++i) {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.elements.insertElement({
         ...defaultSourceReferencerElementProps,
         userLabel: `Referencer ${i}`,
       });
     }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     // create target iModel
@@ -4741,7 +4710,9 @@ describe("IModelTransformer", () => {
     class SkipElementTransformer extends IModelTransformer {
       public skippedElement = Id64.invalid;
 
-      public override shouldExportElement(sourceElement: Element): boolean {
+      public override async shouldExportElement(
+        sourceElement: Element
+      ): Promise<boolean> {
         return this.skippedElement !== sourceElement.id;
       }
     }
@@ -4750,16 +4721,13 @@ describe("IModelTransformer", () => {
     transformer.skippedElement = sourceReferencedElementId;
     await transformer.processSchemas();
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    targetDb.withPreparedStatement(
-      "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'",
-      (statement) => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          assert(statement.getValue(0).isNull);
-        }
-      }
-    );
+    const sql =
+      "SELECT ReferencedElement.Id FROM CustomSchema:CustomPhysicalElement WHERE UserLabel LIKE '%Referencer%'";
+    for await (const row of targetDb.createQueryReader(sql)) {
+      assert(row[0] === null || row[0] === undefined);
+    }
   });
 
   it("should transform all aspects when detachedAspectProcessing is turned on", async () => {
@@ -4773,7 +4741,9 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "DetachedAspectProcessing" },
     });
     const elements = [
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
     ];
 
@@ -4791,10 +4761,12 @@ describe("IModelTransformer", () => {
           },
         };
 
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertAspect(aspectProps);
       }
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     // create target iModel
@@ -4816,10 +4788,11 @@ describe("IModelTransformer", () => {
 
     // act
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // assert
-    const numSourceSubjectIds = count(sourceDb, Subject.classFullName);
+    const numSourceSubjectIds = await count(sourceDb, Subject.classFullName);
     const elementIds = targetDb.queryEntityIds({ from: Subject.classFullName });
 
     expect(elementIds.size).to.be.equal(numSourceSubjectIds);
@@ -4852,7 +4825,9 @@ describe("IModelTransformer", () => {
       },
     });
     const elements = [
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1"),
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       Subject.insert(sourceDb, IModel.rootSubjectId, "Subject2"),
     ];
     const customSchema = `<?xml version="1.0" encoding="UTF-8"?>
@@ -4873,10 +4848,12 @@ describe("IModelTransformer", () => {
           element: new ElementOwnsMultiAspects(element),
         };
 
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertAspect(aspectProps);
       }
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     // create target iModel
@@ -4900,6 +4877,7 @@ describe("IModelTransformer", () => {
 
     // act
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     // assert
@@ -4932,6 +4910,7 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Transform3d-Source" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const categoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -4939,12 +4918,14 @@ describe("IModelTransformer", () => {
       { color: ColorDef.green.toJSON() }
     );
     const category = sourceDb.elements.getElement<SpatialCategory>(categoryId);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceModelId = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
       "Physical"
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const renderMaterialBothImgsId = RenderMaterialElement.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -4954,6 +4935,7 @@ describe("IModelTransformer", () => {
       }
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const texture1Id = Texture.insertTexture(
       sourceDb,
       IModel.dictionaryId,
@@ -4962,6 +4944,7 @@ describe("IModelTransformer", () => {
       TestUtils.samplePngTexture.base64,
       "texture 1"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const texture2Id = Texture.insertTexture(
       sourceDb,
       IModel.dictionaryId,
@@ -5000,8 +4983,10 @@ describe("IModelTransformer", () => {
       texture1Id;
     renderMaterialBothImgs.jsonProperties.materialAssets.renderMaterial.Map.Normal.TextureId =
       texture2Id;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     renderMaterialBothImgs.update();
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const renderMaterialOnlyPatternId = RenderMaterialElement.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -5014,6 +4999,7 @@ describe("IModelTransformer", () => {
       }
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const renderMaterialOnlyNormalId = RenderMaterialElement.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -5045,6 +5031,7 @@ describe("IModelTransformer", () => {
         ),
         placement: Placement3d.fromJSON({ origin: { x: 0, y: 0 }, angles: {} }),
       };
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return sourceDb.elements.insertElement(physicalObjectProps1);
     });
 
@@ -5133,6 +5120,7 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "DynSchemaSource" },
     });
     await sourceDb.importSchemaStrings([makeDynamicSchema("01.07.00")]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -5143,6 +5131,7 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "DynSchemasTarget" },
     });
     await targetDb.importSchemaStrings([makeDynamicSchema("01.05.02")]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
@@ -5212,11 +5201,13 @@ describe("IModelTransformer", () => {
       path.join(KnownTestLocations.assetsDir, "TestQueryView.ecschema.xml"),
     ]);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const modelId = PhysicalModel.insert(
       sourceDb,
       IModel.rootSubjectId,
       "PhysicalModel"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const categoryId = SpatialCategory.insert(
       sourceDb,
       IModel.dictionaryId,
@@ -5233,6 +5224,7 @@ describe("IModelTransformer", () => {
         angles: { yaw: { degrees: 45 } },
       },
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sourceElement1Id = sourceDb.elements.insertElement(elementProps1);
     const elementProps2: GeometricElement3dProps = {
       category: categoryId,
@@ -5248,29 +5240,28 @@ describe("IModelTransformer", () => {
         angles: { yaw: { degrees: 90 } },
       },
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.elements.insertElement(elementProps2);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
     const transformer = new IModelTransformer(sourceDb, targetDb);
     await transformer.processSchemas();
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
-    const getTestViewElements = (imodelDb: IModelDb) => {
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      return imodelDb.withPreparedStatement(
-        "SELECT * FROM TestGeneratedClassesNew.TestView",
-        (statement) => {
-          const viewElements = [];
-          while (DbResult.BE_SQLITE_ROW === statement.step()) {
-            viewElements.push(statement.getRow());
-          }
-          return viewElements;
-        }
-      );
+    const getTestViewElements = async (imodelDb: IModelDb) => {
+      const viewElements = [];
+      for await (const row of imodelDb.createQueryReader(
+        "SELECT * FROM TestGeneratedClassesNew.TestView"
+      )) {
+        viewElements.push(row.toRow());
+      }
+      return viewElements;
     };
-    const sourceViews = getTestViewElements(sourceDb);
-    const targetViews = getTestViewElements(targetDb);
+    const sourceViews = await getTestViewElements(sourceDb);
+    const targetViews = await getTestViewElements(targetDb);
 
     expect(sourceViews.length).to.equal(targetViews.length).and.to.equal(2);
     expect(sourceViews[0]).to.deep.equal(targetViews[0]);
@@ -5292,6 +5283,7 @@ describe("IModelTransformer", () => {
     const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "LineStyle" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const subjectId = Subject.insert(
       iModelDb,
       IModel.rootSubjectId,
@@ -5316,22 +5308,26 @@ describe("IModelTransformer", () => {
       strokeMode: LineStyleDefinition.StrokeMode.Dash,
     });
     lsStrokes2.push({ length: 1 });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const styleProps1 = LineStyleDefinition.Utils.createStrokePatternComponent(
       iModelDb,
       { descr: "line1", strokes: lsStrokes1 }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const styleProps2 = LineStyleDefinition.Utils.createStrokePatternComponent(
       iModelDb,
       { descr: "line2", strokes: lsStrokes2 }
     );
     styleProps2.unitDef = 2;
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const lineStyle1Id = LineStyleDefinition.Utils.createStyle(
       iModelDb,
       defModelId,
       "LineStyle1",
       styleProps1
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const lineStyle2Id = LineStyleDefinition.Utils.createStyle(
       iModelDb,
       defModelId,
@@ -5339,12 +5335,14 @@ describe("IModelTransformer", () => {
       styleProps2
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const category1Id = SpatialCategory.insert(
       iModelDb,
       defModelId,
       "Red category",
       { color: ColorDef.red.toJSON() }
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const category2Id = SpatialCategory.insert(
       iModelDb,
       defModelId,
@@ -5352,6 +5350,7 @@ describe("IModelTransformer", () => {
       { color: ColorDef.green.toJSON() }
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const modelId = GenericGraphicalModel3d.insert(
       iModelDb,
       subjectId,
@@ -5373,6 +5372,7 @@ describe("IModelTransformer", () => {
       classFullName: Graphic3d.classFullName,
       geom: geometryBuilder1.geometryStream,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.elements.insertElement(graphicElement1Props);
 
     // Insert Line2
@@ -5390,8 +5390,10 @@ describe("IModelTransformer", () => {
       classFullName: Graphic3d.classFullName,
       geom: geometryBuilder2.geometryStream,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.elements.insertElement(graphicElement2Props);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.saveChanges();
 
     // create target iModel
@@ -5453,6 +5455,7 @@ describe("IModelTransformer", () => {
     const iModelDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "LineStyle" },
     });
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const subjectId = Subject.insert(
       iModelDb,
       IModel.rootSubjectId,
@@ -5491,6 +5494,7 @@ describe("IModelTransformer", () => {
     lsStrokes.push({ length: 0.1 });
 
     const strokePatternData =
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       LineStyleDefinition.Utils.createStrokePatternComponent(iModelDb, {
         descr: "TestDashDotDashLineCode",
         strokes: lsStrokes,
@@ -5506,10 +5510,12 @@ describe("IModelTransformer", () => {
       code: Code.createEmpty(),
       geom: partBuilder.geometryStream,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const partId = iModelDb.elements.insertElement(partProps);
     assert.isTrue(Id64.isValidId64(partId));
 
     const pointSymbolData =
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       LineStyleDefinition.Utils.createPointSymbolComponent(iModelDb, {
         geomPartId: partId,
       }); // base and size will be set automatically...
@@ -5528,6 +5534,7 @@ describe("IModelTransformer", () => {
     });
 
     const strokePointData =
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       LineStyleDefinition.Utils.createStrokePointComponent(iModelDb, {
         descr: "TestGapSymbolsLinePoint",
         lcId: strokePatternData.compId,
@@ -5545,12 +5552,14 @@ describe("IModelTransformer", () => {
       type: strokePatternData.compType,
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const compoundData = LineStyleDefinition.Utils.createCompoundComponent(
       iModelDb,
       { comps: lsComponents }
     );
     assert.isTrue(undefined !== compoundData);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const styleId = LineStyleDefinition.Utils.createStyle(
       iModelDb,
       IModel.dictionaryId,
@@ -5559,6 +5568,7 @@ describe("IModelTransformer", () => {
     );
     assert.isTrue(Id64.isValidId64(styleId));
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const category1Id = SpatialCategory.insert(
       iModelDb,
       defModelId,
@@ -5566,6 +5576,7 @@ describe("IModelTransformer", () => {
       { color: ColorDef.red.toJSON() }
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const modelId = GenericGraphicalModel3d.insert(
       iModelDb,
       subjectId,
@@ -5586,8 +5597,10 @@ describe("IModelTransformer", () => {
       classFullName: Graphic3d.classFullName,
       geom: geometryBuilder1.geometryStream,
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.elements.insertElement(graphicElement1Props);
 
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.saveChanges();
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(

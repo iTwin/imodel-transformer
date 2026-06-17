@@ -38,7 +38,10 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
           this.aspectChanges === undefined || isInsertChange || isUpdateChange;
         if (doExport) {
           const isKnownUpdate = this.aspectChanges ? isUpdateChange : undefined;
-          this.handler.onExportElementUniqueAspect(uniqueAspect, isKnownUpdate);
+          await this.handler.onExportElementUniqueAspect(
+            uniqueAspect,
+            isKnownUpdate
+          );
           await this.handler.trackProgress();
         }
       }
@@ -57,7 +60,9 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
         if (
           batchedElementMultiAspects[0].element.id !== multiAspect.element.id
         ) {
-          this.handler.onExportElementMultiAspects(batchedElementMultiAspects);
+          await this.handler.onExportElementMultiAspects(
+            batchedElementMultiAspects
+          );
           await this.handler.trackProgress();
           batchedElementMultiAspects = [];
         }
@@ -68,7 +73,9 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
 
     if (batchedElementMultiAspects.length > 0) {
       // aspects that are left in the array have not been exported
-      this.handler.onExportElementMultiAspects(batchedElementMultiAspects);
+      await this.handler.onExportElementMultiAspects(
+        batchedElementMultiAspects
+      );
       await this.handler.trackProgress();
     }
   }
@@ -78,7 +85,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
     exportAspect: (aspect: T) => Promise<void>
   ) {
     for await (const aspect of this.queryAspects<T>(baseAspectClass)) {
-      if (!this.shouldExportElementAspect(aspect)) {
+      if (!(await this.shouldExportElementAspect(aspect))) {
         continue;
       }
 
@@ -105,7 +112,8 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       new QueryBinder().bindString(
         "baseClassName",
         baseElementAspectClassFullName
-      )
+      ),
+      { usePrimaryConn: true }
     );
     const aspectClassesAsyncQueryReader =
       ensureECSqlReaderIsAsyncIterableIterator(aspectClassesQueryReader);
@@ -125,7 +133,8 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       const aspectQueryReader = this.sourceDb.createQueryReader(
         getAspectPropsSql,
         new QueryBinder().bindId("classId", classId),
-        { rowFormat: QueryRowFormat.UseJsPropertyNames }
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }
       );
       const aspectAsyncQueryReader =
         ensureECSqlReaderIsAsyncIterableIterator(aspectQueryReader);

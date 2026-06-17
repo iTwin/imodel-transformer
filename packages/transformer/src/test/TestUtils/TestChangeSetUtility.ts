@@ -5,12 +5,9 @@
 
 import { AccessToken, GuidString } from "@itwin/core-bentley";
 import { ColorDef, IModel, SubCategoryAppearance } from "@itwin/core-common";
-import {
-  BriefcaseDb,
-  HubMock,
-  IModelHost,
-  SpatialCategory,
-} from "@itwin/core-backend";
+import { BriefcaseDb, IModelHost, SpatialCategory } from "@itwin/core-backend";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { HubWrappers, IModelTestUtils } from "./IModelTestUtils";
 
 /** Test utility to push an iModel and ChangeSets */
@@ -37,10 +34,12 @@ export class TestChangeSetUtility {
         IModelTestUtils.getUniqueModelCode(this._iModel, "TestPhysicalModel"),
         true
       );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.saveChanges("Added test model");
   }
 
   private async addTestCategory(): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._categoryId = SpatialCategory.insert(
       this._iModel,
       IModel.dictionaryId,
@@ -49,10 +48,12 @@ export class TestChangeSetUtility {
         color: ColorDef.fromString("rgb(255,0,0)").toJSON(),
       })
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.saveChanges("Added test category");
   }
 
   private async addTestElements(): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.elements.insertElement(
       IModelTestUtils.createPhysicalObject(
         this._iModel,
@@ -60,6 +61,7 @@ export class TestChangeSetUtility {
         this._categoryId
       ).toJSON()
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.elements.insertElement(
       IModelTestUtils.createPhysicalObject(
         this._iModel,
@@ -67,6 +69,7 @@ export class TestChangeSetUtility {
         this._categoryId
       ).toJSON()
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this._iModel.saveChanges("Added test elements");
   }
 
@@ -118,7 +121,7 @@ export class TestChangeSetUtility {
       this._accessToken,
       this._iModel
     );
-    await IModelHost.hubAccess.deleteIModel({
+    await IModelHost[_hubAccess].deleteIModel({
       accessToken: this._accessToken,
       iTwinId: this.iTwinId,
       iModelId: this.iModelId,

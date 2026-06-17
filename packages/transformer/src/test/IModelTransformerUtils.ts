@@ -9,14 +9,13 @@ import * as fs from "fs";
 import * as inspector from "inspector";
 import {
   CompressedId64Set,
-  DbResult,
   Guid,
   Id64,
   Id64Set,
   Id64String,
   Mutable,
 } from "@itwin/core-bentley";
-import { Schema } from "@itwin/ecschema-metadata";
+import { Property, RelationshipClass, Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   AuxCoordSystem,
@@ -26,7 +25,6 @@ import {
   DisplayStyle3d,
   DrawingCategory,
   DrawingGraphicRepresentsElement,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -37,7 +35,6 @@ import {
   FunctionalSchema,
   GeometricElement3d,
   GeometryPart,
-  HubMock,
   IModelDb,
   IModelJsFs,
   InformationPartitionElement,
@@ -59,7 +56,9 @@ import {
   SubCategory,
   Subject,
   Texture,
+  ViewDefinition2d,
 } from "@itwin/core-backend";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "./TestUtils";
 import {
   Base64EncodedString,
@@ -72,7 +71,6 @@ import {
   DisplayStyle3dSettingsProps,
   ElementAspectProps,
   ElementProps,
-  EntityMetaData,
   FontProps,
   GeometricElement3dProps,
   GeometryStreamIterator,
@@ -81,6 +79,7 @@ import {
   ModelSelectorProps,
   PhysicalElementProps,
   Placement3d,
+  QueryBinder,
   QueryRowFormat,
   SkyBoxImageProps,
   SkyBoxImageType,
@@ -135,6 +134,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       teamOrigin,
       teamColor
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     iModelDb.saveChanges();
     return iModelDb;
   }
@@ -194,6 +194,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
     teamOrigin: Point3d,
     teamColor: ColorDef
   ): void {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const contextSubjectId: Id64String = Subject.insert(
       teamDb,
       IModel.rootSubjectId,
@@ -220,6 +221,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       ColorDef.white
     );
     assert.isTrue(Id64.isValidId64(sharedSpatialCategoryId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const sharedDrawingCategoryId = DrawingCategory.insert(
       teamDb,
       IModel.dictionaryId,
@@ -227,6 +229,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       new SubCategoryAppearance()
     );
     assert.isTrue(Id64.isValidId64(sharedDrawingCategoryId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physicalModelId = PhysicalModel.insert(
       teamDb,
       IModel.rootSubjectId,
@@ -247,6 +250,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       },
     };
     const physicalObjectId1: Id64String =
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       teamDb.elements.insertElement(physicalObjectProps1);
     assert.isTrue(Id64.isValidId64(physicalObjectId1));
     // insert PhysicalObject2 using "shared" SpatialCategory
@@ -263,6 +267,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       },
     };
     const physicalObjectId2: Id64String =
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       teamDb.elements.insertElement(physicalObjectProps2);
     assert.isTrue(Id64.isValidId64(physicalObjectId2));
   }
@@ -282,6 +287,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
     });
     assert.exists(iModelDb);
     teamNames.forEach((teamName: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const subjectId: Id64String = Subject.insert(
         iModelDb,
         IModel.rootSubjectId,
@@ -445,12 +451,14 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       `Definition${consolidatedName}`
     );
     assert.isTrue(Id64.isValidId64(definitionModelId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const physicalModelId = PhysicalModel.insert(
       consolidatedDb,
       IModel.rootSubjectId,
       `Physical${consolidatedName}`
     );
     assert.isTrue(Id64.isValidId64(physicalModelId));
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     consolidatedDb.saveChanges();
     return consolidatedDb;
   }
@@ -512,28 +520,36 @@ const aliasedProperties: Record<string, Record<string, string> | undefined> =
  * get all properties, including those of bases and mixins from metadata,
  * and aliases some properties where the name differs in JS land from the ec property
  */
-function getAllElemMetaDataProperties(elem: Element) {
+function getAllElemMetaDataProperties(
+  elem: Element
+): Record<string, Property> | undefined {
   function getAllClassMetaDataProperties(
     className: string,
-    metadata: EntityMetaData
-  ) {
-    const allProperties = { ...metadata?.properties };
-    for (const baseName of metadata?.baseClasses ?? []) {
-      const base = elem.iModel.getMetaData(baseName);
-      Object.assign(
-        allProperties,
-        getAllClassMetaDataProperties(baseName, base)
+    entity: Entity
+  ): Record<string, Property> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const metaData = entity.getMetaDataSync();
+    const allProperties = { ...metaData.getPropertiesSync() };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    entity.forEach((name, property) => {
+      const base = elem.iModel.schemaContext.getSchemaItemSync(
+        property.class.fullName
       );
-    }
+      if (base !== undefined && base instanceof Entity) {
+        Object.assign(allProperties, getAllClassMetaDataProperties(name, base));
+      }
+    });
 
     Object.assign(allProperties, aliasedProperties[className.toLowerCase()]);
     return allProperties;
   }
 
-  const classMetaData = elem.getClassMetaData();
-  if (!classMetaData) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  const classMetaData = elem.getMetaDataSync();
+  if (!classMetaData || classMetaData instanceof RelationshipClass)
+    return undefined;
 
-  return getAllClassMetaDataProperties(elem.classFullName, classMetaData);
+  return getAllClassMetaDataProperties(elem.classFullName, elem);
 }
 
 /**
@@ -598,19 +614,17 @@ export async function assertIdentityTransformation(
           remapper.findTargetCodeSpecId,
           remapper.findTargetAspectId,
         ];
-  /* eslint-disable-next-line deprecation/deprecation */
-  expect(sourceDb.nativeDb.hasUnsavedChanges()).to.be.false;
-  /* eslint-disable-next-line deprecation/deprecation */
-  expect(targetDb.nativeDb.hasUnsavedChanges()).to.be.false;
 
   const sourceToTargetElemsMap = new Map<Element, Element | undefined>();
   const targetToSourceElemsMap = new Map<Element, Element | undefined>();
   const targetElemIds = new Set<Id64String>();
 
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [sourceElemId] of sourceDb.query(
-    "SELECT ECInstanceId FROM bis.Element"
+  for await (const row of sourceDb.createQueryReader(
+    "SELECT ECInstanceId FROM bis.Element",
+    undefined,
+    { usePrimaryConn: true }
   )) {
+    const sourceElemId = row.id;
     const targetElemId = remapElem(sourceElemId);
     const sourceElem = sourceDb.elements.getElement({
       id: sourceElemId,
@@ -638,29 +652,29 @@ export async function assertIdentityTransformation(
               (ignoreFedGuidsOnAlwaysPresentElementIds &&
                 alwaysPresentElementIds.has(sourceElemId)))) ||
             propName === "jsonProperties");
-        if (prop.isNavigation) {
+        if (prop.isNavigation()) {
           expect(sourceElem.classFullName).to.equal(targetElem.classFullName);
           // some custom handled classes make it difficult to inspect the element props directly with the metadata prop name
           // so we query the prop instead of the checking for the property on the element
           const sql = `SELECT [${propName}].Id from [${sourceElem.schemaName}].[${sourceElem.className}] WHERE ECInstanceId=:id`;
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-          const relationTargetInSourceId = sourceDb.withPreparedStatement(
-            sql,
-            (stmt) => {
-              stmt.bindId("id", sourceElemId);
-              stmt.step();
-              return stmt.getValue(0).getId() ?? Id64.invalid;
-            }
-          );
-          // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-          const relationTargetInTargetId = targetDb.withPreparedStatement(
-            sql,
-            (stmt) => {
-              stmt.bindId("id", targetElemId);
-              expect(stmt.step()).to.equal(DbResult.BE_SQLITE_ROW);
-              return stmt.getValue(0).getId() ?? Id64.invalid;
-            }
-          );
+          const sourceParams = new QueryBinder().bindId("id", sourceElemId);
+          const sourceReader = sourceDb.createQueryReader(sql, sourceParams, {
+            usePrimaryConn: true,
+          });
+
+          const relationTargetInSourceId = (await sourceReader.step())
+            ? sourceReader.current.id
+            : Id64.invalid;
+
+          const targetParams = new QueryBinder().bindId("id", targetElemId);
+          const targetReader = targetDb.createQueryReader(sql, targetParams, {
+            usePrimaryConn: true,
+          });
+
+          const relationTargetInTargetId = (await targetReader.step())
+            ? targetReader.current.id
+            : Id64.invalid;
+
           const mappedRelationTargetInTargetId = (
             propName === "codeSpec" ? remapCodeSpec : remapElem
           )(relationTargetInSourceId);
@@ -779,10 +793,12 @@ export async function assertIdentityTransformation(
     }
   }
 
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [targetElemId] of targetDb.query(
-    "SELECT ECInstanceId FROM bis.Element"
+  for await (const row of targetDb.createQueryReader(
+    "SELECT ECInstanceId FROM bis.Element",
+    undefined,
+    { usePrimaryConn: true }
   )) {
+    const targetElemId = row.id;
     if (!targetElemIds.has(targetElemId)) {
       const targetElem = targetDb.elements.getElement(targetElemId);
       targetToSourceElemsMap.set(targetElem, undefined);
@@ -833,11 +849,12 @@ export async function assertIdentityTransformation(
   const sourceToTargetModelsMap = new Map<Model, Model | undefined>();
   const targetToSourceModelsMap = new Map<Model, Model | undefined>();
   const targetModelIds = new Set<Id64String>();
-
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [sourceModelId] of sourceDb.query(
-    "SELECT ECInstanceId FROM bis.Model"
+  for await (const row of sourceDb.createQueryReader(
+    "SELECT ECInstanceId FROM bis.Model",
+    undefined,
+    { usePrimaryConn: true }
   )) {
+    const sourceModelId = row.id;
     const targetModelId = remapElem(sourceModelId);
     const sourceModel = sourceDb.models.getModel(sourceModelId);
     const targetModel = targetDb.models.tryGetModel(targetModelId);
@@ -857,10 +874,12 @@ export async function assertIdentityTransformation(
     }
   }
 
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const [targetModelId] of targetDb.query(
-    "SELECT ECInstanceId FROM bis.Model"
+  for await (const row of targetDb.createQueryReader(
+    "SELECT ECInstanceId FROM bis.Model",
+    undefined,
+    { usePrimaryConn: true }
   )) {
+    const targetModelId = row.id;
     if (!targetModelIds.has(targetModelId)) {
       const targetModel = targetDb.models.getModel(targetModelId);
       targetToSourceModelsMap.set(targetModel, undefined);
@@ -886,24 +905,35 @@ export async function assertIdentityTransformation(
 
   const makeRelationKey = (rel: any) =>
     `${rel.SourceECInstanceId}\x00${rel.TargetECInstanceId}`;
-  const query: Parameters<IModelDb["query"]> = [
-    "SELECT * FROM bis.ElementRefersToElements",
-    undefined,
-    { rowFormat: QueryRowFormat.UseECSqlPropertyNames },
-  ];
+  const query = {
+    ecsql: "SELECT * FROM bis.ElementRefersToElements",
+    params: undefined,
+    config: {
+      rowFormat: QueryRowFormat.UseECSqlPropertyNames,
+      usePrimaryConn: true,
+    },
+  };
+
   const sourceRelationships = new Map<string, any>();
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const row of sourceDb.query(...query)) {
-    sourceRelationships.set(makeRelationKey(row), row);
+  for await (const row of sourceDb.createQueryReader(
+    query.ecsql,
+    query.params,
+    query.config
+  )) {
+    const rowAsObject = row.toRow();
+    sourceRelationships.set(makeRelationKey(row), rowAsObject);
   }
 
   const targetRelationshipsToFind = new Map<string, any>();
-  // eslint-disable-next-line deprecation/deprecation
-  for await (const row of targetDb.query(...query)) {
-    targetRelationshipsToFind.set(makeRelationKey(row), row);
+  for await (const row of targetDb.createQueryReader(
+    query.ecsql,
+    query.params,
+    query.config
+  )) {
+    const rowAsObject = row.toRow();
+    targetRelationshipsToFind.set(makeRelationKey(row), rowAsObject);
   }
 
-  /* eslint-disable @typescript-eslint/naming-convention */
   for (const relInSource of sourceRelationships.values()) {
     const isOnlyInSource =
       onlyInSourceElements.has(relInSource.SourceECInstanceId) &&
@@ -919,15 +949,13 @@ export async function assertIdentityTransformation(
       TargetECInstanceId: relTargetInTarget,
     });
     const relInTarget = targetRelationshipsToFind.get(relInTargetKey);
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    const relClassName = sourceDb.withPreparedStatement(
-      "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?",
-      (s) => {
-        s.bindId(1, relInSource.ECClassId);
-        s.step();
-        return s.getValue(0).getString();
-      }
-    );
+    const sql = "SELECT Name FROM meta.ECClassDef WHERE ECInstanceId=?";
+    const params = new QueryBinder().bindId(1, relInSource.ECClassId);
+    const reader = sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
+    await reader.step();
+    const relClassName = reader.current[0];
     expect(
       relInTarget,
       `rel ${relClassName}:${relInSource.SourceECInstanceId}->${relInSource.TargetECInstanceId} was missing`
@@ -940,6 +968,7 @@ export async function assertIdentityTransformation(
       ECInstanceId: _4,
       SourceECClassId: _5,
       TargetECClassId: _6,
+      MemberPriority: _7,
       ...rel
     }: any) => rel;
     expect(makeRelInvariant(relInSource)).to.deep.equal(
@@ -961,20 +990,26 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     );
     await targetDb.importSchemas([targetSchemaFileName]);
     // Insert a target-only CodeSpec to test remapping
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const targetCodeSpecId: Id64String = targetDb.codeSpecs.insert(
       "TargetCodeSpec",
       CodeScopeSpec.Type.Model
     );
     assert.isTrue(Id64.isValidId64(targetCodeSpecId));
     // Insert some elements to avoid getting same IDs for sourceDb and targetDb
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const subjectId = Subject.insert(
       targetDb,
       IModel.rootSubjectId,
       "Only in Target"
     );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S1");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S2");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S3");
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     Subject.insert(targetDb, subjectId, "S4");
     const targetPhysicalCategoryId =
       IModelTransformerTestUtils.insertSpatialCategory(
@@ -1016,8 +1051,6 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     assert.isFalse(targetDb.codeSpecs.hasName("SourceCodeSpec"));
     assert.isFalse(targetDb.codeSpecs.hasName("ExtraCodeSpec"));
 
-    // Font
-    assert.exists(targetDb.fontMap.getFont("Arial"));
     // Subject
     const subjectId: Id64String = targetDb.elements.queryElementIdByCode(
       Subject.createCode(targetDb, IModel.rootSubjectId, targetSubjectName)
@@ -1230,7 +1263,7 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     );
     assert.isDefined(physicalObject1.geom);
     let index1 = 0;
-    for (const entry of new GeometryStreamIterator(physicalObject1.geom!)) {
+    for (const entry of new GeometryStreamIterator(physicalObject1.geom)) {
       if (0 === index1) {
         assert.equal(entry.primitive.type, "geometryQuery");
         assert.equal(entry.geomParams.subCategoryId, subCategoryId);
@@ -1475,9 +1508,9 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     assertTargetElement(viewId);
     const viewProps =
       targetDb.elements.getElementProps<SpatialViewDefinitionProps>(viewId);
-    assert.equal(viewProps.displayStyleId, displayStyle3dId);
-    assert.equal(viewProps.categorySelectorId, spatialCategorySelectorId);
-    assert.equal(viewProps.modelSelectorId, modelSelectorId);
+    assert.equal(viewProps.displayStyle?.id, displayStyle3dId);
+    assert.equal(viewProps.categorySelector?.id, spatialCategorySelectorId);
+    assert.equal(viewProps.modelSelector?.id, modelSelectorId);
     // AuxCoordSystem2d
     assert.equal(
       undefined,
@@ -1567,8 +1600,10 @@ export class IModelTransformer3d extends IModelTransformer {
     this._transform3d = transform3d;
   }
   /** Override transformElement to apply a 3d transform to all GeometricElement3d instances. */
-  public override onTransformElement(sourceElement: Element): ElementProps {
-    const targetElementProps: ElementProps = super.onTransformElement(
+  public override async onTransformElement(
+    sourceElement: Element
+  ): Promise<ElementProps> {
+    const targetElementProps: ElementProps = await super.onTransformElement(
       sourceElement
     );
     if (sourceElement instanceof GeometricElement3d) {
@@ -1603,7 +1638,9 @@ export class PhysicalModelConsolidator extends IModelTransformer {
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }
   /** Override shouldExportElement to remap PhysicalPartition instances. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (sourceElement instanceof PhysicalPartition) {
       this.combineElements([sourceElement.id], this._targetModelId);
       // NOTE: must allow export to continue so the PhysicalModel sub-modeling the PhysicalPartition is processed
@@ -1619,7 +1656,30 @@ export class FilterByViewTransformer extends IModelTransformer {
   private readonly _exportCategorySelectorId: Id64String;
   private readonly _exportDisplayStyleId: Id64String;
   private readonly _exportModelIds: Id64Set;
-  public constructor(
+
+  /** Static factory method for async initialization */
+  public static async create(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    exportViewDefinitionId: Id64String
+  ): Promise<FilterByViewTransformer> {
+    const transformer = new FilterByViewTransformer(
+      sourceDb,
+      targetDb,
+      exportViewDefinitionId
+    );
+    const exportCategorySelector =
+      sourceDb.elements.getElement<CategorySelector>(
+        transformer._exportCategorySelectorId,
+        CategorySelector
+      );
+    await transformer.excludeCategoriesExcept(
+      Id64.toIdSet(exportCategorySelector.categories)
+    );
+    return transformer;
+  }
+
+  private constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
     exportViewDefinitionId: Id64String
@@ -1631,42 +1691,34 @@ export class FilterByViewTransformer extends IModelTransformer {
         exportViewDefinitionId,
         SpatialViewDefinition
       );
-    this._exportCategorySelectorId = exportViewDefinition.categorySelectorId;
-    this._exportModelSelectorId = exportViewDefinition.modelSelectorId;
-    this._exportDisplayStyleId = exportViewDefinition.displayStyleId;
-    const exportCategorySelector =
-      sourceDb.elements.getElement<CategorySelector>(
-        exportViewDefinition.categorySelectorId,
-        CategorySelector
-      );
-    this.excludeCategoriesExcept(
-      Id64.toIdSet(exportCategorySelector.categories)
-    );
+    this._exportCategorySelectorId = exportViewDefinition.categorySelector.id;
+    this._exportModelSelectorId = exportViewDefinition.modelSelector.id;
+    this._exportDisplayStyleId = exportViewDefinition.displayStyle.id;
     const exportModelSelector = sourceDb.elements.getElement<ModelSelector>(
-      exportViewDefinition.modelSelectorId,
+      exportViewDefinition.modelSelector.id,
       ModelSelector
     );
     this._exportModelIds = Id64.toIdSet(exportModelSelector.models);
   }
   /** Excludes categories not referenced by the export view's CategorySelector */
-  private excludeCategoriesExcept(exportCategoryIds: Id64Set): void {
+  private async excludeCategoriesExcept(
+    exportCategoryIds: Id64Set
+  ): Promise<void> {
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      (statement: ECSqlStatement): void => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const categoryId = statement.getValue(0).getId();
-          if (!exportCategoryIds.has(categoryId)) {
-            this.exporter.excludeElementsInCategory(categoryId);
-          }
-        }
+    const reader = this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    });
+    for await (const row of reader) {
+      const categoryId = row[0] as Id64String;
+      if (!exportCategoryIds.has(categoryId)) {
+        this.exporter.excludeElementsInCategory(categoryId);
       }
-    );
+    }
   }
   /** Override of IModelTransformer.shouldExportElement that excludes other ViewDefinition-related elements that are not associated with the *export* ViewDefinition. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (sourceElement instanceof PhysicalPartition) {
       return this._exportModelIds.has(sourceElement.id);
     } else if (sourceElement instanceof SpatialViewDefinition) {
@@ -1687,7 +1739,17 @@ export class FilterByViewTransformer extends IModelTransformer {
  * and records transformation data in the iModel itself.
  */
 export class TestIModelTransformer extends IModelTransformer {
-  public constructor(
+  public static async create(
+    source: IModelDb | IModelExporter,
+    target: IModelDb | IModelImporter,
+    options?: IModelTransformOptions
+  ): Promise<TestIModelTransformer> {
+    const transformer = new TestIModelTransformer(source, target, options);
+    await transformer.initSubCategoryFilters();
+    return transformer;
+  }
+
+  private constructor(
     source: IModelDb | IModelExporter,
     target: IModelDb | IModelImporter,
     options?: IModelTransformOptions
@@ -1697,7 +1759,6 @@ export class TestIModelTransformer extends IModelTransformer {
     this.initCodeSpecRemapping();
     this.initCategoryRemapping();
     this.initClassRemapping();
-    this.initSubCategoryFilters();
   }
 
   /** Initialize some sample exclusion rules for testing */
@@ -1782,37 +1843,42 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** */
-  private initSubCategoryFilters(): void {
+  private async initSubCategoryFilters(): Promise<void> {
     assert.isFalse(this.context.hasSubCategoryFilter);
     const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:codeValue`;
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      (statement: ECSqlStatement): void => {
-        statement.bindString("codeValue", "FilteredSubCategory");
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const subCategoryId = statement.getValue(0).getId();
-          assert.isFalse(this.context.isSubCategoryFiltered(subCategoryId));
-          this.context.filterSubCategory(subCategoryId);
-          this.exporter.excludeElement(subCategoryId);
-          assert.isTrue(this.context.isSubCategoryFiltered(subCategoryId));
-        }
-      }
+    const params = new QueryBinder().bindString(
+      "codeValue",
+      "FilteredSubCategory"
     );
+    const reader = this.sourceDb.createQueryReader(sql, params, {
+      usePrimaryConn: true,
+    });
+    for await (const row of reader) {
+      const subCategoryId = row[0] as Id64String;
+      assert.isFalse(this.context.isSubCategoryFiltered(subCategoryId));
+      this.context.filterSubCategory(subCategoryId);
+      this.exporter.excludeElement(subCategoryId);
+      assert.isTrue(this.context.isSubCategoryFiltered(subCategoryId));
+    }
     assert.isTrue(this.context.hasSubCategoryFilter);
   }
 
   /** Override shouldExportElement to exclude all elements from the Functional schema. */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     return sourceElement.classFullName.startsWith(FunctionalSchema.schemaName)
       ? false
       : super.shouldExportElement(sourceElement);
   }
 
   /** Override transformElement to make sure that all target Elements have a FederationGuid */
-  public override onTransformElement(sourceElement: Element): ElementProps {
-    const targetElementProps: any = super.onTransformElement(sourceElement);
+  public override async onTransformElement(
+    sourceElement: Element
+  ): Promise<ElementProps> {
+    const targetElementProps: any = await super.onTransformElement(
+      sourceElement
+    );
     if (!targetElementProps.federationGuid) {
       targetElementProps.federationGuid = Guid.createValue();
     }
@@ -1840,10 +1906,10 @@ export class TestIModelTransformer extends IModelTransformer {
   }
 
   /** Override transformElementAspect to remap Source*Aspect --> Target*Aspect */
-  public override onTransformElementAspect(
+  public override async onTransformElementAspect(
     sourceElementAspect: ElementAspect
-  ): ElementAspectProps {
-    const targetElementAspectProps: any = super.onTransformElementAspect(
+  ): Promise<ElementAspectProps> {
+    const targetElementAspectProps: any = await super.onTransformElementAspect(
       sourceElementAspect
     );
     if (
@@ -1917,9 +1983,9 @@ export class AspectTrackingTransformer extends IModelTransformer {
     ElementMultiAspect[]
   >();
 
-  public override onExportElementMultiAspects(
+  public override async onExportElementMultiAspects(
     sourceAspects: ElementMultiAspect[]
-  ): void {
+  ): Promise<void> {
     const elementId = sourceAspects[0].element.id;
     assert(
       !this.exportedAspectIdsByElement.has(elementId),
@@ -1946,7 +2012,7 @@ export class AssertOrderTransformer extends IModelTransformer {
     return `The elements [${this._exportOrderQueue}] remain`;
   }
 
-  public override onExportElement(elem: Element) {
+  public override async onExportElement(elem: Element) {
     if (elem.id === this._exportOrderQueue[0]) this._exportOrderQueue.shift(); // pop the front
     // we just popped the queue if it was expected, so it shouldn't be there the order was correct (and there are no duplicates)
     const currentExportWasNotInExpectedOrder = this._exportOrderQueue.includes(
@@ -1986,65 +2052,83 @@ export class CountingIModelImporter extends IModelImporter {
   public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
     super(targetDb, options);
   }
-  protected override onInsertModel(modelProps: ModelProps): Id64String {
+  protected override async onInsertModel(
+    modelProps: ModelProps
+  ): Promise<Id64String> {
     this.numModelsInserted++;
     return super.onInsertModel(modelProps);
   }
-  protected override onUpdateModel(modelProps: ModelProps): void {
+  protected override async onUpdateModel(
+    modelProps: ModelProps
+  ): Promise<void> {
     this.numModelsUpdated++;
-    super.onUpdateModel(modelProps);
+    await super.onUpdateModel(modelProps);
   }
-  protected override onInsertElement(elementProps: ElementProps): Id64String {
+  protected override async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
     this.numElementsInserted++;
     return super.onInsertElement(elementProps);
   }
-  protected override onUpdateElement(elementProps: ElementProps): void {
+  protected override async onUpdateElement(
+    elementProps: ElementProps
+  ): Promise<void> {
     this.numElementsUpdated++;
-    super.onUpdateElement(elementProps);
+    await super.onUpdateElement(elementProps);
   }
-  protected override onDeleteElement(elementId: Id64String): void {
+  protected override async onDeleteElement(
+    elementId: Id64String
+  ): Promise<void> {
     this.numElementsExplicitlyDeleted++;
-    super.onDeleteElement(elementId);
+    await super.onDeleteElement(elementId);
   }
-  protected override onInsertElementAspect(
+  protected override async onInsertElementAspect(
     aspectProps: ElementAspectProps
-  ): Id64String {
+  ): Promise<Id64String> {
     this.numElementAspectsInserted++;
     return super.onInsertElementAspect(aspectProps);
   }
-  protected override onUpdateElementAspect(
+  protected override async onUpdateElementAspect(
     aspectProps: ElementAspectProps
-  ): void {
+  ): Promise<void> {
     this.numElementAspectsUpdated++;
-    super.onUpdateElementAspect(aspectProps);
+    await super.onUpdateElementAspect(aspectProps);
   }
-  protected override onInsertRelationship(
+  protected override async onInsertRelationship(
     relationshipProps: RelationshipProps
-  ): Id64String {
+  ): Promise<Id64String> {
     this.numRelationshipsInserted++;
     return super.onInsertRelationship(relationshipProps);
   }
-  protected override onUpdateRelationship(
+  protected override async onUpdateRelationship(
     relationshipProps: RelationshipProps
-  ): void {
+  ): Promise<void> {
     this.numRelationshipsUpdated++;
-    super.onUpdateRelationship(relationshipProps);
+    await super.onUpdateRelationship(relationshipProps);
   }
-  protected override onDeleteRelationship(
+  protected override async onDeleteRelationship(
     relationshipProps: RelationshipPropsForDelete
-  ): void {
+  ): Promise<void> {
     this.numRelationshipsDeleted++;
-    super.onDeleteRelationship(relationshipProps);
+    await super.onDeleteRelationship(relationshipProps);
   }
 }
 
 /** Specialization of IModelImporter that creates an InformationRecordElement for each PhysicalElement that it imports. */
 export class RecordingIModelImporter extends CountingIModelImporter {
+  /** Cache mapping PhysicalPartition IDs to their corresponding record partition IDs */
+  private _recordPartitionIdByPhysicalPartitionId = new Map<
+    Id64String,
+    Id64String
+  >();
+
   public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
     super(targetDb, options);
   }
-  protected override onInsertModel(modelProps: ModelProps): Id64String {
-    const modelId: Id64String = super.onInsertModel(modelProps);
+  protected override async onInsertModel(
+    modelProps: ModelProps
+  ): Promise<Id64String> {
+    const modelId: Id64String = await super.onInsertModel(modelProps);
     const model: Model = this.targetDb.models.getModel(modelId);
     if (model instanceof PhysicalModel) {
       const modeledElement: Element = this.targetDb.elements.getElement(
@@ -2057,69 +2141,65 @@ export class RecordingIModelImporter extends CountingIModelImporter {
           parentSubjectId,
           `Records for ${model.name}`
         );
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         this.targetDb.relationships.insertInstance({
           classFullName:
             "ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords",
           sourceId: modeledElement.id,
           targetId: recordPartitionId,
         });
+        // Cache the mapping to avoid needing to query later
+        this._recordPartitionIdByPhysicalPartitionId.set(
+          modelId,
+          recordPartitionId
+        );
       }
     }
     return modelId;
   }
-  protected override onInsertElement(elementProps: ElementProps): Id64String {
-    const elementId: Id64String = super.onInsertElement(elementProps);
+  protected override async onInsertElement(
+    elementProps: ElementProps
+  ): Promise<Id64String> {
+    // during insertion it is possible that elements are inserted with partial. Account for that so that operations below don't throw.
+    this.accountForPartialViewDefinition2d(elementProps);
+    const elementId: Id64String = await super.onInsertElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(
-        element.model
-      );
-      if (Id64.isValidId64(recordPartitionId)) {
+      const recordPartitionId =
+        this._recordPartitionIdByPhysicalPartitionId.get(element.model);
+      if (recordPartitionId && Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Insert", recordPartitionId, element);
       }
     }
     return elementId;
   }
-  protected override onUpdateElement(elementProps: ElementProps): void {
-    super.onUpdateElement(elementProps);
+  protected override async onUpdateElement(
+    elementProps: ElementProps
+  ): Promise<void> {
+    await super.onUpdateElement(elementProps);
     const element: Element = this.targetDb.elements.getElement(
       elementProps.id!
     );
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(
-        element.model
-      );
-      if (Id64.isValidId64(recordPartitionId)) {
+      const recordPartitionId =
+        this._recordPartitionIdByPhysicalPartitionId.get(element.model);
+      if (recordPartitionId && Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Update", recordPartitionId, element);
       }
     }
   }
-  protected override onDeleteElement(elementId: Id64String): void {
+  protected override async onDeleteElement(
+    elementId: Id64String
+  ): Promise<void> {
     const element: Element = this.targetDb.elements.getElement(elementId);
     if (element instanceof PhysicalElement) {
-      const recordPartitionId: Id64String = this.getRecordPartitionId(
-        element.model
-      );
-      if (Id64.isValidId64(recordPartitionId)) {
+      const recordPartitionId =
+        this._recordPartitionIdByPhysicalPartitionId.get(element.model);
+      if (recordPartitionId && Id64.isValidId64(recordPartitionId)) {
         this.insertAuditRecord("Delete", recordPartitionId, element);
       }
     }
-    super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
-  }
-  private getRecordPartitionId(physicalPartitionId: Id64String): Id64String {
-    const sql =
-      "SELECT TargetECInstanceId FROM ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords WHERE SourceECInstanceId=:physicalPartitionId";
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    return this.targetDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      (statement: ECSqlStatement): Id64String => {
-        statement.bindId("physicalPartitionId", physicalPartitionId);
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getId()
-          : Id64.invalid;
-      }
-    );
+    await super.onDeleteElement(elementId); // delete element after AuditRecord is inserted
   }
   private insertAuditRecord(
     operation: string,
@@ -2134,7 +2214,19 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       operation,
       physicalElement: { id: physicalElement.id },
     };
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     return this.targetDb.elements.insertElement(auditRecord);
+  }
+  private accountForPartialViewDefinition2d(elementProps: ElementProps): void {
+    const view2d = elementProps as unknown as ViewDefinition2d;
+    // if the ViewDefinition2d has a baseModelId, it should be a valid Id64String otherwise insert/get operations will fail.
+    // if the element referenced by baseModelId is not yet inserted in the target iModel this condition is possible.
+    // Transformer code in this case marks this element as partial and in the end will reconcile and update the element with a valid baseModelId before the entire process is done.
+    // Reference to reconciliation: https://github.com/iTwin/imodel-transformer/blob/6a2dabe4a55d70814682723839850a3186af7d3d/packages/transformer/src/IModelTransformer.ts#L1602
+    // The baseModelId assigned here is a placeholder that will be replaced with the actual baseModelId when the reconciliation happens.
+    if (view2d.baseModelId && !Id64.isValidId64(view2d.baseModelId)) {
+      view2d.baseModelId = "0x1";
+    }
   }
 }
 
@@ -2143,10 +2235,10 @@ export class RecordingIModelImporter extends CountingIModelImporter {
  */
 export class AspectTrackingImporter extends IModelImporter {
   public importedAspectIdsByElement = new Map<Id64String, Id64String[]>();
-  public override importElementMultiAspects(
+  public override async importElementMultiAspects(
     ...args: Parameters<IModelImporter["importElementMultiAspects"]>
   ) {
-    const resultTargetIds = super.importElementMultiAspects(...args);
+    const resultTargetIds = await super.importElementMultiAspects(...args);
     const [aspectsProps] = args;
     const elementId = aspectsProps[0].element.id;
     assert(
@@ -2182,7 +2274,6 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     ...args: Parameters<IModelExporter["exportChanges"]>
   ): Promise<void> {
     this._shouldIndent = false;
-    // eslint-disable-next-line deprecation/deprecation
     return this.exporter.exportChanges(...args);
   }
   private writeLine(line: string, indentLevel: number = 0): void {
@@ -2227,44 +2318,44 @@ export class IModelToTextFileExporter extends IModelExportHandler {
     this.writeLine(`[Schema] ${schema.name}`);
     return super.onExportSchema(schema);
   }
-  public override onExportCodeSpec(
+  public override async onExportCodeSpec(
     codeSpec: CodeSpec,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.writeLine(
       `[CodeSpec] ${codeSpec.id}, ${codeSpec.name}${this.formatOperationName(
         isUpdate
       )}`
     );
-    super.onExportCodeSpec(codeSpec, isUpdate);
+    await super.onExportCodeSpec(codeSpec, isUpdate);
   }
-  public override onExportFont(
+  public override async onExportFont(
     font: FontProps,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     if (this._firstFont) {
       this.writeSeparator();
       this._firstFont = false;
     }
     this.writeLine(`[Font] ${font.id}, ${font.name}`);
-    super.onExportFont(font, isUpdate);
+    await super.onExportFont(font, isUpdate);
   }
-  public override onExportModel(
+  public override async onExportModel(
     model: Model,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.writeSeparator();
     this.writeLine(
       `[Model] ${model.classFullName}, ${model.id}, ${
         model.name
       }${this.formatOperationName(isUpdate)}`
     );
-    super.onExportModel(model, isUpdate);
+    await super.onExportModel(model, isUpdate);
   }
-  public override onExportElement(
+  public override async onExportElement(
     element: Element,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     const indentLevel: number = this.getIndentLevelForElement(element);
     this.writeLine(
       `[Element] ${element.classFullName}, ${
@@ -2272,16 +2363,16 @@ export class IModelToTextFileExporter extends IModelExportHandler {
       }, ${element.getDisplayLabel()}${this.formatOperationName(isUpdate)}`,
       indentLevel
     );
-    super.onExportElement(element, isUpdate);
+    await super.onExportElement(element, isUpdate);
   }
-  public override onDeleteElement(elementId: Id64String): void {
+  public override async onDeleteElement(elementId: Id64String): Promise<void> {
     this.writeLine(`[Element] ${elementId}, DELETE`);
-    super.onDeleteElement(elementId);
+    await super.onDeleteElement(elementId);
   }
-  public override onExportElementUniqueAspect(
+  public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     const indentLevel: number = this.getIndentLevelForElementAspect(aspect);
     this.writeLine(
       `[Aspect] ${aspect.classFullName}, ${aspect.id}${this.formatOperationName(
@@ -2289,11 +2380,11 @@ export class IModelToTextFileExporter extends IModelExportHandler {
       )}`,
       indentLevel
     );
-    super.onExportElementUniqueAspect(aspect, isUpdate);
+    await super.onExportElementUniqueAspect(aspect, isUpdate);
   }
-  public override onExportElementMultiAspects(
+  public override async onExportElementMultiAspects(
     aspects: ElementMultiAspect[]
-  ): void {
+  ): Promise<void> {
     const indentLevel: number = this.getIndentLevelForElementAspect(aspects[0]);
     for (const aspect of aspects) {
       this.writeLine(
@@ -2301,12 +2392,12 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         indentLevel
       );
     }
-    super.onExportElementMultiAspects(aspects);
+    await super.onExportElementMultiAspects(aspects);
   }
-  public override onExportRelationship(
+  public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     if (this._firstRelationship) {
       this.writeSeparator();
       this._firstRelationship = false;
@@ -2316,11 +2407,13 @@ export class IModelToTextFileExporter extends IModelExportHandler {
         relationship.id
       }${this.formatOperationName(isUpdate)}`
     );
-    super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(relationship, isUpdate);
   }
-  public override onDeleteRelationship(relInstanceId: Id64String): void {
+  public override async onDeleteRelationship(
+    relInstanceId: Id64String
+  ): Promise<void> {
     this.writeLine(`[Relationship] ${relInstanceId}, DELETE`);
-    super.onDeleteRelationship(relInstanceId);
+    await super.onDeleteRelationship(relInstanceId);
   }
 }
 
@@ -2402,44 +2495,44 @@ export class ClassCounter extends IModelExportHandler {
     });
     IModelJsFs.appendFileSync(this.outputFileName, "\n");
   }
-  public override onExportModel(
+  public override async onExportModel(
     model: Model,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(this._modelClassCounts, model.classFullName);
-    super.onExportModel(model, isUpdate);
+    await super.onExportModel(model, isUpdate);
   }
-  public override onExportElement(
+  public override async onExportElement(
     element: Element,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(this._elementClassCounts, element.classFullName);
-    super.onExportElement(element, isUpdate);
+    await super.onExportElement(element, isUpdate);
   }
-  public override onExportElementUniqueAspect(
+  public override async onExportElementUniqueAspect(
     aspect: ElementUniqueAspect,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(this._aspectClassCounts, aspect.classFullName);
-    super.onExportElementUniqueAspect(aspect, isUpdate);
+    await super.onExportElementUniqueAspect(aspect, isUpdate);
   }
-  public override onExportElementMultiAspects(
+  public override async onExportElementMultiAspects(
     aspects: ElementMultiAspect[]
-  ): void {
+  ): Promise<void> {
     for (const aspect of aspects) {
       this.incrementClassCount(this._aspectClassCounts, aspect.classFullName);
     }
-    super.onExportElementMultiAspects(aspects);
+    await super.onExportElementMultiAspects(aspects);
   }
-  public override onExportRelationship(
+  public override async onExportRelationship(
     relationship: Relationship,
     isUpdate: boolean | undefined
-  ): void {
+  ): Promise<void> {
     this.incrementClassCount(
       this._relationshipClassCounts,
       relationship.classFullName
     );
-    super.onExportRelationship(relationship, isUpdate);
+    await super.onExportRelationship(relationship, isUpdate);
   }
 }
 

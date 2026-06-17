@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  ECSqlStatement,
   ElementRefersToElements,
   EntityReferences,
   GraphicalElement3dRepresentsElement,
@@ -14,7 +13,7 @@ import {
   SnapshotDb,
   SpatialCategory,
 } from "@itwin/core-backend";
-import { DbResult, Id64, Id64String } from "@itwin/core-bentley";
+import { Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
   ConcreteEntityTypes,
@@ -58,12 +57,14 @@ describe("IModelCloneContext", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categoryId = SpatialCategory.insert(
         sourceDb,
         IModel.dictionaryId,
         "SpatialCategory",
         new SubCategoryAppearance()
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceModelId = PhysicalModel.insert(
         sourceDb,
         IModel.rootSubjectId,
@@ -76,10 +77,13 @@ describe("IModelCloneContext", () => {
         code: Code.createEmpty(),
       };
       const physicalObject1 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const physicalObject2 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
       const physicalObject3 =
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.elements.insertElement(physicalObjectProps);
 
       const relationshipsProps: RelationshipProps[] = [
@@ -106,8 +110,14 @@ describe("IModelCloneContext", () => {
       ];
 
       relationshipsProps.forEach((props) =>
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.relationships.insertInstance(props)
       );
+
+      // Save changes to source DB to ensure relationships are persisted
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      sourceDb.saveChanges();
+
       // Target IModelDb
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
         "IModelTransformer",
@@ -119,6 +129,7 @@ describe("IModelCloneContext", () => {
       // Import from beneath source Subject into target Subject
       const transformer = new IModelTransformer(sourceDb, targetDb);
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       targetDb.saveChanges();
 
       // Assertion
@@ -127,16 +138,13 @@ describe("IModelCloneContext", () => {
                     JOIN bis.Element t ON t.ECInstanceId = r.TargetECInstanceId
                     WHERE s.ECInstanceId IS NOT NULL AND t.ECInstanceId IS NOT NULL`;
       const sourceRelationshipIds: Id64String[] = [];
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      sourceDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          sourceRelationshipIds.push(statement.getValue(0).getId());
-        }
-      });
+      for await (const row of sourceDb.createQueryReader(sql)) {
+        sourceRelationshipIds.push(row.id);
+      }
       let atLeastOneRelIdMissMatches = false;
-      sourceRelationshipIds.forEach((sourceRelId) => {
+      for (const sourceRelId of sourceRelationshipIds) {
         const targetRelId = EntityReferences.toId64(
-          transformer.context.findTargetEntityId(
+          await transformer.context.findTargetEntityId(
             EntityReferences.fromEntityType(
               sourceRelId,
               ConcreteEntityTypes.Relationship
@@ -152,7 +160,7 @@ describe("IModelCloneContext", () => {
 
         if (!atLeastOneRelIdMissMatches)
           atLeastOneRelIdMissMatches = targetRelId !== sourceRelId;
-      });
+      }
       /**
        * If this fails, then relationship ids match, and we don't really know if sourceDb and targetDb relationship ids differ.
        * It doesn't mean that functionality fails by itself.

@@ -5,7 +5,6 @@
 
 import {
   assert,
-  DbResult,
   Id64,
   Id64Array,
   Id64Set,
@@ -17,7 +16,6 @@ import {
   CategorySelector,
   DisplayStyle,
   DisplayStyle3d,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementRefersToElements,
@@ -38,7 +36,7 @@ import {
   IModelTransformer,
   IModelTransformOptions,
 } from "@itwin/imodel-transformer";
-import { ElementProps, IModel } from "@itwin/core-common";
+import { ElementProps, IModel, QueryBinder } from "@itwin/core-common";
 
 export const loggerCategory = "imodel-transformer";
 
@@ -67,12 +65,13 @@ export class Transformer extends IModelTransformer {
   ): Promise<void> {
     // might need to inject RequestContext for schemaExport.
     const transformer = new Transformer(sourceDb, targetDb, options);
+    await transformer.initializeTransformer();
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
     await transformer.process();
     await transformer.saveChanges("processAll");
     if (options?.deleteUnusedGeometryParts) {
-      transformer.deleteUnusedGeometryParts();
+      await transformer.deleteUnusedGeometryParts();
       await transformer.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.dispose();
@@ -95,12 +94,13 @@ export class Transformer extends IModelTransformer {
         startChangeset: { id: sourceStartChangesetId },
       },
     });
+    await transformer.initializeTransformer();
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
     await transformer.process();
     await transformer.saveChanges("processChanges");
     if (options?.deleteUnusedGeometryParts) {
-      transformer.deleteUnusedGeometryParts();
+      await transformer.deleteUnusedGeometryParts();
       await transformer.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.dispose();
@@ -119,7 +119,7 @@ export class Transformer extends IModelTransformer {
     options?: TransformerOptions
   ): Promise<IModelTransformer> {
     class IsolateElementsTransformer extends Transformer {
-      public override shouldExportElement(sourceElement: Element) {
+      public override async shouldExportElement(sourceElement: Element) {
         if (
           !includeChildren &&
           (isolatedElementIds.some((id) => sourceElement.parent?.id === id) ||
@@ -134,17 +134,20 @@ export class Transformer extends IModelTransformer {
       targetDb,
       options
     );
+    await transformer.initializeTransformer();
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
     for (const id of isolatedElementIds) await transformer.processElement(id);
     await transformer.saveChanges("process isolated elements");
     if (options?.deleteUnusedGeometryParts) {
-      transformer.deleteUnusedGeometryParts();
+      await transformer.deleteUnusedGeometryParts();
       await transformer.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.logElapsedTime();
     return transformer;
   }
+
+  private _transformerOptions?: TransformerOptions;
 
   private constructor(
     sourceDb: IModelDb,
@@ -159,12 +162,15 @@ export class Transformer extends IModelTransformer {
       options
     );
 
+    this._transformerOptions = options;
+
     Logger.logInfo(loggerCategory, `sourceDb=${this.sourceDb.pathName}`);
     Logger.logInfo(loggerCategory, `targetDb=${this.targetDb.pathName}`);
     this.logChangeTrackingMemoryUsed();
 
     // customize transformer using the specified options
     if (options?.combinePhysicalModels) {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       this._targetPhysicalModelId = PhysicalModel.insert(
         this.targetDb,
         IModel.rootSubjectId,
@@ -213,40 +219,46 @@ export class Transformer extends IModelTransformer {
         }
       }
     }
-    if (options?.excludeSubCategories) {
-      this.excludeSubCategories(options.excludeSubCategories);
+  }
+
+  /** Async initialization that must be called after construction */
+  private async initializeTransformer(): Promise<void> {
+    if (this._transformerOptions?.excludeSubCategories) {
+      await this.excludeSubCategories(
+        this._transformerOptions.excludeSubCategories
+      );
     }
-    if (options?.excludeCategories) {
-      this.excludeCategories(options.excludeCategories);
+    if (this._transformerOptions?.excludeCategories) {
+      await this.excludeCategories(this._transformerOptions.excludeCategories);
     }
 
     // query for and log the number of source Elements that will be processed
-    // eslint-disable-next-line deprecation/deprecation
-    this._numSourceElements = this.sourceDb.withPreparedStatement(
-      `SELECT COUNT(*) FROM ${Element.classFullName}`,
-      // eslint-disable-next-line deprecation/deprecation
-      (statement: ECSqlStatement): number => {
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getInteger()
-          : 0;
-      }
-    );
+    const elemCountResult = await this.sourceDb
+      .createQueryReader(
+        `SELECT COUNT(*) FROM ${Element.classFullName}`,
+        undefined,
+        { usePrimaryConn: true }
+      )
+      .next();
+    this._numSourceElements = elemCountResult.done
+      ? 0
+      : (elemCountResult.value[0] as number);
     Logger.logInfo(
       loggerCategory,
       `numSourceElements=${this._numSourceElements}`
     );
 
     // query for and log the number of source Relationships that will be processed
-    // eslint-disable-next-line deprecation/deprecation
-    this._numSourceRelationships = this.sourceDb.withPreparedStatement(
-      `SELECT COUNT(*) FROM ${ElementRefersToElements.classFullName}`,
-      // eslint-disable-next-line deprecation/deprecation
-      (statement: ECSqlStatement): number => {
-        return DbResult.BE_SQLITE_ROW === statement.step()
-          ? statement.getValue(0).getInteger()
-          : 0;
-      }
-    );
+    const relCountResult = await this.sourceDb
+      .createQueryReader(
+        `SELECT COUNT(*) FROM ${ElementRefersToElements.classFullName}`,
+        undefined,
+        { usePrimaryConn: true }
+      )
+      .next();
+    this._numSourceRelationships = relCountResult.done
+      ? 0
+      : (relCountResult.value[0] as number);
     Logger.logInfo(
       loggerCategory,
       `numSourceRelationships=${this._numSourceRelationships}`
@@ -257,20 +269,18 @@ export class Transformer extends IModelTransformer {
    * @param subCategoryNames Array of SubCategory names to exclude
    * @note This sample code assumes that you want to exclude all SubCategories of a given name regardless of parent Category
    */
-  private excludeSubCategories(subCategoryNames: string[]): void {
-    const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=:subCategoryName`;
+  private async excludeSubCategories(
+    subCategoryNames: string[]
+  ): Promise<void> {
     for (const subCategoryName of subCategoryNames) {
-      // eslint-disable-next-line deprecation/deprecation
-      this.sourceDb.withPreparedStatement(
+      const sql = `SELECT ECInstanceId FROM ${SubCategory.classFullName} WHERE CodeValue=?`;
+      for await (const row of this.sourceDb.createQueryReader(
         sql,
-        // eslint-disable-next-line deprecation/deprecation
-        (statement: ECSqlStatement): void => {
-          statement.bindString("subCategoryName", subCategoryName);
-          while (DbResult.BE_SQLITE_ROW === statement.step()) {
-            this.excludeSubCategory(statement.getValue(0).getId());
-          }
-        }
-      );
+        QueryBinder.from([subCategoryName]),
+        { usePrimaryConn: true }
+      )) {
+        this.excludeSubCategory(row.id);
+      }
     }
   }
 
@@ -294,68 +304,54 @@ export class Transformer extends IModelTransformer {
    * @param CategoryNames Array of Category names to exclude
    * @note This sample code assumes that you want to exclude all Categories of a given name regardless of the containing model (that scopes the CodeValue).
    */
-  private excludeCategories(categoryNames: string[]): void {
-    const sql = `SELECT ECInstanceId FROM ${Category.classFullName} WHERE CodeValue=:categoryName`;
+  private async excludeCategories(categoryNames: string[]): Promise<void> {
     for (const categoryName of categoryNames) {
-      // eslint-disable-next-line deprecation/deprecation
-      this.sourceDb.withPreparedStatement(
+      const sql = `SELECT ECInstanceId FROM ${Category.classFullName} WHERE CodeValue=?`;
+      for await (const row of this.sourceDb.createQueryReader(
         sql,
-        // eslint-disable-next-line deprecation/deprecation
-        (statement: ECSqlStatement): void => {
-          statement.bindString("categoryName", categoryName);
-          while (DbResult.BE_SQLITE_ROW === statement.step()) {
-            const categoryId = statement.getValue(0).getId();
-            this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
-            this.exporter.excludeElement(categoryId); // exclude the category element itself
-          }
-        }
-      );
+        QueryBinder.from([categoryName]),
+        { usePrimaryConn: true }
+      )) {
+        const categoryId = row.id;
+        this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
+        this.exporter.excludeElement(categoryId); // exclude the category element itself
+      }
     }
   }
 
   /** Excludes categories not referenced by the specified Id64Set. */
   private excludeCategoriesExcept(categoryIds: Id64Set): void {
-    const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    // eslint-disable-next-line deprecation/deprecation
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line deprecation/deprecation
-      (statement: ECSqlStatement): void => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const categoryId = statement.getValue(0).getId();
-          if (!categoryIds.has(categoryId)) {
-            this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
-            this.exporter.excludeElement(categoryId); // exclude the category element itself
-          }
-        }
+    const allCategoryIds = this.sourceDb.queryEntityIds({
+      from: SpatialCategory.classFullName,
+    });
+    for (const categoryId of allCategoryIds) {
+      if (!categoryIds.has(categoryId)) {
+        this.exporter.excludeElementsInCategory(categoryId); // exclude elements in this category
+        this.exporter.excludeElement(categoryId); // exclude the category element itself
       }
-    );
+    }
   }
 
   /** Excludes models not referenced by the specified Id64Set.
    * @note This really excludes the *modeled element* (which also excludes the model) since we don't want *modeled elements* without a sub-model.
    */
   private excludeModelsExcept(modelIds: Id64Set): void {
-    const sql = `SELECT ECInstanceId FROM ${GeometricModel3d.classFullName}`;
-    // eslint-disable-next-line deprecation/deprecation
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line deprecation/deprecation
-      (statement: ECSqlStatement): void => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const modelId = statement.getValue(0).getId();
-          if (!modelIds.has(modelId)) {
-            this.exporter.excludeElement(modelId); // exclude the category element itself
-          }
-        }
+    const allModelIds = this.sourceDb.queryEntityIds({
+      from: GeometricModel3d.classFullName,
+    });
+    for (const modelId of allModelIds) {
+      if (!modelIds.has(modelId)) {
+        this.exporter.excludeElement(modelId); // exclude the modeled element itself
       }
-    );
+    }
   }
 
   /** Override that counts elements processed and optionally remaps PhysicalPartitions.
    * @note Override of IModelExportHandler.shouldExportElement
    */
-  public override shouldExportElement(sourceElement: Element): boolean {
+  public override async shouldExportElement(
+    sourceElement: Element
+  ): Promise<boolean> {
     if (this._numSourceElementsProcessed < this._numSourceElements) {
       // with deferred element processing, the number processed can be more than the total
       ++this._numSourceElementsProcessed;
@@ -371,16 +367,18 @@ export class Transformer extends IModelTransformer {
   }
 
   /** This override of IModelTransformer.onTransformElement exists for debugging purposes */
-  public override onTransformElement(sourceElement: Element): ElementProps {
+  public override async onTransformElement(
+    sourceElement: Element
+  ): Promise<ElementProps> {
     // if (sourceElement.id === "0x0" || sourceElement.getDisplayLabel() === "xxx") { // use logging to find something unique about the problem element
     //   Logger.logInfo(progressLoggerCategory, "Found problem element"); // set breakpoint here
     // }
     return super.onTransformElement(sourceElement);
   }
 
-  public override shouldExportRelationship(
+  public override async shouldExportRelationship(
     relationship: Relationship
-  ): boolean {
+  ): Promise<boolean> {
     if (this._numSourceRelationshipsProcessed < this._numSourceRelationships) {
       ++this._numSourceRelationshipsProcessed;
     }
@@ -423,6 +421,7 @@ export class Transformer extends IModelTransformer {
   }
 
   private async saveChanges(description: string): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.saveChanges(description);
   }
 
@@ -436,9 +435,8 @@ export class Transformer extends IModelTransformer {
   }
 
   public logChangeTrackingMemoryUsed(): void {
-    if (this.targetDb.isBriefcase) {
-      // eslint-disable-next-line deprecation/deprecation
-      const bytesUsed = this.targetDb.nativeDb.getChangeTrackingMemoryUsed(); // can't call this internal method unless targetDb has change tracking enabled
+    if (this.targetDb.isBriefcaseDb()) {
+      const bytesUsed = this.targetDb.txns.getChangeTrackingMemoryUsed();
       const mbUsed = Math.round((bytesUsed * 100) / (1024 * 1024)) / 100;
       Logger.logInfo(
         loggerCategory,
@@ -447,19 +445,15 @@ export class Transformer extends IModelTransformer {
     }
   }
 
-  private deleteUnusedGeometryParts(): void {
+  private async deleteUnusedGeometryParts(): Promise<void> {
     const geometryPartIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${GeometryPart.classFullName}`;
-    // eslint-disable-next-line deprecation/deprecation
-    this.sourceDb.withPreparedStatement(
-      sql,
-      // eslint-disable-next-line deprecation/deprecation
-      (statement: ECSqlStatement): void => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          geometryPartIds.push(statement.getValue(0).getId());
-        }
-      }
-    );
+    for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      geometryPartIds.push(row.id);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.targetDb.elements.deleteDefinitionElements(geometryPartIds); // will delete only if unused
   }
 }

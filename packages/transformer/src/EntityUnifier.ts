@@ -11,9 +11,8 @@
 import * as assert from "assert";
 import {
   ConcreteEntityTypes,
-  DbResult,
   EntityReference,
-  IModelError,
+  QueryBinder,
 } from "@itwin/core-common";
 import {
   ConcreteEntity,
@@ -41,12 +40,15 @@ export namespace EntityUnifier {
   /** needs to return a widened type otherwise typescript complains when result is used with a narrow type */
   export function updaterFor(db: IModelDb, entity: ConcreteEntity) {
     if (entity instanceof Element)
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return db.elements.updateElement.bind(db.elements) as EntityUpdater;
     else if (entity instanceof Relationship)
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return db.relationships.updateInstance.bind(
         db.relationships
       ) as EntityUpdater;
     else if (entity instanceof ElementAspect)
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return db.elements.updateAspect.bind(db.elements) as EntityUpdater;
     else
       assert(
@@ -55,7 +57,7 @@ export namespace EntityUnifier {
       );
   }
 
-  export function exists(
+  export async function exists(
     db: IModelDb,
     arg: { entity: ConcreteEntity } | { entityReference: EntityReference }
   ) {
@@ -65,21 +67,17 @@ export namespace EntityUnifier {
         : [undefined, arg.entity.id];
     const classFullName =
       "entityReference" in arg
-        ? ConcreteEntityTypes.toBisCoreRootClassFullName(type!)
+        ? // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-non-null-assertion
+          ConcreteEntityTypes.toBisCoreRootClassFullName(type!)
         : `[${arg.entity.schemaName}].[${arg.entity.className}]`;
 
     if (id === undefined || Id64.isInvalid(id)) return false;
 
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    return db.withPreparedStatement(
-      `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
-      (stmt) => {
-        stmt.bindId(1, id);
-        const matchesResult = stmt.step();
-        if (matchesResult === DbResult.BE_SQLITE_ROW) return true;
-        if (matchesResult === DbResult.BE_SQLITE_DONE) return false;
-        else throw new IModelError(matchesResult, "query failed");
-      }
-    );
+    const query = `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=:id`;
+    const params = new QueryBinder().bindId("id", id);
+    const reader = db.createQueryReader(query, params, {
+      usePrimaryConn: true,
+    });
+    return reader.step();
   }
 }

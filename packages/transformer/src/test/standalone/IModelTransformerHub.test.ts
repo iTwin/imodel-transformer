@@ -20,7 +20,6 @@ import {
   DocumentListModel,
   Drawing,
   DrawingModel,
-  ECSqlStatement,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
@@ -30,7 +29,6 @@ import {
   ExternalSourceAspect,
   GenericSchema,
   GeometricModel,
-  HubMock,
   IModelDb,
   IModelHost,
   IModelJsFs,
@@ -45,8 +43,10 @@ import {
   Subject,
   SubjectOwnsPartitionElements,
   SubjectOwnsSubjects,
+  withEditTxn,
 } from "@itwin/core-backend";
-
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "../TestUtils";
 import {
   AccessToken,
@@ -86,6 +86,7 @@ import {
   ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
+import { ProvenanceManager } from "../../ProvenanceManager";
 import {
   CountingIModelImporter,
   HubWrappers,
@@ -166,10 +167,11 @@ describe("IModelTransformerHub", () => {
     });
     assert.isTrue(IModelJsFs.existsSync(seedFileName));
     await prepareIModel?.(seedDb);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     seedDb.saveChanges();
     seedDb.close();
 
-    const iModelId = await IModelHost.hubAccess.createNewIModel({
+    const iModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName,
       description: "source",
@@ -209,20 +211,17 @@ describe("IModelTransformerHub", () => {
       assert.isFalse(sourceBriefcase.isSnapshot);
 
       // set up physical models
-      const sourceModelId0 = PhysicalModel.insert(
+      const { sourceModelId0, sourceModelId1 } = withEditTxn(
         sourceBriefcase,
-        IModel.rootSubjectId,
-        "M0"
-      );
-      const sourceModelId1 = PhysicalModel.insert(
-        sourceBriefcase,
-        IModel.rootSubjectId,
-        "M1"
+        "insert physical models M0 and M1",
+        (txn) => ({
+          sourceModelId0: PhysicalModel.insert(txn, IModel.rootSubjectId, "M0"),
+          sourceModelId1: PhysicalModel.insert(txn, IModel.rootSubjectId, "M1"),
+        })
       );
       assert.isDefined(sourceModelId0);
       assert.isDefined(sourceModelId1);
 
-      sourceBriefcase.saveChanges();
       await sourceBriefcase.pushChanges({
         description: "source changes for inserting physical elements M0 and M1",
         retainLocks: true,
@@ -249,23 +248,33 @@ describe("IModelTransformerHub", () => {
         targetBriefcase
       );
       await transformer1.process();
-      const scopingEsa1 = transformer1["_targetScopeProvenanceProps"];
-      const reverseSyncVersion1 =
-        scopingEsa1?.jsonProperties.reverseSyncVersion;
-      assert.isEmpty(reverseSyncVersion1);
+      const scopeEsaResult1 =
+        await ProvenanceManager.queryScopeExternalSourceAspect(
+          targetBriefcase,
+          {
+            id: undefined,
+            classFullName: ExternalSourceAspect.classFullName,
+            scope: { id: IModel.rootSubjectId },
+            kind: ExternalSourceAspect.Kind.Scope,
+            element: { id: IModel.rootSubjectId },
+            identifier: sourceBriefcase.iModelId,
+          }
+        );
+      const jsonProps1 = JSON.parse(scopeEsaResult1?.jsonProperties ?? "{}");
+      assert.isEmpty(jsonProps1.reverseSyncVersion ?? "");
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetBriefcase.saveChanges();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 1",
         retainLocks: true,
       });
 
-      const sourceModelId2 = PhysicalModel.insert(
+      const sourceModelId2 = withEditTxn(
         sourceBriefcase,
-        IModel.rootSubjectId,
-        "M2"
+        "insert physical model M2",
+        (txn) => PhysicalModel.insert(txn, IModel.rootSubjectId, "M2")
       );
       assert.isDefined(sourceModelId2);
-      sourceBriefcase.saveChanges();
       await sourceBriefcase.pushChanges({
         description: "source changes for inserting physical elements M2",
         retainLocks: true,
@@ -277,22 +286,34 @@ describe("IModelTransformerHub", () => {
         targetBriefcase
       );
       await transformer2.process();
-      transformer2.updateSynchronizationVersion({
+      await transformer2.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
-      const scopingEsa2 = transformer2["_targetScopeProvenanceProps"];
-      const reverseSyncVersion2 =
-        scopingEsa2?.jsonProperties.reverseSyncVersion;
+      const scopeEsaResult2 =
+        await ProvenanceManager.queryScopeExternalSourceAspect(
+          targetBriefcase,
+          {
+            id: undefined,
+            classFullName: ExternalSourceAspect.classFullName,
+            scope: { id: IModel.rootSubjectId },
+            kind: ExternalSourceAspect.Kind.Scope,
+            element: { id: IModel.rootSubjectId },
+            identifier: sourceBriefcase.iModelId,
+          }
+        );
+      const jsonProps2 = JSON.parse(scopeEsaResult2?.jsonProperties ?? "{}");
+      const reverseSyncVersion2 = jsonProps2.reverseSyncVersion;
       assert.isNotEmpty(reverseSyncVersion2);
       const expectedReverseSyncVersion1 = `${targetBriefcase.changeset.id};${targetBriefcase.changeset.index}`;
       assert.equal(reverseSyncVersion2, expectedReverseSyncVersion1);
       // the recently pushed PendingReverseSync index should be equal to the latest target changeset index + 1
       const lastPendingReverseSyncIndex1 =
-        scopingEsa2?.jsonProperties.pendingReverseSyncChangesetIndices.pop();
+        jsonProps2.pendingReverseSyncChangesetIndices?.pop();
       assert.equal(
         lastPendingReverseSyncIndex1,
         (targetBriefcase.changeset.index ?? 0) + 1
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetBriefcase.saveChanges();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 2",
@@ -300,11 +321,11 @@ describe("IModelTransformerHub", () => {
       });
     } finally {
       try {
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -350,7 +371,8 @@ describe("IModelTransformerHub", () => {
 
       if (true) {
         // initial import
-        TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+        await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         sourceDb.saveChanges();
         await sourceDb.pushChanges({
           accessToken,
@@ -399,14 +421,23 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.updateIds.size, 0);
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
-          argsForProcessChanges: {
-            startChangeset: { id: sourceDb.changeset.id },
-          },
-        });
-        transformer["_allowNoScopingESA"] = true;
+        // Initial import uses processAll to establish provenance
+        const transformer = await TestIModelTransformer.create(
+          sourceDb,
+          targetDb,
+          {}
+        );
         await transformer.process();
+        // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
+        const syncVersionAfterProcessAll =
+          await transformer["_provenanceManager"].getSynchronizationVersion();
+        assert.equal(
+          syncVersionAfterProcessAll.index,
+          sourceDb.changeset.index,
+          "processAll should write sync version matching source changeset index"
+        );
         transformer.dispose();
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
         TransformerExtensiveTestScenario.assertTargetDbContents(
@@ -476,7 +507,7 @@ describe("IModelTransformerHub", () => {
           ElementRefersToElements.classFullName
         );
         const targetImporter = new CountingIModelImporter(targetDb);
-        const transformer = new TestIModelTransformer(
+        const transformer = await TestIModelTransformer.create(
           sourceDb,
           targetImporter,
           { argsForProcessChanges: {} }
@@ -506,9 +537,9 @@ describe("IModelTransformerHub", () => {
           count(targetDb, ElementRefersToElements.classFullName),
           "Second import should not add relationships"
         );
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
         targetDb.saveChanges();
-        // eslint-disable-next-line deprecation/deprecation
-        assert.isFalse(targetDb.nativeDb.hasPendingTxns());
+        assert.isFalse(targetDb.txns.hasPendingTxns);
         await targetDb.pushChanges({
           accessToken,
           description: "Should not actually push because there are no changes",
@@ -519,6 +550,7 @@ describe("IModelTransformerHub", () => {
       if (true) {
         // update source db, then import again
         TestUtils.ExtensiveTestScenario.updateDb(sourceDb);
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from updateDb helper
         sourceDb.saveChanges();
         await sourceDb.pushChanges({
           accessToken,
@@ -562,11 +594,16 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.codeSpec.deleteIds.size, 0);
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
 
-        const transformer = new TestIModelTransformer(sourceDb, targetDb, {
-          argsForProcessChanges: {},
-        });
+        const transformer = await TestIModelTransformer.create(
+          sourceDb,
+          targetDb,
+          {
+            argsForProcessChanges: {},
+          }
+        );
         await transformer.process();
         transformer.dispose();
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
         targetDb.saveChanges();
         await targetDb.pushChanges({ accessToken, description: "Import #2" });
         TestUtils.ExtensiveTestScenario.assertUpdatesInDb(targetDb);
@@ -609,12 +646,12 @@ describe("IModelTransformerHub", () => {
         assert.equal(targetDbChanges.codeSpec.deleteIds.size, 0);
       }
 
-      const sourceIModelChangeSets = await IModelHost.hubAccess.queryChangesets(
-        { accessToken, iModelId: sourceIModelId }
-      );
-      const targetIModelChangeSets = await IModelHost.hubAccess.queryChangesets(
-        { accessToken, iModelId: targetIModelId }
-      );
+      const sourceIModelChangeSets = await IModelHost[
+        _hubAccess
+      ].queryChangesets({ accessToken, iModelId: sourceIModelId });
+      const targetIModelChangeSets = await IModelHost[
+        _hubAccess
+      ].queryChangesets({ accessToken, iModelId: targetIModelId });
       assert.equal(sourceIModelChangeSets.length, 2);
       assert.equal(targetIModelChangeSets.length, 2);
 
@@ -622,11 +659,11 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
     } finally {
       try {
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -664,15 +701,12 @@ describe("IModelTransformerHub", () => {
         iTwinId,
         iModelId: sourceIModelId,
       });
-      const categoryId: Id64String = SpatialCategory.insert(
-        sourceDb,
-        IModel.dictionaryId,
-        "SpatialCategory",
-        { color: ColorDef.green.toJSON() }
-      );
-      const sourceModelIds: Id64Array = [];
 
+      const sourceModelIds: Id64Array = [];
+      // Helper functions that take EditTxn
       const insertPhysicalObject = (
+        txn: Parameters<Parameters<typeof withEditTxn>[2]>[0],
+        catId: Id64String,
         physicalModelId: Id64String,
         modelIndex: number,
         originX: number,
@@ -682,7 +716,7 @@ describe("IModelTransformerHub", () => {
         const physicalObjectProps1: PhysicalElementProps = {
           classFullName: PhysicalObject.classFullName,
           model: physicalModelId,
-          category: categoryId,
+          category: catId,
           code: Code.createEmpty(),
           userLabel: `M${modelIndex}-PhysicalObject(${originX},${originY})`,
           geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
@@ -693,12 +727,16 @@ describe("IModelTransformerHub", () => {
         };
         if (undefinedFederationGuid)
           physicalObjectProps1.federationGuid = Guid.empty;
-        sourceDb.elements.insertElement(physicalObjectProps1);
+        txn.insertElement(physicalObjectProps1);
       };
 
-      const insertModelWithElements = (modelIndex: number): Id64String => {
+      const insertModelWithElements = (
+        txn: Parameters<Parameters<typeof withEditTxn>[2]>[0],
+        catId: Id64String,
+        modelIndex: number
+      ): Id64String => {
         const sourceModelId: Id64String = PhysicalModel.insert(
-          sourceDb,
+          txn,
           IModel.rootSubjectId,
           `PhysicalModel${modelIndex}`
         );
@@ -714,6 +752,8 @@ describe("IModelTransformerHub", () => {
         for (const x of xArray) {
           for (const y of yArray) {
             insertPhysicalObject(
+              txn,
+              catId,
               sourceModelId,
               modelIndex,
               x,
@@ -726,12 +766,26 @@ describe("IModelTransformerHub", () => {
         return sourceModelId;
       };
 
-      // insert models 0-4 with 25 elements each (5*25).
-      for (let i = 0; i < 5; i++) {
-        sourceModelIds.push(insertModelWithElements(i));
-      }
+      // Wrap all source inserts in a single EditTxn
+      const categoryId = withEditTxn(
+        sourceDb,
+        "insert category and models",
+        (txn) => {
+          const catId: Id64String = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            { color: ColorDef.green.toJSON() }
+          );
 
-      sourceDb.saveChanges();
+          // insert models 0-4 with 25 elements each (5*25).
+          for (let i = 0; i < 5; i++) {
+            sourceModelIds.push(insertModelWithElements(txn, catId, i));
+          }
+
+          return catId;
+        }
+      );
       assert.equal(5, count(sourceDb, PhysicalModel.classFullName));
       assert.equal(125, count(sourceDb, PhysicalObject.classFullName));
       await sourceDb.pushChanges({
@@ -744,13 +798,13 @@ describe("IModelTransformerHub", () => {
         iTwinId,
         iModelId: targetIModelId,
       });
-      const targetModelId: Id64String = PhysicalModel.insert(
+      const targetModelId = withEditTxn(
         targetDb,
-        IModel.rootSubjectId,
-        "PhysicalModel"
+        "insert target model",
+        (txn) =>
+          PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel")
       );
       assert.isTrue(Id64.isValidId64(targetModelId));
-      targetDb.saveChanges();
 
       let transformer = new PhysicalModelConsolidator(
         sourceDb,
@@ -780,32 +834,40 @@ describe("IModelTransformerHub", () => {
         "Provenance should be recorded for each source PhysicalModel"
       );
 
-      // Insert 10 objects under model-1
-      const xArr: number[] = [101, 105];
-      const yArr: number[] = [0, 2, 4, 6, 8];
-      let undefinedFedGuid = false;
-      for (const x of xArr) {
-        for (const y of yArr) {
-          insertPhysicalObject(sourceModelIds[1], 1, x, y, undefinedFedGuid);
-          undefinedFedGuid = !undefinedFedGuid;
+      // Insert 10 objects under model-1, update model2/partition2, insert models 5 & 6
+      withEditTxn(sourceDb, "additional inserts and updates", (txn) => {
+        const xArr: number[] = [101, 105];
+        const yArr: number[] = [0, 2, 4, 6, 8];
+        let undefinedFedGuid = false;
+        for (const x of xArr) {
+          for (const y of yArr) {
+            insertPhysicalObject(
+              txn,
+              categoryId,
+              sourceModelIds[1],
+              1,
+              x,
+              y,
+              undefinedFedGuid
+            );
+            undefinedFedGuid = !undefinedFedGuid;
+          }
         }
-      }
 
-      // Update model2 and partition2
-      const model2 = sourceDb.models.getModel(sourceModelIds[2]);
-      model2.isPrivate = true;
-      model2.update();
+        // Update model2 and partition2
+        const model2 = sourceDb.models.getModel(sourceModelIds[2]);
+        model2.isPrivate = true;
+        model2.update(txn);
 
-      const partition2 = sourceDb.elements.getElement(sourceModelIds[2]);
-      partition2.userLabel = "Element-Updated";
-      partition2.update();
+        const partition2 = sourceDb.elements.getElement(sourceModelIds[2]);
+        partition2.userLabel = "Element-Updated";
+        partition2.update(txn);
 
-      // insert model 5 & 6 and 50 physical objects
-      for (let i = 5; i < 7; i++) {
-        sourceModelIds.push(insertModelWithElements(i));
-      }
-
-      sourceDb.saveChanges();
+        // insert model 5 & 6 and 50 physical objects
+        for (let i = 5; i < 7; i++) {
+          sourceModelIds.push(insertModelWithElements(txn, categoryId, i));
+        }
+      });
       await sourceDb.pushChanges({ description: "additional PhysicalModels" });
       // 2 models added
       assert.equal(7, count(sourceDb, PhysicalModel.classFullName));
@@ -822,39 +884,32 @@ describe("IModelTransformerHub", () => {
       await transformer.process();
       transformer.dispose();
 
-      const sql = `SELECT ECInstanceId, Model.Id FROM ${PhysicalObject.classFullName}`;
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      targetDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-        let objectCounter = 0;
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          const targetElementId = statement.getValue(0).getId();
-          const targetElement = targetDb.elements.getElement<PhysicalObject>({
-            id: targetElementId,
-            wantGeometry: true,
-          });
-          assert.exists(targetElement.geom);
-          assert.isFalse(targetElement.calculateRange3d().isNull);
-          const targetElementModelId = statement.getValue(1).getId();
-          assert.equal(targetModelId, targetElementModelId);
-          ++objectCounter;
-        }
-        assert.equal(185, objectCounter);
-      });
+      const sql = `SELECT ECInstanceId, Model.Id AS modelId FROM ${PhysicalObject.classFullName}`;
+      let objectCounter = 0;
+      for await (const row of targetDb.createQueryReader(sql)) {
+        const targetElementId = row.id;
+        const targetElement = targetDb.elements.getElement<PhysicalObject>({
+          id: targetElementId,
+          wantGeometry: true,
+        });
+        assert.exists(targetElement.geom);
+        assert.isFalse(targetElement.calculateRange3d().isNull);
+        const targetElementModelId = row.modelId;
+        assert.equal(targetModelId, targetElementModelId);
+        ++objectCounter;
+      }
+      assert.equal(185, objectCounter);
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
-      // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-      const modelId = targetDb.withPreparedStatement(
-        `SELECT ECInstanceId, isPrivate FROM ${PhysicalModel.classFullName}`,
-        // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-        (statement: ECSqlStatement) => {
-          if (DbResult.BE_SQLITE_ROW === statement.step()) {
-            const isPrivate = statement.getValue(1).getBoolean();
-            assert.isFalse(isPrivate);
-            return statement.getValue(0).getId();
-          }
-          return Id64.invalid;
-        }
+      let modelId = Id64.invalid;
+      const modelReader = targetDb.createQueryReader(
+        `SELECT ECInstanceId, isPrivate FROM ${PhysicalModel.classFullName}`
       );
+      if (await modelReader.step()) {
+        const isPrivate = modelReader.current.isPrivate;
+        assert.isFalse(isPrivate);
+        modelId = modelReader.current.id;
+      }
       assert.isTrue(Id64.isValidId64(modelId));
 
       const physicalPartition =
@@ -875,11 +930,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -937,14 +992,13 @@ describe("IModelTransformerHub", () => {
         seedBisCoreVersion !== updatedBisCoreVersion;
 
       // push sourceDb schema changes
-      /* eslint-disable deprecation/deprecation */
       assert.equal(
-        sourceDb.nativeDb.hasPendingTxns(),
+        sourceDb.txns.hasPendingTxns,
         expectedHasPendingTxns,
         "Expect importSchemas to have saved changes"
       );
       assert.isFalse(
-        sourceDb.nativeDb.hasUnsavedChanges(),
+        sourceDb.txns.hasUnsavedChanges,
         "Expect no unsaved changes after importSchemas"
       );
       await sourceDb.pushChanges({
@@ -958,14 +1012,14 @@ describe("IModelTransformerHub", () => {
         GenericSchema.schemaFilePath,
       ]);
       assert.isFalse(
-        sourceDb.nativeDb.hasPendingTxns(),
+        sourceDb.txns.hasPendingTxns,
         "Expect importSchemas to be a no-op"
       );
       assert.isFalse(
-        sourceDb.nativeDb.hasUnsavedChanges(),
+        sourceDb.txns.hasUnsavedChanges,
         "Expect importSchemas to be a no-op"
       );
-      /* eslint-enable deprecation/deprecation */
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- no-op saveChanges test
       sourceDb.saveChanges(); // will be no changes to save in this case
       await sourceDb.pushChanges({
         accessToken,
@@ -980,6 +1034,7 @@ describe("IModelTransformerHub", () => {
         ColorDef.green
       );
       IModelTransformerTestUtils.assertTeamIModelContents(sourceDb, "Test");
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from populateTeamIModel helper
       sourceDb.saveChanges();
       await sourceDb.pushChanges({
         accessToken,
@@ -1002,6 +1057,7 @@ describe("IModelTransformerHub", () => {
       );
 
       // push targetDb schema changes
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving schema changes
       targetDb.saveChanges();
       await targetDb.pushChanges({
         accessToken,
@@ -1016,6 +1072,7 @@ describe("IModelTransformerHub", () => {
       await transformer.process();
       transformer.dispose();
       IModelTransformerTestUtils.assertTeamIModelContents(targetDb, "Test");
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({
         accessToken,
@@ -1028,11 +1085,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -1052,8 +1109,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     const masterSeed: TimelineIModelState = {
@@ -1073,6 +1129,7 @@ describe("IModelTransformerHub", () => {
             const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
             const targetId = IModelTestUtils.queryByUserLabel(db, "2");
             const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             relIdInBranch = rel.insert();
           },
         },
@@ -1102,6 +1159,7 @@ describe("IModelTransformerHub", () => {
                 targetId: IModelTestUtils.queryByUserLabel(db, "2"),
               }
             );
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             rel.delete();
           },
         },
@@ -1148,8 +1206,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
       from: "Bis.Element",
@@ -1162,6 +1219,7 @@ describe("IModelTransformerHub", () => {
           expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
         }
       );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving seed db changes
     masterSeedDb.saveChanges();
     masterSeedDb.performCheckpoint();
 
@@ -1182,6 +1240,7 @@ describe("IModelTransformerHub", () => {
             const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
             const targetId = IModelTestUtils.queryByUserLabel(db, "2");
             const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             relIdInBranch = rel.insert();
           },
         },
@@ -1219,6 +1278,7 @@ describe("IModelTransformerHub", () => {
                 targetId: IModelTestUtils.queryByUserLabel(db, "2"),
               }
             );
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             rel.delete();
           },
         },
@@ -1265,8 +1325,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
       from: "Bis.Element",
@@ -1279,6 +1338,7 @@ describe("IModelTransformerHub", () => {
           expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
         }
       );
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving seed db changes
     masterSeedDb.saveChanges();
     masterSeedDb.performCheckpoint();
 
@@ -1302,6 +1362,7 @@ describe("IModelTransformerHub", () => {
             const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
             const targetId = IModelTestUtils.queryByUserLabel(db, "2");
             const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             relIdInBranch = rel.insert();
           },
         },
@@ -1348,6 +1409,7 @@ describe("IModelTransformerHub", () => {
                 targetId: IModelTestUtils.queryByUserLabel(db, "2"),
               }
             );
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             rel.delete();
           },
         },
@@ -1421,8 +1483,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     // 20 will be deleted, so it's important to know remapping deleted elements still works if there is no fedguid
@@ -1495,6 +1556,7 @@ describe("IModelTransformerHub", () => {
                 targetId,
                 0
               );
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               expectedRelationships[i].idInBranch1 = rel.insert();
             });
           },
@@ -1508,6 +1570,7 @@ describe("IModelTransformerHub", () => {
               expectedRelationships[0].idInBranch1
             );
             rel.memberPriority = 1;
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             rel.update();
           },
         },
@@ -1516,8 +1579,8 @@ describe("IModelTransformerHub", () => {
       { branch1: { 21: deleted, 30: 1 } },
       { master: { sync: ["branch1"] } }, // first master<-branch1 reverse sync
       {
-        assert({ master, branch1 }) {
-          assertElemState(master.db, {
+        async assert({ master, branch1 }) {
+          await assertElemState(master.db, {
             // relationship props are a lot to type out so let's grab those from the branch
             ...branch1.state,
             // double check deletions propagated by sync
@@ -1529,8 +1592,8 @@ describe("IModelTransformerHub", () => {
       },
       { branch2: { sync: ["master"] } }, // first master->branch2 forward sync
       {
-        assert({ master, branch2 }) {
-          assertElemState(branch2.db, master.state);
+        async assert({ master, branch2 }) {
+          await assertElemState(branch2.db, master.state);
         },
       },
       { branch2: { 7: 1, 8: 1 } },
@@ -1538,7 +1601,7 @@ describe("IModelTransformerHub", () => {
       { master: { 7: 2, 9: 1 } },
       { master: { sync: ["branch2"] } }, // first master<-branch2 reverse sync
       {
-        assert({ master, branch1, branch2 }) {
+        async assert({ master, branch1, branch2 }) {
           for (const { db } of [master, branch1, branch2]) {
             const elem1Id = IModelTestUtils.queryByUserLabel(db, "1");
             expect(db.elements.getElement(elem1Id).federationGuid).to.be
@@ -1591,7 +1654,7 @@ describe("IModelTransformerHub", () => {
           }
 
           // branch2 won the conflict since it is the synchronization source
-          assertElemState(master.db, { 7: 1 }, { subset: true });
+          await assertElemState(master.db, { 7: 1 }, { subset: true });
         },
       },
       { master: { 6: 2 } },
@@ -1612,6 +1675,7 @@ describe("IModelTransformerHub", () => {
                 ElementGroupsMembers.classFullName,
                 { sourceId, targetId }
               );
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               return rel.delete();
             });
           },
@@ -1619,7 +1683,7 @@ describe("IModelTransformerHub", () => {
       },
       { branch1: { sync: ["master"] } }, // first master->branch1 forward sync
       {
-        assert({ branch1 }) {
+        async assert({ branch1 }) {
           for (const rel of expectedRelationships) {
             expect(
               branch1.db.relationships.tryGetInstance(
@@ -1655,7 +1719,7 @@ describe("IModelTransformerHub", () => {
             ).to.be.true;
             expect(srcElemAspects.length).to.lessThanOrEqual(1);
           }
-          assertElemState(branch1.db, { 7: 1 }, { subset: true });
+          await assertElemState(branch1.db, { 7: 1 }, { subset: true });
         },
       },
       // 7 originally came from branch2. Modify it.
@@ -1665,9 +1729,9 @@ describe("IModelTransformerHub", () => {
       // Forward sync master to branch2 with the change to 7.
       { branch2: { sync: ["master"] } },
       {
-        assert({ master, branch1, branch2 }) {
+        async assert({ master, branch1, branch2 }) {
           for (const imodel of [master, branch1, branch2]) {
-            assertElemState(imodel.db, { 7: 10 }, { subset: true });
+            await assertElemState(imodel.db, { 7: 10 }, { subset: true });
           }
         },
       },
@@ -1681,7 +1745,7 @@ describe("IModelTransformerHub", () => {
 
     // create empty iModel meant to contain replayed master history
     const replayedIModelName = "Replayed";
-    const replayedIModelId = await IModelHost.hubAccess.createNewIModel({
+    const replayedIModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName: replayedIModelName,
       description: "blank",
@@ -1700,7 +1764,9 @@ describe("IModelTransformerHub", () => {
       const master = trackedIModels.get("master");
       assert(master);
 
-      const masterDbChangesets = await IModelHost.hubAccess.downloadChangesets({
+      const masterDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
         accessToken,
         iModelId: master.id,
         targetDir: BriefcaseManager.getChangeSetsPath(master.id),
@@ -1775,15 +1841,16 @@ describe("IModelTransformerHub", () => {
         replayTransformer.dispose();
       }
       sourceDb.close();
-      assertElemState(replayedDb, master.state); // should have same ending state as masterDb
+      await assertElemState(replayedDb, master.state); // should have same ending state as masterDb
 
       // make sure there are no deletes in the replay history (all elements that were eventually deleted from masterDb were excluded)
-      const replayedDbChangesets =
-        await IModelHost.hubAccess.downloadChangesets({
-          accessToken,
-          iModelId: replayedIModelId,
-          targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId),
-        });
+      const replayedDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
+        accessToken,
+        iModelId: replayedIModelId,
+        targetDir: BriefcaseManager.getChangeSetsPath(replayedIModelId),
+      });
       assert.isAtLeast(replayedDbChangesets.length, masterDbChangesets.length); // replayedDb will have more changesets when seed contains elements
       const replayedDeletedElementIds = new Set<Id64String>();
       for (const replayedDbChangeset of replayedDbChangesets) {
@@ -1809,7 +1876,7 @@ describe("IModelTransformerHub", () => {
     } finally {
       await tearDown();
       replayedDb.close();
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: replayedIModelId,
       });
@@ -1835,25 +1902,37 @@ describe("IModelTransformerHub", () => {
       });
 
       // setup source
-      const physModel1Id = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "phys-model-1"
-      );
-      const physModel2Id = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "phys-model-2"
-      );
-      const modelSelectorInSource = ModelSelector.create(
-        sourceDb,
-        IModelDb.dictionaryId,
-        "model-selector",
-        [physModel1Id]
-      );
-      const modelSelectorCode = modelSelectorInSource.code;
-      const modelSelectorId = modelSelectorInSource.insert();
-      sourceDb.saveChanges();
+      const {
+        physModel1Id: _physModel1Id,
+        physModel2Id,
+        modelSelectorCode,
+        modelSelectorId,
+      } = withEditTxn(sourceDb, "setup source models and selector", (txn) => {
+        const model1Id = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "phys-model-1"
+        );
+        const model2Id = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "phys-model-2"
+        );
+        const modelSelectorInSource = ModelSelector.create(
+          sourceDb,
+          IModelDb.dictionaryId,
+          "model-selector",
+          [model1Id]
+        );
+        const code = modelSelectorInSource.code;
+        const selectorId = modelSelectorInSource.insert(txn);
+        return {
+          physModel1Id: model1Id,
+          physModel2Id: model2Id,
+          modelSelectorCode: code,
+          modelSelectorId: selectorId,
+        };
+      });
       await sourceDb.pushChanges({
         accessToken,
         description: "setup source models and selector",
@@ -1893,16 +1972,17 @@ describe("IModelTransformerHub", () => {
 
       // update source (add model2 to model selector)
       // (it's important that we only change the model selector here to keep the changes isolated)
-      const modelSelectorUpdate = sourceDb.elements.getElement<ModelSelector>(
-        modelSelectorId,
-        ModelSelector
-      );
-      modelSelectorUpdate.models = [
-        ...modelSelectorUpdate.models,
-        physModel2Id,
-      ];
-      modelSelectorUpdate.update();
-      sourceDb.saveChanges();
+      withEditTxn(sourceDb, "add model2 to model selector", (txn) => {
+        const modelSelectorUpdate = sourceDb.elements.getElement<ModelSelector>(
+          modelSelectorId,
+          ModelSelector
+        );
+        modelSelectorUpdate.models = [
+          ...modelSelectorUpdate.models,
+          physModel2Id,
+        ];
+        modelSelectorUpdate.update(txn);
+      });
       await sourceDb.pushChanges({
         accessToken,
         description: "add model2 to model selector",
@@ -1916,7 +1996,9 @@ describe("IModelTransformerHub", () => {
       expect(modelSelectorUpdate2.models).to.have.length(2);
 
       // test extracted changed ids
-      const sourceDbChangesets = await IModelHost.hubAccess.downloadChangesets({
+      const sourceDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
         accessToken,
         iModelId: sourceIModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(sourceIModelId),
@@ -1939,7 +2021,9 @@ describe("IModelTransformerHub", () => {
       let didExportModelSelector = false,
         didImportModelSelector = false;
       class IModelImporterInjected extends IModelImporter {
-        public override importElement(sourceElement: ElementProps): Id64String {
+        public override async importElement(
+          sourceElement: ElementProps
+        ): Promise<Id64String> {
           if (sourceElement.id === modelSelectorId)
             didImportModelSelector = true;
           return super.importElement(sourceElement);
@@ -1962,6 +2046,7 @@ describe("IModelTransformerHub", () => {
       expect(didExportModelSelector).to.be.true;
       expect(didImportModelSelector).to.be.true;
       synchronizer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({ accessToken, description: "synchronize" });
 
@@ -1985,11 +2070,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -2027,14 +2112,19 @@ describe("IModelTransformerHub", () => {
         iModelId: sourceIModelId,
       });
 
-      const subject1 = Subject.create(sourceDb, IModel.rootSubjectId, "S1");
-      const subject2 = Subject.create(sourceDb, IModel.rootSubjectId, "S2");
-      subject2.federationGuid = Guid.empty; // Empty guid will force the element to have an undefined federation guid.
-      subject1.insert();
-      const subject2Id = subject2.insert();
-      PhysicalModel.insert(sourceDb, subject2Id, "PM1");
-
-      sourceDb.saveChanges();
+      const subject2Id = withEditTxn(
+        sourceDb,
+        "create subjects and model",
+        (txn) => {
+          const subject1 = Subject.create(sourceDb, IModel.rootSubjectId, "S1");
+          const subject2 = Subject.create(sourceDb, IModel.rootSubjectId, "S2");
+          subject2.federationGuid = Guid.empty; // Empty guid will force the element to have an undefined federation guid.
+          subject1.insert(txn);
+          const subj2Id = subject2.insert(txn);
+          PhysicalModel.insert(txn, subj2Id, "PM1");
+          return subj2Id;
+        }
+      );
       await sourceDb.pushChanges({
         accessToken,
         description: "subject with no fed guid",
@@ -2047,11 +2137,13 @@ describe("IModelTransformerHub", () => {
       });
       let transformer = new IModelTransformer(sourceDb, targetDb);
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       transformer.dispose();
 
-      PhysicalModel.insert(sourceDb, subject2Id, "PM2");
-      sourceDb.saveChanges();
+      withEditTxn(sourceDb, "insert PM2", (txn) => {
+        PhysicalModel.insert(txn, subject2Id, "PM2");
+      });
       await sourceDb.pushChanges({
         accessToken,
         description: "PhysicalPartition",
@@ -2065,19 +2157,10 @@ describe("IModelTransformerHub", () => {
       await transformer.process();
 
       const elementCodeValueMap = new Map<Id64String, string>();
-      // eslint-disable-next-line deprecation/deprecation
-      targetDb.withStatement(
-        `SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`,
-        // eslint-disable-next-line deprecation/deprecation
-        (statement: ECSqlStatement) => {
-          while (statement.step() === DbResult.BE_SQLITE_ROW) {
-            elementCodeValueMap.set(
-              statement.getValue(0).getId(),
-              statement.getValue(1).getString()
-            );
-          }
-        }
-      );
+      const sql = `SELECT ECInstanceId, CodeValue FROM ${Element.classFullName} WHERE ECInstanceId NOT IN (0x1, 0x10, 0xe)`;
+      for await (const row of targetDb.createQueryReader(sql)) {
+        elementCodeValueMap.set(row[0], row[1]);
+      }
 
       // make sure provenance was tracked for all elements
       expect(count(sourceDb, Element.classFullName)).to.equal(4 + 3); // 2 Subjects, 2 PhysicalPartitions + 0x1, 0x10, 0xe
@@ -2100,11 +2183,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -2123,14 +2206,15 @@ describe("IModelTransformerHub", () => {
       numChangesets: number
     ) => {
       for (let i = 0; i < numChangesets; i++) {
-        const physicalElementProps: PhysicalElementProps = {
-          category,
-          model,
-          classFullName: PhysicalObject.classFullName,
-          code: Code.createEmpty(),
-        };
-        db.elements.insertElement(physicalElementProps);
-        db.saveChanges();
+        withEditTxn(db, `insert PhysicalObject ${i}`, (txn) => {
+          const physicalElementProps: PhysicalElementProps = {
+            category,
+            model,
+            classFullName: PhysicalObject.classFullName,
+            code: Code.createEmpty(),
+          };
+          txn.insertElement(physicalElementProps);
+        });
         await db.pushChanges({
           description: `Inserted ${i} PhysicalObject`,
         });
@@ -2144,25 +2228,31 @@ describe("IModelTransformerHub", () => {
     const seedDb = SnapshotDb.createEmpty(seedFileName, {
       rootSubject: { name: "TransformerSource" },
     });
-    const subjectId1 = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
-    const modelId1 = PhysicalModel.insert(seedDb, subjectId1, "PM1");
-    const categoryId1 = SpatialCategory.insert(
+    const { categoryId1, modelId1 } = withEditTxn(
       seedDb,
-      IModel.dictionaryId,
-      "C1",
-      {}
+      "create seed elements",
+      (txn) => {
+        const subjectId1 = Subject.insert(txn, IModel.rootSubjectId, "S1");
+        const modId = PhysicalModel.insert(txn, subjectId1, "PM1");
+        const catId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "C1",
+          {}
+        );
+        const physicalElementProps1: PhysicalElementProps = {
+          category: catId,
+          model: modId,
+          classFullName: PhysicalObject.classFullName,
+          code: Code.createEmpty(),
+        };
+        txn.insertElement(physicalElementProps1);
+        return { categoryId1: catId, modelId1: modId };
+      }
     );
-    const physicalElementProps1: PhysicalElementProps = {
-      category: categoryId1,
-      model: modelId1,
-      classFullName: PhysicalObject.classFullName,
-      code: Code.createEmpty(),
-    };
-    seedDb.elements.insertElement(physicalElementProps1);
-    seedDb.saveChanges();
     seedDb.close();
 
-    const sourceIModelId = await IModelHost.hubAccess.createNewIModel({
+    const sourceIModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName: "TransformerSource",
       description: "source",
@@ -2181,7 +2271,7 @@ describe("IModelTransformerHub", () => {
     sourceDb.performCheckpoint(); // so we can use as a seed
 
     // forking target
-    const targetIModelId = await IModelHost.hubAccess.createNewIModel({
+    const targetIModelId = await IModelHost[_hubAccess].createNewIModel({
       iTwinId,
       iModelName: "TransformerTarget",
       description: "target",
@@ -2199,6 +2289,7 @@ describe("IModelTransformerHub", () => {
       wasSourceIModelCopiedToTarget: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges();
     await targetDb.pushChanges({ description: "fork init" });
     const catIdInTarget = transformer.context.findTargetElementId(categoryId1);
@@ -2220,13 +2311,23 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
-    let scopingEsa = transformer["_targetScopeProvenanceProps"];
-    expect(
-      scopingEsa?.jsonProperties.pendingSyncChangesetIndices.length
-    ).to.equal(1);
-    expect(scopingEsa?.jsonProperties.pendingSyncChangesetIndices[0]).to.equal(
-      4
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+    targetDb.saveChanges();
+    // Query scope ESA from database instead of reaching into private internals
+    let scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
+      targetDb,
+      {
+        id: undefined,
+        classFullName: ExternalSourceAspect.classFullName,
+        scope: { id: IModel.rootSubjectId },
+        kind: ExternalSourceAspect.Kind.Scope,
+        element: { id: IModel.rootSubjectId },
+        identifier: sourceDb.iModelId,
+      }
     );
+    let scopeJsonProps = JSON.parse(scopeEsaResult?.jsonProperties ?? "{}");
+    expect(scopeJsonProps.pendingSyncChangesetIndices?.length).to.equal(1);
+    expect(scopeJsonProps.pendingSyncChangesetIndices[0]).to.equal(4);
     transformer.dispose();
 
     // Open sourceDb not at tip
@@ -2248,10 +2349,21 @@ describe("IModelTransformerHub", () => {
       argsForProcessChanges: {},
     });
     await transformer.process();
-    scopingEsa = transformer["_targetScopeProvenanceProps"];
-    expect(
-      scopingEsa?.jsonProperties.pendingSyncChangesetIndices
-    ).to.deep.equal([4]);
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+    targetDb.saveChanges();
+    scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
+      targetDb,
+      {
+        id: undefined,
+        classFullName: ExternalSourceAspect.classFullName,
+        scope: { id: IModel.rootSubjectId },
+        kind: ExternalSourceAspect.Kind.Scope,
+        element: { id: IModel.rootSubjectId },
+        identifier: sourceDbNotAtTip.iModelId,
+      }
+    );
+    scopeJsonProps = JSON.parse(scopeEsaResult?.jsonProperties ?? "{}");
+    expect(scopeJsonProps.pendingSyncChangesetIndices).to.deep.equal([4]);
     transformer.dispose();
   });
 
@@ -2272,8 +2384,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
     const masterSeed: TimelineIModelState = {
       // HACK: we know this will only be used for seeding via its path and performCheckpoint
@@ -2294,9 +2405,13 @@ describe("IModelTransformerHub", () => {
             const targetId2 = IModelTestUtils.queryByUserLabel(db, "1");
             const targetId3 = IModelTestUtils.queryByUserLabel(db, "4");
             const targetId4 = IModelTestUtils.queryByUserLabel(db, "5");
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             ElementGroupsMembers.create(db, sourceId, targetId).insert();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             ElementGroupsMembers.create(db, sourceId, targetId2).insert();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             ElementGroupsMembers.create(db, sourceId, targetId3).insert();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             ElementGroupsMembers.create(db, sourceId, targetId4).insert();
           },
         },
@@ -2331,7 +2446,9 @@ describe("IModelTransformerHub", () => {
             const aspects = db.elements.getAspects(
               elemId
             ) as ExternalSourceAspect[];
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             aspects.forEach((a) => db.elements.deleteAspect(a.id));
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             db.elements.deleteElement(elemId);
           },
         },
@@ -2369,29 +2486,30 @@ describe("IModelTransformerHub", () => {
     const seedDb = SnapshotDb.createEmpty(seedFileName, {
       rootSubject: { name: "TransformerSource" },
     });
-    const subjectId1 = Subject.insert(seedDb, IModel.rootSubjectId, "S1");
-    const modelId1 = PhysicalModel.insert(seedDb, subjectId1, "PM1");
-    const categoryId1 = SpatialCategory.insert(
-      seedDb,
-      IModel.dictionaryId,
-      "C1",
-      {}
-    );
-    const physicalElementProps1: PhysicalElementProps = {
-      category: categoryId1,
-      model: modelId1,
-      classFullName: PhysicalObject.classFullName,
-      code: Code.createEmpty(),
-    };
-    seedDb.elements.insertElement(physicalElementProps1);
-    seedDb.saveChanges();
+    const {
+      subjectId1: _subjectId1,
+      modelId1,
+      categoryId1,
+    } = withEditTxn(seedDb, "create seed elements", (txn) => {
+      const subjId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+      const modId = PhysicalModel.insert(txn, subjId, "PM1");
+      const catId = SpatialCategory.insert(txn, IModel.dictionaryId, "C1", {});
+      const physicalElementProps1: PhysicalElementProps = {
+        category: catId,
+        model: modId,
+        classFullName: PhysicalObject.classFullName,
+        code: Code.createEmpty(),
+      };
+      txn.insertElement(physicalElementProps1);
+      return { subjectId1: subjId, modelId1: modId, categoryId1: catId };
+    });
     seedDb.close();
 
     let sourceIModelId: string | undefined;
     let targetIModelId: string | undefined;
 
     try {
-      sourceIModelId = await IModelHost.hubAccess.createNewIModel({
+      sourceIModelId = await IModelHost[_hubAccess].createNewIModel({
         iTwinId,
         iModelName: "TransformerSource",
         description: "source",
@@ -2407,14 +2525,15 @@ describe("IModelTransformerHub", () => {
       });
       // creating changesets for source
       for (let i = 0; i < 4; i++) {
-        const physicalElementProps: PhysicalElementProps = {
-          category: categoryId1,
-          model: modelId1,
-          classFullName: PhysicalObject.classFullName,
-          code: Code.createEmpty(),
-        };
-        sourceDb.elements.insertElement(physicalElementProps);
-        sourceDb.saveChanges();
+        withEditTxn(sourceDb, `insert PhysicalObject ${i}`, (txn) => {
+          const physicalElementProps: PhysicalElementProps = {
+            category: categoryId1,
+            model: modelId1,
+            classFullName: PhysicalObject.classFullName,
+            code: Code.createEmpty(),
+          };
+          txn.insertElement(physicalElementProps);
+        });
         await sourceDb.pushChanges({
           description: `Inserted ${i} PhysicalObject`,
         });
@@ -2422,7 +2541,7 @@ describe("IModelTransformerHub", () => {
       sourceDb.performCheckpoint(); // so we can use as a seed
 
       // forking target
-      targetIModelId = await IModelHost.hubAccess.createNewIModel({
+      targetIModelId = await IModelHost[_hubAccess].createNewIModel({
         iTwinId,
         iModelName: "TransformerTarget",
         description: "target",
@@ -2440,37 +2559,42 @@ describe("IModelTransformerHub", () => {
         wasSourceIModelCopiedToTarget: true,
       });
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "fork init" });
       transformer.dispose();
 
-      const targetSubjectId = Subject.insert(
-        targetDb,
-        IModel.rootSubjectId,
-        "S2"
-      );
-      const targetModelId = PhysicalModel.insert(
-        targetDb,
-        targetSubjectId,
-        "PM2"
-      );
-      const targetCategoryId = SpatialCategory.insert(
-        targetDb,
-        IModel.dictionaryId,
-        "C2",
-        {}
-      );
+      const {
+        targetSubjectId: _targetSubjectId,
+        targetModelId,
+        targetCategoryId,
+      } = withEditTxn(targetDb, "create target elements", (txn) => {
+        const subjId = Subject.insert(txn, IModel.rootSubjectId, "S2");
+        const modId = PhysicalModel.insert(txn, subjId, "PM2");
+        const catId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "C2",
+          {}
+        );
+        return {
+          targetSubjectId: subjId,
+          targetModelId: modId,
+          targetCategoryId: catId,
+        };
+      });
 
       // adding more changesets to target
       for (let i = 0; i < 2; i++) {
-        const targetPhysicalElementProps: PhysicalElementProps = {
-          category: targetCategoryId,
-          model: targetModelId,
-          classFullName: PhysicalObject.classFullName,
-          code: Code.createEmpty(),
-        };
-        targetDb.elements.insertElement(targetPhysicalElementProps);
-        targetDb.saveChanges();
+        withEditTxn(targetDb, `insert target PhysicalObject ${i}`, (txn) => {
+          const targetPhysicalElementProps: PhysicalElementProps = {
+            category: targetCategoryId,
+            model: targetModelId,
+            classFullName: PhysicalObject.classFullName,
+            code: Code.createEmpty(),
+          };
+          txn.insertElement(targetPhysicalElementProps);
+        });
         await targetDb.pushChanges({
           description: `Inserted ${i} PhysicalObject`,
         });
@@ -2506,12 +2630,12 @@ describe("IModelTransformerHub", () => {
       try {
         // delete iModel briefcases
         if (sourceIModelId)
-          await IModelHost.hubAccess.deleteIModel({
+          await IModelHost[_hubAccess].deleteIModel({
             iTwinId,
             iModelId: sourceIModelId,
           });
         if (targetIModelId)
-          await IModelHost.hubAccess.deleteIModel({
+          await IModelHost[_hubAccess].deleteIModel({
             iTwinId,
             iModelId: targetIModelId,
           });
@@ -2541,94 +2665,119 @@ describe("IModelTransformerHub", () => {
       });
 
       // populate master
-      const categId = SpatialCategory.insert(
-        masterDb,
-        IModel.dictionaryId,
-        "category",
-        new SubCategoryAppearance()
-      );
-      const modelToDeleteWithElemId = PhysicalModel.insert(
-        masterDb,
-        IModel.rootSubjectId,
-        "model-to-delete-with-elem"
-      );
-      const makePhysObjCommonProps = (num: number) =>
-        ({
-          classFullName: PhysicalObject.classFullName,
-          category: categId,
-          geom: IModelTransformerTestUtils.createBox(
-            Point3d.create(num, num, num)
-          ),
-          placement: {
-            origin: Point3d.create(num, num, num),
-            angles: YawPitchRollAngles.createDegrees(num, num, num),
-          },
-        }) as const;
-      const elemInModelToDeleteId = new PhysicalObject(
-        {
-          ...makePhysObjCommonProps(1),
-          model: modelToDeleteWithElemId,
-          code: new Code({
-            spec: IModelDb.rootSubjectId,
-            scope: IModelDb.rootSubjectId,
-            value: "elem-in-model-to-delete",
-          }),
-          userLabel: "elem-in-model-to-delete",
-        },
-        masterDb
-      ).insert();
-      const notDeletedModelId = PhysicalModel.insert(
-        masterDb,
-        IModel.rootSubjectId,
-        "not-deleted-model"
-      );
-      const elemToDeleteWithChildrenId = new PhysicalObject(
-        {
-          ...makePhysObjCommonProps(2),
-          model: notDeletedModelId,
-          code: new Code({
-            spec: IModelDb.rootSubjectId,
-            scope: IModelDb.rootSubjectId,
-            value: "deleted-elem-with-children",
-          }),
-          userLabel: "deleted-elem-with-children",
-        },
-        masterDb
-      ).insert();
-      const childElemOfDeletedId = new PhysicalObject(
-        {
-          ...makePhysObjCommonProps(3),
-          model: notDeletedModelId,
-          code: new Code({
-            spec: IModelDb.rootSubjectId,
-            scope: IModelDb.rootSubjectId,
-            value: "child-elem-of-deleted",
-          }),
-          userLabel: "child-elem-of-deleted",
-          parent: new ElementOwnsChildElements(elemToDeleteWithChildrenId),
-        },
-        masterDb
-      ).insert();
-      const childSubjectId = Subject.insert(
-        masterDb,
-        IModel.rootSubjectId,
-        "child-subject"
-      );
-      const modelInChildSubjectId = PhysicalModel.insert(
-        masterDb,
+      const {
+        categId: _categId,
+        modelToDeleteWithElemId,
+        elemInModelToDeleteId,
+        notDeletedModelId,
+        elemToDeleteWithChildrenId,
+        childElemOfDeletedId,
         childSubjectId,
-        "model-in-child-subject"
-      );
-      const childSubjectChildId = Subject.insert(
-        masterDb,
-        childSubjectId,
-        "child-subject-child"
-      );
-      const modelInChildSubjectChildId = PhysicalModel.insert(
-        masterDb,
+        modelInChildSubjectId,
         childSubjectChildId,
-        "model-in-child-subject-child"
-      );
+        modelInChildSubjectChildId,
+      } = withEditTxn(masterDb, "setup master data", (txn) => {
+        const catId = SpatialCategory.insert(
+          txn,
+          IModel.dictionaryId,
+          "category",
+          new SubCategoryAppearance()
+        );
+        const modelToDelWithElemId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "model-to-delete-with-elem"
+        );
+        const makePhysObjCommonProps = (num: number) =>
+          ({
+            classFullName: PhysicalObject.classFullName,
+            category: catId,
+            geom: IModelTransformerTestUtils.createBox(
+              Point3d.create(num, num, num)
+            ),
+            placement: {
+              origin: Point3d.create(num, num, num),
+              angles: YawPitchRollAngles.createDegrees(num, num, num),
+            },
+          }) as const;
+        const elemInModelToDelId = new PhysicalObject(
+          {
+            ...makePhysObjCommonProps(1),
+            model: modelToDelWithElemId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: "elem-in-model-to-delete",
+            }),
+            userLabel: "elem-in-model-to-delete",
+          },
+          masterDb
+        ).insert(txn);
+        const notDelModelId = PhysicalModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "not-deleted-model"
+        );
+        const elemToDelWithChildrenId = new PhysicalObject(
+          {
+            ...makePhysObjCommonProps(2),
+            model: notDelModelId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: "deleted-elem-with-children",
+            }),
+            userLabel: "deleted-elem-with-children",
+          },
+          masterDb
+        ).insert(txn);
+        const childElemOfDelId = new PhysicalObject(
+          {
+            ...makePhysObjCommonProps(3),
+            model: notDelModelId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: "child-elem-of-deleted",
+            }),
+            userLabel: "child-elem-of-deleted",
+            parent: new ElementOwnsChildElements(elemToDelWithChildrenId),
+          },
+          masterDb
+        ).insert(txn);
+        const childSubjId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "child-subject"
+        );
+        const modelInChildSubjId = PhysicalModel.insert(
+          txn,
+          childSubjId,
+          "model-in-child-subject"
+        );
+        const childSubjChildId = Subject.insert(
+          txn,
+          childSubjId,
+          "child-subject-child"
+        );
+        const modelInChildSubjChildId = PhysicalModel.insert(
+          txn,
+          childSubjChildId,
+          "model-in-child-subject-child"
+        );
+        return {
+          categId: catId,
+          modelToDeleteWithElemId: modelToDelWithElemId,
+          elemInModelToDeleteId: elemInModelToDelId,
+          notDeletedModelId: notDelModelId,
+          elemToDeleteWithChildrenId: elemToDelWithChildrenId,
+          childElemOfDeletedId: childElemOfDelId,
+          childSubjectId: childSubjId,
+          modelInChildSubjectId: modelInChildSubjId,
+          childSubjectChildId: childSubjChildId,
+          modelInChildSubjectChildId: modelInChildSubjChildId,
+        };
+      });
       masterDb.performCheckpoint();
       await masterDb.pushChanges({ accessToken, description: "setup master" });
 
@@ -2661,6 +2810,7 @@ describe("IModelTransformerHub", () => {
       await provenanceInitializer.processSchemas();
       await provenanceInitializer.process();
       provenanceInitializer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "setup branch" });
 
@@ -2695,11 +2845,12 @@ describe("IModelTransformerHub", () => {
         aspects: branchDb.elements.getAspects(modelInChildSubjectChildId),
       };
 
-      elemToDeleteWithChildren.entity.delete();
-      modelToDeleteWithElem.entity.delete();
-      deleteElementTree(branchDb, modelToDeleteWithElemId);
-      deleteElementTree(branchDb, childSubjectId);
-      branchDb.saveChanges();
+      withEditTxn(branchDb, "branch deletes", (txn) => {
+        elemToDeleteWithChildren.entity.delete(txn);
+        modelToDeleteWithElem.entity.delete(txn);
+        deleteElementTree(txn, modelToDeleteWithElemId);
+        deleteElementTree(txn, childSubjectId);
+      });
       await branchDb.pushChanges({
         accessToken,
         description: "branch deletes",
@@ -2725,7 +2876,9 @@ describe("IModelTransformerHub", () => {
         .undefined;
 
       // expected extracted changed ids
-      const branchDbChangesets = await IModelHost.hubAccess.downloadChangesets({
+      const branchDbChangesets = await IModelHost[
+        _hubAccess
+      ].downloadChangesets({
         accessToken,
         iModelId: branchIModelId,
         targetDir: BriefcaseManager.getChangeSetsPath(branchIModelId),
@@ -2782,6 +2935,7 @@ describe("IModelTransformerHub", () => {
         argsForProcessChanges: {},
       });
       await synchronizer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       branchDb.saveChanges();
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
@@ -2824,12 +2978,12 @@ describe("IModelTransformerHub", () => {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, branchDb);
     } finally {
       // delete iModel briefcases
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: masterIModelId,
       });
       if (branchIModelId) {
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: branchIModelId,
         });
@@ -2870,7 +3024,7 @@ describe("IModelTransformerHub", () => {
         startChangeset: branchAt2Changeset,
       },
     });
-    const queryChangeset = sinon.spy(HubMock, "queryChangeset");
+    const queryChangeset = sinon.spy(BriefcaseManager, "queryChangeset");
     await syncer.process();
     expect(
       queryChangeset.alwaysCalledWith({
@@ -2918,28 +3072,31 @@ describe("IModelTransformerHub", () => {
         iModelId: targetIModelId,
       });
 
-      const categoryId = SpatialCategory.insert(
+      const originalElementId = withEditTxn(
         sourceDb,
-        IModel.dictionaryId,
-        "C1",
-        {}
+        "insert physical element",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "C1",
+            {}
+          );
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PM1"
+          );
+          const physicalElement: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "Element1",
+          };
+          return txn.insertElement(physicalElement);
+        }
       );
-      const modelId = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "PM1"
-      );
-      const physicalElement: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: modelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-        userLabel: "Element1",
-      };
-      const originalElementId =
-        sourceDb.elements.insertElement(physicalElement);
-
-      sourceDb.saveChanges();
       await sourceDb.pushChanges({ description: "insert physical element" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
@@ -2948,13 +3105,15 @@ describe("IModelTransformerHub", () => {
         transformer.context.findTargetElementId(originalElementId);
       expect(forkedElementId).not.to.be.undefined;
       transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "initial transformation" });
 
-      const forkedElement = targetDb.elements.getElement(forkedElementId);
-      forkedElement.userLabel = "Element1_updated";
-      forkedElement.update();
-      targetDb.saveChanges();
+      withEditTxn(targetDb, "update forked element", (txn) => {
+        const forkedElement = targetDb.elements.getElement(forkedElementId);
+        forkedElement.userLabel = "Element1_updated";
+        forkedElement.update(txn);
+      });
       await targetDb.pushChanges({
         description: "update forked element's userLabel",
       });
@@ -2963,6 +3122,7 @@ describe("IModelTransformerHub", () => {
         argsForProcessChanges: { startChangeset: targetDb.changeset },
       });
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       sourceDb.saveChanges();
       await sourceDb.pushChanges({
         description: "change processing transformation",
@@ -2974,11 +3134,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3022,39 +3182,47 @@ describe("IModelTransformerHub", () => {
       });
 
       const constSubjectFedGuid = Guid.createValue();
-      const originalSubjectId = sourceDb.elements.insertElement({
-        classFullName: Subject.classFullName,
-        code: Code.createEmpty(),
-        model: IModel.repositoryModelId,
-        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-        federationGuid: constSubjectFedGuid,
-        userLabel: "A",
-      });
-
       const constPartitionFedGuid = Guid.createValue();
-      const originalPartitionId = sourceDb.elements.insertElement({
-        model: IModel.repositoryModelId,
-        code: PhysicalPartition.createCode(
-          sourceDb,
-          IModel.rootSubjectId,
-          "original partition"
-        ),
-        classFullName: PhysicalPartition.classFullName,
-        federationGuid: constPartitionFedGuid,
-        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
-      });
-      const originalModelId = sourceDb.models.insertModel({
-        classFullName: PhysicalModel.classFullName,
-        modeledElement: { id: originalPartitionId },
-        isPrivate: true,
-      });
+      const { originalSubjectId, originalPartitionId, originalModelId } =
+        withEditTxn(sourceDb, "insert elements & models", (txn) => {
+          const subjId = txn.insertElement({
+            classFullName: Subject.classFullName,
+            code: Code.createEmpty(),
+            model: IModel.repositoryModelId,
+            parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+            federationGuid: constSubjectFedGuid,
+            userLabel: "A",
+          });
 
-      sourceDb.saveChanges();
+          const partId = txn.insertElement({
+            model: IModel.repositoryModelId,
+            code: PhysicalPartition.createCode(
+              sourceDb,
+              IModel.rootSubjectId,
+              "original partition"
+            ),
+            classFullName: PhysicalPartition.classFullName,
+            federationGuid: constPartitionFedGuid,
+            parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+          });
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          const modId = sourceDb.models.insertModel({
+            classFullName: PhysicalModel.classFullName,
+            modeledElement: { id: partId },
+            isPrivate: true,
+          });
+          return {
+            originalSubjectId: subjId,
+            originalPartitionId: partId,
+            originalModelId: modId,
+          };
+        });
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
       await transformer.process();
       transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "initial transformation" });
 
@@ -3077,36 +3245,45 @@ describe("IModelTransformerHub", () => {
       );
       expect(originalTargetModel.isPrivate).to.be.true;
 
-      sourceDb.elements.deleteElement(originalSubjectId);
-      const secondCopyOfSubjectId = sourceDb.elements.insertElement({
-        classFullName: Subject.classFullName,
-        code: Code.createEmpty(),
-        model: IModel.repositoryModelId,
-        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-        federationGuid: constSubjectFedGuid,
-        userLabel: "B",
-      });
+      const {
+        secondCopyOfSubjectId,
+        recreatedPartitionId: _recreatedPartitionId,
+      } = withEditTxn(sourceDb, "recreate elements & models", (txn) => {
+        txn.deleteElement(originalSubjectId);
+        const secondSubjId = txn.insertElement({
+          classFullName: Subject.classFullName,
+          code: Code.createEmpty(),
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+          federationGuid: constSubjectFedGuid,
+          userLabel: "B",
+        });
 
-      sourceDb.models.deleteModel(originalModelId);
-      sourceDb.elements.deleteElement(originalPartitionId);
-      const recreatedPartitionId = sourceDb.elements.insertElement({
-        model: IModel.repositoryModelId,
-        code: PhysicalPartition.createCode(
-          sourceDb,
-          IModel.rootSubjectId,
-          "recreated partition"
-        ),
-        classFullName: PhysicalPartition.classFullName,
-        federationGuid: constPartitionFedGuid,
-        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        sourceDb.models.deleteModel(originalModelId);
+        txn.deleteElement(originalPartitionId);
+        const recPartId = txn.insertElement({
+          model: IModel.repositoryModelId,
+          code: PhysicalPartition.createCode(
+            sourceDb,
+            IModel.rootSubjectId,
+            "recreated partition"
+          ),
+          classFullName: PhysicalPartition.classFullName,
+          federationGuid: constPartitionFedGuid,
+          parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+        });
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        sourceDb.models.insertModel({
+          classFullName: PhysicalModel.classFullName,
+          modeledElement: { id: recPartId },
+          isPrivate: false,
+        });
+        return {
+          secondCopyOfSubjectId: secondSubjId,
+          recreatedPartitionId: recPartId,
+        };
       });
-      sourceDb.models.insertModel({
-        classFullName: PhysicalModel.classFullName,
-        modeledElement: { id: recreatedPartitionId },
-        isPrivate: false,
-      });
-
-      sourceDb.saveChanges();
       await sourceDb.pushChanges({
         description: "recreated elements & models",
       });
@@ -3115,6 +3292,7 @@ describe("IModelTransformerHub", () => {
         argsForProcessChanges: { startChangeset: sourceDb.changeset },
       });
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({
         description: "change processing transformation",
@@ -3155,22 +3333,24 @@ describe("IModelTransformerHub", () => {
       expect(count(sourceDb, PhysicalModel.classFullName)).to.equal(1);
       expect(count(targetDb, PhysicalModel.classFullName)).to.equal(1);
 
-      sourceDb.elements.deleteElement(secondCopyOfSubjectId);
-      sourceDb.saveChanges();
+      withEditTxn(sourceDb, "delete second copy of subject", (txn) => {
+        txn.deleteElement(secondCopyOfSubjectId);
+      });
       await sourceDb.pushChanges({
         description: "deleted the second copy of the subject",
       });
       const startChangeset = sourceDb.changeset;
       // readd the subject in a separate changeset
-      sourceDb.elements.insertElement({
-        classFullName: Subject.classFullName,
-        code: Code.createEmpty(),
-        model: IModel.repositoryModelId,
-        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-        federationGuid: constSubjectFedGuid,
-        userLabel: "C",
+      withEditTxn(sourceDb, "insert third copy of subject", (txn) => {
+        txn.insertElement({
+          classFullName: Subject.classFullName,
+          code: Code.createEmpty(),
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+          federationGuid: constSubjectFedGuid,
+          userLabel: "C",
+        });
       });
-      sourceDb.saveChanges();
       await sourceDb.pushChanges({
         description: "inserted a third copy of the subject with userLabel C",
       });
@@ -3179,6 +3359,7 @@ describe("IModelTransformerHub", () => {
         argsForProcessChanges: { startChangeset },
       });
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "transformation" });
 
@@ -3190,11 +3371,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3238,29 +3419,36 @@ describe("IModelTransformerHub", () => {
       });
 
       const constPartitionFedGuid = Guid.createValue();
-      const originalPartitionId = sourceDb.elements.insertElement({
-        model: IModel.repositoryModelId,
-        code: PhysicalPartition.createCode(
-          sourceDb,
-          IModel.rootSubjectId,
-          "original partition"
-        ),
-        classFullName: PhysicalPartition.classFullName,
-        federationGuid: constPartitionFedGuid,
-        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
-      });
-      const modelId = sourceDb.models.insertModel({
-        classFullName: PhysicalModel.classFullName,
-        modeledElement: { id: originalPartitionId },
-        isPrivate: true,
-      });
-
-      sourceDb.saveChanges();
+      const { originalPartitionId, modelId } = withEditTxn(
+        sourceDb,
+        "insert elements & models",
+        (txn) => {
+          const partId = txn.insertElement({
+            model: IModel.repositoryModelId,
+            code: PhysicalPartition.createCode(
+              sourceDb,
+              IModel.rootSubjectId,
+              "original partition"
+            ),
+            classFullName: PhysicalPartition.classFullName,
+            federationGuid: constPartitionFedGuid,
+            parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+          });
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          const modId = sourceDb.models.insertModel({
+            classFullName: PhysicalModel.classFullName,
+            modeledElement: { id: partId },
+            isPrivate: true,
+          });
+          return { originalPartitionId: partId, modelId: modId };
+        }
+      );
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       let transformer = new IModelTransformer(sourceDb, targetDb);
       await transformer.process();
       transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({ description: "initial transformation" });
 
@@ -3278,21 +3466,22 @@ describe("IModelTransformerHub", () => {
       );
       expect(originalTargetModel.isPrivate).to.be.true;
 
-      sourceDb.models.deleteModel(modelId);
-      sourceDb.elements.deleteElement(originalPartitionId);
-      sourceDb.elements.insertElement({
-        model: IModel.repositoryModelId,
-        code: PhysicalPartition.createCode(
-          sourceDb,
-          IModel.rootSubjectId,
-          "recreated partition"
-        ),
-        classFullName: PhysicalPartition.classFullName,
-        federationGuid: constPartitionFedGuid,
-        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+      withEditTxn(sourceDb, "recreate elements & models", (txn) => {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        sourceDb.models.deleteModel(modelId);
+        txn.deleteElement(originalPartitionId);
+        txn.insertElement({
+          model: IModel.repositoryModelId,
+          code: PhysicalPartition.createCode(
+            sourceDb,
+            IModel.rootSubjectId,
+            "recreated partition"
+          ),
+          classFullName: PhysicalPartition.classFullName,
+          federationGuid: constPartitionFedGuid,
+          parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+        });
       });
-
-      sourceDb.saveChanges();
       await sourceDb.pushChanges({
         description: "recreated elements & models",
       });
@@ -3301,6 +3490,7 @@ describe("IModelTransformerHub", () => {
         argsForProcessChanges: { startChangeset: sourceDb.changeset },
       });
       await transformer.process();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
       targetDb.saveChanges();
       await targetDb.pushChanges({
         description: "change processing transformation",
@@ -3319,11 +3509,11 @@ describe("IModelTransformerHub", () => {
     } finally {
       try {
         // delete iModel briefcases
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: sourceIModelId,
         });
-        await IModelHost.hubAccess.deleteIModel({
+        await IModelHost[_hubAccess].deleteIModel({
           iTwinId,
           iModelId: targetIModelId,
         });
@@ -3341,7 +3531,9 @@ describe("IModelTransformerHub", () => {
       "TransformerSource",
       (sourceSeedDb) => {
         elementIds = [
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject1"),
+          // eslint-disable-next-line @typescript-eslint/no-deprecated
           Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject2"),
         ];
 
@@ -3359,6 +3551,7 @@ describe("IModelTransformerHub", () => {
               },
             };
 
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             const aspectId = sourceSeedDb.elements.insertAspect(aspectProps);
             aspectIds.push(aspectId); // saving for later deletion
           }
@@ -3385,11 +3578,10 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         DetachedExportElementAspectsStrategy
       );
+      // First transformation uses processAll (no argsForProcessChanges) to establish provenance
       const transformer = new IModelTransformer(exporter, targetDb, {
         includeSourceProvenance: true,
-        argsForProcessChanges: {},
       });
-      transformer["_allowNoScopingESA"] = true;
 
       // run first transformation
       await transformer.process();
@@ -3405,6 +3597,7 @@ describe("IModelTransformerHub", () => {
           relClassName: "BisCore:ElementScopesExternalSourceIdentifier",
         },
       };
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.elements.insertAspect(addedAspectProps);
 
       await saveAndPushChanges(sourceDb, "Update source");
@@ -3440,11 +3633,11 @@ describe("IModelTransformerHub", () => {
         expect(aspectAddedAfterFirstTransformation).to.not.be.undefined;
       });
     } finally {
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: sourceIModelId,
       });
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: targetIModelId,
       });
@@ -3453,6 +3646,8 @@ describe("IModelTransformerHub", () => {
 
   // will fix in separate PR, tracked here: https://github.com/iTwin/imodel-transformer/issues/27
   it.skip("should delete definition elements when processing changes", async () => {
+    let spatialViewDefId: Id64String;
+    let displayStyleId: Id64String;
     let spatialViewDef: SpatialViewDefinition;
     let displayStyle: DisplayStyle3d;
 
@@ -3465,7 +3660,9 @@ describe("IModelTransformerHub", () => {
               IModelDb.dictionaryId,
               "modelSelector",
               []
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
             ).insert();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             const categorySelectorId = CategorySelector.insert(
               db,
               IModelDb.dictionaryId,
@@ -3477,8 +3674,10 @@ describe("IModelTransformerHub", () => {
               IModelDb.dictionaryId,
               "displayStyle"
             );
-            const displayStyleId = displayStyle.insert();
-            db.elements.insertElement({
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            displayStyleId = displayStyle.insert();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            spatialViewDefId = db.elements.insertElement({
               classFullName: SpatialViewDefinition.classFullName,
               model: IModelDb.dictionaryId,
               code: Code.createEmpty().toJSON(),
@@ -3495,6 +3694,8 @@ describe("IModelTransformerHub", () => {
               categorySelectorId,
               modelSelectorId,
             } as SpatialViewDefinitionProps);
+            spatialViewDef =
+              db.elements.getElement<SpatialViewDefinition>(spatialViewDefId);
           },
         },
       },
@@ -3502,9 +3703,10 @@ describe("IModelTransformerHub", () => {
       2: {
         master: {
           manualUpdate(db) {
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             const notDeleted = db.elements.deleteDefinitionElements([
-              spatialViewDef.id,
-              displayStyle.id,
+              spatialViewDefId,
+              displayStyleId,
             ]);
             assert(notDeleted.size === 0);
           },
@@ -3535,6 +3737,88 @@ describe("IModelTransformerHub", () => {
     sinon.restore();
   });
 
+  // Regression test for https://github.com/iTwin/imodel-transformer/issues/28
+  it("should succeed when element is deleted and element with the same code is re-added in the next changeset", async () => {
+    let categoryId: Id64String;
+    let modelId: Id64String;
+    let elementId: Id64String;
+    let displayStyleId: Id64String;
+
+    const timeline: Timeline = {
+      0: {
+        master: {
+          manualUpdate(db) {
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            categoryId = SpatialCategory.insert(
+              db,
+              IModel.dictionaryId,
+              "TestCategory",
+              {}
+            );
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            modelId = PhysicalModel.insert(
+              db,
+              IModel.rootSubjectId,
+              "TestPhysicalModel"
+            );
+            const physicalObjectProps: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: Code.createEmpty(),
+              userLabel: "TestElement",
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: Placement3d.fromJSON({
+                origin: { x: 0, y: 0 },
+                angles: {},
+              }),
+            };
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            elementId = db.elements.insertElement(physicalObjectProps);
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            displayStyleId = DisplayStyle3d.insert(
+              db,
+              IModel.dictionaryId,
+              "TestDisplayStyle",
+              { excludedElements: [elementId] }
+            );
+          },
+        },
+      },
+      1: { branch: { branch: "master" } },
+      2: {
+        master: {
+          manualUpdate(db) {
+            // Delete the DisplayStyle3d and re-insert one with the same code
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            db.elements.deleteDefinitionElements([displayStyleId]);
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            DisplayStyle3d.insert(db, IModel.dictionaryId, "TestDisplayStyle", {
+              excludedElements: [elementId],
+            });
+          },
+        },
+      },
+      3: { branch: { sync: ["master", { since: 2 }] } },
+    };
+
+    const { trackedIModels, tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+
+    const branch = trackedIModels.get("branch")!;
+    expect(
+      count(branch.db, DisplayStyle3d.classFullName),
+      "target should contain one DisplayStyle3d element"
+    ).to.equal(1);
+
+    await tearDown();
+    sinon.restore();
+  });
+
   it("should be able to handle a transformation which deletes a relationship and then elements of that relationship", async () => {
     const masterIModelName = "MasterDeleteRelAndEnds";
     const masterSeedFileName = path.join(outputDir, `${masterIModelName}.bim`);
@@ -3549,8 +3833,7 @@ describe("IModelTransformerHub", () => {
     const masterSeedDb = SnapshotDb.createEmpty(masterSeedFileName, {
       rootSubject: { name: masterIModelName },
     });
-    // eslint-disable-next-line deprecation/deprecation
-    masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
+    // masterSeedDb.nativeDb.setITwinId(iTwinId); // workaround for "ContextId was not properly setup in the checkpoint" issue
     populateTimelineSeed(masterSeedDb, masterSeedState);
 
     const noFedGuidElemIds = masterSeedDb.queryEntityIds({
@@ -3620,6 +3903,7 @@ describe("IModelTransformerHub", () => {
                 targetId,
                 0
               );
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               expectedRelationships[i].idInBranch = rel.insert();
             });
           },
@@ -3668,8 +3952,11 @@ describe("IModelTransformerHub", () => {
                 ElementGroupsMembers.classFullName,
                 { sourceId, targetId }
               );
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               rel.delete();
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               db.elements.deleteElement(sourceId);
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               db.elements.deleteElement(targetId);
             });
           },
@@ -3739,7 +4026,6 @@ describe("IModelTransformerHub", () => {
       { master: { 1: 1, 2: 2, 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           const scopeProvenanceCandidates = branch.db.elements
@@ -3776,6 +4062,7 @@ describe("IModelTransformerHub", () => {
               pendingSyncChangesetIndices: undefined,
               reverseSyncVersion: ";0",
             });
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               jsonProperties: missingPendings as any,
@@ -3863,7 +4150,6 @@ describe("IModelTransformerHub", () => {
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
       { branch: { 5: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           const scopeProvenanceCandidates = branch.db.elements
@@ -3895,6 +4181,7 @@ describe("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without version now.
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               jsonProperties: undefined,
@@ -3914,13 +4201,13 @@ describe("IModelTransformerHub", () => {
         },
       },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           // Assert that we skipped the changeset: { branch: { 1: 2, 4: 1 } } during our reverse sync.
           const expectedState = { 1: 1, 2: 2, 3: 1, 5: 1 };
           expect(master.state).to.deep.equal(expectedState);
           expect(branch.state).to.deep.equal({ ...expectedState, 1: 2, 4: 1 });
-          assertElemState(master.db, expectedState);
-          assertElemState(branch.db, { ...expectedState, 1: 2, 4: 1 });
+          await assertElemState(master.db, expectedState);
+          await assertElemState(branch.db, { ...expectedState, 1: 2, 4: 1 });
         },
       },
       // repeat all above for forward sync scenario!
@@ -3948,6 +4235,7 @@ describe("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without version now.
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               version: undefined,
@@ -3967,14 +4255,14 @@ describe("IModelTransformerHub", () => {
         },
       },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           // Assert that we skipped the changeset: { master: { 2: 4, 6: 1, } }, during our forward sync.. making it so those properties didn't make it to the branch.
           const expectedMasterState = { 1: 1, 2: 4, 3: 1, 5: 1, 6: 1, 7: 1 };
           const expectedBranchState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1, 7: 1 };
           expect(master.state).to.deep.equal(expectedMasterState);
           expect(branch.state).to.deep.equal(expectedBranchState);
-          assertElemState(master.db, expectedMasterState);
-          assertElemState(branch.db, expectedBranchState);
+          await assertElemState(master.db, expectedMasterState);
+          await assertElemState(branch.db, expectedBranchState);
         },
       },
     ];
@@ -4096,7 +4384,6 @@ describe("IModelTransformerHub", () => {
       { master: { 1: 1, 2: 2, 3: 1 } },
       { branch: { branch: "master" } },
       { branch: { 1: 2, 4: 1 } },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
         assert({ master, branch }) {
           const scopeProvenanceCandidates = branch.db.elements
@@ -4130,6 +4417,7 @@ describe("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without jsonprops
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               jsonProperties: undefined,
@@ -4152,6 +4440,7 @@ describe("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without version now.
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               version: undefined,
@@ -4174,6 +4463,7 @@ describe("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Remove both and make sure it passes with both removed + setallowNoBranchRelationshipData
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             branch.elements.updateAspect({
               ...targetScopeProvenanceProps!,
               jsonProperties: undefined,
@@ -4204,26 +4494,25 @@ describe("IModelTransformerHub", () => {
           ],
         },
       },
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           expect(master.db.changeset.index).to.equal(3);
           expect(branch.db.changeset.index).to.equal(8);
           expect(count(master.db, ExternalSourceAspect.classFullName)).to.equal(
             0
           );
-
-          const externalAspectCounts = (db: IModelDb) =>
-            // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-            db.withPreparedStatement(
-              `
+          const sql = `
           SELECT e.ECInstanceId as elementId, COUNT(*) as aspectCount FROM bis.ExternalSourceAspect esa
           JOIN bis.Element e ON e.ECInstanceId=esa.Element.Id
           GROUP BY e.ECInstanceId
-          `,
-              // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-              (s: ECSqlStatement) => [...s]
-            );
+          `;
+          const externalAspectCounts = async (db: IModelDb) => {
+            const results = [];
+            for await (const row of db.createQueryReader(sql)) {
+              results.push(row.toRow());
+            }
+            return results;
+          };
 
           expect(count(branch.db, "bis.ExternalSourceAspect")).to.be.equal(
             count(master.db, "bis.Element") + 1
@@ -4232,7 +4521,7 @@ describe("IModelTransformerHub", () => {
             count(master.db, "bis.Element")
           );
 
-          externalAspectCounts(branch.db).forEach((value) => {
+          (await externalAspectCounts(branch.db)).forEach((value) => {
             const { elementId, aspectCount } = value;
             if (elementId === targetScopeElementId)
               expect(aspectCount).to.equal(2);
@@ -4268,12 +4557,12 @@ describe("IModelTransformerHub", () => {
       { branch: { 5: 1 } },
       { master: { sync: ["branch"] } },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
           expect(master.state).to.deep.equal(expectedState);
           expect(branch.state).to.deep.equal(expectedState);
-          assertElemState(master.db, expectedState);
-          assertElemState(branch.db, expectedState);
+          await assertElemState(master.db, expectedState);
+          await assertElemState(branch.db, expectedState);
         },
       },
     ];
@@ -4298,13 +4587,13 @@ describe("IModelTransformerHub", () => {
         { master: { 1: 1 } },
         { branch: { branch: "master" } },
         { branch: { 1: 2, 4: 1 } },
-        // eslint-disable-next-line @typescript-eslint/no-shadow
         {
           branch: {
             manualUpdate(branch) {
               // Update models
               const dictionaryId = IModelDb.dictionaryId;
               const dict = branch.models.getModelProps(dictionaryId);
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               branch.models.updateModel({
                 ...dict,
                 jsonProperties: { test: 1 },
@@ -4313,6 +4602,7 @@ describe("IModelTransformerHub", () => {
               const repositoryModel = branch.models.getModelProps(
                 IModelDb.repositoryModelId
               );
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               branch.models.updateModel({
                 ...repositoryModel,
                 jsonProperties: { test: 2 },
@@ -4320,6 +4610,7 @@ describe("IModelTransformerHub", () => {
 
               const realityDataSourcesModel =
                 branch.models.getModelProps("0xe");
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               branch.models.updateModel({
                 ...realityDataSourcesModel,
                 jsonProperties: { test: 3 },
@@ -4328,6 +4619,7 @@ describe("IModelTransformerHub", () => {
               // Update Elements now.
               const rootSubjectFromBranch =
                 branch.elements.getElementProps<SubjectProps>("0x1");
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               branch.elements.updateElement({
                 ...rootSubjectFromBranch,
                 description: "test description",
@@ -4336,6 +4628,7 @@ describe("IModelTransformerHub", () => {
 
               const realityDataSourcesElement =
                 branch.elements.getElementProps("0xe");
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               branch.elements.updateElement({
                 ...realityDataSourcesElement,
                 jsonProperties: { test: 5 },
@@ -4344,6 +4637,7 @@ describe("IModelTransformerHub", () => {
               const dictionaryElement = branch.elements.getElementProps(
                 IModelDb.dictionaryId
               );
+              // eslint-disable-next-line @typescript-eslint/no-deprecated
               branch.elements.updateElement({
                 ...dictionaryElement,
                 jsonProperties: { test: 6 },
@@ -4352,7 +4646,6 @@ describe("IModelTransformerHub", () => {
           },
         },
         { master: { sync: ["branch"] } },
-        // eslint-disable-next-line @typescript-eslint/no-shadow
         {
           assert({ master, branch }) {
             const dictionaryModelMaster = master.db.models.getModel(
@@ -4521,12 +4814,12 @@ describe("IModelTransformerHub", () => {
       { branch: { 5: 1 } },
       { master: { sync: ["branch"] } },
       {
-        assert({ master, branch }) {
+        async assert({ master, branch }) {
           const expectedState = { 1: 2, 2: 2, 3: 1, 4: 1, 5: 1 };
           expect(master.state).to.deep.equal(expectedState);
           expect(branch.state).to.deep.equal(expectedState);
-          assertElemState(master.db, expectedState);
-          assertElemState(branch.db, expectedState);
+          await assertElemState(master.db, expectedState);
+          await assertElemState(branch.db, expectedState);
         },
       },
     ];
@@ -4550,6 +4843,7 @@ describe("IModelTransformerHub", () => {
         master: {
           manualUpdate(masterDb) {
             const elemId = IModelTestUtils.queryByUserLabel(masterDb, "1");
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             masterDb.elements.insertAspect({
               classFullName: ExternalSourceAspect.classFullName,
               element: { id: elemId },
@@ -4598,9 +4892,11 @@ describe("IModelTransformerHub", () => {
               parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
               code: Code.createEmpty(),
             };
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             definitionPartitionId1 = db.elements.insertElement(
               definitionPartitionProps
             );
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             definitionPartitionId2 = db.elements.insertElement(
               definitionPartitionProps
             );
@@ -4610,6 +4906,7 @@ describe("IModelTransformerHub", () => {
               modeledElement: { id: definitionPartitionId1 },
               parentModel: IModel.repositoryModelId,
             };
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             definitionPartitionModelId1 = db.models.insertModel(
               definitionModelProps1
             );
@@ -4619,6 +4916,7 @@ describe("IModelTransformerHub", () => {
               modeledElement: { id: definitionPartitionId2 },
               parentModel: IModel.repositoryModelId,
             };
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             definitionPartitionModelId2 = db.models.insertModel(
               definitionModelProps2
             );
@@ -4628,6 +4926,7 @@ describe("IModelTransformerHub", () => {
               model: definitionPartitionModelId1,
               code: Code.createEmpty(),
             };
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             definitionContainerId1 = db.elements.insertElement(
               definitionContainerProps1
             );
@@ -4637,6 +4936,7 @@ describe("IModelTransformerHub", () => {
               modeledElement: { id: definitionContainerId1 },
               parentModel: definitionPartitionModelId1,
             };
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             definitionContainerModelId1 = db.models.insertModel(
               definitionModelProps3
             );
@@ -4647,7 +4947,9 @@ describe("IModelTransformerHub", () => {
       2: {
         master: {
           manualUpdate(db) {
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             db.models.deleteModel(definitionContainerModelId1);
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             db.models.deleteModel(definitionPartitionModelId1);
           },
         },
@@ -4656,6 +4958,7 @@ describe("IModelTransformerHub", () => {
       4: {
         master: {
           manualUpdate(db) {
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             db.models.deleteModel(definitionPartitionModelId2);
           },
         },
@@ -4752,12 +5055,16 @@ describe("IModelTransformerHub", () => {
             const elem2 = masterDb.elements.getElement(elem2Id);
             const elem3 = masterDb.elements.getElement(elem3Id);
             elem1.code.value = "tempValue"; // need a temp value to avoid conflicts
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             elem1.update();
             elem2.code.value = "1";
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             elem2.update();
             elem3.code.value = "2";
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             elem3.update();
             elem1.code.value = "3";
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             elem1.update();
           },
         },
@@ -4801,7 +5108,9 @@ describe("IModelTransformerHub", () => {
             );
             categoryA.userLabel = "A";
             categoryB.userLabel = "B";
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             categoryA.insert();
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             categoryB.insert();
           },
         },
@@ -4817,10 +5126,13 @@ describe("IModelTransformerHub", () => {
               SpatialCategory.createCode(masterDb, IModel.dictionaryId, "B")
             );
             categoryA.code.value = "temp";
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             categoryA.update();
             categoryB.code.value = "A";
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             categoryB.update();
             categoryA.code.value = "B";
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             categoryA.update();
           },
         },
@@ -4835,8 +5147,14 @@ describe("IModelTransformerHub", () => {
             const categoryB = iModel.db.elements.getElement(
               SpatialCategory.createCode(iModel.db, IModel.dictionaryId, "B")
             );
-            expect(categoryA.userLabel).to.equal("B");
-            expect(categoryB.userLabel).to.equal("A");
+            expect(categoryA.userLabel).to.equal(
+              "B",
+              `categoryA.userlabel mismatch in ${iModel.db.name}`
+            );
+            expect(categoryB.userLabel).to.equal(
+              "A",
+              `categoryB.userlabel mismatch in ${iModel.db.name}`
+            );
           }
         },
       },
@@ -4874,25 +5192,33 @@ describe("IModelTransformerHub", () => {
       iModelId: targetIModelId,
     });
 
-    const changes1ParentSubjectId = Subject.insert(
+    const _changes1ParentSubjectId = withEditTxn(
       sourceDb,
-      IModel.rootSubjectId,
-      "Change 1: Parent"
+      "change 1 source",
+      (txn) => {
+        const parentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Change 1: Parent"
+        );
+        Subject.insert(txn, parentId, "Change 1: Child");
+        return parentId;
+      }
     );
-    Subject.insert(sourceDb, changes1ParentSubjectId, "Change 1: Child");
-    sourceDb.saveChanges();
     await sourceDb.pushChanges({ description: "change 1" });
-    const targetChanges1ParentSubjectId = Subject.insert(
-      targetDb,
-      IModel.rootSubjectId,
-      "Change 1: Parent"
-    );
-    const targetChanges1ChildSubjectId = Subject.insert(
-      targetDb,
-      targetChanges1ParentSubjectId,
-      "Change 1: Child"
-    );
-    targetDb.saveChanges();
+    const { targetChanges1ParentSubjectId, targetChanges1ChildSubjectId } =
+      withEditTxn(targetDb, "change 1 target", (txn) => {
+        const parentId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Change 1: Parent"
+        );
+        const childId = Subject.insert(txn, parentId, "Change 1: Child");
+        return {
+          targetChanges1ParentSubjectId: parentId,
+          targetChanges1ChildSubjectId: childId,
+        };
+      });
 
     // process change 1
     let transformer = new IModelTransformer(sourceDb, targetDb, {
@@ -4900,30 +5226,34 @@ describe("IModelTransformerHub", () => {
       wasSourceIModelCopiedToTarget: true,
     });
     await transformer.process();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges();
 
     // Update source iModel
-    const changes2ParentSubjectId = Subject.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "Change 2: Parent"
-    );
-    Subject.insert(sourceDb, changes2ParentSubjectId, "Change 2: Child");
-    sourceDb.saveChanges();
+    withEditTxn(sourceDb, "change 2 source", (txn) => {
+      const parentId = Subject.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Change 2: Parent"
+      );
+      Subject.insert(txn, parentId, "Change 2: Child");
+    });
     await sourceDb.pushChanges({ description: "change 2" });
 
     // Update target iModel
-    targetDb.elements.deleteElement([
-      targetChanges1ChildSubjectId,
-      targetChanges1ParentSubjectId,
-    ]);
-    targetDb.saveChanges();
+    withEditTxn(targetDb, "delete subjects in target", (txn) => {
+      txn.deleteElement([
+        targetChanges1ChildSubjectId,
+        targetChanges1ParentSubjectId,
+      ]);
+    });
 
     // process change 2
     transformer = new IModelTransformer(sourceDb, targetDb, {
       argsForProcessChanges: {},
     });
     await expect(transformer.process()).to.be.eventually.fulfilled;
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges();
 
     const queryReader = targetDb.createQueryReader(
@@ -4971,13 +5301,14 @@ describe("IModelTransformerHub", () => {
     async function closeAndDeleteBriefcase(iModel: BriefcaseDb) {
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, iModel);
       // eslint-disable-next-line @itwin/no-internal
-      await IModelHost.hubAccess.deleteIModel({
+      await IModelHost[_hubAccess].deleteIModel({
         iTwinId,
         iModelId: iModel.iModelId,
       });
     }
 
     async function pushChanges(iModel: BriefcaseDb, description: string) {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- helper function for test
       iModel.saveChanges();
       await iModel.pushChanges({ description, retainLocks: true });
     }
@@ -5007,6 +5338,7 @@ describe("IModelTransformerHub", () => {
 
     it("should call addCustomChanges when processing changes after source and target id map is populated", async () => {
       // set up source
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceModelId0 = PhysicalModel.insert(
         sourceDb,
         IModel.rootSubjectId,
@@ -5040,6 +5372,7 @@ describe("IModelTransformerHub", () => {
 
     it("should update data in target correctly when custom changes are registered for models", async () => {
       // Arrange
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceSubjectId = Subject.insert(
         sourceDb,
         IModel.rootSubjectId,
@@ -5062,11 +5395,13 @@ describe("IModelTransformerHub", () => {
         "DrawingChild"
       );
       // Create physical model
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const physicalModel1Id = PhysicalModel.insert(
         sourceDb,
         sourceSubjectId,
         "PM1"
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categoryId1 = SpatialCategory.insert(
         sourceDb,
         IModel.dictionaryId,
@@ -5085,7 +5420,7 @@ describe("IModelTransformerHub", () => {
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       transformer.exporter.excludeElement(documentListModel);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5135,6 +5470,7 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 3: `process changes` transformation to include newly added model  ===
       // Act
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const physicalModel2Id = PhysicalModel.insert(
         sourceDb,
         sourceSubjectId,
@@ -5245,6 +5581,7 @@ describe("IModelTransformerHub", () => {
     it("should update modeled element and its related data when custom changes are added for it's sub model", async function () {
       // === Transformation 1: Run `process all` transformation ===
       // Arrange
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceSubjectId = Subject.insert(
         sourceDb,
         IModel.rootSubjectId,
@@ -5310,7 +5647,7 @@ describe("IModelTransformerHub", () => {
       // Exclude all drawings
       transformer.exporter.excludeElement(parentDrawing1.id!);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5448,22 +5785,26 @@ describe("IModelTransformerHub", () => {
 
     it("should update exported data correctly when custom changes are registered for elements", async function () {
       // Prepare source
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceSubjectId = Subject.insert(
         sourceDb,
         IModel.rootSubjectId,
         "S1"
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categoryId1 = SpatialCategory.insert(
         sourceDb,
         IModel.dictionaryId,
         "C1",
         {}
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const physicalModel1Id = PhysicalModel.insert(
         sourceDb,
         sourceSubjectId,
         "PM1"
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const physicalModel2Id = PhysicalModel.insert(
         sourceDb,
         sourceSubjectId,
@@ -5505,7 +5846,7 @@ describe("IModelTransformerHub", () => {
       // will exclude 'PM2'
       transformer.exporter.excludeElement(physicalModel2Id);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5561,6 +5902,7 @@ describe("IModelTransformerHub", () => {
       );
 
       // === Transformation 3: `process changes` transformation to include newly added element  ===
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const physicalModel3Id = PhysicalModel.insert(
         sourceDb,
         sourceSubjectId,
@@ -5632,11 +5974,13 @@ describe("IModelTransformerHub", () => {
 
     it("should reset element values when custom changes to update element are added", async function () {
       // Arrange
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const sourceSubjectId = Subject.insert(
         sourceDb,
         IModel.rootSubjectId,
         "S1"
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categoryId1 = SpatialCategory.insert(
         sourceDb,
         IModel.dictionaryId,
@@ -5644,11 +5988,13 @@ describe("IModelTransformerHub", () => {
         {}
       );
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const physicalModel1Id = PhysicalModel.insert(
         sourceDb,
         sourceSubjectId,
         "PM1"
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const physicalModel2Id = PhysicalModel.insert(
         sourceDb,
         sourceSubjectId,
@@ -5671,7 +6017,7 @@ describe("IModelTransformerHub", () => {
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5682,6 +6028,7 @@ describe("IModelTransformerHub", () => {
         physicalElem1.federationGuid!
       );
       physicalElem1InTargetProps.userLabel = "Updated";
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       targetDb.elements.updateElement(physicalElem1InTargetProps);
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
@@ -5735,6 +6082,7 @@ describe("IModelTransformerHub", () => {
 
     it("should delete recreated model when custom delete change is registered for it", async () => {
       const constSubjectFedGuid = Guid.createValue();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const originalSubjectId = sourceDb.elements.insertElement({
         classFullName: Subject.classFullName,
         code: Code.createEmpty(),
@@ -5745,6 +6093,7 @@ describe("IModelTransformerHub", () => {
       });
 
       const constPartitionFedGuid = Guid.createValue();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const originalPartitionId = sourceDb.elements.insertElement({
         model: IModel.repositoryModelId,
         code: PhysicalPartition.createCode(
@@ -5756,6 +6105,7 @@ describe("IModelTransformerHub", () => {
         federationGuid: constPartitionFedGuid,
         parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
       });
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const originalModelId = sourceDb.models.insertModel({
         classFullName: PhysicalModel.classFullName,
         modeledElement: { id: originalPartitionId },
@@ -5767,7 +6117,7 @@ describe("IModelTransformerHub", () => {
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       await transformer.process();
-      transformer.updateSynchronizationVersion({
+      await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
       await pushChanges(targetDb, "Transformation 1: Process All");
@@ -5783,7 +6133,9 @@ describe("IModelTransformerHub", () => {
       assertModelExistsByName(targetDb, ["original partition"]);
 
       // === Transformation 1: Run `process all` transformation ===
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.elements.deleteElement(originalSubjectId);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const secondCopyOfSubjectId = sourceDb.elements.insertElement({
         classFullName: Subject.classFullName,
         code: Code.createEmpty(),
@@ -5793,8 +6145,11 @@ describe("IModelTransformerHub", () => {
         userLabel: "B",
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.models.deleteModel(originalModelId);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.elements.deleteElement(originalPartitionId);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const recreatedPartitionId = sourceDb.elements.insertElement({
         model: IModel.repositoryModelId,
         code: PhysicalPartition.createCode(
@@ -5806,6 +6161,7 @@ describe("IModelTransformerHub", () => {
         federationGuid: constPartitionFedGuid,
         parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
       });
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.models.insertModel({
         classFullName: PhysicalModel.classFullName,
         modeledElement: { id: recreatedPartitionId },
@@ -5844,6 +6200,7 @@ describe("IModelTransformerHub", () => {
     it("should handle custom changes when source iModel has no changesets", async () => {
       // set up source
       const subjectFedGuid1 = Guid.createValue();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const originalSubjectId1 = sourceDb.elements.insertElement({
         classFullName: Subject.classFullName,
         code: Code.createEmpty(),
@@ -5854,6 +6211,7 @@ describe("IModelTransformerHub", () => {
       });
 
       const subjectFedGuid2 = Guid.createValue();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const originalSubjectId2 = sourceDb.elements.insertElement({
         classFullName: Subject.classFullName,
         code: Code.createEmpty(),
@@ -5863,6 +6221,7 @@ describe("IModelTransformerHub", () => {
         userLabel: "B",
       });
       // Changes are saved but not pushed
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       sourceDb.saveChanges("Initial changes");
 
       // process all
@@ -5922,6 +6281,7 @@ describe("IModelTransformerHub", () => {
       documentListModelId: Id64String,
       drawingName: string
     ): ElementProps {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const id = Drawing.insert(iModel, documentListModelId, drawingName);
       return iModel.elements.getElementProps(id);
     }
@@ -5941,6 +6301,7 @@ describe("IModelTransformerHub", () => {
         userLabel: uniqueName,
       };
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModel.elements.insertElement(element);
       // re-read element to populate federationGuid value
       return iModel.elements.getElementProps(element.id!);
@@ -5963,6 +6324,7 @@ describe("IModelTransformerHub", () => {
         identifier,
       };
 
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       return iModel.elements.insertAspect(aspectProps);
     }
 
@@ -5972,6 +6334,7 @@ describe("IModelTransformerHub", () => {
       targetId: Id64String
     ) {
       const rel = ElementGroupsMembers.create(iModel, sourceId, targetId, 0);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const id = rel.insert();
       return iModel.relationships.getInstance(
         ElementGroupsMembers.classFullName,

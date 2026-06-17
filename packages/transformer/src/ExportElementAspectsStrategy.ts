@@ -20,12 +20,14 @@ const loggerCategory = TransformerLoggerCategory.IModelExporter;
  * @internal
  */
 export interface ElementAspectsHandler {
-  shouldExportElementAspect(aspect: ElementAspect): boolean;
+  shouldExportElementAspect(aspect: ElementAspect): Promise<boolean>;
   onExportElementUniqueAspect(
     uniqueAspect: ElementUniqueAspect,
     isUpdate?: boolean | undefined
-  ): void;
-  onExportElementMultiAspects(multiAspects: ElementMultiAspect[]): void;
+  ): Promise<void>;
+  onExportElementMultiAspects(
+    multiAspects: ElementMultiAspect[]
+  ): Promise<void>;
   trackProgress: () => Promise<void>;
 }
 
@@ -56,7 +58,9 @@ export abstract class ExportElementAspectsStrategy {
   ): Promise<void>;
   public abstract exportAllElementAspects(): Promise<void>;
 
-  protected shouldExportElementAspect(aspect: ElementAspect): boolean {
+  protected async shouldExportElementAspect(
+    aspect: ElementAspect
+  ): Promise<boolean> {
     for (const excludedElementAspectClass of this
       ._excludedElementAspectClasses) {
       if (aspect instanceof excludedElementAspectClass) {

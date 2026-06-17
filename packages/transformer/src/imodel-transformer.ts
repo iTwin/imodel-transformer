@@ -16,7 +16,7 @@ const {
   version: ourVersion,
   name: ourName,
   peerDependencies,
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
 } = require("../../package.json");
 
 const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
@@ -47,7 +47,7 @@ if (
 
   if (process.env[suggestEnvVarName]) {
     // let's not import https except in this case
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
     const https = require("https") as typeof import("https");
     https.get(`https://registry.npmjs.org/${ourName}`, async (resp) => {
       const chunks: string[] = [];

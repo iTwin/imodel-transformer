@@ -3,13 +3,12 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { DbResult, Id64Array, Id64Set, Id64String } from "@itwin/core-bentley";
+import { Id64Array, Id64Set, Id64String } from "@itwin/core-bentley";
 import {
   Category,
   CategorySelector,
   DisplayStyle,
   DisplayStyle3d,
-  ECSqlStatement,
   ExternalSourceAspect,
   GeometricModel3d,
   IModelDb,
@@ -20,26 +19,27 @@ import {
   SubCategory,
   ViewDefinition,
 } from "@itwin/core-backend";
-import { IModel } from "@itwin/core-common";
+import { IModel, QueryBinder } from "@itwin/core-common";
 
 export namespace ElementUtils {
-  function queryElementIds(iModelDb: IModelDb, classFullName: string): Id64Set {
+  async function queryElementIds(
+    iModelDb: IModelDb,
+    classFullName: string
+  ): Promise<Id64Set> {
     const elementIds = new Set<Id64String>();
-    // eslint-disable-next-line deprecation/deprecation
-    iModelDb.withPreparedStatement(
-      `SELECT ECInstanceId FROM ${classFullName}`,
-      // eslint-disable-next-line deprecation/deprecation
-      (statement: ECSqlStatement) => {
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          elementIds.add(statement.getValue(0).getId());
-        }
-      }
-    );
+    const sql = `SELECT ECInstanceId FROM ${classFullName}`;
+    for await (const row of iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      elementIds.add(row.id);
+    }
     return elementIds;
   }
 
-  export function validateModelSelectors(iModelDb: IModelDb): void {
-    const modelSelectorIds = queryElementIds(
+  export async function validateModelSelectors(
+    iModelDb: IModelDb
+  ): Promise<void> {
+    const modelSelectorIds = await queryElementIds(
       iModelDb,
       ModelSelector.classFullName
     );
@@ -59,8 +59,10 @@ export namespace ElementUtils {
     });
   }
 
-  export function validateCategorySelectors(iModelDb: IModelDb): void {
-    const categorySelectorIds = queryElementIds(
+  export async function validateCategorySelectors(
+    iModelDb: IModelDb
+  ): Promise<void> {
+    const categorySelectorIds = await queryElementIds(
       iModelDb,
       CategorySelector.classFullName
     );
@@ -80,8 +82,10 @@ export namespace ElementUtils {
     });
   }
 
-  export function validateDisplayStyles(iModelDb: IModelDb): void {
-    const displayStyleIds = queryElementIds(
+  export async function validateDisplayStyles(
+    iModelDb: IModelDb
+  ): Promise<void> {
+    const displayStyleIds = await queryElementIds(
       iModelDb,
       DisplayStyle.classFullName
     );
@@ -108,17 +112,21 @@ export namespace ElementUtils {
     }
   }
 
-  export function queryProvenanceScopeIds(iModelDb: IModelDb): Id64Set {
+  export async function queryProvenanceScopeIds(
+    iModelDb: IModelDb
+  ): Promise<Id64Set> {
     const elementIds = new Set<Id64String>();
     if (iModelDb.containsClass(ExternalSourceAspect.classFullName)) {
-      const sql = `SELECT Element.Id FROM ${ExternalSourceAspect.classFullName} WHERE Kind=:kind`;
-      // eslint-disable-next-line deprecation/deprecation
-      iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement) => {
-        statement.bindString("kind", ExternalSourceAspect.Kind.Scope);
-        while (DbResult.BE_SQLITE_ROW === statement.step()) {
-          elementIds.add(statement.getValue(0).getId());
-        }
-      });
+      const sql = `SELECT Element.Id AS id FROM ${ExternalSourceAspect.classFullName} WHERE Kind=:kind`;
+      const bindings = new QueryBinder().bindString(
+        "kind",
+        ExternalSourceAspect.Kind.Scope
+      );
+      for await (const row of iModelDb.createQueryReader(sql, bindings, {
+        usePrimaryConn: true,
+      })) {
+        elementIds.add(row.id);
+      }
     }
     return elementIds;
   }
@@ -129,11 +137,10 @@ export namespace ElementUtils {
    * @param makeDefault If `true` make the inserted ViewDefinition the default view.
    * @returns The Id of the ViewDefinition that was found or inserted.
    */
-  export function insertViewDefinition(
+  export async function insertViewDefinition(
     iModelDb: IModelDb,
-    name: string,
-    makeDefault?: boolean
-  ): Id64String {
+    name: string
+  ): Promise<Id64String> {
     const definitionModelId = IModel.dictionaryId;
     const viewCode = ViewDefinition.createCode(
       iModelDb,
@@ -142,23 +149,27 @@ export namespace ElementUtils {
     );
     let viewId = iModelDb.elements.queryElementIdByCode(viewCode);
     if (viewId === undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const modelSelectorId = ModelSelector.insert(
         iModelDb,
         definitionModelId,
         name,
-        queryModelIds(iModelDb, SpatialModel.classFullName)
+        await queryModelIds(iModelDb, SpatialModel.classFullName)
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const categorySelectorId = CategorySelector.insert(
         iModelDb,
         definitionModelId,
         name,
-        querySpatialCategoryIds(iModelDb)
+        await querySpatialCategoryIds(iModelDb)
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const displayStyleId = DisplayStyle3d.insert(
         iModelDb,
         definitionModelId,
         name
       );
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       viewId = SpatialViewDefinition.insertWithCamera(
         iModelDb,
         definitionModelId,
@@ -168,39 +179,36 @@ export namespace ElementUtils {
         displayStyleId,
         iModelDb.projectExtents
       );
-      if (makeDefault) {
-        // eslint-disable-next-line deprecation/deprecation
-        iModelDb.views.setDefaultViewId(viewId);
-      }
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       iModelDb.saveChanges("Inserted ViewDefinition");
     }
     return viewId;
   }
 
-  function queryModelIds(
+  async function queryModelIds(
     iModelDb: IModelDb,
     modelClassFullName: string
-  ): Id64Array {
+  ): Promise<Id64Array> {
     const modelIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${modelClassFullName} WHERE IsTemplate=false`;
-    // eslint-disable-next-line deprecation/deprecation
-    iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        modelIds.push(statement.getValue(0).getId());
-      }
-    });
+    for await (const row of iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      modelIds.push(row.id);
+    }
     return modelIds;
   }
 
-  function querySpatialCategoryIds(iModelDb: IModelDb): Id64Array {
+  async function querySpatialCategoryIds(
+    iModelDb: IModelDb
+  ): Promise<Id64Array> {
     const categoryIds: Id64Array = [];
     const sql = `SELECT ECInstanceId FROM ${SpatialCategory.classFullName}`;
-    // eslint-disable-next-line deprecation/deprecation
-    iModelDb.withPreparedStatement(sql, (statement: ECSqlStatement): void => {
-      while (DbResult.BE_SQLITE_ROW === statement.step()) {
-        categoryIds.push(statement.getValue(0).getId());
-      }
-    });
+    for await (const row of iModelDb.createQueryReader(sql, undefined, {
+      usePrimaryConn: true,
+    })) {
+      categoryIds.push(row.id);
+    }
     return categoryIds;
   }
 }
