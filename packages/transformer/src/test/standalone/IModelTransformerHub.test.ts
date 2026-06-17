@@ -3646,6 +3646,8 @@ describe("IModelTransformerHub", () => {
 
   // will fix in separate PR, tracked here: https://github.com/iTwin/imodel-transformer/issues/27
   it.skip("should delete definition elements when processing changes", async () => {
+    let spatialViewDefId: Id64String;
+    let displayStyleId: Id64String;
     let spatialViewDef: SpatialViewDefinition;
     let displayStyle: DisplayStyle3d;
 
@@ -3673,9 +3675,9 @@ describe("IModelTransformerHub", () => {
               "displayStyle"
             );
             // eslint-disable-next-line @typescript-eslint/no-deprecated
-            const displayStyleId = displayStyle.insert();
+            displayStyleId = displayStyle.insert();
             // eslint-disable-next-line @typescript-eslint/no-deprecated
-            db.elements.insertElement({
+            spatialViewDefId = db.elements.insertElement({
               classFullName: SpatialViewDefinition.classFullName,
               model: IModelDb.dictionaryId,
               code: Code.createEmpty().toJSON(),
@@ -3692,6 +3694,8 @@ describe("IModelTransformerHub", () => {
               categorySelectorId,
               modelSelectorId,
             } as SpatialViewDefinitionProps);
+            spatialViewDef =
+              db.elements.getElement<SpatialViewDefinition>(spatialViewDefId);
           },
         },
       },
@@ -3701,9 +3705,8 @@ describe("IModelTransformerHub", () => {
           manualUpdate(db) {
             // eslint-disable-next-line @typescript-eslint/no-deprecated
             const notDeleted = db.elements.deleteDefinitionElements([
-              // @ts-expect-error using spatialViewDef before its defined
-              spatialViewDef.id,
-              displayStyle.id,
+              spatialViewDefId,
+              displayStyleId,
             ]);
             assert(notDeleted.size === 0);
           },
