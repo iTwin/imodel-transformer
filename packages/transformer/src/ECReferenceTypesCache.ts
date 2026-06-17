@@ -6,11 +6,12 @@
  * @module iModels
  */
 
-import { Logger, TupleKeyedMap } from "@itwin/core-bentley";
+import { Logger } from "@itwin/core-bentley";
 import { ConcreteEntityTypes, RelTypeInfo } from "@itwin/core-common";
 import {
   ECClass,
   Mixin,
+  NavigationProperty,
   RelationshipClass,
   RelationshipConstraint,
   Schema,
@@ -31,26 +32,28 @@ export class SchemaNotInCacheErr extends Error {
 }
 
 /**
- * A cache of the entity types referenced by navprops in ecchemas, as well as the source and target entity types of
- * The transformer needs the referenced type to determine how to resolve references.
+ * A cache of the entity types referenced by navprops in ecschemas, as well as the source and target entity types of
+ * relationship classes. The transformer needs the referenced type to determine how to resolve references.
  *
  * Using multiple of these usually performs redundant computation, for static schemas at least. A possible future optimization
  * would be to seed the computation from a global cache of non-dynamic schemas, but dynamic schemas can collide willy-nilly
  * @internal
  */
 export class ECReferenceTypesCache {
-  /** nesting based tuple map keyed by qualified property path tuple [schemaName, className, propName] */
-  private _propQualifierToRefType = new TupleKeyedMap<
-    [string, string, string],
-    ConcreteEntityTypes
-  >();
-  private _relClassNameEndToRefTypes = new TupleKeyedMap<
-    [string, string],
-    RelTypeInfo
-  >();
+  /** Flat map keyed by "\0"-separated lowercase [schemaName, className, propName] */
+  private _propQualifierToRefType = new Map<string, ConcreteEntityTypes>();
+  /** Flat map keyed by "\0"-separated lowercase [schemaName, className] */
+  private _relClassNameEndToRefTypes = new Map<string, RelTypeInfo>();
   private _initedSchemas = new Map<string, SchemaKey>();
 
-  // Performance optimization caches
+  /**
+   * Pre-computed via SQL: maps ECClass fullName ("SchemaName.ClassName") to BIS root class name.
+   * Built from ECDbMeta.ClassHasAllBaseClasses in a single query, eliminating the need
+   * for expensive traverseBaseClasses() calls on every class.
+   */
+  private _classToRootBisName = new Map<string, string>();
+
+  // Caches for the slow-path fallback (rare cases: mixins, QueryView classes)
   private _rootBisClassCache = new Map<string, ECClass>();
   private _relationshipInfoCache = new Map<string, RelTypeInfo | undefined>();
   private _constraintClassCache = new Map<string, ECClass>();
@@ -59,17 +62,89 @@ export class ECReferenceTypesCache {
     string,
     ConcreteEntityTypes | undefined
   > = {
-    /* eslint-disable quote-props, @typescript-eslint/naming-convention */
-    Element: ConcreteEntityTypes.Element,
-    Model: ConcreteEntityTypes.Model,
-    ElementAspect: ConcreteEntityTypes.ElementAspect,
-    ElementRefersToElements: ConcreteEntityTypes.Relationship,
-    ElementDrivesElement: ConcreteEntityTypes.Relationship,
-    // code spec is technically a potential root class but it is ignored currently
-    // see [ConcreteEntityTypes]($common)
-    /* eslint-enable quote-props, @typescript-eslint/naming-convention */
-  };
+      /* eslint-disable quote-props, @typescript-eslint/naming-convention */
+      Element: ConcreteEntityTypes.Element,
+      Model: ConcreteEntityTypes.Model,
+      ElementAspect: ConcreteEntityTypes.ElementAspect,
+      ElementRefersToElements: ConcreteEntityTypes.Relationship,
+      ElementDrivesElement: ConcreteEntityTypes.Relationship,
+      // code spec is technically a potential root class but it is ignored currently
+      // see [ConcreteEntityTypes]($common)
+      /* eslint-enable quote-props, @typescript-eslint/naming-convention */
+    };
 
+  private static navPropKey(
+    schemaName: string,
+    className: string,
+    propName: string
+  ): string {
+    return `${schemaName}\0${className}\0${propName}`;
+  }
+
+  private static relClassKey(
+    schemaName: string,
+    className: string
+  ): string {
+    return `${schemaName}\0${className}`;
+  }
+
+  /**
+   * Pre-compute the BIS root class for every class in the iModel using a single SQL query.
+   * Uses ECDbMeta.ClassHasAllBaseClasses to map each class to its root BIS type
+   * (Element, Model, ElementAspect, ElementRefersToElements, ElementDrivesElement, or CodeSpec).
+   * This replaces the expensive per-class traverseBaseClasses() approach.
+   */
+  private async preComputeRootBisClasses(imodel: IModelDb): Promise<void> {
+    const query = `
+      SELECT
+        ec_className(hab.SourceECInstanceId, 's') || '.' || ec_className(hab.SourceECInstanceId, 'c') AS classFullName,
+        bisRoot.Name AS rootName
+      FROM ECDbMeta.ClassHasAllBaseClasses hab
+      JOIN ECDbMeta.ECClassDef bisRoot ON hab.TargetECInstanceId = bisRoot.ECInstanceId
+      JOIN ECDbMeta.ECSchemaDef bisSchema ON bisRoot.Schema.Id = bisSchema.ECInstanceId
+      WHERE bisSchema.Name = 'BisCore'
+        AND bisRoot.Name IN ('Element', 'Model', 'ElementAspect', 'ElementRefersToElements', 'ElementDrivesElement', 'CodeSpec')
+    `;
+
+    for await (const row of imodel.createQueryReader(query, undefined, {
+      usePrimaryConn: true,
+    })) {
+      // BIS root hierarchies are mutually exclusive, so each class maps to at most one root.
+      if (!this._classToRootBisName.has(row.classFullName)) {
+        this._classToRootBisName.set(row.classFullName, row.rootName);
+      }
+    }
+  }
+
+  /**
+   * Fast path: resolve the BIS root class NAME for an ECClass using the pre-computed SQL mapping.
+   * For mixins (not in the SQL mapping since they don't derive from entity roots),
+   * resolves via the appliesTo chain.
+   * Returns undefined only for classes not deriving from any known BIS root (e.g., QueryView classes).
+   */
+  private async getRootBisClassNameFast(
+    ecclass: ECClass
+  ): Promise<string | undefined> {
+    const preComputed = this._classToRootBisName.get(ecclass.fullName);
+    if (preComputed !== undefined) return preComputed;
+
+    // Mixins don't appear in ClassHasAllBaseClasses with entity roots;
+    // resolve via appliesTo chain
+    if (ecclass instanceof Mixin) {
+      assert(
+        ecclass.appliesTo !== undefined,
+        "The referenced AppliesToEntityClass could not be found, how did it pass schema validation?"
+      );
+      return this.getRootBisClassNameFast(await ecclass.appliesTo);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Slow-path fallback: resolves the actual ECClass object for the BIS root.
+   * Only used for rare edge cases (QueryView detection) and test compatibility.
+   */
   private async getRootBisClass(ecclass: ECClass) {
     const cacheKey = ecclass.fullName;
     const cached = this._rootBisClassCache.get(cacheKey);
@@ -126,13 +201,52 @@ export class ECReferenceTypesCache {
     return ecclass;
   }
 
+  /**
+   * Resolve the ConcreteEntityType for a constraint class.
+   * Uses the fast pre-computed SQL mapping for the common case,
+   * and falls back to the schema object model only for rare edge cases (QueryView).
+   */
+  private async resolveConstraintType(
+    constraintClass: ECClass
+  ): Promise<ConcreteEntityTypes | "skip" | undefined> {
+    // Fast path: pre-computed SQL mapping (handles 99%+ of cases)
+    const rootName = await this.getRootBisClassNameFast(constraintClass);
+
+    if (rootName === "CodeSpec") return "skip";
+    if (rootName !== undefined) {
+      const type = ECReferenceTypesCache.bisRootClassToRefType[rootName];
+      if (type !== undefined) return type;
+    }
+
+    // Slow-path fallback for classes not in the pre-computed map (e.g., QueryView)
+    const rootClass = await this.getRootBisClass(constraintClass);
+    if (rootClass.name === "CodeSpec") return "skip";
+    const type = ECReferenceTypesCache.bisRootClassToRefType[rootClass.name];
+    if (type !== undefined) return type;
+
+    if (rootClass.customAttributes?.has("ECDbMap.QueryView")) return "skip";
+
+    assert(
+      false,
+      [
+        `An unknown root class '${rootClass.fullName}' was encountered while populating`,
+        `the nav prop reference type cache for ${constraintClass.fullName}.`,
+        "This is a bug.",
+      ].join("\n")
+    );
+    return undefined;
+  }
+
   /** initialize from an imodel with metadata */
   public async initAllSchemasInIModel(imodel: IModelDb): Promise<void> {
-    let schemaCount = 0;
-
     const initStartTime = performance.now();
 
-    const query = `
+    // Pre-compute all root BIS class mappings in a single SQL query.
+    // This replaces all per-class traverseBaseClasses() calls.
+    await this.preComputeRootBisClasses(imodel);
+
+    // Collect all BisCore-referencing schema names up front
+    const schemaQuery = `
       WITH RECURSIVE refs(SchemaId) AS (
         SELECT ECInstanceId FROM ECDbMeta.ECSchemaDef WHERE Name='BisCore'
         UNION
@@ -147,10 +261,15 @@ export class ECReferenceTypesCache {
       ORDER BY s.ECInstanceId
     `;
 
-    for await (const row of imodel.createQueryReader(query, undefined, {
+    const schemaNames: string[] = [];
+    for await (const row of imodel.createQueryReader(schemaQuery, undefined, {
       usePrimaryConn: true,
     })) {
-      const schemaName = row.name;
+      schemaNames.push(row.name);
+    }
+
+    let schemaCount = 0;
+    for (const schemaName of schemaNames) {
       const startTime = performance.now();
       Logger.logTrace(
         TransformerLoggerCategory.ECReferenceTypesCache,
@@ -197,89 +316,140 @@ export class ECReferenceTypesCache {
     );
     const schemaNameLower = schema.name.toLowerCase();
 
-    // Pre-collect all items to reduce iterator overhead
-    const allItems = Array.from(schema.getItems());
+    // Single pass: classify items and process relationship classes
     const ecClasses: ECClass[] = [];
-    const relationshipClasses: RelationshipClass[] = [];
+    const relInfoPromises: Promise<void>[] = [];
 
-    // Single pass through items with type checking
-    for (const item of allItems) {
+    for (const item of schema.getItems()) {
       // eslint-disable-next-line @itwin/no-internal
       if (!ECClass.isECClass(item)) continue;
       ecClasses.push(item);
+
       if (item instanceof RelationshipClass) {
-        relationshipClasses.push(item);
+        const relClass = item;
+        relInfoPromises.push(
+          this.relInfoFromRelClass(relClass).then((relInfo) => {
+            this._relationshipInfoCache.set(relClass.fullName, relInfo);
+            if (relInfo) {
+              this._relClassNameEndToRefTypes.set(
+                ECReferenceTypesCache.relClassKey(
+                  schemaNameLower,
+                  relClass.name.toLowerCase()
+                ),
+                relInfo
+              );
+            }
+          })
+        );
       }
     }
 
-    // Process relationship classes in parallel and populate global cache
-    const relInfoPromises = relationshipClasses.map(async (relClass) => {
-      const relInfo = await this.relInfoFromRelClass(relClass);
-      this._relationshipInfoCache.set(relClass.fullName, relInfo);
-      if (relInfo) {
-        this._relClassNameEndToRefTypes.set(
-          [schemaNameLower, relClass.name.toLowerCase()],
-          relInfo
-        );
-      }
-      return relInfo;
-    });
-
-    // Wait for all relationship info to be cached
+    // Wait for all relationship info to be cached (nav props depend on them)
     await Promise.all(relInfoPromises);
 
-    // Process navigation properties with optimized batching
-    const propertyBatchSize = 25;
-    for (let i = 0; i < ecClasses.length; i += propertyBatchSize) {
-      const classBatch = ecClasses.slice(i, i + propertyBatchSize);
+    // Process navigation properties using synchronous property access
+    const navPropPromises: Promise<void>[] = [];
+    for (const ecclass of ecClasses) {
+      // Use sync API: avoids async overhead and leverages internal property cache
+      const properties = ecclass.getPropertiesSync();
+      const classNameLower = ecclass.name.toLowerCase();
 
-      const classPromises = classBatch.map(async (ecclass) => {
-        const properties = await ecclass.getProperties();
-        if (!properties) return;
+      for (const prop of properties) {
+        if (!prop.isNavigation()) continue;
 
-        const classNameLower = ecclass.name.toLowerCase();
-
-        // Efficiently filter navigation properties
-        const navProps = Array.from(properties).filter((prop) =>
-          prop.isNavigation()
-        );
-        if (navProps.length === 0) return;
-
-        const navPropPromises = navProps.map(async (prop) => {
-          const relClass = await prop.relationshipClass;
-
-          // Use cached relation info
-          let relInfo = this._relationshipInfoCache.get(relClass.fullName);
+        // Use sync relationship class access when possible
+        const relClassSync = (
+          prop as NavigationProperty
+        ).getRelationshipClassSync();
+        if (relClassSync) {
+          // Fully synchronous path: resolve nav prop type without any awaits
+          let relInfo = this._relationshipInfoCache.get(relClassSync.fullName);
           if (
             relInfo === undefined &&
-            !this._relationshipInfoCache.has(relClass.fullName)
+            !this._relationshipInfoCache.has(relClassSync.fullName)
           ) {
-            relInfo = await this.relInfoFromRelClass(relClass);
-            this._relationshipInfoCache.set(relClass.fullName, relInfo);
+            // Relationship from another schema not yet cached; queue for async resolution
+            navPropPromises.push(
+              this.resolveAndCacheNavProp(
+                prop as NavigationProperty,
+                schemaNameLower,
+                classNameLower
+              )
+            );
+            continue;
           }
 
-          if (relInfo === undefined) return;
+          if (relInfo === undefined) continue;
 
           const navPropRefType =
             prop.direction === StrengthDirection.Forward
               ? // eslint-disable-next-line @itwin/no-internal
-                relInfo.target
+              relInfo.target
               : // eslint-disable-next-line @itwin/no-internal
-                relInfo.source;
+              relInfo.source;
 
           this._propQualifierToRefType.set(
-            [schemaNameLower, classNameLower, prop.name.toLowerCase()],
+            ECReferenceTypesCache.navPropKey(
+              schemaNameLower,
+              classNameLower,
+              prop.name.toLowerCase()
+            ),
             navPropRefType
           );
-        });
+        } else {
+          // Async fallback: relationship class not yet resolved synchronously
+          navPropPromises.push(
+            this.resolveAndCacheNavProp(
+              prop as NavigationProperty,
+              schemaNameLower,
+              classNameLower
+            )
+          );
+        }
+      }
+    }
 
-        await Promise.all(navPropPromises);
-      });
-
-      await Promise.all(classPromises);
+    if (navPropPromises.length > 0) {
+      await Promise.all(navPropPromises);
     }
 
     this._initedSchemas.set(schema.name, schema.schemaKey);
+  }
+
+  /** Async helper: resolve a nav prop's relationship info and cache the result */
+  private async resolveAndCacheNavProp(
+    prop: NavigationProperty,
+    schemaNameLower: string,
+    classNameLower: string
+  ): Promise<void> {
+    const relClass = await prop.relationshipClass;
+
+    let relInfo = this._relationshipInfoCache.get(relClass.fullName);
+    if (
+      relInfo === undefined &&
+      !this._relationshipInfoCache.has(relClass.fullName)
+    ) {
+      relInfo = await this.relInfoFromRelClass(relClass);
+      this._relationshipInfoCache.set(relClass.fullName, relInfo);
+    }
+
+    if (relInfo === undefined) return;
+
+    const navPropRefType =
+      prop.direction === StrengthDirection.Forward
+        ? // eslint-disable-next-line @itwin/no-internal
+        relInfo.target
+        : // eslint-disable-next-line @itwin/no-internal
+        relInfo.source;
+
+    this._propQualifierToRefType.set(
+      ECReferenceTypesCache.navPropKey(
+        schemaNameLower,
+        classNameLower,
+        prop.name.toLowerCase()
+      ),
+      navPropRefType
+    );
   }
 
   private async relInfoFromRelClass(
@@ -287,58 +457,21 @@ export class ECReferenceTypesCache {
   ): Promise<RelTypeInfo | undefined> {
     assert(ecclass.source.constraintClasses !== undefined);
     assert(ecclass.target.constraintClasses !== undefined);
-    const [
-      [sourceClass, sourceRootBisClass],
-      [targetClass, targetRootBisClass],
-    ] = await Promise.all([
-      this.getAbstractConstraintClass(ecclass.source).then(
-        async (constraintClass) => [
-          constraintClass,
-          await this.getRootBisClass(constraintClass),
-        ]
-      ),
-      this.getAbstractConstraintClass(ecclass.target).then(
-        async (constraintClass) => [
-          constraintClass,
-          await this.getRootBisClass(constraintClass),
-        ]
-      ),
+
+    const [sourceClass, targetClass] = await Promise.all([
+      this.getAbstractConstraintClass(ecclass.source),
+      this.getAbstractConstraintClass(ecclass.target),
     ]);
 
-    if (
-      sourceRootBisClass.name === "CodeSpec" ||
-      targetRootBisClass.name === "CodeSpec"
-    )
-      return undefined;
-    const sourceType =
-      ECReferenceTypesCache.bisRootClassToRefType[sourceRootBisClass.name];
-    const targetType =
-      ECReferenceTypesCache.bisRootClassToRefType[targetRootBisClass.name];
-    if (
-      (!sourceType &&
-        sourceRootBisClass.customAttributes?.has("ECDbMap.QueryView")) ||
-      (!targetType &&
-        targetRootBisClass.customAttributes?.has("ECDbMap.QueryView"))
-    ) {
-      // ECView elements are not "real" data and transformer does not need to process them.
-      // Relationships that point to ECView elements can only be used in ECViews so the mapping is not needed.
-      return undefined;
-    }
+    // Use the fast pre-computed SQL mapping for constraint type resolution
+    const [sourceType, targetType] = await Promise.all([
+      this.resolveConstraintType(sourceClass),
+      this.resolveConstraintType(targetClass),
+    ]);
 
-    const makeAssertMsg = (root: ECClass, cls: ECClass) =>
-      [
-        `An unknown root class '${root.fullName}' was encountered while populating`,
-        `the nav prop reference type cache for ${cls.fullName}.`,
-        "This is a bug.",
-      ].join("\n");
-    assert(
-      sourceType !== undefined,
-      makeAssertMsg(sourceRootBisClass, sourceClass)
-    );
-    assert(
-      targetType !== undefined,
-      makeAssertMsg(targetRootBisClass, targetClass)
-    );
+    if (sourceType === "skip" || targetType === "skip") return undefined;
+    if (sourceType === undefined || targetType === undefined) return undefined;
+
     return { source: sourceType, target: targetType };
   }
 
@@ -348,11 +481,13 @@ export class ECReferenceTypesCache {
     propName: string
   ): undefined | ConcreteEntityTypes {
     if (!this._initedSchemas.has(schemaName)) throw new SchemaNotInCacheErr();
-    return this._propQualifierToRefType.get([
-      schemaName.toLowerCase(),
-      className.toLowerCase(),
-      propName.toLowerCase(),
-    ]);
+    return this._propQualifierToRefType.get(
+      ECReferenceTypesCache.navPropKey(
+        schemaName.toLowerCase(),
+        className.toLowerCase(),
+        propName.toLowerCase()
+      )
+    );
   }
 
   public getRelationshipEndType(
@@ -360,16 +495,19 @@ export class ECReferenceTypesCache {
     className: string
   ): undefined | RelTypeInfo {
     if (!this._initedSchemas.has(schemaName)) throw new SchemaNotInCacheErr();
-    return this._relClassNameEndToRefTypes.get([
-      schemaName.toLowerCase(),
-      className.toLowerCase(),
-    ]);
+    return this._relClassNameEndToRefTypes.get(
+      ECReferenceTypesCache.relClassKey(
+        schemaName.toLowerCase(),
+        className.toLowerCase()
+      )
+    );
   }
 
   public clear() {
     this._initedSchemas.clear();
     this._propQualifierToRefType.clear();
     this._relClassNameEndToRefTypes.clear();
+    this._classToRootBisName.clear();
     this._rootBisClassCache.clear();
     this._relationshipInfoCache.clear();
     this._constraintClassCache.clear();
