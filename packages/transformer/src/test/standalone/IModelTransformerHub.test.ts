@@ -6384,7 +6384,7 @@ describe.only("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
 
-    it("should transform successfully when eleemnt is deleted after existing elements were expanded into overflow table", async () => {
+    it("should process changes successfully when element is deleted after existing elements were expanded into overflow table", async () => {
       // Import initial schema with property count that does not require overflow table
       const initialSchema = generateSchema(1, "SourceProperty", 5);
       await sourceDb.importSchemaStrings([initialSchema]);
@@ -6413,7 +6413,9 @@ describe.only("IModelTransformerHub", () => {
       await pushChanges(sourceDb, "Updated schema");
 
       // Delete the element
-      sourceDb.elements.deleteElement(elementId);
+      withEditTxn(sourceDb, "recreate elements & models", (txn) => {
+        txn.deleteElement(elementId);
+      });
       await pushChanges(sourceDb, "Deleted element");
 
       // === Transformation 2: Run `process changes` transformation ===
@@ -6468,29 +6470,31 @@ describe.only("IModelTransformerHub", () => {
       db: IModelDb,
       classFullName: string
     ): Id64String {
-      const sourcePhysicalModelId = PhysicalModel.insert(
-        db,
-        IModelDb.rootSubjectId,
-        "SourcePhysicalModel"
-      );
-      const sourceCategoryId = SpatialCategory.insert(
-        db,
-        IModelDb.dictionaryId,
-        "SourceCategory",
-        {}
-      );
-      return db.elements.insertElement({
-        classFullName,
-        model: sourcePhysicalModelId,
-        category: sourceCategoryId,
-        code: PhysicalType.createCode(
-          db,
-          sourcePhysicalModelId,
-          "TestClassElement"
-        ),
-        userLabel: "TestClassElement",
-        SourceProperty1: "value1",
-      } as GeometricElementProps);
+      return withEditTxn(db, "recreate elements & models", (txn) => {
+        const sourcePhysicalModelId = PhysicalModel.insert(
+          txn,
+          IModelDb.rootSubjectId,
+          "SourcePhysicalModel"
+        );
+        const sourceCategoryId = SpatialCategory.insert(
+          txn,
+          IModelDb.dictionaryId,
+          "SourceCategory",
+          {}
+        );
+        return txn.insertElement({
+          classFullName,
+          model: sourcePhysicalModelId,
+          category: sourceCategoryId,
+          code: PhysicalType.createCode(
+            db,
+            sourcePhysicalModelId,
+            "TestClassElement"
+          ),
+          userLabel: "TestClassElement",
+          SourceProperty1: "value1",
+        } as GeometricElementProps);
+      });
     }
   });
 
@@ -6520,6 +6524,7 @@ describe.only("IModelTransformerHub", () => {
   }
 
   async function pushChanges(iModel: BriefcaseDb, description: string) {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- helper function for test
     iModel.saveChanges();
     await iModel.pushChanges({ description, retainLocks: true });
   }
