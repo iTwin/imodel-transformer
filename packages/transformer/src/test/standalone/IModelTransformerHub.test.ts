@@ -116,7 +116,7 @@ import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElemen
 
 const { count } = IModelTestUtils;
 
-describe.only("IModelTransformerHub", () => {
+describe("IModelTransformerHub", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformerHub"
