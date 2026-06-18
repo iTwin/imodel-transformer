@@ -1469,7 +1469,7 @@ export class ChangedInstanceIds {
         // Change is recorded at table level, not EC entity level.
         // This `change.$meta.op` operation overwrite is needed to properly handle scenario when:
         // 1. Source has an EC class with less than 32 properties. There are existing elements for that class.
-        // 2. Class is then updated to have more than 32 properties. Which means overflow table is now needed to store it's elements.
+        // 2. Class is then updated to have more than 32 properties. Which means overflow table is now needed to store its elements.
         //  During schema update all elements that belong to updated class, will be expanded into overflow table.
         // 3. Changeset will have a record about `insert` operation into overflow table for already existing elements.
         // This fix will overwrite such 'insert' and 'delete' operations to 'update' as no changes are done to main table.
