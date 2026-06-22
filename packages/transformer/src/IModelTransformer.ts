@@ -1397,7 +1397,13 @@ export class IModelTransformer extends IModelExportHandler {
     const targetModelId: Id64String =
       this.context.findTargetElementId(sourceModelId);
 
-    if (!Id64.isValidId64(targetModelId)) return;
+    if (
+      !Id64.isValidId64(targetModelId) ||
+      // Check `_targetElementsImportedInCurrentTransform` while deleting model in case it's partition element was remapped
+      this._targetElementsImportedInCurrentTransform.has(targetModelId)
+    ) {
+      return;
+    }
 
     const sql = `
       SELECT 1
