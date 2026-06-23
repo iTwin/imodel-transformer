@@ -1396,7 +1396,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (targetModelProps.id === undefined) {
       throw new IModelError(
         IModelStatus.BadModel,
-        "targetModelProps.id should be assigned by importModel"
+        "targetModelProps.id should be assigned by now"
       );
     }
 
