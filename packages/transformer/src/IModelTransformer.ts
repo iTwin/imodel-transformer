@@ -410,6 +410,14 @@ export class IModelTransformer extends IModelExportHandler {
   private _targetElementsImportedInCurrentTransform: Id64Set =
     new Set<Id64String>();
 
+  /**
+   * Tracks target model IDs that were imported (inserted or updated) during the current
+   * transformation pass. Used to prevent deletion of target models that have been recreated
+   * in the same pass (e.g., when a partition element is recreated with a new model).
+   */
+  private _targetModelsImportedInCurrentTransform: Id64Set =
+    new Set<Id64String>();
+
   /** the options that were used to initialize this transformer */
   private readonly _options: MarkRequired<
     IModelTransformOptions,
@@ -1385,6 +1393,8 @@ export class IModelTransformer extends IModelExportHandler {
       targetModeledElementId
     );
     await this.importer.importModel(targetModelProps);
+    // Track that this model was imported during this transformation pass
+    this._targetModelsImportedInCurrentTransform.add(targetModeledElementId);
   }
 
   /** Override of [IModelExportHandler.onDeleteModel]($transformer) that is called when [IModelExporter]($transformer) detects that a [Model]($backend) has been deleted from the source iModel. */
@@ -1397,10 +1407,12 @@ export class IModelTransformer extends IModelExportHandler {
     const targetModelId: Id64String =
       this.context.findTargetElementId(sourceModelId);
 
+    // Skip deletion if target model is invalid or if a new model was imported during
+    // this transformation pass. This handles cases where a partition element was recreated
+    // with a new model in the same pass.
     if (
       !Id64.isValidId64(targetModelId) ||
-      // Check `_targetElementsImportedInCurrentTransform` while deleting model in case it's partition element was remapped
-      this._targetElementsImportedInCurrentTransform.has(targetModelId)
+      this._targetModelsImportedInCurrentTransform.has(targetModelId)
     ) {
       return;
     }
@@ -2414,6 +2426,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private async processAll(): Promise<void> {
     this._targetElementsImportedInCurrentTransform.clear();
+    this._targetModelsImportedInCurrentTransform.clear();
     // processAll always has changes to process, so mark it as such for version tracking
     this._sourceChangeDataState = "has-changes";
 
@@ -2466,6 +2479,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   private async processChanges(options: ProcessChangesOptions): Promise<void> {
     this._targetElementsImportedInCurrentTransform.clear();
+    this._targetModelsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(await this.getExportInitOpts(options));
     await this.completePartiallyCommittedElements();
