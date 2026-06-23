@@ -1412,7 +1412,7 @@ export class IModelTransformer extends IModelExportHandler {
     // This handles cases where model with a partition element was remapped to
     //  new element by code value after recreation.
     if (this._targetModelsImportedInCurrentTransform.has(targetModelId)) {
-      Logger.logInfo(
+      Logger.logTrace(
         loggerCategory,
         `Skipping delete operation for model (source id: ${sourceModelId}) because it was remapped to other model in target (id: ${targetModelId}).`
       );
