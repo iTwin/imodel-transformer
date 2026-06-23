@@ -1409,13 +1409,12 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (!Id64.isValidId64(targetModelId)) return;
 
-    // Skip deletion if target model is invalid or if a model was recreated.
     // This handles cases where model with a partition element was remapped to
-    //  new element by code value.
+    //  new element by code value after recreation.
     if (this._targetModelsImportedInCurrentTransform.has(targetModelId)) {
-      Logger.logWarning(
+      Logger.logInfo(
         loggerCategory,
-        "tried to delete a relationship that wasn't in change data"
+        `Skipping delete operation for model (source id: ${sourceModelId}) because it was remapped to other model in target (id: ${targetModelId}).`
       );
       return;
     }
