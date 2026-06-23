@@ -6371,7 +6371,7 @@ describe("IModelTransformerHub", () => {
     }
   });
 
-  describe.only("processChanges", () => {
+  describe("processChanges", () => {
     let sourceDb: BriefcaseDb;
     let targetDb: BriefcaseDb;
 
