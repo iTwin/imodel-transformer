@@ -61,6 +61,7 @@ import {
   LogLevel,
 } from "@itwin/core-bentley";
 import {
+  BisCodeSpec,
   Code,
   ColorDef,
   DefinitionElementProps,
@@ -6442,6 +6443,9 @@ describe("IModelTransformerHub", () => {
 
     it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {
       // Arrange
+      const specId = sourceDb.codeSpecs.getByName(
+        BisCodeSpec.physicalMaterial
+      ).id;
       const { subjectId, physicalModelId, categoryId, physicalObjectId } =
         withEditTxn(sourceDb, "recreate elements & models", (txn) => {
           // prepare source - create initial subject, model, and element
@@ -6460,7 +6464,7 @@ describe("IModelTransformerHub", () => {
             code: new Code({
               value: "PO1",
               scope: IModel.rootSubjectId,
-              spec: "0x2",
+              spec: specId,
             }),
           };
           const physicalObjId = txn.insertElement(physicalObjectProps);
@@ -6506,7 +6510,7 @@ describe("IModelTransformerHub", () => {
           code: new Code({
             value: "PO2",
             scope: IModel.rootSubjectId,
-            spec: "0x2",
+            spec: specId,
           }),
         };
         txn.insertElement(physicalObject2Props);
