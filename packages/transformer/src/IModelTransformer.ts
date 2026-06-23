@@ -413,7 +413,7 @@ export class IModelTransformer extends IModelExportHandler {
   /**
    * Tracks target model IDs that were imported (inserted or updated) during the current
    * transformation pass. Used to prevent deletion of target models that have been recreated
-   * in the same pass (e.g., when a partition element is recreated with a new model).
+   * in the same pass (e.g. when a partition element is recreated with a new model).
    */
   private _targetModelsImportedInCurrentTransform: Id64Set =
     new Set<Id64String>();
@@ -1407,9 +1407,9 @@ export class IModelTransformer extends IModelExportHandler {
     const targetModelId: Id64String =
       this.context.findTargetElementId(sourceModelId);
 
-    // Skip deletion if target model is invalid or if a new model was imported during
-    // this transformation pass. This handles cases where a partition element was recreated
-    // with a new model in the same pass.
+    // Skip deletion if target model is invalid or if a model was recreated.
+    // This handles cases where model with a partition element was remapped to
+    //  new element by code value.
     if (
       !Id64.isValidId64(targetModelId) ||
       this._targetModelsImportedInCurrentTransform.has(targetModelId)
