@@ -407,8 +407,7 @@ export class IModelTransformer extends IModelExportHandler {
    * to a new source element in the same pass (e.g., when a source element is deleted and a
    * new one with the same properties is added, causing a remap to the same target).
    */
-  private _targetElementsImportedInCurrentTransform: Id64Set =
-    new Set<Id64String>();
+  private _targetElementIdsToRemappedByCode: Id64Set = new Set<Id64String>();
 
   /**
    * Tracks target model IDs that were imported (inserted or updated) during the current
@@ -1249,6 +1248,7 @@ export class IModelTransformer extends IModelExportHandler {
           // ensure code remapping doesn't change the target class
           targetElementId = maybeTargetElementId;
           this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found by Code
+          this._targetElementIdsToRemappedByCode.add(targetElementId);
         } else {
           targetElementProps.code = Code.createEmpty(); // clear out invalid code
         }
@@ -1309,7 +1309,6 @@ export class IModelTransformer extends IModelExportHandler {
         "targetElementProps.id should be assigned by importElement"
       );
     }
-    this._targetElementsImportedInCurrentTransform.add(targetElementProps.id);
     this.context.remapElement(sourceElement.id, targetElementProps.id);
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
@@ -1363,9 +1362,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (Id64.isValidId64(targetElementId)) {
       // Skip deletion if this target element was already imported (inserted/updated) during
       // this transformation pass.
-      if (
-        !this._targetElementsImportedInCurrentTransform.has(targetElementId)
-      ) {
+      if (!this._targetElementIdsToRemappedByCode.has(targetElementId)) {
         await this.importer.deleteElement(targetElementId);
       }
     }
@@ -1417,7 +1414,10 @@ export class IModelTransformer extends IModelExportHandler {
 
     // This handles cases where model with a partition element was remapped to
     //  new element by code value after recreation.
-    if (this._targetModelsImportedInCurrentTransform.has(targetModelId)) {
+    if (
+      this._targetElementIdsToRemappedByCode.has(targetModelId) &&
+      this._targetModelsImportedInCurrentTransform.has(targetModelId)
+    ) {
       Logger.logTrace(
         loggerCategory,
         `Skipping delete operation for model (source id: ${sourceModelId}) because it was remapped to other model in target (id: ${targetModelId}).`
@@ -2433,7 +2433,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    */
   private async processAll(): Promise<void> {
-    this._targetElementsImportedInCurrentTransform.clear();
+    this._targetElementIdsToRemappedByCode.clear();
     this._targetModelsImportedInCurrentTransform.clear();
     // processAll always has changes to process, so mark it as such for version tracking
     this._sourceChangeDataState = "has-changes";
@@ -2486,7 +2486,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   private async processChanges(options: ProcessChangesOptions): Promise<void> {
-    this._targetElementsImportedInCurrentTransform.clear();
+    this._targetElementIdsToRemappedByCode.clear();
     this._targetModelsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(await this.getExportInitOpts(options));
