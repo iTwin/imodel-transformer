@@ -6538,7 +6538,10 @@ describe("IModelTransformerHub", () => {
         IModelTransformerTestUtils.queryByCodeValue(targetDb, "PO2")
       ).to.not.be.equal(Id64.invalid);
       expect(
-        IModelTransformerTestUtils.queryByCodeValue(targetDb, "PhysicalModel")
+        IModelTestUtils.queryModelIddByModeledElementCodeValue(
+          targetDb,
+          "PhysicalModel"
+        )
       ).to.not.be.equal(Id64.invalid);
     });
 
