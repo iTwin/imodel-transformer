@@ -1393,12 +1393,14 @@ export class IModelTransformer extends IModelExportHandler {
       targetModeledElementId
     );
     await this.importer.importModel(targetModelProps);
-    // Use targetModelProps.id  since onTransformModel is overrideable
-    // and a subclass may produce a different id than targetModeledElementId.
-    // importModel assigns targetModelProps.id; fall back to targetModeledElementId if somehow unset.
-    this._targetModelsImportedInCurrentTransform.add(
-      targetModelProps.id ?? targetModeledElementId
-    );
+    if (targetModelProps.id === undefined) {
+      throw new IModelError(
+        IModelStatus.BadModel,
+        "targetModelProps.id should be assigned by importModel"
+      );
+    }
+
+    this._targetModelsImportedInCurrentTransform.add(targetModelProps.id);
   }
 
   /** Override of [IModelExportHandler.onDeleteModel]($transformer) that is called when [IModelExporter]($transformer) detects that a [Model]($backend) has been deleted from the source iModel. */
