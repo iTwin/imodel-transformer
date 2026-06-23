@@ -1407,13 +1407,16 @@ export class IModelTransformer extends IModelExportHandler {
     const targetModelId: Id64String =
       this.context.findTargetElementId(sourceModelId);
 
+    if (!Id64.isValidId64(targetModelId)) return;
+
     // Skip deletion if target model is invalid or if a model was recreated.
     // This handles cases where model with a partition element was remapped to
     //  new element by code value.
-    if (
-      !Id64.isValidId64(targetModelId) ||
-      this._targetModelsImportedInCurrentTransform.has(targetModelId)
-    ) {
+    if (this._targetModelsImportedInCurrentTransform.has(targetModelId)) {
+      Logger.logWarning(
+        loggerCategory,
+        "tried to delete a relationship that wasn't in change data"
+      );
       return;
     }
 
