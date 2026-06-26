@@ -57,6 +57,7 @@ import {
   Subject,
   Texture,
   ViewDefinition2d,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import * as TestUtils from "./TestUtils";
@@ -134,8 +135,6 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       teamOrigin,
       teamColor
     );
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    iModelDb.saveChanges();
     return iModelDb;
   }
 
@@ -194,82 +193,79 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
     teamOrigin: Point3d,
     teamColor: ColorDef
   ): void {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const contextSubjectId: Id64String = Subject.insert(
-      teamDb,
-      IModel.rootSubjectId,
-      "Context"
-    );
-    assert.isTrue(Id64.isValidId64(contextSubjectId));
-    const definitionModelId = DefinitionModel.insert(
-      teamDb,
-      IModel.rootSubjectId,
-      `Definition${teamName}`
-    );
-    assert.isTrue(Id64.isValidId64(definitionModelId));
-    const teamSpatialCategoryId = this.insertSpatialCategory(
-      teamDb,
-      definitionModelId,
-      `SpatialCategory${teamName}`,
-      teamColor
-    );
-    assert.isTrue(Id64.isValidId64(teamSpatialCategoryId));
-    const sharedSpatialCategoryId = this.insertSpatialCategory(
-      teamDb,
-      IModel.dictionaryId,
-      "SpatialCategoryShared",
-      ColorDef.white
-    );
-    assert.isTrue(Id64.isValidId64(sharedSpatialCategoryId));
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const sharedDrawingCategoryId = DrawingCategory.insert(
-      teamDb,
-      IModel.dictionaryId,
-      "DrawingCategoryShared",
-      new SubCategoryAppearance()
-    );
-    assert.isTrue(Id64.isValidId64(sharedDrawingCategoryId));
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const physicalModelId = PhysicalModel.insert(
-      teamDb,
-      IModel.rootSubjectId,
-      `Physical${teamName}`
-    );
-    assert.isTrue(Id64.isValidId64(physicalModelId));
-    // insert PhysicalObject-team1 using team SpatialCategory
-    const physicalObjectProps1: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: physicalModelId,
-      category: teamSpatialCategoryId,
-      code: Code.createEmpty(),
-      userLabel: `PhysicalObject${teamName}1`,
-      geom: this.createBox(Point3d.create(1, 1, 1)),
-      placement: {
-        origin: teamOrigin,
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    const physicalObjectId1: Id64String =
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      teamDb.elements.insertElement(physicalObjectProps1);
-    assert.isTrue(Id64.isValidId64(physicalObjectId1));
-    // insert PhysicalObject2 using "shared" SpatialCategory
-    const physicalObjectProps2: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: physicalModelId,
-      category: sharedSpatialCategoryId,
-      code: Code.createEmpty(),
-      userLabel: `PhysicalObject${teamName}2`,
-      geom: this.createBox(Point3d.create(2, 2, 2)),
-      placement: {
-        origin: teamOrigin,
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    const physicalObjectId2: Id64String =
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      teamDb.elements.insertElement(physicalObjectProps2);
-    assert.isTrue(Id64.isValidId64(physicalObjectId2));
+    withEditTxn(teamDb, "populate team imodel", (txn) => {
+      const contextSubjectId: Id64String = Subject.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Context"
+      );
+      assert.isTrue(Id64.isValidId64(contextSubjectId));
+      const definitionModelId = DefinitionModel.insert(
+        teamDb,
+        IModel.rootSubjectId,
+        `Definition${teamName}`
+      );
+      assert.isTrue(Id64.isValidId64(definitionModelId));
+      const teamSpatialCategoryId = this.insertSpatialCategory(
+        teamDb,
+        definitionModelId,
+        `SpatialCategory${teamName}`,
+        teamColor
+      );
+      assert.isTrue(Id64.isValidId64(teamSpatialCategoryId));
+      const sharedSpatialCategoryId = this.insertSpatialCategory(
+        teamDb,
+        IModel.dictionaryId,
+        "SpatialCategoryShared",
+        ColorDef.white
+      );
+      assert.isTrue(Id64.isValidId64(sharedSpatialCategoryId));
+      const sharedDrawingCategoryId = DrawingCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "DrawingCategoryShared",
+        new SubCategoryAppearance()
+      );
+      assert.isTrue(Id64.isValidId64(sharedDrawingCategoryId));
+      const physicalModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        `Physical${teamName}`
+      );
+      assert.isTrue(Id64.isValidId64(physicalModelId));
+      // insert PhysicalObject-team1 using team SpatialCategory
+      const physicalObjectProps1: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: physicalModelId,
+        category: teamSpatialCategoryId,
+        code: Code.createEmpty(),
+        userLabel: `PhysicalObject${teamName}1`,
+        geom: this.createBox(Point3d.create(1, 1, 1)),
+        placement: {
+          origin: teamOrigin,
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+      const physicalObjectId1: Id64String =
+        txn.insertElement(physicalObjectProps1);
+      assert.isTrue(Id64.isValidId64(physicalObjectId1));
+      // insert PhysicalObject2 using "shared" SpatialCategory
+      const physicalObjectProps2: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: physicalModelId,
+        category: sharedSpatialCategoryId,
+        code: Code.createEmpty(),
+        userLabel: `PhysicalObject${teamName}2`,
+        geom: this.createBox(Point3d.create(2, 2, 2)),
+        placement: {
+          origin: teamOrigin,
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+      const physicalObjectId2: Id64String =
+        txn.insertElement(physicalObjectProps2);
+      assert.isTrue(Id64.isValidId64(physicalObjectId2));
+    });
   }
 
   public static createSharedIModel(
@@ -286,14 +282,15 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       rootSubject: { name: iModelName, description: rootSubjectDescription },
     });
     assert.exists(iModelDb);
-    teamNames.forEach((teamName: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const subjectId: Id64String = Subject.insert(
-        iModelDb,
-        IModel.rootSubjectId,
-        teamName
-      );
-      assert.isTrue(Id64.isValidId64(subjectId));
+    withEditTxn(iModelDb, "insert team subjects", (txn) => {
+      teamNames.forEach((teamName: string) => {
+        const subjectId: Id64String = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          teamName
+        );
+        assert.isTrue(Id64.isValidId64(subjectId));
+      });
     });
     return iModelDb;
   }
@@ -445,21 +442,20 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       { rootSubject: { name: `${consolidatedName}` } }
     );
     assert.exists(consolidatedDb);
-    const definitionModelId = DefinitionModel.insert(
-      consolidatedDb,
-      IModel.rootSubjectId,
-      `Definition${consolidatedName}`
-    );
-    assert.isTrue(Id64.isValidId64(definitionModelId));
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const physicalModelId = PhysicalModel.insert(
-      consolidatedDb,
-      IModel.rootSubjectId,
-      `Physical${consolidatedName}`
-    );
-    assert.isTrue(Id64.isValidId64(physicalModelId));
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    consolidatedDb.saveChanges();
+    withEditTxn(consolidatedDb, "create consolidated models", (txn) => {
+      const definitionModelId = DefinitionModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        `Definition${consolidatedName}`
+      );
+      assert.isTrue(Id64.isValidId64(definitionModelId));
+      const physicalModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        `Physical${consolidatedName}`
+      );
+      assert.isTrue(Id64.isValidId64(physicalModelId));
+    });
     return consolidatedDb;
   }
 
@@ -990,35 +986,32 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
     );
     await targetDb.importSchemas([targetSchemaFileName]);
     // Insert a target-only CodeSpec to test remapping
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const targetCodeSpecId: Id64String = targetDb.codeSpecs.insert(
-      "TargetCodeSpec",
-      CodeScopeSpec.Type.Model
-    );
-    assert.isTrue(Id64.isValidId64(targetCodeSpecId));
-    // Insert some elements to avoid getting same IDs for sourceDb and targetDb
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const subjectId = Subject.insert(
-      targetDb,
-      IModel.rootSubjectId,
-      "Only in Target"
-    );
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    Subject.insert(targetDb, subjectId, "S1");
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    Subject.insert(targetDb, subjectId, "S2");
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    Subject.insert(targetDb, subjectId, "S3");
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    Subject.insert(targetDb, subjectId, "S4");
-    const targetPhysicalCategoryId =
-      IModelTransformerTestUtils.insertSpatialCategory(
-        targetDb,
-        IModel.dictionaryId,
-        "TargetPhysicalCategory",
-        ColorDef.red
+    withEditTxn(targetDb, "prepare target db", (txn) => {
+      const targetCodeSpecId: Id64String = targetDb.codeSpecs.insert(
+        txn,
+        "TargetCodeSpec",
+        CodeScopeSpec.Type.Model
       );
-    assert.isTrue(Id64.isValidId64(targetPhysicalCategoryId));
+      assert.isTrue(Id64.isValidId64(targetCodeSpecId));
+      // Insert some elements to avoid getting same IDs for sourceDb and targetDb
+      const subjectId = Subject.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Only in Target"
+      );
+      Subject.insert(txn, subjectId, "S1");
+      Subject.insert(txn, subjectId, "S2");
+      Subject.insert(txn, subjectId, "S3");
+      Subject.insert(txn, subjectId, "S4");
+      const targetPhysicalCategoryId =
+        IModelTransformerTestUtils.insertSpatialCategory(
+          targetDb,
+          IModel.dictionaryId,
+          "TargetPhysicalCategory",
+          ColorDef.red
+        );
+      assert.isTrue(Id64.isValidId64(targetPhysicalCategoryId));
+    });
   }
 
   public static assertTargetDbContents(
