@@ -61,6 +61,7 @@ import {
   LogLevel,
 } from "@itwin/core-bentley";
 import {
+  BisCodeSpec,
   Code,
   ColorDef,
   DefinitionElementProps,
@@ -6438,6 +6439,211 @@ describe("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
+    });
+
+    it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {
+      // Arrange
+      const specId = sourceDb.codeSpecs.getByName(
+        BisCodeSpec.physicalMaterial
+      ).id;
+      const { subjectId, physicalModelId, categoryId, physicalObjectId } =
+        withEditTxn(sourceDb, "recreate elements & models", (txn) => {
+          // prepare source - create initial subject, model, and element
+          const subjId = Subject.insert(txn, IModel.rootSubjectId, "Subject1");
+          const physModId = PhysicalModel.insert(txn, subjId, "PhysicalModel");
+          const catId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "C1",
+            {}
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: physModId,
+            category: catId,
+            code: new Code({
+              value: "PO1",
+              scope: IModel.rootSubjectId,
+              spec: specId,
+            }),
+          };
+          const physicalObjId = txn.insertElement(physicalObjectProps);
+          return {
+            subjectId: subjId,
+            physicalModelId: physModId,
+            categoryId: catId,
+            physicalObjectId: physicalObjId,
+          };
+        });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "First changes",
+        retainLocks: true,
+      });
+
+      // Run first transform
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "First transformation",
+        retainLocks: true,
+      });
+
+      // Recreate source model partition with different federation guid
+      withEditTxn(sourceDb, "delete and recreate model", (txn) => {
+        txn.deleteElement(physicalObjectId);
+        txn.deleteModel(physicalModelId);
+        txn.deleteElement(physicalModelId);
+        const physicalModel2Id = PhysicalModel.insert(
+          txn,
+          subjectId,
+          "PhysicalModel"
+        );
+        const physicalObject2Props: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: physicalModel2Id,
+          category: categoryId,
+          code: new Code({
+            value: "PO2",
+            scope: IModel.rootSubjectId,
+            spec: specId,
+          }),
+        };
+        txn.insertElement(physicalObject2Props);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Second changes",
+      });
+
+      // Act - run second transform with change processing
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: {},
+      });
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Second transformation",
+      });
+
+      // Assert - verify that new elements and models exist with correct values
+      expect(
+        IModelTransformerTestUtils.queryByCodeValue(targetDb, "PO2")
+      ).to.not.be.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryModelIddByModeledElementCodeValue(
+          targetDb,
+          "PhysicalModel"
+        )
+      ).to.not.be.equal(Id64.invalid);
+    });
+
+    it("should delete model when model partition was recreated with different federation guid and the same code value but model was left deleted", async () => {
+      // Arrange
+      const specId = sourceDb.codeSpecs.getByName(
+        BisCodeSpec.physicalMaterial
+      ).id;
+      const { subjectId, physicalModelId, physicalObjectId } = withEditTxn(
+        sourceDb,
+        "recreate elements & models",
+        (txn) => {
+          // prepare source - create initial subject, model, and element
+          const subjId = Subject.insert(txn, IModel.rootSubjectId, "Subject1");
+          const physModId = PhysicalModel.insert(txn, subjId, "PhysicalModel");
+          const catId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "C1",
+            {}
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: physModId,
+            category: catId,
+            code: new Code({
+              value: "PO1",
+              scope: IModel.rootSubjectId,
+              spec: specId,
+            }),
+          };
+          const physicalObjId = txn.insertElement(physicalObjectProps);
+          return {
+            subjectId: subjId,
+            physicalModelId: physModId,
+            physicalObjectId: physicalObjId,
+          };
+        }
+      );
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "First changes",
+        retainLocks: true,
+      });
+
+      // Run first transform
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "First transformation",
+        retainLocks: true,
+      });
+
+      // Recreate source model partition with different federation guid
+      withEditTxn(sourceDb, "delete and recreate model", (txn) => {
+        txn.deleteElement(physicalObjectId);
+        txn.deleteModel(physicalModelId);
+        txn.deleteElement(physicalModelId);
+        const partitionProps: InformationPartitionElementProps = {
+          classFullName: PhysicalPartition.classFullName,
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsPartitionElements(subjectId),
+          code: PhysicalPartition.createCode(
+            txn.iModel,
+            subjectId,
+            "PhysicalModel"
+          ),
+        };
+        txn.insertElement(partitionProps);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Second changes",
+      });
+
+      // Act - run second transform with change processing
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: {},
+      });
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Second transformation",
+      });
+
+      // Assert - verify that new elements and models exist with correct values
+      expect(
+        IModelTransformerTestUtils.queryByCodeValue(targetDb, "PhysicalModel")
+      ).to.not.be.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryModelIddByModeledElementCodeValue(
+          targetDb,
+          "PhysicalModel"
+        )
+      ).to.be.equal(Id64.invalid);
     });
 
     function generateSchema(
