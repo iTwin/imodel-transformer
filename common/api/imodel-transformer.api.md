@@ -10,6 +10,7 @@ import { ChangesetFileProps } from '@itwin/core-common';
 import { ChangesetIndexAndId } from '@itwin/core-common';
 import { CodeSpec } from '@itwin/core-common';
 import * as ECSchemaMetaData from '@itwin/ecschema-metadata';
+import { EditTxn } from '@itwin/core-backend';
 import { Element as Element_2 } from '@itwin/core-backend';
 import { ElementAspect } from '@itwin/core-backend';
 import { ElementAspectProps } from '@itwin/core-common';
@@ -207,6 +208,7 @@ export class IModelImporter {
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
+    editTxn: EditTxn;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
@@ -260,6 +262,7 @@ export class IModelTransformer extends IModelExportHandler {
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     dispose(): void;
+    readonly editTxn: EditTxn;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
     getIsForwardSynchronization(): Promise<boolean>;
@@ -331,6 +334,7 @@ export interface IModelTransformOptions {
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
+    editTxn?: EditTxn;
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;

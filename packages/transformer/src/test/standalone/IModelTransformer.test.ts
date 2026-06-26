@@ -17,6 +17,7 @@ import {
   DrawingCategory,
   DrawingGraphic,
   DrawingModel,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementMultiAspect,
@@ -143,7 +144,7 @@ import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
 
-describe("IModelTransformer", () => {
+describe.only("IModelTransformer", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformer"
@@ -314,6 +315,7 @@ describe("IModelTransformer", () => {
         { expectEsas: true }
       );
       transformer.context.dump(`${targetDbFile}.context.txt`);
+      transformer.editTxn.end();
       transformer.dispose();
     }
 
@@ -421,6 +423,7 @@ describe("IModelTransformer", () => {
           "ExtensiveTestScenarioTarget:TargetInformationRecord"
         )
       );
+      transformer.editTxn.end();
       transformer.dispose();
     }
 
@@ -1031,6 +1034,7 @@ describe("IModelTransformer", () => {
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
       await transformerA2S.process();
+      transformerA2S.editTxn.end();
       transformerA2S.dispose();
       // Make sure some properties, for example, description, can persist
       const teamIModelA: Subject = iModelA.elements.getElement<Subject>(
@@ -1076,6 +1080,7 @@ describe("IModelTransformer", () => {
       );
       transformerB2S.context.remapElement(IModel.rootSubjectId, subjectId);
       await transformerB2S.process();
+      transformerB2S.editTxn.end();
       transformerB2S.dispose();
       IModelTransformerTestUtils.dumpIModelInfo(iModelB);
       iModelB.close();
@@ -1152,6 +1157,7 @@ describe("IModelTransformer", () => {
       await transformerS2C.processRelationships(
         ElementRefersToElements.classFullName
       );
+      transformerS2C.editTxn.end();
       transformerS2C.dispose();
       IModelTransformerTestUtils.assertConsolidatedIModelContents(
         iModelConsolidated,
@@ -1478,8 +1484,13 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "Conflicting Scopes Test" },
     });
 
-    const transformer1 = new IModelTransformer(sourceDb1, targetDb); // did not set targetScopeElementId
-    const transformer2 = new IModelTransformer(sourceDb2, targetDb); // did not set targetScopeElementId
+    const transformerEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    const transformer1 = new IModelTransformer(sourceDb1, targetDb, {
+      editTxn: transformerEditTxn,
+    }); // did not set targetScopeElementId
+    const transformer2 = new IModelTransformer(sourceDb2, targetDb, {
+      editTxn: transformerEditTxn,
+    }); // did not set targetScopeElementId
 
     await transformer1.process(); // first one succeeds using IModel.rootSubjectId as the default targetScopeElementId
 
@@ -1489,6 +1500,7 @@ describe("IModelTransformer", () => {
     } catch (e) {
       assert.isTrue(e instanceof IModelError);
     } finally {
+      transformerEditTxn.end();
       transformer1.dispose();
       transformer2.dispose();
       sourceDb1.close();
@@ -2585,6 +2597,8 @@ describe("IModelTransformer", () => {
     const targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
 
+    seedTransformer.editTxn.end();
+    transformer.editTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -2739,10 +2753,11 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+    const sourceTxn = new EditTxn(sourceDb, "setup source");
+    sourceTxn.start();
+    Subject.insert(sourceTxn, IModel.rootSubjectId, "Subject1");
+    sourceTxn.saveChanges();
+    sourceTxn.end();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2751,14 +2766,16 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: sourceDb.rootSubject,
     });
+    const targetTxn = new EditTxn(targetDb, "target edits");
+    targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     let sourceContent = await getAllElementsInvariants(sourceDb);
     let targetContent = await getAllElementsInvariants(targetDb);
@@ -2772,18 +2789,16 @@ describe("IModelTransformer", () => {
     );
     const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
     expect(targetSubjectId1).to.not.be.undefined;
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.elements.deleteElement(targetSubjectId1!);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.deleteElement(targetSubjectId1!);
+    targetTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     // verify that deleted element in target is added back - redundant check for explicitness
     const sourceElementJSON = sourceDb.elements
@@ -2798,6 +2813,7 @@ describe("IModelTransformer", () => {
     targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
 
+    targetTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -2810,14 +2826,14 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const sourceTxn = new EditTxn(sourceDb, "setup source");
+    sourceTxn.start();
     const sourceSubjectId = Subject.insert(
-      sourceDb,
+      sourceTxn,
       IModel.rootSubjectId,
       "Subject1"
     );
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+    sourceTxn.saveChanges();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2826,14 +2842,16 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: sourceDb.rootSubject,
     });
+    const targetTxn = new EditTxn(targetDb, "target edits");
+    targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     let sourceContent = await getAllElementsInvariants(sourceDb);
     let targetContent = await getAllElementsInvariants(targetDb);
@@ -2844,18 +2862,16 @@ describe("IModelTransformer", () => {
       sourceDb.elements.getElement<Subject>(sourceSubjectId);
     const updatedDescription = "Subject1 Updated Description";
     sourceSubject.description = updatedDescription;
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.elements.updateElement(sourceSubject.toJSON());
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+    sourceTxn.updateElement(sourceSubject.toJSON());
+    sourceTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of updating element with desired id
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await secondTransformer.process(); // should update description for subject element
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     // target subject should have updated description
     const targetSubjectDescription =
@@ -2866,6 +2882,8 @@ describe("IModelTransformer", () => {
     targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
 
+    targetTxn.end();
+    sourceTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -2883,10 +2901,14 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: seedDb.rootSubject,
     });
-    const seedTransformer = new IModelTransformer(seedDb, sourceDb);
+    const sourceTxn = new EditTxn(sourceDb, "seed to source");
+    sourceTxn.start();
+    const seedTransformer = new IModelTransformer(seedDb, sourceDb, {
+      editTxn: sourceTxn,
+    });
     await seedTransformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+    sourceTxn.saveChanges();
+    sourceTxn.end();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2895,27 +2917,30 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: sourceDb.rootSubject,
     });
+    const targetTxn = new EditTxn(targetDb, "target edits");
+    targetTxn.start();
 
     // Calling process() for first time will add all elements from source to target
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     // should not throw error: duplicate code (65547)
     const thirdTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await thirdTransformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
     const targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
 
+    targetTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -2928,10 +2953,11 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+    const sourceTxn = new EditTxn(sourceDb, "setup source");
+    sourceTxn.start();
+    Subject.insert(sourceTxn, IModel.rootSubjectId, "Subject1");
+    sourceTxn.saveChanges();
+    sourceTxn.end();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2940,14 +2966,16 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: sourceDb.rootSubject,
     });
+    const targetTxn = new EditTxn(targetDb, "target edits");
+    targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
     const targetContent = await getAllElementsInvariants(targetDb);
@@ -2958,10 +2986,8 @@ describe("IModelTransformer", () => {
     const targetSubjectId = targetDb.elements.queryElementIdByCode(code);
     expect(targetSubjectId).to.not.be.undefined;
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.elements.deleteElement(targetSubjectId!);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.deleteElement(targetSubjectId!);
+    targetTxn.saveChanges();
 
     // save subject 1 element properties for new subject(it should have same fed guid and code)
     const targetSubjectProps = sourceDb.elements.getElementProps(
@@ -2971,21 +2997,21 @@ describe("IModelTransformer", () => {
     assert.isDefined(targetSubjectProps);
 
     // create new subject that is the same as subject 1 but has a different Id
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const newSubjectId = targetDb.elements.insertElement(targetSubjectProps);
+    const newSubjectId = targetTxn.insertElement(targetSubjectProps);
     expect(newSubjectId).to.not.be.undefined;
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of throwing expected error
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
 
     await expect(secondTransformer.process()).to.be.rejectedWith(
       `Element id(${targetSubjectId}) cannot be preserved. Found a different mapping(${newSubjectId}) from source element`
     );
 
+    targetTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -2998,10 +3024,11 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "iModelA" },
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    Subject.insert(sourceDb, IModel.rootSubjectId, "Subject1");
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+    const sourceTxn = new EditTxn(sourceDb, "setup source");
+    sourceTxn.start();
+    Subject.insert(sourceTxn, IModel.rootSubjectId, "Subject1");
+    sourceTxn.saveChanges();
+    sourceTxn.end();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3010,14 +3037,16 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: sourceDb.rootSubject,
     });
+    const targetTxn = new EditTxn(targetDb, "target edits");
+    targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     const sourceContent = await getAllElementsInvariants(sourceDb);
     const targetContent = await getAllElementsInvariants(targetDb);
@@ -3032,10 +3061,8 @@ describe("IModelTransformer", () => {
     const targetSubjectId1 = targetDb.elements.queryElementIdByCode(code1);
     expect(targetSubjectId1).to.not.be.undefined;
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.elements.deleteElement(targetSubjectId1!);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.deleteElement(targetSubjectId1!);
+    targetTxn.saveChanges();
 
     // save subject 1 element properties but only use the same id
     const newPropsForSubject3 = sourceDb.elements.getElementProps(
@@ -3050,25 +3077,23 @@ describe("IModelTransformer", () => {
     newPropsForSubject3.code = code3;
 
     // insert an unrelated element that uses same id as subject1
-    // insertElement public api does not support forceUseId option
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const targetSubjectId3 = targetDb.elements.insertElement(
-      newPropsForSubject3,
-      { forceUseId: true }
-    );
+    const targetSubjectId3 = targetTxn.insertElement(newPropsForSubject3, {
+      forceUseId: true,
+    });
     expect(targetSubjectId3).to.not.be.undefined;
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of of throwing expected error
     const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
       preserveElementIdsForFiltering: true,
+      editTxn: targetTxn,
     });
 
     await expect(secondTransformer.process()).to.be.rejectedWith(
       `Element id(${targetSubjectId1}) cannot be preserved. An unrelated element in the target already uses id: ${targetSubjectId1}`
     );
 
+    targetTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -3194,21 +3219,20 @@ describe("IModelTransformer", () => {
       IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
     await sourceDb.importSchemas([testSchemaPath]);
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    const sourceTxn = new EditTxn(sourceDb, "setup source");
+    sourceTxn.start();
     const myPhysicalModelId = PhysicalModel.insert(
-      sourceDb,
+      sourceTxn,
       IModelDb.rootSubjectId,
       "MyPhysicalModel"
     );
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const mySpatialCategId = SpatialCategory.insert(
-      sourceDb,
+      sourceTxn,
       IModelDb.dictionaryId,
       "MySpatialCateg",
       { color: ColorDef.black.toJSON() }
     );
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const myPhysicalObjId = sourceDb.elements.insertElement({
+    const myPhysicalObjId = sourceTxn.insertElement({
       classFullName: PhysicalObject.classFullName,
       model: myPhysicalModelId,
       category: mySpatialCategId,
@@ -3218,9 +3242,8 @@ describe("IModelTransformer", () => {
       placement: Placement3d.fromJSON({ origin: { x: 1 }, angles: {} }),
     } as PhysicalElementProps);
     // because they are definition elements, display styles will be transformed first
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     const myDisplayStyleId = DisplayStyle3d.insert(
-      sourceDb,
+      sourceTxn,
       IModelDb.dictionaryId,
       "MyDisplayStyle3d",
       {
@@ -3251,8 +3274,7 @@ describe("IModelTransformer", () => {
       identifier: "ID",
       kind: ExternalSourceAspect.Kind.Element,
     };
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.elements.insertAspect(multiAspectProps);
+    sourceTxn.insertAspect(multiAspectProps);
     const uniqueAspectProps = {
       classFullName: "TestSchema1:MyUniqueAspect",
       element: {
@@ -3262,10 +3284,9 @@ describe("IModelTransformer", () => {
       // eslint-disable-next-line @typescript-eslint/naming-convention
       myProp1: "prop_value",
     };
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.elements.insertAspect(uniqueAspectProps);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+    sourceTxn.insertAspect(uniqueAspectProps);
+    sourceTxn.saveChanges();
+    sourceTxn.end();
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3274,17 +3295,19 @@ describe("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: sourceDb.rootSubject,
     });
+    const targetTxn = new EditTxn(targetDb, "target edits");
+    targetTxn.start();
 
     const transformer = new IModelTransformer(sourceDb, targetDb, {
       includeSourceProvenance: true,
       noProvenance: true, // don't add transformer provenance aspects, makes querying for aspects later simpler
+      editTxn: targetTxn,
     });
 
     await transformer.processSchemas();
     await transformer.process();
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    targetTxn.saveChanges();
 
     const targetExternalSourceAspects: any[] = [];
     const targetMyUniqueAspects: any[] = [];
@@ -3309,6 +3332,7 @@ describe("IModelTransformer", () => {
     );
 
     sinon.restore();
+    targetTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -3675,6 +3699,7 @@ describe("IModelTransformer", () => {
         }
       });
 
+      transformerA2S.editTxn.end();
       transformerA2S.dispose();
       iModelA.close();
       iModelShared.close();

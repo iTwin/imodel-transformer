@@ -40,6 +40,7 @@ import {
   DefinitionModel,
   DefinitionPartition,
   ECSchemaXmlContext,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -102,6 +103,8 @@ import {
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
+// eslint-disable-next-line @itwin/no-internal
+import { _activeTxn } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
@@ -240,6 +243,14 @@ export interface IModelTransformOptions {
    * @default false
    */
   tryAlignGeolocation?: boolean;
+
+  /** An optional [[EditTxn]] to use for all write operations on the target iModel.
+   * If provided, the transformer will route its writes through this transaction and will **not** call `saveChanges` —
+   * the caller retains full control of when the transaction is committed.
+   * If not provided, the transformer will create its own [[EditTxn]] for the target iModel, accessible via [[IModelTransformer.editTxn]].
+   * @beta
+   */
+  editTxn?: EditTxn;
 }
 
 /**
@@ -376,6 +387,13 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly sourceDb: IModelDb;
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
+  /** The [[EditTxn]] used for write operations on the target iModel.
+   * If one was provided via [[IModelTransformOptions.editTxn]], it is used directly.
+   * Otherwise, a new [[EditTxn]] is created for the target iModel.
+   * The caller is responsible for committing or abandoning this transaction.
+   * @beta
+   */
+  public readonly editTxn: EditTxn;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
   /** The transform to be applied to the placement of spatial elements
@@ -503,6 +521,13 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
+    // initialize the EditTxn for target writes:
+    // use the provided one, or reuse the iModel's active one, or create a new one
+    this.editTxn =
+      this._options.editTxn ??
+      this.targetDb[_activeTxn] ??
+      new EditTxn(this.targetDb, "IModelTransformer");
+    this.importer.editTxn = this.editTxn;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -1046,6 +1071,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processElement(sourceElementId: Id64String): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     if (sourceElementId === IModel.rootSubjectId) {
       throw new IModelError(
@@ -1063,6 +1089,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChildElements(
     sourceElementId: Id64String
   ): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportChildElements(sourceElementId);
   }
@@ -1454,6 +1481,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportModel(sourceModeledElementId);
   }
@@ -1469,6 +1497,7 @@ export class IModelTransformer extends IModelExportHandler {
     targetModelId: Id64String,
     elementClassFullName: string = Element.classFullName
   ): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     this.targetDb.models.getModel(targetModelId); // throws if Model does not exist
     this.context.remapElement(sourceModelId, targetModelId); // set remapping in case importModelContents is called directly
@@ -1577,6 +1606,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async processRelationships(
     baseRelClassFullName: string
   ): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportRelationships(baseRelClassFullName);
   }
@@ -1870,6 +1900,7 @@ export class IModelTransformer extends IModelExportHandler {
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
   public async processSchemas(): Promise<void> {
+    this.ensureEditTxnStarted();
     // we do not need to initialize for this since no entities are exported
     try {
       IModelJsFs.mkdirSync(this._schemaExportDir);
@@ -1897,6 +1928,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processFonts(): Promise<void> {
+    this.ensureEditTxnStarted();
     // we do not need to initialize for this since no entities are exported
     await this.initialize();
     return this.exporter.exportFonts();
@@ -1914,6 +1946,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpecs(): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportCodeSpecs();
   }
@@ -1922,6 +1955,7 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpec(codeSpecName: string): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportCodeSpecByName(codeSpecName);
   }
@@ -1947,6 +1981,7 @@ export class IModelTransformer extends IModelExportHandler {
     sourceSubjectId: Id64String,
     targetSubjectId: Id64String
   ): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
     this.sourceDb.elements.getElement(sourceSubjectId, Subject); // throws if sourceSubjectId is not a Subject
     this.targetDb.elements.getElement(targetSubjectId, Subject); // throws if targetSubjectId is not a Subject
@@ -2370,6 +2405,13 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
+  /** Ensures the EditTxn is started before any write operations. */
+  private ensureEditTxnStarted(): void {
+    if (!this.editTxn.isActive) {
+      this.editTxn.start();
+    }
+  }
+
   /**
    * The behavior of process is influenced by [[IModelTransformOptions.argsForProcessChanges]] being defined or not defined during construction passed of the IModelTransformer.
    * @section When argsForProcessChanges are defined:
@@ -2394,6 +2436,7 @@ export class IModelTransformer extends IModelExportHandler {
    *
    */
   public async process(): Promise<void> {
+    this.ensureEditTxnStarted();
     await this.initialize();
 
     this.logSettings();
