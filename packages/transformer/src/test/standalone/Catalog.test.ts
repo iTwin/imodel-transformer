@@ -1134,9 +1134,11 @@ describe("Catalog", () => {
     await iModelDb.importSchemas([domainSchemaFilePath]);
     const { physicalModelId, spatialCategoryId, drawingId, drawingCategoryId } =
       withEditTxn(iModelDb, "setup facility", (txn) => {
-        const drawingListModelId =
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          DocumentListModel.insert(iModelDb, IModel.rootSubjectId, "Drawings");
+        const drawingListModelId = DocumentListModel.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Drawings"
+        );
         return {
           physicalModelId: PhysicalModel.insert(
             txn,

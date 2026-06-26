@@ -201,7 +201,7 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       );
       assert.isTrue(Id64.isValidId64(contextSubjectId));
       const definitionModelId = DefinitionModel.insert(
-        teamDb,
+        txn,
         IModel.rootSubjectId,
         `Definition${teamName}`
       );

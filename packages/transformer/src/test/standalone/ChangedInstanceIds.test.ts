@@ -57,7 +57,7 @@ describe("ChangedInstanceIds", () => {
     withEditTxn(sourceDb, "add data to source iModel", (txn) => {
       const sourceSubjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
       documentListModel = DocumentListModel.insert(
-        sourceDb,
+        txn,
         sourceSubjectId,
         "DL"
       );
