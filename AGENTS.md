@@ -17,6 +17,7 @@ pnpm workspace, four packages under `packages/`:
 
 (Scripts themselves are in `package.json`; these are the non-obvious bits.)
 
+- Run `build` and `test` from inside `packages/transformer` with `pnpm` (running from root can trigger perf tests, and `lint` only works at a package root); run the full suite via `pnpm`, not by invoking `mocha` directly against individual tests.
 - `pnpm test` runs every package **except** `transformer-performance-tests` — it's filtered out, run it explicitly if needed.
 - Inside `packages/transformer`, `build` runs `tsc` → copy test assets → `extract-api`. Mocha runs the compiled `lib/cjs/**/*.test.js`, so **build before test** — editing `.ts` alone won't change what runs.
 - `pnpm cover` (nyc) only produces real coverage for `transformer`; no artifact is persisted and CI does not publish coverage.
