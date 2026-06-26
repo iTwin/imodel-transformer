@@ -20,7 +20,7 @@ jobs:
     - name: Install pnpm
       uses: pnpm/action-setup@v4
       with:
-        version: 9.14.2
+        version: 10.34.3
 
     - name: Use Node.js 22
       uses: actions/setup-node@v3
@@ -47,7 +47,7 @@ jobs:
     - name: Install pnpm
       uses: pnpm/action-setup@v4
       with:
-        version: 9.14.2
+        version: 10.34.3
 
     - name: Use Node.js 22
       uses: actions/setup-node@v3
@@ -103,7 +103,7 @@ jobs:
     - name: Install pnpm
       uses: pnpm/action-setup@v4
       with:
-        version: 9.14.2
+        version: 10.34.3
 
     - name: Use Node.js 22
       uses: actions/setup-node@v3

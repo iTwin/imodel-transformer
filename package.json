@@ -38,14 +38,17 @@
     ]
   },
   "engines": {
-    "pnpm": ">=9",
+    "pnpm": ">=10",
     "npm": "<0",
     "node": ">=18"
   },
   "pnpm": {
     "overrides": {
       "semver": "^7.5.2"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@bentley/imodeljs-native"
+    ]
   },
-  "packageManager": "pnpm@9.14.2"
+  "packageManager": "pnpm@10.34.3"
 }
