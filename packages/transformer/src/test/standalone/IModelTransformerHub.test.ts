@@ -5387,25 +5387,17 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         "insert source subject model and category",
         (txn) => {
-          const sourceSubjectId = Subject.insert(
-            txn,
-            IModel.rootSubjectId,
-            "S1"
-          );
+          const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
           return {
-            sourceSubjectId,
-            physicalModel1Id: PhysicalModel.insert(txn, sourceSubjectId, "PM1"),
+            sourceSubjectId: subjectId,
+            physicalModel1Id: PhysicalModel.insert(txn, subjectId, "PM1"),
             categoryId1: SpatialCategory.insert(
               txn,
               IModel.dictionaryId,
               "C1",
               {}
             ),
-            documentListModel: DocumentListModel.insert(
-              txn,
-              sourceSubjectId,
-              "DL"
-            ),
+            documentListModel: DocumentListModel.insert(txn, subjectId, "DL"),
           };
         }
       );
@@ -5596,18 +5588,10 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         "insert source subject and document list",
         (txn) => {
-          const sourceSubjectId = Subject.insert(
-            txn,
-            IModel.rootSubjectId,
-            "S1"
-          );
+          const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
           return {
-            sourceSubjectId,
-            documentListModel: DocumentListModel.insert(
-              txn,
-              sourceSubjectId,
-              "DL"
-            ),
+            sourceSubjectId: subjectId,
+            documentListModel: DocumentListModel.insert(txn, subjectId, "DL"),
           };
         }
       );
@@ -5810,17 +5794,17 @@ describe("IModelTransformerHub", () => {
         physicalModel1Id,
         physicalModel2Id,
       } = withEditTxn(sourceDb, "insert source models and category", (txn) => {
-        const sourceSubjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+        const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
         return {
-          sourceSubjectId,
+          sourceSubjectId: subjectId,
           categoryId1: SpatialCategory.insert(
             txn,
             IModel.dictionaryId,
             "C1",
             {}
           ),
-          physicalModel1Id: PhysicalModel.insert(txn, sourceSubjectId, "PM1"),
-          physicalModel2Id: PhysicalModel.insert(txn, sourceSubjectId, "PM2"),
+          physicalModel1Id: PhysicalModel.insert(txn, subjectId, "PM1"),
+          physicalModel2Id: PhysicalModel.insert(txn, subjectId, "PM2"),
         };
       });
       const physicalElem1 = insertPhysicalElement(
@@ -5986,25 +5970,23 @@ describe("IModelTransformerHub", () => {
 
     it("should reset element values when custom changes to update element are added", async function () {
       // Arrange
-      const {
-        sourceSubjectId,
-        categoryId1,
-        physicalModel1Id,
-        physicalModel2Id,
-      } = withEditTxn(sourceDb, "insert reset-test source data", (txn) => {
-        const sourceSubjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
-        return {
-          sourceSubjectId,
-          categoryId1: SpatialCategory.insert(
-            txn,
-            IModel.dictionaryId,
-            "C1",
-            {}
-          ),
-          physicalModel1Id: PhysicalModel.insert(txn, sourceSubjectId, "PM1"),
-          physicalModel2Id: PhysicalModel.insert(txn, sourceSubjectId, "PM2"),
-        };
-      });
+      const { categoryId1, physicalModel1Id, physicalModel2Id } = withEditTxn(
+        sourceDb,
+        "insert reset-test source data",
+        (txn) => {
+          const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+          return {
+            categoryId1: SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "C1",
+              {}
+            ),
+            physicalModel1Id: PhysicalModel.insert(txn, subjectId, "PM1"),
+            physicalModel2Id: PhysicalModel.insert(txn, subjectId, "PM2"),
+          };
+        }
+      );
       const physicalElem1 = insertPhysicalElement(
         sourceDb,
         physicalModel1Id,
@@ -6091,7 +6073,7 @@ describe("IModelTransformerHub", () => {
       const constPartitionFedGuid = Guid.createValue();
       const { originalSubjectId, originalPartitionId, originalModelId } =
         withEditTxn(sourceDb, "insert original elements and model", (txn) => {
-          const originalSubjectId = txn.insertElement({
+          const subjId = txn.insertElement({
             classFullName: Subject.classFullName,
             code: Code.createEmpty(),
             model: IModel.repositoryModelId,
@@ -6099,7 +6081,7 @@ describe("IModelTransformerHub", () => {
             federationGuid: constSubjectFedGuid,
             userLabel: "A",
           });
-          const originalPartitionId = txn.insertElement({
+          const partId = txn.insertElement({
             model: IModel.repositoryModelId,
             code: PhysicalPartition.createCode(
               sourceDb,
@@ -6111,11 +6093,11 @@ describe("IModelTransformerHub", () => {
             parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
           });
           return {
-            originalSubjectId,
-            originalPartitionId,
+            originalSubjectId: subjId,
+            originalPartitionId: partId,
             originalModelId: txn.insertModel({
               classFullName: PhysicalModel.classFullName,
-              modeledElement: { id: originalPartitionId },
+              modeledElement: { id: partId },
               isPrivate: true,
             }),
           };
@@ -6147,7 +6129,7 @@ describe("IModelTransformerHub", () => {
         "recreate elements and model",
         (txn) => {
           txn.deleteElement(originalSubjectId);
-          const secondCopyOfSubjectId = txn.insertElement({
+          const newSubjectId = txn.insertElement({
             classFullName: Subject.classFullName,
             code: Code.createEmpty(),
             model: IModel.repositoryModelId,
@@ -6158,7 +6140,7 @@ describe("IModelTransformerHub", () => {
 
           txn.deleteModel(originalModelId);
           txn.deleteElement(originalPartitionId);
-          const recreatedPartitionId = txn.insertElement({
+          const newPartitionId = txn.insertElement({
             model: IModel.repositoryModelId,
             code: PhysicalPartition.createCode(
               sourceDb,
@@ -6171,10 +6153,13 @@ describe("IModelTransformerHub", () => {
           });
           txn.insertModel({
             classFullName: PhysicalModel.classFullName,
-            modeledElement: { id: recreatedPartitionId },
+            modeledElement: { id: newPartitionId },
             isPrivate: false,
           });
-          return { secondCopyOfSubjectId, recreatedPartitionId };
+          return {
+            secondCopyOfSubjectId: newSubjectId,
+            recreatedPartitionId: newPartitionId,
+          };
         }
       );
 
