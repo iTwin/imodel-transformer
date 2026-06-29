@@ -30,12 +30,12 @@ stages:
           clean: true
 
         - task: NodeTool@0
-          displayName: Use Node 18
+          displayName: Use Node 22
           inputs:
-            versionSpec: 18
+            versionSpec: 22.12.0
             checkLatest: true
 
-        - script: npm install -g pnpm@9.14.2
+        - script: npm install -g pnpm@11.9.0
           displayName: Install pnpm
 
         - script: pnpm install
