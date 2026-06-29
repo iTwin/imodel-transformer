@@ -160,18 +160,11 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     name: Coverage
-    # Single (non-matrixed) run: coverage is environment-independent, so we
-    # check it once rather than 3x across the supported-core-version matrix.
-    # This job is a gate only: `cover` runs `nyc` with `check-coverage` enabled
-    # (thresholds in packages/transformer/package.json), so it fails the build
-    # if coverage regresses below the configured floors. No report is published.
 
     steps:
     - name: Checkout
       uses: actions/checkout@v3
 
-    # Action/tool setup matches the other jobs in this file (pnpm read from
-    # the root packageManager field, Node 24.18.0).
     - name: Install pnpm
       uses: pnpm/action-setup@v4
 
@@ -184,12 +177,17 @@ jobs:
     - name: Install dependencies
       run: pnpm install -w
 
-    # `cover` runs `nyc npm -s test`, which runs mocha against the COMPILED
-    # lib/cjs output, so the transformer must be built first.
+    # `cover` runs mocha against the compiled lib/cjs output, so build first.
     - name: Build transformer
       run: pnpm --filter @itwin/imodel-transformer build
 
-    # Fails the job if nyc check-coverage finds coverage below the thresholds.
+    # Gate: `cover` runs nyc with check-coverage, failing on a threshold breach.
+    # pipefail (GitHub bash default) aborts before the summary line on failure.
     - name: Check coverage thresholds
-      run: pnpm --filter @itwin/imodel-transformer cover
+      shell: bash
+      run: |
+        pnpm --filter @itwin/imodel-transformer cover 2>&1 | tee coverage.log
+        awk '/Statements/{s=$3} /Branches/{b=$3} /Functions/{f=$3} /Lines/{l=$3} \
+          END{printf "Coverage — Statements %s · Branches %s · Functions %s · Lines %s\n", s, b, f, l}' \
+          coverage.log >> "$GITHUB_STEP_SUMMARY"
 
