@@ -16,7 +16,13 @@ overrides:
 
 # pnpm blocks dependency build scripts by default. Only @bentley/imodeljs-native
 # needs to run one (its postinstall fetches the platform imodeljs.node binary that
-# the test suite loads). Every other build-script dep stays blocked implicitly --
-# they don't need to be listed as `false`, un-listed means skipped.
+# the test suite loads). The other three carry build scripts but we do NOT want to
+# run them (e.g. certa's postinstall downloads a Chromium browser for perf-test-only
+# E2E auth flows). Under CI=true pnpm 11 turns an *undecided* ignored build into a
+# hard ERR_PNPM_IGNORED_BUILDS error, so each must be listed with an explicit
+# decision -- `false` records "acknowledged, do not build".
 allowBuilds:
   '@bentley/imodeljs-native': true
+  '@itwin/certa': false
+  '@itwin/oidc-signin-tool': false
+  protobufjs: false
