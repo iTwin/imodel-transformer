@@ -7,12 +7,12 @@ packages:
 # pnpm 11 no longer reads the "pnpm" field in package.json; overrides and
 # the build-script allowlist live here instead. See https://pnpm.io/settings
 overrides:
-  semver: ^7.5.2
+  semver: ^7.5.2                 # eslint-plugin-import, eslint-plugin-react pull in semver@6 (CVE-2022-25883)
   # --- audit overrides (high/critical advisories locked behind @itwin/* deps) ---
-  axios@0: ^0.32.0
-  path-to-regexp@0: ^0.1.13
-  playwright@1: ^1.55.1
-  serialize-javascript: ^7.0.0
+  axios@0: ^0.32.0               # test-app depends on axios@0 directly
+  path-to-regexp@0: ^0.1.13     # transformer-performance-tests -> @itwin/oidc-signin-tool -> @itwin/certa -> express@4 -> path-to-regexp@0
+  playwright@1: ^1.55.1          # transformer-performance-tests -> @itwin/oidc-signin-tool -> playwright@1
+  serialize-javascript: ^7.0.0   # mocha@10/@itwin/build-tools -> mocha@11 -> serialize-javascript
 
 # pnpm blocks dependency build scripts by default. Only @bentley/imodeljs-native
 # needs to run one (its postinstall fetches the platform imodeljs.node binary that
