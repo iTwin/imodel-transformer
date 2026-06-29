@@ -29,13 +29,13 @@ stages:
         - checkout: self
           clean: true
 
-        - task: NodeTool@0
-          displayName: Use Node 18
+        - task: UseNode@1
+          displayName: Use Node 24
           inputs:
-            versionSpec: 18
+            version: 24.18.0
             checkLatest: true
 
-        - script: npm install -g pnpm@9.14.2
+        - script: npm install -g pnpm@11.9.0
           displayName: Install pnpm
 
         - script: pnpm install
