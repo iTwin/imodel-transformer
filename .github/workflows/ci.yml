@@ -174,8 +174,10 @@ jobs:
         node-version: 24.18.0
         cache: 'pnpm'
 
+    # Plain `pnpm install` (matching the build job) installs the transformer's
+    # devDeps too; `-w` would scope the install to the workspace root only.
     - name: Install dependencies
-      run: pnpm install -w
+      run: pnpm install
 
     # `cover` runs mocha against the compiled lib/cjs output, so build first.
     - name: Build transformer
