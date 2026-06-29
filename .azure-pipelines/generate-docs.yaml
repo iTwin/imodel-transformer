@@ -29,8 +29,8 @@ stages:
         - checkout: self
           clean: true
 
-        - task: NodeTool@0
-          displayName: Use Node 22
+        - task: UseNode@1
+          displayName: Use Node 24
           inputs:
             versionSpec: 24.18.0
             checkLatest: true
