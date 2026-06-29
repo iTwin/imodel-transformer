@@ -1,12 +1,12 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "2.0.0-dev.17",
+  "version": "2.0.0-dev.18",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/imodel-transformer.js",
   "typings": "lib/cjs/imodel-transformer",
   "license": "MIT",
   "engines": {
-    "node": "^22.12.0"
+    "node": "^22.12.0 || ^24.18.0"
   },
   "scripts": {
     "build": "npm run -s build:cjs && npm run -s copy:test-assets && npm run -s extract-api",
