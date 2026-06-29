@@ -4,3 +4,19 @@ packages:
   - packages/performance-scripts
   - packages/performance-tests
 
+# pnpm 11 no longer reads the "pnpm" field in package.json; overrides and
+# the build-script allowlist live here instead. See https://pnpm.io/settings
+overrides:
+  semver: ^7.5.2
+  # --- audit overrides (high/critical advisories locked behind @itwin/* deps) ---
+  axios@0: ^0.32.0
+  path-to-regexp@0: ^0.1.13
+  playwright@1: ^1.55.1
+  serialize-javascript: ^7.0.0
+
+# pnpm blocks dependency build scripts by default. Only @bentley/imodeljs-native
+# needs to run one (its postinstall fetches the platform imodeljs.node binary that
+# the test suite loads). Every other build-script dep stays blocked implicitly --
+# they don't need to be listed as `false`, un-listed means skipped.
+allowBuilds:
+  '@bentley/imodeljs-native': true
