@@ -1462,9 +1462,8 @@ describe("Catalog", () => {
           equipment.typeDefinition = new PhysicalElementIsOfType(
             physicalTypeId
           );
-          withEditTxn(iModelDb, "set type definition", (_txn) => {
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            equipment.update();
+          withEditTxn(iModelDb, "set type definition", (txn) => {
+            txn.updateElement(equipment.toJSON());
           });
           assert.isDefined(equipment.typeDefinition?.id);
         }
