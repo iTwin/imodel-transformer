@@ -32,7 +32,7 @@ stages:
         - task: NodeTool@0
           displayName: Use Node 22
           inputs:
-            versionSpec: 22.23.1
+            versionSpec: 24.18.0
             checkLatest: true
 
         - script: npm install -g pnpm@11.9.0
