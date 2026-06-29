@@ -1037,8 +1037,6 @@ describe("IModelTransformerHub", () => {
         ColorDef.green
       );
       IModelTransformerTestUtils.assertTeamIModelContents(sourceDb, "Test");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from populateTeamIModel helper
-      sourceDb.saveChanges();
       await sourceDb.pushChanges({
         accessToken,
         description: "Populate Source",
