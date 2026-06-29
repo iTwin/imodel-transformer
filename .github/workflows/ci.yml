@@ -161,7 +161,10 @@ jobs:
     runs-on: ubuntu-latest
     name: Coverage
     # Single (non-matrixed) run: coverage is environment-independent, so we
-    # generate it once rather than 3x across the supported-core-version matrix.
+    # check it once rather than 3x across the supported-core-version matrix.
+    # This job is a gate only: `cover` runs `nyc` with `check-coverage` enabled
+    # (thresholds in packages/transformer/package.json), so it fails the build
+    # if coverage regresses below the configured floors. No report is published.
 
     steps:
     - name: Checkout
@@ -186,39 +189,7 @@ jobs:
     - name: Build transformer
       run: pnpm --filter @itwin/imodel-transformer build
 
-    - name: Run coverage
-      run: pnpm --filter @itwin/imodel-transformer cover | tee coverage-run.log
-
-    # Upload the full nyc output: HTML report (lcov-report/index.html),
-    # lcov.info, and cobertura-coverage.xml for any downstream tooling.
-    - name: Upload coverage artifact
-      if: ${{ !cancelled() }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: transformer-coverage
-        path: packages/transformer/lib/cjs/test/coverage/
-        if-no-files-found: error
-
-    # Surface the numbers on the Checks tab without downloading the artifact.
-    - name: Publish coverage summary
-      if: ${{ !cancelled() }}
-      run: |
-        {
-          echo "## Transformer coverage"
-          echo ""
-          echo "| Metric | % | Covered / Total |"
-          echo "| --- | --- | --- |"
-          grep -E '^(Statements|Branches|Functions|Lines) *:' coverage-run.log \
-            | sed -E 's/^([A-Za-z]+) *: *([0-9.]+)% \( ([0-9]+)\/([0-9]+) \)/| \1 | \2% | \3 \/ \4 |/'
-          echo ""
-          echo "<details><summary>Raw nyc text-summary</summary>"
-          echo ""
-          echo '```'
-          sed -n '/Coverage summary/,/^=\{5,\}$/p' coverage-run.log
-          echo '```'
-          echo ""
-          echo "</details>"
-          echo ""
-          echo "Full HTML report (\`lcov-report/index.html\`), \`lcov.info\`, and \`cobertura-coverage.xml\` are in the **transformer-coverage** artifact."
-        } >> "$GITHUB_STEP_SUMMARY"
+    # Fails the job if nyc check-coverage finds coverage below the thresholds.
+    - name: Check coverage thresholds
+      run: pnpm --filter @itwin/imodel-transformer cover
 
