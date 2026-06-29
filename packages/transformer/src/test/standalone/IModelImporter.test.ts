@@ -10,7 +10,7 @@ import {
   StandaloneDb,
   Subject,
 } from "@itwin/core-backend";
-import { ElementAspectProps, Code, IModel } from "@itwin/core-common";
+import { Code, ElementAspectProps, IModel } from "@itwin/core-common";
 import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
@@ -193,7 +193,7 @@ describe("IModelImporter", () => {
     try {
       const importer = new IModelImporter(targetDb);
       await expectRejected(
-        () => importer.importModel({} as any),
+        async () => importer.importModel({} as any),
         /Model Id not provided/
       );
       await expectRejected(
@@ -225,7 +225,7 @@ describe("IModelImporter", () => {
         preserveElementIdsForFiltering: true,
       });
       await expectRejected(
-        () =>
+        async () =>
           importer.importElement({
             classFullName: "BisCore:Subject",
             model: IModel.repositoryModelId,
