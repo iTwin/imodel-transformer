@@ -23,7 +23,7 @@ jobs:
     - name: Use Node.js 22
       uses: actions/setup-node@v3
       with:
-        node-version: 22.12.0
+        node-version: 22.23.1
         cache: 'pnpm'
 
     - name: Install dependencies
@@ -48,7 +48,7 @@ jobs:
     - name: Use Node.js 22
       uses: actions/setup-node@v3
       with:
-        node-version: 22.12.0
+        node-version: 22.23.1
         cache: 'pnpm'
 
     - id: set-matrix
@@ -102,7 +102,7 @@ jobs:
     - name: Use Node.js 22
       uses: actions/setup-node@v3
       with:
-        node-version: 22.12.0
+        node-version: 22.23.1
         cache: 'pnpm'
 
     - name: Force dependency resolution
@@ -110,30 +110,23 @@ jobs:
       run: |
         node <<EOF
         const fs = require("fs");
-        const workspacePkgJsonPath = "./package.json";
-        const workspacePkgJson = require(workspacePkgJsonPath);
-        let pnpm = {}
-        let overrides = {}
-        
-        if (workspacePkgJson.pnpm) pnpm = workspacePkgJson.pnpm
-        if (pnpm?.overrides) overrides = pnpm.overrides
-
-        workspacePkgJson.pnpm = {
-        ...pnpm,
-          overrides: {
-          ...overrides,
-            ...Object.fromEntries([
-              // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
-              "@itwin/core-backend",
-              "@itwin/core-bentley",
-              "@itwin/core-common",
-              "@itwin/core-geometry",
-              "@itwin/core-quantity",
-              "@itwin/ecschema-metadata",
-            ].map(pkg => [pkg, "$CORE_VERSION"]))
-          }
-        };
-        fs.writeFileSync(workspacePkgJsonPath, JSON.stringify(workspacePkgJson));
+        // pnpm 11 reads overrides from pnpm-workspace.yaml, not package.json#pnpm.overrides.
+        const wsPath = "./pnpm-workspace.yaml";
+        const corePkgs = [
+          // must be in sync with @itwin dependencies in packages/transformer/package.json#peerDependencies!
+          "@itwin/core-backend",
+          "@itwin/core-bentley",
+          "@itwin/core-common",
+          "@itwin/core-geometry",
+          "@itwin/core-quantity",
+          "@itwin/ecschema-metadata",
+        ];
+        const entries = corePkgs.map(p => "  '" + p + "': '$CORE_VERSION'").join("\n");
+        const lines = fs.readFileSync(wsPath, "utf8").split("\n");
+        const i = lines.findIndex(l => l === "overrides:");
+        if (i === -1) throw new Error("could not find 'overrides:' key in pnpm-workspace.yaml");
+        lines.splice(i + 1, 0, entries);
+        fs.writeFileSync(wsPath, lines.join("\n"));
         EOF
       env:
         CORE_VERSION: ${{ matrix.version }}
