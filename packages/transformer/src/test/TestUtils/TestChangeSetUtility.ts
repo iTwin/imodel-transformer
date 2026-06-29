@@ -4,11 +4,19 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { AccessToken, GuidString } from "@itwin/core-bentley";
-import { ColorDef, IModel, SubCategoryAppearance } from "@itwin/core-common";
+import {
+  CodeProps,
+  ColorDef,
+  IModel,
+  SubCategoryAppearance,
+} from "@itwin/core-common";
 import {
   BriefcaseDb,
   IModelHost,
+  PhysicalModel,
+  PhysicalPartition,
   SpatialCategory,
+  SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
 import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
@@ -33,13 +41,22 @@ export class TestChangeSetUtility {
   }
 
   private async addTestModel(): Promise<void> {
-    withEditTxn(this._iModel, "Added test model", (_txn) => {
-      [, this._modelId] =
-        IModelTestUtils.createAndInsertPhysicalPartitionAndModel(
-          this._iModel,
-          IModelTestUtils.getUniqueModelCode(this._iModel, "TestPhysicalModel"),
-          true
-        );
+    const newModelCode: CodeProps = IModelTestUtils.getUniqueModelCode(
+      this._iModel,
+      "TestPhysicalModel"
+    );
+    withEditTxn(this._iModel, "Added test model", (txn) => {
+      const partitionId = txn.insertElement({
+        classFullName: PhysicalPartition.classFullName,
+        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+        model: IModel.repositoryModelId,
+        code: newModelCode,
+      });
+      this._modelId = txn.insertModel({
+        classFullName: PhysicalModel.classFullName,
+        modeledElement: { id: partitionId },
+        isPrivate: true,
+      });
     });
   }
 

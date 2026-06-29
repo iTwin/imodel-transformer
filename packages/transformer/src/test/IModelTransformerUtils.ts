@@ -207,14 +207,14 @@ export class IModelTransformerTestUtils extends TestUtils.IModelTestUtils {
       );
       assert.isTrue(Id64.isValidId64(definitionModelId));
       const teamSpatialCategoryId = this.insertSpatialCategory(
-        teamDb,
+        txn,
         definitionModelId,
         `SpatialCategory${teamName}`,
         teamColor
       );
       assert.isTrue(Id64.isValidId64(teamSpatialCategoryId));
       const sharedSpatialCategoryId = this.insertSpatialCategory(
-        teamDb,
+        txn,
         IModel.dictionaryId,
         "SpatialCategoryShared",
         ColorDef.white
@@ -1005,7 +1005,7 @@ export class TransformerExtensiveTestScenario extends TestUtils.ExtensiveTestSce
       Subject.insert(txn, subjectId, "S4");
       const targetPhysicalCategoryId =
         IModelTransformerTestUtils.insertSpatialCategory(
-          targetDb,
+          txn,
           IModel.dictionaryId,
           "TargetPhysicalCategory",
           ColorDef.red
