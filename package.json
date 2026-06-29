@@ -7,12 +7,12 @@
     "url": "https://github.com/iTwin/imodel-transformer"
   },
   "scripts": {
-    "build": "pnpm -r run build",
-    "test": "pnpm -r --filter=!transformer-performance-tests run test",
+    "build": "pnpm -r build",
+    "test": "pnpm -r --filter=!transformer-performance-tests test",
     "docs": "pnpm -r run docs",
-    "lint": "pnpm -r run lint",
-    "format": "pnpm -r run format",
-    "cover": "pnpm -r run cover",
+    "lint": "pnpm -r lint",
+    "format": "pnpm -r format",
+    "cover": "pnpm -r cover",
     "lint:copyright": "node scripts/copyrightLinter.js",
     "change": "beachball change",
     "check": "beachball check",
