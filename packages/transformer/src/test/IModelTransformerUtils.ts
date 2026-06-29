@@ -25,6 +25,7 @@ import {
   DisplayStyle3d,
   DrawingCategory,
   DrawingGraphicRepresentsElement,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -97,6 +98,37 @@ import {
   RelationshipPropsForDelete,
 } from "../IModelTransformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+
+type TestTransformOptions = IModelTransformOptions & {
+  editTxn?: EditTxn;
+};
+
+function withStartedEditTxn(
+  target: IModelDb | IModelImporter,
+  options?: TestTransformOptions
+): [EditTxn, IModelTransformOptions | undefined] {
+  const editTxn =
+    options?.editTxn ??
+    new EditTxn(
+      target instanceof IModelImporter ? target.targetDb : target,
+      "IModelTransformer"
+    );
+  if (!editTxn.isActive) {
+    editTxn.start();
+  }
+  const { editTxn: _editTxn, ...transformOptions } = options ?? {};
+  return [
+    editTxn,
+    Object.keys(transformOptions).length > 0 ? transformOptions : undefined,
+  ];
+}
+
+/** Creates an EditTxn for the given db and starts it. */
+export function createStartedEditTxn(db: IModelDb): EditTxn {
+  const editTxn = new EditTxn(db, "IModelTransformer");
+  editTxn.start();
+  return editTxn;
+}
 
 export class HubWrappers extends TestUtils.HubWrappers {
   protected static override get hubMock() {
@@ -1594,9 +1626,10 @@ export class IModelTransformer3d extends IModelTransformer {
   public constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
-    transform3d: Transform
+    transform3d: Transform,
+    options?: TestTransformOptions
   ) {
-    super(sourceDb, targetDb);
+    super(sourceDb, targetDb, ...withStartedEditTxn(targetDb, options));
     this._transform3d = transform3d;
   }
   /** Override transformElement to apply a 3d transform to all GeometricElement3d instances. */
@@ -1631,9 +1664,13 @@ export class PhysicalModelConsolidator extends IModelTransformer {
     targetModelId: Id64String,
     argsForProcessChanges?: ProcessChangesOptions
   ) {
-    super(sourceDb, targetDb, {
-      argsForProcessChanges,
-    });
+    super(
+      sourceDb,
+      targetDb,
+      ...withStartedEditTxn(targetDb, {
+        argsForProcessChanges,
+      })
+    );
     this._targetModelId = targetModelId;
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }
@@ -1684,7 +1721,7 @@ export class FilterByViewTransformer extends IModelTransformer {
     targetDb: IModelDb,
     exportViewDefinitionId: Id64String
   ) {
-    super(sourceDb, targetDb);
+    super(sourceDb, targetDb, ...withStartedEditTxn(targetDb));
     this._exportViewDefinitionId = exportViewDefinitionId;
     const exportViewDefinition =
       sourceDb.elements.getElement<SpatialViewDefinition>(
@@ -1742,7 +1779,7 @@ export class TestIModelTransformer extends IModelTransformer {
   public static async create(
     source: IModelDb | IModelExporter,
     target: IModelDb | IModelImporter,
-    options?: IModelTransformOptions
+    options?: TestTransformOptions
   ): Promise<TestIModelTransformer> {
     const transformer = new TestIModelTransformer(source, target, options);
     await transformer.initSubCategoryFilters();
@@ -1752,9 +1789,9 @@ export class TestIModelTransformer extends IModelTransformer {
   private constructor(
     source: IModelDb | IModelExporter,
     target: IModelDb | IModelImporter,
-    options?: IModelTransformOptions
+    options?: TestTransformOptions
   ) {
-    super(source, target, options);
+    super(source, target, ...withStartedEditTxn(target, options));
     this.initExclusions();
     this.initCodeSpecRemapping();
     this.initCategoryRemapping();
@@ -2049,8 +2086,12 @@ export class CountingIModelImporter extends IModelImporter {
   public numRelationshipsInserted: number = 0;
   public numRelationshipsUpdated: number = 0;
   public numRelationshipsDeleted: number = 0;
-  public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
-    super(targetDb, options);
+  public constructor(
+    targetDb: IModelDb,
+    editTxn: EditTxn,
+    options?: IModelImportOptions
+  ) {
+    super(targetDb, editTxn, options);
   }
   protected override async onInsertModel(
     modelProps: ModelProps
@@ -2122,8 +2163,12 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     Id64String
   >();
 
-  public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
-    super(targetDb, options);
+  public constructor(
+    targetDb: IModelDb,
+    editTxn: EditTxn,
+    options?: IModelImportOptions
+  ) {
+    super(targetDb, editTxn, options);
   }
   protected override async onInsertModel(
     modelProps: ModelProps

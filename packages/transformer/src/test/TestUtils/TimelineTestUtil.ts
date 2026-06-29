@@ -31,6 +31,7 @@ import {
 import {
   HubWrappers,
   IModelTransformerTestUtils,
+  createStartedEditTxn,
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
 import { omit } from "@itwin/core-bentley";
@@ -455,10 +456,12 @@ export async function runTimeline(
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
-        const provenanceInserter = new IModelTransformer(master.db, branchDb, {
-          ...transformerOpts,
-          wasSourceIModelCopiedToTarget: true,
-        });
+        const provenanceInserter = new IModelTransformer(
+          master.db,
+          branchDb,
+          createStartedEditTxn(branchDb),
+          { ...transformerOpts, wasSourceIModelCopiedToTarget: true }
+        );
         await provenanceInserter.process();
         provenanceInserter.dispose();
         await saveAndPushChanges(
@@ -523,14 +526,19 @@ export async function runTimeline(
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = await getIModelState(target.db);
 
-        const syncer = new IModelTransformer(source.db, target.db, {
-          ...transformerOpts,
-          argsForProcessChanges: {
-            startChangeset: startIndex
-              ? { index: startIndex }
-              : { index: undefined },
-          },
-        });
+        const syncer = new IModelTransformer(
+          source.db,
+          target.db,
+          createStartedEditTxn(target.db),
+          {
+            ...transformerOpts,
+            argsForProcessChanges: {
+              startChangeset: startIndex
+                ? { index: startIndex }
+                : { index: undefined },
+            },
+          }
+        );
         initTransformer?.(syncer);
         try {
           await syncer.process();

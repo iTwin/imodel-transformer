@@ -20,6 +20,7 @@ import { IModel } from "@itwin/core-common";
 import { GuidString, Logger } from "@itwin/core-bentley";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import { IModelImporter } from "../../IModelImporter";
+import { createStartedEditTxn } from "../IModelTransformerUtils";
 
 /**
  * This test reproduces the issue described in:
@@ -85,7 +86,8 @@ describe("computeProjectExtents with no geometry", () => {
       );
 
       // Create an importer with autoExtendProjectExtents enabled (default behavior when not excluding outliers)
-      const importer = new IModelImporter(iModelDb, {
+      const editTxn = createStartedEditTxn(iModelDb);
+      const importer = new IModelImporter(iModelDb, editTxn, {
         autoExtendProjectExtents: true,
       });
 

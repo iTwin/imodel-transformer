@@ -31,6 +31,7 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import {
+  IModelDb,
   IModelHost,
   IModelJsFs,
   PhysicalModel,
@@ -41,7 +42,10 @@ import {
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import { IModelTransformer } from "../../IModelTransformer";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  IModelTransformerTestUtils,
+  createStartedEditTxn,
+} from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as path from "path";
@@ -239,10 +243,12 @@ describe.skip("IModelTransformer Performance Tests", () => {
     });
 
     // Transform
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
-      loadSourceGeometry: true,
-      noProvenance: true,
-    });
+    const transformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      createStartedEditTxn(targetDb),
+      { loadSourceGeometry: true, noProvenance: true }
+    );
 
     const schemasStartTime = performance.now();
     await transformer.processSchemas();
@@ -299,10 +305,12 @@ describe.skip("IModelTransformer Performance Tests", () => {
       console.log(`Target iModel created: ${targetDb.pathName}`);
 
       // Create transformer
-      const transformer = new IModelTransformer(sourceDb, targetDb, {
-        loadSourceGeometry: true,
-        noProvenance: true,
-      });
+      const transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        createStartedEditTxn(targetDb),
+        { loadSourceGeometry: true, noProvenance: true }
+      );
 
       // Time schema processing
       console.log("Processing schemas...");

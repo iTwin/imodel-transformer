@@ -11,6 +11,7 @@ import {
 import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  EditTxn,
   ExternalSource,
   ExternalSourceIsInRepository,
   IModelDb,
@@ -50,7 +51,9 @@ const nativeTransformerTestModule: TestTransformerModule = {
     sourceDb: IModelDb,
     targetDb: IModelDb
   ): Promise<TransformRunner> {
-    const transformer = new ProgressTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new ProgressTransformer(sourceDb, targetDb, editTxn);
     return {
       async run() {
         await transformer.processSchemas();
@@ -91,13 +94,20 @@ const nativeTransformerTestModule: TestTransformerModule = {
         .version,
     } as ExternalSourceProps);
 
-    const transformer = new ProgressTransformer(sourceDb, targetDb, {
-      // tells the transformer that we have a raw copy of a source and the target should receive
-      // provenance from the source that is necessary for performing synchronizations in the future
-      wasSourceIModelCopiedToTarget: true,
-      // store the synchronization provenance in the scope of our representation of the external source, master
-      targetScopeElementId: masterExternalSourceId,
-    });
+    const forkEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    forkEditTxn.start();
+    const transformer = new ProgressTransformer(
+      sourceDb,
+      targetDb,
+      forkEditTxn,
+      {
+        // tells the transformer that we have a raw copy of a source and the target should receive
+        // provenance from the source that is necessary for performing synchronizations in the future
+        wasSourceIModelCopiedToTarget: true,
+        // store the synchronization provenance in the scope of our representation of the external source, master
+        targetScopeElementId: masterExternalSourceId,
+      }
+    );
     return {
       async run() {
         await transformer.process();

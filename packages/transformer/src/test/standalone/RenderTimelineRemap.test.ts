@@ -32,6 +32,7 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import { IModelTransformer } from "../../IModelTransformer";
+import { createStartedEditTxn } from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
@@ -192,7 +193,11 @@ describe("RenderTimeline Remap", () => {
       for (let i = 0; i < 3; i++) insertPhysicalModel(txn, targetDb);
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const transformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      createStartedEditTxn(targetDb)
+    );
     await transformer.process();
 
     const targetTimelineIds = targetDb.queryEntityIds({

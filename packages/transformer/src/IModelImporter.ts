@@ -90,7 +90,7 @@ export class IModelImporter {
   /** The [[EditTxn]] used for write operations on the target iModel.
    * @beta
    */
-  public editTxn!: EditTxn;
+  protected _editTxn: EditTxn;
 
   /** resolved initialization options for the importer
    * @beta
@@ -146,10 +146,16 @@ export class IModelImporter {
 
   /** Construct a new IModelImporter
    * @param targetDb The target IModelDb
+   * @param editTxn The [[EditTxn]] to use for write operations on the target iModel.
    * @param options The options that specify how the import should be done.
    */
-  public constructor(targetDb: IModelDb, options?: IModelImportOptions) {
+  public constructor(
+    targetDb: IModelDb,
+    editTxn: EditTxn,
+    options?: IModelImportOptions
+  ) {
     this.targetDb = targetDb;
+    this._editTxn = editTxn;
     this.options = {
       autoExtendProjectExtents: options?.autoExtendProjectExtents ?? true,
       preserveElementIdsForFiltering:
@@ -222,7 +228,7 @@ export class IModelImporter {
    */
   protected async onInsertModel(modelProps: ModelProps): Promise<Id64String> {
     try {
-      const modelId: Id64String = this.editTxn.insertModel(modelProps);
+      const modelId: Id64String = this._editTxn.insertModel(modelProps);
       Logger.logInfo(
         loggerCategory,
         `Inserted ${this.formatModelForLogger(modelProps)}`
@@ -243,7 +249,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize update behavior but should call `super.onUpdateModel`.
    */
   protected async onUpdateModel(modelProps: ModelProps): Promise<void> {
-    this.editTxn.updateModel(modelProps);
+    this._editTxn.updateModel(modelProps);
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatModelForLogger(modelProps)}`
@@ -337,7 +343,7 @@ export class IModelImporter {
     elementProps: ElementProps
   ): Promise<Id64String> {
     try {
-      const elementId = this.editTxn.insertElement(elementProps, {
+      const elementId = this._editTxn.insertElement(elementProps, {
         forceUseId: this.options.preserveElementIdsForFiltering,
       });
       // set the id like [IModelDb.insertElement]($backend), does, the raw nativeDb method does not
@@ -377,7 +383,7 @@ export class IModelImporter {
     if (!elementProps.id) {
       throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
     }
-    this.editTxn.updateElement(elementProps);
+    this._editTxn.updateElement(elementProps);
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatElementForLogger(elementProps)}`
@@ -426,7 +432,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteModel`.
    */
   protected async onDeleteModel(modelId: Id64String): Promise<void> {
-    this.editTxn.deleteModel(modelId);
+    this._editTxn.deleteModel(modelId);
     Logger.logInfo(loggerCategory, `Deleted model ${modelId}`);
     await this.trackProgress();
   }
@@ -545,7 +551,7 @@ export class IModelImporter {
     aspectProps: ElementAspectProps
   ): Promise<Id64String> {
     try {
-      const id = this.editTxn.insertAspect(aspectProps);
+      const id = this._editTxn.insertAspect(aspectProps);
       Logger.logInfo(
         loggerCategory,
         `Inserted ${this.formatElementAspectForLogger(aspectProps)}`
@@ -568,7 +574,7 @@ export class IModelImporter {
   protected async onUpdateElementAspect(
     aspectProps: ElementAspectProps
   ): Promise<void> {
-    this.editTxn.updateAspect(aspectProps);
+    this._editTxn.updateAspect(aspectProps);
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatElementAspectForLogger(aspectProps)}`
@@ -582,7 +588,7 @@ export class IModelImporter {
   protected async onDeleteElementAspect(
     targetElementAspect: ElementAspect
   ): Promise<void> {
-    this.editTxn.deleteAspect(targetElementAspect.id);
+    this._editTxn.deleteAspect(targetElementAspect.id);
     Logger.logInfo(
       loggerCategory,
       `Deleted ${this.formatElementAspectForLogger(targetElementAspect)}`
@@ -654,7 +660,7 @@ export class IModelImporter {
   ): Promise<Id64String> {
     try {
       const targetRelInstanceId: Id64String =
-        this.editTxn.insertRelationship(relationshipProps);
+        this._editTxn.insertRelationship(relationshipProps);
       Logger.logInfo(
         loggerCategory,
         `Inserted ${this.formatRelationshipForLogger(relationshipProps)}`
@@ -683,7 +689,7 @@ export class IModelImporter {
         "Relationship instance Id not provided"
       );
     }
-    this.editTxn.updateRelationship(relationshipProps);
+    this._editTxn.updateRelationship(relationshipProps);
     Logger.logInfo(
       loggerCategory,
       `Updated ${this.formatRelationshipForLogger(relationshipProps)}`
@@ -696,7 +702,7 @@ export class IModelImporter {
     relationshipProps: RelationshipPropsForDelete
   ): Promise<void> {
     // Only passing in what deleteInstance actually uses, full relationshipProps is not necessary.
-    this.editTxn.deleteRelationship({
+    this._editTxn.deleteRelationship({
       id: relationshipProps.id,
       classFullName: relationshipProps.classFullName,
     } as RelationshipProps);
@@ -771,7 +777,7 @@ export class IModelImporter {
         ? extentsWithOutliers
         : computedProjectExtents.extents;
       if (!newProjectExtents.isAlmostEqual(this.targetDb.projectExtents)) {
-        this.editTxn.updateProjectExtents(newProjectExtents);
+        this._editTxn.updateProjectExtents(newProjectExtents);
         Logger.logInfo(
           loggerCategory,
           `Updated projectExtents=${JSON.stringify(
@@ -830,7 +836,7 @@ export class IModelImporter {
     for (const [elementId, codeValue] of this._duplicateCodeValueMap) {
       const element = this.targetDb.elements.getElement(elementId);
       element.code.value = codeValue;
-      this.editTxn.updateElement(element.toJSON());
+      this._editTxn.updateElement(element.toJSON());
     }
     this._duplicateCodeValueMap.clear();
   }

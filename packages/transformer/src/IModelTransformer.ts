@@ -103,8 +103,6 @@ import {
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
-// eslint-disable-next-line @itwin/no-internal
-import { _activeTxn } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
@@ -243,14 +241,6 @@ export interface IModelTransformOptions {
    * @default false
    */
   tryAlignGeolocation?: boolean;
-
-  /** An optional [[EditTxn]] to use for all write operations on the target iModel.
-   * If provided, the transformer will route its writes through this transaction and will **not** call `saveChanges` —
-   * the caller retains full control of when the transaction is committed.
-   * If not provided, the transformer will create its own [[EditTxn]] for the target iModel, accessible via [[IModelTransformer.editTxn]].
-   * @beta
-   */
-  editTxn?: EditTxn;
 }
 
 /**
@@ -387,13 +377,6 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly sourceDb: IModelDb;
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
-  /** The [[EditTxn]] used for write operations on the target iModel.
-   * If one was provided via [[IModelTransformOptions.editTxn]], it is used directly.
-   * Otherwise, a new [[EditTxn]] is created for the target iModel.
-   * The caller is responsible for committing or abandoning this transaction.
-   * @beta
-   */
-  public readonly editTxn: EditTxn;
   /** The IModelTransformContext for this IModelTransformer. */
   public readonly context: IModelCloneContext;
   /** The transform to be applied to the placement of spatial elements
@@ -405,6 +388,12 @@ export class IModelTransformer extends IModelExportHandler {
    * @beta
    */
   private _linearSpatialTransform?: Transform;
+  /** The [[EditTxn]] used for write operations on the target iModel.
+   * Provided via [[IModelTransformOptions.editTxn]].
+   * The caller is responsible for starting, committing or abandoning this transaction.
+   * @beta
+   */
+  protected readonly _editTxn: EditTxn;
   private _syncTypeResolver!: SyncTypeResolver;
   protected _provenanceManager!: ProvenanceManager;
 
@@ -454,11 +443,13 @@ export class IModelTransformer extends IModelExportHandler {
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
    * @param target Specifies the target IModelImporter or the target IModelDb that will be used to construct the target IModelImporter.
+   * @param editTxn The [[EditTxn]] to use for all write operations on the target iModel. Must be started before calling [[process]].
    * @param options The options that specify how the transformation should be done.
    */
   public constructor(
     source: IModelDb | IModelExporter,
     target: IModelDb | IModelImporter,
+    editTxn: EditTxn,
     options?: IModelTransformOptions
   ) {
     super();
@@ -510,7 +501,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.exporter.excludeElementAspectClass("BisCore:TextAnnotationData"); // This ElementAspect is auto-created by the BisCore:TextAnnotation2d/3d element handlers
     // initialize importer and targetDb
     if (target instanceof IModelDb) {
-      this.importer = new IModelImporter(target, {
+      this.importer = new IModelImporter(target, editTxn, {
         preserveElementIdsForFiltering:
           this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
@@ -521,13 +512,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
-    // initialize the EditTxn for target writes:
-    // use the provided one, or reuse the iModel's active one, or create a new one
-    this.editTxn =
-      this._options.editTxn ??
-      this.targetDb[_activeTxn] ??
-      new EditTxn(this.targetDb, "IModelTransformer");
-    this.importer.editTxn = this.editTxn;
+    this._editTxn = editTxn;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -1071,7 +1056,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processElement(sourceElementId: Id64String): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     if (sourceElementId === IModel.rootSubjectId) {
       throw new IModelError(
@@ -1089,7 +1073,6 @@ export class IModelTransformer extends IModelExportHandler {
   public async processChildElements(
     sourceElementId: Id64String
   ): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportChildElements(sourceElementId);
   }
@@ -1481,7 +1464,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processModel(sourceModeledElementId: Id64String): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportModel(sourceModeledElementId);
   }
@@ -1497,7 +1479,6 @@ export class IModelTransformer extends IModelExportHandler {
     targetModelId: Id64String,
     elementClassFullName: string = Element.classFullName
   ): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     this.targetDb.models.getModel(targetModelId); // throws if Model does not exist
     this.context.remapElement(sourceModelId, targetModelId); // set remapping in case importModelContents is called directly
@@ -1606,7 +1587,6 @@ export class IModelTransformer extends IModelExportHandler {
   public async processRelationships(
     baseRelClassFullName: string
   ): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportRelationships(baseRelClassFullName);
   }
@@ -1900,7 +1880,6 @@ export class IModelTransformer extends IModelExportHandler {
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
   public async processSchemas(): Promise<void> {
-    this.ensureEditTxnStarted();
     // we do not need to initialize for this since no entities are exported
     try {
       IModelJsFs.mkdirSync(this._schemaExportDir);
@@ -1928,7 +1907,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processFonts(): Promise<void> {
-    this.ensureEditTxnStarted();
     // we do not need to initialize for this since no entities are exported
     await this.initialize();
     return this.exporter.exportFonts();
@@ -1946,7 +1924,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpecs(): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportCodeSpecs();
   }
@@ -1955,7 +1932,6 @@ export class IModelTransformer extends IModelExportHandler {
    * @note This method is called from [[process]], so it only needs to be called directly when processing a subset of an iModel.
    */
   public async processCodeSpec(codeSpecName: string): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     return this.exporter.exportCodeSpecByName(codeSpecName);
   }
@@ -1981,7 +1957,6 @@ export class IModelTransformer extends IModelExportHandler {
     sourceSubjectId: Id64String,
     targetSubjectId: Id64String
   ): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
     this.sourceDb.elements.getElement(sourceSubjectId, Subject); // throws if sourceSubjectId is not a Subject
     this.targetDb.elements.getElement(targetSubjectId, Subject); // throws if targetSubjectId is not a Subject
@@ -2006,6 +1981,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async initialize(): Promise<void> {
     if (this._initialized) return;
+    this.assertEditTxnActive();
 
     await this.initScopeProvenance();
 
@@ -2405,10 +2381,12 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
-  /** Ensures the EditTxn is started before any write operations. */
-  private ensureEditTxnStarted(): void {
-    if (!this.editTxn.isActive) {
-      this.editTxn.start();
+  /** Asserts that the EditTxn is active before any write operations. */
+  private assertEditTxnActive(): void {
+    if (!this._editTxn.isActive) {
+      throw new Error(
+        "The EditTxn must be started before calling process(). Call editTxn.start() before invoking the transformer."
+      );
     }
   }
 
@@ -2436,7 +2414,6 @@ export class IModelTransformer extends IModelExportHandler {
    *
    */
   public async process(): Promise<void> {
-    this.ensureEditTxnStarted();
     await this.initialize();
 
     this.logSettings();
@@ -2578,11 +2555,15 @@ export class TemplateModelCloner extends IModelTransformer {
    *                 Typically this is left unspecified, and the default is to use the sourceDb as the target
    * @note The expectation is that the template definitions are within the same iModel where instances will be placed.
    */
-  public constructor(sourceDb: IModelDb, targetDb: IModelDb = sourceDb) {
-    const target = new IModelImporter(targetDb, {
+  public constructor(
+    sourceDb: IModelDb,
+    editTxn: EditTxn,
+    targetDb: IModelDb = sourceDb
+  ) {
+    const target = new IModelImporter(targetDb, editTxn, {
       autoExtendProjectExtents: false, // autoExtendProjectExtents is intended for transformation service use cases, not template --> instance cloning
     });
-    super(sourceDb, target, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
+    super(sourceDb, target, editTxn, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
   }
   /** Place a template from the sourceDb at the specified placement in the target model within the targetDb.
    * @param sourceTemplateModelId The Id of the template model in the sourceDb

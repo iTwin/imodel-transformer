@@ -202,13 +202,13 @@ export abstract class IModelExportHandler {
 
 // @beta
 export class IModelImporter {
-    constructor(targetDb: IModelDb, options?: IModelImportOptions);
+    constructor(targetDb: IModelDb, editTxn: EditTxn, options?: IModelImportOptions);
     computeProjectExtents(): void;
     deleteElement(elementId: Id64String): Promise<void>;
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
-    editTxn: EditTxn;
+    protected _editTxn: EditTxn;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
@@ -248,7 +248,7 @@ export interface IModelImportOptions {
 
 // @beta
 export class IModelTransformer extends IModelExportHandler {
-    constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
+    constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, editTxn: EditTxn, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
     calculateEcefTransform(): Transform | undefined;
     // (undocumented)
@@ -262,7 +262,7 @@ export class IModelTransformer extends IModelExportHandler {
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     dispose(): void;
-    readonly editTxn: EditTxn;
+    protected readonly _editTxn: EditTxn;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
     getIsForwardSynchronization(): Promise<boolean>;
@@ -334,7 +334,6 @@ export interface IModelTransformOptions {
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
-    editTxn?: EditTxn;
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;
@@ -409,7 +408,7 @@ export interface TargetScopeProvenanceJsonProps {
 
 // @beta
 export class TemplateModelCloner extends IModelTransformer {
-    constructor(sourceDb: IModelDb, targetDb?: IModelDb);
+    constructor(sourceDb: IModelDb, editTxn: EditTxn, targetDb?: IModelDb);
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     placeTemplate2d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement2d): Promise<Map<Id64String, Id64String>>;
     placeTemplate3d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement3d): Promise<Map<Id64String, Id64String>>;

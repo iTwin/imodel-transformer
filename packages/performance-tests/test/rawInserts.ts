@@ -5,6 +5,7 @@
 import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  EditTxn,
   ElementGroupsMembers,
   SnapshotDb,
   StandaloneDb,
@@ -77,9 +78,16 @@ export default async function rawInserts(
   const targetDb = SnapshotDb.createEmpty(targetPath, {
     rootSubject: { name: "RawInsertsTarget" },
   });
-  const transformerWithProv = new IModelTransformer(sourceDb, targetDb, {
-    noProvenance: false,
-  });
+  const withProvEditTxn = new EditTxn(targetDb, "IModelTransformer");
+  withProvEditTxn.start();
+  const transformerWithProv = new IModelTransformer(
+    sourceDb,
+    targetDb,
+    withProvEditTxn,
+    {
+      noProvenance: false,
+    }
+  );
 
   const [transformWithProvTimer] = await timed(async () => {
     await transformerWithProv.process();
@@ -115,9 +123,16 @@ export default async function rawInserts(
   const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, {
     rootSubject: { name: "RawInsertsTarget" },
   });
-  const transformerNoProv = new IModelTransformer(sourceDb, targetNoProvDb, {
-    noProvenance: true,
-  });
+  const noProvEditTxn = new EditTxn(targetNoProvDb, "IModelTransformer");
+  noProvEditTxn.start();
+  const transformerNoProv = new IModelTransformer(
+    sourceDb,
+    targetNoProvDb,
+    noProvEditTxn,
+    {
+      noProvenance: true,
+    }
+  );
 
   const [transformNoProvTimer] = await timed(async () => {
     await transformerNoProv.process();

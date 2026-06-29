@@ -144,7 +144,7 @@ import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
 
-describe.only("IModelTransformer", () => {
+describe("IModelTransformer", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformer"
@@ -258,18 +258,21 @@ describe.only("IModelTransformer", () => {
         TransformerLoggerCategory.IModelTransformer,
         "=============="
       );
-      const targetImporter = new RecordingIModelImporter(targetDb);
+      const testEditTxn = new EditTxn(targetDb, "IModelTransformer");
+      testEditTxn.start();
+      const targetImporter = new RecordingIModelImporter(targetDb, testEditTxn);
       const transformer = await TestIModelTransformer.create(
         sourceDb,
         targetImporter,
         {
           forceExternalSourceAspectProvenance: true,
+          editTxn: testEditTxn,
         }
       );
       assert.isTrue(transformer.context.isBetweenIModels);
       await transformer.process();
       // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      testEditTxn.saveChanges();
       assert.isAtLeast(targetImporter.numModelsInserted, 1);
       assert.equal(targetImporter.numModelsUpdated, 0);
       assert.isAtLeast(targetImporter.numElementsInserted, 1);
@@ -315,7 +318,7 @@ describe.only("IModelTransformer", () => {
         { expectEsas: true }
       );
       transformer.context.dump(`${targetDbFile}.context.txt`);
-      transformer.editTxn.end();
+      testEditTxn.end();
       transformer.dispose();
     }
 
@@ -381,12 +384,18 @@ describe.only("IModelTransformer", () => {
         TransformerLoggerCategory.IModelTransformer,
         "================="
       );
-      const targetImporter = new RecordingIModelImporter(targetDb);
+      const testEditTxn2 = new EditTxn(targetDb, "IModelTransformer");
+      testEditTxn2.start();
+      const targetImporter = new RecordingIModelImporter(
+        targetDb,
+        testEditTxn2
+      );
       const transformer = await TestIModelTransformer.create(
         sourceDb,
         targetImporter,
         {
           forceExternalSourceAspectProvenance: true,
+          editTxn: testEditTxn2,
         }
       );
       await transformer.process();
@@ -423,7 +432,7 @@ describe.only("IModelTransformer", () => {
           "ExtensiveTestScenarioTarget:TargetInformationRecord"
         )
       );
-      transformer.editTxn.end();
+      testEditTxn2.end();
       transformer.dispose();
     }
 
@@ -469,15 +478,18 @@ describe.only("IModelTransformer", () => {
     assert.equal(0, await count(branchDb, ExternalSourceAspect.classFullName));
 
     // Ensure that master to branch synchronization did not add any new Elements or Relationships, but did add ExternalSourceAspects
+    const masterToBranchEditTxn = new EditTxn(branchDb, "IModelTransformer");
+    masterToBranchEditTxn.start();
     const masterToBranchTransformer = new IModelTransformer(
       masterDb,
       branchDb,
+      masterToBranchEditTxn,
       { wasSourceIModelCopiedToTarget: true }
     ); // Note use of `wasSourceIModelCopiedToTarget` flag
     await masterToBranchTransformer.process();
     masterToBranchTransformer.dispose();
     // eslint-disable-next-line @typescript-eslint/no-deprecated
-    branchDb.saveChanges();
+    masterToBranchEditTxn.saveChanges();
     assert.equal(
       numMasterElements,
       await count(branchDb, Element.classFullName)
@@ -504,7 +516,7 @@ describe.only("IModelTransformer", () => {
     TransformerExtensiveTestScenario.updateDb(branchDb);
     TransformerExtensiveTestScenario.assertUpdatesInDb(branchDb);
     // eslint-disable-next-line @typescript-eslint/no-deprecated
-    branchDb.saveChanges();
+    masterToBranchEditTxn.saveChanges();
 
     const numBranchElements = await count(branchDb, Element.classFullName);
     const numBranchRelationships = await count(
@@ -515,15 +527,18 @@ describe.only("IModelTransformer", () => {
     assert.notEqual(numBranchRelationships, numMasterRelationships);
 
     // Synchronize changes from branch back to master
+    const branchToMasterEditTxn = new EditTxn(masterDb, "IModelTransformer");
+    branchToMasterEditTxn.start();
     const branchToMasterTransformer = new IModelTransformer(
       branchDb,
       masterDb,
+      branchToMasterEditTxn,
       { noProvenance: true }
     );
     await branchToMasterTransformer.process();
     branchToMasterTransformer.dispose();
     // eslint-disable-next-line @typescript-eslint/no-deprecated
-    masterDb.saveChanges();
+    branchToMasterEditTxn.saveChanges();
     TransformerExtensiveTestScenario.assertUpdatesInDb(masterDb, false);
     assert.equal(
       numBranchElements,
@@ -638,7 +653,9 @@ describe.only("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, targetDbProps);
     assert.exists(targetDb);
     // import
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await transformer.processSchemas();
     await transformer.process();
     // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -727,7 +744,9 @@ describe.only("IModelTransformer", () => {
     });
 
     // clone
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn, {
       includeSourceProvenance: true,
     });
     await transformer.process();
@@ -871,10 +890,13 @@ describe.only("IModelTransformer", () => {
     const transform3d: Transform = Transform.createTranslation(
       new Point3d(100, 200)
     );
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
     const transformer = new IModelTransformer3d(
       sourceDb,
       targetDb,
-      transform3d
+      transform3d,
+      { editTxn }
     );
     await transformer.process();
     const targetModelId: Id64String =
@@ -1023,9 +1045,15 @@ describe.only("IModelTransformer", () => {
         iModelShared,
         "A"
       );
+      const transformerA2SEditTxn = new EditTxn(
+        iModelShared,
+        "IModelTransformer"
+      );
+      transformerA2SEditTxn.start();
       const transformerA2S = new IModelTransformer(
         iModelExporterA,
         iModelShared,
+        transformerA2SEditTxn,
         {
           targetScopeElementId: subjectId,
           danglingReferencesBehavior: "ignore",
@@ -1034,7 +1062,7 @@ describe.only("IModelTransformer", () => {
       );
       transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
       await transformerA2S.process();
-      transformerA2S.editTxn.end();
+      transformerA2SEditTxn.end();
       transformerA2S.dispose();
       // Make sure some properties, for example, description, can persist
       const teamIModelA: Subject = iModelA.elements.getElement<Subject>(
@@ -1070,9 +1098,15 @@ describe.only("IModelTransformer", () => {
         iModelShared,
         "B"
       );
+      const transformerB2SEditTxn = new EditTxn(
+        iModelShared,
+        "IModelTransformer"
+      );
+      transformerB2SEditTxn.start();
       const transformerB2S = new IModelTransformer(
         iModelExporterB,
         iModelShared,
+        transformerB2SEditTxn,
         {
           targetScopeElementId: subjectId,
           danglingReferencesBehavior: "ignore",
@@ -1080,7 +1114,7 @@ describe.only("IModelTransformer", () => {
       );
       transformerB2S.context.remapElement(IModel.rootSubjectId, subjectId);
       await transformerB2S.process();
-      transformerB2S.editTxn.end();
+      transformerB2SEditTxn.end();
       transformerB2S.dispose();
       IModelTransformerTestUtils.dumpIModelInfo(iModelB);
       iModelB.close();
@@ -1098,9 +1132,15 @@ describe.only("IModelTransformer", () => {
           outputDir,
           "Consolidated"
         );
+      const transformerS2CEditTxn = new EditTxn(
+        iModelConsolidated,
+        "IModelTransformer"
+      );
+      transformerS2CEditTxn.start();
       const transformerS2C = new IModelTransformer(
         iModelShared,
-        iModelConsolidated
+        iModelConsolidated,
+        transformerS2CEditTxn
       );
       const subjectA: Id64String = IModelTransformerTestUtils.querySubjectId(
         iModelShared,
@@ -1157,7 +1197,7 @@ describe.only("IModelTransformer", () => {
       await transformerS2C.processRelationships(
         ElementRefersToElements.classFullName
       );
-      transformerS2C.editTxn.end();
+      transformerS2CEditTxn.end();
       transformerS2C.dispose();
       IModelTransformerTestUtils.assertConsolidatedIModelContents(
         iModelConsolidated,
@@ -1199,7 +1239,13 @@ describe.only("IModelTransformer", () => {
     assert.exists(sourceIModelDb);
     assert.exists(targetIModelDb);
 
-    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb);
+    const editTxn = new EditTxn(targetIModelDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(
+      sourceIModelDb,
+      targetIModelDb,
+      editTxn
+    );
     transformer.context.remapElement(
       IModel.rootSubjectId,
       IModel.rootSubjectId
@@ -1260,7 +1306,13 @@ describe.only("IModelTransformer", () => {
       IModel.rootSubjectId,
       "target"
     );
-    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb);
+    const editTxn = new EditTxn(targetIModelDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(
+      sourceIModelDb,
+      targetIModelDb,
+      editTxn
+    );
     transformer.context.remapElement(sourceSubjectId, targetSubjectId);
     await transformer.process();
     transformer.dispose();
@@ -1314,9 +1366,14 @@ describe.only("IModelTransformer", () => {
       IModel.rootSubjectId,
       "target"
     );
-    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb, {
-      danglingReferencesBehavior: "ignore",
-    });
+    const editTxn = new EditTxn(targetIModelDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(
+      sourceIModelDb,
+      targetIModelDb,
+      editTxn,
+      { danglingReferencesBehavior: "ignore" }
+    );
     transformer.context.remapElement(IModel.rootSubjectId, targetSubjectId);
     await transformer.process();
     transformer.dispose();
@@ -1367,9 +1424,14 @@ describe.only("IModelTransformer", () => {
       targetParentSubjectId,
       "targetChild"
     );
-    const transformer = new IModelTransformer(sourceIModelDb, targetIModelDb, {
-      danglingReferencesBehavior: "ignore",
-    });
+    const editTxn = new EditTxn(targetIModelDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(
+      sourceIModelDb,
+      targetIModelDb,
+      editTxn,
+      { danglingReferencesBehavior: "ignore" }
+    );
     transformer.context.remapElement(
       IModel.rootSubjectId,
       targetChildSubjectId
@@ -1409,9 +1471,15 @@ describe.only("IModelTransformer", () => {
       iModelShared,
       "A"
     );
+    const transformerA2SEditTxn = new EditTxn(
+      iModelShared,
+      "IModelTransformer"
+    );
+    transformerA2SEditTxn.start();
     const transformerA2S = new IModelTransformer(
       iModelExporterA,
       iModelShared,
+      transformerA2SEditTxn,
       { targetScopeElementId: subjectId, danglingReferencesBehavior: "ignore" }
     );
     transformerA2S.context.remapElement(IModel.rootSubjectId, subjectId);
@@ -1485,12 +1553,17 @@ describe.only("IModelTransformer", () => {
     });
 
     const transformerEditTxn = new EditTxn(targetDb, "IModelTransformer");
-    const transformer1 = new IModelTransformer(sourceDb1, targetDb, {
-      editTxn: transformerEditTxn,
-    }); // did not set targetScopeElementId
-    const transformer2 = new IModelTransformer(sourceDb2, targetDb, {
-      editTxn: transformerEditTxn,
-    }); // did not set targetScopeElementId
+    transformerEditTxn.start();
+    const transformer1 = new IModelTransformer(
+      sourceDb1,
+      targetDb,
+      transformerEditTxn
+    ); // did not set targetScopeElementId
+    const transformer2 = new IModelTransformer(
+      sourceDb2,
+      targetDb,
+      transformerEditTxn
+    ); // did not set targetScopeElementId
 
     await transformer1.process(); // first one succeeds using IModel.rootSubjectId as the default targetScopeElementId
 
@@ -1572,7 +1645,9 @@ describe.only("IModelTransformer", () => {
     });
     await targetDb.importSchemas([cloneTestSchema101]);
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await transformer.processElement(sourceElementId);
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
@@ -1903,9 +1978,12 @@ describe.only("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: { name: "Order Test" },
     });
+    const orderedEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    orderedEditTxn.start();
     const transformer = new IModelTransformer(
       new OrderedExporter(sourceDb),
-      targetDb
+      targetDb,
+      orderedEditTxn
     );
 
     let error: any;
@@ -1954,7 +2032,9 @@ describe.only("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: { name: "FinallyFirstTest" },
     });
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
 
     const importSchemasResolved = sinon.spy();
     let importSchemasPromise: Promise<void>;
@@ -2043,7 +2123,9 @@ describe.only("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: { name: sourceDb.rootSubject.name },
     });
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
 
     await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
     await expect(transformer.process()).to.eventually.be.fulfilled;
@@ -2171,7 +2253,9 @@ describe.only("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbPath, {
       rootSubject: { name: sourceDb.rootSubject.name },
     });
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
 
     await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
     await expect(transformer.process()).to.eventually.be.fulfilled;
@@ -2269,7 +2353,9 @@ describe.only("IModelTransformer", () => {
       "The targetDb must have a less up-to-date version of the BisCore schema than the source"
     );
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await transformer.processSchemas();
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
@@ -2510,9 +2596,14 @@ describe.only("IModelTransformer", () => {
       }
     }
 
-    const transformer = new FilterCategoryTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-    });
+    const filterEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    filterEditTxn.start();
+    const transformer = new FilterCategoryTransformer(
+      sourceDb,
+      targetDb,
+      filterEditTxn,
+      { preserveElementIdsForFiltering: true }
+    );
     await transformer.process();
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
@@ -2573,7 +2664,13 @@ describe.only("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: seedDb.rootSubject,
     });
-    const seedTransformer = new IModelTransformer(seedDb, sourceDb);
+    const seedEditTxn = new EditTxn(sourceDb, "IModelTransformer");
+    seedEditTxn.start();
+    const seedTransformer = new IModelTransformer(
+      seedDb,
+      sourceDb,
+      seedEditTxn
+    );
     await seedTransformer.process();
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
@@ -2586,7 +2683,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: sourceDb.rootSubject,
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn, {
       preserveElementIdsForFiltering: true,
     });
     await transformer.process();
@@ -2597,8 +2696,8 @@ describe.only("IModelTransformer", () => {
     const targetContent = await getAllElementsInvariants(targetDb);
     expect(targetContent).to.deep.equal(sourceContent);
 
-    seedTransformer.editTxn.end();
-    transformer.editTxn.end();
+    seedEditTxn.end();
+    editTxn.end();
     sourceDb.close();
     targetDb.close();
   });
@@ -2720,11 +2819,13 @@ describe.only("IModelTransformer", () => {
       createTarget: () => StandaloneDb,
       options?: IModelTransformOptions
     ) {
-      super(
+      const target = createEmptyTargetWithIdsStartingAfterSource(
         source,
-        createEmptyTargetWithIdsStartingAfterSource(source, createTarget),
-        options
+        createTarget
       );
+      const editTxn = new EditTxn(target, "IModelTransformer");
+      editTxn.start();
+      super(source, target, editTxn, options);
     }
   }
 
@@ -2736,12 +2837,13 @@ describe.only("IModelTransformer", () => {
       createTarget: () => StandaloneDb,
       options?: IModelTransformOptions
     ) {
-      super(
-        order,
+      const target = createEmptyTargetWithIdsStartingAfterSource(
         source,
-        createEmptyTargetWithIdsStartingAfterSource(source, createTarget),
-        options
+        createTarget
       );
+      const editTxn = new EditTxn(target, "IModelTransformer");
+      editTxn.start();
+      super(order, source, target, editTxn, options);
     }
   }
 
@@ -2770,9 +2872,8 @@ describe.only("IModelTransformer", () => {
     targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const transformer = new IModelTransformer(sourceDb, targetDb, targetTxn, {
       preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
     });
     await transformer.process();
     targetTxn.saveChanges();
@@ -2793,10 +2894,12 @@ describe.only("IModelTransformer", () => {
     targetTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of restoring deleted element
-    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
-    });
+    const secondTransformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      targetTxn,
+      { preserveElementIdsForFiltering: true }
+    );
     await secondTransformer.process(); // should not throw error: duplicate code (65547) and should re-add deleted element
     targetTxn.saveChanges();
 
@@ -2846,9 +2949,8 @@ describe.only("IModelTransformer", () => {
     targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const transformer = new IModelTransformer(sourceDb, targetDb, targetTxn, {
       preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
     });
     await transformer.process();
     targetTxn.saveChanges();
@@ -2866,10 +2968,12 @@ describe.only("IModelTransformer", () => {
     sourceTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of updating element with desired id
-    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
-    });
+    const secondTransformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      targetTxn,
+      { preserveElementIdsForFiltering: true }
+    );
     await secondTransformer.process(); // should update description for subject element
     targetTxn.saveChanges();
 
@@ -2903,9 +3007,7 @@ describe.only("IModelTransformer", () => {
     });
     const sourceTxn = new EditTxn(sourceDb, "seed to source");
     sourceTxn.start();
-    const seedTransformer = new IModelTransformer(seedDb, sourceDb, {
-      editTxn: sourceTxn,
-    });
+    const seedTransformer = new IModelTransformer(seedDb, sourceDb, sourceTxn);
     await seedTransformer.process();
     sourceTxn.saveChanges();
     sourceTxn.end();
@@ -2921,18 +3023,19 @@ describe.only("IModelTransformer", () => {
     targetTxn.start();
 
     // Calling process() for first time will add all elements from source to target
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const transformer = new IModelTransformer(sourceDb, targetDb, targetTxn, {
       preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
     });
     await transformer.process();
     targetTxn.saveChanges();
 
     // should not throw error: duplicate code (65547)
-    const thirdTransformer = new IModelTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
-    });
+    const thirdTransformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      targetTxn,
+      { preserveElementIdsForFiltering: true }
+    );
     await thirdTransformer.process();
     targetTxn.saveChanges();
 
@@ -2970,9 +3073,8 @@ describe.only("IModelTransformer", () => {
     targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const transformer = new IModelTransformer(sourceDb, targetDb, targetTxn, {
       preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
     });
     await transformer.process();
     targetTxn.saveChanges();
@@ -3002,10 +3104,12 @@ describe.only("IModelTransformer", () => {
     targetTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of throwing expected error
-    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
-    });
+    const secondTransformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      targetTxn,
+      { preserveElementIdsForFiltering: true }
+    );
 
     await expect(secondTransformer.process()).to.be.rejectedWith(
       `Element id(${targetSubjectId}) cannot be preserved. Found a different mapping(${newSubjectId}) from source element`
@@ -3041,9 +3145,8 @@ describe.only("IModelTransformer", () => {
     targetTxn.start();
 
     // Execute process() so that elements from source are copied to target
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const transformer = new IModelTransformer(sourceDb, targetDb, targetTxn, {
       preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
     });
     await transformer.process();
     targetTxn.saveChanges();
@@ -3084,10 +3187,12 @@ describe.only("IModelTransformer", () => {
     targetTxn.saveChanges();
 
     // Calling process() for second time with option to preserve elements in hopes of of throwing expected error
-    const secondTransformer = new IModelTransformer(sourceDb, targetDb, {
-      preserveElementIdsForFiltering: true,
-      editTxn: targetTxn,
-    });
+    const secondTransformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      targetTxn,
+      { preserveElementIdsForFiltering: true }
+    );
 
     await expect(secondTransformer.process()).to.be.rejectedWith(
       `Element id(${targetSubjectId1}) cannot be preserved. An unrelated element in the target already uses id: ${targetSubjectId1}`
@@ -3298,10 +3403,9 @@ describe.only("IModelTransformer", () => {
     const targetTxn = new EditTxn(targetDb, "target edits");
     targetTxn.start();
 
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
+    const transformer = new IModelTransformer(sourceDb, targetDb, targetTxn, {
       includeSourceProvenance: true,
       noProvenance: true, // don't add transformer provenance aspects, makes querying for aspects later simpler
-      editTxn: targetTxn,
     });
 
     await transformer.processSchemas();
@@ -3407,11 +3511,9 @@ describe.only("IModelTransformer", () => {
     });
 
     class ProcessTargetLastTransformer extends IModelTransformer {
-      public constructor(
-        source: IModelDb,
-        target: IModelDb,
-        opts?: IModelTransformOptions
-      ) {
+      public constructor(source: IModelDb, target: IModelDb) {
+        const editTxn = new EditTxn(target, "IModelTransformer");
+        editTxn.start();
         super(
           new (class extends IModelExporter {
             public override async exportElement(elementId: string) {
@@ -3426,7 +3528,7 @@ describe.only("IModelTransformer", () => {
             }
           })(source),
           target,
-          opts
+          editTxn
         );
       }
     }
@@ -3511,7 +3613,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: sourceDb.rootSubject,
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await transformer.processSchemas();
     await transformer.process();
 
@@ -3623,7 +3727,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: sourceDb.rootSubject,
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
 
     await transformer.processSchemas();
     await transformer.process();
@@ -3665,9 +3771,15 @@ describe.only("IModelTransformer", () => {
         iModelShared,
         "A"
       );
+      const transformerA2SEditTxn = new EditTxn(
+        iModelShared,
+        "IModelTransformer"
+      );
+      transformerA2SEditTxn.start();
       const transformerA2S = new IModelTransformer(
         iModelExporterA,
         iModelShared,
+        transformerA2SEditTxn,
         {
           targetScopeElementId: subjectId,
           danglingReferencesBehavior: "ignore",
@@ -3699,7 +3811,7 @@ describe.only("IModelTransformer", () => {
         }
       });
 
-      transformerA2S.editTxn.end();
+      transformerA2SEditTxn.end();
       transformerA2S.dispose();
       iModelA.close();
       iModelShared.close();
@@ -3790,7 +3902,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: sourceDb.rootSubject,
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await transformer.processSchemas();
     await transformer.process();
 
@@ -3847,10 +3961,13 @@ describe.only("IModelTransformer", () => {
       rootSubject: sourceDb.rootSubject,
     });
 
+    const assertEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    assertEditTxn.start();
     const transformer = new AssertOrderTransformer(
       [elem1Id, sourceRepositoryId],
       sourceDb,
       targetDb,
+      assertEditTxn,
       { includeSourceProvenance: true }
     );
 
@@ -3954,8 +4071,14 @@ describe.only("IModelTransformer", () => {
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
-    const importer = new AspectTrackingImporter(targetDb);
-    const transformer = new AspectTrackingTransformer(sourceDb, importer);
+    const aspectEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    aspectEditTxn.start();
+    const importer = new AspectTrackingImporter(targetDb, aspectEditTxn);
+    const transformer = new AspectTrackingTransformer(
+      sourceDb,
+      importer,
+      aspectEditTxn
+    );
     assert.isTrue(transformer.context.isBetweenIModels);
     await transformer.process();
     transformer.dispose();
@@ -4040,7 +4163,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: { name: "NestedSchemaRefsTarget" },
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     assert.isTrue(transformer.context.isBetweenIModels);
     // no need to expect.eventually.fulfilled, because chai-as-promised ellipses long error messages so best
     // to just let it throw itself since that's what we're testing
@@ -4097,7 +4222,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: { name: "UnknownBisCoreNewSchemaRefTarget1" },
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb1);
+    const editTxn = new EditTxn(targetDb1, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb1, editTxn);
     expect(transformer.exporter.wantSystemSchemas).to.be.true;
     await transformer.processSchemas();
     transformer.dispose();
@@ -4112,9 +4239,12 @@ describe.only("IModelTransformer", () => {
 
     const noSystemSchemasExporter = new IModelExporter(sourceDb);
     noSystemSchemasExporter.wantSystemSchemas = false;
+    const noSystemSchemasEditTxn = new EditTxn(targetDb2, "IModelTransformer");
+    noSystemSchemasEditTxn.start();
     const noSystemSchemasTransformer = new IModelTransformer(
       noSystemSchemasExporter,
-      targetDb2
+      targetDb2,
+      noSystemSchemasEditTxn
     );
     expect(noSystemSchemasExporter.wantSystemSchemas).to.be.false;
     expect(noSystemSchemasTransformer.exporter.wantSystemSchemas).to.be.false;
@@ -4184,7 +4314,13 @@ describe.only("IModelTransformer", () => {
           if (doUpgrade) StandaloneDb.upgradeStandaloneSchemas(targetDbPath);
           targetDb = StandaloneDb.openFile(targetDbPath);
 
-          const transformer = new IModelTransformer(sourceDb, targetDb);
+          const editTxn = new EditTxn(targetDb, "IModelTransformer");
+          editTxn.start();
+          const transformer = new IModelTransformer(
+            sourceDb,
+            targetDb,
+            editTxn
+          );
           try {
             await transformer.processSchemas();
           } catch (err) {
@@ -4373,7 +4509,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: { name: "CodeValNbspTarget" },
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await transformer.process();
 
     const spatialCategoryInTargetId =
@@ -4509,7 +4647,9 @@ describe.only("IModelTransformer", () => {
       rootSubject: { name: "Combined Model" },
     });
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await expect(transformer.process()).not.to.be.rejected;
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
@@ -4618,12 +4758,10 @@ describe.only("IModelTransformer", () => {
 
     // using this class instead of sinon.replace provides some gurantees that subclasses can use the onExportSchema result as expected
     class TrackSchemaExportsTransformer extends IModelTransformer {
-      public constructor(
-        source: IModelDb,
-        target: IModelDb,
-        opts?: IModelTransformOptions
-      ) {
-        super(new TrackSchemaExportsExporter(source), target, opts);
+      public constructor(source: IModelDb, target: IModelDb) {
+        const editTxn = new EditTxn(target, "IModelTransformer");
+        editTxn.start();
+        super(new TrackSchemaExportsExporter(source), target, editTxn);
       }
       public override async onExportSchema(schema: ECSchemaMetaData.Schema) {
         const exportResult = await super.onExportSchema(schema);
@@ -4742,7 +4880,13 @@ describe.only("IModelTransformer", () => {
       }
     }
 
-    const transformer = new SkipElementTransformer(sourceDb, targetDb);
+    const skipEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    skipEditTxn.start();
+    const transformer = new SkipElementTransformer(
+      sourceDb,
+      targetDb,
+      skipEditTxn
+    );
     transformer.skippedElement = sourceReferencedElementId;
     await transformer.processSchemas();
     await transformer.process();
@@ -4807,7 +4951,9 @@ describe.only("IModelTransformer", () => {
       sourceDb,
       DetachedExportElementAspectsStrategy
     );
-    const transformer = new IModelTransformer(exporter, targetDb, {
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(exporter, targetDb, editTxn, {
       includeSourceProvenance: true,
     });
 
@@ -4896,7 +5042,9 @@ describe.only("IModelTransformer", () => {
       sourceDb,
       DetachedExportElementAspectsStrategy
     );
-    const transformer = new IModelTransformer(exporter, targetDb, {
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(exporter, targetDb, editTxn, {
       includeSourceProvenance: true,
     });
 
@@ -5159,7 +5307,9 @@ describe.only("IModelTransformer", () => {
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     targetDb.saveChanges();
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     // expect this to not reject, adding chai as promised makes the error less readable
     await transformer.processSchemas();
 
@@ -5188,7 +5338,9 @@ describe.only("IModelTransformer", () => {
     const targetDb = SnapshotDb.createEmpty(targetDbFile, {
       rootSubject: { name: "ProfileTransformationTarget" },
     });
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     // force initialize to not profile the schema reference cache hydration that will happen the first time an IModelCloneContext is created
     await transformer.initialize();
     await transformer.processSchemas();
@@ -5270,7 +5422,9 @@ describe.only("IModelTransformer", () => {
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceDb.saveChanges();
 
-    const transformer = new IModelTransformer(sourceDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn);
     await transformer.processSchemas();
     await transformer.process();
     // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -5429,7 +5583,9 @@ describe.only("IModelTransformer", () => {
     const targetDb = StandaloneDb.createEmpty(targetDbFile, {
       rootSubject: { name: "LineStyle-Target" },
     });
-    const transformer = new IModelTransformer(iModelDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(iModelDb, targetDb, editTxn);
     await transformer.process();
 
     const fedGuid = iModelDb.elements.getElement(lineStyle1Id).federationGuid;
@@ -5635,7 +5791,9 @@ describe.only("IModelTransformer", () => {
     const targetDb = StandaloneDb.createEmpty(targetDbFile, {
       rootSubject: { name: "LineStyle-Target" },
     });
-    const transformer = new IModelTransformer(iModelDb, targetDb);
+    const editTxn = new EditTxn(targetDb, "IModelTransformer");
+    editTxn.start();
+    const transformer = new IModelTransformer(iModelDb, targetDb, editTxn);
     await transformer.process();
 
     const fedGuid = iModelDb.elements.getElement(styleId).federationGuid;
