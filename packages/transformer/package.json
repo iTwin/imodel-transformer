@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "2.0.0-dev.19",
+  "version": "2.0.0-dev.20",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/imodel-transformer.js",
   "typings": "lib/cjs/imodel-transformer",
@@ -102,6 +102,11 @@
     "semver": "^7.7.2"
   },
   "nyc": {
-    "extends": "./node_modules/@itwin/build-tools/.nycrc"
+    "extends": "./node_modules/@itwin/build-tools/.nycrc",
+    "check-coverage": true,
+    "statements": 85,
+    "branches": 80,
+    "functions": 85,
+    "lines": 90
   }
 }
