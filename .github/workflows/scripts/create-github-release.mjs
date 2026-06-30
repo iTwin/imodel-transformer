@@ -1,22 +1,16 @@
-// @ts-check
 /*---------------------------------------------------------------------------------------------
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
 // Creates the GitHub Release for a freshly-published @itwin/imodel-transformer version.
+// Runs as the last step of the "Publish NPM packages" workflow (after `beachball publish`
+// tags `@itwin/imodel-transformer_v<version>`). On a minor/major it promotes the hand-authored
+// docs/changehistory/NEXT_VERSION.md into the release body; patch/prerelease publishes just link the CHANGELOG.
 //
-// Runs as the last step of the "Publish NPM packages" workflow, after `beachball publish`
-// has bumped the version, regenerated CHANGELOG.md, and created+pushed the git tag
-// `@itwin/imodel-transformer_v<version>`.
+// Usage: node create-github-release.mjs <previousStableVersion>   (may be empty for the first stable release)
 //
-// On a MINOR or MAJOR release it also "promotes" the hand-authored release notes:
-// docs/changehistory/NEXT_VERSION.md is archived to docs/changehistory/<version>.md, used as
-// the release body, and reset to the empty template. Patch (and prerelease-only) releases skip
-// this and get a body that just links to the CHANGELOG.
-//
-// Usage: node create-github-release.mjs <previousStableVersion>
-//   <previousStableVersion> may be empty (first stable release).
+// Release-creation pattern adapted from iTwin/auth-clients (.github/workflows/scripts/create-release.sh).
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -65,6 +59,11 @@ function isMinorOrMajor(prev, next) {
   return n.major > p.major || (n.major === p.major && n.minor > p.minor);
 }
 
+/** True if the version carries a prerelease suffix (e.g. "2.0.0-dev.19"). */
+function isPrerelease(version) {
+  return version.includes("-");
+}
+
 /** Strip the leading H1, HTML comments, and the "no notes" sentinel; return real authored prose or "". */
 function extractAuthoredNotes(raw) {
   const withoutComments = raw.replace(/<!--[\s\S]*?-->/g, "");
@@ -82,7 +81,7 @@ console.log(`Creating GitHub Release for ${tag} (previous stable: ${prevVersion 
 
 const bodyParts = [];
 
-if (isMinorOrMajor(prevVersion, newVersion)) {
+if (!isPrerelease(newVersion) && isMinorOrMajor(prevVersion, newVersion)) {
   const authored = existsSync(NEXT_VERSION_FILE) ? extractAuthoredNotes(readFileSync(NEXT_VERSION_FILE, "utf8")) : "";
   if (authored) {
     bodyParts.push(authored);

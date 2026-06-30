@@ -42,7 +42,7 @@ jobs:
     - name: Capture previous stable version
       id: prev
       run: |
-        prevVersion=$(git tag --list '@itwin/imodel-transformer_v*' | grep -vE '\-' | sed 's#.*_v##' | sort -V | tail -1)
+        prevVersion=$(git tag --list '@itwin/imodel-transformer_v*' | sed 's#.*_v##' | grep -vE '-' | sort -V | tail -1)
         echo "version=${prevVersion}" >> "$GITHUB_OUTPUT"
         echo "Previous stable version: ${prevVersion:-<none>}"
 
