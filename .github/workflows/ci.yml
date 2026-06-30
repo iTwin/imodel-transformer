@@ -157,3 +157,39 @@ jobs:
     - name: Test
       run: pnpm run test
 
+  coverage:
+    runs-on: ubuntu-latest
+    name: Coverage
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Use Node.js 24
+      uses: actions/setup-node@v3
+      with:
+        node-version: 24.18.0
+        cache: 'pnpm'
+
+    # Plain `pnpm install` (matching the build job) installs the transformer's
+    # devDeps too; `-w` would scope the install to the workspace root only.
+    - name: Install dependencies
+      run: pnpm install
+
+    # `cover` runs mocha against the compiled lib/cjs output, so build first.
+    - name: Build transformer
+      run: pnpm --filter @itwin/imodel-transformer build
+
+    # Gate: `cover` runs nyc with check-coverage, failing on a threshold breach.
+    # pipefail (GitHub bash default) aborts before the summary line on failure.
+    - name: Check coverage thresholds
+      shell: bash
+      run: |
+        pnpm --filter @itwin/imodel-transformer cover 2>&1 | tee coverage.log
+        awk '/Statements/{s=$3} /Branches/{b=$3} /Functions/{f=$3} /Lines/{l=$3} \
+          END{printf "Coverage — Statements %s · Branches %s · Functions %s · Lines %s\n", s, b, f, l}' \
+          coverage.log >> "$GITHUB_STEP_SUMMARY"
+
