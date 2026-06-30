@@ -74,9 +74,6 @@ stages:
       - job:
         displayName: Tag Docs
         steps:
-          - task: tagBuildOrRelease@0
-            displayName: Tag Docs
-            inputs:
-              type: "Build"
-              tags: "hasDocs"
-            condition: contains(variables['Build.SourceVersionMessage'], '[publish docs]')
+          - script: echo "##vso[build.addbuildtag]hasDocs"
+            displayName: Tag build as hasDocs
+            condition: contains(variables['Build.SourceVersionMessage'], 'Version bump')
