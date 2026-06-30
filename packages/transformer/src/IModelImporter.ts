@@ -408,7 +408,7 @@ export class IModelImporter {
    * @note A subclass may override this method to customize delete behavior but should call `super.onDeleteElement`.
    */
   protected async onDeleteElement(elementId: Id64String): Promise<void> {
-    deleteElementTreeCascade(this.targetDb, elementId);
+    deleteElementTreeCascade(this._editTxn, elementId);
     Logger.logInfo(
       loggerCategory,
       `Deleted element ${elementId} and its descendants`

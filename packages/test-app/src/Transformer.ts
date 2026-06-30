@@ -18,6 +18,7 @@ import {
   DisplayStyle3d,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  EditTxn,
   ElementRefersToElements,
   GeometricModel3d,
   GeometryPart,
@@ -63,8 +64,9 @@ export class Transformer extends IModelTransformer {
     targetDb: IModelDb,
     options?: TransformerOptions
   ): Promise<void> {
-    // might need to inject RequestContext for schemaExport.
-    const transformer = new Transformer(sourceDb, targetDb, options);
+    const editTxn = new EditTxn(targetDb, "transform all");
+    editTxn.start();
+    const transformer = new Transformer(sourceDb, targetDb, editTxn, options);
     await transformer.initializeTransformer();
     await transformer.processSchemas();
     await transformer.saveChanges("processSchemas");
@@ -75,6 +77,7 @@ export class Transformer extends IModelTransformer {
       await transformer.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.dispose();
+    editTxn.end();
     transformer.logElapsedTime();
   }
 
@@ -88,7 +91,9 @@ export class Transformer extends IModelTransformer {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
     }
-    const transformer = new Transformer(sourceDb, targetDb, {
+    const editTxn = new EditTxn(targetDb, "transform changes");
+    editTxn.start();
+    const transformer = new Transformer(sourceDb, targetDb, editTxn, {
       ...options,
       argsForProcessChanges: {
         startChangeset: { id: sourceStartChangesetId },
@@ -104,6 +109,7 @@ export class Transformer extends IModelTransformer {
       await transformer.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.dispose();
+    editTxn.end();
     transformer.logElapsedTime();
   }
 
@@ -129,9 +135,12 @@ export class Transformer extends IModelTransformer {
         return super.shouldExportElement(sourceElement);
       }
     }
+    const editTxn = new EditTxn(targetDb, "transform isolated");
+    editTxn.start();
     const transformer = new IsolateElementsTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       options
     );
     await transformer.initializeTransformer();
@@ -144,6 +153,7 @@ export class Transformer extends IModelTransformer {
       await transformer.saveChanges("deleteUnusedGeometryParts");
     }
     transformer.logElapsedTime();
+    editTxn.end();
     return transformer;
   }
 
@@ -152,13 +162,15 @@ export class Transformer extends IModelTransformer {
   private constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
+    editTxn: EditTxn,
     options?: TransformerOptions
   ) {
     super(
       sourceDb,
-      new IModelImporter(targetDb, {
+      new IModelImporter(targetDb, editTxn, {
         simplifyElementGeometry: options?.simplifyElementGeometry,
       }),
+      editTxn,
       options
     );
 

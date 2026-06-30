@@ -126,6 +126,7 @@ import {
   AssertOrderTransformer,
   ClassCounter,
   cmpProfileVersion,
+  createStartedEditTxn,
   FilterByViewTransformer,
   getProfileVersion,
   IModelToTextFileExporter,
@@ -984,14 +985,15 @@ describe("IModelTransformer", () => {
       "PhysicalModel-Combined"
     );
 
+    const consolidateEditTxn = createStartedEditTxn(targetDb);
     const transformer = new PhysicalModelConsolidator(
       sourceDb,
       targetDb,
+      consolidateEditTxn,
       targetModelId
     );
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    targetDb.saveChanges();
+    consolidateEditTxn.end();
 
     const targetElement11 = targetDb.elements.getElement(
       transformer.context.findTargetElementId(sourceElementId11)

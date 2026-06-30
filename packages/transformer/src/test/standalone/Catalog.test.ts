@@ -18,7 +18,6 @@ import {
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
-  EditTxn,
   ElementOwnsChildElements,
   EntityClassType,
   IModelDb,
@@ -1422,6 +1421,7 @@ describe.skip("Catalog", () => {
 
     // iterate through the imported PhysicalTypes and place instances for each
     const componentPlacer = new TemplateModelCloner(
+      iModelDb,
       iModelDb,
       createStartedEditTxn(iModelDb)
     );

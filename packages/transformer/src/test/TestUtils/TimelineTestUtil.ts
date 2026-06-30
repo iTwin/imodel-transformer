@@ -454,14 +454,16 @@ export async function runTimeline(
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
+        const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
         const provenanceInserter = new IModelTransformer(
           master.db,
           branchDb,
-          createStartedEditTxn(branchDb),
+          branchProvenanceEditTxn,
           { ...transformerOpts, wasSourceIModelCopiedToTarget: true }
         );
         await provenanceInserter.process();
         provenanceInserter.dispose();
+        branchProvenanceEditTxn.end();
         await saveAndPushChanges(
           accessToken,
           branchDb,
@@ -524,10 +526,11 @@ export async function runTimeline(
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = await getIModelState(target.db);
 
+        const syncEditTxn = createStartedEditTxn(target.db);
         const syncer = new IModelTransformer(
           source.db,
           target.db,
-          createStartedEditTxn(target.db),
+          syncEditTxn,
           {
             ...transformerOpts,
             argsForProcessChanges: {
@@ -560,6 +563,7 @@ export async function runTimeline(
             throw err;
         } finally {
           syncer.dispose();
+          syncEditTxn.end();
         }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;

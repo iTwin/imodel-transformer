@@ -2581,13 +2581,10 @@ export class TemplateModelCloner extends IModelTransformer {
    * @param sourceDb The source IModelDb that contains the templates to clone
    * @param targetDb Optionally specify the target IModelDb where the cloned template will be inserted.
    *                 Typically this is left unspecified, and the default is to use the sourceDb as the target
+   * @param editTxn The [[EditTxn]] to use for write operations on the target iModel. Must be started before constructing.
    * @note The expectation is that the template definitions are within the same iModel where instances will be placed.
    */
-  public constructor(
-    sourceDb: IModelDb,
-    editTxn: EditTxn,
-    targetDb: IModelDb = sourceDb
-  ) {
+  public constructor(sourceDb: IModelDb, targetDb: IModelDb, editTxn: EditTxn) {
     const target = new IModelImporter(targetDb, editTxn, {
       autoExtendProjectExtents: false, // autoExtendProjectExtents is intended for transformation service use cases, not template --> instance cloning
     });

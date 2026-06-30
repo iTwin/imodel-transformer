@@ -1654,16 +1654,11 @@ export class PhysicalModelConsolidator extends IModelTransformer {
   public constructor(
     sourceDb: IModelDb,
     targetDb: IModelDb,
+    editTxn: EditTxn,
     targetModelId: Id64String,
     argsForProcessChanges?: ProcessChangesOptions
   ) {
-    super(
-      sourceDb,
-      targetDb,
-      ...withStartedEditTxn(targetDb, {
-        argsForProcessChanges,
-      })
-    );
+    super(sourceDb, targetDb, editTxn, { argsForProcessChanges });
     this._targetModelId = targetModelId;
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }

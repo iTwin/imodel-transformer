@@ -408,7 +408,7 @@ export interface TargetScopeProvenanceJsonProps {
 
 // @beta
 export class TemplateModelCloner extends IModelTransformer {
-    constructor(sourceDb: IModelDb, editTxn: EditTxn, targetDb?: IModelDb);
+    constructor(sourceDb: IModelDb, targetDb: IModelDb, editTxn: EditTxn);
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     placeTemplate2d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement2d): Promise<Map<Id64String, Id64String>>;
     placeTemplate3d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement3d): Promise<Map<Id64String, Id64String>>;
