@@ -102,6 +102,11 @@
     "semver": "^7.7.2"
   },
   "nyc": {
-    "extends": "./node_modules/@itwin/build-tools/.nycrc"
+    "extends": "./node_modules/@itwin/build-tools/.nycrc",
+    "check-coverage": true,
+    "statements": 85,
+    "branches": 80,
+    "functions": 85,
+    "lines": 90
   }
 }
