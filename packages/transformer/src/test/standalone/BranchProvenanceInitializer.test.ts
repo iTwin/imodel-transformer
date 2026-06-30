@@ -14,6 +14,7 @@ import {
   RepositoryLink,
   SpatialCategory,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import {
   initializeBranchProvenance,
@@ -144,7 +145,7 @@ describe.skip("compare imodels from BranchProvenanceInitializer and traditional 
           // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
           masterDb = initProvenanceArgs.master as StandaloneDb;
           forkDb = initProvenanceArgs.branch as StandaloneDb;
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from initializeBranchProvenance
           forkDb.saveChanges();
 
           // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
@@ -213,7 +214,7 @@ describe.skip("compare imodels from BranchProvenanceInitializer and traditional 
             master: masterDb,
             branch: forkDb,
           });
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
+          // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from classicalTransformerBranchInit
           forkDb.saveChanges();
 
           // Save off the classicalTransformerBranchInit result and db for later comparison with the branchProvenance result and db.
@@ -297,18 +298,22 @@ function setupIModel(): [
   const generatedIModel = StandaloneDb.createEmpty(sourcePath, {
     rootSubject: { name: sourceFileName },
   });
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const physModelId = PhysicalModel.insert(
+  const { physModelId, categoryId } = withEditTxn(
     generatedIModel,
-    IModelDb.rootSubjectId,
-    "physical model"
-  );
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const categoryId = SpatialCategory.insert(
-    generatedIModel,
-    IModelDb.dictionaryId,
-    "spatial category",
-    {}
+    "insert model and category",
+    (txn) => ({
+      physModelId: PhysicalModel.insert(
+        txn,
+        IModelDb.rootSubjectId,
+        "physical model"
+      ),
+      categoryId: SpatialCategory.insert(
+        txn,
+        IModelDb.dictionaryId,
+        "spatial category",
+        {}
+      ),
+    })
   );
 
   for (const sourceHasFedGuid of [true, false]) {
@@ -324,49 +329,51 @@ function setupIModel(): [
         model: physModelId,
       };
 
-      const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
-      const sourceElem = new PhysicalObject(
-        {
-          ...baseProps,
-          code: Code.createEmpty(),
-          federationGuid: sourceFedGuid,
-        },
-        generatedIModel
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-      ).insert();
+      const { sourceElem, targetElem } = withEditTxn(
+        generatedIModel,
+        "insert physical objects",
+        (txn) => {
+          const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
+          const srcElem = new PhysicalObject(
+            {
+              ...baseProps,
+              code: Code.createEmpty(),
+              federationGuid: sourceFedGuid,
+            },
+            generatedIModel
+          ).insert(txn);
 
-      const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
-      const targetElem = new PhysicalObject(
-        {
-          ...baseProps,
-          code: Code.createEmpty(),
-          federationGuid: targetFedGuid,
-        },
-        generatedIModel
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-      ).insert();
+          const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
+          const tgtElem = new PhysicalObject(
+            {
+              ...baseProps,
+              code: Code.createEmpty(),
+              federationGuid: targetFedGuid,
+            },
+            generatedIModel
+          ).insert(txn);
 
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      generatedIModel.saveChanges();
+          return { sourceElem: srcElem, targetElem: tgtElem };
+        }
+      );
 
       sourceTargetFedGuidToElemIds.set(
         [sourceHasFedGuid, targetHasFedGuid],
         [sourceElem, targetElem]
       );
 
-      const rel = new ElementGroupsMembers(
-        {
-          classFullName: ElementGroupsMembers.classFullName,
-          sourceId: sourceElem,
-          targetId: targetElem,
-          memberPriority: 1,
-        },
-        generatedIModel
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      rel.insert();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      generatedIModel.saveChanges();
+      withEditTxn(generatedIModel, "insert relationship", (txn) => {
+        const rel = new ElementGroupsMembers(
+          {
+            classFullName: ElementGroupsMembers.classFullName,
+            sourceId: sourceElem,
+            targetId: targetElem,
+            memberPriority: 1,
+          },
+          generatedIModel
+        );
+        rel.insert(txn);
+      });
       generatedIModel.performCheckpoint();
     }
   }
@@ -377,36 +384,45 @@ async function classicalTransformerBranchInit(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterLinkRepoId = args.branch
-    .constructEntity<RepositoryLink, RepositoryLinkProps>({
-      classFullName: RepositoryLink.classFullName,
-      code: RepositoryLink.createCode(
-        args.branch,
-        IModelDb.repositoryModelId,
-        "test-imodel"
-      ),
-      model: IModelDb.repositoryModelId,
-      url: args.masterUrl,
-      format: "iModel",
-      repositoryGuid: args.master.iModelId,
-      description: args.masterDescription,
-    })
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    .insert();
+  const { masterLinkRepoId, masterExternalSourceId } = withEditTxn(
+    args.branch,
+    "insert repository link and external source",
+    (txn) => {
+      const repoLinkId = args.branch
+        .constructEntity<RepositoryLink, RepositoryLinkProps>({
+          classFullName: RepositoryLink.classFullName,
+          code: RepositoryLink.createCode(
+            args.branch,
+            IModelDb.repositoryModelId,
+            "test-imodel"
+          ),
+          model: IModelDb.repositoryModelId,
+          url: args.masterUrl,
+          format: "iModel",
+          repositoryGuid: args.master.iModelId,
+          description: args.masterDescription,
+        })
+        .insert(txn);
 
-  const masterExternalSourceId = args.branch
-    .constructEntity<ExternalSource, ExternalSourceProps>({
-      classFullName: ExternalSource.classFullName,
-      model: IModelDb.rootSubjectId,
-      code: Code.createEmpty(),
-      repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-      connectorName: require("../../../../package.json").name,
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-      connectorVersion: require("../../../../package.json").version,
-    })
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    .insert();
+      const extSourceId = args.branch
+        .constructEntity<ExternalSource, ExternalSourceProps>({
+          classFullName: ExternalSource.classFullName,
+          model: IModelDb.rootSubjectId,
+          code: Code.createEmpty(),
+          repository: new ExternalSourceIsInRepository(repoLinkId),
+          // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+          connectorName: require("../../../../package.json").name,
+          // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+          connectorVersion: require("../../../../package.json").version,
+        })
+        .insert(txn);
+
+      return {
+        masterLinkRepoId: repoLinkId,
+        masterExternalSourceId: extSourceId,
+      };
+    }
+  );
 
   // initialize the branch provenance
   const branchInitializer = new IModelTransformer(
@@ -424,7 +440,7 @@ async function classicalTransformerBranchInit(
   await branchInitializer.process();
   // save+push our changes to whatever hub we're using
   const description = "initialized branch iModel";
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
   args.branch.saveChanges(description);
 
   branchInitializer.dispose();

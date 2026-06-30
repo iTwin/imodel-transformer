@@ -409,12 +409,19 @@ export class IModelTransformer extends IModelExportHandler {
   protected _partiallyCommittedAspectIds: Id64Set = new Set<Id64String>();
 
   /**
-   * Tracks target element IDs that were imported (inserted or updated) during the current
+   * Tracks target element IDs that were remapped by Code during the current
    * transformation pass. Used to prevent deletion of target elements that have been remapped
    * to a new source element in the same pass (e.g., when a source element is deleted and a
    * new one with the same properties is added, causing a remap to the same target).
    */
-  private _targetElementsImportedInCurrentTransform: Id64Set =
+  private _targetElementIdsRemappedByCode: Id64Set = new Set<Id64String>();
+
+  /**
+   * Tracks target model IDs that were imported (inserted or updated) during the current
+   * transformation pass. Used to prevent deletion of target models that have been recreated
+   * in the same pass (e.g. when a partition element is recreated with a new model).
+   */
+  private _targetModelsImportedInCurrentTransform: Id64Set =
     new Set<Id64String>();
 
   /** the options that were used to initialize this transformer */
@@ -1251,6 +1258,7 @@ export class IModelTransformer extends IModelExportHandler {
           // ensure code remapping doesn't change the target class
           targetElementId = maybeTargetElementId;
           this.context.remapElement(sourceElement.id, targetElementId); // record that the targetElement was found by Code
+          this._targetElementIdsRemappedByCode.add(targetElementId);
         } else {
           targetElementProps.code = Code.createEmpty(); // clear out invalid code
         }
@@ -1311,7 +1319,6 @@ export class IModelTransformer extends IModelExportHandler {
         "targetElementProps.id should be assigned by importElement"
       );
     }
-    this._targetElementsImportedInCurrentTransform.add(targetElementProps.id);
     this.context.remapElement(sourceElement.id, targetElementProps.id);
 
     // the transformer does not currently 'split' or 'join' any elements, therefore, it does not
@@ -1363,11 +1370,9 @@ export class IModelTransformer extends IModelExportHandler {
     const targetElementId: Id64String =
       this.context.findTargetElementId(sourceElementId);
     if (Id64.isValidId64(targetElementId)) {
-      // Skip deletion if this target element was already imported (inserted/updated) during
+      // Skip deletion if new / updated source element was remapped to it by Code during
       // this transformation pass.
-      if (
-        !this._targetElementsImportedInCurrentTransform.has(targetElementId)
-      ) {
+      if (!this._targetElementIdsRemappedByCode.has(targetElementId)) {
         await this.importer.deleteElement(targetElementId);
       }
     }
@@ -1395,6 +1400,14 @@ export class IModelTransformer extends IModelExportHandler {
       targetModeledElementId
     );
     await this.importer.importModel(targetModelProps);
+    if (targetModelProps.id === undefined) {
+      throw new IModelError(
+        IModelStatus.BadModel,
+        "targetModelProps.id should be assigned by now"
+      );
+    }
+
+    this._targetModelsImportedInCurrentTransform.add(targetModelProps.id);
   }
 
   /** Override of [IModelExportHandler.onDeleteModel]($transformer) that is called when [IModelExporter]($transformer) detects that a [Model]($backend) has been deleted from the source iModel. */
@@ -1408,6 +1421,19 @@ export class IModelTransformer extends IModelExportHandler {
       this.context.findTargetElementId(sourceModelId);
 
     if (!Id64.isValidId64(targetModelId)) return;
+
+    // This handles cases where model with a partition element was remapped to
+    //  new element by code value after recreation.
+    if (
+      this._targetElementIdsRemappedByCode.has(targetModelId) &&
+      this._targetModelsImportedInCurrentTransform.has(targetModelId)
+    ) {
+      Logger.logTrace(
+        loggerCategory,
+        `Skipping delete operation for model (source id: ${sourceModelId}) because the target model (id: ${targetModelId}) was remapped by Code and re-imported during this transformation pass.`
+      );
+      return;
+    }
 
     const sql = `
       SELECT 1
@@ -2427,7 +2453,8 @@ export class IModelTransformer extends IModelExportHandler {
    * @note [[processSchemas]] is not called automatically since the target iModel may want a different collection of schemas.
    */
   private async processAll(): Promise<void> {
-    this._targetElementsImportedInCurrentTransform.clear();
+    this._targetElementIdsRemappedByCode.clear();
+    this._targetModelsImportedInCurrentTransform.clear();
     // processAll always has changes to process, so mark it as such for version tracking
     this._sourceChangeDataState = "has-changes";
 
@@ -2479,7 +2506,8 @@ export class IModelTransformer extends IModelExportHandler {
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired range and open the source iModel as of the end (inclusive) of the desired range.
    */
   private async processChanges(options: ProcessChangesOptions): Promise<void> {
-    this._targetElementsImportedInCurrentTransform.clear();
+    this._targetElementIdsRemappedByCode.clear();
+    this._targetModelsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(await this.getExportInitOpts(options));
     await this.completePartiallyCommittedElements();

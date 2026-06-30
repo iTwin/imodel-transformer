@@ -12,6 +12,7 @@ import {
   PhysicalObject,
   PhysicalPartition,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
@@ -130,15 +131,15 @@ export function populateTimelineSeed(
   db: IModelDb,
   state?: TimelineIModelElemStateDelta
 ): void {
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  SpatialCategory.insert(
-    db,
-    IModel.dictionaryId,
-    "SpatialCategory",
-    new SubCategoryAppearance()
-  );
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
+  withEditTxn(db, "populate timeline seed", (txn) => {
+    SpatialCategory.insert(
+      txn,
+      IModel.dictionaryId,
+      "SpatialCategory",
+      new SubCategoryAppearance()
+    );
+    PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel");
+  });
   if (state) maintainObjects(db, state);
   db.performCheckpoint();
 }
@@ -169,63 +170,60 @@ function maintainObjects(
     SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory")
   )!;
 
-  for (const [elemName, upsertVal] of Object.entries(delta)) {
-    const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
-      (d as RelationshipProps).sourceId !== undefined;
+  withEditTxn(iModelDb, "maintain objects", (txn) => {
+    for (const [elemName, upsertVal] of Object.entries(delta)) {
+      const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
+        (d as RelationshipProps).sourceId !== undefined;
 
-    if (isRel(upsertVal))
-      throw Error(
-        "adding relationships to the small delta format is not supported" +
-          "use a `manualUpdate` step instead"
-      );
+      if (isRel(upsertVal))
+        throw Error(
+          "adding relationships to the small delta format is not supported" +
+            "use a `manualUpdate` step instead"
+        );
 
-    const [id] = iModelDb.queryEntityIds({
-      from: "Bis.Element",
-      where: "UserLabel=?",
-      bindings: [elemName],
-    });
+      const [id] = iModelDb.queryEntityIds({
+        from: "Bis.Element",
+        where: "UserLabel=?",
+        bindings: [elemName],
+      });
 
-    if (upsertVal === deleted) {
-      assert(id, "tried to delete an element that wasn't in the database");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      iModelDb.elements.deleteElement(id);
-      continue;
+      if (upsertVal === deleted) {
+        assert(id, "tried to delete an element that wasn't in the database");
+        txn.deleteElement(id);
+        continue;
+      }
+
+      const props: ElementProps | PhysicalElementProps =
+        typeof upsertVal !== "number"
+          ? upsertVal
+          : {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({
+                spec: IModelDb.rootSubjectId,
+                scope: IModelDb.rootSubjectId,
+                value: elemName,
+              }),
+              userLabel: elemName,
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: {
+                origin: Point3d.create(0, 0, 0),
+                angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+              },
+              jsonProperties: {
+                updateState: upsertVal,
+              },
+            };
+
+      props.id = id;
+
+      if (id === undefined) txn.insertElement(props);
+      else txn.updateElement(props);
     }
-
-    const props: ElementProps | PhysicalElementProps =
-      typeof upsertVal !== "number"
-        ? upsertVal
-        : {
-            classFullName: PhysicalObject.classFullName,
-            model: modelId,
-            category: categoryId,
-            code: new Code({
-              spec: IModelDb.rootSubjectId,
-              scope: IModelDb.rootSubjectId,
-              value: elemName,
-            }),
-            userLabel: elemName,
-            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-            placement: {
-              origin: Point3d.create(0, 0, 0),
-              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-            },
-            jsonProperties: {
-              updateState: upsertVal,
-            },
-          };
-
-    props.id = id;
-
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    if (id === undefined) iModelDb.elements.insertElement(props);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    else iModelDb.elements.updateElement(props);
-  }
-
-  // TODO: iModelDb.performCheckpoint?
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  iModelDb.saveChanges();
+  });
 }
 
 export type TimelineElemState =

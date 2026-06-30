@@ -61,6 +61,7 @@ import {
   LogLevel,
 } from "@itwin/core-bentley";
 import {
+  BisCodeSpec,
   Code,
   ColorDef,
   DefinitionElementProps,
@@ -170,7 +171,7 @@ describe.skip("IModelTransformerHub", () => {
     });
     assert.isTrue(IModelJsFs.existsSync(seedFileName));
     await prepareIModel?.(seedDb);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from prepareIModel callback
     seedDb.saveChanges();
     seedDb.close();
 
@@ -377,7 +378,7 @@ describe.skip("IModelTransformerHub", () => {
       if (true) {
         // initial import
         await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from populateDb()
         sourceDb.saveChanges();
         await sourceDb.pushChanges({
           accessToken,
@@ -1038,8 +1039,6 @@ describe.skip("IModelTransformerHub", () => {
         ColorDef.green
       );
       IModelTransformerTestUtils.assertTeamIModelContents(sourceDb, "Test");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from populateTeamIModel helper
-      sourceDb.saveChanges();
       await sourceDb.pushChanges({
         accessToken,
         description: "Populate Source",
@@ -1131,11 +1130,12 @@ describe.skip("IModelTransformerHub", () => {
         branch1: {
           manualUpdate(db) {
             // Create relationship in branch iModel
-            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-            const rel = ElementGroupsMembers.create(db, sourceId, targetId);
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            relIdInBranch = rel.insert();
+            withEditTxn(db, "insert branch relationship", (txn) => {
+              const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+              const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+              const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+              relIdInBranch = txn.insertRelationship(rel.toJSON());
+            });
           },
         },
       },
@@ -1157,15 +1157,16 @@ describe.skip("IModelTransformerHub", () => {
         master: {
           manualUpdate(db) {
             // Delete relationship in master iModel
-            const rel = db.relationships.getInstance<ElementGroupsMembers>(
-              ElementGroupsMembers.classFullName,
-              {
-                sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
-                targetId: IModelTestUtils.queryByUserLabel(db, "2"),
-              }
-            );
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            rel.delete();
+            withEditTxn(db, "delete master relationship", (txn) => {
+              const rel = db.relationships.getInstance<ElementGroupsMembers>(
+                ElementGroupsMembers.classFullName,
+                {
+                  sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
+                  targetId: IModelTestUtils.queryByUserLabel(db, "2"),
+                }
+              );
+              txn.deleteRelationship(rel.toJSON());
+            });
           },
         },
       },
@@ -1242,11 +1243,12 @@ describe.skip("IModelTransformerHub", () => {
         branch1: {
           manualUpdate(db) {
             // Create relationship in branch iModel
-            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-            const rel = ElementGroupsMembers.create(db, sourceId, targetId);
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            relIdInBranch = rel.insert();
+            withEditTxn(db, "insert branch relationship", (txn) => {
+              const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+              const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+              const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+              relIdInBranch = txn.insertRelationship(rel.toJSON());
+            });
           },
         },
       },
@@ -1276,15 +1278,16 @@ describe.skip("IModelTransformerHub", () => {
         master: {
           manualUpdate(db) {
             // Delete relationship in master iModel
-            const rel = db.relationships.getInstance<ElementGroupsMembers>(
-              ElementGroupsMembers.classFullName,
-              {
-                sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
-                targetId: IModelTestUtils.queryByUserLabel(db, "2"),
-              }
-            );
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            rel.delete();
+            withEditTxn(db, "delete master relationship", (txn) => {
+              const rel = db.relationships.getInstance<ElementGroupsMembers>(
+                ElementGroupsMembers.classFullName,
+                {
+                  sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
+                  targetId: IModelTestUtils.queryByUserLabel(db, "2"),
+                }
+              );
+              txn.deleteRelationship(rel.toJSON());
+            });
           },
         },
       },
@@ -1364,11 +1367,12 @@ describe.skip("IModelTransformerHub", () => {
         branch1: {
           manualUpdate(db) {
             // Create relationship in branch iModel
-            const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
-            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-            const rel = ElementGroupsMembers.create(db, sourceId, targetId);
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            relIdInBranch = rel.insert();
+            withEditTxn(db, "insert branch relationship", (txn) => {
+              const sourceId = IModelTestUtils.queryByUserLabel(db, "1");
+              const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+              const rel = ElementGroupsMembers.create(db, sourceId, targetId);
+              relIdInBranch = txn.insertRelationship(rel.toJSON());
+            });
           },
         },
       },
@@ -1407,15 +1411,16 @@ describe.skip("IModelTransformerHub", () => {
         master: {
           manualUpdate(db) {
             // Delete relationship in master iModel
-            const rel = db.relationships.getInstance<ElementGroupsMembers>(
-              ElementGroupsMembers.classFullName,
-              {
-                sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
-                targetId: IModelTestUtils.queryByUserLabel(db, "2"),
-              }
-            );
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            rel.delete();
+            withEditTxn(db, "delete master relationship", (txn) => {
+              const rel = db.relationships.getInstance<ElementGroupsMembers>(
+                ElementGroupsMembers.classFullName,
+                {
+                  sourceId: IModelTestUtils.queryByUserLabel(db, "1"),
+                  targetId: IModelTestUtils.queryByUserLabel(db, "2"),
+                }
+              );
+              txn.deleteRelationship(rel.toJSON());
+            });
           },
         },
       },
@@ -1545,24 +1550,27 @@ describe.skip("IModelTransformerHub", () => {
       {
         branch1: {
           manualUpdate(db) {
-            expectedRelationships.map(({ sourceLabel, targetLabel }, i) => {
-              const sourceId = IModelTestUtils.queryByUserLabel(
-                db,
-                sourceLabel
-              );
-              const targetId = IModelTestUtils.queryByUserLabel(
-                db,
-                targetLabel
-              );
-              assert(sourceId && targetId);
-              const rel = ElementGroupsMembers.create(
-                db,
-                sourceId,
-                targetId,
-                0
-              );
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              expectedRelationships[i].idInBranch1 = rel.insert();
+            withEditTxn(db, "insert expected relationships", (txn) => {
+              expectedRelationships.map(({ sourceLabel, targetLabel }, i) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  sourceLabel
+                );
+                const targetId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  targetLabel
+                );
+                assert(sourceId && targetId);
+                const rel = ElementGroupsMembers.create(
+                  db,
+                  sourceId,
+                  targetId,
+                  0
+                );
+                expectedRelationships[i].idInBranch1 = txn.insertRelationship(
+                  rel.toJSON()
+                );
+              });
             });
           },
         },
@@ -1570,13 +1578,14 @@ describe.skip("IModelTransformerHub", () => {
       {
         branch1: {
           manualUpdate(db) {
-            const rel = db.relationships.getInstance<ElementGroupsMembers>(
-              ElementGroupsMembers.classFullName,
-              expectedRelationships[0].idInBranch1
-            );
-            rel.memberPriority = 1;
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            rel.update();
+            withEditTxn(db, "update expected relationship", (txn) => {
+              const rel = db.relationships.getInstance<ElementGroupsMembers>(
+                ElementGroupsMembers.classFullName,
+                expectedRelationships[0].idInBranch1
+              );
+              rel.memberPriority = 1;
+              txn.updateRelationship(rel.toJSON());
+            });
           },
         },
       },
@@ -1666,22 +1675,23 @@ describe.skip("IModelTransformerHub", () => {
       {
         master: {
           manualUpdate(db) {
-            expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
-              const sourceId = IModelTestUtils.queryByUserLabel(
-                db,
-                sourceLabel
-              );
-              const targetId = IModelTestUtils.queryByUserLabel(
-                db,
-                targetLabel
-              );
-              assert(sourceId && targetId);
-              const rel = db.relationships.getInstance(
-                ElementGroupsMembers.classFullName,
-                { sourceId, targetId }
-              );
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              return rel.delete();
+            withEditTxn(db, "delete expected relationships", (txn) => {
+              expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  sourceLabel
+                );
+                const targetId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  targetLabel
+                );
+                assert(sourceId && targetId);
+                const rel = db.relationships.getInstance(
+                  ElementGroupsMembers.classFullName,
+                  { sourceId, targetId }
+                );
+                txn.deleteRelationship(rel.toJSON());
+              });
             });
           },
         },
@@ -2431,19 +2441,21 @@ describe.skip("IModelTransformerHub", () => {
         master: {
           manualUpdate(db) {
             // Create relationships in master iModel. Each one will introduce a new aspect of kind "Relationship".
-            const sourceId = IModelTestUtils.queryByUserLabel(db, "3");
-            const targetId = IModelTestUtils.queryByUserLabel(db, "2");
-            const targetId2 = IModelTestUtils.queryByUserLabel(db, "1");
-            const targetId3 = IModelTestUtils.queryByUserLabel(db, "4");
-            const targetId4 = IModelTestUtils.queryByUserLabel(db, "5");
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            ElementGroupsMembers.create(db, sourceId, targetId).insert();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            ElementGroupsMembers.create(db, sourceId, targetId2).insert();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            ElementGroupsMembers.create(db, sourceId, targetId3).insert();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            ElementGroupsMembers.create(db, sourceId, targetId4).insert();
+            withEditTxn(
+              db,
+              "insert relationship provenance test data",
+              (txn) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(db, "3");
+                const targetId = IModelTestUtils.queryByUserLabel(db, "2");
+                const targetId2 = IModelTestUtils.queryByUserLabel(db, "1");
+                const targetId3 = IModelTestUtils.queryByUserLabel(db, "4");
+                const targetId4 = IModelTestUtils.queryByUserLabel(db, "5");
+                ElementGroupsMembers.insert(txn, sourceId, targetId);
+                ElementGroupsMembers.insert(txn, sourceId, targetId2);
+                ElementGroupsMembers.insert(txn, sourceId, targetId3);
+                ElementGroupsMembers.insert(txn, sourceId, targetId4);
+              }
+            );
           },
         },
       },
@@ -2473,14 +2485,18 @@ describe.skip("IModelTransformerHub", () => {
       {
         branch1: {
           manualUpdate(db) {
-            const elemId = IModelTestUtils.queryByUserLabel(db, "3");
-            const aspects = db.elements.getAspects(
-              elemId
-            ) as ExternalSourceAspect[];
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            aspects.forEach((a) => db.elements.deleteAspect(a.id));
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            db.elements.deleteElement(elemId);
+            withEditTxn(
+              db,
+              "delete relationship provenance test data",
+              (txn) => {
+                const elemId = IModelTestUtils.queryByUserLabel(db, "3");
+                const aspects = db.elements.getAspects(
+                  elemId
+                ) as ExternalSourceAspect[];
+                aspects.forEach((a) => txn.deleteAspect(a.id));
+                txn.deleteElement(elemId);
+              }
+            );
           },
         },
       },
@@ -3262,8 +3278,7 @@ describe.skip("IModelTransformerHub", () => {
             federationGuid: constPartitionFedGuid,
             parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
           });
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          const modId = sourceDb.models.insertModel({
+          const modId = txn.insertModel({
             classFullName: PhysicalModel.classFullName,
             modeledElement: { id: partId },
             isPrivate: true,
@@ -3320,8 +3335,7 @@ describe.skip("IModelTransformerHub", () => {
           userLabel: "B",
         });
 
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.models.deleteModel(originalModelId);
+        txn.deleteModel(originalModelId);
         txn.deleteElement(originalPartitionId);
         const recPartId = txn.insertElement({
           model: IModel.repositoryModelId,
@@ -3334,8 +3348,7 @@ describe.skip("IModelTransformerHub", () => {
           federationGuid: constPartitionFedGuid,
           parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
         });
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.models.insertModel({
+        txn.insertModel({
           classFullName: PhysicalModel.classFullName,
           modeledElement: { id: recPartId },
           isPrivate: false,
@@ -3501,8 +3514,7 @@ describe.skip("IModelTransformerHub", () => {
             federationGuid: constPartitionFedGuid,
             parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
           });
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          const modId = sourceDb.models.insertModel({
+          const modId = txn.insertModel({
             classFullName: PhysicalModel.classFullName,
             modeledElement: { id: partId },
             isPrivate: true,
@@ -3538,8 +3550,7 @@ describe.skip("IModelTransformerHub", () => {
       expect(originalTargetModel.isPrivate).to.be.true;
 
       withEditTxn(sourceDb, "recreate elements & models", (txn) => {
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.models.deleteModel(modelId);
+        txn.deleteModel(modelId);
         txn.deleteElement(originalPartitionId);
         txn.insertElement({
           model: IModel.repositoryModelId,
@@ -3604,32 +3615,38 @@ describe.skip("IModelTransformerHub", () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",
       (sourceSeedDb) => {
-        elementIds = [
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject1"),
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          Subject.insert(sourceSeedDb, IModel.rootSubjectId, "Subject2"),
-        ];
+        elementIds = withEditTxn(
+          sourceSeedDb,
+          "seed source subjects and aspects",
+          (txn) => {
+            const createdElementIds = [
+              Subject.insert(txn, IModel.rootSubjectId, "Subject1"),
+              Subject.insert(txn, IModel.rootSubjectId, "Subject2"),
+            ];
 
-        // 10 aspects in total (5 per element)
-        elementIds.forEach((element) => {
-          for (let i = 0; i < 5; ++i) {
-            const aspectProps: ExternalSourceAspectProps = {
-              classFullName: ExternalSourceAspect.classFullName,
-              element: new ElementOwnsExternalSourceAspects(element),
-              identifier: `${i}`,
-              kind: "Document",
-              scope: {
-                id: IModel.rootSubjectId,
-                relClassName: "BisCore:ElementScopesExternalSourceIdentifier",
-              },
-            };
+            // 10 aspects in total (5 per element)
+            createdElementIds.forEach((element) => {
+              for (let i = 0; i < 5; ++i) {
+                const aspectProps: ExternalSourceAspectProps = {
+                  classFullName: ExternalSourceAspect.classFullName,
+                  element: new ElementOwnsExternalSourceAspects(element),
+                  identifier: `${i}`,
+                  kind: "Document",
+                  scope: {
+                    id: IModel.rootSubjectId,
+                    relClassName:
+                      "BisCore:ElementScopesExternalSourceIdentifier",
+                  },
+                };
 
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            const aspectId = sourceSeedDb.elements.insertAspect(aspectProps);
-            aspectIds.push(aspectId); // saving for later deletion
+                const aspectId = txn.insertAspect(aspectProps);
+                aspectIds.push(aspectId); // saving for later deletion
+              }
+            });
+
+            return createdElementIds;
           }
-        });
+        );
       }
     );
 
@@ -3674,8 +3691,9 @@ describe.skip("IModelTransformerHub", () => {
           relClassName: "BisCore:ElementScopesExternalSourceIdentifier",
         },
       };
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      sourceDb.elements.insertAspect(addedAspectProps);
+      withEditTxn(sourceDb, "insert detached aspect", (txn) => {
+        txn.insertAspect(addedAspectProps);
+      });
 
       await saveAndPushChanges(sourceDb, "Update source");
 
@@ -3737,47 +3755,46 @@ describe.skip("IModelTransformerHub", () => {
       0: {
         master: {
           manualUpdate(db) {
-            const modelSelectorId = ModelSelector.create(
-              db,
-              IModelDb.dictionaryId,
-              "modelSelector",
-              []
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-            ).insert();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            const categorySelectorId = CategorySelector.insert(
-              db,
-              IModelDb.dictionaryId,
-              "categorySelector",
-              []
-            );
-            displayStyle = DisplayStyle3d.create(
-              db,
-              IModelDb.dictionaryId,
-              "displayStyle"
-            );
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            displayStyleId = displayStyle.insert();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            spatialViewDefId = db.elements.insertElement({
-              classFullName: SpatialViewDefinition.classFullName,
-              model: IModelDb.dictionaryId,
-              code: Code.createEmpty().toJSON(),
-              camera: {
-                eye: { x: 0, y: 0, z: 0 },
-                lens: { radians: 0 },
-                focusDist: 0,
-              },
-              userLabel: "spatialViewDef",
-              extents: { x: 0, y: 0, z: 0 },
-              origin: { x: 0, y: 0, z: 0 },
-              cameraOn: false,
-              displayStyleId,
-              categorySelectorId,
-              modelSelectorId,
-            } as SpatialViewDefinitionProps);
-            spatialViewDef =
-              db.elements.getElement<SpatialViewDefinition>(spatialViewDefId);
+            withEditTxn(db, "create view definition test data", (txn) => {
+              const modelSelector = ModelSelector.create(
+                db,
+                IModelDb.dictionaryId,
+                "modelSelector",
+                []
+              );
+              const modelSelectorId = txn.insertElement(modelSelector.toJSON());
+              const categorySelectorId = CategorySelector.insert(
+                txn,
+                IModelDb.dictionaryId,
+                "categorySelector",
+                []
+              );
+              displayStyle = DisplayStyle3d.create(
+                db,
+                IModelDb.dictionaryId,
+                "displayStyle"
+              );
+              displayStyleId = txn.insertElement(displayStyle.toJSON());
+              spatialViewDefId = txn.insertElement({
+                classFullName: SpatialViewDefinition.classFullName,
+                model: IModelDb.dictionaryId,
+                code: Code.createEmpty().toJSON(),
+                camera: {
+                  eye: { x: 0, y: 0, z: 0 },
+                  lens: { radians: 0 },
+                  focusDist: 0,
+                },
+                userLabel: "spatialViewDef",
+                extents: { x: 0, y: 0, z: 0 },
+                origin: { x: 0, y: 0, z: 0 },
+                cameraOn: false,
+                displayStyleId,
+                categorySelectorId,
+                modelSelectorId,
+              } as SpatialViewDefinitionProps);
+              spatialViewDef =
+                db.elements.getElement<SpatialViewDefinition>(spatialViewDefId);
+            });
           },
         },
       },
@@ -3785,12 +3802,13 @@ describe.skip("IModelTransformerHub", () => {
       2: {
         master: {
           manualUpdate(db) {
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            const notDeleted = db.elements.deleteDefinitionElements([
-              spatialViewDefId,
-              displayStyleId,
-            ]);
-            assert(notDeleted.size === 0);
+            withEditTxn(db, "delete view definition test data", (txn) => {
+              const notDeleted = txn.deleteDefinitionElements([
+                spatialViewDefId,
+                displayStyleId,
+              ]);
+              assert(notDeleted.size === 0);
+            });
           },
         },
       },
@@ -3830,42 +3848,40 @@ describe.skip("IModelTransformerHub", () => {
       0: {
         master: {
           manualUpdate(db) {
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            categoryId = SpatialCategory.insert(
-              db,
-              IModel.dictionaryId,
-              "TestCategory",
-              {}
-            );
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            modelId = PhysicalModel.insert(
-              db,
-              IModel.rootSubjectId,
-              "TestPhysicalModel"
-            );
-            const physicalObjectProps: PhysicalElementProps = {
-              classFullName: PhysicalObject.classFullName,
-              model: modelId,
-              category: categoryId,
-              code: Code.createEmpty(),
-              userLabel: "TestElement",
-              geom: IModelTransformerTestUtils.createBox(
-                Point3d.create(1, 1, 1)
-              ),
-              placement: Placement3d.fromJSON({
-                origin: { x: 0, y: 0 },
-                angles: {},
-              }),
-            };
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            elementId = db.elements.insertElement(physicalObjectProps);
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            displayStyleId = DisplayStyle3d.insert(
-              db,
-              IModel.dictionaryId,
-              "TestDisplayStyle",
-              { excludedElements: [elementId] }
-            );
+            withEditTxn(db, "create display style regression data", (txn) => {
+              categoryId = SpatialCategory.insert(
+                txn,
+                IModel.dictionaryId,
+                "TestCategory",
+                {}
+              );
+              modelId = PhysicalModel.insert(
+                txn,
+                IModel.rootSubjectId,
+                "TestPhysicalModel"
+              );
+              const physicalObjectProps: PhysicalElementProps = {
+                classFullName: PhysicalObject.classFullName,
+                model: modelId,
+                category: categoryId,
+                code: Code.createEmpty(),
+                userLabel: "TestElement",
+                geom: IModelTransformerTestUtils.createBox(
+                  Point3d.create(1, 1, 1)
+                ),
+                placement: Placement3d.fromJSON({
+                  origin: { x: 0, y: 0 },
+                  angles: {},
+                }),
+              };
+              elementId = txn.insertElement(physicalObjectProps);
+              displayStyleId = DisplayStyle3d.insert(
+                txn,
+                IModel.dictionaryId,
+                "TestDisplayStyle",
+                { excludedElements: [elementId] }
+              );
+            });
           },
         },
       },
@@ -3874,11 +3890,16 @@ describe.skip("IModelTransformerHub", () => {
         master: {
           manualUpdate(db) {
             // Delete the DisplayStyle3d and re-insert one with the same code
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            db.elements.deleteDefinitionElements([displayStyleId]);
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            DisplayStyle3d.insert(db, IModel.dictionaryId, "TestDisplayStyle", {
-              excludedElements: [elementId],
+            withEditTxn(db, "replace display style", (txn) => {
+              txn.deleteDefinitionElements([displayStyleId]);
+              DisplayStyle3d.insert(
+                txn,
+                IModel.dictionaryId,
+                "TestDisplayStyle",
+                {
+                  excludedElements: [elementId],
+                }
+              );
             });
           },
         },
@@ -3969,24 +3990,27 @@ describe.skip("IModelTransformerHub", () => {
       {
         branch: {
           manualUpdate(db) {
-            expectedRelationships.map(({ sourceLabel, targetLabel }, i) => {
-              const sourceId = IModelTestUtils.queryByUserLabel(
-                db,
-                sourceLabel
-              );
-              const targetId = IModelTestUtils.queryByUserLabel(
-                db,
-                targetLabel
-              );
-              assert(sourceId && targetId);
-              const rel = ElementGroupsMembers.create(
-                db,
-                sourceId,
-                targetId,
-                0
-              );
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              expectedRelationships[i].idInBranch = rel.insert();
+            withEditTxn(db, "insert branch relationships", (txn) => {
+              expectedRelationships.map(({ sourceLabel, targetLabel }, i) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  sourceLabel
+                );
+                const targetId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  targetLabel
+                );
+                assert(sourceId && targetId);
+                const rel = ElementGroupsMembers.create(
+                  db,
+                  sourceId,
+                  targetId,
+                  0
+                );
+                expectedRelationships[i].idInBranch = txn.insertRelationship(
+                  rel.toJSON()
+                );
+              });
             });
           },
         },
@@ -4020,26 +4044,25 @@ describe.skip("IModelTransformerHub", () => {
       {
         master: {
           manualUpdate(db) {
-            expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
-              const sourceId = IModelTestUtils.queryByUserLabel(
-                db,
-                sourceLabel
-              );
-              const targetId = IModelTestUtils.queryByUserLabel(
-                db,
-                targetLabel
-              );
-              assert(sourceId && targetId);
-              const rel = db.relationships.getInstance(
-                ElementGroupsMembers.classFullName,
-                { sourceId, targetId }
-              );
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              rel.delete();
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              db.elements.deleteElement(sourceId);
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              db.elements.deleteElement(targetId);
+            withEditTxn(db, "delete relationships and elements", (txn) => {
+              expectedRelationships.forEach(({ sourceLabel, targetLabel }) => {
+                const sourceId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  sourceLabel
+                );
+                const targetId = IModelTestUtils.queryByUserLabel(
+                  db,
+                  targetLabel
+                );
+                assert(sourceId && targetId);
+                const rel = db.relationships.getInstance(
+                  ElementGroupsMembers.classFullName,
+                  { sourceId, targetId }
+                );
+                txn.deleteRelationship(rel.toJSON());
+                txn.deleteElement(sourceId);
+                txn.deleteElement(targetId);
+              });
             });
           },
         },
@@ -4144,10 +4167,11 @@ describe.skip("IModelTransformerHub", () => {
               pendingSyncChangesetIndices: undefined,
               reverseSyncVersion: ";0",
             });
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            branch.elements.updateAspect({
-              ...targetScopeProvenanceProps!,
-              jsonProperties: missingPendings as any,
+            withEditTxn(branch, "update target scope provenance", (txn) => {
+              txn.updateAspect({
+                ...targetScopeProvenanceProps!,
+                jsonProperties: missingPendings as any,
+              });
             });
           },
         },
@@ -4263,11 +4287,12 @@ describe.skip("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without version now.
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            branch.elements.updateAspect({
-              ...targetScopeProvenanceProps!,
-              jsonProperties: undefined,
-            } as ExternalSourceAspectProps);
+            withEditTxn(branch, "clear target scope provenance json", (txn) => {
+              txn.updateAspect({
+                ...targetScopeProvenanceProps!,
+                jsonProperties: undefined,
+              } as ExternalSourceAspectProps);
+            });
           },
         },
       },
@@ -4317,11 +4342,16 @@ describe.skip("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without version now.
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            branch.elements.updateAspect({
-              ...targetScopeProvenanceProps!,
-              version: undefined,
-            } as ExternalSourceAspectProps);
+            withEditTxn(
+              branch,
+              "clear target scope provenance version",
+              (txn) => {
+                txn.updateAspect({
+                  ...targetScopeProvenanceProps!,
+                  version: undefined,
+                } as ExternalSourceAspectProps);
+              }
+            );
           },
         },
       },
@@ -4499,10 +4529,11 @@ describe.skip("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without jsonprops
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            branch.elements.updateAspect({
-              ...targetScopeProvenanceProps!,
-              jsonProperties: undefined,
+            withEditTxn(branch, "clear branch target scope json", (txn) => {
+              txn.updateAspect({
+                ...targetScopeProvenanceProps!,
+                jsonProperties: undefined,
+              });
             });
           },
         },
@@ -4522,11 +4553,12 @@ describe.skip("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Check it fails without version now.
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            branch.elements.updateAspect({
-              ...targetScopeProvenanceProps!,
-              version: undefined,
-            } as ExternalSourceAspectProps);
+            withEditTxn(branch, "clear branch target scope version", (txn) => {
+              txn.updateAspect({
+                ...targetScopeProvenanceProps!,
+                version: undefined,
+              } as ExternalSourceAspectProps);
+            });
           },
         },
       },
@@ -4545,12 +4577,17 @@ describe.skip("IModelTransformerHub", () => {
         branch: {
           manualUpdate(branch) {
             // Remove both and make sure it passes with both removed + setallowNoBranchRelationshipData
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            branch.elements.updateAspect({
-              ...targetScopeProvenanceProps!,
-              jsonProperties: undefined,
-              version: undefined,
-            } as ExternalSourceAspectProps);
+            withEditTxn(
+              branch,
+              "clear branch target scope relationship data",
+              (txn) => {
+                txn.updateAspect({
+                  ...targetScopeProvenanceProps!,
+                  jsonProperties: undefined,
+                  version: undefined,
+                } as ExternalSourceAspectProps);
+              }
+            );
           },
         },
       },
@@ -4672,58 +4709,58 @@ describe.skip("IModelTransformerHub", () => {
         {
           branch: {
             manualUpdate(branch) {
-              // Update models
-              const dictionaryId = IModelDb.dictionaryId;
-              const dict = branch.models.getModelProps(dictionaryId);
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              branch.models.updateModel({
-                ...dict,
-                jsonProperties: { test: 1 },
-              });
+              withEditTxn(
+                branch,
+                "update root model and element props",
+                (txn) => {
+                  // Update models
+                  const dictionaryId = IModelDb.dictionaryId;
+                  const dict = branch.models.getModelProps(dictionaryId);
+                  txn.updateModel({
+                    ...dict,
+                    jsonProperties: { test: 1 },
+                  });
 
-              const repositoryModel = branch.models.getModelProps(
-                IModelDb.repositoryModelId
+                  const repositoryModel = branch.models.getModelProps(
+                    IModelDb.repositoryModelId
+                  );
+                  txn.updateModel({
+                    ...repositoryModel,
+                    jsonProperties: { test: 2 },
+                  });
+
+                  const realityDataSourcesModel =
+                    branch.models.getModelProps("0xe");
+                  txn.updateModel({
+                    ...realityDataSourcesModel,
+                    jsonProperties: { test: 3 },
+                  });
+
+                  // Update Elements now.
+                  const rootSubjectFromBranch =
+                    branch.elements.getElementProps<SubjectProps>("0x1");
+                  txn.updateElement({
+                    ...rootSubjectFromBranch,
+                    description: "test description",
+                    jsonProperties: { test: 4 },
+                  } as SubjectProps);
+
+                  const realityDataSourcesElement =
+                    branch.elements.getElementProps("0xe");
+                  txn.updateElement({
+                    ...realityDataSourcesElement,
+                    jsonProperties: { test: 5 },
+                  });
+
+                  const dictionaryElement = branch.elements.getElementProps(
+                    IModelDb.dictionaryId
+                  );
+                  txn.updateElement({
+                    ...dictionaryElement,
+                    jsonProperties: { test: 6 },
+                  });
+                }
               );
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              branch.models.updateModel({
-                ...repositoryModel,
-                jsonProperties: { test: 2 },
-              });
-
-              const realityDataSourcesModel =
-                branch.models.getModelProps("0xe");
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              branch.models.updateModel({
-                ...realityDataSourcesModel,
-                jsonProperties: { test: 3 },
-              });
-
-              // Update Elements now.
-              const rootSubjectFromBranch =
-                branch.elements.getElementProps<SubjectProps>("0x1");
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              branch.elements.updateElement({
-                ...rootSubjectFromBranch,
-                description: "test description",
-                jsonProperties: { test: 4 },
-              } as SubjectProps);
-
-              const realityDataSourcesElement =
-                branch.elements.getElementProps("0xe");
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              branch.elements.updateElement({
-                ...realityDataSourcesElement,
-                jsonProperties: { test: 5 },
-              });
-
-              const dictionaryElement = branch.elements.getElementProps(
-                IModelDb.dictionaryId
-              );
-              // eslint-disable-next-line @typescript-eslint/no-deprecated
-              branch.elements.updateElement({
-                ...dictionaryElement,
-                jsonProperties: { test: 6 },
-              });
             },
           },
         },
@@ -4924,15 +4961,20 @@ describe.skip("IModelTransformerHub", () => {
       {
         master: {
           manualUpdate(masterDb) {
-            const elemId = IModelTestUtils.queryByUserLabel(masterDb, "1");
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            masterDb.elements.insertAspect({
-              classFullName: ExternalSourceAspect.classFullName,
-              element: { id: elemId },
-              scope: { id: IModel.dictionaryId },
-              kind: "Element",
-              identifier: "bar code",
-            } as ExternalSourceAspectProps);
+            withEditTxn(
+              masterDb,
+              "insert random external source aspect",
+              (txn) => {
+                const elemId = IModelTestUtils.queryByUserLabel(masterDb, "1");
+                txn.insertAspect({
+                  classFullName: ExternalSourceAspect.classFullName,
+                  element: { id: elemId },
+                  scope: { id: IModel.dictionaryId },
+                  kind: "Element",
+                  identifier: "bar code",
+                } as ExternalSourceAspectProps);
+              }
+            );
           },
         },
       },
@@ -4968,60 +5010,59 @@ describe.skip("IModelTransformerHub", () => {
       0: {
         master: {
           manualUpdate(db) {
-            const definitionPartitionProps: InformationPartitionElementProps = {
-              classFullName: DefinitionPartition.classFullName,
-              model: IModel.repositoryModelId,
-              parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
-              code: Code.createEmpty(),
-            };
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            definitionPartitionId1 = db.elements.insertElement(
-              definitionPartitionProps
-            );
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            definitionPartitionId2 = db.elements.insertElement(
-              definitionPartitionProps
-            );
+            withEditTxn(db, "create definition hierarchy", (txn) => {
+              const definitionPartitionProps: InformationPartitionElementProps =
+                {
+                  classFullName: DefinitionPartition.classFullName,
+                  model: IModel.repositoryModelId,
+                  parent: new SubjectOwnsPartitionElements(
+                    IModel.rootSubjectId
+                  ),
+                  code: Code.createEmpty(),
+                };
+              definitionPartitionId1 = txn.insertElement(
+                definitionPartitionProps
+              );
+              definitionPartitionId2 = txn.insertElement(
+                definitionPartitionProps
+              );
 
-            const definitionModelProps1: ModelProps = {
-              classFullName: DefinitionModel.classFullName,
-              modeledElement: { id: definitionPartitionId1 },
-              parentModel: IModel.repositoryModelId,
-            };
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            definitionPartitionModelId1 = db.models.insertModel(
-              definitionModelProps1
-            );
+              const definitionModelProps1: ModelProps = {
+                classFullName: DefinitionModel.classFullName,
+                modeledElement: { id: definitionPartitionId1 },
+                parentModel: IModel.repositoryModelId,
+              };
+              definitionPartitionModelId1 = txn.insertModel(
+                definitionModelProps1
+              );
 
-            const definitionModelProps2: ModelProps = {
-              classFullName: DefinitionModel.classFullName,
-              modeledElement: { id: definitionPartitionId2 },
-              parentModel: IModel.repositoryModelId,
-            };
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            definitionPartitionModelId2 = db.models.insertModel(
-              definitionModelProps2
-            );
+              const definitionModelProps2: ModelProps = {
+                classFullName: DefinitionModel.classFullName,
+                modeledElement: { id: definitionPartitionId2 },
+                parentModel: IModel.repositoryModelId,
+              };
+              definitionPartitionModelId2 = txn.insertModel(
+                definitionModelProps2
+              );
 
-            const definitionContainerProps1: DefinitionElementProps = {
-              classFullName: DefinitionContainer.classFullName,
-              model: definitionPartitionModelId1,
-              code: Code.createEmpty(),
-            };
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            definitionContainerId1 = db.elements.insertElement(
-              definitionContainerProps1
-            );
+              const definitionContainerProps1: DefinitionElementProps = {
+                classFullName: DefinitionContainer.classFullName,
+                model: definitionPartitionModelId1,
+                code: Code.createEmpty(),
+              };
+              definitionContainerId1 = txn.insertElement(
+                definitionContainerProps1
+              );
 
-            const definitionModelProps3: ModelProps = {
-              classFullName: DefinitionModel.classFullName,
-              modeledElement: { id: definitionContainerId1 },
-              parentModel: definitionPartitionModelId1,
-            };
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            definitionContainerModelId1 = db.models.insertModel(
-              definitionModelProps3
-            );
+              const definitionModelProps3: ModelProps = {
+                classFullName: DefinitionModel.classFullName,
+                modeledElement: { id: definitionContainerId1 },
+                parentModel: definitionPartitionModelId1,
+              };
+              definitionContainerModelId1 = txn.insertModel(
+                definitionModelProps3
+              );
+            });
           },
         },
       },
@@ -5029,10 +5070,10 @@ describe.skip("IModelTransformerHub", () => {
       2: {
         master: {
           manualUpdate(db) {
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            db.models.deleteModel(definitionContainerModelId1);
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            db.models.deleteModel(definitionPartitionModelId1);
+            withEditTxn(db, "delete definition models", (txn) => {
+              txn.deleteModel(definitionContainerModelId1);
+              txn.deleteModel(definitionPartitionModelId1);
+            });
           },
         },
       },
@@ -5040,8 +5081,9 @@ describe.skip("IModelTransformerHub", () => {
       4: {
         master: {
           manualUpdate(db) {
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            db.models.deleteModel(definitionPartitionModelId2);
+            withEditTxn(db, "delete second definition model", (txn) => {
+              txn.deleteModel(definitionPartitionModelId2);
+            });
           },
         },
       },
@@ -5130,24 +5172,22 @@ describe.skip("IModelTransformerHub", () => {
       {
         master: {
           manualUpdate(masterDb) {
-            const elem1Id = IModelTestUtils.queryByCodeValue(masterDb, "1");
-            const elem2Id = IModelTestUtils.queryByCodeValue(masterDb, "2");
-            const elem3Id = IModelTestUtils.queryByCodeValue(masterDb, "3");
-            const elem1 = masterDb.elements.getElement(elem1Id);
-            const elem2 = masterDb.elements.getElement(elem2Id);
-            const elem3 = masterDb.elements.getElement(elem3Id);
-            elem1.code.value = "tempValue"; // need a temp value to avoid conflicts
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            elem1.update();
-            elem2.code.value = "1";
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            elem2.update();
-            elem3.code.value = "2";
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            elem3.update();
-            elem1.code.value = "3";
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            elem1.update();
+            withEditTxn(masterDb, "swap element code values", (txn) => {
+              const elem1Id = IModelTestUtils.queryByCodeValue(masterDb, "1");
+              const elem2Id = IModelTestUtils.queryByCodeValue(masterDb, "2");
+              const elem3Id = IModelTestUtils.queryByCodeValue(masterDb, "3");
+              const elem1 = masterDb.elements.getElement(elem1Id);
+              const elem2 = masterDb.elements.getElement(elem2Id);
+              const elem3 = masterDb.elements.getElement(elem3Id);
+              elem1.code.value = "tempValue"; // need a temp value to avoid conflicts
+              txn.updateElement(elem1.toJSON());
+              elem2.code.value = "1";
+              txn.updateElement(elem2.toJSON());
+              elem3.code.value = "2";
+              txn.updateElement(elem3.toJSON());
+              elem1.code.value = "3";
+              txn.updateElement(elem1.toJSON());
+            });
           },
         },
       },
@@ -5178,22 +5218,22 @@ describe.skip("IModelTransformerHub", () => {
       {
         master: {
           manualUpdate(masterDb) {
-            const categoryA = SpatialCategory.create(
-              masterDb,
-              IModel.dictionaryId,
-              "A"
-            );
-            const categoryB = SpatialCategory.create(
-              masterDb,
-              IModel.dictionaryId,
-              "B"
-            );
-            categoryA.userLabel = "A";
-            categoryB.userLabel = "B";
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            categoryA.insert();
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            categoryB.insert();
+            withEditTxn(masterDb, "insert definition categories", (txn) => {
+              const categoryA = SpatialCategory.create(
+                masterDb,
+                IModel.dictionaryId,
+                "A"
+              );
+              const categoryB = SpatialCategory.create(
+                masterDb,
+                IModel.dictionaryId,
+                "B"
+              );
+              categoryA.userLabel = "A";
+              categoryB.userLabel = "B";
+              txn.insertElement(categoryA.toJSON());
+              txn.insertElement(categoryB.toJSON());
+            });
           },
         },
       },
@@ -5201,21 +5241,20 @@ describe.skip("IModelTransformerHub", () => {
       {
         master: {
           manualUpdate(masterDb) {
-            const categoryA = masterDb.elements.getElement(
-              SpatialCategory.createCode(masterDb, IModel.dictionaryId, "A")
-            );
-            const categoryB = masterDb.elements.getElement(
-              SpatialCategory.createCode(masterDb, IModel.dictionaryId, "B")
-            );
-            categoryA.code.value = "temp";
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            categoryA.update();
-            categoryB.code.value = "A";
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            categoryB.update();
-            categoryA.code.value = "B";
-            // eslint-disable-next-line @typescript-eslint/no-deprecated
-            categoryA.update();
+            withEditTxn(masterDb, "swap definition category codes", (txn) => {
+              const categoryA = masterDb.elements.getElement(
+                SpatialCategory.createCode(masterDb, IModel.dictionaryId, "A")
+              );
+              const categoryB = masterDb.elements.getElement(
+                SpatialCategory.createCode(masterDb, IModel.dictionaryId, "B")
+              );
+              categoryA.code.value = "temp";
+              txn.updateElement(categoryA.toJSON());
+              categoryB.code.value = "A";
+              txn.updateElement(categoryB.toJSON());
+              categoryA.code.value = "B";
+              txn.updateElement(categoryA.toJSON());
+            });
           },
         },
       },
@@ -5391,11 +5430,10 @@ describe.skip("IModelTransformerHub", () => {
 
     it("should call addCustomChanges when processing changes after source and target id map is populated", async () => {
       // set up source
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const sourceModelId0 = PhysicalModel.insert(
+      const sourceModelId0 = withEditTxn(
         sourceDb,
-        IModel.rootSubjectId,
-        "M0"
+        "insert source model",
+        (txn) => PhysicalModel.insert(txn, IModel.rootSubjectId, "M0")
       );
       await pushChanges(sourceDb, "Initial source data");
 
@@ -5425,18 +5463,30 @@ describe.skip("IModelTransformerHub", () => {
 
     it("should update data in target correctly when custom changes are registered for models", async () => {
       // Arrange
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const sourceSubjectId = Subject.insert(
+      const {
+        sourceSubjectId,
+        physicalModel1Id,
+        categoryId1,
+        documentListModel,
+      } = withEditTxn(
         sourceDb,
-        IModel.rootSubjectId,
-        "S1"
+        "insert source subject model and category",
+        (txn) => {
+          const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+          return {
+            sourceSubjectId: subjectId,
+            physicalModel1Id: PhysicalModel.insert(txn, subjectId, "PM1"),
+            categoryId1: SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "C1",
+              {}
+            ),
+            documentListModel: DocumentListModel.insert(txn, subjectId, "DL"),
+          };
+        }
       );
       // Create Drawing model hierarchy
-      const documentListModel = DocumentListModel.insert(
-        sourceDb,
-        sourceSubjectId,
-        "DL"
-      );
       const parentDrawing = insertDrawingElement(
         sourceDb,
         documentListModel,
@@ -5446,20 +5496,6 @@ describe.skip("IModelTransformerHub", () => {
         sourceDb,
         parentDrawing.id!,
         "DrawingChild"
-      );
-      // Create physical model
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const physicalModel1Id = PhysicalModel.insert(
-        sourceDb,
-        sourceSubjectId,
-        "PM1"
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const categoryId1 = SpatialCategory.insert(
-        sourceDb,
-        IModel.dictionaryId,
-        "C1",
-        {}
       );
       const physicalElem1 = insertPhysicalElement(
         sourceDb,
@@ -5523,11 +5559,10 @@ describe.skip("IModelTransformerHub", () => {
 
       // === Transformation 3: `process changes` transformation to include newly added model  ===
       // Act
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const physicalModel2Id = PhysicalModel.insert(
+      const physicalModel2Id = withEditTxn(
         sourceDb,
-        sourceSubjectId,
-        "PM2"
+        "insert second physical model",
+        (txn) => PhysicalModel.insert(txn, sourceSubjectId, "PM2")
       );
       const physicalElem2 = insertPhysicalElement(
         sourceDb,
@@ -5634,16 +5669,16 @@ describe.skip("IModelTransformerHub", () => {
     it("should update modeled element and its related data when custom changes are added for it's sub model", async function () {
       // === Transformation 1: Run `process all` transformation ===
       // Arrange
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const sourceSubjectId = Subject.insert(
+      const { sourceSubjectId, documentListModel } = withEditTxn(
         sourceDb,
-        IModel.rootSubjectId,
-        "S1"
-      );
-      const documentListModel = DocumentListModel.insert(
-        sourceDb,
-        sourceSubjectId,
-        "DL"
+        "insert source subject and document list",
+        (txn) => {
+          const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+          return {
+            sourceSubjectId: subjectId,
+            documentListModel: DocumentListModel.insert(txn, subjectId, "DL"),
+          };
+        }
       );
       const parentDrawing1 = insertDrawingElement(
         sourceDb,
@@ -5838,31 +5873,25 @@ describe.skip("IModelTransformerHub", () => {
 
     it("should update exported data correctly when custom changes are registered for elements", async function () {
       // Prepare source
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const sourceSubjectId = Subject.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "S1"
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const categoryId1 = SpatialCategory.insert(
-        sourceDb,
-        IModel.dictionaryId,
-        "C1",
-        {}
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const physicalModel1Id = PhysicalModel.insert(
-        sourceDb,
+      const {
         sourceSubjectId,
-        "PM1"
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const physicalModel2Id = PhysicalModel.insert(
-        sourceDb,
-        sourceSubjectId,
-        "PM2"
-      );
+        categoryId1,
+        physicalModel1Id,
+        physicalModel2Id,
+      } = withEditTxn(sourceDb, "insert source models and category", (txn) => {
+        const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+        return {
+          sourceSubjectId: subjectId,
+          categoryId1: SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "C1",
+            {}
+          ),
+          physicalModel1Id: PhysicalModel.insert(txn, subjectId, "PM1"),
+          physicalModel2Id: PhysicalModel.insert(txn, subjectId, "PM2"),
+        };
+      });
       const physicalElem1 = insertPhysicalElement(
         sourceDb,
         physicalModel1Id,
@@ -5955,11 +5984,10 @@ describe.skip("IModelTransformerHub", () => {
       );
 
       // === Transformation 3: `process changes` transformation to include newly added element  ===
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const physicalModel3Id = PhysicalModel.insert(
+      const physicalModel3Id = withEditTxn(
         sourceDb,
-        sourceSubjectId,
-        "PM3"
+        "insert third physical model",
+        (txn) => PhysicalModel.insert(txn, sourceSubjectId, "PM3")
       );
       const physicalElem3 = insertPhysicalElement(
         sourceDb,
@@ -6027,31 +6055,22 @@ describe.skip("IModelTransformerHub", () => {
 
     it("should reset element values when custom changes to update element are added", async function () {
       // Arrange
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const sourceSubjectId = Subject.insert(
+      const { categoryId1, physicalModel1Id, physicalModel2Id } = withEditTxn(
         sourceDb,
-        IModel.rootSubjectId,
-        "S1"
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const categoryId1 = SpatialCategory.insert(
-        sourceDb,
-        IModel.dictionaryId,
-        "C1",
-        {}
-      );
-
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const physicalModel1Id = PhysicalModel.insert(
-        sourceDb,
-        sourceSubjectId,
-        "PM1"
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const physicalModel2Id = PhysicalModel.insert(
-        sourceDb,
-        sourceSubjectId,
-        "PM2"
+        "insert reset-test source data",
+        (txn) => {
+          const subjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+          return {
+            categoryId1: SpatialCategory.insert(
+              txn,
+              IModel.dictionaryId,
+              "C1",
+              {}
+            ),
+            physicalModel1Id: PhysicalModel.insert(txn, subjectId, "PM1"),
+            physicalModel2Id: PhysicalModel.insert(txn, subjectId, "PM2"),
+          };
+        }
       );
       const physicalElem1 = insertPhysicalElement(
         sourceDb,
@@ -6081,8 +6100,9 @@ describe.skip("IModelTransformerHub", () => {
         physicalElem1.federationGuid!
       );
       physicalElem1InTargetProps.userLabel = "Updated";
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.elements.updateElement(physicalElem1InTargetProps);
+      withEditTxn(targetDb, "update target element", (txn) => {
+        txn.updateElement(physicalElem1InTargetProps);
+      });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
@@ -6135,35 +6155,38 @@ describe.skip("IModelTransformerHub", () => {
 
     it("should delete recreated model when custom delete change is registered for it", async () => {
       const constSubjectFedGuid = Guid.createValue();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const originalSubjectId = sourceDb.elements.insertElement({
-        classFullName: Subject.classFullName,
-        code: Code.createEmpty(),
-        model: IModel.repositoryModelId,
-        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-        federationGuid: constSubjectFedGuid,
-        userLabel: "A",
-      });
-
       const constPartitionFedGuid = Guid.createValue();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const originalPartitionId = sourceDb.elements.insertElement({
-        model: IModel.repositoryModelId,
-        code: PhysicalPartition.createCode(
-          sourceDb,
-          IModel.rootSubjectId,
-          "original partition"
-        ),
-        classFullName: PhysicalPartition.classFullName,
-        federationGuid: constPartitionFedGuid,
-        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
-      });
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const originalModelId = sourceDb.models.insertModel({
-        classFullName: PhysicalModel.classFullName,
-        modeledElement: { id: originalPartitionId },
-        isPrivate: true,
-      });
+      const { originalSubjectId, originalPartitionId, originalModelId } =
+        withEditTxn(sourceDb, "insert original elements and model", (txn) => {
+          const subjId = txn.insertElement({
+            classFullName: Subject.classFullName,
+            code: Code.createEmpty(),
+            model: IModel.repositoryModelId,
+            parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+            federationGuid: constSubjectFedGuid,
+            userLabel: "A",
+          });
+          const partId = txn.insertElement({
+            model: IModel.repositoryModelId,
+            code: PhysicalPartition.createCode(
+              sourceDb,
+              IModel.rootSubjectId,
+              "original partition"
+            ),
+            classFullName: PhysicalPartition.classFullName,
+            federationGuid: constPartitionFedGuid,
+            parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+          });
+          return {
+            originalSubjectId: subjId,
+            originalPartitionId: partId,
+            originalModelId: txn.insertModel({
+              classFullName: PhysicalModel.classFullName,
+              modeledElement: { id: partId },
+              isPrivate: true,
+            }),
+          };
+        });
 
       await pushChanges(sourceDb, "Initial changes");
 
@@ -6186,40 +6209,44 @@ describe.skip("IModelTransformerHub", () => {
       assertModelExistsByName(targetDb, ["original partition"]);
 
       // === Transformation 1: Run `process all` transformation ===
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      sourceDb.elements.deleteElement(originalSubjectId);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const secondCopyOfSubjectId = sourceDb.elements.insertElement({
-        classFullName: Subject.classFullName,
-        code: Code.createEmpty(),
-        model: IModel.repositoryModelId,
-        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-        federationGuid: constSubjectFedGuid,
-        userLabel: "B",
-      });
+      const { secondCopyOfSubjectId, recreatedPartitionId } = withEditTxn(
+        sourceDb,
+        "recreate elements and model",
+        (txn) => {
+          txn.deleteElement(originalSubjectId);
+          const newSubjectId = txn.insertElement({
+            classFullName: Subject.classFullName,
+            code: Code.createEmpty(),
+            model: IModel.repositoryModelId,
+            parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+            federationGuid: constSubjectFedGuid,
+            userLabel: "B",
+          });
 
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      sourceDb.models.deleteModel(originalModelId);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      sourceDb.elements.deleteElement(originalPartitionId);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const recreatedPartitionId = sourceDb.elements.insertElement({
-        model: IModel.repositoryModelId,
-        code: PhysicalPartition.createCode(
-          sourceDb,
-          IModel.rootSubjectId,
-          "recreated partition"
-        ),
-        classFullName: PhysicalPartition.classFullName,
-        federationGuid: constPartitionFedGuid,
-        parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
-      });
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      sourceDb.models.insertModel({
-        classFullName: PhysicalModel.classFullName,
-        modeledElement: { id: recreatedPartitionId },
-        isPrivate: false,
-      });
+          txn.deleteModel(originalModelId);
+          txn.deleteElement(originalPartitionId);
+          const newPartitionId = txn.insertElement({
+            model: IModel.repositoryModelId,
+            code: PhysicalPartition.createCode(
+              sourceDb,
+              IModel.rootSubjectId,
+              "recreated partition"
+            ),
+            classFullName: PhysicalPartition.classFullName,
+            federationGuid: constPartitionFedGuid,
+            parent: new SubjectOwnsPartitionElements(IModel.rootSubjectId),
+          });
+          txn.insertModel({
+            classFullName: PhysicalModel.classFullName,
+            modeledElement: { id: newPartitionId },
+            isPrivate: false,
+          });
+          return {
+            secondCopyOfSubjectId: newSubjectId,
+            recreatedPartitionId: newPartitionId,
+          };
+        }
+      );
 
       await pushChanges(sourceDb, "Recreated elements");
 
@@ -6253,29 +6280,29 @@ describe.skip("IModelTransformerHub", () => {
     it("should handle custom changes when source iModel has no changesets", async () => {
       // set up source
       const subjectFedGuid1 = Guid.createValue();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const originalSubjectId1 = sourceDb.elements.insertElement({
-        classFullName: Subject.classFullName,
-        code: Code.createEmpty(),
-        model: IModel.repositoryModelId,
-        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-        federationGuid: subjectFedGuid1,
-        userLabel: "A",
-      });
-
       const subjectFedGuid2 = Guid.createValue();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const originalSubjectId2 = sourceDb.elements.insertElement({
-        classFullName: Subject.classFullName,
-        code: Code.createEmpty(),
-        model: IModel.repositoryModelId,
-        parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
-        federationGuid: subjectFedGuid2,
-        userLabel: "B",
-      });
-      // Changes are saved but not pushed
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      sourceDb.saveChanges("Initial changes");
+      const { originalSubjectId1, originalSubjectId2 } = withEditTxn(
+        sourceDb,
+        "insert initial subjects",
+        (txn) => ({
+          originalSubjectId1: txn.insertElement({
+            classFullName: Subject.classFullName,
+            code: Code.createEmpty(),
+            model: IModel.repositoryModelId,
+            parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+            federationGuid: subjectFedGuid1,
+            userLabel: "A",
+          }),
+          originalSubjectId2: txn.insertElement({
+            classFullName: Subject.classFullName,
+            code: Code.createEmpty(),
+            model: IModel.repositoryModelId,
+            parent: new SubjectOwnsSubjects(IModel.rootSubjectId),
+            federationGuid: subjectFedGuid2,
+            userLabel: "B",
+          }),
+        })
+      );
 
       // process all
       const transformer1 = new CustomChangesTransformer(
@@ -6334,8 +6361,9 @@ describe.skip("IModelTransformerHub", () => {
       documentListModelId: Id64String,
       drawingName: string
     ): ElementProps {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const id = Drawing.insert(iModel, documentListModelId, drawingName);
+      const id = withEditTxn(iModel, `insert drawing ${drawingName}`, (txn) =>
+        Drawing.insert(txn, documentListModelId, drawingName)
+      );
       return iModel.elements.getElementProps(id);
     }
 
@@ -6354,10 +6382,13 @@ describe.skip("IModelTransformerHub", () => {
         userLabel: uniqueName,
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      iModel.elements.insertElement(element);
+      const id = withEditTxn(
+        iModel,
+        `insert physical element ${uniqueName}`,
+        (txn) => txn.insertElement(element)
+      );
       // re-read element to populate federationGuid value
-      return iModel.elements.getElementProps(element.id!);
+      return iModel.elements.getElementProps(id);
     }
 
     function insertElementAspect(
@@ -6377,8 +6408,9 @@ describe.skip("IModelTransformerHub", () => {
         identifier,
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      return iModel.elements.insertAspect(aspectProps);
+      return withEditTxn(iModel, `insert aspect ${identifier}`, (txn) =>
+        txn.insertAspect(aspectProps)
+      );
     }
 
     function insertElementGroupsElementsRelationship(
@@ -6387,8 +6419,11 @@ describe.skip("IModelTransformerHub", () => {
       targetId: Id64String
     ) {
       const rel = ElementGroupsMembers.create(iModel, sourceId, targetId, 0);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const id = rel.insert();
+      const id = withEditTxn(
+        iModel,
+        "insert element groups relationship",
+        (txn) => txn.insertRelationship(rel.toJSON())
+      );
       return iModel.relationships.getInstance(
         ElementGroupsMembers.classFullName,
         id
@@ -6531,6 +6566,211 @@ describe.skip("IModelTransformerHub", () => {
         targetElement2,
         "Element should be deleted in target iModel"
       ).to.equal(Id64.invalid);
+    });
+
+    it("should leave model contents correct when model partition was recreated with different federation guid and the same code value", async () => {
+      // Arrange
+      const specId = sourceDb.codeSpecs.getByName(
+        BisCodeSpec.physicalMaterial
+      ).id;
+      const { subjectId, physicalModelId, categoryId, physicalObjectId } =
+        withEditTxn(sourceDb, "recreate elements & models", (txn) => {
+          // prepare source - create initial subject, model, and element
+          const subjId = Subject.insert(txn, IModel.rootSubjectId, "Subject1");
+          const physModId = PhysicalModel.insert(txn, subjId, "PhysicalModel");
+          const catId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "C1",
+            {}
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: physModId,
+            category: catId,
+            code: new Code({
+              value: "PO1",
+              scope: IModel.rootSubjectId,
+              spec: specId,
+            }),
+          };
+          const physicalObjId = txn.insertElement(physicalObjectProps);
+          return {
+            subjectId: subjId,
+            physicalModelId: physModId,
+            categoryId: catId,
+            physicalObjectId: physicalObjId,
+          };
+        });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "First changes",
+        retainLocks: true,
+      });
+
+      // Run first transform
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "First transformation",
+        retainLocks: true,
+      });
+
+      // Recreate source model partition with different federation guid
+      withEditTxn(sourceDb, "delete and recreate model", (txn) => {
+        txn.deleteElement(physicalObjectId);
+        txn.deleteModel(physicalModelId);
+        txn.deleteElement(physicalModelId);
+        const physicalModel2Id = PhysicalModel.insert(
+          txn,
+          subjectId,
+          "PhysicalModel"
+        );
+        const physicalObject2Props: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: physicalModel2Id,
+          category: categoryId,
+          code: new Code({
+            value: "PO2",
+            scope: IModel.rootSubjectId,
+            spec: specId,
+          }),
+        };
+        txn.insertElement(physicalObject2Props);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Second changes",
+      });
+
+      // Act - run second transform with change processing
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: {},
+      });
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Second transformation",
+      });
+
+      // Assert - verify that new elements and models exist with correct values
+      expect(
+        IModelTransformerTestUtils.queryByCodeValue(targetDb, "PO2")
+      ).to.not.be.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryModelIddByModeledElementCodeValue(
+          targetDb,
+          "PhysicalModel"
+        )
+      ).to.not.be.equal(Id64.invalid);
+    });
+
+    it("should delete model when model partition was recreated with different federation guid and the same code value but model was left deleted", async () => {
+      // Arrange
+      const specId = sourceDb.codeSpecs.getByName(
+        BisCodeSpec.physicalMaterial
+      ).id;
+      const { subjectId, physicalModelId, physicalObjectId } = withEditTxn(
+        sourceDb,
+        "recreate elements & models",
+        (txn) => {
+          // prepare source - create initial subject, model, and element
+          const subjId = Subject.insert(txn, IModel.rootSubjectId, "Subject1");
+          const physModId = PhysicalModel.insert(txn, subjId, "PhysicalModel");
+          const catId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "C1",
+            {}
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: physModId,
+            category: catId,
+            code: new Code({
+              value: "PO1",
+              scope: IModel.rootSubjectId,
+              spec: specId,
+            }),
+          };
+          const physicalObjId = txn.insertElement(physicalObjectProps);
+          return {
+            subjectId: subjId,
+            physicalModelId: physModId,
+            physicalObjectId: physicalObjId,
+          };
+        }
+      );
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "First changes",
+        retainLocks: true,
+      });
+
+      // Run first transform
+      let transformer = new IModelTransformer(sourceDb, targetDb);
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "First transformation",
+        retainLocks: true,
+      });
+
+      // Recreate source model partition with different federation guid
+      withEditTxn(sourceDb, "delete and recreate model", (txn) => {
+        txn.deleteElement(physicalObjectId);
+        txn.deleteModel(physicalModelId);
+        txn.deleteElement(physicalModelId);
+        const partitionProps: InformationPartitionElementProps = {
+          classFullName: PhysicalPartition.classFullName,
+          model: IModel.repositoryModelId,
+          parent: new SubjectOwnsPartitionElements(subjectId),
+          code: PhysicalPartition.createCode(
+            txn.iModel,
+            subjectId,
+            "PhysicalModel"
+          ),
+        };
+        txn.insertElement(partitionProps);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Second changes",
+      });
+
+      // Act - run second transform with change processing
+      transformer = new IModelTransformer(sourceDb, targetDb, {
+        argsForProcessChanges: {},
+      });
+      await transformer.process();
+      transformer.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
+      targetDb.saveChanges();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Second transformation",
+      });
+
+      // Assert - verify that new elements and models exist with correct values
+      expect(
+        IModelTransformerTestUtils.queryByCodeValue(targetDb, "PhysicalModel")
+      ).to.not.be.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryModelIddByModeledElementCodeValue(
+          targetDb,
+          "PhysicalModel"
+        )
+      ).to.be.equal(Id64.invalid);
     });
 
     function generateSchema(

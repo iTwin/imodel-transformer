@@ -14,6 +14,7 @@ import {
   IModelJsFs,
   SnapshotDb,
   Subject,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { Id64String } from "@itwin/core-bentley";
@@ -53,74 +54,70 @@ describe("ChangedInstanceIds", () => {
 
     sourceDb = prepareSnapshotDb("ChangedInstanceIds");
     // add data to source iModel
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const sourceSubjectId = Subject.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "S1"
-    );
-    documentListModel = DocumentListModel.insert(
-      sourceDb,
-      sourceSubjectId,
-      "DL"
-    );
-    parentDrawing = insertDrawingElement(
-      sourceDb,
-      documentListModel,
-      "ParentDrawing"
-    );
-    childDrawing1 = insertDrawingElement(
-      sourceDb,
-      parentDrawing.id!,
-      "ChildDrawing1"
-    );
-    childDrawing2 = insertDrawingElement(
-      sourceDb,
-      parentDrawing.id!,
-      "ChildDrawing2"
-    );
-    const parentDrawing2 = insertDrawingElement(
-      sourceDb,
-      documentListModel,
-      "ParentDrawing2"
-    );
-    insertDrawingElement(sourceDb, parentDrawing2.id!, "ChildDrawing3");
-    parentAspect1Id = insertElementAspect(
-      sourceDb,
-      sourceSubjectId,
-      parentDrawing.id!,
-      "TestParentAspect1"
-    );
-    aspect1Id = insertElementAspect(
-      sourceDb,
-      sourceSubjectId,
-      childDrawing1.id!,
-      "TestChildAspect1"
-    );
-    aspect2Id = insertElementAspect(
-      sourceDb,
-      sourceSubjectId,
-      childDrawing2.id!,
-      "TestChildAspect2"
-    );
-    relationshipId = ElementGroupsMembers.create(
-      sourceDb,
-      childDrawing1.id!,
-      childDrawing2.id!,
-      0
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-    ).insert();
+    withEditTxn(sourceDb, "add data to source iModel", (txn) => {
+      const sourceSubjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
+      documentListModel = DocumentListModel.insert(
+        txn,
+        sourceSubjectId,
+        "DL"
+      );
+      parentDrawing = insertDrawingElement(
+        txn,
+        sourceDb,
+        documentListModel,
+        "ParentDrawing"
+      );
+      childDrawing1 = insertDrawingElement(
+        txn,
+        sourceDb,
+        parentDrawing.id!,
+        "ChildDrawing1"
+      );
+      childDrawing2 = insertDrawingElement(
+        txn,
+        sourceDb,
+        parentDrawing.id!,
+        "ChildDrawing2"
+      );
+      const parentDrawing2 = insertDrawingElement(
+        txn,
+        sourceDb,
+        documentListModel,
+        "ParentDrawing2"
+      );
+      insertDrawingElement(txn, sourceDb, parentDrawing2.id!, "ChildDrawing3");
+      parentAspect1Id = insertElementAspect(
+        txn,
+        sourceSubjectId,
+        parentDrawing.id!,
+        "TestParentAspect1"
+      );
+      aspect1Id = insertElementAspect(
+        txn,
+        sourceSubjectId,
+        childDrawing1.id!,
+        "TestChildAspect1"
+      );
+      aspect2Id = insertElementAspect(
+        txn,
+        sourceSubjectId,
+        childDrawing2.id!,
+        "TestChildAspect2"
+      );
+      relationshipId = ElementGroupsMembers.create(
+        sourceDb,
+        childDrawing1.id!,
+        childDrawing2.id!,
+        0
+      ).insert(txn);
 
-    parentRelationshipId = ElementGroupsMembers.create(
-      sourceDb,
-      parentDrawing.id!,
-      parentDrawing2.id!,
-      0
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-    ).insert();
-
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
+      parentRelationshipId = ElementGroupsMembers.create(
+        sourceDb,
+        parentDrawing.id!,
+        parentDrawing2.id!,
+        0
+      ).insert(txn);
+    });
   });
 
   after(() => {
@@ -138,17 +135,17 @@ describe("ChangedInstanceIds", () => {
   }
 
   function insertDrawingElement(
+    txn: Parameters<Parameters<typeof withEditTxn>[2]>[0],
     iModel: IModelDb,
     documentListModelId: Id64String,
     drawingName: string
   ): ElementProps {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const id = Drawing.insert(iModel, documentListModelId, drawingName);
+    const id = Drawing.insert(txn, documentListModelId, drawingName);
     return iModel.elements.getElementProps(id);
   }
 
   function insertElementAspect(
-    iModel: IModelDb,
+    txn: Parameters<Parameters<typeof withEditTxn>[2]>[0],
     scopeId: Id64String,
     elementId: Id64String,
     identifier: string
@@ -164,8 +161,7 @@ describe("ChangedInstanceIds", () => {
       identifier,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    return iModel.elements.insertAspect(aspectProps);
+    return txn.insertAspect(aspectProps);
   }
 
   function assertHasValues(
