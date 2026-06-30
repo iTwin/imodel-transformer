@@ -13,6 +13,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   Subject,
+  withEditTxn,
 } from "@itwin/core-backend";
 import {
   AdditionalTransform,
@@ -69,53 +70,49 @@ function createTestSnapshotDb(
   if (geolocData.geographicCRS !== undefined)
     imodelDb.setGeographicCoordinateSystem(geolocData.geographicCRS);
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const subjectId = Subject.insert(
-    imodelDb,
-    IModelDb.rootSubjectId,
-    "Test Subject"
-  );
-  const defintionModelId = DefinitionModel.insert(
-    imodelDb,
-    subjectId,
-    "DefinitionModel"
-  );
+  withEditTxn(imodelDb, "Created test elements", (txn) => {
+    const subjectId = Subject.insert(
+      txn,
+      IModelDb.rootSubjectId,
+      "Test Subject"
+    );
+    const defintionModelId = DefinitionModel.insert(
+      txn,
+      subjectId,
+      "DefinitionModel"
+    );
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const categoryId = SpatialCategory.insert(
-    imodelDb,
-    defintionModelId,
-    `${color} Category`,
-    { color: ColorDef.fromString(color).toJSON() }
-  );
+    const categoryId = SpatialCategory.insert(
+      txn,
+      defintionModelId,
+      `${color} Category`,
+      { color: ColorDef.fromString(color).toJSON() }
+    );
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const modelId = PhysicalModel.insert(imodelDb, subjectId, "Test Model");
+    const modelId = PhysicalModel.insert(txn, subjectId, "Test Model");
 
-  const builder = new GeometryStreamBuilder();
-  builder.appendGeometry(Sphere.createCenterRadius(Point3d.createZero(), 1));
-  for (let i = 0; i < numElements; i++) {
-    // Arrange elements in a 2x2 grid, incrementing z every 4 elements
-    const x = (i % 2) * 5;
-    const y = (Math.floor(i / 2) % 2) * 5;
-    const z = Math.floor(i / 4) * 5;
+    const builder = new GeometryStreamBuilder();
+    builder.appendGeometry(Sphere.createCenterRadius(Point3d.createZero(), 1));
+    for (let i = 0; i < numElements; i++) {
+      // Arrange elements in a 2x2 grid, incrementing z every 4 elements
+      const x = (i % 2) * 5;
+      const y = (Math.floor(i / 2) % 2) * 5;
+      const z = Math.floor(i / 4) * 5;
 
-    const elementProps: PhysicalElementProps = {
-      classFullName: PhysicalObject.classFullName,
-      model: modelId,
-      category: categoryId,
-      code: Code.createEmpty(),
-      geom: builder.geometryStream,
-      placement: {
-        origin: Point3d.create(x, y, z),
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    imodelDb.elements.insertElement(elementProps);
-  }
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  imodelDb.saveChanges("Created test elements");
+      const elementProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: modelId,
+        category: categoryId,
+        code: Code.createEmpty(),
+        geom: builder.geometryStream,
+        placement: {
+          origin: Point3d.create(x, y, z),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      };
+      txn.insertElement(elementProps);
+    }
+  });
 
   return imodelDb;
 }
@@ -209,7 +206,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transfrom.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPositionPostTransform =
@@ -320,7 +317,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -473,13 +470,12 @@ describe("Non Linear Geolocation Transformations", () => {
     const targetElem = targetElems[0];
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    srcElem.update();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      txn.updateElement(srcElem.toJSON());
+    });
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -554,10 +550,9 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    srcElem.update();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      txn.updateElement(srcElem.toJSON());
+    });
 
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
@@ -570,7 +565,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -645,10 +640,9 @@ describe("Non Linear Geolocation Transformations", () => {
       .multiplyTransformTransform(targetHelmert);
 
     srcElem.placement.multiplyTransform(srcSpatialTransform);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    srcElem.update();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges("update placement of source element");
+    withEditTxn(sourceDb, "update placement of source element", (txn) => {
+      txn.updateElement(srcElem.toJSON());
+    });
 
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
@@ -661,7 +655,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
@@ -731,7 +725,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
     targetDb.saveChanges("clone contents from source");
 
     const srcElemPostTransform =
