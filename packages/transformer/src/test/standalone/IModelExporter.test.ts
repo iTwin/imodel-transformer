@@ -14,6 +14,7 @@ import {
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Id64 } from "@itwin/core-bentley";
 import {
@@ -64,13 +65,14 @@ describe("IModelExporter", () => {
       )
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const geomPartId = sourceDb.elements.insertElement({
-      classFullName: GeometryPart.classFullName,
-      model: IModel.dictionaryId,
-      code: Code.createEmpty(),
-      geom: builder.geometryStream,
-    } as GeometryPartProps);
+    const geomPartId = withEditTxn(sourceDb, "insert brep geom part", (txn) => {
+      return txn.insertElement({
+        classFullName: GeometryPart.classFullName,
+        model: IModel.dictionaryId,
+        code: Code.createEmpty(),
+        geom: builder.geometryStream,
+      } as GeometryPartProps);
+    });
 
     assert(Id64.isValidId64(geomPartId));
     const geomPartInSource = sourceDb.elements.getElement<GeometryPart>(
@@ -78,9 +80,6 @@ describe("IModelExporter", () => {
       GeometryPart
     );
     assert(geomPartInSource.geom?.[1]?.brep?.data !== undefined);
-
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceDb.saveChanges();
 
     const flatTargetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelExporter",
@@ -93,8 +92,9 @@ describe("IModelExporter", () => {
     class TestFlatImportHandler extends IModelExportHandler {
       public override async onExportElement(elem: Element): Promise<void> {
         if (elem instanceof GeometryPart)
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          flatTargetDb.elements.insertElement(elem.toJSON());
+          withEditTxn(flatTargetDb, "insert exported element", (txn) => {
+            txn.insertElement(elem.toJSON());
+          });
       }
     }
 
@@ -122,75 +122,73 @@ describe("IModelExporter", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const categoryId = SpatialCategory.insert(
+      const physicalObject1 = withEditTxn(
         sourceDb,
-        IModel.dictionaryId,
-        "SpatialCategory",
-        new SubCategoryAppearance()
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const sourceModelId = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "PhysicalModel"
-      );
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-      };
-      const physicalObject1 =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject2 =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject3 =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject4 =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.elements.insertElement(physicalObjectProps);
+        "setup elements and relationships",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          );
+          const sourceModelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: sourceModelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          };
+          const obj1 = txn.insertElement(physicalObjectProps);
+          const obj2 = txn.insertElement(physicalObjectProps);
+          const obj3 = txn.insertElement(physicalObjectProps);
+          const obj4 = txn.insertElement(physicalObjectProps);
 
-      const invalidRelationshipsProps: RelationshipProps[] = [
-        // target element will be deleted
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject1,
-          sourceId: physicalObject2,
-        },
-        // target and source elements are invalid
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: "",
-          sourceId: "",
-        },
-        // only target element is invalid
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: "",
-          sourceId: physicalObject3,
-        },
-        // only source element is invalid
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject4,
-          sourceId: "",
-        },
-      ];
+          const invalidRelationshipsProps: RelationshipProps[] = [
+            // target element will be deleted
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj1,
+              sourceId: obj2,
+            },
+            // target and source elements are invalid
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: "",
+              sourceId: "",
+            },
+            // only target element is invalid
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: "",
+              sourceId: obj3,
+            },
+            // only source element is invalid
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj4,
+              sourceId: "",
+            },
+          ];
 
-      invalidRelationshipsProps.forEach((props) =>
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        sourceDb.relationships.insertInstance(props)
+          invalidRelationshipsProps.forEach((props) =>
+            txn.insertRelationship(props)
+          );
+
+          return obj1;
+        }
       );
+
       // this is used to substitute low level C++ functions the connectors would used to introduce invalid relationships.
       sourceDb.withSqliteStatement(
         `DELETE FROM bis_Element WHERE Id = ${physicalObject1}`,
         (stmt) => stmt.next()
       );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving raw SQL changes
       sourceDb.saveChanges();
 
       const sourceRelationships = [];
