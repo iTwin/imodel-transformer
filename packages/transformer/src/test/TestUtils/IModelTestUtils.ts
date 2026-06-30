@@ -100,6 +100,7 @@ import {
   DrawingModel,
   DrawingViewDefinition,
   ECSqlStatement,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -1016,7 +1017,7 @@ export class IModelTestUtils {
   }
 
   public static insertSpatialCategory(
-    iModelDb: IModelDb,
+    iModelDbOrTxn: IModelDb | EditTxn,
     modelId: Id64String,
     categoryName: string,
     color: ColorDef
@@ -1026,7 +1027,12 @@ export class IModelTestUtils {
       transp: 0,
       invisible: false,
     };
-    return SpatialCategory.insert(iModelDb, modelId, categoryName, appearance);
+    return SpatialCategory.insert(
+      iModelDbOrTxn as any,
+      modelId,
+      categoryName,
+      appearance
+    );
   }
 
   public static createBoxes(subCategoryIds: Id64String[]): GeometryStreamProps {
