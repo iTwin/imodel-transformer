@@ -19,6 +19,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   SpatialElement,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Logger, LogLevel } from "@itwin/core-bentley";
 import {
@@ -261,14 +262,15 @@ describe("imodel-transformer", () => {
 
     const transformedElemProps = elementProps;
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const _newElemId = newSchemaSourceDb.elements.insertElement({
-      classFullName: "Test:TestElement",
-      model: firstModelId,
-      code: Code.createEmpty(),
-      category: firstSpatialCategId,
-      ...elementProps,
-    } as PhysicalElementProps);
+    withEditTxn(newSchemaSourceDb, "insert test element", (txn) => {
+      txn.insertElement({
+        classFullName: "Test:TestElement",
+        model: firstModelId,
+        code: Code.createEmpty(),
+        category: firstSpatialCategId,
+        ...elementProps,
+      } as PhysicalElementProps);
+    });
 
     const targetDbFileName = initOutputFile("EditSchemas.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
@@ -348,14 +350,15 @@ describe("imodel-transformer", () => {
       myProp: "10",
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const _newElemId = newSchemaSourceDb.elements.insertElement({
-      classFullName: "Test:TestElement",
-      model: firstModelId,
-      code: Code.createEmpty(),
-      category: firstSpatialCategId,
-      ...elementProps,
-    } as PhysicalElementProps);
+    withEditTxn(newSchemaSourceDb, "insert test element", (txn) => {
+      txn.insertElement({
+        classFullName: "Test:TestElement",
+        model: firstModelId,
+        code: Code.createEmpty(),
+        category: firstSpatialCategId,
+        ...elementProps,
+      } as PhysicalElementProps);
+    });
 
     const targetDbFileName = initOutputFile("targetDb-Struct.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {

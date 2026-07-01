@@ -182,9 +182,8 @@ export class Transformer extends IModelTransformer {
 
     // customize transformer using the specified options
     if (options?.combinePhysicalModels) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
       this._targetPhysicalModelId = PhysicalModel.insert(
-        this.targetDb,
+        this._targetEditTxn,
         IModel.rootSubjectId,
         "CombinedPhysicalModel"
       ); // WIP: Id should be passed in, not inserted here
@@ -433,8 +432,7 @@ export class Transformer extends IModelTransformer {
   }
 
   private async saveChanges(description: string): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    this.targetDb.saveChanges(description);
+    this._targetEditTxn.saveChanges(description);
   }
 
   private logElapsedTime(): void {
@@ -465,7 +463,6 @@ export class Transformer extends IModelTransformer {
     })) {
       geometryPartIds.push(row.id);
     }
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    this.targetDb.elements.deleteDefinitionElements(geometryPartIds); // will delete only if unused
+    this._targetEditTxn.deleteDefinitionElements(geometryPartIds); // will delete only if unused
   }
 }
