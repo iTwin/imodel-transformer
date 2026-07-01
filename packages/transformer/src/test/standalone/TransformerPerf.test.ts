@@ -31,8 +31,6 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import {
-  EditTxn,
-  IModelDb,
   IModelHost,
   IModelJsFs,
   PhysicalModel,
@@ -45,8 +43,8 @@ import {
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import { IModelTransformer } from "../../IModelTransformer";
 import {
-  IModelTransformerTestUtils,
   createStartedEditTxn,
+  IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests

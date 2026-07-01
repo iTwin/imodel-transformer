@@ -26,8 +26,8 @@ import {
 import { expect } from "chai";
 import * as path from "path";
 import {
-  IModelTransformerTestUtils,
   createStartedEditTxn,
+  IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
