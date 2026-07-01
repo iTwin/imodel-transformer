@@ -6,7 +6,12 @@
 // Creates the GitHub Release for a freshly-published @itwin/imodel-transformer version.
 // Runs as the last step of the "Publish NPM packages" workflow (after `beachball publish`
 // tags `@itwin/imodel-transformer_v<version>`). On a minor/major it promotes the hand-authored
-// docs/changehistory/NEXT_VERSION.md into the release body; patch/prerelease publishes just link the CHANGELOG.
+// docs/changehistory/NEXT_VERSION.md into the release body; patch publishes just link the CHANGELOG.
+//
+// This script is only invoked by the stable release workflow (release.yml). The dev/prerelease
+// workflow (release-dev.yml) does not call it, so dev publishes currently produce no GitHub Release
+// at all. The prerelease-safe handling below (isPrerelease, --prerelease on `gh release create`)
+// exists so this script stays correct if it is ever wired into a prerelease workflow.
 //
 // Usage: node create-github-release.mjs <previousStableVersion>   (may be empty for the first stable release)
 //
@@ -107,5 +112,9 @@ bodyParts.push(`For the full list of changes, see the [CHANGELOG](${changelogUrl
 const bodyFile = join(mkdtempSync(join(tmpdir(), "release-notes-")), "body.md");
 writeFileSync(bodyFile, bodyParts.join("\n\n") + "\n");
 
-run("gh", ["release", "create", tag, "--title", newVersion, "--notes-file", bodyFile, "--verify-tag"]);
+const releaseArgs = ["release", "create", tag, "--title", newVersion, "--notes-file", bodyFile, "--verify-tag"];
+if (isPrerelease(newVersion))
+  releaseArgs.push("--prerelease");
+
+run("gh", releaseArgs);
 console.log(`Published GitHub Release ${tag}.`);
