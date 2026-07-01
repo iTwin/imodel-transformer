@@ -9,6 +9,7 @@ import {
   ElementGroupsMembers,
   SnapshotDb,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
@@ -66,8 +67,7 @@ export default async function rawInserts(
     }
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  sourceDb.saveChanges();
+  withEditTxn(sourceDb, "save", () => undefined);
 
   Logger.logInfo(
     loggerCategory,

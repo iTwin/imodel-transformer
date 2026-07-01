@@ -205,6 +205,8 @@ export async function initializeBranchProvenance(
   }
 
   if (args.createFedGuidsForMaster === true) {
+    args.editTxn.saveChanges();
+    args.editTxn.end();
     args.master.close();
     args.branch.close();
   }

@@ -17,6 +17,7 @@ import {
   IModelDb,
   Relationship,
   RepositoryLink,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger } from "@itwin/core-bentley";
@@ -67,32 +68,37 @@ const nativeTransformerTestModule: TestTransformerModule = {
     targetDb: IModelDb
   ): Promise<TransformRunner> {
     // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const masterLinkRepoId = targetDb.elements.insertElement({
-      classFullName: RepositoryLink.classFullName,
-      code: RepositoryLink.createCode(
-        targetDb,
-        IModelDb.repositoryModelId,
-        "test-imodel"
-      ),
-      model: IModelDb.repositoryModelId,
-      // url: "https://wherever-you-got-your-imodel.net",
-      format: "iModel",
-      repositoryGuid: sourceDb.iModelId,
-      description: "master iModel repository",
-    } as RepositoryLinkProps);
+    const { masterExternalSourceId } = withEditTxn(
+      targetDb,
+      "insert scope elements",
+      (txn) => {
+        const masterLinkRepoId = txn.insertElement({
+          classFullName: RepositoryLink.classFullName,
+          code: RepositoryLink.createCode(
+            targetDb,
+            IModelDb.repositoryModelId,
+            "test-imodel"
+          ),
+          model: IModelDb.repositoryModelId,
+          format: "iModel",
+          repositoryGuid: sourceDb.iModelId,
+          description: "master iModel repository",
+        } as RepositoryLinkProps);
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const masterExternalSourceId = targetDb.elements.insertElement({
-      classFullName: ExternalSource.classFullName,
-      model: IModelDb.rootSubjectId,
-      code: Code.createEmpty(),
-      repository: new ExternalSourceIsInRepository(masterLinkRepoId),
-      connectorName: "iModel Transformer",
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      connectorVersion: require("@itwin/imodel-transformer/package.json")
-        .version,
-    } as ExternalSourceProps);
+        const extSourceId = txn.insertElement({
+          classFullName: ExternalSource.classFullName,
+          model: IModelDb.rootSubjectId,
+          code: Code.createEmpty(),
+          repository: new ExternalSourceIsInRepository(masterLinkRepoId),
+          connectorName: "iModel Transformer",
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          connectorVersion: require("@itwin/imodel-transformer/package.json")
+            .version,
+        } as ExternalSourceProps);
+
+        return { masterExternalSourceId: extSourceId };
+      }
+    );
 
     const forkEditTxn = new EditTxn(targetDb, "IModelTransformer");
     forkEditTxn.start();
