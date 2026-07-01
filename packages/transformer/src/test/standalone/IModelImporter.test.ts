@@ -9,6 +9,7 @@ import {
   ElementOwnsMultiAspects,
   StandaloneDb,
   Subject,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Code, ElementAspectProps, IModel } from "@itwin/core-common";
 import { Id64String } from "@itwin/core-bentley";
@@ -42,24 +43,30 @@ describe("IModelImporter", () => {
       rootSubject: { name: "DeleteElementGuard" },
     });
     try {
-      const protectedId: Id64String =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        Subject.insert(targetDb, IModel.rootSubjectId, "Protected");
-      const deletableId: Id64String =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        Subject.insert(targetDb, IModel.rootSubjectId, "Deletable");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
-
-      const importer = new IModelImporter(
+      const { protectedId, deletableId } = withEditTxn(
         targetDb,
-        createStartedEditTxn(targetDb)
+        "insert subjects",
+        (txn) => {
+          const pId = Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "Protected"
+          ).insert(txn);
+          const dId = Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "Deletable"
+          ).insert(txn);
+          return { protectedId: pId, deletableId: dId };
+        }
       );
+
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(targetDb, editTxn);
       importer.doNotUpdateElementIds.add(protectedId);
 
       await importer.deleteElement(protectedId);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.tryGetElement(protectedId),
         "guarded element should NOT be deleted"
@@ -67,12 +74,12 @@ describe("IModelImporter", () => {
 
       // Control: an element not in the set is actually deleted.
       await importer.deleteElement(deletableId);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.tryGetElement(deletableId),
         "unguarded element should be deleted"
       ).to.be.undefined;
+      editTxn.end();
     } finally {
       targetDb.close();
     }
@@ -96,11 +103,17 @@ describe("IModelImporter", () => {
 </ECSchema>`;
       await targetDb.importSchemaStrings([schema]);
 
-      const elementId: Id64String =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        Subject.insert(targetDb, IModel.rootSubjectId, "AspectHost");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      const elementId: Id64String = withEditTxn(
+        targetDb,
+        "insert subject",
+        (txn) => {
+          return Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "AspectHost"
+          ).insert(txn);
+        }
+      );
 
       const aspectClassFullName = "TestImporterSchema:TestMultiAspect";
       const makeAspectProps = (): ElementAspectProps => ({
@@ -108,17 +121,14 @@ describe("IModelImporter", () => {
         element: new ElementOwnsMultiAspects(elementId),
       });
 
-      const importer = new IModelImporter(
-        targetDb,
-        createStartedEditTxn(targetDb)
-      );
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(targetDb, editTxn);
 
       await importer.importElementMultiAspects([
         makeAspectProps(),
         makeAspectProps(),
       ]);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.getAspects(elementId, aspectClassFullName).length,
         "two aspects should have been inserted"
@@ -126,12 +136,12 @@ describe("IModelImporter", () => {
 
       // Re-import with one aspect: the surplus is removed via onDeleteElementAspect.
       await importer.importElementMultiAspects([makeAspectProps()]);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.getAspects(elementId, aspectClassFullName).length,
         "surplus aspect should have been deleted"
       ).to.equal(1);
+      editTxn.end();
     } finally {
       targetDb.close();
     }

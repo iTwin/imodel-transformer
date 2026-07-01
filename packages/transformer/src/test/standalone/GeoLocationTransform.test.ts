@@ -209,8 +209,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transfrom.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPositionPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(
@@ -324,8 +323,7 @@ describe("Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -484,8 +482,7 @@ describe("Non Linear Geolocation Transformations", () => {
     });
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -576,8 +573,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -668,8 +664,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from souce");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -740,8 +735,7 @@ describe("Non Linear Geolocation Transformations", () => {
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);

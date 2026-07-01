@@ -31,6 +31,7 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import {
+  EditTxn,
   IModelDb,
   IModelHost,
   IModelJsFs,
@@ -239,13 +240,12 @@ describe.skip("IModelTransformer Performance Tests", () => {
       rootSubject: { name: "Target 10k Elements Test" },
     });
 
+    const editTxn = createStartedEditTxn(targetDb);
     // Transform
-    const transformer = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      createStartedEditTxn(targetDb),
-      { loadSourceGeometry: true, noProvenance: true }
-    );
+    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn, {
+      loadSourceGeometry: true,
+      noProvenance: true,
+    });
 
     const schemasStartTime = performance.now();
     await transformer.processSchemas();
@@ -254,8 +254,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     const startTime = performance.now();
     await transformer.process();
     const endTime = performance.now();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    editTxn.end();
 
     printResults({
       elementCount,
@@ -301,13 +300,12 @@ describe.skip("IModelTransformer Performance Tests", () => {
       const targetDb = createEmptyTarget();
       console.log(`Target iModel created: ${targetDb.pathName}`);
 
+      const editTxn = createStartedEditTxn(targetDb);
       // Create transformer
-      const transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        createStartedEditTxn(targetDb),
-        { loadSourceGeometry: true, noProvenance: true }
-      );
+      const transformer = new IModelTransformer(sourceDb, targetDb, editTxn, {
+        loadSourceGeometry: true,
+        noProvenance: true,
+      });
 
       // Time schema processing
       console.log("Processing schemas...");
@@ -353,8 +351,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
       // Cleanup
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges("Transformation complete");
+      editTxn.end("save", "Transformation complete");
 
       sourceDb.close();
       targetDb.close();

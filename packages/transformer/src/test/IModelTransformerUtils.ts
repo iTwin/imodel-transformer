@@ -2189,8 +2189,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
           parentSubjectId,
           `Records for ${model.name}`
         );
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        this.targetDb.relationships.insertInstance({
+        this._editTxn.insertRelationship({
           classFullName:
             "ExtensiveTestScenarioTarget:PhysicalPartitionIsTrackedByRecords",
           sourceId: modeledElement.id,
@@ -2262,8 +2261,7 @@ export class RecordingIModelImporter extends CountingIModelImporter {
       operation,
       physicalElement: { id: physicalElement.id },
     };
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    return this.targetDb.elements.insertElement(auditRecord);
+    return this._editTxn.insertElement(auditRecord);
   }
   private accountForPartialViewDefinition2d(elementProps: ElementProps): void {
     const view2d = elementProps as unknown as ViewDefinition2d;

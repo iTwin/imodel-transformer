@@ -184,12 +184,12 @@ describe("IModelExporter", () => {
       );
 
       // this is used to substitute low level C++ functions the connectors would used to introduce invalid relationships.
-      sourceDb.withSqliteStatement(
-        `DELETE FROM bis_Element WHERE Id = ${physicalObject1}`,
-        (stmt) => stmt.next()
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving raw SQL changes
-      sourceDb.saveChanges();
+      withEditTxn(sourceDb, "delete element via raw SQL", () => {
+        sourceDb.withSqliteStatement(
+          `DELETE FROM bis_Element WHERE Id = ${physicalObject1}`,
+          (stmt) => stmt.next()
+        );
+      });
 
       const sourceRelationships = [];
       for await (const row of sourceDb.createQueryReader(

@@ -909,7 +909,8 @@ async function countElementsInModel(
 function insertCatalogRepositoryLink(
   iModelDb: IModelDb,
   codeValue: string,
-  url: string
+  url: string,
+  editTxn: EditTxn
 ): Id64String {
   const code = LinkElement.createCode(
     iModelDb,
@@ -925,9 +926,7 @@ function insertCatalogRepositoryLink(
       url,
       format: "Catalog", // WIP: need to standardize format names
     };
-    return withEditTxn(iModelDb, "insert repository link", (txn) =>
-      txn.insertElement(repositoryLinkProps)
-    );
+    return editTxn.insertElement(repositoryLinkProps);
   }
   return repositoryLinkId;
 }
@@ -1169,6 +1168,8 @@ describe.skip("Catalog", () => {
     const standardDrawingCategories = new Map<string, Id64String>();
     standardDrawingCategories.set("Symbols", drawingCategoryId);
 
+    const facilityEditTxn = createStartedEditTxn(iModelDb);
+
     {
       // import ACME Equipment catalog
       const catalogDb = SnapshotDb.openFile(acmeCatalogDbFile);
@@ -1187,12 +1188,13 @@ describe.skip("Catalog", () => {
       const catalogRepositoryLinkId = insertCatalogRepositoryLink(
         iModelDb,
         path.basename(acmeCatalogDbFile),
-        acmeCatalogDbFile
+        acmeCatalogDbFile,
+        facilityEditTxn
       );
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
         iModelDb,
-        createStartedEditTxn(iModelDb),
+        facilityEditTxn,
         catalogRepositoryLinkId,
         standardSpatialCategories,
         standardDrawingCategories
@@ -1285,12 +1287,13 @@ describe.skip("Catalog", () => {
       const catalogRepositoryLinkId = insertCatalogRepositoryLink(
         iModelDb,
         path.basename(bestCatalogDbFile),
-        bestCatalogDbFile
+        bestCatalogDbFile,
+        facilityEditTxn
       );
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
         iModelDb,
-        createStartedEditTxn(iModelDb),
+        facilityEditTxn,
         catalogRepositoryLinkId,
         standardSpatialCategories,
         standardDrawingCategories
@@ -1361,7 +1364,8 @@ describe.skip("Catalog", () => {
       const catalogRepositoryLinkId = insertCatalogRepositoryLink(
         iModelDb,
         path.basename(testCatalogDbFile),
-        testCatalogDbFile
+        testCatalogDbFile,
+        facilityEditTxn
       );
       const catalogTemplateRecipeIds = await queryTemplateRecipeIds(
         catalogDb,
@@ -1371,7 +1375,7 @@ describe.skip("Catalog", () => {
       const catalogImporter = await CatalogImporter.create(
         catalogDb,
         iModelDb,
-        createStartedEditTxn(iModelDb),
+        facilityEditTxn,
         catalogRepositoryLinkId
       ); // no standard categories in this case
       const cylinderTemplateCode = TemplateRecipe3d.createCode(
@@ -1423,7 +1427,7 @@ describe.skip("Catalog", () => {
     const componentPlacer = new TemplateModelCloner(
       iModelDb,
       iModelDb,
-      createStartedEditTxn(iModelDb)
+      facilityEditTxn
     );
     const physicalTypeSql = `SELECT ECInstanceId FROM ${PhysicalType.classFullName}`;
     const physicalTypeIds = new Set<Id64String>();
@@ -1473,9 +1477,7 @@ describe.skip("Catalog", () => {
           equipment.typeDefinition = new PhysicalElementIsOfType(
             physicalTypeId
           );
-          withEditTxn(iModelDb, "set type definition", (txn) => {
-            txn.updateElement(equipment.toJSON());
-          });
+          facilityEditTxn.updateElement(equipment.toJSON());
           assert.isDefined(equipment.typeDefinition?.id);
         }
       }
@@ -1573,8 +1575,8 @@ describe.skip("Catalog", () => {
 
     componentPlacer.dispose();
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from componentPlacer operations
-    iModelDb.saveChanges();
+    facilityEditTxn.saveChanges("import from catalog");
+    facilityEditTxn.end();
     iModelDb.close();
   });
 
@@ -1624,8 +1626,7 @@ describe.skip("Catalog", () => {
     });
 
     sourceDb.close();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    cloneEditTxn.saveChanges();
     targetDb.close();
   });
 });

@@ -121,15 +121,16 @@ describe("IModelCloneContext", () => {
       const targetDb = SnapshotDb.createEmpty(targetDbFile, {
         rootSubject: { name: "relationships-Target" },
       });
+
+      const targetEditTxn = createStartedEditTxn(targetDb);
       // Import from beneath source Subject into target Subject
       const transformer = new IModelTransformer(
         sourceDb,
         targetDb,
-        createStartedEditTxn(targetDb)
+        targetEditTxn
       );
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      targetEditTxn.end();
 
       // Assertion
       const sql = `SELECT r.ECInstanceId FROM ${ElementRefersToElements.classFullName} r
