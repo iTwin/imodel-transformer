@@ -46,6 +46,11 @@ stages:
           env:
             RUSHSTACK_FILE_ERROR_BASE_FOLDER: $(Build.SourcesDirectory)
 
+        - script: |
+            mkdir -p build/docs/learning/transformer
+            cp -R docs/learning/transformer/. build/docs/learning/transformer/
+          displayName: Stage transformer learning markdown into docs artifact
+
         - task: CopyFiles@2
           displayName: 'Copy generated docs to: $(Build.StagingDirectory)'
           inputs:
