@@ -527,12 +527,16 @@ export async function runTimeline(
           targetStateBefore = await getIModelState(target.db);
 
         const syncEditTxn = createStartedEditTxn(target.db);
+        const sourceEditTxn = !isForwardSync
+          ? createStartedEditTxn(source.db)
+          : undefined;
         const syncer = new IModelTransformer(
           source.db,
           target.db,
           syncEditTxn,
           {
             ...transformerOpts,
+            sourceEditTxn,
             argsForProcessChanges: {
               startChangeset: startIndex
                 ? { index: startIndex }
@@ -564,6 +568,7 @@ export async function runTimeline(
         } finally {
           syncer.dispose();
           syncEditTxn.end();
+          sourceEditTxn?.end();
         }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;

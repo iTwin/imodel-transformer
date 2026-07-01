@@ -248,7 +248,7 @@ export interface IModelImportOptions {
 
 // @beta
 export class IModelTransformer extends IModelExportHandler {
-    constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, editTxn: EditTxn, options?: IModelTransformOptions);
+    constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, targetEditTxn: EditTxn, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
     calculateEcefTransform(): Transform | undefined;
     // (undocumented)
@@ -262,7 +262,6 @@ export class IModelTransformer extends IModelExportHandler {
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     dispose(): void;
-    protected readonly _editTxn: EditTxn;
     protected _elementsWithExplicitlyTrackedProvenance: Set<string>;
     readonly exporter: IModelExporter;
     getIsForwardSynchronization(): Promise<boolean>;
@@ -319,7 +318,9 @@ export class IModelTransformer extends IModelExportHandler {
     shouldExportRelationship(_sourceRelationship: Relationship): Promise<boolean>;
     shouldExportSchema(schemaKey: ECSchemaMetaData.SchemaKey): Promise<boolean>;
     readonly sourceDb: IModelDb;
+    protected readonly _sourceEditTxn?: EditTxn;
     readonly targetDb: IModelDb;
+    protected readonly _targetEditTxn: EditTxn;
     get targetScopeElementId(): Id64String;
     // (undocumented)
     protected tryGetProvenanceScopeAspect(): Promise<ExternalSourceAspect | undefined>;
@@ -342,6 +343,7 @@ export interface IModelTransformOptions {
     optimizeGeometry?: OptimizeGeometryOptions;
     preserveElementIdsForFiltering?: boolean;
     skipPropagateChangesToRootElements?: boolean;
+    sourceEditTxn?: EditTxn;
     targetScopeElementId?: Id64String;
     tryAlignGeolocation?: boolean;
     wasSourceIModelCopiedToTarget?: boolean;
@@ -408,7 +410,7 @@ export interface TargetScopeProvenanceJsonProps {
 
 // @beta
 export class TemplateModelCloner extends IModelTransformer {
-    constructor(sourceDb: IModelDb, targetDb: IModelDb, editTxn: EditTxn);
+    constructor(sourceDb: IModelDb, targetDb: IModelDb, targetEditTxn: EditTxn);
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     placeTemplate2d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement2d): Promise<Map<Id64String, Id64String>>;
     placeTemplate3d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement3d): Promise<Map<Id64String, Id64String>>;

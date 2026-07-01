@@ -13,7 +13,10 @@ import {
 import { Code, ElementAspectProps, IModel } from "@itwin/core-common";
 import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  createStartedEditTxn,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 
 async function expectRejected(
   run: () => Promise<unknown>,
@@ -48,7 +51,10 @@ describe("IModelImporter", () => {
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       targetDb.saveChanges();
 
-      const importer = new IModelImporter(targetDb);
+      const importer = new IModelImporter(
+        targetDb,
+        createStartedEditTxn(targetDb)
+      );
       importer.doNotUpdateElementIds.add(protectedId);
 
       await importer.deleteElement(protectedId);
@@ -102,7 +108,10 @@ describe("IModelImporter", () => {
         element: new ElementOwnsMultiAspects(elementId),
       });
 
-      const importer = new IModelImporter(targetDb);
+      const importer = new IModelImporter(
+        targetDb,
+        createStartedEditTxn(targetDb)
+      );
 
       await importer.importElementMultiAspects([
         makeAspectProps(),
@@ -137,7 +146,10 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingClass" },
     });
     try {
-      const importer = new IModelImporter(targetDb);
+      const importer = new IModelImporter(
+        targetDb,
+        createStartedEditTxn(targetDb)
+      );
       const missing = "TestImporterSchema:DoesNotExist";
       await expectRejected(
         () =>
@@ -191,13 +203,19 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingIds" },
     });
     try {
-      const importer = new IModelImporter(targetDb);
+      const importer = new IModelImporter(
+        targetDb,
+        createStartedEditTxn(targetDb)
+      );
       await expectRejected(
         async () => importer.importModel({} as any),
         /Model Id not provided/
       );
       await expectRejected(
-        () => (importer as any).onUpdateElement({ classFullName: "BisCore:Subject" }),
+        () =>
+          (importer as any).onUpdateElement({
+            classFullName: "BisCore:Subject",
+          }),
         /ElementId not provided/
       );
       await expectRejected(
@@ -221,9 +239,13 @@ describe("IModelImporter", () => {
       rootSubject: { name: "PreserveIds" },
     });
     try {
-      const importer = new IModelImporter(targetDb, {
-        preserveElementIdsForFiltering: true,
-      });
+      const importer = new IModelImporter(
+        targetDb,
+        createStartedEditTxn(targetDb),
+        {
+          preserveElementIdsForFiltering: true,
+        }
+      );
       await expectRejected(
         async () =>
           importer.importElement({

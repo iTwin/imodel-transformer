@@ -1676,6 +1676,7 @@ export class PhysicalModelConsolidator extends IModelTransformer {
 
 /** Test IModelTransformer that uses a SpatialViewDefinition to filter the iModel contents. */
 export class FilterByViewTransformer extends IModelTransformer {
+  public readonly editTxn: EditTxn;
   private readonly _exportViewDefinitionId: Id64String;
   private readonly _exportModelSelectorId: Id64String;
   private readonly _exportCategorySelectorId: Id64String;
@@ -1709,7 +1710,9 @@ export class FilterByViewTransformer extends IModelTransformer {
     targetDb: IModelDb,
     exportViewDefinitionId: Id64String
   ) {
-    super(sourceDb, targetDb, ...withStartedEditTxn(targetDb));
+    const editTxn = createStartedEditTxn(targetDb);
+    super(sourceDb, targetDb, editTxn);
+    this.editTxn = editTxn;
     this._exportViewDefinitionId = exportViewDefinitionId;
     const exportViewDefinition =
       sourceDb.elements.getElement<SpatialViewDefinition>(
@@ -1764,6 +1767,8 @@ export class FilterByViewTransformer extends IModelTransformer {
  * and records transformation data in the iModel itself.
  */
 export class TestIModelTransformer extends IModelTransformer {
+  public readonly editTxn?: EditTxn;
+
   public static async create(
     source: IModelDb | IModelExporter,
     target: IModelDb | IModelImporter,
@@ -1779,7 +1784,17 @@ export class TestIModelTransformer extends IModelTransformer {
     target: IModelDb | IModelImporter,
     options?: TestTransformOptions
   ) {
-    super(source, target, ...withStartedEditTxn(target, options));
+    const targetDb =
+      target instanceof IModelImporter ? target.targetDb : target;
+    const { editTxn, ...transformOptions } = options ?? {};
+    const targetEditTxn = editTxn ?? createStartedEditTxn(targetDb);
+    super(
+      source,
+      target,
+      targetEditTxn,
+      Object.keys(transformOptions).length > 0 ? transformOptions : undefined
+    );
+    this.editTxn = editTxn ? undefined : targetEditTxn;
     this.initExclusions();
     this.initCodeSpecRemapping();
     this.initCategoryRemapping();

@@ -118,7 +118,7 @@ import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElemen
 
 const { count } = IModelTestUtils;
 
-describe.only("IModelTransformerHub", () => {
+describe("IModelTransformerHub", () => {
   const outputDir = path.join(
     KnownTestLocations.outputDir,
     "IModelTransformerHub"
@@ -2356,14 +2356,16 @@ describe.only("IModelTransformerHub", () => {
 
     // Reverse Sync to add a pendingsyncchangesetindex
     const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
+    const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
     transformer = new IModelTransformer(
       targetDb,
       sourceDb,
       reverseSyncEditTxn,
-      { argsForProcessChanges: {} }
+      { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
     );
     await transformer.process();
     reverseSyncEditTxn.end();
+    reverseSyncSourceEditTxn.end();
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- transformer provenance writes leave unsaved changes on source
     targetDb.saveChanges("reverse sync provenance");
     // Query scope ESA from database instead of reaching into private internals
@@ -2667,16 +2669,18 @@ describe.only("IModelTransformerHub", () => {
 
       // running reverse synchronization
       const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
         targetDb,
         sourceDb,
         reverseSyncEditTxn,
-        { argsForProcessChanges: {} }
+        { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
       );
 
       await transformer.process();
       transformer.dispose();
       reverseSyncEditTxn.end();
+      reverseSyncSourceEditTxn.end();
 
       expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(7);
       expect(count(targetDb, PhysicalObject.classFullName)).to.equal(7);
@@ -3004,6 +3008,7 @@ describe.only("IModelTransformerHub", () => {
       expect(result.model.updateIds).to.deep.equal(expectedModelUpdateIds);
 
       const masterSyncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
       const synchronizer = new IModelTransformer(
         branchDb,
         masterDb,
@@ -3011,10 +3016,12 @@ describe.only("IModelTransformerHub", () => {
         {
           // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
           argsForProcessChanges: {},
+          sourceEditTxn: reverseSyncSourceEditTxn,
         }
       );
       await synchronizer.process();
       masterSyncEditTxn.end();
+      reverseSyncSourceEditTxn.end();
       // eslint-disable-next-line @typescript-eslint/no-deprecated -- transformer provenance writes leave unsaved changes on source
       branchDb.saveChanges("synchronize provenance");
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
@@ -3100,10 +3107,12 @@ describe.only("IModelTransformerHub", () => {
     });
 
     const syncEditTxn = createStartedEditTxn(master.db);
+    const reverseSyncSourceEditTxn = createStartedEditTxn(branchAt2);
     const syncer = new IModelTransformer(branchAt2, master.db, syncEditTxn, {
       argsForProcessChanges: {
         startChangeset: branchAt2Changeset,
       },
+      sourceEditTxn: reverseSyncSourceEditTxn,
     });
     const queryChangeset = sinon.spy(BriefcaseManager, "queryChangeset");
     await syncer.process();
@@ -3118,6 +3127,7 @@ describe.only("IModelTransformerHub", () => {
 
     syncer.dispose();
     syncEditTxn.end();
+    reverseSyncSourceEditTxn.end();
     await tearDown();
     sinon.restore();
   });
@@ -3205,14 +3215,19 @@ describe.only("IModelTransformerHub", () => {
       });
 
       const reverseForkEditTxn = createStartedEditTxn(sourceDb);
+      const reverseForkSourceEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
         targetDb,
         sourceDb,
         reverseForkEditTxn,
-        { argsForProcessChanges: { startChangeset: targetDb.changeset } }
+        {
+          argsForProcessChanges: { startChangeset: targetDb.changeset },
+          sourceEditTxn: reverseForkSourceEditTxn,
+        }
       );
       await transformer.process();
       reverseForkEditTxn.end();
+      reverseForkSourceEditTxn.end();
       await sourceDb.pushChanges({
         description: "change processing transformation",
       });
