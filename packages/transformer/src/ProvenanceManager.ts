@@ -9,6 +9,7 @@ import {
   Logger,
 } from "@itwin/core-bentley";
 import {
+  EditTxn,
   ElementOwnsExternalSourceAspects,
   type Entity,
   ExternalSource,
@@ -64,14 +65,21 @@ export class ProvenanceManager {
 
   private _targetClassNameToClassIdCache = new Map<string, string>();
 
+  private readonly _targetEditTxn: EditTxn;
+  private readonly _sourceEditTxn?: EditTxn;
+
   public constructor(
     targetScopeElementId: Id64String,
     transformerOptions: IModelTransformOptions,
-    syncTypeResolver: SyncTypeResolver
+    syncTypeResolver: SyncTypeResolver,
+    targetEditTxn: EditTxn,
+    sourceEditTxn?: EditTxn
   ) {
     this._targetScopeElementId = targetScopeElementId;
     this._transformerOptions = transformerOptions;
     this._syncTypeResolver = syncTypeResolver;
+    this._targetEditTxn = targetEditTxn;
+    this._sourceEditTxn = sourceEditTxn;
     this.context = this._syncTypeResolver.context;
 
     const sourceDb = this.context.sourceDb;
@@ -356,13 +364,29 @@ export class ProvenanceManager {
 
   // ── Provenance DB direction ────────────────────────────────────────────
 
-  /** Return the IModelDb where provenance is stored.
+  /** Return the IModelDb where provenance is stored (for reads/queries).
    * This will be targetDb except when it is a reverse synchronization, in which case it will be sourceDb.
    */
   private async getProvenanceDb(): Promise<IModelDb> {
     return (await this._isReverseSynchronization())
       ? this.context.sourceDb
       : this.context.targetDb;
+  }
+
+  /** Return the EditTxn for writing provenance.
+   * This will be targetEditTxn except when it is a reverse synchronization, in which case it will be sourceEditTxn.
+   */
+  private async getProvenanceEditTxn(): Promise<EditTxn> {
+    if (await this._isReverseSynchronization()) {
+      if (!this._sourceEditTxn) {
+        throw new Error(
+          "A reverse synchronization requires a sourceEditTxn to write provenance back to the source iModel. " +
+            "Pass sourceEditTxn in IModelTransformOptions."
+        );
+      }
+      return this._sourceEditTxn;
+    }
+    return this._targetEditTxn;
   }
 
   /** Return the IModelDb where entities referred to by stored provenance live.
@@ -411,6 +435,7 @@ export class ProvenanceManager {
    */
   public async initScopeProvenance(): Promise<void> {
     const provenanceDb = await this.getProvenanceDb();
+    const provenanceEditTxn = await this.getProvenanceEditTxn();
     const sourceProvenanceDb = await this.getProvenanceSourceDb();
     const aspectProps = {
       id: undefined as string | undefined,
@@ -466,8 +491,7 @@ export class ProvenanceManager {
         );
       }
       if (!this._transformerOptions.noProvenance) {
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        const id = provenanceDb.elements.insertAspect({
+        const id = provenanceEditTxn.insertAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
@@ -487,8 +511,7 @@ export class ProvenanceManager {
           "Unsafe migrate made a change to the target scope's external source aspect. Updating aspect in database.",
           { oldProps, newProps: aspectProps }
         );
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        provenanceDb.elements.updateAspect({
+        provenanceEditTxn.updateAspect({
           ...aspectProps,
           jsonProperties: JSON.stringify(aspectProps.jsonProperties) as any,
         });
@@ -771,8 +794,7 @@ export class ProvenanceManager {
       );
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    (await this.getProvenanceDb()).elements.updateAspect({
+    (await this.getProvenanceEditTxn()).updateAspect({
       ...scopeProps,
       jsonProperties: JSON.stringify(scopeProps.jsonProperties) as any,
     });

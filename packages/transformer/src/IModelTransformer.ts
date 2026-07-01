@@ -555,7 +555,9 @@ export class IModelTransformer extends IModelExportHandler {
     this._provenanceManager = new ProvenanceManager(
       this._options.targetScopeElementId,
       this._options,
-      this._syncTypeResolver
+      this._syncTypeResolver,
+      this._targetEditTxn,
+      this._sourceEditTxn
     );
     if (this._options.tryAlignGeolocation) {
       if (
