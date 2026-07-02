@@ -1069,7 +1069,7 @@ class CatalogImporter extends IModelTransformer {
 }
 
 /** Catalog test fixture */
-describe.skip("Catalog", () => {
+describe("Catalog", () => {
   const outputDir = path.join(BackendKnownTestLocations.outputDir, "Catalog");
   const acmeCatalogDbFile = IModelTestUtils.prepareOutputFile(
     "Catalog",

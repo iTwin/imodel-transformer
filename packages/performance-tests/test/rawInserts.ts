@@ -92,6 +92,7 @@ export default async function rawInserts(
   const [transformWithProvTimer] = await timed(async () => {
     await transformerWithProv.process();
   });
+  withProvEditTxn.end();
 
   reporter.addEntry(
     "populate by transform (adding provenance)",
@@ -137,6 +138,7 @@ export default async function rawInserts(
   const [transformNoProvTimer] = await timed(async () => {
     await transformerNoProv.process();
   });
+  noProvEditTxn.end();
 
   reporter.addEntry(
     "populate by transform",
