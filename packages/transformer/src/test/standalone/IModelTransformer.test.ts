@@ -5713,4 +5713,62 @@ describe("IModelTransformer", () => {
     IModelJsFs.removeSync(targetDbFile);
     IModelJsFs.removeSync(sourceDbFile);
   });
+
+  describe("EditTxn validation", () => {
+    it("should throw when reverse sync process is called without sourceEditTxn", async () => {
+      const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        "ReverseSyncNoSourceEditTxn-source.bim"
+      );
+      const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        "ReverseSyncNoSourceEditTxn-target.bim"
+      );
+      const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+        rootSubject: { name: "ReverseSyncNoSourceEditTxn-source" },
+      });
+      const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+        rootSubject: { name: "ReverseSyncNoSourceEditTxn-target" },
+      });
+      try {
+        // First establish provenance so sync direction can be determined
+        const initEditTxn = createStartedEditTxn(targetDb);
+        const initTransformer = new IModelTransformer(
+          sourceDb,
+          targetDb,
+          initEditTxn,
+          { wasSourceIModelCopiedToTarget: true }
+        );
+        await initTransformer.process();
+        initEditTxn.saveChanges();
+        initEditTxn.end();
+        initTransformer.dispose();
+
+        // Now attempt reverse sync without sourceEditTxn
+        const editTxn = createStartedEditTxn(sourceDb);
+        const transformer = new IModelTransformer(
+          targetDb,
+          sourceDb,
+          editTxn,
+          { argsForProcessChanges: {} } // no sourceEditTxn
+        );
+        let threw = false;
+        try {
+          await transformer.process();
+        } catch (err: any) {
+          threw = true;
+          expect(err.message).to.include("sourceEditTxn");
+        }
+        expect(
+          threw,
+          "expected process to throw for reverse sync without sourceEditTxn"
+        ).to.be.true;
+        transformer.dispose();
+        editTxn.end();
+      } finally {
+        sourceDb.close();
+        targetDb.close();
+      }
+    });
+  });
 });
