@@ -9,9 +9,9 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import {
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
-  EditTxn,
   ExternalSource,
   ExternalSourceIsInRepository,
   IModelDb,

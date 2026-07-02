@@ -3,9 +3,9 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import {
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
-  EditTxn,
   ElementGroupsMembers,
   SnapshotDb,
   StandaloneDb,
