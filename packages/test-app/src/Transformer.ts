@@ -16,9 +16,9 @@ import {
   CategorySelector,
   DisplayStyle,
   DisplayStyle3d,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
-  EditTxn,
   ElementRefersToElements,
   GeometricModel3d,
   GeometryPart,
