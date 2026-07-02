@@ -18,6 +18,7 @@ import {
   SpatialViewDefinition,
   SubCategory,
   ViewDefinition,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { IModel, QueryBinder } from "@itwin/core-common";
 
@@ -149,38 +150,39 @@ export namespace ElementUtils {
     );
     let viewId = iModelDb.elements.queryElementIdByCode(viewCode);
     if (viewId === undefined) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const modelSelectorId = ModelSelector.insert(
+      const modelIds = await queryModelIds(
         iModelDb,
-        definitionModelId,
-        name,
-        await queryModelIds(iModelDb, SpatialModel.classFullName)
+        SpatialModel.classFullName
       );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const categorySelectorId = CategorySelector.insert(
-        iModelDb,
-        definitionModelId,
-        name,
-        await querySpatialCategoryIds(iModelDb)
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const displayStyleId = DisplayStyle3d.insert(
-        iModelDb,
-        definitionModelId,
-        name
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      viewId = SpatialViewDefinition.insertWithCamera(
-        iModelDb,
-        definitionModelId,
-        name,
-        modelSelectorId,
-        categorySelectorId,
-        displayStyleId,
-        iModelDb.projectExtents
-      );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      iModelDb.saveChanges("Inserted ViewDefinition");
+      const categoryIds = await querySpatialCategoryIds(iModelDb);
+      viewId = withEditTxn(iModelDb, "insert ViewDefinition", (txn) => {
+        const modelSelectorId = ModelSelector.insert(
+          txn,
+          definitionModelId,
+          name,
+          modelIds
+        );
+        const categorySelectorId = CategorySelector.insert(
+          txn,
+          definitionModelId,
+          name,
+          categoryIds
+        );
+        const displayStyleId = DisplayStyle3d.insert(
+          txn,
+          definitionModelId,
+          name
+        );
+        return SpatialViewDefinition.insertWithCamera(
+          txn,
+          definitionModelId,
+          name,
+          modelSelectorId,
+          categorySelectorId,
+          displayStyleId,
+          iModelDb.projectExtents
+        );
+      });
     }
     return viewId;
   }

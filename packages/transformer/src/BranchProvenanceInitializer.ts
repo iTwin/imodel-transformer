@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import {
   BriefcaseDb,
+  EditTxn,
   ExternalSource,
   ExternalSourceIsInRepository,
   IModelDb,
@@ -34,6 +35,11 @@ export interface ProvenanceInitArgs {
    *                              Must be opened Read/Write
    */
   branch: IModelDb;
+  /** The EditTxn for the branch iModel, used for all write operations. Must be started before passing.
+   * @note If `createFedGuidsForMaster` is set, the original editTxn will be ended and a new one
+   *       created on the reopened branch db. The `editTxn` property will be updated to the new instance.
+   */
+  editTxn: EditTxn;
   /**
    * insert Federation Guids in all lacking elements in the master database, which will prevent
    * needing to insert External Source Aspects for provenance tracking
@@ -96,8 +102,8 @@ export async function initializeBranchProvenance(
         assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    args.branch.saveChanges();
+    args.editTxn.saveChanges();
+    args.editTxn.end();
     args.branch.withSqliteStatement("DETACH DATABASE master", (s) => {
       const res = s.step();
       if (res !== DbResult.BE_SQLITE_DONE)
@@ -118,11 +124,13 @@ export async function initializeBranchProvenance(
       reopenMaster(),
       reopenBranch(),
     ]);
+    // Recreate editTxn on the reopened branch db
+    args.editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
+    args.editTxn.start();
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const masterRepoLinkId = args.branch.elements.insertElement({
+  const masterRepoLinkId = args.editTxn.insertElement({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(
       args.branch,
@@ -136,8 +144,7 @@ export async function initializeBranchProvenance(
     description: args.masterDescription,
   } as RepositoryLinkProps);
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const masterExternalSourceId = args.branch.elements.insertElement({
+  const masterExternalSourceId = args.editTxn.insertElement({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
@@ -167,8 +174,7 @@ export async function initializeBranchProvenance(
       sourceDb: args.master,
       targetDb: args.branch,
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    args.branch.elements.insertAspect(aspectProps);
+    args.editTxn.insertAspect(aspectProps);
   }
 
   const fedGuidlessRelsSql = `
@@ -195,11 +201,12 @@ export async function initializeBranchProvenance(
         targetDb: args.branch,
         forceOldRelationshipProvenanceMethod: false,
       });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    args.branch.elements.insertAspect(aspectProps);
+    args.editTxn.insertAspect(aspectProps);
   }
 
   if (args.createFedGuidsForMaster === true) {
+    args.editTxn.saveChanges();
+    args.editTxn.end();
     args.master.close();
     args.branch.close();
   }

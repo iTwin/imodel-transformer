@@ -7,11 +7,11 @@ import {
   TestTransformerModule,
   TransformRunner,
 } from "../TestTransformerModule";
+import { EditTxn, StandaloneDb } from "@itwin/core-backend";
 import { initOutputFile } from "../TestUtils";
 import * as fs from "fs";
 import { setToStandalone } from "../iModelUtils";
 import path from "path";
-import { StandaloneDb } from "@itwin/core-backend";
 
 const outputDir = path.join(__dirname, ".output");
 
@@ -26,11 +26,15 @@ const rawForkCreateFedGuidsTestModule: TestTransformerModule = {
         fs.copyFileSync(sourceDb.pathName, sourceCopy);
         setToStandalone(sourceCopy);
         const sourceCopyDb = StandaloneDb.openFile(sourceCopy);
+        const editTxn = new EditTxn(targetDb, "initializeBranchProvenance");
+        editTxn.start();
         await initializeBranchProvenance({
           master: sourceCopyDb,
           branch: targetDb,
+          editTxn,
           createFedGuidsForMaster: true,
         });
+        // Note: initializeBranchProvenance with createFedGuidsForMaster closes both dbs internally
       },
     };
   },

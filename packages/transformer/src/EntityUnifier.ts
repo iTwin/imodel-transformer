@@ -8,7 +8,6 @@
  * for entity-generic operations in the transformer
  */
 
-import * as assert from "assert";
 import {
   ConcreteEntityTypes,
   EntityReference,
@@ -16,7 +15,6 @@ import {
 } from "@itwin/core-common";
 import {
   ConcreteEntity,
-  ConcreteEntityProps,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -33,28 +31,6 @@ export namespace EntityUnifier {
     else if (entity instanceof ElementAspect) return "element aspect";
     else if (entity instanceof Relationship) return "relationship";
     else return "unknown entity type";
-  }
-
-  type EntityUpdater = (entityProps: ConcreteEntityProps) => void;
-
-  /** needs to return a widened type otherwise typescript complains when result is used with a narrow type */
-  export function updaterFor(db: IModelDb, entity: ConcreteEntity) {
-    if (entity instanceof Element)
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      return db.elements.updateElement.bind(db.elements) as EntityUpdater;
-    else if (entity instanceof Relationship)
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      return db.relationships.updateInstance.bind(
-        db.relationships
-      ) as EntityUpdater;
-    else if (entity instanceof ElementAspect)
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      return db.elements.updateAspect.bind(db.elements) as EntityUpdater;
-    else
-      assert(
-        false,
-        `unreachable; entity was '${entity.constructor.name}' not an Element, Relationship, or ElementAspect`
-      );
   }
 
   export async function exists(

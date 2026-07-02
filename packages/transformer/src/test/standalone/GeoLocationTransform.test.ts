@@ -43,6 +43,7 @@ import { expect } from "chai";
 import * as sinon from "sinon";
 import { Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+import { createStartedEditTxn } from "../IModelTransformerUtils";
 
 interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
@@ -196,18 +197,19 @@ describe("Linear Geolocation Transformations", () => {
     const srcElements = await getGeometric3dElements(sourceDb);
     const srcElemFedGuid = srcElements[0].federationGuid;
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
     const transfrom = new IModelTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       transformerOptions
     );
 
     await transfrom.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPositionPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(
@@ -250,6 +252,7 @@ describe("Linear Geolocation Transformations", () => {
 
     const loggerSpy = sinon.spy(Logger, "logTrace");
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
@@ -257,6 +260,7 @@ describe("Linear Geolocation Transformations", () => {
     const transformer = new IModelTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       transformerOptions
     );
 
@@ -306,6 +310,7 @@ describe("Linear Geolocation Transformations", () => {
 
     const loggerSpy = sinon.spy(Logger, "logTrace");
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
@@ -313,12 +318,12 @@ describe("Linear Geolocation Transformations", () => {
     const transform = new IModelTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       transformerOptions
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -437,6 +442,7 @@ describe("Non Linear Geolocation Transformations", () => {
       "Target iModel should have a geographic coordinate system"
     );
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
@@ -444,6 +450,7 @@ describe("Non Linear Geolocation Transformations", () => {
     const transform = new IModelTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       transformerOptions
     );
 
@@ -475,8 +482,7 @@ describe("Non Linear Geolocation Transformations", () => {
     });
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -554,6 +560,7 @@ describe("Non Linear Geolocation Transformations", () => {
       txn.updateElement(srcElem.toJSON());
     });
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
@@ -561,12 +568,12 @@ describe("Non Linear Geolocation Transformations", () => {
     const transform = new IModelTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       transformerOptions
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -644,6 +651,7 @@ describe("Non Linear Geolocation Transformations", () => {
       txn.updateElement(srcElem.toJSON());
     });
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
@@ -651,12 +659,12 @@ describe("Non Linear Geolocation Transformations", () => {
     const transform = new IModelTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       transformerOptions
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from souce");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -714,6 +722,7 @@ describe("Non Linear Geolocation Transformations", () => {
 
     const loggerSpy = sinon.spy(Logger, "logTrace");
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
@@ -721,12 +730,12 @@ describe("Non Linear Geolocation Transformations", () => {
     const transform = new IModelTransformer(
       sourceDb,
       targetDb,
+      editTxn,
       transformerOptions
     );
 
     await transform.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges("clone contents from source");
+    editTxn.end("save", "clone contents from source");
 
     const srcElemPostTransform =
       targetDb.elements.getElement<GeometricElement3d>(srcElem.federationGuid!);
@@ -772,12 +781,14 @@ describe("Non Linear Geolocation Transformations", () => {
       "blue"
     );
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     expect(
-      () => new IModelTransformer(sourceDb, targetDb, transformerOptions)
+      () =>
+        new IModelTransformer(sourceDb, targetDb, editTxn, transformerOptions)
     ).to.throw(
       "Target iModel does not have a geographic coordinate system defined."
     );
@@ -832,12 +843,14 @@ describe("Non Linear Geolocation Transformations", () => {
       "blue"
     );
 
+    const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
       tryAlignGeolocation: true,
     };
 
     expect(
-      () => new IModelTransformer(sourceDb, targetDb, transformerOptions)
+      () =>
+        new IModelTransformer(sourceDb, targetDb, editTxn, transformerOptions)
     ).to.throw(
       "Source and target geographic coordinate systems must match to calculate the spatial transform."
     );

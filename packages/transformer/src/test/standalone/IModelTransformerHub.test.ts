@@ -92,6 +92,7 @@ import {
 import { ProvenanceManager } from "../../ProvenanceManager";
 import {
   CountingIModelImporter,
+  createStartedEditTxn,
   HubWrappers,
   IModelToTextFileExporter,
   IModelTransformerTestUtils,
@@ -170,8 +171,6 @@ describe("IModelTransformerHub", () => {
     });
     assert.isTrue(IModelJsFs.existsSync(seedFileName));
     await prepareIModel?.(seedDb);
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from prepareIModel callback
-    seedDb.saveChanges();
     seedDb.close();
 
     const iModelId = await IModelHost[_hubAccess].createNewIModel({
@@ -246,9 +245,11 @@ describe("IModelTransformerHub", () => {
       });
 
       // we do not expect to save reverse sync version by default for processAll transformations
+      const targetEditTxn1 = createStartedEditTxn(targetBriefcase);
       const transformer1 = new IModelTransformer(
         sourceBriefcase,
-        targetBriefcase
+        targetBriefcase,
+        targetEditTxn1
       );
       await transformer1.process();
       const scopeEsaResult1 =
@@ -265,8 +266,7 @@ describe("IModelTransformerHub", () => {
         );
       const jsonProps1 = JSON.parse(scopeEsaResult1?.jsonProperties ?? "{}");
       assert.isEmpty(jsonProps1.reverseSyncVersion ?? "");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetBriefcase.saveChanges();
+      targetEditTxn1.end();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 1",
         retainLocks: true,
@@ -284,9 +284,11 @@ describe("IModelTransformerHub", () => {
       });
 
       // when initializeReverseSyncVersion is set to true, we expect to save reverse sync version
+      const targetEditTxn2 = createStartedEditTxn(targetBriefcase);
       const transformer2 = new IModelTransformer(
         sourceBriefcase,
-        targetBriefcase
+        targetBriefcase,
+        targetEditTxn2
       );
       await transformer2.process();
       await transformer2.updateSynchronizationVersion({
@@ -316,8 +318,7 @@ describe("IModelTransformerHub", () => {
         lastPendingReverseSyncIndex1,
         (targetBriefcase.changeset.index ?? 0) + 1
       );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetBriefcase.saveChanges();
+      targetEditTxn2.end();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 2",
         retainLocks: true,
@@ -374,9 +375,9 @@ describe("IModelTransformerHub", () => {
 
       if (true) {
         // initial import
-        await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from populateDb()
-        sourceDb.saveChanges();
+        await withEditTxn(sourceDb, "populate source", async () => {
+          await TestUtils.ExtensiveTestScenario.populateDb(sourceDb);
+        });
         await sourceDb.pushChanges({
           accessToken,
           description: "Populate source",
@@ -425,10 +426,13 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.relationship.deleteIds.size, 0);
 
         // Initial import uses processAll to establish provenance
+        const importEditTxn1 = createStartedEditTxn(targetDb);
         const transformer = await TestIModelTransformer.create(
           sourceDb,
           targetDb,
-          {}
+          {
+            editTxn: importEditTxn1,
+          }
         );
         await transformer.process();
         // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
@@ -440,8 +444,7 @@ describe("IModelTransformerHub", () => {
           "processAll should write sync version matching source changeset index"
         );
         transformer.dispose();
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-        targetDb.saveChanges();
+        importEditTxn1.end();
         await targetDb.pushChanges({ accessToken, description: "Import #1" });
         TransformerExtensiveTestScenario.assertTargetDbContents(
           sourceDb,
@@ -509,11 +512,12 @@ describe("IModelTransformerHub", () => {
           targetDb,
           ElementRefersToElements.classFullName
         );
-        const targetImporter = new CountingIModelImporter(targetDb);
+        const hubEditTxn = createStartedEditTxn(targetDb);
+        const targetImporter = new CountingIModelImporter(targetDb, hubEditTxn);
         const transformer = await TestIModelTransformer.create(
           sourceDb,
           targetImporter,
-          { argsForProcessChanges: {} }
+          { argsForProcessChanges: {}, editTxn: hubEditTxn }
         );
         await transformer.process();
         assert.equal(targetImporter.numModelsInserted, 0);
@@ -540,8 +544,7 @@ describe("IModelTransformerHub", () => {
           count(targetDb, ElementRefersToElements.classFullName),
           "Second import should not add relationships"
         );
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-        targetDb.saveChanges();
+        hubEditTxn.end();
         assert.isFalse(targetDb.txns.hasPendingTxns);
         await targetDb.pushChanges({
           accessToken,
@@ -552,9 +555,9 @@ describe("IModelTransformerHub", () => {
 
       if (true) {
         // update source db, then import again
-        TestUtils.ExtensiveTestScenario.updateDb(sourceDb);
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from updateDb helper
-        sourceDb.saveChanges();
+        withEditTxn(sourceDb, "update source", () => {
+          TestUtils.ExtensiveTestScenario.updateDb(sourceDb);
+        });
         await sourceDb.pushChanges({
           accessToken,
           description: "Update source",
@@ -597,17 +600,18 @@ describe("IModelTransformerHub", () => {
         assert.equal(sourceDbChanges.codeSpec.deleteIds.size, 0);
         assert.equal(sourceDbChanges.aspect.deleteIds.size, 0);
 
+        const importEditTxn2 = createStartedEditTxn(targetDb);
         const transformer = await TestIModelTransformer.create(
           sourceDb,
           targetDb,
           {
             argsForProcessChanges: {},
+            editTxn: importEditTxn2,
           }
         );
         await transformer.process();
         transformer.dispose();
-        // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-        targetDb.saveChanges();
+        importEditTxn2.end();
         await targetDb.pushChanges({ accessToken, description: "Import #2" });
         TestUtils.ExtensiveTestScenario.assertUpdatesInDb(targetDb);
 
@@ -809,12 +813,15 @@ describe("IModelTransformerHub", () => {
       );
       assert.isTrue(Id64.isValidId64(targetModelId));
 
+      const consolidateEditTxn1 = createStartedEditTxn(targetDb);
       let transformer = new PhysicalModelConsolidator(
         sourceDb,
         targetDb,
+        consolidateEditTxn1,
         targetModelId
       );
       await transformer.process();
+      consolidateEditTxn1.end();
 
       assert.equal(1, count(targetDb, PhysicalModel.classFullName));
       const targetPartition =
@@ -876,9 +883,11 @@ describe("IModelTransformerHub", () => {
       assert.equal(7, count(sourceDb, PhysicalModel.classFullName));
       // 60 elements added
       assert.equal(185, count(sourceDb, PhysicalObject.classFullName));
+      const consolidateEditTxn2 = createStartedEditTxn(targetDb);
       transformer = new PhysicalModelConsolidator(
         sourceDb,
         targetDb,
+        consolidateEditTxn2,
         targetModelId,
         {
           startChangeset: sourceDb.changeset,
@@ -886,6 +895,7 @@ describe("IModelTransformerHub", () => {
       );
       await transformer.process();
       transformer.dispose();
+      consolidateEditTxn2.end();
 
       const sql = `SELECT ECInstanceId, Model.Id AS modelId FROM ${PhysicalObject.classFullName}`;
       let objectCounter = 0;
@@ -1022,8 +1032,6 @@ describe("IModelTransformerHub", () => {
         sourceDb.txns.hasUnsavedChanges,
         "Expect importSchemas to be a no-op"
       );
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- no-op saveChanges test
-      sourceDb.saveChanges(); // will be no changes to save in this case
       await sourceDb.pushChanges({
         accessToken,
         description: "Import schemas again",
@@ -1058,23 +1066,23 @@ describe("IModelTransformerHub", () => {
       );
 
       // push targetDb schema changes
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving schema changes
-      targetDb.saveChanges();
+      withEditTxn(targetDb, "save schema changes", () => {});
       await targetDb.pushChanges({
         accessToken,
         description: "Upgrade BisCore",
       });
 
       // import sourceDb changes into targetDb
+      const importEditTxn = createStartedEditTxn(targetDb);
       const transformer = new IModelTransformer(
         new IModelExporter(sourceDb),
-        targetDb
+        targetDb,
+        importEditTxn
       );
       await transformer.process();
       transformer.dispose();
       IModelTransformerTestUtils.assertTeamIModelContents(targetDb, "Test");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      importEditTxn.end();
       await targetDb.pushChanges({
         accessToken,
         description: "Import changes from sourceDb",
@@ -1215,15 +1223,15 @@ describe("IModelTransformerHub", () => {
       from: "Bis.Element",
       where: "UserLabel IN ('1','2')",
     });
-    for (const elemId of noFedGuidElemIds)
-      masterSeedDb.withSqliteStatement(
-        `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-        (s) => {
-          expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
-        }
-      );
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving seed db changes
-    masterSeedDb.saveChanges();
+    withEditTxn(masterSeedDb, "null out fedguids", () => {
+      for (const elemId of noFedGuidElemIds)
+        masterSeedDb.withSqliteStatement(
+          `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+          (s) => {
+            expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+          }
+        );
+    });
     masterSeedDb.performCheckpoint();
 
     const masterSeed: TimelineIModelState = {
@@ -1336,15 +1344,15 @@ describe("IModelTransformerHub", () => {
       from: "Bis.Element",
       where: "UserLabel IN ('1','2')",
     });
-    for (const elemId of noFedGuidElemIds)
-      masterSeedDb.withSqliteStatement(
-        `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
-        (s) => {
-          expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
-        }
-      );
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving seed db changes
-    masterSeedDb.saveChanges();
+    withEditTxn(masterSeedDb, "null out fedguids", () => {
+      for (const elemId of noFedGuidElemIds)
+        masterSeedDb.withSqliteStatement(
+          `UPDATE bis_Element SET FederationGuid=NULL WHERE Id=${elemId}`,
+          (s) => {
+            expect(s.step()).to.equal(DbResult.BE_SQLITE_DONE);
+          }
+        );
+    });
     masterSeedDb.performCheckpoint();
 
     const masterSeed: TimelineIModelState = {
@@ -1821,20 +1829,27 @@ describe("IModelTransformerHub", () => {
       const makeReplayTransformer = (
         argsForProcessChanges?: ProcessChangesOptions
       ) => {
-        const result = new IModelTransformer(sourceDb, replayedDb, {
-          argsForProcessChanges,
-        });
+        const editTxn = createStartedEditTxn(replayedDb);
+        const transformer = new IModelTransformer(
+          sourceDb,
+          replayedDb,
+          editTxn,
+          {
+            argsForProcessChanges,
+          }
+        );
         // this replay strategy pretends that deleted elements never existed
         for (const elementId of masterDeletedElementIds) {
-          result.exporter.excludeElement(elementId);
+          transformer.exporter.excludeElement(elementId);
         }
-        return result;
+        return { editTxn, transformer };
       };
 
       // NOTE: this test knows that there were no schema changes, so does not call `processSchemas`
       const replayInitTransformer = makeReplayTransformer();
-      await replayInitTransformer.process(); // process any elements that were part of the "seed"
-      replayInitTransformer.dispose();
+      await replayInitTransformer.transformer.process(); // process any elements that were part of the "seed"
+      replayInitTransformer.transformer.dispose();
+      replayInitTransformer.editTxn.end();
 
       await saveAndPushChanges(replayedDb, "changes from source seed");
       for (const masterDbChangeset of masterDbChangesets) {
@@ -1845,12 +1860,13 @@ describe("IModelTransformerHub", () => {
         const replayTransformer = makeReplayTransformer({
           startChangeset: sourceDb.changeset,
         });
-        await replayTransformer.process();
+        await replayTransformer.transformer.process();
+        replayTransformer.editTxn.end();
         await saveAndPushChanges(
           replayedDb,
           masterDbChangeset.description ?? ""
         );
-        replayTransformer.dispose();
+        replayTransformer.transformer.dispose();
       }
       sourceDb.close();
       await assertElemState(replayedDb, master.state); // should have same ending state as masterDb
@@ -1975,12 +1991,17 @@ describe("IModelTransformerHub", () => {
         targetDb.containsClass(ExternalSourceAspect.classFullName),
         "Expect BisCore to be updated and contain ExternalSourceAspect"
       );
-      const provenanceInitializer = new IModelTransformer(sourceDb, targetDb, {
-        wasSourceIModelCopiedToTarget: true,
-      });
+      const provenanceInitEditTxn = createStartedEditTxn(targetDb);
+      const provenanceInitializer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        provenanceInitEditTxn,
+        { wasSourceIModelCopiedToTarget: true }
+      );
       await provenanceInitializer.processSchemas();
       await provenanceInitializer.process();
       provenanceInitializer.dispose();
+      provenanceInitEditTxn.end();
 
       // update source (add model2 to model selector)
       // (it's important that we only change the model selector here to keep the changes isolated)
@@ -2049,17 +2070,18 @@ describe("IModelTransformerHub", () => {
         }
       }
 
+      const injectedEditTxn = createStartedEditTxn(targetDb);
       const synchronizer = new IModelTransformerInjected(
         sourceDb,
-        new IModelImporterInjected(targetDb),
+        new IModelImporterInjected(targetDb, injectedEditTxn),
+        injectedEditTxn,
         { argsForProcessChanges: {} }
       );
       await synchronizer.process();
       expect(didExportModelSelector).to.be.true;
       expect(didImportModelSelector).to.be.true;
       synchronizer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      injectedEditTxn.end();
       await targetDb.pushChanges({ accessToken, description: "synchronize" });
 
       // check that the model selector has the expected change in the target
@@ -2147,11 +2169,15 @@ describe("IModelTransformerHub", () => {
         iTwinId,
         iModelId: targetIModelId,
       });
-      let transformer = new IModelTransformer(sourceDb, targetDb);
+      const initialTargetEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        initialTargetEditTxn
+      );
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
       transformer.dispose();
+      initialTargetEditTxn.end();
 
       withEditTxn(sourceDb, "insert PM2", (txn) => {
         PhysicalModel.insert(txn, subject2Id, "PM2");
@@ -2161,11 +2187,17 @@ describe("IModelTransformerHub", () => {
         description: "PhysicalPartition",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb, {
-        argsForProcessChanges: {
-          startChangeset: { id: sourceDb.changeset.id },
-        },
-      });
+      const changeTargetEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        changeTargetEditTxn,
+        {
+          argsForProcessChanges: {
+            startChangeset: { id: sourceDb.changeset.id },
+          },
+        }
+      );
       await transformer.process();
 
       const elementCodeValueMap = new Map<Id64String, string>();
@@ -2188,6 +2220,7 @@ describe("IModelTransformerHub", () => {
       );
 
       transformer.dispose();
+      changeTargetEditTxn.end();
 
       // close iModel briefcases
       await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
@@ -2297,12 +2330,15 @@ describe("IModelTransformerHub", () => {
     });
 
     // fork provenance init
-    let transformer = new IModelTransformer(sourceDb, targetDb, {
-      wasSourceIModelCopiedToTarget: true,
-    });
+    const forkInitEditTxn = createStartedEditTxn(targetDb);
+    let transformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      forkInitEditTxn,
+      { wasSourceIModelCopiedToTarget: true }
+    );
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    forkInitEditTxn.end();
     await targetDb.pushChanges({ description: "fork init" });
     const catIdInTarget = transformer.context.findTargetElementId(categoryId1);
     const modelIdInTarget = transformer.context.findTargetElementId(modelId1);
@@ -2319,12 +2355,19 @@ describe("IModelTransformerHub", () => {
     sourceDb.performCheckpoint();
 
     // Reverse Sync to add a pendingsyncchangesetindex
-    transformer = new IModelTransformer(targetDb, sourceDb, {
-      argsForProcessChanges: {},
-    });
+    const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
+    const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
+    transformer = new IModelTransformer(
+      targetDb,
+      sourceDb,
+      reverseSyncEditTxn,
+      { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
+    );
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    reverseSyncEditTxn.saveChanges("reverse sync");
+    reverseSyncSourceEditTxn.saveChanges("reverse sync provenance");
+    reverseSyncEditTxn.end();
+    reverseSyncSourceEditTxn.end();
     // Query scope ESA from database instead of reaching into private internals
     let scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
       targetDb,
@@ -2357,12 +2400,15 @@ describe("IModelTransformerHub", () => {
     );
 
     // Forward Sync. We expect 4 is still there because we didnt process it (as a result of our sourceDb not being at the tip)
-    transformer = new IModelTransformer(sourceDbNotAtTip, targetDb, {
-      argsForProcessChanges: {},
-    });
+    const forwardSyncEditTxn = createStartedEditTxn(targetDb);
+    transformer = new IModelTransformer(
+      sourceDbNotAtTip,
+      targetDb,
+      forwardSyncEditTxn,
+      { argsForProcessChanges: {} }
+    );
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    forwardSyncEditTxn.end();
     scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
       targetDb,
       {
@@ -2573,12 +2619,15 @@ describe("IModelTransformerHub", () => {
       });
 
       // fork provenance init
-      let transformer = new IModelTransformer(sourceDb, targetDb, {
-        wasSourceIModelCopiedToTarget: true,
-      });
+      const forkInitEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        forkInitEditTxn,
+        { wasSourceIModelCopiedToTarget: true }
+      );
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      forkInitEditTxn.end();
       await targetDb.pushChanges({ description: "fork init" });
       transformer.dispose();
 
@@ -2619,12 +2668,19 @@ describe("IModelTransformerHub", () => {
       }
 
       // running reverse synchronization
-      transformer = new IModelTransformer(targetDb, sourceDb, {
-        argsForProcessChanges: {},
-      });
+      const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        targetDb,
+        sourceDb,
+        reverseSyncEditTxn,
+        { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
+      );
 
       await transformer.process();
       transformer.dispose();
+      reverseSyncEditTxn.end();
+      reverseSyncSourceEditTxn.end();
 
       expect(count(sourceDb, PhysicalObject.classFullName)).to.equal(7);
       expect(count(targetDb, PhysicalObject.classFullName)).to.equal(7);
@@ -2822,14 +2878,17 @@ describe("IModelTransformerHub", () => {
         branchDb.containsClass(ExternalSourceAspect.classFullName),
         "Expect BisCore to be updated and contain ExternalSourceAspect"
       );
-      const provenanceInitializer = new IModelTransformer(masterDb, branchDb, {
-        wasSourceIModelCopiedToTarget: true,
-      });
+      const branchInitEditTxn = createStartedEditTxn(branchDb);
+      const provenanceInitializer = new IModelTransformer(
+        masterDb,
+        branchDb,
+        branchInitEditTxn,
+        { wasSourceIModelCopiedToTarget: true }
+      );
       await provenanceInitializer.processSchemas();
       await provenanceInitializer.process();
       provenanceInitializer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      branchDb.saveChanges();
+      branchInitEditTxn.end();
       await branchDb.pushChanges({ accessToken, description: "setup branch" });
 
       const modelToDeleteWithElem = {
@@ -2948,13 +3007,23 @@ describe("IModelTransformerHub", () => {
       expect(result.model.deleteIds).to.deep.equal(expectedModelDeleteIds);
       expect(result.model.updateIds).to.deep.equal(expectedModelUpdateIds);
 
-      const synchronizer = new IModelTransformer(branchDb, masterDb, {
-        // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
-        argsForProcessChanges: {},
-      });
+      const masterSyncEditTxn = createStartedEditTxn(masterDb);
+      const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
+      const synchronizer = new IModelTransformer(
+        branchDb,
+        masterDb,
+        masterSyncEditTxn,
+        {
+          // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
+          argsForProcessChanges: {},
+          sourceEditTxn: reverseSyncSourceEditTxn,
+        }
+      );
       await synchronizer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      branchDb.saveChanges();
+      masterSyncEditTxn.saveChanges("synchronize");
+      reverseSyncSourceEditTxn.saveChanges("synchronize provenance");
+      masterSyncEditTxn.end();
+      reverseSyncSourceEditTxn.end();
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
 
@@ -3037,10 +3106,13 @@ describe("IModelTransformerHub", () => {
       accessToken,
     });
 
-    const syncer = new IModelTransformer(branchAt2, master.db, {
+    const syncEditTxn = createStartedEditTxn(master.db);
+    const reverseSyncSourceEditTxn = createStartedEditTxn(branchAt2);
+    const syncer = new IModelTransformer(branchAt2, master.db, syncEditTxn, {
       argsForProcessChanges: {
         startChangeset: branchAt2Changeset,
       },
+      sourceEditTxn: reverseSyncSourceEditTxn,
     });
     const queryChangeset = sinon.spy(BriefcaseManager, "queryChangeset");
     await syncer.process();
@@ -3054,6 +3126,8 @@ describe("IModelTransformerHub", () => {
     ).to.be.true;
 
     syncer.dispose();
+    syncEditTxn.end();
+    reverseSyncSourceEditTxn.end();
     await tearDown();
     sinon.restore();
   });
@@ -3117,14 +3191,18 @@ describe("IModelTransformerHub", () => {
       );
       await sourceDb.pushChanges({ description: "insert physical element" });
 
-      let transformer = new IModelTransformer(sourceDb, targetDb);
+      const initialForkEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        initialForkEditTxn
+      );
       await transformer.process();
       const forkedElementId =
         transformer.context.findTargetElementId(originalElementId);
       expect(forkedElementId).not.to.be.undefined;
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      initialForkEditTxn.end();
       await targetDb.pushChanges({ description: "initial transformation" });
 
       withEditTxn(targetDb, "update forked element", (txn) => {
@@ -3136,12 +3214,20 @@ describe("IModelTransformerHub", () => {
         description: "update forked element's userLabel",
       });
 
-      transformer = new IModelTransformer(targetDb, sourceDb, {
-        argsForProcessChanges: { startChangeset: targetDb.changeset },
-      });
+      const reverseForkEditTxn = createStartedEditTxn(sourceDb);
+      const reverseForkSourceEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        targetDb,
+        sourceDb,
+        reverseForkEditTxn,
+        {
+          argsForProcessChanges: { startChangeset: targetDb.changeset },
+          sourceEditTxn: reverseForkSourceEditTxn,
+        }
+      );
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      sourceDb.saveChanges();
+      reverseForkEditTxn.end();
+      reverseForkSourceEditTxn.end();
       await sourceDb.pushChanges({
         description: "change processing transformation",
       });
@@ -3236,11 +3322,15 @@ describe("IModelTransformerHub", () => {
         });
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
-      let transformer = new IModelTransformer(sourceDb, targetDb);
+      const initialTargetEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        initialTargetEditTxn
+      );
       await transformer.process();
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      initialTargetEditTxn.end();
       await targetDb.pushChanges({ description: "initial transformation" });
 
       const originalTargetElement = targetDb.elements.getElement<Subject>(
@@ -3303,12 +3393,15 @@ describe("IModelTransformerHub", () => {
         description: "recreated elements & models",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb, {
-        argsForProcessChanges: { startChangeset: sourceDb.changeset },
-      });
+      const changeTargetEditTxn1 = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        changeTargetEditTxn1,
+        { argsForProcessChanges: { startChangeset: sourceDb.changeset } }
+      );
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      changeTargetEditTxn1.end();
       await targetDb.pushChanges({
         description: "change processing transformation",
       });
@@ -3370,12 +3463,15 @@ describe("IModelTransformerHub", () => {
         description: "inserted a third copy of the subject with userLabel C",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb, {
-        argsForProcessChanges: { startChangeset },
-      });
+      const changeTargetEditTxn2 = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        changeTargetEditTxn2,
+        { argsForProcessChanges: { startChangeset } }
+      );
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      changeTargetEditTxn2.end();
       await targetDb.pushChanges({ description: "transformation" });
 
       const thirdCopySubject = targetDb.elements.getElement<Subject>(
@@ -3459,11 +3555,15 @@ describe("IModelTransformerHub", () => {
       );
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
-      let transformer = new IModelTransformer(sourceDb, targetDb);
+      const initialTargetEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        initialTargetEditTxn
+      );
       await transformer.process();
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      initialTargetEditTxn.end();
       await targetDb.pushChanges({ description: "initial transformation" });
 
       const originalTargetPartition =
@@ -3499,12 +3599,15 @@ describe("IModelTransformerHub", () => {
         description: "recreated elements & models",
       });
 
-      transformer = new IModelTransformer(sourceDb, targetDb, {
-        argsForProcessChanges: { startChangeset: sourceDb.changeset },
-      });
+      const changeTargetEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        changeTargetEditTxn,
+        { argsForProcessChanges: { startChangeset: sourceDb.changeset } }
+      );
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      changeTargetEditTxn.end();
       await targetDb.pushChanges({
         description: "change processing transformation",
       });
@@ -3598,12 +3701,17 @@ describe("IModelTransformerHub", () => {
         DetachedExportElementAspectsStrategy
       );
       // First transformation uses processAll (no argsForProcessChanges) to establish provenance
-      const transformer = new IModelTransformer(exporter, targetDb, {
-        includeSourceProvenance: true,
-      });
+      const firstTransformEditTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer(
+        exporter,
+        targetDb,
+        firstTransformEditTxn,
+        { includeSourceProvenance: true }
+      );
 
       // run first transformation
       await transformer.process();
+      firstTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "First transformation");
 
       const addedAspectProps: ExternalSourceAspectProps = {
@@ -3622,13 +3730,20 @@ describe("IModelTransformerHub", () => {
 
       await saveAndPushChanges(sourceDb, "Update source");
 
-      const transformer2 = new IModelTransformer(exporter, targetDb, {
-        includeSourceProvenance: true,
-        argsForProcessChanges: {
-          startChangeset: sourceDb.changeset,
-        },
-      });
+      const secondTransformEditTxn = createStartedEditTxn(targetDb);
+      const transformer2 = new IModelTransformer(
+        exporter,
+        targetDb,
+        secondTransformEditTxn,
+        {
+          includeSourceProvenance: true,
+          argsForProcessChanges: {
+            startChangeset: sourceDb.changeset,
+          },
+        }
+      );
       await transformer2.process();
+      secondTransformEditTxn.end();
       await saveAndPushChanges(targetDb, "Second transformation");
 
       const targetElementIds = targetDb.queryEntityIds({
@@ -5262,13 +5377,15 @@ describe("IModelTransformerHub", () => {
       });
 
     // process change 1
-    let transformer = new IModelTransformer(sourceDb, targetDb, {
-      argsForProcessChanges: {},
-      wasSourceIModelCopiedToTarget: true,
-    });
+    const initialTargetEditTxn = createStartedEditTxn(targetDb);
+    let transformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      initialTargetEditTxn,
+      { argsForProcessChanges: {}, wasSourceIModelCopiedToTarget: true }
+    );
     await transformer.process();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    initialTargetEditTxn.end();
 
     // Update source iModel
     withEditTxn(sourceDb, "change 2 source", (txn) => {
@@ -5290,12 +5407,15 @@ describe("IModelTransformerHub", () => {
     });
 
     // process change 2
-    transformer = new IModelTransformer(sourceDb, targetDb, {
-      argsForProcessChanges: {},
-    });
+    const changeTargetEditTxn = createStartedEditTxn(targetDb);
+    transformer = new IModelTransformer(
+      sourceDb,
+      targetDb,
+      changeTargetEditTxn,
+      { argsForProcessChanges: {} }
+    );
     await expect(transformer.process()).to.be.eventually.fulfilled;
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    changeTargetEditTxn.end();
 
     const queryReader = targetDb.createQueryReader(
       `SELECT COUNT(*) FROM ${Subject.classFullName}`
@@ -5319,11 +5439,14 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
     class CustomChangesTransformer extends IModelTransformer {
+      public readonly editTxn: ReturnType<typeof createStartedEditTxn>;
+
       constructor(
         source: IModelDb,
         target: IModelDb,
         isChangeProcessing: boolean
       ) {
+        const editTxn = createStartedEditTxn(target);
         const options: IModelTransformOptions = {
           includeSourceProvenance: true,
         };
@@ -5334,7 +5457,8 @@ describe("IModelTransformerHub", () => {
           source,
           DetachedExportElementAspectsStrategy
         );
-        super(exporter, target, options);
+        super(exporter, target, editTxn, options);
+        this.editTxn = editTxn;
       }
 
       public override async addCustomChanges(
@@ -5355,6 +5479,7 @@ describe("IModelTransformerHub", () => {
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       let addChangesStub = sinon.stub(transformer, "addCustomChanges");
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(targetDb, "target changes for transformation 1");
       expect(addChangesStub.calledOnce).to.be.false;
 
@@ -5371,6 +5496,7 @@ describe("IModelTransformerHub", () => {
           ).to.not.be.equal(Id64.invalid);
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(targetDb, "target changes for transformation 2");
       expect(addChangesStub.calledOnce).to.be.true;
     });
@@ -5426,6 +5552,7 @@ describe("IModelTransformerHub", () => {
       await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 1: Process All");
 
       // Assert
@@ -5456,6 +5583,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 2: inserted previously excluded model"
@@ -5496,6 +5624,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 3: inserted newly created model"
@@ -5534,6 +5663,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 4: delete exported model");
       // Assert
       expect(
@@ -5568,6 +5698,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 5: delete model with newly added elements"
@@ -5652,6 +5783,7 @@ describe("IModelTransformerHub", () => {
       await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 1: Process All");
 
       assertModelExistsByName(targetDb, ["DL", "ParentDrawing2"]);
@@ -5684,6 +5816,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 2: add first previously excluded child element"
@@ -5727,6 +5860,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 2: add second previously excluded child element"
@@ -5768,6 +5902,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 3: delete first child element's submodel"
@@ -5845,6 +5980,7 @@ describe("IModelTransformerHub", () => {
       await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 1: Process All");
 
       expect(
@@ -5878,6 +6014,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 2: include previously excluded element"
@@ -5921,6 +6058,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 3: include newly added element"
@@ -5954,6 +6092,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 4: delete exported element");
       // Assert
       expect(
@@ -6006,6 +6145,7 @@ describe("IModelTransformerHub", () => {
       await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 1: Process All");
 
       // === Transformation 2: `process changes` transformation to update other element  ===
@@ -6032,6 +6172,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 2: update other element");
 
       let physicalElem1InTarget = targetDb.elements.tryGetElement(
@@ -6055,6 +6196,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 2: update changed element");
 
       physicalElem1InTarget = targetDb.elements.tryGetElement(
@@ -6110,6 +6252,7 @@ describe("IModelTransformerHub", () => {
       await transformer.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
       });
+      transformer.editTxn.end();
       await pushChanges(targetDb, "Transformation 1: Process All");
 
       // Assert
@@ -6178,6 +6321,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer.process();
+      transformer.editTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 2: inserted previously excluded model"
@@ -6226,6 +6370,7 @@ describe("IModelTransformerHub", () => {
       );
       transformer1.exporter.excludeElement(originalSubjectId2);
       await transformer1.process();
+      transformer1.editTxn.end();
       await pushChanges(
         targetDb,
         "target changes for process all transformation."
@@ -6260,6 +6405,7 @@ describe("IModelTransformerHub", () => {
           );
         });
       await transformer2.process();
+      transformer2.editTxn.end();
       await pushChanges(
         targetDb,
         "target changes for process changes transformation."
@@ -6430,9 +6576,15 @@ describe("IModelTransformerHub", () => {
       await pushChanges(sourceDb, "Initial schema and element creation");
 
       // === Transformation 1: Run `process all` transformation ===
-      let transformer = new IModelTransformer(sourceDb, targetDb);
+      const firstTransformEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        firstTransformEditTxn
+      );
       await transformer.processSchemas();
       await transformer.process();
+      firstTransformEditTxn.end();
       await pushChanges(targetDb, "Transformation 1: Process All");
 
       // Assert that element was transformed
@@ -6454,11 +6606,16 @@ describe("IModelTransformerHub", () => {
       await pushChanges(sourceDb, "Deleted element");
 
       // === Transformation 2: Run `process changes` transformation ===
-      transformer = new IModelTransformer(sourceDb, targetDb, {
-        argsForProcessChanges: {},
-      });
+      const secondTransformEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        secondTransformEditTxn,
+        { argsForProcessChanges: {} }
+      );
       await transformer.processSchemas();
       await transformer.process();
+      secondTransformEditTxn.end();
       await pushChanges(
         targetDb,
         "Transformation 2: Process Changes with deletion"
@@ -6516,11 +6673,15 @@ describe("IModelTransformerHub", () => {
       });
 
       // Run first transform
-      let transformer = new IModelTransformer(sourceDb, targetDb);
+      const firstTransformEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        firstTransformEditTxn
+      );
       await transformer.process();
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      firstTransformEditTxn.end();
       await targetDb.pushChanges({
         accessToken,
         description: "First transformation",
@@ -6555,13 +6716,18 @@ describe("IModelTransformerHub", () => {
       });
 
       // Act - run second transform with change processing
-      transformer = new IModelTransformer(sourceDb, targetDb, {
-        argsForProcessChanges: {},
-      });
+      const secondTransformEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        secondTransformEditTxn,
+        {
+          argsForProcessChanges: {},
+        }
+      );
       await transformer.process();
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      secondTransformEditTxn.end();
       await targetDb.pushChanges({
         accessToken,
         description: "Second transformation",
@@ -6622,11 +6788,15 @@ describe("IModelTransformerHub", () => {
       });
 
       // Run first transform
-      let transformer = new IModelTransformer(sourceDb, targetDb);
+      const firstTransformEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        firstTransformEditTxn
+      );
       await transformer.process();
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      firstTransformEditTxn.end();
       await targetDb.pushChanges({
         accessToken,
         description: "First transformation",
@@ -6656,13 +6826,18 @@ describe("IModelTransformerHub", () => {
       });
 
       // Act - run second transform with change processing
-      transformer = new IModelTransformer(sourceDb, targetDb, {
-        argsForProcessChanges: {},
-      });
+      const secondTransformEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        sourceDb,
+        targetDb,
+        secondTransformEditTxn,
+        {
+          argsForProcessChanges: {},
+        }
+      );
       await transformer.process();
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      secondTransformEditTxn.end();
       await targetDb.pushChanges({
         accessToken,
         description: "Second transformation",
@@ -6764,8 +6939,7 @@ describe("IModelTransformerHub", () => {
   }
 
   async function pushChanges(iModel: BriefcaseDb, description: string) {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- helper function for test
-    iModel.saveChanges();
+    withEditTxn(iModel, description, () => undefined);
     await iModel.pushChanges({ description, retainLocks: true });
   }
 });

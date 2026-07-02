@@ -23,6 +23,7 @@ import {
 } from "../../BranchProvenanceInitializer";
 import {
   assertIdentityTransformation,
+  createStartedEditTxn,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import {
@@ -133,19 +134,21 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           masterUrl: "https://example.com/mytest",
         };
 
-        const initProvenanceArgs: ProvenanceInitArgs = {
-          ...baseInitProvenanceArgs,
-          master: masterDb,
-          branch: forkDb,
-        };
-
         if (doBranchProv) {
+          const initProvenanceArgs: ProvenanceInitArgs = {
+            ...baseInitProvenanceArgs,
+            master: masterDb,
+            branch: forkDb,
+            editTxn: createStartedEditTxn(forkDb),
+          };
           const result = await initializeBranchProvenance(initProvenanceArgs);
           // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
           masterDb = initProvenanceArgs.master as StandaloneDb;
           forkDb = initProvenanceArgs.branch as StandaloneDb;
-          // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from initializeBranchProvenance
-          forkDb.saveChanges();
+          initProvenanceArgs.editTxn.saveChanges(
+            "save changes from initializeBranchProvenance"
+          );
+          initProvenanceArgs.editTxn.end();
 
           // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
           for (const sourceHasFedGuid of [true, false]) {
@@ -208,13 +211,17 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             forkDb.close(); // The createFedGuidsForMaster forkDb is no longer necessary so close it.
           }
         } else {
+          const classicEditTxn = createStartedEditTxn(forkDb);
           const result = await classicalTransformerBranchInit({
             ...baseInitProvenanceArgs,
             master: masterDb,
             branch: forkDb,
+            editTxn: classicEditTxn,
           });
-          // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from classicalTransformerBranchInit
-          forkDb.saveChanges();
+          classicEditTxn.saveChanges(
+            "save changes from classicalTransformerBranchInit"
+          );
+          classicEditTxn.end();
 
           // Save off the classicalTransformerBranchInit result and db for later comparison with the branchProvenance result and db.
           if (!createFedGuidsForMaster) {
@@ -383,67 +390,55 @@ async function classicalTransformerBranchInit(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const { masterLinkRepoId, masterExternalSourceId } = withEditTxn(
+  const repoLinkId = args.branch
+    .constructEntity<RepositoryLink, RepositoryLinkProps>({
+      classFullName: RepositoryLink.classFullName,
+      code: RepositoryLink.createCode(
+        args.branch,
+        IModelDb.repositoryModelId,
+        "test-imodel"
+      ),
+      model: IModelDb.repositoryModelId,
+      url: args.masterUrl,
+      format: "iModel",
+      repositoryGuid: args.master.iModelId,
+      description: args.masterDescription,
+    })
+    .insert(args.editTxn);
+
+  const masterExternalSourceId = args.branch
+    .constructEntity<ExternalSource, ExternalSourceProps>({
+      classFullName: ExternalSource.classFullName,
+      model: IModelDb.rootSubjectId,
+      code: Code.createEmpty(),
+      repository: new ExternalSourceIsInRepository(repoLinkId),
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+      connectorName: require("../../../../package.json").name,
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+      connectorVersion: require("../../../../package.json").version,
+    })
+    .insert(args.editTxn);
+
+  // initialize the branch provenance
+  const branchInitializer = new IModelTransformer(
+    args.master,
     args.branch,
-    "insert repository link and external source",
-    (txn) => {
-      const repoLinkId = args.branch
-        .constructEntity<RepositoryLink, RepositoryLinkProps>({
-          classFullName: RepositoryLink.classFullName,
-          code: RepositoryLink.createCode(
-            args.branch,
-            IModelDb.repositoryModelId,
-            "test-imodel"
-          ),
-          model: IModelDb.repositoryModelId,
-          url: args.masterUrl,
-          format: "iModel",
-          repositoryGuid: args.master.iModelId,
-          description: args.masterDescription,
-        })
-        .insert(txn);
-
-      const extSourceId = args.branch
-        .constructEntity<ExternalSource, ExternalSourceProps>({
-          classFullName: ExternalSource.classFullName,
-          model: IModelDb.rootSubjectId,
-          code: Code.createEmpty(),
-          repository: new ExternalSourceIsInRepository(repoLinkId),
-          // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-          connectorName: require("../../../../package.json").name,
-          // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-          connectorVersion: require("../../../../package.json").version,
-        })
-        .insert(txn);
-
-      return {
-        masterLinkRepoId: repoLinkId,
-        masterExternalSourceId: extSourceId,
-      };
+    args.editTxn,
+    {
+      // tells the transformer that we have a raw copy of a source and the target should receive
+      // provenance from the source that is necessary for performing synchronizations in the future
+      wasSourceIModelCopiedToTarget: true, // store the synchronization provenance in the scope of our representation of the external source, master
+      targetScopeElementId: masterExternalSourceId,
     }
   );
 
-  // initialize the branch provenance
-  const branchInitializer = new IModelTransformer(args.master, args.branch, {
-    // tells the transformer that we have a raw copy of a source and the target should receive
-    // provenance from the source that is necessary for performing synchronizations in the future
-    wasSourceIModelCopiedToTarget: true,
-    // store the synchronization provenance in the scope of our representation of the external source, master
-    targetScopeElementId: masterExternalSourceId,
-  });
-
   await branchInitializer.process();
-  // save+push our changes to whatever hub we're using
-  const description = "initialized branch iModel";
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-  args.branch.saveChanges(description);
-
   branchInitializer.dispose();
 
   return {
     masterExternalSourceId,
     targetScopeElementId: masterExternalSourceId,
-    masterRepositoryLinkId: masterLinkRepoId,
+    masterRepositoryLinkId: repoLinkId,
   };
 }
 

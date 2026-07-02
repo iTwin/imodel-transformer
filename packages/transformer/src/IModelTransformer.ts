@@ -31,7 +31,9 @@ import {
 } from "@itwin/core-geometry";
 import {
   BriefcaseManager,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   ChangedECInstance,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   ChangesetECAdaptor,
   ChangeSummaryManager,
   ChannelRootAspect,
@@ -40,6 +42,7 @@ import {
   DefinitionModel,
   DefinitionPartition,
   ECSchemaXmlContext,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -57,12 +60,14 @@ import {
   InformationPartitionElement,
   KnownLocations,
   Model,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   RelationshipProps,
   Schema,
   SqliteChangeOp,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   SqliteChangesetReader,
   Subject,
 } from "@itwin/core-backend";
@@ -240,6 +245,14 @@ export interface IModelTransformOptions {
    * @default false
    */
   tryAlignGeolocation?: boolean;
+
+  /** An optional [[EditTxn]] for write operations on the **source** iModel.
+   * Only needed for reverse synchronization workflows where provenance must be written back to the source.
+   * If not provided, the source iModel is treated as read-only.
+   * Must be started before calling [[IModelTransformer.process]].
+   * @beta
+   */
+  sourceEditTxn?: EditTxn;
 }
 
 /**
@@ -387,6 +400,15 @@ export class IModelTransformer extends IModelExportHandler {
    * @beta
    */
   private _linearSpatialTransform?: Transform;
+  /** The [[EditTxn]] used for write operations on the target iModel.
+   * The caller is responsible for starting, committing or abandoning this transaction.
+   * @beta
+   */
+  protected readonly _targetEditTxn: EditTxn;
+  /** The optional [[EditTxn]] used for write operations on the source iModel during reverse synchronization.
+   * @beta
+   */
+  protected readonly _sourceEditTxn?: EditTxn;
   private _syncTypeResolver!: SyncTypeResolver;
   protected _provenanceManager!: ProvenanceManager;
 
@@ -443,11 +465,13 @@ export class IModelTransformer extends IModelExportHandler {
   /** Construct a new IModelTransformer
    * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
    * @param target Specifies the target IModelImporter or the target IModelDb that will be used to construct the target IModelImporter.
+   * @param targetEditTxn The [[EditTxn]] to use for all write operations on the target iModel. Must be started before calling [[process]].
    * @param options The options that specify how the transformation should be done.
    */
   public constructor(
     source: IModelDb | IModelExporter,
     target: IModelDb | IModelImporter,
+    targetEditTxn: EditTxn,
     options?: IModelTransformOptions
   ) {
     super();
@@ -499,7 +523,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.exporter.excludeElementAspectClass("BisCore:TextAnnotationData"); // This ElementAspect is auto-created by the BisCore:TextAnnotation2d/3d element handlers
     // initialize importer and targetDb
     if (target instanceof IModelDb) {
-      this.importer = new IModelImporter(target, {
+      this.importer = new IModelImporter(target, targetEditTxn, {
         preserveElementIdsForFiltering:
           this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
@@ -510,6 +534,8 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
+    this._targetEditTxn = targetEditTxn;
+    this._sourceEditTxn = options?.sourceEditTxn;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
@@ -529,7 +555,9 @@ export class IModelTransformer extends IModelExportHandler {
     this._provenanceManager = new ProvenanceManager(
       this._options.targetScopeElementId,
       this._options,
-      this._syncTypeResolver
+      this._syncTypeResolver,
+      this._targetEditTxn,
+      this._sourceEditTxn
     );
     if (this._options.tryAlignGeolocation) {
       if (
@@ -708,6 +736,20 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async getIsForwardSynchronization(): Promise<boolean> {
     return (await this._syncTypeResolver.getSyncType()) === "forward";
+  }
+
+  /** Get the EditTxn for the provenance db (target in forward sync, source in reverse sync). */
+  private async getProvenanceEditTxn(): Promise<EditTxn> {
+    if (await this.getIsReverseSynchronization()) {
+      if (!this._sourceEditTxn) {
+        throw new Error(
+          "A reverse synchronization requires a sourceEditTxn to write provenance back to the source iModel. " +
+            "Pass sourceEditTxn in IModelTransformOptions."
+        );
+      }
+      return this._sourceEditTxn;
+    }
+    return this._targetEditTxn;
   }
 
   /**
@@ -972,8 +1014,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       const targetProps = await this.onTransformElement(sourceElement);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      this.targetDb.elements.updateElement({ ...targetProps, id: targetId });
+      this._targetEditTxn.updateElement({ ...targetProps, id: targetId });
     }
   }
 
@@ -988,8 +1029,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const targetAspectProps =
         await this.onTransformElementAspect(sourceAspect);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      this.targetDb.elements.updateAspect({
+      this._targetEditTxn.updateAspect({
         ...targetAspectProps,
         id: targetAspectId,
       });
@@ -1319,6 +1359,7 @@ export class IModelTransformer extends IModelExportHandler {
     // FIXME: verify at finalization time that we don't lose provenance on new elements
     // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
     const provenanceDb = await this.getProvenanceDb();
+    const provenanceEditTxn = await this.getProvenanceEditTxn();
     if (!this._options.noProvenance) {
       const provenance:
         | string
@@ -1339,13 +1380,11 @@ export class IModelTransformer extends IModelExportHandler {
             aspectProps
           );
         if (foundEsaProps === undefined)
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
+          aspectProps.id = provenanceEditTxn.insertAspect(aspectProps);
         else {
           // Since initElementProvenance sets a property 'version' on the aspectProps that we wish to persist in the provenanceDb, only grab the id from the foundEsaProps.
           aspectProps.id = foundEsaProps.aspectId;
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          provenanceDb.elements.updateAspect(aspectProps);
+          provenanceEditTxn.updateAspect(aspectProps);
         }
       }
     }
@@ -1636,6 +1675,7 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     const provenanceDb = await this.getProvenanceDb();
+    const provenanceEditTxn = await this.getProvenanceEditTxn();
     if (
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
@@ -1658,8 +1698,7 @@ export class IModelTransformer extends IModelExportHandler {
           );
         // onExportRelationship doesn't need to call updateAspect if esaProps were found, because relationship provenance doesn't have the same concept of a version as element provenance (which uses last mod time on the elements).
         if (undefined === foundEsaProps) {
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          aspectProps.id = provenanceDb.elements.insertAspect(aspectProps);
+          aspectProps.id = provenanceEditTxn.insertAspect(aspectProps);
         }
       }
     }
@@ -1702,8 +1741,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (deletedRelData.provenanceAspectId) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        (await this.getProvenanceDb()).elements.deleteAspect(
+        (await this.getProvenanceEditTxn()).deleteAspect(
           deletedRelData.provenanceAspectId
         );
       } catch (error: any) {
@@ -1733,7 +1771,6 @@ export class IModelTransformer extends IModelExportHandler {
       sourceRelationship.targetId
     );
     // TODO: move to cloneRelationship in IModelCloneContext
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceRelationship.forEach((propertyName: string, property: Property) => {
       if (property.isPrimitive() && "Id" === property.extendedTypeName) {
         (targetRelationshipProps as any)[ECJsNames.toJsName(propertyName)] =
@@ -1997,6 +2034,7 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async initialize(): Promise<void> {
     if (this._initialized) return;
+    this.assertEditTxnActive();
 
     await this.initScopeProvenance();
 
@@ -2082,6 +2120,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._deletedSourceRelationshipData = new Map();
 
     for (const csFile of this._csFileProps ?? []) {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
       const csReader = SqliteChangesetReader.openFile({
         fileName: csFile.pathname,
         db: this.sourceDb,
@@ -2396,6 +2435,15 @@ export class IModelTransformer extends IModelExportHandler {
       this._csFileProps.length === 0 ? "no-changes" : "has-changes";
   }
 
+  /** Asserts that the EditTxn is active before any write operations. */
+  private assertEditTxnActive(): void {
+    if (!this._targetEditTxn.isActive) {
+      throw new Error(
+        "The target EditTxn must be started before calling process(). Call targetEditTxn.start() before invoking the transformer."
+      );
+    }
+  }
+
   /**
    * The behavior of process is influenced by [[IModelTransformOptions.argsForProcessChanges]] being defined or not defined during construction passed of the IModelTransformer.
    * @section When argsForProcessChanges are defined:
@@ -2500,8 +2548,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.finalizeTransformation();
 
     const defaultSaveTargetChanges = () => {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      this.targetDb.saveChanges();
+      this._targetEditTxn.saveChanges();
     };
 
     await (options.saveTargetChanges ?? defaultSaveTargetChanges)(this);
@@ -2561,13 +2608,18 @@ export class TemplateModelCloner extends IModelTransformer {
    * @param sourceDb The source IModelDb that contains the templates to clone
    * @param targetDb Optionally specify the target IModelDb where the cloned template will be inserted.
    *                 Typically this is left unspecified, and the default is to use the sourceDb as the target
+   * @param targetEditTxn The [[EditTxn]] to use for write operations on the target iModel. Must be started before constructing.
    * @note The expectation is that the template definitions are within the same iModel where instances will be placed.
    */
-  public constructor(sourceDb: IModelDb, targetDb: IModelDb = sourceDb) {
-    const target = new IModelImporter(targetDb, {
+  public constructor(
+    sourceDb: IModelDb,
+    targetDb: IModelDb,
+    targetEditTxn: EditTxn
+  ) {
+    const target = new IModelImporter(targetDb, targetEditTxn, {
       autoExtendProjectExtents: false, // autoExtendProjectExtents is intended for transformation service use cases, not template --> instance cloning
     });
-    super(sourceDb, target, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
+    super(sourceDb, target, targetEditTxn, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
   }
   /** Place a template from the sourceDb at the specified placement in the target model within the targetDb.
    * @param sourceTemplateModelId The Id of the template model in the sourceDb
