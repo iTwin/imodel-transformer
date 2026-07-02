@@ -1771,6 +1771,7 @@ export class IModelTransformer extends IModelExportHandler {
       sourceRelationship.targetId
     );
     // TODO: move to cloneRelationship in IModelCloneContext
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- forEach deprecated in core 5.10, migration tracked separately
     sourceRelationship.forEach((propertyName: string, property: Property) => {
       if (property.isPrimitive() && "Id" === property.extendedTypeName) {
         (targetRelationshipProps as any)[ECJsNames.toJsName(propertyName)] =

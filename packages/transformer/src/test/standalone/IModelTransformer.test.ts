@@ -2353,6 +2353,7 @@ describe("IModelTransformer", () => {
       "SELECT * FROM bis.Element",
       undefined,
       {
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- UseJsPropertyNames deprecated in core 5.10, migration tracked separately
         rowFormat: QueryRowFormat.UseJsPropertyNames,
       }
     )) {
@@ -2375,6 +2376,7 @@ describe("IModelTransformer", () => {
     for await (const row of db.createQueryReader(
       "SELECT * FROM bis.ElementRefersToElements",
       undefined,
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- UseJsPropertyNames deprecated in core 5.10, migration tracked separately
       { rowFormat: QueryRowFormat.UseJsPropertyNames }
     )) {
       const { sourceId, targetId } = row;
