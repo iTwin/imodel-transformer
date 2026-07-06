@@ -3,6 +3,9 @@ name: Publish NPM packages
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   release-packages:
     runs-on: ubuntu-latest
@@ -13,6 +16,7 @@ jobs:
       uses: actions/checkout@v3
       with:
         token: ${{ secrets.IMJS_ADMIN_GH_TOKEN }}
+        fetch-depth: 0
 
     - name: Install pnpm
       uses: pnpm/action-setup@v4
@@ -35,6 +39,13 @@ jobs:
     - name: Test
       run: pnpm run test
 
+    - name: Capture previous stable version
+      id: prev
+      run: |
+        prevVersion=$(git tag --list '@itwin/imodel-transformer_v*' | sed 's#.*_v##' | grep -vE '-' | sort -V | tail -1)
+        echo "version=${prevVersion}" >> "$GITHUB_OUTPUT"
+        echo "Previous stable version: ${prevVersion:-<none>}"
+
     - name: Publish packages
       run: |
         git config --local user.email imodeljs-admin@users.noreply.github.com
@@ -42,3 +53,8 @@ jobs:
         pnpm publish-packages -y --branch ${{ github.ref_name }} --message "Version bump [skip actions][publish docs]"
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PUBLISH_ITWIN }}
+
+    - name: Create GitHub release
+      run: node .github/workflows/scripts/create-github-release.mjs "${{ steps.prev.outputs.version }}"
+      env:
+        GH_TOKEN: ${{ secrets.IMJS_ADMIN_GH_TOKEN }}
