@@ -67,7 +67,7 @@ export class Transformer extends IModelTransformer {
     const editTxn = new EditTxn(targetDb, "transform all");
     editTxn.start();
     try {
-      const transformer = new Transformer(sourceDb, targetDb, editTxn, options);
+      const transformer = new Transformer(sourceDb, editTxn, options);
       await transformer.initializeTransformer();
       await transformer.processSchemas();
       await transformer.saveChanges("processSchemas");
@@ -99,7 +99,7 @@ export class Transformer extends IModelTransformer {
     const editTxn = new EditTxn(targetDb, "transform changes");
     editTxn.start();
     try {
-      const transformer = new Transformer(sourceDb, targetDb, editTxn, {
+      const transformer = new Transformer(sourceDb, editTxn, {
         ...options,
         argsForProcessChanges: {
           startChangeset: { id: sourceStartChangesetId },
@@ -149,7 +149,6 @@ export class Transformer extends IModelTransformer {
     editTxn.start();
     const transformer = new IsolateElementsTransformer(
       sourceDb,
-      targetDb,
       editTxn,
       options
     );
@@ -171,7 +170,6 @@ export class Transformer extends IModelTransformer {
 
   private constructor(
     sourceDb: IModelDb,
-    targetDb: IModelDb,
     editTxn: EditTxn,
     options?: TransformerOptions
   ) {
