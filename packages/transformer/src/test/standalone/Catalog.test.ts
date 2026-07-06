@@ -1593,7 +1593,7 @@ describe("Catalog", () => {
     const target = new IModelImporter(cloneEditTxn, {
       autoExtendProjectExtents: false,
     }); // WIP: how should a catalog handle projectExtents?
-    const cloner = new IModelTransformer({ source: sourceDb, target: target });
+    const cloner = new IModelTransformer({ source: sourceDb, target });
     await cloner.processSchemas();
     await cloner.process();
     cloner.dispose();
