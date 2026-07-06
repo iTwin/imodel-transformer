@@ -260,13 +260,12 @@ describe("IModelTransformer", () => {
       );
       const testEditTxn = new EditTxn(targetDb, "IModelTransformer");
       testEditTxn.start();
-      const targetImporter = new RecordingIModelImporter(targetDb, testEditTxn);
+      const targetImporter = new RecordingIModelImporter(testEditTxn);
       const transformer = await TestIModelTransformer.create(
         sourceDb,
         targetImporter,
         {
           forceExternalSourceAspectProvenance: true,
-          editTxn: testEditTxn,
         }
       );
       assert.isTrue(transformer.context.isBetweenIModels);
@@ -385,16 +384,12 @@ describe("IModelTransformer", () => {
       );
       const testEditTxn2 = new EditTxn(targetDb, "IModelTransformer");
       testEditTxn2.start();
-      const targetImporter = new RecordingIModelImporter(
-        targetDb,
-        testEditTxn2
-      );
+      const targetImporter = new RecordingIModelImporter(testEditTxn2);
       const transformer = await TestIModelTransformer.create(
         sourceDb,
         targetImporter,
         {
           forceExternalSourceAspectProvenance: true,
-          editTxn: testEditTxn2,
         }
       );
       await transformer.process();
@@ -593,9 +588,10 @@ describe("IModelTransformer", () => {
     withEditTxn(targetDb, "save changes", () => undefined);
     // Import from beneath source Subject into target Subject
     const targetEditTxn = createStartedEditTxn(targetDb);
-    const transformer = await TestIModelTransformer.create(sourceDb, targetDb, {
-      editTxn: targetEditTxn,
-    });
+    const transformer = await TestIModelTransformer.create(
+      sourceDb,
+      targetEditTxn
+    );
     await transformer.processFonts();
     await transformer.processSubject(sourceSubjectId, targetSubjectId);
     await transformer.processRelationships(
@@ -884,12 +880,7 @@ describe("IModelTransformer", () => {
     );
     const editTxn = new EditTxn(targetDb, "IModelTransformer");
     editTxn.start();
-    const transformer = new IModelTransformer3d(
-      sourceDb,
-      targetDb,
-      transform3d,
-      { editTxn }
-    );
+    const transformer = new IModelTransformer3d(sourceDb, editTxn, transform3d);
     await transformer.process();
     const targetModelId: Id64String =
       transformer.context.findTargetElementId(sourceModelId);

@@ -100,30 +100,6 @@ import {
 } from "../IModelTransformer";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
-type TestTransformOptions = IModelTransformOptions & {
-  editTxn?: EditTxn;
-};
-
-function withStartedEditTxn(
-  target: IModelDb | IModelImporter,
-  options?: TestTransformOptions
-): [EditTxn, IModelTransformOptions | undefined] {
-  const editTxn =
-    options?.editTxn ??
-    new EditTxn(
-      target instanceof IModelImporter ? target.targetDb : target,
-      "IModelTransformer"
-    );
-  if (!editTxn.isActive) {
-    editTxn.start();
-  }
-  const { editTxn: _editTxn, ...transformOptions } = options ?? {};
-  return [
-    editTxn,
-    Object.keys(transformOptions).length > 0 ? transformOptions : undefined,
-  ];
-}
-
 /** Creates an EditTxn for the given db and starts it. */
 export function createStartedEditTxn(db: IModelDb): EditTxn {
   const editTxn = new EditTxn(db, "IModelTransformer");
@@ -1618,15 +1594,11 @@ export class IModelTransformer3d extends IModelTransformer {
   /** Construct a new IModelTransformer3d */
   public constructor(
     sourceDb: IModelDb,
-    targetDb: IModelDb,
+    targetEditTxn: EditTxn,
     transform3d: Transform,
-    options?: TestTransformOptions
+    options?: IModelTransformOptions
   ) {
-    const [targetEditTxn, transformOptions] = withStartedEditTxn(
-      targetDb,
-      options
-    );
-    super({ source: sourceDb, target: targetEditTxn }, transformOptions);
+    super({ source: sourceDb, target: targetEditTxn }, options);
     this._transform3d = transform3d;
   }
   /** Override transformElement to apply a 3d transform to all GeometricElement3d instances. */
@@ -1771,12 +1743,10 @@ export class FilterByViewTransformer extends IModelTransformer {
  * and records transformation data in the iModel itself.
  */
 export class TestIModelTransformer extends IModelTransformer {
-  public readonly editTxn?: EditTxn;
-
   public static async create(
     source: IModelDb | IModelExporter,
-    target: IModelDb | IModelImporter,
-    options?: TestTransformOptions
+    target: EditTxn | IModelImporter,
+    options?: IModelTransformOptions
   ): Promise<TestIModelTransformer> {
     const transformer = new TestIModelTransformer(source, target, options);
     await transformer.initSubCategoryFilters();
@@ -1785,21 +1755,10 @@ export class TestIModelTransformer extends IModelTransformer {
 
   private constructor(
     source: IModelDb | IModelExporter,
-    target: IModelDb | IModelImporter,
-    options?: TestTransformOptions
+    target: EditTxn | IModelImporter,
+    options?: IModelTransformOptions
   ) {
-    const targetDb =
-      target instanceof IModelImporter ? target.targetDb : target;
-    const { editTxn, ...transformOptions } = options ?? {};
-    const targetEditTxn = editTxn ?? createStartedEditTxn(targetDb);
-    super(
-      {
-        source,
-        target: target instanceof IModelImporter ? target : targetEditTxn,
-      },
-      Object.keys(transformOptions).length > 0 ? transformOptions : undefined
-    );
-    this.editTxn = editTxn ? undefined : targetEditTxn;
+    super({ source, target }, options);
     this.initExclusions();
     this.initCodeSpecRemapping();
     this.initCategoryRemapping();
@@ -2094,11 +2053,7 @@ export class CountingIModelImporter extends IModelImporter {
   public numRelationshipsInserted: number = 0;
   public numRelationshipsUpdated: number = 0;
   public numRelationshipsDeleted: number = 0;
-  public constructor(
-    _targetDb: IModelDb,
-    editTxn: EditTxn,
-    options?: IModelImportOptions
-  ) {
+  public constructor(editTxn: EditTxn, options?: IModelImportOptions) {
     super(editTxn, options);
   }
   protected override async onInsertModel(
@@ -2171,12 +2126,8 @@ export class RecordingIModelImporter extends CountingIModelImporter {
     Id64String
   >();
 
-  public constructor(
-    targetDb: IModelDb,
-    editTxn: EditTxn,
-    options?: IModelImportOptions
-  ) {
-    super(targetDb, editTxn, options);
+  public constructor(editTxn: EditTxn, options?: IModelImportOptions) {
+    super(editTxn, options);
   }
   protected override async onInsertModel(
     modelProps: ModelProps

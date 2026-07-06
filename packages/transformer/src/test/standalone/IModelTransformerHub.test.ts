@@ -427,10 +427,7 @@ describe("IModelTransformerHub", () => {
         const importEditTxn1 = createStartedEditTxn(targetDb);
         const transformer = await TestIModelTransformer.create(
           sourceDb,
-          targetDb,
-          {
-            editTxn: importEditTxn1,
-          }
+          importEditTxn1
         );
         await transformer.process();
         // Verify processAll wrote the sync version so subsequent processChanges starts from correct index
@@ -511,11 +508,11 @@ describe("IModelTransformerHub", () => {
           ElementRefersToElements.classFullName
         );
         const hubEditTxn = createStartedEditTxn(targetDb);
-        const targetImporter = new CountingIModelImporter(targetDb, hubEditTxn);
+        const targetImporter = new CountingIModelImporter(hubEditTxn);
         const transformer = await TestIModelTransformer.create(
           sourceDb,
           targetImporter,
-          { argsForProcessChanges: {}, editTxn: hubEditTxn }
+          { argsForProcessChanges: {} }
         );
         await transformer.process();
         assert.equal(targetImporter.numModelsInserted, 0);
@@ -601,10 +598,9 @@ describe("IModelTransformerHub", () => {
         const importEditTxn2 = createStartedEditTxn(targetDb);
         const transformer = await TestIModelTransformer.create(
           sourceDb,
-          targetDb,
+          importEditTxn2,
           {
             argsForProcessChanges: {},
-            editTxn: importEditTxn2,
           }
         );
         await transformer.process();
