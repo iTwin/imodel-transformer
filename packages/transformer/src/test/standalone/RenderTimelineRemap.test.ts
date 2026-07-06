@@ -193,11 +193,10 @@ describe("RenderTimeline Remap", () => {
       for (let i = 0; i < 3; i++) insertPhysicalModel(txn, targetDb);
     });
 
-    const transformer = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      createStartedEditTxn(targetDb)
-    );
+    const transformer = new IModelTransformer({
+      source: sourceDb,
+      target: createStartedEditTxn(targetDb),
+    });
     await transformer.process();
 
     const targetTimelineIds = targetDb.queryEntityIds({

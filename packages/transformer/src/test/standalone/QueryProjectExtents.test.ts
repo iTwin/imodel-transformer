@@ -87,7 +87,7 @@ describe("computeProjectExtents with no geometry", () => {
 
       // Create an importer with autoExtendProjectExtents enabled (default behavior when not excluding outliers)
       const editTxn = createStartedEditTxn(iModelDb);
-      const importer = new IModelImporter(iModelDb, editTxn, {
+      const importer = new IModelImporter(editTxn, {
         autoExtendProjectExtents: true,
       });
 

@@ -946,7 +946,7 @@ class CatalogImporter extends IModelTransformer {
    */
   private constructor(
     sourceDb: IModelDb,
-    targetDb: IModelDb,
+    _targetDb: IModelDb,
     editTxn: EditTxn,
     targetScopeElementId?: Id64String,
     targetSpatialCategories?: Map<string, Id64String>,
@@ -956,10 +956,10 @@ class CatalogImporter extends IModelTransformer {
       targetScopeElementId,
       noProvenance: targetScopeElementId ? undefined : true, // can't store provenance if targetScopeElementId is not defined
     };
-    const target = new IModelImporter(targetDb, editTxn, {
+    const target = new IModelImporter(editTxn, {
       autoExtendProjectExtents: false,
     });
-    super(sourceDb, target, editTxn, options);
+    super({ source: sourceDb, target }, options);
     this._targetSpatialCategories = targetSpatialCategories;
     this._targetDrawingCategories = targetDrawingCategories;
   }
@@ -1424,11 +1424,7 @@ describe("Catalog", () => {
     );
 
     // iterate through the imported PhysicalTypes and place instances for each
-    const componentPlacer = new TemplateModelCloner(
-      iModelDb,
-      iModelDb,
-      facilityEditTxn
-    );
+    const componentPlacer = new TemplateModelCloner(iModelDb, facilityEditTxn);
     const physicalTypeSql = `SELECT ECInstanceId FROM ${PhysicalType.classFullName}`;
     const physicalTypeIds = new Set<Id64String>();
     for await (const row of iModelDb.createQueryReader(
@@ -1594,10 +1590,10 @@ describe("Catalog", () => {
       createClassViews,
     });
     const cloneEditTxn = createStartedEditTxn(targetDb);
-    const target = new IModelImporter(targetDb, cloneEditTxn, {
+    const target = new IModelImporter(cloneEditTxn, {
       autoExtendProjectExtents: false,
     }); // WIP: how should a catalog handle projectExtents?
-    const cloner = new IModelTransformer(sourceDb, target, cloneEditTxn);
+    const cloner = new IModelTransformer({ source: sourceDb, target: target });
     await cloner.processSchemas();
     await cloner.process();
     cloner.dispose();

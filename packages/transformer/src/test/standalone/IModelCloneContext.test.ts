@@ -124,11 +124,10 @@ describe("IModelCloneContext", () => {
 
       const targetEditTxn = createStartedEditTxn(targetDb);
       // Import from beneath source Subject into target Subject
-      const transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        targetEditTxn
-      );
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: targetEditTxn,
+      });
       await transformer.process();
       targetEditTxn.end();
 

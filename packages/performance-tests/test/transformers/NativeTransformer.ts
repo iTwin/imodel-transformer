@@ -54,7 +54,10 @@ const nativeTransformerTestModule: TestTransformerModule = {
   ): Promise<TransformRunner> {
     const editTxn = new EditTxn(targetDb, "IModelTransformer");
     editTxn.start();
-    const transformer = new ProgressTransformer(sourceDb, targetDb, editTxn);
+    const transformer = new ProgressTransformer({
+      source: sourceDb,
+      target: editTxn,
+    });
     return {
       async run() {
         await transformer.processSchemas();
@@ -103,9 +106,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
     const forkEditTxn = new EditTxn(targetDb, "IModelTransformer");
     forkEditTxn.start();
     const transformer = new ProgressTransformer(
-      sourceDb,
-      targetDb,
-      forkEditTxn,
+      { source: sourceDb, target: forkEditTxn },
       {
         // tells the transformer that we have a raw copy of a source and the target should receive
         // provenance from the source that is necessary for performing synchronizations in the future

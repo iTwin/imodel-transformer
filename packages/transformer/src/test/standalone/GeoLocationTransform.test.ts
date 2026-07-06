@@ -202,9 +202,7 @@ describe("Linear Geolocation Transformations", () => {
       tryAlignGeolocation: true,
     };
     const transfrom = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      editTxn,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -258,9 +256,7 @@ describe("Linear Geolocation Transformations", () => {
     };
 
     const transformer = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      editTxn,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -316,9 +312,7 @@ describe("Linear Geolocation Transformations", () => {
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      editTxn,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -448,9 +442,7 @@ describe("Non Linear Geolocation Transformations", () => {
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      editTxn,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -566,9 +558,7 @@ describe("Non Linear Geolocation Transformations", () => {
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      editTxn,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -657,9 +647,7 @@ describe("Non Linear Geolocation Transformations", () => {
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      editTxn,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -728,9 +716,7 @@ describe("Non Linear Geolocation Transformations", () => {
     };
 
     const transform = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      editTxn,
+      { source: sourceDb, target: editTxn },
       transformerOptions
     );
 
@@ -788,7 +774,10 @@ describe("Non Linear Geolocation Transformations", () => {
 
     expect(
       () =>
-        new IModelTransformer(sourceDb, targetDb, editTxn, transformerOptions)
+        new IModelTransformer(
+          { source: sourceDb, target: editTxn },
+          transformerOptions
+        )
     ).to.throw(
       "Target iModel does not have a geographic coordinate system defined."
     );
@@ -850,7 +839,10 @@ describe("Non Linear Geolocation Transformations", () => {
 
     expect(
       () =>
-        new IModelTransformer(sourceDb, targetDb, editTxn, transformerOptions)
+        new IModelTransformer(
+          { source: sourceDb, target: editTxn },
+          transformerOptions
+        )
     ).to.throw(
       "Source and target geographic coordinate systems must match to calculate the spatial transform."
     );

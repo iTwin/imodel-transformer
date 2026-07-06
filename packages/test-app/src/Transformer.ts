@@ -166,11 +166,12 @@ export class Transformer extends IModelTransformer {
     options?: TransformerOptions
   ) {
     super(
-      sourceDb,
-      new IModelImporter(targetDb, editTxn, {
-        simplifyElementGeometry: options?.simplifyElementGeometry,
-      }),
-      editTxn,
+      {
+        source: sourceDb,
+        target: new IModelImporter(editTxn, {
+          simplifyElementGeometry: options?.simplifyElementGeometry,
+        }),
+      },
       options
     );
 

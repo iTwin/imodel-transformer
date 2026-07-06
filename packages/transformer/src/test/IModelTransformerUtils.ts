@@ -1622,7 +1622,11 @@ export class IModelTransformer3d extends IModelTransformer {
     transform3d: Transform,
     options?: TestTransformOptions
   ) {
-    super(sourceDb, targetDb, ...withStartedEditTxn(targetDb, options));
+    const [targetEditTxn, transformOptions] = withStartedEditTxn(
+      targetDb,
+      options
+    );
+    super({ source: sourceDb, target: targetEditTxn }, transformOptions);
     this._transform3d = transform3d;
   }
   /** Override transformElement to apply a 3d transform to all GeometricElement3d instances. */
@@ -1653,12 +1657,12 @@ export class PhysicalModelConsolidator extends IModelTransformer {
   /** Construct a new PhysicalModelConsolidator */
   public constructor(
     sourceDb: IModelDb,
-    targetDb: IModelDb,
+    _targetDb: IModelDb,
     editTxn: EditTxn,
     targetModelId: Id64String,
     argsForProcessChanges?: ProcessChangesOptions
   ) {
-    super(sourceDb, targetDb, editTxn, { argsForProcessChanges });
+    super({ source: sourceDb, target: editTxn }, { argsForProcessChanges });
     this._targetModelId = targetModelId;
     this.importer.doNotUpdateElementIds.add(targetModelId);
   }
@@ -1711,7 +1715,7 @@ export class FilterByViewTransformer extends IModelTransformer {
     exportViewDefinitionId: Id64String
   ) {
     const editTxn = createStartedEditTxn(targetDb);
-    super(sourceDb, targetDb, editTxn);
+    super({ source: sourceDb, target: editTxn });
     this.editTxn = editTxn;
     this._exportViewDefinitionId = exportViewDefinitionId;
     const exportViewDefinition =
@@ -1789,9 +1793,10 @@ export class TestIModelTransformer extends IModelTransformer {
     const { editTxn, ...transformOptions } = options ?? {};
     const targetEditTxn = editTxn ?? createStartedEditTxn(targetDb);
     super(
-      source,
-      target,
-      targetEditTxn,
+      {
+        source,
+        target: target instanceof IModelImporter ? target : targetEditTxn,
+      },
       Object.keys(transformOptions).length > 0 ? transformOptions : undefined
     );
     this.editTxn = editTxn ? undefined : targetEditTxn;
@@ -2090,11 +2095,11 @@ export class CountingIModelImporter extends IModelImporter {
   public numRelationshipsUpdated: number = 0;
   public numRelationshipsDeleted: number = 0;
   public constructor(
-    targetDb: IModelDb,
+    _targetDb: IModelDb,
     editTxn: EditTxn,
     options?: IModelImportOptions
   ) {
-    super(targetDb, editTxn, options);
+    super(editTxn, options);
   }
   protected override async onInsertModel(
     modelProps: ModelProps

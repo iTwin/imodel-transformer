@@ -240,10 +240,13 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
     const editTxn = createStartedEditTxn(targetDb);
     // Transform
-    const transformer = new IModelTransformer(sourceDb, targetDb, editTxn, {
-      loadSourceGeometry: true,
-      noProvenance: true,
-    });
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: editTxn },
+      {
+        loadSourceGeometry: true,
+        noProvenance: true,
+      }
+    );
 
     const schemasStartTime = performance.now();
     await transformer.processSchemas();
@@ -300,10 +303,13 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
       const editTxn = createStartedEditTxn(targetDb);
       // Create transformer
-      const transformer = new IModelTransformer(sourceDb, targetDb, editTxn, {
-        loadSourceGeometry: true,
-        noProvenance: true,
-      });
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        {
+          loadSourceGeometry: true,
+          noProvenance: true,
+        }
+      );
 
       // Time schema processing
       console.log("Processing schemas...");

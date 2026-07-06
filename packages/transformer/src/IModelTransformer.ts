@@ -115,6 +115,16 @@ import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
+/** Required arguments for the [[IModelTransformer]] constructor.
+ * @beta
+ */
+export interface IModelTransformArgs {
+  /** The source iModel or exporter to read elements from. */
+  source: IModelDb | IModelExporter;
+  /** The target for the transformation. Pass an [[EditTxn]] to have the transformer create a default [[IModelImporter]], or pass a pre-configured [[IModelImporter]]. */
+  target: EditTxn | IModelImporter;
+}
+
 /** Options provided to the [[IModelTransformer]] constructor.
  * @beta
  * @note if adding an option, you must explicitly add its serialization to [[IModelTransformer.saveStateToFile]]!
@@ -463,18 +473,16 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   /** Construct a new IModelTransformer
-   * @param source Specifies the source IModelExporter or the source IModelDb that will be used to construct the source IModelExporter.
-   * @param target Specifies the target IModelImporter or the target IModelDb that will be used to construct the target IModelImporter.
-   * @param targetEditTxn The [[EditTxn]] to use for all write operations on the target iModel. Must be started before calling [[process]].
+   * @param args The required arguments including source and target.
    * @param options The options that specify how the transformation should be done.
    */
   public constructor(
-    source: IModelDb | IModelExporter,
-    target: IModelDb | IModelImporter,
-    targetEditTxn: EditTxn,
+    args: IModelTransformArgs,
     options?: IModelTransformOptions
   ) {
     super();
+
+    const { source, target } = args;
     // initialize IModelTransformOptions
     this._options = {
       ...options,
@@ -522,8 +530,8 @@ export class IModelTransformer extends IModelExportHandler {
     this.exporter.excludeElementAspectClass(ChannelRootAspect.classFullName); // Channel boundaries within the source iModel are not relevant to the target iModel
     this.exporter.excludeElementAspectClass("BisCore:TextAnnotationData"); // This ElementAspect is auto-created by the BisCore:TextAnnotation2d/3d element handlers
     // initialize importer and targetDb
-    if (target instanceof IModelDb) {
-      this.importer = new IModelImporter(target, targetEditTxn, {
+    if (target instanceof EditTxn) {
+      this.importer = new IModelImporter(target, {
         preserveElementIdsForFiltering:
           this._options.preserveElementIdsForFiltering,
         skipPropagateChangesToRootElements:
@@ -534,7 +542,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.validateSharedOptionsMatch();
     }
     this.targetDb = this.importer.targetDb;
-    this._targetEditTxn = targetEditTxn;
+    this._targetEditTxn = this.importer.editTxn;
     this._sourceEditTxn = options?.sourceEditTxn;
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
@@ -2607,20 +2615,14 @@ export class TemplateModelCloner extends IModelTransformer {
   private _sourceIdToTargetIdMap?: Map<Id64String, Id64String>;
   /** Construct a new TemplateModelCloner
    * @param sourceDb The source IModelDb that contains the templates to clone
-   * @param targetDb Optionally specify the target IModelDb where the cloned template will be inserted.
-   *                 Typically this is left unspecified, and the default is to use the sourceDb as the target
    * @param targetEditTxn The [[EditTxn]] to use for write operations on the target iModel. Must be started before constructing.
    * @note The expectation is that the template definitions are within the same iModel where instances will be placed.
    */
-  public constructor(
-    sourceDb: IModelDb,
-    targetDb: IModelDb,
-    targetEditTxn: EditTxn
-  ) {
-    const target = new IModelImporter(targetDb, targetEditTxn, {
+  public constructor(sourceDb: IModelDb, targetEditTxn: EditTxn) {
+    const target = new IModelImporter(targetEditTxn, {
       autoExtendProjectExtents: false, // autoExtendProjectExtents is intended for transformation service use cases, not template --> instance cloning
     });
-    super(sourceDb, target, targetEditTxn, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
+    super({ source: sourceDb, target }, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
   }
   /** Place a template from the sourceDb at the specified placement in the target model within the targetDb.
    * @param sourceTemplateModelId The Id of the template model in the sourceDb

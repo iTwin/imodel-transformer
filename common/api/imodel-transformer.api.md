@@ -202,12 +202,13 @@ export abstract class IModelExportHandler {
 
 // @beta
 export class IModelImporter {
-    constructor(targetDb: IModelDb, editTxn: EditTxn, options?: IModelImportOptions);
+    constructor(editTxn: EditTxn, options?: IModelImportOptions);
     computeProjectExtents(): void;
     deleteElement(elementId: Id64String): Promise<void>;
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
+    get editTxn(): EditTxn;
     protected _editTxn: EditTxn;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
@@ -247,8 +248,14 @@ export interface IModelImportOptions {
 }
 
 // @beta
+export interface IModelTransformArgs {
+    source: IModelDb | IModelExporter;
+    target: EditTxn | IModelImporter;
+}
+
+// @beta
 export class IModelTransformer extends IModelExportHandler {
-    constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, targetEditTxn: EditTxn, options?: IModelTransformOptions);
+    constructor(args: IModelTransformArgs, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
     calculateEcefTransform(): Transform | undefined;
     // (undocumented)
@@ -411,7 +418,7 @@ export interface TargetScopeProvenanceJsonProps {
 
 // @beta
 export class TemplateModelCloner extends IModelTransformer {
-    constructor(sourceDb: IModelDb, targetDb: IModelDb, targetEditTxn: EditTxn);
+    constructor(sourceDb: IModelDb, targetEditTxn: EditTxn);
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     placeTemplate2d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement2d): Promise<Map<Id64String, Id64String>>;
     placeTemplate3d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement3d): Promise<Map<Id64String, Id64String>>;

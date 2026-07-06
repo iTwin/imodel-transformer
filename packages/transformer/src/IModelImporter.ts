@@ -92,6 +92,13 @@ export class IModelImporter {
    */
   protected _editTxn: EditTxn;
 
+  /** The [[EditTxn]] used for write operations on the target iModel.
+   * @beta
+   */
+  public get editTxn(): EditTxn {
+    return this._editTxn;
+  }
+
   /** resolved initialization options for the importer
    * @beta
    */
@@ -145,16 +152,11 @@ export class IModelImporter {
   ]);
 
   /** Construct a new IModelImporter
-   * @param targetDb The target IModelDb
-   * @param editTxn The [[EditTxn]] to use for write operations on the target iModel.
+   * @param editTxn The [[EditTxn]] to use for write operations on the target iModel. The target db is derived from `editTxn.iModel`.
    * @param options The options that specify how the import should be done.
    */
-  public constructor(
-    targetDb: IModelDb,
-    editTxn: EditTxn,
-    options?: IModelImportOptions
-  ) {
-    this.targetDb = targetDb;
+  public constructor(editTxn: EditTxn, options?: IModelImportOptions) {
+    this.targetDb = editTxn.iModel;
     this._editTxn = editTxn;
     this.options = {
       autoExtendProjectExtents: options?.autoExtendProjectExtents ?? true,

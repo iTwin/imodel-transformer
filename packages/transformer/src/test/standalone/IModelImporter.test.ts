@@ -62,7 +62,7 @@ describe("IModelImporter", () => {
       );
 
       const editTxn = createStartedEditTxn(targetDb);
-      const importer = new IModelImporter(targetDb, editTxn);
+      const importer = new IModelImporter(editTxn);
       importer.doNotUpdateElementIds.add(protectedId);
 
       await importer.deleteElement(protectedId);
@@ -122,7 +122,7 @@ describe("IModelImporter", () => {
       });
 
       const editTxn = createStartedEditTxn(targetDb);
-      const importer = new IModelImporter(targetDb, editTxn);
+      const importer = new IModelImporter(editTxn);
 
       await importer.importElementMultiAspects([
         makeAspectProps(),
@@ -156,10 +156,7 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingClass" },
     });
     try {
-      const importer = new IModelImporter(
-        targetDb,
-        createStartedEditTxn(targetDb)
-      );
+      const importer = new IModelImporter(createStartedEditTxn(targetDb));
       const missing = "TestImporterSchema:DoesNotExist";
       await expectRejected(
         () =>
@@ -213,10 +210,7 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingIds" },
     });
     try {
-      const importer = new IModelImporter(
-        targetDb,
-        createStartedEditTxn(targetDb)
-      );
+      const importer = new IModelImporter(createStartedEditTxn(targetDb));
       await expectRejected(
         async () => importer.importModel({} as any),
         /Model Id not provided/
@@ -249,13 +243,9 @@ describe("IModelImporter", () => {
       rootSubject: { name: "PreserveIds" },
     });
     try {
-      const importer = new IModelImporter(
-        targetDb,
-        createStartedEditTxn(targetDb),
-        {
-          preserveElementIdsForFiltering: true,
-        }
-      );
+      const importer = new IModelImporter(createStartedEditTxn(targetDb), {
+        preserveElementIdsForFiltering: true,
+      });
       await expectRejected(
         async () =>
           importer.importElement({

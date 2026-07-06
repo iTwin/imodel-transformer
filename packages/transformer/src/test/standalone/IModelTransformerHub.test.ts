@@ -246,11 +246,10 @@ describe("IModelTransformerHub", () => {
 
       // we do not expect to save reverse sync version by default for processAll transformations
       const targetEditTxn1 = createStartedEditTxn(targetBriefcase);
-      const transformer1 = new IModelTransformer(
-        sourceBriefcase,
-        targetBriefcase,
-        targetEditTxn1
-      );
+      const transformer1 = new IModelTransformer({
+        source: sourceBriefcase,
+        target: targetEditTxn1,
+      });
       await transformer1.process();
       const scopeEsaResult1 =
         await ProvenanceManager.queryScopeExternalSourceAspect(
@@ -285,11 +284,10 @@ describe("IModelTransformerHub", () => {
 
       // when initializeReverseSyncVersion is set to true, we expect to save reverse sync version
       const targetEditTxn2 = createStartedEditTxn(targetBriefcase);
-      const transformer2 = new IModelTransformer(
-        sourceBriefcase,
-        targetBriefcase,
-        targetEditTxn2
-      );
+      const transformer2 = new IModelTransformer({
+        source: sourceBriefcase,
+        target: targetEditTxn2,
+      });
       await transformer2.process();
       await transformer2.updateSynchronizationVersion({
         initializeReverseSyncVersion: true,
@@ -1074,11 +1072,10 @@ describe("IModelTransformerHub", () => {
 
       // import sourceDb changes into targetDb
       const importEditTxn = createStartedEditTxn(targetDb);
-      const transformer = new IModelTransformer(
-        new IModelExporter(sourceDb),
-        targetDb,
-        importEditTxn
-      );
+      const transformer = new IModelTransformer({
+        source: new IModelExporter(sourceDb),
+        target: importEditTxn,
+      });
       await transformer.process();
       transformer.dispose();
       IModelTransformerTestUtils.assertTeamIModelContents(targetDb, "Test");
@@ -1831,9 +1828,7 @@ describe("IModelTransformerHub", () => {
       ) => {
         const editTxn = createStartedEditTxn(replayedDb);
         const transformer = new IModelTransformer(
-          sourceDb,
-          replayedDb,
-          editTxn,
+          { source: sourceDb, target: editTxn },
           {
             argsForProcessChanges,
           }
@@ -1993,9 +1988,7 @@ describe("IModelTransformerHub", () => {
       );
       const provenanceInitEditTxn = createStartedEditTxn(targetDb);
       const provenanceInitializer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        provenanceInitEditTxn,
+        { source: sourceDb, target: provenanceInitEditTxn },
         { wasSourceIModelCopiedToTarget: true }
       );
       await provenanceInitializer.processSchemas();
@@ -2072,9 +2065,10 @@ describe("IModelTransformerHub", () => {
 
       const injectedEditTxn = createStartedEditTxn(targetDb);
       const synchronizer = new IModelTransformerInjected(
-        sourceDb,
-        new IModelImporterInjected(targetDb, injectedEditTxn),
-        injectedEditTxn,
+        {
+          source: sourceDb,
+          target: new IModelImporterInjected(injectedEditTxn),
+        },
         { argsForProcessChanges: {} }
       );
       await synchronizer.process();
@@ -2170,11 +2164,10 @@ describe("IModelTransformerHub", () => {
         iModelId: targetIModelId,
       });
       const initialTargetEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        initialTargetEditTxn
-      );
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialTargetEditTxn,
+      });
       await transformer.process();
       transformer.dispose();
       initialTargetEditTxn.end();
@@ -2189,9 +2182,7 @@ describe("IModelTransformerHub", () => {
 
       const changeTargetEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        changeTargetEditTxn,
+        { source: sourceDb, target: changeTargetEditTxn },
         {
           argsForProcessChanges: {
             startChangeset: { id: sourceDb.changeset.id },
@@ -2332,9 +2323,7 @@ describe("IModelTransformerHub", () => {
     // fork provenance init
     const forkInitEditTxn = createStartedEditTxn(targetDb);
     let transformer = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      forkInitEditTxn,
+      { source: sourceDb, target: forkInitEditTxn },
       { wasSourceIModelCopiedToTarget: true }
     );
     await transformer.process();
@@ -2358,9 +2347,7 @@ describe("IModelTransformerHub", () => {
     const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
     const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
     transformer = new IModelTransformer(
-      targetDb,
-      sourceDb,
-      reverseSyncEditTxn,
+      { source: targetDb, target: reverseSyncEditTxn },
       { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
     );
     await transformer.process();
@@ -2402,9 +2389,7 @@ describe("IModelTransformerHub", () => {
     // Forward Sync. We expect 4 is still there because we didnt process it (as a result of our sourceDb not being at the tip)
     const forwardSyncEditTxn = createStartedEditTxn(targetDb);
     transformer = new IModelTransformer(
-      sourceDbNotAtTip,
-      targetDb,
-      forwardSyncEditTxn,
+      { source: sourceDbNotAtTip, target: forwardSyncEditTxn },
       { argsForProcessChanges: {} }
     );
     await transformer.process();
@@ -2621,9 +2606,7 @@ describe("IModelTransformerHub", () => {
       // fork provenance init
       const forkInitEditTxn = createStartedEditTxn(targetDb);
       let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        forkInitEditTxn,
+        { source: sourceDb, target: forkInitEditTxn },
         { wasSourceIModelCopiedToTarget: true }
       );
       await transformer.process();
@@ -2671,9 +2654,7 @@ describe("IModelTransformerHub", () => {
       const reverseSyncEditTxn = createStartedEditTxn(sourceDb);
       const reverseSyncSourceEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        targetDb,
-        sourceDb,
-        reverseSyncEditTxn,
+        { source: targetDb, target: reverseSyncEditTxn },
         { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
       );
 
@@ -2880,9 +2861,7 @@ describe("IModelTransformerHub", () => {
       );
       const branchInitEditTxn = createStartedEditTxn(branchDb);
       const provenanceInitializer = new IModelTransformer(
-        masterDb,
-        branchDb,
-        branchInitEditTxn,
+        { source: masterDb, target: branchInitEditTxn },
         { wasSourceIModelCopiedToTarget: true }
       );
       await provenanceInitializer.processSchemas();
@@ -3010,9 +2989,7 @@ describe("IModelTransformerHub", () => {
       const masterSyncEditTxn = createStartedEditTxn(masterDb);
       const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
       const synchronizer = new IModelTransformer(
-        branchDb,
-        masterDb,
-        masterSyncEditTxn,
+        { source: branchDb, target: masterSyncEditTxn },
         {
           // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
           argsForProcessChanges: {},
@@ -3108,12 +3085,15 @@ describe("IModelTransformerHub", () => {
 
     const syncEditTxn = createStartedEditTxn(master.db);
     const reverseSyncSourceEditTxn = createStartedEditTxn(branchAt2);
-    const syncer = new IModelTransformer(branchAt2, master.db, syncEditTxn, {
-      argsForProcessChanges: {
-        startChangeset: branchAt2Changeset,
-      },
-      sourceEditTxn: reverseSyncSourceEditTxn,
-    });
+    const syncer = new IModelTransformer(
+      { source: branchAt2, target: syncEditTxn },
+      {
+        argsForProcessChanges: {
+          startChangeset: branchAt2Changeset,
+        },
+        sourceEditTxn: reverseSyncSourceEditTxn,
+      }
+    );
     const queryChangeset = sinon.spy(BriefcaseManager, "queryChangeset");
     await syncer.process();
     expect(
@@ -3192,11 +3172,10 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "insert physical element" });
 
       const initialForkEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        initialForkEditTxn
-      );
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialForkEditTxn,
+      });
       await transformer.process();
       const forkedElementId =
         transformer.context.findTargetElementId(originalElementId);
@@ -3217,9 +3196,7 @@ describe("IModelTransformerHub", () => {
       const reverseForkEditTxn = createStartedEditTxn(sourceDb);
       const reverseForkSourceEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        targetDb,
-        sourceDb,
-        reverseForkEditTxn,
+        { source: targetDb, target: reverseForkEditTxn },
         {
           argsForProcessChanges: { startChangeset: targetDb.changeset },
           sourceEditTxn: reverseForkSourceEditTxn,
@@ -3323,11 +3300,10 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       const initialTargetEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        initialTargetEditTxn
-      );
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialTargetEditTxn,
+      });
       await transformer.process();
       transformer.dispose();
       initialTargetEditTxn.end();
@@ -3395,9 +3371,7 @@ describe("IModelTransformerHub", () => {
 
       const changeTargetEditTxn1 = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        changeTargetEditTxn1,
+        { source: sourceDb, target: changeTargetEditTxn1 },
         { argsForProcessChanges: { startChangeset: sourceDb.changeset } }
       );
       await transformer.process();
@@ -3465,9 +3439,7 @@ describe("IModelTransformerHub", () => {
 
       const changeTargetEditTxn2 = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        changeTargetEditTxn2,
+        { source: sourceDb, target: changeTargetEditTxn2 },
         { argsForProcessChanges: { startChangeset } }
       );
       await transformer.process();
@@ -3556,11 +3528,10 @@ describe("IModelTransformerHub", () => {
       await sourceDb.pushChanges({ description: "inserted elements & models" });
 
       const initialTargetEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        initialTargetEditTxn
-      );
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: initialTargetEditTxn,
+      });
       await transformer.process();
       transformer.dispose();
       initialTargetEditTxn.end();
@@ -3601,9 +3572,7 @@ describe("IModelTransformerHub", () => {
 
       const changeTargetEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        changeTargetEditTxn,
+        { source: sourceDb, target: changeTargetEditTxn },
         { argsForProcessChanges: { startChangeset: sourceDb.changeset } }
       );
       await transformer.process();
@@ -3703,9 +3672,7 @@ describe("IModelTransformerHub", () => {
       // First transformation uses processAll (no argsForProcessChanges) to establish provenance
       const firstTransformEditTxn = createStartedEditTxn(targetDb);
       const transformer = new IModelTransformer(
-        exporter,
-        targetDb,
-        firstTransformEditTxn,
+        { source: exporter, target: firstTransformEditTxn },
         { includeSourceProvenance: true }
       );
 
@@ -3732,9 +3699,7 @@ describe("IModelTransformerHub", () => {
 
       const secondTransformEditTxn = createStartedEditTxn(targetDb);
       const transformer2 = new IModelTransformer(
-        exporter,
-        targetDb,
-        secondTransformEditTxn,
+        { source: exporter, target: secondTransformEditTxn },
         {
           includeSourceProvenance: true,
           argsForProcessChanges: {
@@ -5379,9 +5344,7 @@ describe("IModelTransformerHub", () => {
     // process change 1
     const initialTargetEditTxn = createStartedEditTxn(targetDb);
     let transformer = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      initialTargetEditTxn,
+      { source: sourceDb, target: initialTargetEditTxn },
       { argsForProcessChanges: {}, wasSourceIModelCopiedToTarget: true }
     );
     await transformer.process();
@@ -5409,9 +5372,7 @@ describe("IModelTransformerHub", () => {
     // process change 2
     const changeTargetEditTxn = createStartedEditTxn(targetDb);
     transformer = new IModelTransformer(
-      sourceDb,
-      targetDb,
-      changeTargetEditTxn,
+      { source: sourceDb, target: changeTargetEditTxn },
       { argsForProcessChanges: {} }
     );
     await expect(transformer.process()).to.be.eventually.fulfilled;
@@ -5457,7 +5418,7 @@ describe("IModelTransformerHub", () => {
           source,
           DetachedExportElementAspectsStrategy
         );
-        super(exporter, target, editTxn, options);
+        super({ source: exporter, target: editTxn }, options);
         this.editTxn = editTxn;
       }
 
@@ -6577,11 +6538,10 @@ describe("IModelTransformerHub", () => {
 
       // === Transformation 1: Run `process all` transformation ===
       const firstTransformEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        firstTransformEditTxn
-      );
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstTransformEditTxn,
+      });
       await transformer.processSchemas();
       await transformer.process();
       firstTransformEditTxn.end();
@@ -6608,9 +6568,7 @@ describe("IModelTransformerHub", () => {
       // === Transformation 2: Run `process changes` transformation ===
       const secondTransformEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        secondTransformEditTxn,
+        { source: sourceDb, target: secondTransformEditTxn },
         { argsForProcessChanges: {} }
       );
       await transformer.processSchemas();
@@ -6674,11 +6632,10 @@ describe("IModelTransformerHub", () => {
 
       // Run first transform
       const firstTransformEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        firstTransformEditTxn
-      );
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstTransformEditTxn,
+      });
       await transformer.process();
       transformer.dispose();
       firstTransformEditTxn.end();
@@ -6718,9 +6675,7 @@ describe("IModelTransformerHub", () => {
       // Act - run second transform with change processing
       const secondTransformEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        secondTransformEditTxn,
+        { source: sourceDb, target: secondTransformEditTxn },
         {
           argsForProcessChanges: {},
         }
@@ -6789,11 +6744,10 @@ describe("IModelTransformerHub", () => {
 
       // Run first transform
       const firstTransformEditTxn = createStartedEditTxn(targetDb);
-      let transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        firstTransformEditTxn
-      );
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstTransformEditTxn,
+      });
       await transformer.process();
       transformer.dispose();
       firstTransformEditTxn.end();
@@ -6828,9 +6782,7 @@ describe("IModelTransformerHub", () => {
       // Act - run second transform with change processing
       const secondTransformEditTxn = createStartedEditTxn(targetDb);
       transformer = new IModelTransformer(
-        sourceDb,
-        targetDb,
-        secondTransformEditTxn,
+        { source: sourceDb, target: secondTransformEditTxn },
         {
           argsForProcessChanges: {},
         }

@@ -81,9 +81,7 @@ export default async function rawInserts(
   const withProvEditTxn = new EditTxn(targetDb, "IModelTransformer");
   withProvEditTxn.start();
   const transformerWithProv = new IModelTransformer(
-    sourceDb,
-    targetDb,
-    withProvEditTxn,
+    { source: sourceDb, target: withProvEditTxn },
     {
       noProvenance: false,
     }
@@ -127,9 +125,7 @@ export default async function rawInserts(
   const noProvEditTxn = new EditTxn(targetNoProvDb, "IModelTransformer");
   noProvEditTxn.start();
   const transformerNoProv = new IModelTransformer(
-    sourceDb,
-    targetNoProvDb,
-    noProvEditTxn,
+    { source: sourceDb, target: noProvEditTxn },
     {
       noProvenance: true,
     }

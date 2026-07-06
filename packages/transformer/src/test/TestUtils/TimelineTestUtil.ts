@@ -456,9 +456,7 @@ export async function runTimeline(
         // record branch provenance
         const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
         const provenanceInserter = new IModelTransformer(
-          master.db,
-          branchDb,
-          branchProvenanceEditTxn,
+          { source: master.db, target: branchProvenanceEditTxn },
           { ...transformerOpts, wasSourceIModelCopiedToTarget: true }
         );
         await provenanceInserter.process();
@@ -531,9 +529,7 @@ export async function runTimeline(
           ? createStartedEditTxn(source.db)
           : undefined;
         const syncer = new IModelTransformer(
-          source.db,
-          target.db,
-          syncEditTxn,
+          { source: source.db, target: syncEditTxn },
           {
             ...transformerOpts,
             sourceEditTxn,

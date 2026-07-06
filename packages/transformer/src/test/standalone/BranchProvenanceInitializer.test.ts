@@ -421,9 +421,7 @@ async function classicalTransformerBranchInit(
 
   // initialize the branch provenance
   const branchInitializer = new IModelTransformer(
-    args.master,
-    args.branch,
-    args.editTxn,
+    { source: args.master, target: args.editTxn },
     {
       // tells the transformer that we have a raw copy of a source and the target should receive
       // provenance from the source that is necessary for performing synchronizations in the future
