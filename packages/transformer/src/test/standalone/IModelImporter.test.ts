@@ -156,7 +156,8 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingClass" },
     });
     try {
-      const importer = new IModelImporter(createStartedEditTxn(targetDb));
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
       const missing = "TestImporterSchema:DoesNotExist";
       await expectRejected(
         () =>
@@ -196,6 +197,7 @@ describe("IModelImporter", () => {
         await importer.importElementMultiAspects([]),
         "empty aspect array should be a no-op"
       ).to.deep.equal([]);
+      editTxn.end("abandon");
     } finally {
       targetDb.close();
     }
@@ -210,7 +212,8 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingIds" },
     });
     try {
-      const importer = new IModelImporter(createStartedEditTxn(targetDb));
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
       await expectRejected(
         async () => importer.importModel({} as any),
         /Model Id not provided/
@@ -229,6 +232,7 @@ describe("IModelImporter", () => {
           }),
         /Relationship instance Id not provided/
       );
+      editTxn.end("abandon");
     } finally {
       targetDb.close();
     }
@@ -243,7 +247,8 @@ describe("IModelImporter", () => {
       rootSubject: { name: "PreserveIds" },
     });
     try {
-      const importer = new IModelImporter(createStartedEditTxn(targetDb), {
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn, {
         preserveElementIdsForFiltering: true,
       });
       await expectRejected(
@@ -255,6 +260,7 @@ describe("IModelImporter", () => {
           } as any),
         /must be defined during a preserveIds operation/
       );
+      editTxn.end("abandon");
     } finally {
       targetDb.close();
     }
