@@ -385,7 +385,6 @@ export interface ProvenanceInitArgs {
     // (undocumented)
     branch: IModelDb;
     createFedGuidsForMaster?: true | false | "keep-reopened-db";
-    editTxn: EditTxn;
     master: IModelDb;
     masterDescription?: string;
     masterUrl?: string;

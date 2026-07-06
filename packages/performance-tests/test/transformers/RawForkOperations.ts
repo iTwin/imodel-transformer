@@ -7,21 +7,15 @@ import {
   TestTransformerModule,
   TransformRunner,
 } from "../TestTransformerModule";
-import { EditTxn } from "@itwin/core-backend";
 
 const rawForkOperationsTestModule: TestTransformerModule = {
   async createForkInitTransform(sourceDb, targetDb): Promise<TransformRunner> {
     return {
       async run() {
-        const editTxn = new EditTxn(targetDb, "initializeBranchProvenance");
-        editTxn.start();
         await initializeBranchProvenance({
           master: sourceDb,
           branch: targetDb,
-          editTxn,
         });
-        editTxn.saveChanges();
-        editTxn.end();
       },
     };
   },

@@ -376,7 +376,7 @@ export class ProvenanceManager {
   /** Return the EditTxn for writing provenance.
    * This will be targetEditTxn except when it is a reverse synchronization, in which case it will be sourceEditTxn.
    */
-  private async getProvenanceEditTxn(): Promise<EditTxn> {
+  public async getProvenanceEditTxn(): Promise<EditTxn> {
     if (await this._isReverseSynchronization()) {
       if (!this._sourceEditTxn) {
         throw new Error(

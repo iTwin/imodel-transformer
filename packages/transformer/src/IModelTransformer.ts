@@ -746,20 +746,6 @@ export class IModelTransformer extends IModelExportHandler {
     return (await this._syncTypeResolver.getSyncType()) === "forward";
   }
 
-  /** Get the EditTxn for the provenance db (target in forward sync, source in reverse sync). */
-  private async getProvenanceEditTxn(): Promise<EditTxn> {
-    if (await this.getIsReverseSynchronization()) {
-      if (!this._sourceEditTxn) {
-        throw new Error(
-          "A reverse synchronization requires a sourceEditTxn to write provenance back to the source iModel. " +
-            "Pass sourceEditTxn in IModelTransformOptions."
-        );
-      }
-      return this._sourceEditTxn;
-    }
-    return this._targetEditTxn;
-  }
-
   /**
    * Updates the synchronization version on the scope ESA.
    */
@@ -1367,7 +1353,8 @@ export class IModelTransformer extends IModelExportHandler {
     // FIXME: verify at finalization time that we don't lose provenance on new elements
     // FIXME: make public and improve `initElementProvenance` API for usage by consolidators
     const provenanceDb = await this.getProvenanceDb();
-    const provenanceEditTxn = await this.getProvenanceEditTxn();
+    const provenanceEditTxn =
+      await this._provenanceManager.getProvenanceEditTxn();
     if (!this._options.noProvenance) {
       const provenance:
         | string
@@ -1683,7 +1670,8 @@ export class IModelTransformer extends IModelExportHandler {
     );
 
     const provenanceDb = await this.getProvenanceDb();
-    const provenanceEditTxn = await this.getProvenanceEditTxn();
+    const provenanceEditTxn =
+      await this._provenanceManager.getProvenanceEditTxn();
     if (
       !this._options.noProvenance &&
       Id64.isValid(targetRelationshipInstanceId)
@@ -1749,7 +1737,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     if (deletedRelData.provenanceAspectId) {
       try {
-        (await this.getProvenanceEditTxn()).deleteAspect(
+        (await this._provenanceManager.getProvenanceEditTxn()).deleteAspect(
           deletedRelData.provenanceAspectId
         );
       } catch (error: any) {

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as fs from "fs";
 import {
+  EditTxn,
   ElementGroupsMembers,
   ExternalSource,
   ExternalSourceAspect,
@@ -139,16 +140,11 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             ...baseInitProvenanceArgs,
             master: masterDb,
             branch: forkDb,
-            editTxn: createStartedEditTxn(forkDb),
           };
           const result = await initializeBranchProvenance(initProvenanceArgs);
           // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
           masterDb = initProvenanceArgs.master as StandaloneDb;
           forkDb = initProvenanceArgs.branch as StandaloneDb;
-          initProvenanceArgs.editTxn.saveChanges(
-            "save changes from initializeBranchProvenance"
-          );
-          initProvenanceArgs.editTxn.end();
 
           // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
           for (const sourceHasFedGuid of [true, false]) {
@@ -386,8 +382,12 @@ function setupIModel(): [
   return [generatedIModel, sourceTargetFedGuidToElemIds];
 }
 
+interface ClassicalBranchInitArgs extends ProvenanceInitArgs {
+  editTxn: EditTxn;
+}
+
 async function classicalTransformerBranchInit(
-  args: ProvenanceInitArgs
+  args: ClassicalBranchInitArgs
 ): Promise<ProvenanceInitResult> {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
   const repoLinkId = args.branch
