@@ -66,19 +66,24 @@ export class Transformer extends IModelTransformer {
   ): Promise<void> {
     const editTxn = new EditTxn(targetDb, "transform all");
     editTxn.start();
-    const transformer = new Transformer(sourceDb, targetDb, editTxn, options);
-    await transformer.initializeTransformer();
-    await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
-    await transformer.process();
-    await transformer.saveChanges("processAll");
-    if (options?.deleteUnusedGeometryParts) {
-      await transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+    try {
+      const transformer = new Transformer(sourceDb, targetDb, editTxn, options);
+      await transformer.initializeTransformer();
+      await transformer.processSchemas();
+      await transformer.saveChanges("processSchemas");
+      await transformer.process();
+      await transformer.saveChanges("processAll");
+      if (options?.deleteUnusedGeometryParts) {
+        await transformer.deleteUnusedGeometryParts();
+        await transformer.saveChanges("deleteUnusedGeometryParts");
+      }
+      transformer.dispose();
+      editTxn.end();
+      transformer.logElapsedTime();
+    } catch (err) {
+      editTxn.end("abandon");
+      throw err;
     }
-    transformer.dispose();
-    editTxn.end();
-    transformer.logElapsedTime();
   }
 
   public static async transformChanges(
@@ -93,24 +98,29 @@ export class Transformer extends IModelTransformer {
     }
     const editTxn = new EditTxn(targetDb, "transform changes");
     editTxn.start();
-    const transformer = new Transformer(sourceDb, targetDb, editTxn, {
-      ...options,
-      argsForProcessChanges: {
-        startChangeset: { id: sourceStartChangesetId },
-      },
-    });
-    await transformer.initializeTransformer();
-    await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
-    await transformer.process();
-    await transformer.saveChanges("processChanges");
-    if (options?.deleteUnusedGeometryParts) {
-      await transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+    try {
+      const transformer = new Transformer(sourceDb, targetDb, editTxn, {
+        ...options,
+        argsForProcessChanges: {
+          startChangeset: { id: sourceStartChangesetId },
+        },
+      });
+      await transformer.initializeTransformer();
+      await transformer.processSchemas();
+      await transformer.saveChanges("processSchemas");
+      await transformer.process();
+      await transformer.saveChanges("processChanges");
+      if (options?.deleteUnusedGeometryParts) {
+        await transformer.deleteUnusedGeometryParts();
+        await transformer.saveChanges("deleteUnusedGeometryParts");
+      }
+      transformer.dispose();
+      editTxn.end();
+      transformer.logElapsedTime();
+    } catch (err) {
+      editTxn.end("abandon");
+      throw err;
     }
-    transformer.dispose();
-    editTxn.end();
-    transformer.logElapsedTime();
   }
 
   /**

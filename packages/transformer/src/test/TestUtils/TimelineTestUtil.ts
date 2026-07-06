@@ -541,6 +541,7 @@ export async function runTimeline(
           }
         );
         initTransformer?.(syncer);
+        let processSucceeded = false;
         try {
           await syncer.process();
           expect(
@@ -548,6 +549,7 @@ export async function runTimeline(
             "expectThrow was set to true and transformer succeeded."
           ).to.be.true;
           assertFxns?.afterProcessChanges?.(syncer);
+          processSucceeded = true;
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
@@ -563,8 +565,8 @@ export async function runTimeline(
             throw err;
         } finally {
           syncer.dispose();
-          syncEditTxn.end();
-          sourceEditTxn?.end();
+          syncEditTxn.end(processSucceeded ? "save" : "abandon");
+          sourceEditTxn?.end(processSucceeded ? "save" : "abandon");
         }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;

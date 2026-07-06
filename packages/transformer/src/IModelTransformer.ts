@@ -345,7 +345,7 @@ export interface InitOptions {
  * @beta
  */
 export type ProcessChangesOptions = ExportChangesOptions & {
-  /** how to call saveChanges on the target. Must call targetDb.saveChanges, should not edit the iModel */
+  /** how to save changes on the target. Must call `editTxn.saveChanges()` on the target EditTxn, should not edit the iModel */
   saveTargetChanges?: (transformer: IModelTransformer) => Promise<void>;
   /**
    * The forward sync 'version' to set on the scoping ESA @see ExternalSourceAspectProps upon startup, if the version property on the scoping ESA is undefined or empty string.
@@ -2449,6 +2449,11 @@ export class IModelTransformer extends IModelExportHandler {
     if (!this._targetEditTxn.isActive) {
       throw new Error(
         "The target EditTxn must be started before calling process(). Call targetEditTxn.start() before invoking the transformer."
+      );
+    }
+    if (this._sourceEditTxn && !this._sourceEditTxn.isActive) {
+      throw new Error(
+        "The source EditTxn was provided but is not active. Call sourceEditTxn.start() before invoking the transformer."
       );
     }
   }
