@@ -4,6 +4,8 @@
 
 `IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` constructors now require an explicit [`EditTxn`](https://www.itwinjs.org/reference/core-backend/imodels/edittxn/) from `@itwin/core-backend`. This aligns the transformer with the iTwin.js platform's move toward explicit edit transactions and eliminates the possibility of mismatched db/txn references.
 
+For detailed usage patterns and lifecycle guidance, see the [EditTxn learning doc](../learning/EditTxn.md).
+
 ### `IModelTransformer`
 
 The constructor now takes a single `IModelTransformArgs` object as its first argument, with an optional `IModelTransformOptions` second argument.
@@ -33,6 +35,27 @@ The `target` field accepts either:
 
 The target `IModelDb` is derived from `editTxn.iModel` (or `importer.targetDb`).
 
+#### Reverse sync
+
+Reverse synchronization now requires a `sourceEditTxn` in `IModelTransformOptions`:
+
+```ts
+const sourceEditTxn = new EditTxn(sourceDb, "reverse sync");
+sourceEditTxn.start();
+const targetEditTxn = new EditTxn(targetDb, "reverse sync target");
+targetEditTxn.start();
+
+const transformer = new IModelTransformer(
+  { source: sourceDb, target: targetEditTxn },
+  { sourceEditTxn, isReverseSynchronization: true }
+);
+await transformer.process();
+sourceEditTxn.end();
+targetEditTxn.end();
+```
+
+Without `sourceEditTxn`, a reverse sync will throw at runtime.
+
 ### `IModelImporter`
 
 The `targetDb` parameter has been removed. The importer now derives it from the `EditTxn`.
@@ -40,7 +63,7 @@ The `targetDb` parameter has been removed. The importer now derives it from the 
 **Before:**
 
 ```ts
-const importer = new IModelImporter(targetDb, editTxn, options);
+const importer = new IModelImporter(targetDb, options);
 ```
 
 **After:**
@@ -60,8 +83,6 @@ Since template cloning is always an in-place operation (source and target are th
 
 ```ts
 const cloner = new TemplateModelCloner(sourceDb);
-// or
-const cloner = new TemplateModelCloner(sourceDb, targetDb);
 ```
 
 **After:**
@@ -70,35 +91,17 @@ const cloner = new TemplateModelCloner(sourceDb, targetDb);
 const editTxn = new EditTxn(db, "clone templates");
 editTxn.start();
 const cloner = new TemplateModelCloner(editTxn);
-```
-
-### `initializeBranchProvenance`
-
-The `editTxn` property has been removed from `ProvenanceInitArgs`. The function now creates, manages, and commits its own `EditTxn` internally. Callers no longer need to create or end a transaction.
-
-**Before:**
-
-```ts
-const editTxn = new EditTxn(branchDb, "init provenance");
-editTxn.start();
-await initializeBranchProvenance({ master, branch: branchDb, editTxn });
-editTxn.saveChanges();
+await cloner.placeTemplate3d(templateModelId, targetModelId, placement);
 editTxn.end();
 ```
 
-**After:**
+> **Note:** The previous optional `targetDb` parameter (which allowed cross-db cloning) has been removed. `TemplateModelCloner` now only supports in-place cloning within `editTxn.iModel`, which was always the documented intent. If you previously passed a separate `targetDb`, use `IModelTransformer` directly instead.
+
+### `initializeBranchProvenance`
+
+No changes to the call signature. The function now uses an `EditTxn` internally, but this is transparent to callers:
 
 ```ts
 await initializeBranchProvenance({ master, branch: branchDb });
-// Changes are committed internally.
+// No migration needed — works the same as before.
 ```
-
-### EditTxn lifecycle contract
-
-The caller is responsible for the `EditTxn` lifecycle when using `IModelTransformer` and `IModelImporter`:
-
-1. Ensure the `EditTxn` is started before constructing the transformer/importer. This does **not** need to be a freshly created `EditTxn` — you can reuse an existing active transaction if you were already making edits to the target iModel.
-2. Call `process()` (or other transformation methods).
-3. Call `editTxn.end()` to save, or `editTxn.end("abandon")` to roll back.
-
-The transformer will call `saveChanges()` internally during `processChanges` (via `ProcessChangesOptions.saveTargetChanges`), but **never** ends the transaction — that responsibility belongs to the caller.
