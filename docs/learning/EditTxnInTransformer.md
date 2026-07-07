@@ -1,6 +1,6 @@
 # EditTxn in imodel-transformer
 
-For general `EditTxn` concepts (lifecycle, `withEditTxn`, migration from implicit writes, common failure modes), see the [iTwin.js EditTxn learning page](https://www.itwinjs.org/learning/backend/edittxn/).
+> For general `EditTxn` concepts (lifecycle, `withEditTxn`, migration from implicit writes, common failure modes), see the [iTwin.js EditTxn learning page](https://www.itwinjs.org/learning/backend/edittxn/).
 
 This document covers transformer-specific patterns only.
 
