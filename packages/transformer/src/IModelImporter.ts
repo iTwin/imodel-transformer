@@ -90,7 +90,7 @@ export class IModelImporter {
   /** The [[EditTxn]] used for write operations on the target iModel.
    * @beta
    */
-  protected _editTxn: EditTxn;
+  protected readonly _editTxn: EditTxn;
 
   /** The [[EditTxn]] used for write operations on the target iModel.
    * @beta

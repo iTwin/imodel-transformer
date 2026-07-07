@@ -209,7 +209,7 @@ export class IModelImporter {
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
     get editTxn(): EditTxn;
-    protected _editTxn: EditTxn;
+    protected readonly _editTxn: EditTxn;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],

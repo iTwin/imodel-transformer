@@ -1,6 +1,6 @@
 {
   "type": "major",
-  "comment": "Use EditTxn in Transformer",
+  "comment": "IModelTransformer, IModelImporter, and TemplateModelCloner constructors now require an EditTxn from @itwin/core-backend. IModelTransformer takes a new IModelTransformArgs object {source, target} as its first argument. See NEXT_VERSION.md for migration details.",
   "packageName": "@itwin/imodel-transformer",
   "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"

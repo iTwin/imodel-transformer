@@ -63,6 +63,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
         await transformer.processSchemas();
         await transformer.process();
         transformer.dispose();
+        editTxn.end();
       },
     };
   },
@@ -119,6 +120,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
       async run() {
         await transformer.process();
         transformer.dispose();
+        forkEditTxn.end();
       },
     };
   },

@@ -2610,6 +2610,9 @@ export class TemplateModelCloner extends IModelTransformer {
    * @param sourceDb The source IModelDb that contains the templates to clone
    * @param targetEditTxn The [[EditTxn]] to use for write operations on the target iModel. Must be started before constructing.
    * @note The expectation is that the template definitions are within the same iModel where instances will be placed.
+   * @note Migration: if you previously used `new TemplateModelCloner(db)` for in-place cloning,
+   *   create a started EditTxn on `db` and pass it as `targetEditTxn`:
+   *   `const txn = new EditTxn(db, "clone"); txn.start(); new TemplateModelCloner(db, txn)`
    */
   public constructor(sourceDb: IModelDb, targetEditTxn: EditTxn) {
     const target = new IModelImporter(targetEditTxn, {

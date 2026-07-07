@@ -147,23 +147,28 @@ export class Transformer extends IModelTransformer {
     }
     const editTxn = new EditTxn(targetDb, "transform isolated");
     editTxn.start();
-    const transformer = new IsolateElementsTransformer(
-      sourceDb,
-      editTxn,
-      options
-    );
-    await transformer.initializeTransformer();
-    await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
-    for (const id of isolatedElementIds) await transformer.processElement(id);
-    await transformer.saveChanges("process isolated elements");
-    if (options?.deleteUnusedGeometryParts) {
-      await transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+    try {
+      const transformer = new IsolateElementsTransformer(
+        sourceDb,
+        editTxn,
+        options
+      );
+      await transformer.initializeTransformer();
+      await transformer.processSchemas();
+      await transformer.saveChanges("processSchemas");
+      for (const id of isolatedElementIds) await transformer.processElement(id);
+      await transformer.saveChanges("process isolated elements");
+      if (options?.deleteUnusedGeometryParts) {
+        await transformer.deleteUnusedGeometryParts();
+        await transformer.saveChanges("deleteUnusedGeometryParts");
+      }
+      transformer.logElapsedTime();
+      editTxn.end();
+      return transformer;
+    } catch (err) {
+      editTxn.end("abandon");
+      throw err;
     }
-    transformer.logElapsedTime();
-    editTxn.end();
-    return transformer;
   }
 
   private _transformerOptions?: TransformerOptions;
