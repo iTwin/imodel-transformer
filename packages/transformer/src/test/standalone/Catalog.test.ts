@@ -1424,7 +1424,7 @@ describe("Catalog", () => {
     );
 
     // iterate through the imported PhysicalTypes and place instances for each
-    const componentPlacer = new TemplateModelCloner(iModelDb, facilityEditTxn);
+    const componentPlacer = new TemplateModelCloner(facilityEditTxn);
     const physicalTypeSql = `SELECT ECInstanceId FROM ${PhysicalType.classFullName}`;
     const physicalTypeIds = new Set<Id64String>();
     for await (const row of iModelDb.createQueryReader(

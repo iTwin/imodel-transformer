@@ -2607,18 +2607,14 @@ export class TemplateModelCloner extends IModelTransformer {
   /** Accumulates the mapping of sourceElementIds to targetElementIds from the elements in the template model that were cloned. */
   private _sourceIdToTargetIdMap?: Map<Id64String, Id64String>;
   /** Construct a new TemplateModelCloner
-   * @param sourceDb The source IModelDb that contains the templates to clone
-   * @param targetEditTxn The [[EditTxn]] to use for write operations on the target iModel. Must be started before constructing.
+   * @param editTxn The [[EditTxn]] to use for all read and write operations. The source and target db are both derived from `editTxn.iModel`. Must be started before constructing.
    * @note The expectation is that the template definitions are within the same iModel where instances will be placed.
-   * @note Migration: if you previously used `new TemplateModelCloner(db)` for in-place cloning,
-   *   create a started EditTxn on `db` and pass it as `targetEditTxn`:
-   *   `const txn = new EditTxn(db, "clone"); txn.start(); new TemplateModelCloner(db, txn)`
    */
-  public constructor(sourceDb: IModelDb, targetEditTxn: EditTxn) {
-    const target = new IModelImporter(targetEditTxn, {
+  public constructor(editTxn: EditTxn) {
+    const target = new IModelImporter(editTxn, {
       autoExtendProjectExtents: false, // autoExtendProjectExtents is intended for transformation service use cases, not template --> instance cloning
     });
-    super({ source: sourceDb, target }, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
+    super({ source: editTxn.iModel, target }, { noProvenance: true }); // WIP: need to decide the proper way to handle provenance
   }
   /** Place a template from the sourceDb at the specified placement in the target model within the targetDb.
    * @param sourceTemplateModelId The Id of the template model in the sourceDb
