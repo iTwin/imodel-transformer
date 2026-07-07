@@ -4,7 +4,7 @@
 
 `IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` constructors now require an explicit [`EditTxn`](https://www.itwinjs.org/reference/core-backend/imodels/edittxn/) from `@itwin/core-backend`. This aligns the transformer with the iTwin.js platform's move toward explicit edit transactions and eliminates the possibility of mismatched db/txn references.
 
-For detailed usage patterns and lifecycle guidance, see the [EditTxn learning doc](../learning/EditTxn.md).
+For detailed usage patterns and lifecycle guidance, see the [EditTxn in Transformer learning doc](../learning/EditTxnInTransformer.md).
 
 ### `IModelTransformer`
 
@@ -37,24 +37,24 @@ The target `IModelDb` is derived from `editTxn.iModel` (or `importer.targetDb`).
 
 #### Reverse sync
 
-Reverse synchronization now requires a `sourceEditTxn` in `IModelTransformOptions`:
+Reverse synchronization now requires a `sourceEditTxn` in `IModelTransformOptions`. Without it, the transformer throws at runtime.
+
+**Before:**
 
 ```ts
-const sourceEditTxn = new EditTxn(sourceDb, "reverse sync");
-sourceEditTxn.start();
-const targetEditTxn = new EditTxn(targetDb, "reverse sync target");
-targetEditTxn.start();
-
-const transformer = new IModelTransformer(
-  { source: sourceDb, target: targetEditTxn },
-  { sourceEditTxn, isReverseSynchronization: true }
-);
-await transformer.process();
-sourceEditTxn.end();
-targetEditTxn.end();
+// source = branch, target = master; reverse sync auto-detected from provenance
+const transformer = new IModelTransformer(branchDb, masterDb);
 ```
 
-Without `sourceEditTxn`, a reverse sync will throw at runtime.
+**After:**
+
+```ts
+// sourceEditTxn needed so provenance can be written back to the branch
+const transformer = new IModelTransformer(
+  { source: branchDb, target: masterEditTxn },
+  { sourceEditTxn: branchEditTxn }
+);
+```
 
 ### `IModelImporter`
 
