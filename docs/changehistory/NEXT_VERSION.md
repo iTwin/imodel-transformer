@@ -43,7 +43,9 @@ Reverse synchronization now requires a `sourceEditTxn` in `IModelTransformOption
 
 ```ts
 // source = branch, target = master; reverse sync auto-detected from provenance
-const transformer = new IModelTransformer(branchDb, masterDb);
+const transformer = new IModelTransformer(branchDb, masterDb, {
+  argsForProcessChanges: {},
+});
 ```
 
 **After:**
@@ -52,7 +54,7 @@ const transformer = new IModelTransformer(branchDb, masterDb);
 // sourceEditTxn needed so provenance can be written back to the branch
 const transformer = new IModelTransformer(
   { source: branchDb, target: masterEditTxn },
-  { sourceEditTxn: branchEditTxn }
+  { sourceEditTxn: branchEditTxn, argsForProcessChanges: {} }
 );
 ```
 

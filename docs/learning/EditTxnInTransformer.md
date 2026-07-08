@@ -32,7 +32,7 @@ branchEditTxn.start();
 // source = branch, target = master; transformer auto-detects reverse sync from provenance
 const transformer = new IModelTransformer(
   { source: branchDb, target: masterEditTxn },
-  { sourceEditTxn: branchEditTxn }
+  { sourceEditTxn: branchEditTxn, argsForProcessChanges: {} }
 );
 await transformer.process();
 
@@ -110,7 +110,7 @@ let succeeded = false;
 try {
   const transformer = new IModelTransformer(
     { source: branchDb, target: masterEditTxn },
-    { sourceEditTxn: branchEditTxn }
+    { sourceEditTxn: branchEditTxn, argsForProcessChanges: {} }
   );
   await transformer.process();
   succeeded = true;
