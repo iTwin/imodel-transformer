@@ -5426,14 +5426,20 @@ describe("IModelTransformerHub", () => {
         "insert source model",
         (txn) => PhysicalModel.insert(txn, IModel.rootSubjectId, "M0")
       );
-      await pushChanges(sourceDb, "Initial source data");
+      await sourceDb.pushChanges({
+        description: "Initial source data",
+        retainLocks: true,
+      });
 
       // process all
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       let addChangesStub = sinon.stub(transformer, "addCustomChanges");
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(targetDb, "target changes for transformation 1");
+      await targetDb.pushChanges({
+        description: "target changes for transformation 1",
+        retainLocks: true,
+      });
       expect(addChangesStub.calledOnce).to.be.false;
 
       // process changes
@@ -5450,7 +5456,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(targetDb, "target changes for transformation 2");
+      await targetDb.pushChanges({
+        description: "target changes for transformation 2",
+        retainLocks: true,
+      });
       expect(addChangesStub.calledOnce).to.be.true;
     });
 
@@ -5496,7 +5505,10 @@ describe("IModelTransformerHub", () => {
         categoryId1,
         "PhysicalOne"
       );
-      await pushChanges(sourceDb, "Initial changes");
+      await sourceDb.pushChanges({
+        description: "Initial changes",
+        retainLocks: true,
+      });
 
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
@@ -5506,7 +5518,10 @@ describe("IModelTransformerHub", () => {
         initializeReverseSyncVersion: true,
       });
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 1: Process All");
+      await targetDb.pushChanges({
+        description: "Transformation 1: Process All",
+        retainLocks: true,
+      });
 
       // Assert
       expect(
@@ -5537,10 +5552,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 2: inserted previously excluded model"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 2: inserted previously excluded model",
+        retainLocks: true,
+      });
       // Assert
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -5565,7 +5580,10 @@ describe("IModelTransformerHub", () => {
         categoryId1,
         "PhysicalTwo"
       );
-      await pushChanges(sourceDb, "Added new physical model");
+      await sourceDb.pushChanges({
+        description: "Added new physical model",
+        retainLocks: true,
+      });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
@@ -5578,10 +5596,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 3: inserted newly created model"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 3: inserted newly created model",
+        retainLocks: true,
+      });
       // Assert
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -5617,7 +5635,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 4: delete exported model");
+      await targetDb.pushChanges({
+        description: "Transformation 4: delete exported model",
+        retainLocks: true,
+      });
       // Assert
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -5640,7 +5661,10 @@ describe("IModelTransformerHub", () => {
         categoryId1,
         "PhysicalThree"
       );
-      await pushChanges(sourceDb, "Added new physical element into PM2");
+      await sourceDb.pushChanges({
+        description: "Added new physical element into PM2",
+        retainLocks: true,
+      });
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
         .stub(transformer, "addCustomChanges")
@@ -5652,10 +5676,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 5: delete model with newly added elements"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 5: delete model with newly added elements",
+        retainLocks: true,
+      });
       // Assert
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -5727,7 +5751,10 @@ describe("IModelTransformerHub", () => {
         childDrawing1.id!,
         childDrawing2.id!
       );
-      await pushChanges(sourceDb, "Initial changes");
+      await sourceDb.pushChanges({
+        description: "Initial changes",
+        retainLocks: true,
+      });
       // Act
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
       // Exclude all drawings
@@ -5737,7 +5764,10 @@ describe("IModelTransformerHub", () => {
         initializeReverseSyncVersion: true,
       });
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 1: Process All");
+      await targetDb.pushChanges({
+        description: "Transformation 1: Process All",
+        retainLocks: true,
+      });
 
       assertModelExistsByName(targetDb, ["DL", "ParentDrawing2"]);
       assertModelDoesNotExistsByName(targetDb, [
@@ -5770,10 +5800,11 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 2: add first previously excluded child element"
-      );
+      await targetDb.pushChanges({
+        description:
+          "Transformation 2: add first previously excluded child element",
+        retainLocks: true,
+      });
 
       assertModelExistsByName(targetDb, [
         "DL",
@@ -5814,10 +5845,11 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 2: add second previously excluded child element"
-      );
+      await targetDb.pushChanges({
+        description:
+          "Transformation 2: add second previously excluded child element",
+        retainLocks: true,
+      });
       // Assert
       assertModelExistsByName(targetDb, [
         "DL",
@@ -5856,10 +5888,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 3: delete first child element's submodel"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 3: delete first child element's submodel",
+        retainLocks: true,
+      });
       assertModelExistsByName(targetDb, [
         "DL",
         "ParentDrawing1",
@@ -5923,7 +5955,10 @@ describe("IModelTransformerHub", () => {
         physicalElem1.id!,
         physicalElem2.id!
       );
-      await pushChanges(sourceDb, "Initial changes");
+      await sourceDb.pushChanges({
+        description: "Initial changes",
+        retainLocks: true,
+      });
 
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
@@ -5934,7 +5969,10 @@ describe("IModelTransformerHub", () => {
         initializeReverseSyncVersion: true,
       });
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 1: Process All");
+      await targetDb.pushChanges({
+        description: "Transformation 1: Process All",
+        retainLocks: true,
+      });
 
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -5968,10 +6006,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 2: include previously excluded element"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 2: include previously excluded element",
+        retainLocks: true,
+      });
 
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -5999,7 +6037,10 @@ describe("IModelTransformerHub", () => {
         categoryId1,
         "PhysicalThree"
       );
-      await pushChanges(sourceDb, "Added new model and physical element");
+      await sourceDb.pushChanges({
+        description: "Added new model and physical element",
+        retainLocks: true,
+      });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
@@ -6012,10 +6053,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 3: include newly added element"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 3: include newly added element",
+        retainLocks: true,
+      });
 
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -6046,7 +6087,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 4: delete exported element");
+      await targetDb.pushChanges({
+        description: "Transformation 4: delete exported element",
+        retainLocks: true,
+      });
       // Assert
       expect(
         IModelTestUtils.count(targetDb, GeometricModel.classFullName)
@@ -6090,7 +6134,10 @@ describe("IModelTransformerHub", () => {
         categoryId1,
         "PhysicalTwo"
       );
-      await pushChanges(sourceDb, "Initial changes");
+      await sourceDb.pushChanges({
+        description: "Initial changes",
+        retainLocks: true,
+      });
 
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
@@ -6099,7 +6146,10 @@ describe("IModelTransformerHub", () => {
         initializeReverseSyncVersion: true,
       });
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 1: Process All");
+      await targetDb.pushChanges({
+        description: "Transformation 1: Process All",
+        retainLocks: true,
+      });
 
       // === Transformation 2: `process changes` transformation to update other element  ===
       // Update element in target
@@ -6126,7 +6176,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 2: update other element");
+      await targetDb.pushChanges({
+        description: "Transformation 2: update other element",
+        retainLocks: true,
+      });
 
       let physicalElem1InTarget = targetDb.elements.tryGetElement(
         physicalElem1.federationGuid!
@@ -6150,7 +6203,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 2: update changed element");
+      await targetDb.pushChanges({
+        description: "Transformation 2: update changed element",
+        retainLocks: true,
+      });
 
       physicalElem1InTarget = targetDb.elements.tryGetElement(
         physicalElem1.federationGuid!
@@ -6197,7 +6253,10 @@ describe("IModelTransformerHub", () => {
           };
         });
 
-      await pushChanges(sourceDb, "Initial changes");
+      await sourceDb.pushChanges({
+        description: "Initial changes",
+        retainLocks: true,
+      });
 
       // === Transformation 1: Run `process all` transformation ===
       let transformer = new CustomChangesTransformer(sourceDb, targetDb, false);
@@ -6206,7 +6265,10 @@ describe("IModelTransformerHub", () => {
         initializeReverseSyncVersion: true,
       });
       transformer.editTxn.end();
-      await pushChanges(targetDb, "Transformation 1: Process All");
+      await targetDb.pushChanges({
+        description: "Transformation 1: Process All",
+        retainLocks: true,
+      });
 
       // Assert
       expect(targetDb.elements.tryGetElement(constSubjectFedGuid)).to.not.be
@@ -6258,7 +6320,10 @@ describe("IModelTransformerHub", () => {
         }
       );
 
-      await pushChanges(sourceDb, "Recreated elements");
+      await sourceDb.pushChanges({
+        description: "Recreated elements",
+        retainLocks: true,
+      });
 
       transformer = new CustomChangesTransformer(sourceDb, targetDb, true);
       sinon
@@ -6275,10 +6340,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer.process();
       transformer.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 2: inserted previously excluded model"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 2: inserted previously excluded model",
+        retainLocks: true,
+      });
       expect(targetDb.elements.tryGetElement(constSubjectFedGuid)).to.be
         .undefined;
       expect(targetDb.elements.tryGetElement(constPartitionFedGuid)).to.be
@@ -6324,10 +6389,10 @@ describe("IModelTransformerHub", () => {
       transformer1.exporter.excludeElement(originalSubjectId2);
       await transformer1.process();
       transformer1.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "target changes for process all transformation."
-      );
+      await targetDb.pushChanges({
+        description: "target changes for process all transformation.",
+        retainLocks: true,
+      });
       expect(targetDb.elements.tryGetElement(subjectFedGuid1)).to.not.be
         .undefined;
       expect(targetDb.elements.tryGetElement(subjectFedGuid2)).to.be.undefined;
@@ -6359,10 +6424,10 @@ describe("IModelTransformerHub", () => {
         });
       await transformer2.process();
       transformer2.editTxn.end();
-      await pushChanges(
-        targetDb,
-        "target changes for process changes transformation."
-      );
+      await targetDb.pushChanges({
+        description: "target changes for process changes transformation.",
+        retainLocks: true,
+      });
       expect(addChangesStub.calledOnce).to.be.true;
       expect(targetDb.elements.tryGetElement(subjectFedGuid1)).to.be.undefined;
       expect(targetDb.elements.tryGetElement(subjectFedGuid2)).to.not.be
@@ -6526,7 +6591,10 @@ describe("IModelTransformerHub", () => {
         sourceDb,
         "DynamicTestSchema:DynamicPhysicalElement"
       );
-      await pushChanges(sourceDb, "Initial schema and element creation");
+      await sourceDb.pushChanges({
+        description: "Initial schema and element creation",
+        retainLocks: true,
+      });
 
       // === Transformation 1: Run `process all` transformation ===
       const firstTransformEditTxn = createStartedEditTxn(targetDb);
@@ -6537,7 +6605,10 @@ describe("IModelTransformerHub", () => {
       await transformer.processSchemas();
       await transformer.process();
       firstTransformEditTxn.end();
-      await pushChanges(targetDb, "Transformation 1: Process All");
+      await targetDb.pushChanges({
+        description: "Transformation 1: Process All",
+        retainLocks: true,
+      });
 
       // Assert that element was transformed
       const targetElement = IModelTestUtils.queryByUserLabel(
@@ -6549,13 +6620,19 @@ describe("IModelTransformerHub", () => {
       // Update schema: Add enough properties to spill into overflow table (more than 32)
       const expandedSchema = generateSchema(2, "SourceProperty", 100);
       await sourceDb.importSchemaStrings([expandedSchema]);
-      await pushChanges(sourceDb, "Updated schema");
+      await sourceDb.pushChanges({
+        description: "Updated schema",
+        retainLocks: true,
+      });
 
       // Delete the element
       withEditTxn(sourceDb, "recreate elements & models", (txn) => {
         txn.deleteElement(elementId);
       });
-      await pushChanges(sourceDb, "Deleted element");
+      await sourceDb.pushChanges({
+        description: "Deleted element",
+        retainLocks: true,
+      });
 
       // === Transformation 2: Run `process changes` transformation ===
       const secondTransformEditTxn = createStartedEditTxn(targetDb);
@@ -6566,10 +6643,10 @@ describe("IModelTransformerHub", () => {
       await transformer.processSchemas();
       await transformer.process();
       secondTransformEditTxn.end();
-      await pushChanges(
-        targetDb,
-        "Transformation 2: Process Changes with deletion"
-      );
+      await targetDb.pushChanges({
+        description: "Transformation 2: Process Changes with deletion",
+        retainLocks: true,
+      });
 
       // Assert: Verify element is deleted in target
       const targetElement2 = IModelTestUtils.queryByUserLabel(
@@ -6880,10 +6957,5 @@ describe("IModelTransformerHub", () => {
       iTwinId,
       iModelId: iModel.iModelId,
     });
-  }
-
-  async function pushChanges(iModel: BriefcaseDb, description: string) {
-    withEditTxn(iModel, description, () => undefined);
-    await iModel.pushChanges({ description, retainLocks: true });
   }
 });

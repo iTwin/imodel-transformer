@@ -168,9 +168,10 @@ describe("IModelTransformer", () => {
           rootSubject: { name: "ReusedExtensiveTestScenario" },
           createClassViews: true,
         });
-        await TransformerExtensiveTestScenario.prepareDb(db);
-        await TransformerExtensiveTestScenario.populateDb(db);
-        withEditTxn(db, "save changes", () => undefined);
+        await withEditTxn(db, "prepare and populate", async () => {
+          await TransformerExtensiveTestScenario.prepareDb(db);
+          await TransformerExtensiveTestScenario.populateDb(db);
+        });
         return db;
       })());
     }
