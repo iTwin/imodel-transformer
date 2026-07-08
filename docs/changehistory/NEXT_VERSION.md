@@ -30,6 +30,46 @@ The `isForwardSynchronization` and `isReverseSynchronization` getters on `IModel
 
 This version requires iTwin.js 5.0 packages as peer dependencies.
 
----
+## How to migrate
 
-See [v2 Migration Guide](../learning/transformer/v2-migration.md) for detailed migration instructions and code examples.
+### 1. Add `async` to overrides
+
+If you override any of the above methods, add the `async` keyword:
+
+```ts
+// Before (v1)
+protected onInsertElement(elementProps: ElementProps): Id64String {
+  // custom logic
+  return super.onInsertElement(elementProps);
+}
+
+// After (v2)
+protected async onInsertElement(elementProps: ElementProps): Promise<Id64String> {
+  // custom logic
+  return super.onInsertElement(elementProps);
+}
+```
+
+### 2. Await calls to these methods
+
+Any direct calls to the now-async methods must be awaited:
+
+```ts
+// Before (v1)
+importer.importElement(elementProps);
+
+// After (v2)
+await importer.importElement(elementProps);
+```
+
+### 3. Synchronization property accessors replaced with async methods
+
+The `isForwardSynchronization` and `isReverseSynchronization` getters have been replaced with async methods:
+
+```ts
+// Before (v1)
+if (transformer.isForwardSynchronization) { ... }
+
+// After (v2)
+if (await transformer.getIsForwardSynchronization()) { ... }
+```
