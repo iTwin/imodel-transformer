@@ -1517,10 +1517,9 @@ describe("IModelTransformer", () => {
     await transformer1.process(); // first one succeeds using IModel.rootSubjectId as the default targetScopeElementId
 
     try {
-      await transformer2.process(); // expect IModelError to be thrown because of the targetScopeElementId conflict with second transformation
-      assert.fail("Expected provenance scope conflict");
-    } catch (e) {
-      assert.isTrue(e instanceof IModelError);
+      await expect(
+        transformer2.process() // expect IModelError to be thrown because of the targetScopeElementId conflict with second transformation
+      ).to.be.rejectedWith(IModelError);
     } finally {
       transformerEditTxn.end();
       transformer1.dispose();
@@ -1927,13 +1926,7 @@ describe("IModelTransformer", () => {
       target: orderedEditTxn,
     });
 
-    let error: any;
-    try {
-      await transformer.processSchemas();
-    } catch (_error) {
-      error = _error;
-    }
-    assert.isUndefined(error);
+    await transformer.processSchemas();
     orderedEditTxn.saveChanges();
     const targetImportedSchemasLoader = new SchemaLoader((name: string) =>
       targetDb.getSchemaProps(name)
@@ -2797,8 +2790,7 @@ describe("IModelTransformer", () => {
     const sourceTxn = new EditTxn(sourceDb, "setup source");
     sourceTxn.start();
     Subject.insert(sourceTxn, IModel.rootSubjectId, "Subject1");
-    sourceTxn.saveChanges();
-    sourceTxn.end();
+    sourceTxn.end("save");
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2953,8 +2945,7 @@ describe("IModelTransformer", () => {
       target: sourceTxn,
     });
     await seedTransformer.process();
-    sourceTxn.saveChanges();
-    sourceTxn.end();
+    sourceTxn.end("save");
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3004,8 +2995,7 @@ describe("IModelTransformer", () => {
     const sourceTxn = new EditTxn(sourceDb, "setup source");
     sourceTxn.start();
     Subject.insert(sourceTxn, IModel.rootSubjectId, "Subject1");
-    sourceTxn.saveChanges();
-    sourceTxn.end();
+    sourceTxn.end("save");
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3077,8 +3067,7 @@ describe("IModelTransformer", () => {
     const sourceTxn = new EditTxn(sourceDb, "setup source");
     sourceTxn.start();
     Subject.insert(sourceTxn, IModel.rootSubjectId, "Subject1");
-    sourceTxn.saveChanges();
-    sourceTxn.end();
+    sourceTxn.end("save");
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3337,8 +3326,7 @@ describe("IModelTransformer", () => {
       myProp1: "prop_value",
     };
     sourceTxn.insertAspect(uniqueAspectProps);
-    sourceTxn.saveChanges();
-    sourceTxn.end();
+    sourceTxn.end("save");
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -5779,8 +5767,7 @@ describe("IModelTransformer", () => {
           { wasSourceIModelCopiedToTarget: true }
         );
         await initTransformer.process();
-        initEditTxn.saveChanges();
-        initEditTxn.end();
+        initEditTxn.end("save");
         initTransformer.dispose();
 
         // Now attempt reverse sync without sourceEditTxn
@@ -5789,17 +5776,7 @@ describe("IModelTransformer", () => {
           { source: targetDb, target: editTxn },
           { argsForProcessChanges: {} }
         ); // no sourceEditTxn
-        let threw = false;
-        try {
-          await transformer.process();
-        } catch (err: any) {
-          threw = true;
-          expect(err.message).to.include("sourceEditTxn");
-        }
-        expect(
-          threw,
-          "expected process to throw for reverse sync without sourceEditTxn"
-        ).to.be.true;
+        await expect(transformer.process()).to.be.rejectedWith(/sourceEditTxn/);
         transformer.dispose();
         editTxn.end();
       } finally {

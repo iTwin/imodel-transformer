@@ -2347,10 +2347,8 @@ describe("IModelTransformerHub", () => {
       { argsForProcessChanges: {}, sourceEditTxn: reverseSyncSourceEditTxn }
     );
     await transformer.process();
-    reverseSyncEditTxn.saveChanges("reverse sync");
-    reverseSyncSourceEditTxn.saveChanges("reverse sync provenance");
-    reverseSyncEditTxn.end();
-    reverseSyncSourceEditTxn.end();
+    reverseSyncEditTxn.end("save", "reverse sync");
+    reverseSyncSourceEditTxn.end("save", "reverse sync provenance");
     // Query scope ESA from database instead of reaching into private internals
     let scopeEsaResult = await ProvenanceManager.queryScopeExternalSourceAspect(
       targetDb,
@@ -2993,10 +2991,8 @@ describe("IModelTransformerHub", () => {
         }
       );
       await synchronizer.process();
-      masterSyncEditTxn.saveChanges("synchronize");
-      reverseSyncSourceEditTxn.saveChanges("synchronize provenance");
-      masterSyncEditTxn.end();
-      reverseSyncSourceEditTxn.end();
+      masterSyncEditTxn.end("save", "synchronize");
+      reverseSyncSourceEditTxn.end("save", "synchronize provenance");
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
 

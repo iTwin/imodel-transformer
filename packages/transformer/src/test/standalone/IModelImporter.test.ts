@@ -3,8 +3,12 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import * as chai from "chai";
 import { expect } from "chai";
+import * as chaiAsPromised from "chai-as-promised";
 import "./TransformerTestStartup";
+
+chai.use(chaiAsPromised);
 import {
   ElementOwnsMultiAspects,
   StandaloneDb,
@@ -18,20 +22,6 @@ import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
-
-async function expectRejected(
-  run: () => Promise<unknown>,
-  match: RegExp
-): Promise<void> {
-  let error: Error | undefined;
-  try {
-    await run();
-  } catch (caught) {
-    error = caught as Error;
-  }
-  expect(error, "expected the call to throw").to.not.be.undefined;
-  expect(error!.message).to.match(match);
-}
 
 describe("IModelImporter", () => {
   it("deleteElement skips elements in doNotUpdateElementIds (no-op guard)", async () => {
@@ -159,40 +149,32 @@ describe("IModelImporter", () => {
       const editTxn = createStartedEditTxn(targetDb);
       const importer = new IModelImporter(editTxn);
       const missing = "TestImporterSchema:DoesNotExist";
-      await expectRejected(
-        () =>
-          (importer as any).onInsertModel({
-            classFullName: missing,
-            modeledElement: { id: IModel.rootSubjectId },
-          }),
-        /not found in the target iModel/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onInsertElement({
-            classFullName: missing,
-            model: IModel.repositoryModelId,
-            code: Code.createEmpty(),
-          }),
-        /not found in the target iModel/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onInsertElementAspect({
-            classFullName: missing,
-            element: { id: IModel.rootSubjectId },
-          }),
-        /not found in the target iModel/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onInsertRelationship({
-            classFullName: missing,
-            sourceId: IModel.rootSubjectId,
-            targetId: IModel.rootSubjectId,
-          }),
-        /not found in the target iModel/
-      );
+      await expect(
+        (importer as any).onInsertModel({
+          classFullName: missing,
+          modeledElement: { id: IModel.rootSubjectId },
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
+      await expect(
+        (importer as any).onInsertElement({
+          classFullName: missing,
+          model: IModel.repositoryModelId,
+          code: Code.createEmpty(),
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
+      await expect(
+        (importer as any).onInsertElementAspect({
+          classFullName: missing,
+          element: { id: IModel.rootSubjectId },
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
+      await expect(
+        (importer as any).onInsertRelationship({
+          classFullName: missing,
+          sourceId: IModel.rootSubjectId,
+          targetId: IModel.rootSubjectId,
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
       expect(
         await importer.importElementMultiAspects([]),
         "empty aspect array should be a no-op"
@@ -214,24 +196,19 @@ describe("IModelImporter", () => {
     try {
       const editTxn = createStartedEditTxn(targetDb);
       const importer = new IModelImporter(editTxn);
-      await expectRejected(
-        async () => importer.importModel({} as any),
+      await expect(importer.importModel({} as any)).to.be.rejectedWith(
         /Model Id not provided/
       );
-      await expectRejected(
-        () =>
-          (importer as any).onUpdateElement({
-            classFullName: "BisCore:Subject",
-          }),
-        /ElementId not provided/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onUpdateRelationship({
-            classFullName: "BisCore:ElementRefersToElements",
-          }),
-        /Relationship instance Id not provided/
-      );
+      await expect(
+        (importer as any).onUpdateElement({
+          classFullName: "BisCore:Subject",
+        })
+      ).to.be.rejectedWith(/ElementId not provided/);
+      await expect(
+        (importer as any).onUpdateRelationship({
+          classFullName: "BisCore:ElementRefersToElements",
+        })
+      ).to.be.rejectedWith(/Relationship instance Id not provided/);
       editTxn.end("abandon");
     } finally {
       targetDb.close();
@@ -251,15 +228,13 @@ describe("IModelImporter", () => {
       const importer = new IModelImporter(editTxn, {
         preserveElementIdsForFiltering: true,
       });
-      await expectRejected(
-        async () =>
-          importer.importElement({
-            classFullName: "BisCore:Subject",
-            model: IModel.repositoryModelId,
-            code: Code.createEmpty(),
-          } as any),
-        /must be defined during a preserveIds operation/
-      );
+      await expect(
+        importer.importElement({
+          classFullName: "BisCore:Subject",
+          model: IModel.repositoryModelId,
+          code: Code.createEmpty(),
+        } as any)
+      ).to.be.rejectedWith(/must be defined during a preserveIds operation/);
       editTxn.end("abandon");
     } finally {
       targetDb.close();
