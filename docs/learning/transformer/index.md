@@ -9,8 +9,6 @@ The `@itwin/imodel-transformer` package provides some classes that implement [Ex
 The above classes contain the lower-level functionality required to implement transformation and data exchange services.
 These classes should be considered a framework and not confused with the actual packaged and deployed services that use the framework.
 
-> Upgrading from 1.x? See [Migrating to @itwin/imodel-transformer 2.0](./v2-migration.md).
-
 ## IModelExporter
 
 The [IModelExporter]($transformer) and [IModelExportHandler]($transformer) base classes are used when the **source** data in an ETL workflow is contained within an iModel.
