@@ -16,11 +16,86 @@ As part of the upgrade to iTwin.js 5.0, a large number of previously synchronous
 
 Affected classes and methods:
 
-- **IModelExportHandler** — `onDeleteElement`, `onDeleteModel`, `onDeleteRelationship`, `onExportCodeSpec`, `onExportElement`, `onExportElementMultiAspects`, `onExportElementUniqueAspect`, `onExportFont`, `onExportModel`, `onExportRelationship`, `onSkipElement`, `shouldExportCodeSpec`, `shouldExportElement`, `shouldExportElementAspect`, `shouldExportRelationship`, `shouldExportSchema`
-- **IModelExporter** — `shouldExportElement`
-- **IModelImporter** — `importElement`, `importModel`, `importRelationship`, `importElementMultiAspects`, `importElementUniqueAspect`, `deleteElement`, `deleteModel`, `deleteRelationship`, `onInsertElement`, `onInsertModel`, `onInsertRelationship`, `onInsertElementAspect`, `onUpdateElement`, `onUpdateModel`, `onUpdateRelationship`, `onUpdateElementAspect`, `onDeleteElement`, `onDeleteModel`, `onDeleteRelationship`, `onDeleteElementAspect`, `onProgress`
-- **IModelTransformer** — `onTransformElement`, `onTransformElementAspect`, `onExportCodeSpec`, `onExportElement`, `onExportElementMultiAspects`, `onExportElementUniqueAspect`, `onExportFont`, `onExportModel`, `onExportRelationship`, `onDeleteElement`, `onDeleteModel`, `onDeleteRelationship`, `shouldExportCodeSpec`, `shouldExportElement`, `shouldExportElementAspect`, `shouldExportRelationship`, `shouldExportSchema`, `shouldDetectDeletes`, `completePartiallyCommittedElements`, `completePartiallyCommittedAspects`, `initScopeProvenance`, `initElementProvenance`, `tryGetProvenanceScopeAspect`, `getSynchronizationVersion`, `getIsForwardSynchronization`, `getIsReverseSynchronization`, `getProvenanceDb`
-- **TemplateModelCloner** — `onTransformElement`
+#### IModelExportHandler
+
+- `onDeleteElement`
+- `onDeleteModel`
+- `onDeleteRelationship`
+- `onExportCodeSpec`
+- `onExportElement`
+- `onExportElementMultiAspects`
+- `onExportElementUniqueAspect`
+- `onExportFont`
+- `onExportModel`
+- `onExportRelationship`
+- `onSkipElement`
+- `shouldExportCodeSpec`
+- `shouldExportElement`
+- `shouldExportElementAspect`
+- `shouldExportRelationship`
+- `shouldExportSchema`
+
+#### IModelExporter
+
+- `shouldExportElement`
+
+#### IModelImporter
+
+- `deleteElement`
+- `deleteModel`
+- `deleteRelationship`
+- `importElement`
+- `importElementMultiAspects`
+- `importElementUniqueAspect`
+- `importModel`
+- `importRelationship`
+- `onDeleteElement`
+- `onDeleteElementAspect`
+- `onDeleteModel`
+- `onDeleteRelationship`
+- `onInsertElement`
+- `onInsertElementAspect`
+- `onInsertModel`
+- `onInsertRelationship`
+- `onProgress`
+- `onUpdateElement`
+- `onUpdateElementAspect`
+- `onUpdateModel`
+- `onUpdateRelationship`
+
+#### IModelTransformer
+
+- `completePartiallyCommittedAspects`
+- `completePartiallyCommittedElements`
+- `getIsForwardSynchronization`
+- `getIsReverseSynchronization`
+- `getProvenanceDb`
+- `getSynchronizationVersion`
+- `initElementProvenance`
+- `initScopeProvenance`
+- `onDeleteElement`
+- `onDeleteModel`
+- `onDeleteRelationship`
+- `onExportCodeSpec`
+- `onExportElement`
+- `onExportElementMultiAspects`
+- `onExportElementUniqueAspect`
+- `onExportFont`
+- `onExportModel`
+- `onExportRelationship`
+- `onTransformElement`
+- `onTransformElementAspect`
+- `shouldDetectDeletes`
+- `shouldExportCodeSpec`
+- `shouldExportElement`
+- `shouldExportElementAspect`
+- `shouldExportRelationship`
+- `shouldExportSchema`
+- `tryGetProvenanceScopeAspect`
+
+#### TemplateModelCloner
+
+- `onTransformElement`
 
 ### Synchronization property accessors replaced with async methods
 
