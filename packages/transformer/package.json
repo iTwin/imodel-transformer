@@ -104,7 +104,7 @@
   "nyc": {
     "extends": "./node_modules/@itwin/build-tools/.nycrc",
     "check-coverage": true,
-    "statements": 85,
+    "statements": 90,
     "branches": 80,
     "functions": 85,
     "lines": 85
