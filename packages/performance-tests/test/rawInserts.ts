@@ -9,7 +9,6 @@ import {
   ElementGroupsMembers,
   SnapshotDb,
   StandaloneDb,
-  withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
@@ -66,8 +65,6 @@ export default async function rawInserts(
       "Branch Name": branchName,
     }
   );
-
-  withEditTxn(sourceDb, "save", () => undefined);
 
   Logger.logInfo(
     loggerCategory,
