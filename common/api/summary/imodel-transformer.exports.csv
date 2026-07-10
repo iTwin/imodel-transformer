@@ -11,6 +11,7 @@ beta;class;IModelExporter
 beta;class;IModelExportHandler
 beta;class;IModelImporter
 beta;interface;IModelImportOptions
+beta;interface;IModelTransformArgs
 beta;class;IModelTransformer
 beta;interface;IModelTransformOptions
 alpha;function;initializeBranchProvenance

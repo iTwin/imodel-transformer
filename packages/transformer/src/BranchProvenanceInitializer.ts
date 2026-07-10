@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import {
   BriefcaseDb,
+  EditTxn,
   ExternalSource,
   ExternalSourceIsInRepository,
   IModelDb,
@@ -60,6 +61,9 @@ export interface ProvenanceInitResult {
 export async function initializeBranchProvenance(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
+  let editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
+  editTxn.start();
+
   if (args.createFedGuidsForMaster) {
     // FIXME<LOW>: Consider enforcing that the master and branch dbs passed as part of ProvenanceInitArgs to this function
     // are identical. https://github.com/iTwin/imodel-transformer/issues/138
@@ -96,8 +100,8 @@ export async function initializeBranchProvenance(
         assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    args.branch.saveChanges();
+    editTxn.saveChanges();
+    editTxn.end();
     args.branch.withSqliteStatement("DETACH DATABASE master", (s) => {
       const res = s.step();
       if (res !== DbResult.BE_SQLITE_DONE)
@@ -118,11 +122,13 @@ export async function initializeBranchProvenance(
       reopenMaster(),
       reopenBranch(),
     ]);
+    // Recreate editTxn on the reopened branch db
+    editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
+    editTxn.start();
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const masterRepoLinkId = args.branch.elements.insertElement({
+  const masterRepoLinkId = editTxn.insertElement({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(
       args.branch,
@@ -136,8 +142,7 @@ export async function initializeBranchProvenance(
     description: args.masterDescription,
   } as RepositoryLinkProps);
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const masterExternalSourceId = args.branch.elements.insertElement({
+  const masterExternalSourceId = editTxn.insertElement({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
@@ -167,8 +172,7 @@ export async function initializeBranchProvenance(
       sourceDb: args.master,
       targetDb: args.branch,
     });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    args.branch.elements.insertAspect(aspectProps);
+    editTxn.insertAspect(aspectProps);
   }
 
   const fedGuidlessRelsSql = `
@@ -195,9 +199,11 @@ export async function initializeBranchProvenance(
         targetDb: args.branch,
         forceOldRelationshipProvenanceMethod: false,
       });
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    args.branch.elements.insertAspect(aspectProps);
+    editTxn.insertAspect(aspectProps);
   }
+
+  editTxn.saveChanges();
+  editTxn.end();
 
   if (args.createFedGuidsForMaster === true) {
     args.master.close();

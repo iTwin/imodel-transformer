@@ -42,7 +42,10 @@ import {
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import { IModelTransformer } from "../../IModelTransformer";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  createStartedEditTxn,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as path from "path";
@@ -235,11 +238,15 @@ describe.skip("IModelTransformer Performance Tests", () => {
       rootSubject: { name: "Target 10k Elements Test" },
     });
 
+    const editTxn = createStartedEditTxn(targetDb);
     // Transform
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
-      loadSourceGeometry: true,
-      noProvenance: true,
-    });
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: editTxn },
+      {
+        loadSourceGeometry: true,
+        noProvenance: true,
+      }
+    );
 
     const schemasStartTime = performance.now();
     await transformer.processSchemas();
@@ -248,8 +255,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     const startTime = performance.now();
     await transformer.process();
     const endTime = performance.now();
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-    targetDb.saveChanges();
+    editTxn.end();
 
     printResults({
       elementCount,
@@ -295,11 +301,15 @@ describe.skip("IModelTransformer Performance Tests", () => {
       const targetDb = createEmptyTarget();
       console.log(`Target iModel created: ${targetDb.pathName}`);
 
+      const editTxn = createStartedEditTxn(targetDb);
       // Create transformer
-      const transformer = new IModelTransformer(sourceDb, targetDb, {
-        loadSourceGeometry: true,
-        noProvenance: true,
-      });
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        {
+          loadSourceGeometry: true,
+          noProvenance: true,
+        }
+      );
 
       // Time schema processing
       console.log("Processing schemas...");
@@ -345,8 +355,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
       // Cleanup
       transformer.dispose();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges("Transformation complete");
+      editTxn.end("save", "Transformation complete");
 
       sourceDb.close();
       targetDb.close();

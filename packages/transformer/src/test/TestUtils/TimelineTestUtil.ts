@@ -30,6 +30,7 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import {
+  createStartedEditTxn,
   HubWrappers,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
@@ -453,12 +454,14 @@ export async function runTimeline(
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
-        const provenanceInserter = new IModelTransformer(master.db, branchDb, {
-          ...transformerOpts,
-          wasSourceIModelCopiedToTarget: true,
-        });
+        const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
+        const provenanceInserter = new IModelTransformer(
+          { source: master.db, target: branchProvenanceEditTxn },
+          { ...transformerOpts, wasSourceIModelCopiedToTarget: true }
+        );
         await provenanceInserter.process();
         provenanceInserter.dispose();
+        branchProvenanceEditTxn.end();
         await saveAndPushChanges(
           accessToken,
           branchDb,
@@ -521,15 +524,24 @@ export async function runTimeline(
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = await getIModelState(target.db);
 
-        const syncer = new IModelTransformer(source.db, target.db, {
-          ...transformerOpts,
-          argsForProcessChanges: {
-            startChangeset: startIndex
-              ? { index: startIndex }
-              : { index: undefined },
-          },
-        });
+        const syncEditTxn = createStartedEditTxn(target.db);
+        const sourceEditTxn = !isForwardSync
+          ? createStartedEditTxn(source.db)
+          : undefined;
+        const syncer = new IModelTransformer(
+          { source: source.db, target: syncEditTxn },
+          {
+            ...transformerOpts,
+            sourceEditTxn,
+            argsForProcessChanges: {
+              startChangeset: startIndex
+                ? { index: startIndex }
+                : { index: undefined },
+            },
+          }
+        );
         initTransformer?.(syncer);
+        let processSucceeded = false;
         try {
           await syncer.process();
           expect(
@@ -537,6 +549,7 @@ export async function runTimeline(
             "expectThrow was set to true and transformer succeeded."
           ).to.be.true;
           assertFxns?.afterProcessChanges?.(syncer);
+          processSucceeded = true;
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
@@ -552,6 +565,8 @@ export async function runTimeline(
             throw err;
         } finally {
           syncer.dispose();
+          syncEditTxn.end(processSucceeded ? "save" : "abandon");
+          sourceEditTxn?.end(processSucceeded ? "save" : "abandon");
         }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;

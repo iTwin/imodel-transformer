@@ -3,31 +3,25 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import * as chai from "chai";
 import { expect } from "chai";
+import * as chaiAsPromised from "chai-as-promised";
 import "./TransformerTestStartup";
+
+chai.use(chaiAsPromised);
 import {
   ElementOwnsMultiAspects,
   StandaloneDb,
   Subject,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Code, ElementAspectProps, IModel } from "@itwin/core-common";
 import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-
-async function expectRejected(
-  run: () => Promise<unknown>,
-  match: RegExp
-): Promise<void> {
-  let error: Error | undefined;
-  try {
-    await run();
-  } catch (caught) {
-    error = caught as Error;
-  }
-  expect(error, "expected the call to throw").to.not.be.undefined;
-  expect(error!.message).to.match(match);
-}
+import {
+  createStartedEditTxn,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 
 describe("IModelImporter", () => {
   it("deleteElement skips elements in doNotUpdateElementIds (no-op guard)", async () => {
@@ -39,21 +33,30 @@ describe("IModelImporter", () => {
       rootSubject: { name: "DeleteElementGuard" },
     });
     try {
-      const protectedId: Id64String =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        Subject.insert(targetDb, IModel.rootSubjectId, "Protected");
-      const deletableId: Id64String =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        Subject.insert(targetDb, IModel.rootSubjectId, "Deletable");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      const { protectedId, deletableId } = withEditTxn(
+        targetDb,
+        "insert subjects",
+        (txn) => {
+          const pId = Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "Protected"
+          ).insert(txn);
+          const dId = Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "Deletable"
+          ).insert(txn);
+          return { protectedId: pId, deletableId: dId };
+        }
+      );
 
-      const importer = new IModelImporter(targetDb);
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
       importer.doNotUpdateElementIds.add(protectedId);
 
       await importer.deleteElement(protectedId);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.tryGetElement(protectedId),
         "guarded element should NOT be deleted"
@@ -61,12 +64,12 @@ describe("IModelImporter", () => {
 
       // Control: an element not in the set is actually deleted.
       await importer.deleteElement(deletableId);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.tryGetElement(deletableId),
         "unguarded element should be deleted"
       ).to.be.undefined;
+      editTxn.end();
     } finally {
       targetDb.close();
     }
@@ -90,11 +93,17 @@ describe("IModelImporter", () => {
 </ECSchema>`;
       await targetDb.importSchemaStrings([schema]);
 
-      const elementId: Id64String =
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        Subject.insert(targetDb, IModel.rootSubjectId, "AspectHost");
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      const elementId: Id64String = withEditTxn(
+        targetDb,
+        "insert subject",
+        (txn) => {
+          return Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "AspectHost"
+          ).insert(txn);
+        }
+      );
 
       const aspectClassFullName = "TestImporterSchema:TestMultiAspect";
       const makeAspectProps = (): ElementAspectProps => ({
@@ -102,14 +111,14 @@ describe("IModelImporter", () => {
         element: new ElementOwnsMultiAspects(elementId),
       });
 
-      const importer = new IModelImporter(targetDb);
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
 
       await importer.importElementMultiAspects([
         makeAspectProps(),
         makeAspectProps(),
       ]);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.getAspects(elementId, aspectClassFullName).length,
         "two aspects should have been inserted"
@@ -117,12 +126,12 @@ describe("IModelImporter", () => {
 
       // Re-import with one aspect: the surplus is removed via onDeleteElementAspect.
       await importer.importElementMultiAspects([makeAspectProps()]);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      targetDb.saveChanges();
+      editTxn.saveChanges();
       expect(
         targetDb.elements.getAspects(elementId, aspectClassFullName).length,
         "surplus aspect should have been deleted"
       ).to.equal(1);
+      editTxn.end();
     } finally {
       targetDb.close();
     }
@@ -137,46 +146,40 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingClass" },
     });
     try {
-      const importer = new IModelImporter(targetDb);
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
       const missing = "TestImporterSchema:DoesNotExist";
-      await expectRejected(
-        () =>
-          (importer as any).onInsertModel({
-            classFullName: missing,
-            modeledElement: { id: IModel.rootSubjectId },
-          }),
-        /not found in the target iModel/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onInsertElement({
-            classFullName: missing,
-            model: IModel.repositoryModelId,
-            code: Code.createEmpty(),
-          }),
-        /not found in the target iModel/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onInsertElementAspect({
-            classFullName: missing,
-            element: { id: IModel.rootSubjectId },
-          }),
-        /not found in the target iModel/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onInsertRelationship({
-            classFullName: missing,
-            sourceId: IModel.rootSubjectId,
-            targetId: IModel.rootSubjectId,
-          }),
-        /not found in the target iModel/
-      );
+      await expect(
+        (importer as any).onInsertModel({
+          classFullName: missing,
+          modeledElement: { id: IModel.rootSubjectId },
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
+      await expect(
+        (importer as any).onInsertElement({
+          classFullName: missing,
+          model: IModel.repositoryModelId,
+          code: Code.createEmpty(),
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
+      await expect(
+        (importer as any).onInsertElementAspect({
+          classFullName: missing,
+          element: { id: IModel.rootSubjectId },
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
+      await expect(
+        (importer as any).onInsertRelationship({
+          classFullName: missing,
+          sourceId: IModel.rootSubjectId,
+          targetId: IModel.rootSubjectId,
+        })
+      ).to.be.rejectedWith(/not found in the target iModel/);
       expect(
         await importer.importElementMultiAspects([]),
         "empty aspect array should be a no-op"
       ).to.deep.equal([]);
+      editTxn.end("abandon");
     } finally {
       targetDb.close();
     }
@@ -191,22 +194,22 @@ describe("IModelImporter", () => {
       rootSubject: { name: "MissingIds" },
     });
     try {
-      const importer = new IModelImporter(targetDb);
-      await expectRejected(
-        async () => importer.importModel({} as any),
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn);
+      await expect(importer.importModel({} as any)).to.be.rejectedWith(
         /Model Id not provided/
       );
-      await expectRejected(
-        () => (importer as any).onUpdateElement({ classFullName: "BisCore:Subject" }),
-        /ElementId not provided/
-      );
-      await expectRejected(
-        () =>
-          (importer as any).onUpdateRelationship({
-            classFullName: "BisCore:ElementRefersToElements",
-          }),
-        /Relationship instance Id not provided/
-      );
+      await expect(
+        (importer as any).onUpdateElement({
+          classFullName: "BisCore:Subject",
+        })
+      ).to.be.rejectedWith(/ElementId not provided/);
+      await expect(
+        (importer as any).onUpdateRelationship({
+          classFullName: "BisCore:ElementRefersToElements",
+        })
+      ).to.be.rejectedWith(/Relationship instance Id not provided/);
+      editTxn.end("abandon");
     } finally {
       targetDb.close();
     }
@@ -221,18 +224,18 @@ describe("IModelImporter", () => {
       rootSubject: { name: "PreserveIds" },
     });
     try {
-      const importer = new IModelImporter(targetDb, {
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new IModelImporter(editTxn, {
         preserveElementIdsForFiltering: true,
       });
-      await expectRejected(
-        async () =>
-          importer.importElement({
-            classFullName: "BisCore:Subject",
-            model: IModel.repositoryModelId,
-            code: Code.createEmpty(),
-          } as any),
-        /must be defined during a preserveIds operation/
-      );
+      await expect(
+        importer.importElement({
+          classFullName: "BisCore:Subject",
+          model: IModel.repositoryModelId,
+          code: Code.createEmpty(),
+        } as any)
+      ).to.be.rejectedWith(/must be defined during a preserveIds operation/);
+      editTxn.end("abandon");
     } finally {
       targetDb.close();
     }

@@ -1451,6 +1451,7 @@ export class IModelTestUtils {
     briefcaseDb: BriefcaseDb,
     description: string
   ): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- transformer provenance writes use implicit APIs that leave unsaved changes
     briefcaseDb.saveChanges(description);
     await briefcaseDb.pushChanges({ accessToken, description });
   }

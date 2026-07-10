@@ -16,6 +16,7 @@ import {
   CategorySelector,
   DisplayStyle,
   DisplayStyle3d,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementRefersToElements,
@@ -63,19 +64,26 @@ export class Transformer extends IModelTransformer {
     targetDb: IModelDb,
     options?: TransformerOptions
   ): Promise<void> {
-    // might need to inject RequestContext for schemaExport.
-    const transformer = new Transformer(sourceDb, targetDb, options);
-    await transformer.initializeTransformer();
-    await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
-    await transformer.process();
-    await transformer.saveChanges("processAll");
-    if (options?.deleteUnusedGeometryParts) {
-      await transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+    const editTxn = new EditTxn(targetDb, "transform all");
+    editTxn.start();
+    try {
+      const transformer = new Transformer(sourceDb, editTxn, options);
+      await transformer.initializeTransformer();
+      await transformer.processSchemas();
+      await transformer.saveChanges("processSchemas");
+      await transformer.process();
+      await transformer.saveChanges("processAll");
+      if (options?.deleteUnusedGeometryParts) {
+        await transformer.deleteUnusedGeometryParts();
+        await transformer.saveChanges("deleteUnusedGeometryParts");
+      }
+      transformer.dispose();
+      editTxn.end();
+      transformer.logElapsedTime();
+    } catch (err) {
+      editTxn.end("abandon");
+      throw err;
     }
-    transformer.dispose();
-    transformer.logElapsedTime();
   }
 
   public static async transformChanges(
@@ -88,23 +96,31 @@ export class Transformer extends IModelTransformer {
       assert("" === sourceStartChangesetId);
       return this.transformAll(sourceDb, targetDb, options);
     }
-    const transformer = new Transformer(sourceDb, targetDb, {
-      ...options,
-      argsForProcessChanges: {
-        startChangeset: { id: sourceStartChangesetId },
-      },
-    });
-    await transformer.initializeTransformer();
-    await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
-    await transformer.process();
-    await transformer.saveChanges("processChanges");
-    if (options?.deleteUnusedGeometryParts) {
-      await transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+    const editTxn = new EditTxn(targetDb, "transform changes");
+    editTxn.start();
+    try {
+      const transformer = new Transformer(sourceDb, editTxn, {
+        ...options,
+        argsForProcessChanges: {
+          startChangeset: { id: sourceStartChangesetId },
+        },
+      });
+      await transformer.initializeTransformer();
+      await transformer.processSchemas();
+      await transformer.saveChanges("processSchemas");
+      await transformer.process();
+      await transformer.saveChanges("processChanges");
+      if (options?.deleteUnusedGeometryParts) {
+        await transformer.deleteUnusedGeometryParts();
+        await transformer.saveChanges("deleteUnusedGeometryParts");
+      }
+      transformer.dispose();
+      editTxn.end();
+      transformer.logElapsedTime();
+    } catch (err) {
+      editTxn.end("abandon");
+      throw err;
     }
-    transformer.dispose();
-    transformer.logElapsedTime();
   }
 
   /**
@@ -129,36 +145,46 @@ export class Transformer extends IModelTransformer {
         return super.shouldExportElement(sourceElement);
       }
     }
-    const transformer = new IsolateElementsTransformer(
-      sourceDb,
-      targetDb,
-      options
-    );
-    await transformer.initializeTransformer();
-    await transformer.processSchemas();
-    await transformer.saveChanges("processSchemas");
-    for (const id of isolatedElementIds) await transformer.processElement(id);
-    await transformer.saveChanges("process isolated elements");
-    if (options?.deleteUnusedGeometryParts) {
-      await transformer.deleteUnusedGeometryParts();
-      await transformer.saveChanges("deleteUnusedGeometryParts");
+    const editTxn = new EditTxn(targetDb, "transform isolated");
+    editTxn.start();
+    try {
+      const transformer = new IsolateElementsTransformer(
+        sourceDb,
+        editTxn,
+        options
+      );
+      await transformer.initializeTransformer();
+      await transformer.processSchemas();
+      await transformer.saveChanges("processSchemas");
+      for (const id of isolatedElementIds) await transformer.processElement(id);
+      await transformer.saveChanges("process isolated elements");
+      if (options?.deleteUnusedGeometryParts) {
+        await transformer.deleteUnusedGeometryParts();
+        await transformer.saveChanges("deleteUnusedGeometryParts");
+      }
+      transformer.logElapsedTime();
+      editTxn.end();
+      return transformer;
+    } catch (err) {
+      editTxn.end("abandon");
+      throw err;
     }
-    transformer.logElapsedTime();
-    return transformer;
   }
 
   private _transformerOptions?: TransformerOptions;
 
   private constructor(
     sourceDb: IModelDb,
-    targetDb: IModelDb,
+    editTxn: EditTxn,
     options?: TransformerOptions
   ) {
     super(
-      sourceDb,
-      new IModelImporter(targetDb, {
-        simplifyElementGeometry: options?.simplifyElementGeometry,
-      }),
+      {
+        source: sourceDb,
+        target: new IModelImporter(editTxn, {
+          simplifyElementGeometry: options?.simplifyElementGeometry,
+        }),
+      },
       options
     );
 
@@ -170,9 +196,8 @@ export class Transformer extends IModelTransformer {
 
     // customize transformer using the specified options
     if (options?.combinePhysicalModels) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
       this._targetPhysicalModelId = PhysicalModel.insert(
-        this.targetDb,
+        this._targetEditTxn,
         IModel.rootSubjectId,
         "CombinedPhysicalModel"
       ); // WIP: Id should be passed in, not inserted here
@@ -421,8 +446,7 @@ export class Transformer extends IModelTransformer {
   }
 
   private async saveChanges(description: string): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    this.targetDb.saveChanges(description);
+    this._targetEditTxn.saveChanges(description);
   }
 
   private logElapsedTime(): void {
@@ -453,7 +477,6 @@ export class Transformer extends IModelTransformer {
     })) {
       geometryPartIds.push(row.id);
     }
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    this.targetDb.elements.deleteDefinitionElements(geometryPartIds); // will delete only if unused
+    this._targetEditTxn.deleteDefinitionElements(geometryPartIds); // will delete only if unused
   }
 }

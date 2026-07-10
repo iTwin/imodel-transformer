@@ -25,7 +25,10 @@ import {
 } from "@itwin/core-common";
 import { expect } from "chai";
 import * as path from "path";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  createStartedEditTxn,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import { IModelTransformer } from "../../IModelTransformer";
@@ -118,11 +121,15 @@ describe("IModelCloneContext", () => {
       const targetDb = SnapshotDb.createEmpty(targetDbFile, {
         rootSubject: { name: "relationships-Target" },
       });
+
+      const targetEditTxn = createStartedEditTxn(targetDb);
       // Import from beneath source Subject into target Subject
-      const transformer = new IModelTransformer(sourceDb, targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: targetEditTxn,
+      });
       await transformer.process();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- saving changes from transformer.process()
-      targetDb.saveChanges();
+      targetEditTxn.end();
 
       // Assertion
       const sql = `SELECT r.ECInstanceId FROM ${ElementRefersToElements.classFullName} r

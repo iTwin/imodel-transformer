@@ -10,6 +10,7 @@ import { ChangesetFileProps } from '@itwin/core-common';
 import { ChangesetIndexAndId } from '@itwin/core-common';
 import { CodeSpec } from '@itwin/core-common';
 import * as ECSchemaMetaData from '@itwin/ecschema-metadata';
+import { EditTxn } from '@itwin/core-backend';
 import { Element as Element_2 } from '@itwin/core-backend';
 import { ElementAspect } from '@itwin/core-backend';
 import { ElementAspectProps } from '@itwin/core-common';
@@ -201,12 +202,14 @@ export abstract class IModelExportHandler {
 
 // @beta
 export class IModelImporter {
-    constructor(targetDb: IModelDb, options?: IModelImportOptions);
+    constructor(editTxn: EditTxn, options?: IModelImportOptions);
     computeProjectExtents(): void;
     deleteElement(elementId: Id64String): Promise<void>;
     deleteModel(modelId: Id64String): Promise<void>;
     deleteRelationship(relationshipProps: RelationshipPropsForDelete): Promise<void>;
     readonly doNotUpdateElementIds: Set<string>;
+    get editTxn(): EditTxn;
+    protected readonly _editTxn: EditTxn;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
@@ -245,8 +248,14 @@ export interface IModelImportOptions {
 }
 
 // @beta
+export interface IModelTransformArgs {
+    source: IModelDb | IModelExporter;
+    target: EditTxn | IModelImporter;
+}
+
+// @beta
 export class IModelTransformer extends IModelExportHandler {
-    constructor(source: IModelDb | IModelExporter, target: IModelDb | IModelImporter, options?: IModelTransformOptions);
+    constructor(args: IModelTransformArgs, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
     calculateEcefTransform(): Transform | undefined;
     // (undocumented)
@@ -316,7 +325,9 @@ export class IModelTransformer extends IModelExportHandler {
     shouldExportRelationship(_sourceRelationship: Relationship): Promise<boolean>;
     shouldExportSchema(schemaKey: ECSchemaMetaData.SchemaKey): Promise<boolean>;
     readonly sourceDb: IModelDb;
+    protected readonly _sourceEditTxn?: EditTxn;
     readonly targetDb: IModelDb;
+    protected readonly _targetEditTxn: EditTxn;
     get targetScopeElementId(): Id64String;
     // (undocumented)
     protected tryGetProvenanceScopeAspect(): Promise<ExternalSourceAspect | undefined>;
@@ -339,6 +350,7 @@ export interface IModelTransformOptions {
     optimizeGeometry?: OptimizeGeometryOptions;
     preserveElementIdsForFiltering?: boolean;
     skipPropagateChangesToRootElements?: boolean;
+    sourceEditTxn?: EditTxn;
     targetScopeElementId?: Id64String;
     tryAlignGeolocation?: boolean;
     wasSourceIModelCopiedToTarget?: boolean;
@@ -405,7 +417,7 @@ export interface TargetScopeProvenanceJsonProps {
 
 // @beta
 export class TemplateModelCloner extends IModelTransformer {
-    constructor(sourceDb: IModelDb, targetDb?: IModelDb);
+    constructor(editTxn: EditTxn);
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     placeTemplate2d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement2d): Promise<Map<Id64String, Id64String>>;
     placeTemplate3d(sourceTemplateModelId: Id64String, targetModelId: Id64String, placement: Placement3d): Promise<Map<Id64String, Id64String>>;

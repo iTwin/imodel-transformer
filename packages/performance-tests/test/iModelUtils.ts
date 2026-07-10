@@ -11,6 +11,7 @@ import {
   PhysicalObject,
   SpatialCategory,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Guid, OpenMode } from "@itwin/core-bentley";
 import { Code } from "@itwin/core-common";
@@ -44,64 +45,60 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
   setToStandalone(pathName);
   sourceDb = StandaloneDb.openFile(sourcePath, OpenMode.ReadWrite);
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const physModelId = PhysicalModel.insert(
-    sourceDb,
-    IModelDb.rootSubjectId,
-    "physical model"
-  );
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const categoryId = SpatialCategory.insert(
-    sourceDb,
-    IModelDb.dictionaryId,
-    "spatial category",
-    {}
-  );
+  withEditTxn(sourceDb, "generate test iModel", (txn) => {
+    const physModelId = PhysicalModel.insert(
+      txn,
+      IModelDb.rootSubjectId,
+      "physical model"
+    );
+    const categoryId = SpatialCategory.insert(
+      txn,
+      IModelDb.dictionaryId,
+      "spatial category",
+      {}
+    );
 
-  for (let i = 0; i < iModelParam.numElements / 2; ++i) {
-    const [id1, id2] = [0, 1].map((n) =>
-      new PhysicalObject(
-        {
-          classFullName: PhysicalObject.classFullName,
-          category: categoryId,
-          geom: IModelTransformerTestUtils.createBox(Point3d.create(i, i, i)),
-          placement: {
-            origin: Point3d.create(i, i, i),
-            angles: YawPitchRollAngles.createDegrees(i, i, i),
+    for (let i = 0; i < iModelParam.numElements / 2; ++i) {
+      const [id1, id2] = [0, 1].map((n) =>
+        new PhysicalObject(
+          {
+            classFullName: PhysicalObject.classFullName,
+            category: categoryId,
+            geom: IModelTransformerTestUtils.createBox(Point3d.create(i, i, i)),
+            placement: {
+              origin: Point3d.create(i, i, i),
+              angles: YawPitchRollAngles.createDegrees(i, i, i),
+            },
+            model: physModelId,
+            code: new Code({
+              spec: IModelDb.rootSubjectId,
+              scope: IModelDb.rootSubjectId,
+              value: `${2 * i + n}`,
+            }),
+            userLabel: `${2 * i + n}`,
+            federationGuid: iModelParam.fedGuids ? undefined : Guid.empty, // Guid.empty = 00000000-0000-0000-0000-000000000000
           },
-          model: physModelId,
-          code: new Code({
-            spec: IModelDb.rootSubjectId,
-            scope: IModelDb.rootSubjectId,
-            value: `${2 * i + n}`,
-          }),
-          userLabel: `${2 * i + n}`,
-          federationGuid: iModelParam.fedGuids ? undefined : Guid.empty, // Guid.empty = 00000000-0000-0000-0000-000000000000
+          sourceDb
+        ).insert(txn)
+      );
+
+      const rel = new ElementGroupsMembers(
+        {
+          classFullName: ElementGroupsMembers.classFullName,
+          sourceId: id1,
+          targetId: id2,
+          memberPriority: i,
         },
         sourceDb
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-      ).insert()
-    );
+      );
 
-    const rel = new ElementGroupsMembers(
-      {
-        classFullName: ElementGroupsMembers.classFullName,
-        sourceId: id1,
-        targetId: id2,
-        memberPriority: i,
-      },
-      sourceDb
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    rel.insert();
-  }
+      rel.insert(txn);
+    }
+  });
 
   const iModelId = sourceDb.iModelId;
   const iTwinId = sourceDb.iTwinId;
   const filePath = sourceDb.pathName;
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  sourceDb.saveChanges();
   sourceDb.close();
   const iModelToTest: TestIModel = {
     name: `testIModel-fedguids-${iModelParam.fedGuids}`,
