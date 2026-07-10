@@ -905,56 +905,50 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Separate Models" },
     });
-    const { sourceElementId11, sourceElementId21 } = withEditTxn(
-      sourceDb,
-      "insert test data",
-      (txn) => {
-        const sourceCategoryId = SpatialCategory.insert(
-          txn,
-          IModel.dictionaryId,
-          "Category",
-          {}
-        );
-        const sourceModelId1 = PhysicalModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "M1"
-        );
-        const sourceModelId2 = PhysicalModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "M2"
-        );
-        const sourceElementId11 = txn.insertElement({
-          classFullName: PhysicalObject.classFullName,
-          model: sourceModelId1,
-          code: Code.createEmpty(),
-          userLabel: "PhysicalObject-M1-E1",
-          category: sourceCategoryId,
-          geom: IModelTransformerTestUtils.createBox(new Point3d(1, 1, 1)),
-          placement: Placement3d.fromJSON({
-            origin: { x: 1, y: 1 },
-            angles: {},
-          }),
-        } as PhysicalElementProps);
-        const sourceElementId21 = txn.insertElement({
-          classFullName: PhysicalObject.classFullName,
-          model: sourceModelId2,
-          code: Code.createEmpty(),
-          userLabel: "PhysicalObject-M2-E1",
-          category: sourceCategoryId,
-          geom: IModelTransformerTestUtils.createBox(new Point3d(2, 2, 2)),
-          placement: Placement3d.fromJSON({
-            origin: { x: 2, y: 2 },
-            angles: {},
-          }),
-        } as PhysicalElementProps);
-        return {
-          sourceElementId11,
-          sourceElementId21,
-        };
-      }
-    );
+    let sourceElementId11!: Id64String;
+    let sourceElementId21!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      const sourceCategoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "Category",
+        {}
+      );
+      const sourceModelId1 = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "M1"
+      );
+      const sourceModelId2 = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "M2"
+      );
+      sourceElementId11 = txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: sourceModelId1,
+        code: Code.createEmpty(),
+        userLabel: "PhysicalObject-M1-E1",
+        category: sourceCategoryId,
+        geom: IModelTransformerTestUtils.createBox(new Point3d(1, 1, 1)),
+        placement: Placement3d.fromJSON({
+          origin: { x: 1, y: 1 },
+          angles: {},
+        }),
+      } as PhysicalElementProps);
+      sourceElementId21 = txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: sourceModelId2,
+        code: Code.createEmpty(),
+        userLabel: "PhysicalObject-M2-E1",
+        category: sourceCategoryId,
+        geom: IModelTransformerTestUtils.createBox(new Point3d(2, 2, 2)),
+        placement: Placement3d.fromJSON({
+          origin: { x: 2, y: 2 },
+          angles: {},
+        }),
+      } as PhysicalElementProps);
+    });
     assert.equal(await count(sourceDb, PhysicalPartition.classFullName), 2);
     assert.equal(await count(sourceDb, PhysicalModel.classFullName), 2);
     assert.equal(await count(sourceDb, PhysicalObject.classFullName), 2);
@@ -1781,7 +1775,8 @@ describe("IModelTransformer", () => {
         projectExtents.extendRange(viewExtents);
       }
     }
-    const exportViewId = withEditTxn(sourceDb, "insert test data", (txn) => {
+    let exportViewId!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
       txn.updateProjectExtents(projectExtents);
       const exportCategorySelectorId = CategorySelector.insert(
         txn,
@@ -1832,7 +1827,7 @@ describe("IModelTransformer", () => {
           )!,
         ]
       );
-      const exportViewId = OrthographicViewDefinition.insert(
+      exportViewId = OrthographicViewDefinition.insert(
         txn,
         IModel.dictionaryId,
         "Export",
@@ -1844,8 +1839,6 @@ describe("IModelTransformer", () => {
       );
 
       txn.updateProjectExtents(sourceDb.projectExtents);
-
-      return exportViewId;
     });
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -2031,8 +2024,9 @@ describe("IModelTransformer", () => {
     // add a drawing to the document partition's model
     // submodel our drawing with a DrawingModel
     // insert a definition element which is scoped by a non-definition element (the drawing)
-    const drawingId = withEditTxn(sourceDb, "insert test data", (txn) => {
-      const drawingId = txn.insertElement({
+    let drawingId!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      drawingId = txn.insertElement({
         classFullName: Drawing.classFullName,
         model: documentListModelId,
         code: Drawing.createCode(sourceDb, documentListModelId, "Drawing"),
@@ -2060,7 +2054,6 @@ describe("IModelTransformer", () => {
           value: "physical material",
         }),
       } as DefinitionElementProps);
-      return drawingId;
     });
     expect(Id64.isValidId64(drawingId)).to.be.true;
 
@@ -2120,77 +2113,74 @@ describe("IModelTransformer", () => {
     );
 
     // add a drawing to the document partition's model
-    const { drawingGraphic2Id, _drawingGraphic1Id } = withEditTxn(
-      sourceDb,
-      "insert test data",
-      (txn) => {
-        const drawing1Id = txn.insertElement({
-          classFullName: Drawing.classFullName,
-          model: documentListModelId,
-          code: Drawing.createCode(sourceDb, documentListModelId, "Drawing1"),
-        });
-        const drawing2Id = txn.insertElement({
-          classFullName: Drawing.classFullName,
-          model: documentListModelId,
-          code: Drawing.createCode(sourceDb, documentListModelId, "Drawing2"),
-        });
+    let drawingGraphic2Id!: Id64String;
+    let _drawingGraphic1Id!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      const drawing1Id = txn.insertElement({
+        classFullName: Drawing.classFullName,
+        model: documentListModelId,
+        code: Drawing.createCode(sourceDb, documentListModelId, "Drawing1"),
+      });
+      const drawing2Id = txn.insertElement({
+        classFullName: Drawing.classFullName,
+        model: documentListModelId,
+        code: Drawing.createCode(sourceDb, documentListModelId, "Drawing2"),
+      });
 
-        const drawingModel1 = sourceDb.models.createModel({
-          classFullName: DrawingModel.classFullName,
-          modeledElement: { id: drawing1Id },
-        });
-        const drawingModel1Id = txn.insertModel(drawingModel1.toJSON());
+      const drawingModel1 = sourceDb.models.createModel({
+        classFullName: DrawingModel.classFullName,
+        modeledElement: { id: drawing1Id },
+      });
+      const drawingModel1Id = txn.insertModel(drawingModel1.toJSON());
 
-        const drawingModel2 = sourceDb.models.createModel({
-          classFullName: DrawingModel.classFullName,
-          modeledElement: { id: drawing2Id },
-        });
-        const drawingModel2Id = txn.insertModel(drawingModel2.toJSON());
-        const modelCodeSpec = sourceDb.codeSpecs.insert(
-          txn,
-          CodeSpec.create(sourceDb, "ModelCodeSpec", CodeScopeSpec.Type.Model)
-        );
-        const relatedCodeSpecId = sourceDb.codeSpecs.insert(
-          txn,
-          CodeSpec.create(
-            sourceDb,
-            "RelatedCodeSpec",
-            CodeScopeSpec.Type.RelatedElement
-          )
-        );
-        const categoryId = DrawingCategory.insert(
-          txn,
-          IModel.dictionaryId,
-          "DrawingCategory",
-          {
-            color: ColorDef.green.toJSON(),
-          }
-        );
+      const drawingModel2 = sourceDb.models.createModel({
+        classFullName: DrawingModel.classFullName,
+        modeledElement: { id: drawing2Id },
+      });
+      const drawingModel2Id = txn.insertModel(drawingModel2.toJSON());
+      const modelCodeSpec = sourceDb.codeSpecs.insert(
+        txn,
+        CodeSpec.create(sourceDb, "ModelCodeSpec", CodeScopeSpec.Type.Model)
+      );
+      const relatedCodeSpecId = sourceDb.codeSpecs.insert(
+        txn,
+        CodeSpec.create(
+          sourceDb,
+          "RelatedCodeSpec",
+          CodeScopeSpec.Type.RelatedElement
+        )
+      );
+      const categoryId = DrawingCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "DrawingCategory",
+        {
+          color: ColorDef.green.toJSON(),
+        }
+      );
 
-        // we make drawingGraphic2 in drawingModel2 first
-        const drawingGraphic2Id = txn.insertElement({
-          classFullName: DrawingGraphic.classFullName,
-          model: drawingModel2Id,
-          code: new Code({
-            spec: modelCodeSpec,
-            scope: drawingModel2Id,
-            value: "drawing graphic 2",
-          }),
-          category: categoryId,
-        } as GeometricElement2dProps);
-        const _drawingGraphic1Id = txn.insertElement({
-          classFullName: DrawingGraphic.classFullName,
-          model: drawingModel1Id,
-          code: new Code({
-            spec: relatedCodeSpecId,
-            scope: drawingGraphic2Id,
-            value: "drawing graphic 1",
-          }),
-          category: categoryId,
-        } as GeometricElement2dProps);
-        return { drawingGraphic2Id, _drawingGraphic1Id };
-      }
-    );
+      // we make drawingGraphic2 in drawingModel2 first
+      drawingGraphic2Id = txn.insertElement({
+        classFullName: DrawingGraphic.classFullName,
+        model: drawingModel2Id,
+        code: new Code({
+          spec: modelCodeSpec,
+          scope: drawingModel2Id,
+          value: "drawing graphic 2",
+        }),
+        category: categoryId,
+      } as GeometricElement2dProps);
+      _drawingGraphic1Id = txn.insertElement({
+        classFullName: DrawingGraphic.classFullName,
+        model: drawingModel1Id,
+        code: new Code({
+          spec: relatedCodeSpecId,
+          scope: drawingGraphic2Id,
+          value: "drawing graphic 1",
+        }),
+        category: categoryId,
+      } as GeometricElement2dProps);
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2381,100 +2371,98 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
       rootSubject: { name: "PreserveId" },
     });
-    const { spatialCateg1Id, spatialCateg2Id, physicalPartitions, linksIds } =
-      withEditTxn(sourceDb, "insert test data", (txn) => {
-        const spatialCateg1Id = SpatialCategory.insert(
-          txn,
-          IModelDb.dictionaryId,
-          "spatial-category1",
-          { color: ColorDef.blue.toJSON() }
-        );
-        const spatialCateg2Id = SpatialCategory.insert(
-          txn,
-          IModelDb.dictionaryId,
-          "spatial-category2",
-          { color: ColorDef.red.toJSON() }
-        );
-        const myPhysModelId = PhysicalModel.insert(
-          txn,
-          IModelDb.rootSubjectId,
-          "myPhysicalModel"
-        );
+    let spatialCateg2Id!: Id64String;
+    let physicalPartitions!: Array<{
+      modelId: Id64String;
+      partitionId: Id64String;
+    }>;
+    let linksIds!: Id64String[];
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      const spatialCateg1Id = SpatialCategory.insert(
+        txn,
+        IModelDb.dictionaryId,
+        "spatial-category1",
+        { color: ColorDef.blue.toJSON() }
+      );
+      spatialCateg2Id = SpatialCategory.insert(
+        txn,
+        IModelDb.dictionaryId,
+        "spatial-category2",
+        { color: ColorDef.red.toJSON() }
+      );
+      const myPhysModelId = PhysicalModel.insert(
+        txn,
+        IModelDb.rootSubjectId,
+        "myPhysicalModel"
+      );
 
-        [
-          spatialCateg1Id,
-          spatialCateg2Id,
-          spatialCateg2Id,
-          spatialCateg2Id,
-          spatialCateg2Id,
-        ].forEach((categoryId, x) => {
-          txn.insertElement({
-            classFullName: PhysicalObject.classFullName,
-            model: myPhysModelId,
-            category: categoryId,
-            code: Code.createEmpty(),
-            userLabel: `PhysicalObject(${x})`,
-            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-            placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
-          } as PhysicalElementProps);
-        });
-
-        // these link table relationships (ElementRefersToElements > PartitionOriginatesFromRepository) are examples of non-element entities
-        const physicalPartitions = new Array(3).fill(null).map((_, index) => {
-          const partitionId = txn.insertElement({
-            classFullName: PhysicalPartition.classFullName,
-            model: IModelDb.rootSubjectId,
-            parent: {
-              id: IModelDb.rootSubjectId,
-              relClassName: ElementOwnsChildElements.classFullName,
-            },
-            code: PhysicalPartition.createCode(
-              sourceDb,
-              IModelDb.rootSubjectId,
-              `physical-partition-${index}`
-            ),
-          } as InformationPartitionElementProps);
-          const modelId = txn.insertModel({
-            classFullName: PhysicalModel.classFullName,
-            modeledElement: { id: partitionId },
-          } as ModelProps);
-          return { modelId, partitionId }; // these are the same id because of submodeling
-        });
-
-        const linksIds = new Array(2).fill(null).map((_, index) =>
-          txn.insertElement({
-            classFullName: RepositoryLink.classFullName,
-            code: RepositoryLink.createCode(
-              sourceDb,
-              IModelDb.rootSubjectId,
-              `repo-link-${index}`
-            ),
-            model: IModelDb.rootSubjectId,
-            repositoryGuid: `2fd0e5ed-a4d7-40cd-be8a-57552f5736b${index}`, // random, doesn't matter, works for up to 10 of course
-            format: "my-format",
-          } as RepositoryLinkProps)
-        );
-
-        [
-          [physicalPartitions[1].partitionId, linksIds[0]],
-          [physicalPartitions[1].partitionId, linksIds[1]],
-          [physicalPartitions[2].partitionId, linksIds[0]],
-          [physicalPartitions[2].partitionId, linksIds[1]],
-        ].forEach(([sourceId, targetId]) =>
-          txn.insertRelationship({
-            classFullName: "BisCore:PartitionOriginatesFromRepository",
-            sourceId,
-            targetId,
-          })
-        );
-
-        return {
-          spatialCateg1Id,
-          spatialCateg2Id,
-          physicalPartitions,
-          linksIds,
-        };
+      [
+        spatialCateg1Id,
+        spatialCateg2Id,
+        spatialCateg2Id,
+        spatialCateg2Id,
+        spatialCateg2Id,
+      ].forEach((categoryId, x) => {
+        txn.insertElement({
+          classFullName: PhysicalObject.classFullName,
+          model: myPhysModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          userLabel: `PhysicalObject(${x})`,
+          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+          placement: Placement3d.fromJSON({ origin: { x }, angles: {} }),
+        } as PhysicalElementProps);
       });
+
+      // these link table relationships (ElementRefersToElements > PartitionOriginatesFromRepository) are examples of non-element entities
+      physicalPartitions = new Array(3).fill(null).map((_, index) => {
+        const partitionId = txn.insertElement({
+          classFullName: PhysicalPartition.classFullName,
+          model: IModelDb.rootSubjectId,
+          parent: {
+            id: IModelDb.rootSubjectId,
+            relClassName: ElementOwnsChildElements.classFullName,
+          },
+          code: PhysicalPartition.createCode(
+            sourceDb,
+            IModelDb.rootSubjectId,
+            `physical-partition-${index}`
+          ),
+        } as InformationPartitionElementProps);
+        const modelId = txn.insertModel({
+          classFullName: PhysicalModel.classFullName,
+          modeledElement: { id: partitionId },
+        } as ModelProps);
+        return { modelId, partitionId }; // these are the same id because of submodeling
+      });
+
+      linksIds = new Array(2).fill(null).map((_, index) =>
+        txn.insertElement({
+          classFullName: RepositoryLink.classFullName,
+          code: RepositoryLink.createCode(
+            sourceDb,
+            IModelDb.rootSubjectId,
+            `repo-link-${index}`
+          ),
+          model: IModelDb.rootSubjectId,
+          repositoryGuid: `2fd0e5ed-a4d7-40cd-be8a-57552f5736b${index}`, // random, doesn't matter, works for up to 10 of course
+          format: "my-format",
+        } as RepositoryLinkProps)
+      );
+
+      [
+        [physicalPartitions[1].partitionId, linksIds[0]],
+        [physicalPartitions[1].partitionId, linksIds[1]],
+        [physicalPartitions[2].partitionId, linksIds[0]],
+        [physicalPartitions[2].partitionId, linksIds[1]],
+      ].forEach(([sourceId, targetId]) =>
+        txn.insertRelationship({
+          classFullName: "BisCore:PartitionOriginatesFromRepository",
+          sourceId,
+          targetId,
+        })
+      );
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -2645,35 +2633,33 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(opts.path, {
       rootSubject: { name: opts.name },
     });
-    const [sourceCategoryId, sourceModelId, myPhysObjCodeSpecId] = withEditTxn(
-      sourceDb,
-      "insert test data",
-      (txn) => {
-        const sourceCategoryId = SpatialCategory.insert(
-          txn,
-          IModel.dictionaryId,
-          "SpatialCategory",
-          {
-            color: ColorDef.green.toJSON(),
-          }
-        );
-        const sourceModelId = PhysicalModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "Physical"
-        );
-        const myPhysObjCodeSpec = CodeSpec.create(
-          sourceDb,
-          "myPhysicalObjects",
-          CodeScopeSpec.Type.ParentElement
-        );
-        const myPhysObjCodeSpecId = sourceDb.codeSpecs.insert(
-          txn,
-          myPhysObjCodeSpec
-        );
-        return [sourceCategoryId, sourceModelId, myPhysObjCodeSpecId] as const;
-      }
-    );
+    let sourceCategoryId!: Id64String;
+    let sourceModelId!: Id64String;
+    let myPhysObjCodeSpecId!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      sourceCategoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        {
+          color: ColorDef.green.toJSON(),
+        }
+      );
+      sourceModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "Physical"
+      );
+      const myPhysObjCodeSpecDefinition = CodeSpec.create(
+        sourceDb,
+        "myPhysicalObjects",
+        CodeScopeSpec.Type.ParentElement
+      );
+      myPhysObjCodeSpecId = sourceDb.codeSpecs.insert(
+        txn,
+        myPhysObjCodeSpecDefinition
+      );
+    });
     const myPhysObjCodeSpec = sourceDb.codeSpecs.getById(myPhysObjCodeSpecId);
     const physicalObjects = [1, 2].map((x) => {
       const code = new Code({
@@ -2697,8 +2683,9 @@ describe("IModelTransformer", () => {
     });
     const physObjId2 = physicalObjects[1].id;
     // this deletion makes the display style have an reference to a now-gone element
-    const displayStyleId = withEditTxn(sourceDb, "insert test data", (txn) => {
-      const displayStyleId = DisplayStyle3d.insert(
+    let displayStyleId!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      displayStyleId = DisplayStyle3d.insert(
         txn,
         IModel.dictionaryId,
         "MyDisplayStyle",
@@ -2707,7 +2694,6 @@ describe("IModelTransformer", () => {
         }
       );
       txn.deleteElement(physObjId2);
-      return displayStyleId;
     });
     const displayStyleCode = sourceDb.elements.getElement(displayStyleId).code;
 
@@ -3427,28 +3413,25 @@ describe("IModelTransformer", () => {
     );
 
     await sourceDb.importSchemas([testSchema1Path]);
-    const [navPropTargetId, elemWithNavPropId] = withEditTxn(
-      sourceDb,
-      "insertElement",
-      (txn) => {
-        const navPropTargetId = txn.insertElement({
-          classFullName: "TestGeneratedClasses:TestEntity",
-          prop: "sample-value",
-          model: IModelDb.dictionaryId,
-          code: Code.createEmpty(),
-        } as ElementProps);
-        const elemWithNavPropId = txn.insertElement({
-          classFullName: "TestGeneratedClasses:TestElementWithNavProp",
-          navProp: {
-            id: navPropTargetId,
-            relClassName: "TestGeneratedClasses:ElemRel",
-          },
-          model: IModelDb.dictionaryId,
-          code: Code.createEmpty(),
-        } as ElementProps);
-        return [navPropTargetId, elemWithNavPropId] as const;
-      }
-    );
+    let navPropTargetId!: Id64String;
+    let elemWithNavPropId!: Id64String;
+    withEditTxn(sourceDb, "insertElement", (txn) => {
+      navPropTargetId = txn.insertElement({
+        classFullName: "TestGeneratedClasses:TestEntity",
+        prop: "sample-value",
+        model: IModelDb.dictionaryId,
+        code: Code.createEmpty(),
+      } as ElementProps);
+      elemWithNavPropId = txn.insertElement({
+        classFullName: "TestGeneratedClasses:TestElementWithNavProp",
+        navProp: {
+          id: navPropTargetId,
+          relClassName: "TestGeneratedClasses:ElemRel",
+        },
+        model: IModelDb.dictionaryId,
+        code: Code.createEmpty(),
+      } as ElementProps);
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3621,13 +3604,7 @@ describe("IModelTransformer", () => {
 
     await sourceDb.importSchemas([testSchema1Path]);
     const relPropValue = "prop";
-    const [
-      myPhysicalModelId,
-      mySpatialCategId,
-      myPhysicalObjId,
-      myDisplayStyleId,
-      _relInstId,
-    ] = withEditTxn(sourceDb, "insert test data", (txn) => {
+    withEditTxn(sourceDb, "insert test data", (txn) => {
       const myPhysicalModelId = PhysicalModel.insert(
         txn,
         IModelDb.rootSubjectId,
@@ -3659,19 +3636,12 @@ describe("IModelTransformer", () => {
           excludedElements: [myPhysicalObjId],
         }
       );
-      const relInstId = txn.insertRelationship({
+      txn.insertRelationship({
         sourceId: myDisplayStyleId,
         targetId: myPhysicalObjId,
         classFullName: "TestSchema1:MyElemRefersToElem",
         prop: relPropValue,
       } as RelationshipProps);
-      return [
-        myPhysicalModelId,
-        mySpatialCategId,
-        myPhysicalObjId,
-        myDisplayStyleId,
-        relInstId,
-      ] as const;
     });
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3805,7 +3775,7 @@ describe("IModelTransformer", () => {
     );
 
     await sourceDb.importSchemas([testSchema1Path]);
-    const [a1Id, a2Id, a4Id] = withEditTxn(sourceDb, "insertElement", (txn) => {
+    withEditTxn(sourceDb, "insertElement", (txn) => {
       const a1Id = txn.insertElement({
         classFullName: "TestSchema:A",
         // will be updated later to include this
@@ -3834,7 +3804,6 @@ describe("IModelTransformer", () => {
         id: a4Id,
         anotherA: { id: a4Id, relClassName: "TestSchema:AtoA" },
       } as any);
-      return [a1Id, a2Id, a4Id] as const;
     });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
@@ -3878,26 +3847,22 @@ describe("IModelTransformer", () => {
       "DGN"
     );
     const extSrcAspect1Identifier = Guid.empty;
-    const [elem1Id, _extSrcAspect1Id] = withEditTxn(
-      sourceDb,
-      "insert test data",
-      (txn) => {
-        const elem1Id = PhysicalModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "phys-model-in-target"
-        );
-        const extSrcAspect1: ExternalSourceAspectProps = {
-          classFullName: ExternalSourceAspect.classFullName,
-          element: { id: elem1Id },
-          kind: ExternalSourceAspect.Kind.Element,
-          identifier: extSrcAspect1Identifier, // doesn't matter, any identifier in the hypothetical source
-          scope: { id: sourceRepositoryId },
-        };
-        const extSrcAspect1Id = txn.insertAspect(extSrcAspect1);
-        return [elem1Id, extSrcAspect1Id] as const;
-      }
-    );
+    let elem1Id!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      elem1Id = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "phys-model-in-target"
+      );
+      const extSrcAspect1: ExternalSourceAspectProps = {
+        classFullName: ExternalSourceAspect.classFullName,
+        element: { id: elem1Id },
+        kind: ExternalSourceAspect.Kind.Element,
+        identifier: extSrcAspect1Identifier, // doesn't matter, any identifier in the hypothetical source
+        scope: { id: sourceRepositoryId },
+      };
+      txn.insertAspect(extSrcAspect1);
+    });
 
     const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -3945,64 +3910,59 @@ describe("IModelTransformer", () => {
       rootSubject: { name: "AspectIdOrderSource" },
     });
     await TransformerExtensiveTestScenario.prepareDb(sourceDb);
-    const [spatialCategoryId, physicalModelId, physicalObj1InSourceId] =
-      withEditTxn(sourceDb, "insert test data", (txn) => {
-        const spatialCategoryId = SpatialCategory.insert(
-          txn,
-          IModel.dictionaryId,
-          "SpatialCategory",
-          {
-            color: ColorDef.green.toJSON(),
-          }
-        );
-        const physicalModelId = PhysicalModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "phys-model"
-        );
-        const physicalObj1InSourceId = txn.insertElement({
-          classFullName: PhysicalObject.classFullName,
-          model: physicalModelId,
-          category: spatialCategoryId,
-          code: Code.createEmpty(),
-          userLabel: "PhysicalObject1",
-          geom: TestUtils.IModelTestUtils.createBox(
-            Point3d.create(1, 1, 1),
-            spatialCategoryId
-          ),
-          placement: {
-            origin: Point3d.create(1, 1, 1),
-            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-          },
-        } as PhysicalElementProps);
-        txn.insertAspect({
-          classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
-          element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
-          value: "1",
-        } as ElementAspectProps);
-        txn.insertAspect({
-          classFullName: "ExtensiveTestScenario:SourceMultiAspect",
-          element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
-          commonDouble: 2.2,
-          commonString: "2",
-          commonLong: physicalObj1InSourceId,
-          sourceDouble: 22.2,
-          sourceString: "2",
-          sourceLong: physicalObj1InSourceId,
-          sourceGuid: Guid.createValue(),
-          extraString: "2",
-        } as ElementAspectProps);
-        txn.insertAspect({
-          classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
-          element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
-          value: "3",
-        } as ElementAspectProps);
-        return [
-          spatialCategoryId,
-          physicalModelId,
-          physicalObj1InSourceId,
-        ] as const;
-      });
+    let physicalObj1InSourceId!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      const spatialCategoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        {
+          color: ColorDef.green.toJSON(),
+        }
+      );
+      const physicalModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "phys-model"
+      );
+      physicalObj1InSourceId = txn.insertElement({
+        classFullName: PhysicalObject.classFullName,
+        model: physicalModelId,
+        category: spatialCategoryId,
+        code: Code.createEmpty(),
+        userLabel: "PhysicalObject1",
+        geom: TestUtils.IModelTestUtils.createBox(
+          Point3d.create(1, 1, 1),
+          spatialCategoryId
+        ),
+        placement: {
+          origin: Point3d.create(1, 1, 1),
+          angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+        },
+      } as PhysicalElementProps);
+      txn.insertAspect({
+        classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
+        element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
+        value: "1",
+      } as ElementAspectProps);
+      txn.insertAspect({
+        classFullName: "ExtensiveTestScenario:SourceMultiAspect",
+        element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
+        commonDouble: 2.2,
+        commonString: "2",
+        commonLong: physicalObj1InSourceId,
+        sourceDouble: 22.2,
+        sourceString: "2",
+        sourceLong: physicalObj1InSourceId,
+        sourceGuid: Guid.createValue(),
+        extraString: "2",
+      } as ElementAspectProps);
+      txn.insertAspect({
+        classFullName: "ExtensiveTestScenario:AdditionalMultiAspect",
+        element: new ElementOwnsMultiAspects(physicalObj1InSourceId),
+        value: "3",
+      } as ElementAspectProps);
+    });
 
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
@@ -4303,39 +4263,37 @@ describe("IModelTransformer", () => {
     });
 
     const nbsp = "\xa0";
-    const [spatialCategId, physModelId, physObjectId] = withEditTxn(
-      sourceDb,
-      "insert test data",
-      (txn) => {
-        const spatialCategId = SpatialCategory.insert(
-          txn,
-          IModelDb.dictionaryId,
-          `SpatialCategory${nbsp}`,
-          {}
-        );
-        const physModelId = PhysicalModel.insert(
-          txn,
-          IModelDb.rootSubjectId,
-          `PhysicalModel${nbsp}`
-        );
+    let spatialCategId!: Id64String;
+    let physModelId!: Id64String;
+    let physObjectId!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      spatialCategId = SpatialCategory.insert(
+        txn,
+        IModelDb.dictionaryId,
+        `SpatialCategory${nbsp}`,
+        {}
+      );
+      physModelId = PhysicalModel.insert(
+        txn,
+        IModelDb.rootSubjectId,
+        `PhysicalModel${nbsp}`
+      );
 
-        const physObjectProps: PhysicalElementProps = {
-          classFullName: PhysicalObject.classFullName,
-          model: physModelId,
-          category: spatialCategId,
-          code: new Code({
-            scope: "0x1",
-            spec: "0x1",
-            value: `PhysicalObject${nbsp}`,
-          }),
-          userLabel: `PhysicalObject${nbsp}`,
-          geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-          placement: Placement3d.fromJSON({ origin: { x: 0 }, angles: {} }),
-        };
-        const physObjectId = txn.insertElement(physObjectProps);
-        return [spatialCategId, physModelId, physObjectId] as const;
-      }
-    );
+      const physObjectProps: PhysicalElementProps = {
+        classFullName: PhysicalObject.classFullName,
+        model: physModelId,
+        category: spatialCategId,
+        code: new Code({
+          scope: "0x1",
+          spec: "0x1",
+          value: `PhysicalObject${nbsp}`,
+        }),
+        userLabel: `PhysicalObject${nbsp}`,
+        geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
+        placement: Placement3d.fromJSON({ origin: { x: 0 }, angles: {} }),
+      };
+      physObjectId = txn.insertElement(physObjectProps);
+    });
     const subCategId = Id64.fromUint32Pair(parseInt(spatialCategId, 16) + 1, 0);
 
     expect(sourceDb.elements.getElement(spatialCategId).code.value).to.equal(
@@ -4514,17 +4472,11 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Separate Models" },
     });
-    const [
-      codeSpecId,
-      category,
-      subject,
-      model1,
-      model2,
-      element11,
-      element12,
-      element21,
-      element22,
-    ] = withEditTxn(sourceDb, "insert test data", (txn) => {
+    let element11!: Id64String;
+    let element12!: Id64String;
+    let element21!: Id64String;
+    let element22!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
       const codeSpec = CodeSpec.create(
         sourceDb,
         "Test CodeSpec",
@@ -4545,7 +4497,7 @@ describe("IModelTransformer", () => {
       );
       const model1 = PhysicalModel.insert(txn, subject, "Model 1");
       const model2 = PhysicalModel.insert(txn, subject, "Model 2");
-      const element11 = txn.insertElement({
+      element11 = txn.insertElement({
         category,
         classFullName: PhysicalObject.classFullName,
         code: new Code({
@@ -4555,7 +4507,7 @@ describe("IModelTransformer", () => {
         }),
         model: model1,
       } as PhysicalElementProps);
-      const element12 = txn.insertElement({
+      element12 = txn.insertElement({
         category,
         classFullName: PhysicalObject.classFullName,
         code: new Code({
@@ -4566,7 +4518,7 @@ describe("IModelTransformer", () => {
         model: model1,
         parent: new ElementOwnsChildElements(element11),
       } as PhysicalElementProps);
-      const element21 = txn.insertElement({
+      element21 = txn.insertElement({
         category,
         classFullName: PhysicalObject.classFullName,
         code: new Code({
@@ -4576,7 +4528,7 @@ describe("IModelTransformer", () => {
         }),
         model: model2,
       } as PhysicalElementProps);
-      const element22 = txn.insertElement({
+      element22 = txn.insertElement({
         category,
         classFullName: PhysicalObject.classFullName,
         code: new Code({
@@ -4587,17 +4539,6 @@ describe("IModelTransformer", () => {
         model: model2,
         parent: new ElementOwnsChildElements(element21),
       } as PhysicalElementProps);
-      return [
-        codeSpecId,
-        category,
-        subject,
-        model1,
-        model2,
-        element11,
-        element12,
-        element21,
-        element22,
-      ] as const;
     });
 
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -4780,34 +4721,31 @@ describe("IModelTransformer", () => {
     </ECSchema>
     `;
     await sourceDb.importSchemaStrings([customSchema]);
-    const [sourceCategoryId, sourceModelId, sourceReferencedElementId] =
-      withEditTxn(sourceDb, "insert test data", (txn) => {
-        const sourceCategoryId = SpatialCategory.insert(
-          txn,
-          IModel.dictionaryId,
-          "SpatialCategory",
-          {
-            color: ColorDef.blue.toJSON(),
-          }
-        );
-        const sourceModelId = PhysicalModel.insert(
-          txn,
-          IModel.rootSubjectId,
-          "PhysicalModel"
-        );
-        const sourceReferencedElementId = txn.insertElement({
-          classFullName: "CustomSchema:CustomPhysicalElement",
-          category: sourceCategoryId,
-          code: Code.createEmpty(),
-          userLabel: "Referenced Element",
-          model: sourceModelId,
-        } as PhysicalElementProps);
-        return [
-          sourceCategoryId,
-          sourceModelId,
-          sourceReferencedElementId,
-        ] as const;
-      });
+    let sourceCategoryId!: Id64String;
+    let sourceModelId!: Id64String;
+    let sourceReferencedElementId!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      sourceCategoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "SpatialCategory",
+        {
+          color: ColorDef.blue.toJSON(),
+        }
+      );
+      sourceModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "PhysicalModel"
+      );
+      sourceReferencedElementId = txn.insertElement({
+        classFullName: "CustomSchema:CustomPhysicalElement",
+        category: sourceCategoryId,
+        code: Code.createEmpty(),
+        userLabel: "Referenced Element",
+        model: sourceModelId,
+      } as PhysicalElementProps);
+    });
     const defaultSourceReferencerElementProps = {
       classFullName: "CustomSchema:CustomPhysicalElement",
       category: sourceCategoryId,
@@ -5042,14 +4980,13 @@ describe("IModelTransformer", () => {
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: { name: "Transform3d-Source" },
     });
-    const [
-      categoryId,
-      sourceModelId,
-      renderMaterialBothImgsId,
-      texture1Id,
-      texture2Id,
-    ] = withEditTxn(sourceDb, "insert test data", (txn) => {
-      const categoryId = SpatialCategory.insert(
+    let categoryId!: Id64String;
+    let sourceModelId!: Id64String;
+    let renderMaterialBothImgsId!: Id64String;
+    let texture1Id!: Id64String;
+    let texture2Id!: Id64String;
+    withEditTxn(sourceDb, "insert test data", (txn) => {
+      categoryId = SpatialCategory.insert(
         txn,
         IModel.dictionaryId,
         "SpatialCategory",
@@ -5057,12 +4994,12 @@ describe("IModelTransformer", () => {
           color: ColorDef.green.toJSON(),
         }
       );
-      const sourceModelId = PhysicalModel.insert(
+      sourceModelId = PhysicalModel.insert(
         txn,
         IModel.rootSubjectId,
         "Physical"
       );
-      const renderMaterialBothImgsId = RenderMaterialElement.insert(
+      renderMaterialBothImgsId = RenderMaterialElement.insert(
         txn,
         IModel.dictionaryId,
         "TextureMaterialBothImgs",
@@ -5070,7 +5007,7 @@ describe("IModelTransformer", () => {
           paletteName: "something",
         }
       );
-      const texture1Id = Texture.insertTexture(
+      texture1Id = Texture.insertTexture(
         txn,
         IModel.dictionaryId,
         "Texture1",
@@ -5078,7 +5015,7 @@ describe("IModelTransformer", () => {
         TestUtils.samplePngTexture.base64,
         "texture 1"
       );
-      const texture2Id = Texture.insertTexture(
+      texture2Id = Texture.insertTexture(
         txn,
         IModel.dictionaryId,
         "Texture2",
@@ -5086,13 +5023,6 @@ describe("IModelTransformer", () => {
         TestUtils.samplePngTexture.base64,
         "texture 2"
       );
-      return [
-        categoryId,
-        sourceModelId,
-        renderMaterialBothImgsId,
-        texture1Id,
-        texture2Id,
-      ] as const;
     });
     const category = sourceDb.elements.getElement<SpatialCategory>(categoryId);
 
