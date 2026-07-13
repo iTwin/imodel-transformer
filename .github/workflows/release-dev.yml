@@ -28,13 +28,11 @@ jobs:
 
     - name: Install pnpm
       uses: pnpm/action-setup@v4
-      with:
-        version: 9.14.2
 
-    - name: Use Node.js 22
+    - name: Use Node.js 24
       uses: actions/setup-node@v3
       with:
-        node-version: 22.12.0
+        node-version: 24.18.0
         registry-url: https://registry.npmjs.org/
 
     - name: Install dependencies

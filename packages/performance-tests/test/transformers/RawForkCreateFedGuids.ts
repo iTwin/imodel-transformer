@@ -7,11 +7,11 @@ import {
   TestTransformerModule,
   TransformRunner,
 } from "../TestTransformerModule";
+import { StandaloneDb } from "@itwin/core-backend";
 import { initOutputFile } from "../TestUtils";
 import * as fs from "fs";
 import { setToStandalone } from "../iModelUtils";
 import path from "path";
-import { StandaloneDb } from "@itwin/core-backend";
 
 const outputDir = path.join(__dirname, ".output");
 
@@ -31,6 +31,7 @@ const rawForkCreateFedGuidsTestModule: TestTransformerModule = {
           branch: targetDb,
           createFedGuidsForMaster: true,
         });
+        // Note: initializeBranchProvenance with createFedGuidsForMaster closes both dbs internally
       },
     };
   },

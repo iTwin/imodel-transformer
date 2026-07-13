@@ -58,6 +58,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceElement.forEach((name: string, property: Property) => {
       if (
         property.isNavigation() &&
@@ -266,6 +267,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
       sourceElementAspect.toJSON();
     targetElementAspectProps.id = undefined;
     const targetEntityIds: Promise<void>[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     sourceElementAspect.forEach((ecName, property) => {
       const name = ECJsNames.toJsName(ecName);
       if (property.isNavigation()) {

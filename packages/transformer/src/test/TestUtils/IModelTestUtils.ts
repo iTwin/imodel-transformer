@@ -3,6 +3,10 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable @typescript-eslint/no-deprecated */
+// This file is a minimal copy from itwinjs-core. Deprecation warnings are expected
+// and will be resolved upstream.
+
 import * as chai from "chai";
 import { assert, expect } from "chai";
 import * as chaiAsPromised from "chai-as-promised";
@@ -34,6 +38,7 @@ import {
   Environment,
   ExternalSourceAspectProps,
   ExternalSourceProps,
+  FontType,
   GeometricElement2dProps,
   GeometryParams,
   GeometryPartProps,
@@ -95,6 +100,7 @@ import {
   DrawingModel,
   DrawingViewDefinition,
   ECSqlStatement,
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -1011,7 +1017,7 @@ export class IModelTestUtils {
   }
 
   public static insertSpatialCategory(
-    iModelDb: IModelDb,
+    iModelDbOrTxn: IModelDb | EditTxn,
     modelId: Id64String,
     categoryName: string,
     color: ColorDef
@@ -1021,7 +1027,12 @@ export class IModelTestUtils {
       transp: 0,
       invisible: false,
     };
-    return SpatialCategory.insert(iModelDb, modelId, categoryName, appearance);
+    return SpatialCategory.insert(
+      iModelDbOrTxn as any,
+      modelId,
+      categoryName,
+      appearance
+    );
   }
 
   public static createBoxes(subCategoryIds: Id64String[]): GeometryStreamProps {
@@ -1440,6 +1451,7 @@ export class IModelTestUtils {
     briefcaseDb: BriefcaseDb,
     description: string
   ): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- transformer provenance writes use implicit APIs that leave unsaved changes
     briefcaseDb.saveChanges(description);
     await briefcaseDb.pushChanges({ accessToken, description });
   }
@@ -1462,7 +1474,15 @@ export class ExtensiveTestScenario {
     FunctionalSchema.registerSchema();
   }
 
-  public static populateDb(sourceDb: IModelDb): void {
+  public static async populateDb(sourceDb: IModelDb): Promise<void> {
+    // make sure Arial is in the font table
+    const arialFontId = await sourceDb.fonts.acquireId({
+      name: "Arial",
+      type: FontType.TrueType,
+    });
+    expect(arialFontId).not.to.be.undefined;
+    expect(arialFontId).greaterThan(0);
+
     // Initialize project extents
     const projectExtents = new Range3d(-1000, -1000, -1000, 1000, 1000, 1000);
     sourceDb.updateProjectExtents(projectExtents);

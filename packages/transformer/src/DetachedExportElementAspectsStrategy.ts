@@ -85,7 +85,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
     exportAspect: (aspect: T) => Promise<void>
   ) {
     for await (const aspect of this.queryAspects<T>(baseAspectClass)) {
-      if (!this.shouldExportElementAspect(aspect)) {
+      if (!(await this.shouldExportElementAspect(aspect))) {
         continue;
       }
 
@@ -133,6 +133,7 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       const aspectQueryReader = this.sourceDb.createQueryReader(
         getAspectPropsSql,
         new QueryBinder().bindId("classId", classId),
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }
       );
       const aspectAsyncQueryReader =

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import {
   BriefcaseDb,
+  EditTxn,
   ExternalSource,
   ExternalSourceIsInRepository,
   IModelDb,
@@ -17,7 +18,7 @@ import {
   RepositoryLinkProps,
 } from "@itwin/core-common";
 import * as assert from "assert";
-import { IModelTransformer } from "./IModelTransformer";
+import { ProvenanceManager } from "./ProvenanceManager";
 import { pathToFileURL } from "url";
 /**
  * @alpha
@@ -60,6 +61,9 @@ export interface ProvenanceInitResult {
 export async function initializeBranchProvenance(
   args: ProvenanceInitArgs
 ): Promise<ProvenanceInitResult> {
+  let editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
+  editTxn.start();
+
   if (args.createFedGuidsForMaster) {
     // FIXME<LOW>: Consider enforcing that the master and branch dbs passed as part of ProvenanceInitArgs to this function
     // are identical. https://github.com/iTwin/imodel-transformer/issues/138
@@ -96,7 +100,8 @@ export async function initializeBranchProvenance(
         assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
     args.branch.clearCaches(); // statements write lock attached db (clearing statement cache does not fix this)
-    args.branch.saveChanges();
+    editTxn.saveChanges();
+    editTxn.end();
     args.branch.withSqliteStatement("DETACH DATABASE master", (s) => {
       const res = s.step();
       if (res !== DbResult.BE_SQLITE_DONE)
@@ -117,10 +122,13 @@ export async function initializeBranchProvenance(
       reopenMaster(),
       reopenBranch(),
     ]);
+    // Recreate editTxn on the reopened branch db
+    editTxn = new EditTxn(args.branch, "initializeBranchProvenance");
+    editTxn.start();
   }
 
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterRepoLinkId = args.branch.elements.insertElement({
+  const masterRepoLinkId = editTxn.insertElement({
     classFullName: RepositoryLink.classFullName,
     code: RepositoryLink.createCode(
       args.branch,
@@ -134,7 +142,7 @@ export async function initializeBranchProvenance(
     description: args.masterDescription,
   } as RepositoryLinkProps);
 
-  const masterExternalSourceId = args.branch.elements.insertElement({
+  const masterExternalSourceId = editTxn.insertElement({
     classFullName: ExternalSource.classFullName,
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
@@ -158,13 +166,13 @@ export async function initializeBranchProvenance(
   );
   for await (const row of elemReader) {
     const id: string = row.id;
-    const aspectProps = IModelTransformer.initElementProvenanceOptions(id, id, {
+    const aspectProps = ProvenanceManager.initElementProvenanceOptions(id, id, {
       isReverseSynchronization: false,
       targetScopeElementId: masterExternalSourceId,
       sourceDb: args.master,
       targetDb: args.branch,
     });
-    args.branch.elements.insertAspect(aspectProps);
+    editTxn.insertAspect(aspectProps);
   }
 
   const fedGuidlessRelsSql = `
@@ -184,15 +192,18 @@ export async function initializeBranchProvenance(
   for await (const row of relReader) {
     const id: string = row.id;
     const aspectProps =
-      await IModelTransformer.initRelationshipProvenanceOptions(id, id, {
+      await ProvenanceManager.initRelationshipProvenanceOptions(id, id, {
         isReverseSynchronization: false,
         targetScopeElementId: masterExternalSourceId,
         sourceDb: args.master,
         targetDb: args.branch,
         forceOldRelationshipProvenanceMethod: false,
       });
-    args.branch.elements.insertAspect(aspectProps);
+    editTxn.insertAspect(aspectProps);
   }
+
+  editTxn.saveChanges();
+  editTxn.end();
 
   if (args.createFedGuidsForMaster === true) {
     args.master.close();

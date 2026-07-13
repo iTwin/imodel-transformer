@@ -38,10 +38,14 @@ import {
   SnapshotDb,
   SpatialCategory,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import { IModelTransformer } from "../../IModelTransformer";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  createStartedEditTxn,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import * as path from "path";
@@ -88,47 +92,51 @@ async function createSourceWithElements(
     rootSubject: { name: "PerfTest Source" },
   });
 
-  // Create a SpatialCategory
-  const categoryId = SpatialCategory.insert(
-    sourceDb,
-    IModel.dictionaryId,
-    "TestCategory",
-    { color: ColorDef.blue.toJSON() }
-  );
-
-  // Create a PhysicalModel
-  const physicalModelId = PhysicalModel.insert(
-    sourceDb,
-    IModel.rootSubjectId,
-    "TestPhysicalModel"
-  );
-
   // Insert elements with geometry
   const geometry = createBoxGeometry();
 
   console.log(`Inserting ${numElements} elements into source iModel...`);
-  const insertStartTime = performance.now();
 
-  for (let i = 0; i < numElements; i++) {
-    const elementProps: PhysicalElementProps = {
-      classFullName: "Generic:PhysicalObject",
-      model: physicalModelId,
-      category: categoryId,
-      code: Code.createEmpty(),
-      userLabel: `TestElement_${i}`,
-      geom: geometry,
-      placement: {
-        origin: new Point3d(i * 2, 0, 0),
-        angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-      },
-    };
-    sourceDb.elements.insertElement(elementProps);
-  }
+  const insertDuration = withEditTxn(
+    sourceDb,
+    "insert test elements",
+    (txn) => {
+      // Create a SpatialCategory
+      const categoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "TestCategory",
+        { color: ColorDef.blue.toJSON() }
+      );
 
-  const insertEndTime = performance.now();
-  const insertDuration = insertEndTime - insertStartTime;
+      // Create a PhysicalModel
+      const physicalModelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "TestPhysicalModel"
+      );
 
-  sourceDb.saveChanges("Inserted test elements");
+      const insertStartTime = performance.now();
+
+      for (let i = 0; i < numElements; i++) {
+        const elementProps: PhysicalElementProps = {
+          classFullName: "Generic:PhysicalObject",
+          model: physicalModelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          userLabel: `TestElement_${i}`,
+          geom: geometry,
+          placement: {
+            origin: new Point3d(i * 2, 0, 0),
+            angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+          },
+        };
+        txn.insertElement(elementProps);
+      }
+
+      return performance.now() - insertStartTime;
+    }
+  );
 
   return { db: sourceDb, insertDuration };
 }
@@ -178,39 +186,39 @@ describe.skip("IModelTransformer Performance Tests", () => {
       rootSubject: { name: "Source 10k Elements Test" },
     });
 
-    // Set up category and model
-    const categoryId = SpatialCategory.insert(
-      sourceDb,
-      IModel.dictionaryId,
-      "TestCategory",
-      { color: ColorDef.green.toJSON() }
-    );
-    const modelId = PhysicalModel.insert(
-      sourceDb,
-      IModel.rootSubjectId,
-      "TestPhysicalModel"
-    );
-
-    // Insert 10k elements
+    // Set up category, model, and insert 10k elements
     const geom = IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1));
     const insertStartTime = performance.now();
-    for (let i = 0; i < elementCount; i++) {
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: modelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-        userLabel: `Element-${i}`,
-        geom,
-        placement: Placement3d.fromJSON({
-          origin: { x: i % 100, y: Math.floor(i / 100), z: 0 },
-          angles: {},
-        }),
-      };
-      sourceDb.elements.insertElement(physicalObjectProps);
-    }
+    withEditTxn(sourceDb, "insert test elements", (txn) => {
+      const categoryId = SpatialCategory.insert(
+        txn,
+        IModel.dictionaryId,
+        "TestCategory",
+        { color: ColorDef.green.toJSON() }
+      );
+      const modelId = PhysicalModel.insert(
+        txn,
+        IModel.rootSubjectId,
+        "TestPhysicalModel"
+      );
+
+      for (let i = 0; i < elementCount; i++) {
+        const physicalObjectProps: PhysicalElementProps = {
+          classFullName: PhysicalObject.classFullName,
+          model: modelId,
+          category: categoryId,
+          code: Code.createEmpty(),
+          userLabel: `Element-${i}`,
+          geom,
+          placement: Placement3d.fromJSON({
+            origin: { x: i % 100, y: Math.floor(i / 100), z: 0 },
+            angles: {},
+          }),
+        };
+        txn.insertElement(physicalObjectProps);
+      }
+    });
     const insertEndTime = performance.now();
-    sourceDb.saveChanges();
 
     // Verify source element count
     let sourceCount = 0;
@@ -230,11 +238,15 @@ describe.skip("IModelTransformer Performance Tests", () => {
       rootSubject: { name: "Target 10k Elements Test" },
     });
 
+    const editTxn = createStartedEditTxn(targetDb);
     // Transform
-    const transformer = new IModelTransformer(sourceDb, targetDb, {
-      loadSourceGeometry: true,
-      noProvenance: true,
-    });
+    const transformer = new IModelTransformer(
+      { source: sourceDb, target: editTxn },
+      {
+        loadSourceGeometry: true,
+        noProvenance: true,
+      }
+    );
 
     const schemasStartTime = performance.now();
     await transformer.processSchemas();
@@ -243,7 +255,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     const startTime = performance.now();
     await transformer.process();
     const endTime = performance.now();
-    targetDb.saveChanges();
+    editTxn.end();
 
     printResults({
       elementCount,
@@ -267,7 +279,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
     targetDb.close();
   });
 
-  it("should transform 10k elements (extended?)", async function () {
+  it("should transform 10k elements using hub", async function () {
     console.log("===========================================");
     console.log("  iModel Transformer Performance Test");
     console.log(`  Elements: ${NUM_ELEMENTS}`);
@@ -289,11 +301,15 @@ describe.skip("IModelTransformer Performance Tests", () => {
       const targetDb = createEmptyTarget();
       console.log(`Target iModel created: ${targetDb.pathName}`);
 
+      const editTxn = createStartedEditTxn(targetDb);
       // Create transformer
-      const transformer = new IModelTransformer(sourceDb, targetDb, {
-        loadSourceGeometry: true,
-        noProvenance: true,
-      });
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        {
+          loadSourceGeometry: true,
+          noProvenance: true,
+        }
+      );
 
       // Time schema processing
       console.log("Processing schemas...");
@@ -339,7 +355,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
       // Cleanup
       transformer.dispose();
-      targetDb.saveChanges("Transformation complete");
+      editTxn.end("save", "Transformation complete");
 
       sourceDb.close();
       targetDb.close();

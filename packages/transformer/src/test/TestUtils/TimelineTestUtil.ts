@@ -12,6 +12,7 @@ import {
   PhysicalObject,
   PhysicalPartition,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
@@ -29,6 +30,7 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import {
+  createStartedEditTxn,
   HubWrappers,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
@@ -129,13 +131,15 @@ export function populateTimelineSeed(
   db: IModelDb,
   state?: TimelineIModelElemStateDelta
 ): void {
-  SpatialCategory.insert(
-    db,
-    IModel.dictionaryId,
-    "SpatialCategory",
-    new SubCategoryAppearance()
-  );
-  PhysicalModel.insert(db, IModel.rootSubjectId, "PhysicalModel");
+  withEditTxn(db, "populate timeline seed", (txn) => {
+    SpatialCategory.insert(
+      txn,
+      IModel.dictionaryId,
+      "SpatialCategory",
+      new SubCategoryAppearance()
+    );
+    PhysicalModel.insert(txn, IModel.rootSubjectId, "PhysicalModel");
+  });
   if (state) maintainObjects(db, state);
   db.performCheckpoint();
 }
@@ -166,59 +170,60 @@ function maintainObjects(
     SpatialCategory.createCode(iModelDb, IModel.dictionaryId, "SpatialCategory")
   )!;
 
-  for (const [elemName, upsertVal] of Object.entries(delta)) {
-    const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
-      (d as RelationshipProps).sourceId !== undefined;
+  withEditTxn(iModelDb, "maintain objects", (txn) => {
+    for (const [elemName, upsertVal] of Object.entries(delta)) {
+      const isRel = (d: TimelineElemDelta): d is RelationshipProps =>
+        (d as RelationshipProps).sourceId !== undefined;
 
-    if (isRel(upsertVal))
-      throw Error(
-        "adding relationships to the small delta format is not supported" +
-          "use a `manualUpdate` step instead"
-      );
+      if (isRel(upsertVal))
+        throw Error(
+          "adding relationships to the small delta format is not supported" +
+            "use a `manualUpdate` step instead"
+        );
 
-    const [id] = iModelDb.queryEntityIds({
-      from: "Bis.Element",
-      where: "UserLabel=?",
-      bindings: [elemName],
-    });
+      const [id] = iModelDb.queryEntityIds({
+        from: "Bis.Element",
+        where: "UserLabel=?",
+        bindings: [elemName],
+      });
 
-    if (upsertVal === deleted) {
-      assert(id, "tried to delete an element that wasn't in the database");
-      iModelDb.elements.deleteElement(id);
-      continue;
+      if (upsertVal === deleted) {
+        assert(id, "tried to delete an element that wasn't in the database");
+        txn.deleteElement(id);
+        continue;
+      }
+
+      const props: ElementProps | PhysicalElementProps =
+        typeof upsertVal !== "number"
+          ? upsertVal
+          : {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({
+                spec: IModelDb.rootSubjectId,
+                scope: IModelDb.rootSubjectId,
+                value: elemName,
+              }),
+              userLabel: elemName,
+              geom: IModelTransformerTestUtils.createBox(
+                Point3d.create(1, 1, 1)
+              ),
+              placement: {
+                origin: Point3d.create(0, 0, 0),
+                angles: YawPitchRollAngles.createDegrees(0, 0, 0),
+              },
+              jsonProperties: {
+                updateState: upsertVal,
+              },
+            };
+
+      props.id = id;
+
+      if (id === undefined) txn.insertElement(props);
+      else txn.updateElement(props);
     }
-
-    const props: ElementProps | PhysicalElementProps =
-      typeof upsertVal !== "number"
-        ? upsertVal
-        : {
-            classFullName: PhysicalObject.classFullName,
-            model: modelId,
-            category: categoryId,
-            code: new Code({
-              spec: IModelDb.rootSubjectId,
-              scope: IModelDb.rootSubjectId,
-              value: elemName,
-            }),
-            userLabel: elemName,
-            geom: IModelTransformerTestUtils.createBox(Point3d.create(1, 1, 1)),
-            placement: {
-              origin: Point3d.create(0, 0, 0),
-              angles: YawPitchRollAngles.createDegrees(0, 0, 0),
-            },
-            jsonProperties: {
-              updateState: upsertVal,
-            },
-          };
-
-    props.id = id;
-
-    if (id === undefined) iModelDb.elements.insertElement(props);
-    else iModelDb.elements.updateElement(props);
-  }
-
-  // TODO: iModelDb.performCheckpoint?
-  iModelDb.saveChanges();
+  });
 }
 
 export type TimelineElemState =
@@ -449,12 +454,14 @@ export async function runTimeline(
         const master = seed;
         const branchDb = newIModelDb;
         // record branch provenance
-        const provenanceInserter = new IModelTransformer(master.db, branchDb, {
-          ...transformerOpts,
-          wasSourceIModelCopiedToTarget: true,
-        });
+        const branchProvenanceEditTxn = createStartedEditTxn(branchDb);
+        const provenanceInserter = new IModelTransformer(
+          { source: master.db, target: branchProvenanceEditTxn },
+          { ...transformerOpts, wasSourceIModelCopiedToTarget: true }
+        );
         await provenanceInserter.process();
         provenanceInserter.dispose();
+        branchProvenanceEditTxn.end();
         await saveAndPushChanges(
           accessToken,
           branchDb,
@@ -517,15 +524,24 @@ export async function runTimeline(
         if (process.env.TRANSFORMER_BRANCH_TEST_DEBUG)
           targetStateBefore = await getIModelState(target.db);
 
-        const syncer = new IModelTransformer(source.db, target.db, {
-          ...transformerOpts,
-          argsForProcessChanges: {
-            startChangeset: startIndex
-              ? { index: startIndex }
-              : { index: undefined },
-          },
-        });
+        const syncEditTxn = createStartedEditTxn(target.db);
+        const sourceEditTxn = !isForwardSync
+          ? createStartedEditTxn(source.db)
+          : undefined;
+        const syncer = new IModelTransformer(
+          { source: source.db, target: syncEditTxn },
+          {
+            ...transformerOpts,
+            sourceEditTxn,
+            argsForProcessChanges: {
+              startChangeset: startIndex
+                ? { index: startIndex }
+                : { index: undefined },
+            },
+          }
+        );
         initTransformer?.(syncer);
+        let processSucceeded = false;
         try {
           await syncer.process();
           expect(
@@ -533,6 +549,7 @@ export async function runTimeline(
             "expectThrow was set to true and transformer succeeded."
           ).to.be.true;
           assertFxns?.afterProcessChanges?.(syncer);
+          processSucceeded = true;
         } catch (err: any) {
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
@@ -548,6 +565,8 @@ export async function runTimeline(
             throw err;
         } finally {
           syncer.dispose();
+          syncEditTxn.end(processSucceeded ? "save" : "abandon");
+          sourceEditTxn?.end(processSucceeded ? "save" : "abandon");
         }
 
         const stateMsg = `synced changes from ${syncSource} to ${iModelName} at ${i}`;

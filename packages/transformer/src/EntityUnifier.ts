@@ -8,15 +8,13 @@
  * for entity-generic operations in the transformer
  */
 
-import * as assert from "assert";
 import {
   ConcreteEntityTypes,
   EntityReference,
-  IModelError,
+  QueryBinder,
 } from "@itwin/core-common";
 import {
   ConcreteEntity,
-  ConcreteEntityProps,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
@@ -24,8 +22,7 @@ import {
   IModelDb,
   Relationship,
 } from "@itwin/core-backend";
-import { DbResult, Id64 } from "@itwin/core-bentley";
-import { _instanceKeyCache } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { Id64 } from "@itwin/core-bentley";
 
 /** @internal */
 export namespace EntityUnifier {
@@ -34,25 +31,6 @@ export namespace EntityUnifier {
     else if (entity instanceof ElementAspect) return "element aspect";
     else if (entity instanceof Relationship) return "relationship";
     else return "unknown entity type";
-  }
-
-  type EntityUpdater = (entityProps: ConcreteEntityProps) => void;
-
-  /** needs to return a widened type otherwise typescript complains when result is used with a narrow type */
-  export function updaterFor(db: IModelDb, entity: ConcreteEntity) {
-    if (entity instanceof Element)
-      return db.elements.updateElement.bind(db.elements) as EntityUpdater;
-    else if (entity instanceof Relationship)
-      return db.relationships.updateInstance.bind(
-        db.relationships
-      ) as EntityUpdater;
-    else if (entity instanceof ElementAspect)
-      return db.elements.updateAspect.bind(db.elements) as EntityUpdater;
-    else
-      assert(
-        false,
-        `unreachable; entity was '${entity.constructor.name}' not an Element, Relationship, or ElementAspect`
-      );
   }
 
   export async function exists(
@@ -71,17 +49,11 @@ export namespace EntityUnifier {
 
     if (id === undefined || Id64.isInvalid(id)) return false;
 
-    // Using createQueryReader() causes significant perf regression
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    return db.withPreparedStatement(
-      `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=?`,
-      (stmt) => {
-        stmt.bindId(1, id);
-        const matchesResult = stmt.step();
-        if (matchesResult === DbResult.BE_SQLITE_ROW) return true;
-        if (matchesResult === DbResult.BE_SQLITE_DONE) return false;
-        else throw new IModelError(matchesResult, "query failed");
-      }
-    );
+    const query = `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=:id`;
+    const params = new QueryBinder().bindId("id", id);
+    const reader = db.createQueryReader(query, params, {
+      usePrimaryConn: true,
+    });
+    return reader.step();
   }
 }

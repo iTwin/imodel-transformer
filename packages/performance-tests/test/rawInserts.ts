@@ -3,6 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import {
+  EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
@@ -65,8 +66,6 @@ export default async function rawInserts(
     }
   );
 
-  sourceDb.saveChanges();
-
   Logger.logInfo(
     loggerCategory,
     "Done. Starting with-provenance transformation of same content"
@@ -76,13 +75,19 @@ export default async function rawInserts(
   const targetDb = SnapshotDb.createEmpty(targetPath, {
     rootSubject: { name: "RawInsertsTarget" },
   });
-  const transformerWithProv = new IModelTransformer(sourceDb, targetDb, {
-    noProvenance: false,
-  });
+  const withProvEditTxn = new EditTxn(targetDb, "IModelTransformer");
+  withProvEditTxn.start();
+  const transformerWithProv = new IModelTransformer(
+    { source: sourceDb, target: withProvEditTxn },
+    {
+      noProvenance: false,
+    }
+  );
 
   const [transformWithProvTimer] = await timed(async () => {
     await transformerWithProv.process();
   });
+  withProvEditTxn.end();
 
   reporter.addEntry(
     "populate by transform (adding provenance)",
@@ -114,13 +119,19 @@ export default async function rawInserts(
   const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, {
     rootSubject: { name: "RawInsertsTarget" },
   });
-  const transformerNoProv = new IModelTransformer(sourceDb, targetNoProvDb, {
-    noProvenance: true,
-  });
+  const noProvEditTxn = new EditTxn(targetNoProvDb, "IModelTransformer");
+  noProvEditTxn.start();
+  const transformerNoProv = new IModelTransformer(
+    { source: sourceDb, target: noProvEditTxn },
+    {
+      noProvenance: true,
+    }
+  );
 
   const [transformNoProvTimer] = await timed(async () => {
     await transformerNoProv.process();
   });
+  noProvEditTxn.end();
 
   reporter.addEntry(
     "populate by transform",

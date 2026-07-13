@@ -12,6 +12,7 @@ import {
   PhysicalObject,
   SnapshotDb,
   SpatialCategory,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Id64, Id64String } from "@itwin/core-bentley";
 import {
@@ -24,7 +25,10 @@ import {
 } from "@itwin/core-common";
 import { expect } from "chai";
 import * as path from "path";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  createStartedEditTxn,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import { IModelTransformer } from "../../IModelTransformer";
@@ -57,59 +61,57 @@ describe("IModelCloneContext", () => {
         rootSubject: { name: "invalid-relationships" },
       });
 
-      const categoryId = SpatialCategory.insert(
+      withEditTxn(
         sourceDb,
-        IModel.dictionaryId,
-        "SpatialCategory",
-        new SubCategoryAppearance()
-      );
-      const sourceModelId = PhysicalModel.insert(
-        sourceDb,
-        IModel.rootSubjectId,
-        "PhysicalModel"
-      );
-      const physicalObjectProps: PhysicalElementProps = {
-        classFullName: PhysicalObject.classFullName,
-        model: sourceModelId,
-        category: categoryId,
-        code: Code.createEmpty(),
-      };
-      const physicalObject1 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject2 =
-        sourceDb.elements.insertElement(physicalObjectProps);
-      const physicalObject3 =
-        sourceDb.elements.insertElement(physicalObjectProps);
+        "setup source elements and relationships",
+        (txn) => {
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SpatialCategory",
+            new SubCategoryAppearance()
+          );
+          const sourceModelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PhysicalModel"
+          );
+          const physicalObjectProps: PhysicalElementProps = {
+            classFullName: PhysicalObject.classFullName,
+            model: sourceModelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+          };
+          const obj1 = txn.insertElement(physicalObjectProps);
+          const obj2 = txn.insertElement(physicalObjectProps);
+          const obj3 = txn.insertElement(physicalObjectProps);
 
-      const relationshipsProps: RelationshipProps[] = [
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject1,
-          sourceId: physicalObject2,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject2,
-          sourceId: physicalObject1,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject2,
-          sourceId: physicalObject3,
-        },
-        {
-          classFullName: GraphicalElement3dRepresentsElement.classFullName,
-          targetId: physicalObject3,
-          sourceId: physicalObject2,
-        },
-      ];
+          const relationshipsProps: RelationshipProps[] = [
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj1,
+              sourceId: obj2,
+            },
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj2,
+              sourceId: obj1,
+            },
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj2,
+              sourceId: obj3,
+            },
+            {
+              classFullName: GraphicalElement3dRepresentsElement.classFullName,
+              targetId: obj3,
+              sourceId: obj2,
+            },
+          ];
 
-      relationshipsProps.forEach((props) =>
-        sourceDb.relationships.insertInstance(props)
+          relationshipsProps.forEach((props) => txn.insertRelationship(props));
+        }
       );
-
-      // Save changes to source DB to ensure relationships are persisted
-      sourceDb.saveChanges();
 
       // Target IModelDb
       const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
@@ -119,10 +121,15 @@ describe("IModelCloneContext", () => {
       const targetDb = SnapshotDb.createEmpty(targetDbFile, {
         rootSubject: { name: "relationships-Target" },
       });
+
+      const targetEditTxn = createStartedEditTxn(targetDb);
       // Import from beneath source Subject into target Subject
-      const transformer = new IModelTransformer(sourceDb, targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: targetEditTxn,
+      });
       await transformer.process();
-      targetDb.saveChanges();
+      targetEditTxn.end();
 
       // Assertion
       const sql = `SELECT r.ECInstanceId FROM ${ElementRefersToElements.classFullName} r

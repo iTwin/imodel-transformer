@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as fs from "fs";
 import {
+  EditTxn,
   ElementGroupsMembers,
   ExternalSource,
   ExternalSourceAspect,
@@ -14,6 +15,7 @@ import {
   RepositoryLink,
   SpatialCategory,
   StandaloneDb,
+  withEditTxn,
 } from "@itwin/core-backend";
 import {
   initializeBranchProvenance,
@@ -22,6 +24,7 @@ import {
 } from "../../BranchProvenanceInitializer";
 import {
   assertIdentityTransformation,
+  createStartedEditTxn,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import {
@@ -132,18 +135,16 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
           masterUrl: "https://example.com/mytest",
         };
 
-        const initProvenanceArgs: ProvenanceInitArgs = {
-          ...baseInitProvenanceArgs,
-          master: masterDb,
-          branch: forkDb,
-        };
-
         if (doBranchProv) {
+          const initProvenanceArgs: ProvenanceInitArgs = {
+            ...baseInitProvenanceArgs,
+            master: masterDb,
+            branch: forkDb,
+          };
           const result = await initializeBranchProvenance(initProvenanceArgs);
           // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
           masterDb = initProvenanceArgs.master as StandaloneDb;
           forkDb = initProvenanceArgs.branch as StandaloneDb;
-          forkDb.saveChanges();
 
           // Assert all 4 permutations of sourceHasFedGuid,targetHasFedGuid matches our expectations
           for (const sourceHasFedGuid of [true, false]) {
@@ -206,12 +207,17 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             forkDb.close(); // The createFedGuidsForMaster forkDb is no longer necessary so close it.
           }
         } else {
+          const classicEditTxn = createStartedEditTxn(forkDb);
           const result = await classicalTransformerBranchInit({
             ...baseInitProvenanceArgs,
             master: masterDb,
             branch: forkDb,
+            editTxn: classicEditTxn,
           });
-          forkDb.saveChanges();
+          classicEditTxn.saveChanges(
+            "save changes from classicalTransformerBranchInit"
+          );
+          classicEditTxn.end();
 
           // Save off the classicalTransformerBranchInit result and db for later comparison with the branchProvenance result and db.
           if (!createFedGuidsForMaster) {
@@ -294,16 +300,22 @@ function setupIModel(): [
   const generatedIModel = StandaloneDb.createEmpty(sourcePath, {
     rootSubject: { name: sourceFileName },
   });
-  const physModelId = PhysicalModel.insert(
+  const { physModelId, categoryId } = withEditTxn(
     generatedIModel,
-    IModelDb.rootSubjectId,
-    "physical model"
-  );
-  const categoryId = SpatialCategory.insert(
-    generatedIModel,
-    IModelDb.dictionaryId,
-    "spatial category",
-    {}
+    "insert model and category",
+    (txn) => ({
+      physModelId: PhysicalModel.insert(
+        txn,
+        IModelDb.rootSubjectId,
+        "physical model"
+      ),
+      categoryId: SpatialCategory.insert(
+        txn,
+        IModelDb.dictionaryId,
+        "spatial category",
+        {}
+      ),
+    })
   );
 
   for (const sourceHasFedGuid of [true, false]) {
@@ -319,55 +331,66 @@ function setupIModel(): [
         model: physModelId,
       };
 
-      const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
-      const sourceElem = new PhysicalObject(
-        {
-          ...baseProps,
-          code: Code.createEmpty(),
-          federationGuid: sourceFedGuid,
-        },
-        generatedIModel
-      ).insert();
+      const { sourceElem, targetElem } = withEditTxn(
+        generatedIModel,
+        "insert physical objects",
+        (txn) => {
+          const sourceFedGuid = sourceHasFedGuid ? undefined : Guid.empty;
+          const srcElem = new PhysicalObject(
+            {
+              ...baseProps,
+              code: Code.createEmpty(),
+              federationGuid: sourceFedGuid,
+            },
+            generatedIModel
+          ).insert(txn);
 
-      const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
-      const targetElem = new PhysicalObject(
-        {
-          ...baseProps,
-          code: Code.createEmpty(),
-          federationGuid: targetFedGuid,
-        },
-        generatedIModel
-      ).insert();
+          const targetFedGuid = targetHasFedGuid ? undefined : Guid.empty;
+          const tgtElem = new PhysicalObject(
+            {
+              ...baseProps,
+              code: Code.createEmpty(),
+              federationGuid: targetFedGuid,
+            },
+            generatedIModel
+          ).insert(txn);
 
-      generatedIModel.saveChanges();
+          return { sourceElem: srcElem, targetElem: tgtElem };
+        }
+      );
 
       sourceTargetFedGuidToElemIds.set(
         [sourceHasFedGuid, targetHasFedGuid],
         [sourceElem, targetElem]
       );
 
-      const rel = new ElementGroupsMembers(
-        {
-          classFullName: ElementGroupsMembers.classFullName,
-          sourceId: sourceElem,
-          targetId: targetElem,
-          memberPriority: 1,
-        },
-        generatedIModel
-      );
-      rel.insert();
-      generatedIModel.saveChanges();
+      withEditTxn(generatedIModel, "insert relationship", (txn) => {
+        const rel = new ElementGroupsMembers(
+          {
+            classFullName: ElementGroupsMembers.classFullName,
+            sourceId: sourceElem,
+            targetId: targetElem,
+            memberPriority: 1,
+          },
+          generatedIModel
+        );
+        rel.insert(txn);
+      });
       generatedIModel.performCheckpoint();
     }
   }
   return [generatedIModel, sourceTargetFedGuidToElemIds];
 }
 
+interface ClassicalBranchInitArgs extends ProvenanceInitArgs {
+  editTxn: EditTxn;
+}
+
 async function classicalTransformerBranchInit(
-  args: ProvenanceInitArgs
+  args: ClassicalBranchInitArgs
 ): Promise<ProvenanceInitResult> {
   // create an external source and owning repository link to use as our *Target Scope Element* for future synchronizations
-  const masterLinkRepoId = args.branch
+  const repoLinkId = args.branch
     .constructEntity<RepositoryLink, RepositoryLinkProps>({
       classFullName: RepositoryLink.classFullName,
       code: RepositoryLink.createCode(
@@ -381,41 +404,39 @@ async function classicalTransformerBranchInit(
       repositoryGuid: args.master.iModelId,
       description: args.masterDescription,
     })
-    .insert();
+    .insert(args.editTxn);
 
   const masterExternalSourceId = args.branch
     .constructEntity<ExternalSource, ExternalSourceProps>({
       classFullName: ExternalSource.classFullName,
       model: IModelDb.rootSubjectId,
       code: Code.createEmpty(),
-      repository: new ExternalSourceIsInRepository(masterLinkRepoId),
+      repository: new ExternalSourceIsInRepository(repoLinkId),
       // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorName: require("../../../../package.json").name,
       // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       connectorVersion: require("../../../../package.json").version,
     })
-    .insert();
+    .insert(args.editTxn);
 
   // initialize the branch provenance
-  const branchInitializer = new IModelTransformer(args.master, args.branch, {
-    // tells the transformer that we have a raw copy of a source and the target should receive
-    // provenance from the source that is necessary for performing synchronizations in the future
-    wasSourceIModelCopiedToTarget: true,
-    // store the synchronization provenance in the scope of our representation of the external source, master
-    targetScopeElementId: masterExternalSourceId,
-  });
+  const branchInitializer = new IModelTransformer(
+    { source: args.master, target: args.editTxn },
+    {
+      // tells the transformer that we have a raw copy of a source and the target should receive
+      // provenance from the source that is necessary for performing synchronizations in the future
+      wasSourceIModelCopiedToTarget: true, // store the synchronization provenance in the scope of our representation of the external source, master
+      targetScopeElementId: masterExternalSourceId,
+    }
+  );
 
   await branchInitializer.process();
-  // save+push our changes to whatever hub we're using
-  const description = "initialized branch iModel";
-  args.branch.saveChanges(description);
-
   branchInitializer.dispose();
 
   return {
     masterExternalSourceId,
     targetScopeElementId: masterExternalSourceId,
-    masterRepositoryLinkId: masterLinkRepoId,
+    masterRepositoryLinkId: repoLinkId,
   };
 }
 

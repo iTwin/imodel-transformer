@@ -6,21 +6,22 @@
  * @module iModels
  */
 import {
+  EditTxn,
   ElementTreeDeleter,
   ElementTreeWalkerScope,
-  IModelDb,
 } from "@itwin/core-backend";
-import { DbResult, Id64String } from "@itwin/core-bentley";
+import { Id64String } from "@itwin/core-bentley";
+import { QueryBinder } from "@itwin/core-common";
 
 /** Deletes an element tree and code scope references starting with the specified top element. The top element is also deleted. Uses ElementCascadeDeleter.
- * @param iModel The iModel
+ * @param editTxn The active EditTxn for the iModel
  * @param topElement The parent of the sub-tree
  */
 export function deleteElementTreeCascade(
-  iModel: IModelDb,
+  editTxn: EditTxn,
   topElement: Id64String
 ): void {
-  const del = new ElementCascadingDeleter(iModel);
+  const del = new ElementCascadingDeleter(editTxn);
   del.deleteNormalElements(topElement);
   del.deleteSpecialElements();
 }
@@ -53,21 +54,24 @@ export class ElementCascadingDeleter extends ElementTreeDeleter {
     scope: ElementTreeWalkerScope
   ) {
     const newScope = new ElementTreeWalkerScope(scope, element);
-    // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-deprecated
-    this._iModel.withPreparedStatement(
-      `
+    const query = `
       SELECT ECInstanceId
       FROM bis.Element
-      WHERE CodeScope.id=?
+      WHERE CodeScope.id=:scopeId
         AND Parent.id IS NULL
-    `,
-      (stmt) => {
-        stmt.bindId(1, element);
-        while (stmt.step() === DbResult.BE_SQLITE_ROW) {
-          const elementId = stmt.getValue(0).getId();
+    `;
+
+    const params = new QueryBinder().bindId("scopeId", element);
+
+    this.txn.iModel.withQueryReader(
+      query,
+      (reader) => {
+        for (const row of reader) {
+          const elementId = row[0] as Id64String;
           this.processElementTree(elementId, newScope);
         }
-      }
+      },
+      params
     );
   }
 }

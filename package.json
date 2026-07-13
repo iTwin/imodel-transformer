@@ -8,8 +8,8 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test --filter !transformer-performance-tests",
-    "docs": "pnpm -r docs",
+    "test": "pnpm -r --filter=!transformer-performance-tests test",
+    "docs": "pnpm -r run docs",
     "lint": "pnpm -r lint",
     "format": "pnpm -r format",
     "cover": "pnpm -r cover",
@@ -25,10 +25,10 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "beachball": "^2.55.1",
+    "beachball": "^2.65.5",
     "fast-glob": "^3.3.3",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.3",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.6.2"
   },
   "lint-staged": {
@@ -38,14 +38,9 @@
     ]
   },
   "engines": {
-    "pnpm": ">=9",
+    "pnpm": ">=11",
     "npm": "<0",
     "node": ">=18"
   },
-  "pnpm": {
-    "overrides": {
-      "semver": "^7.5.2"
-    }
-  },
-  "packageManager": "pnpm@9.14.2"
+  "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
 }

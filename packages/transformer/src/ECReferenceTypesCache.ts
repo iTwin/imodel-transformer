@@ -51,10 +51,16 @@ export class ECReferenceTypesCache {
   >();
   private _initedSchemas = new Map<string, SchemaKey>();
 
+  // Performance optimization caches
+  private _rootBisClassCache = new Map<string, ECClass>();
+  private _relationshipInfoCache = new Map<string, RelTypeInfo | undefined>();
+  private _constraintClassCache = new Map<string, ECClass>();
+
   private static bisRootClassToRefType: Record<
     string,
     ConcreteEntityTypes | undefined
   > = {
+    /* eslint-disable quote-props, @typescript-eslint/naming-convention */
     Element: ConcreteEntityTypes.Element,
     Model: ConcreteEntityTypes.Model,
     ElementAspect: ConcreteEntityTypes.ElementAspect,
@@ -62,9 +68,16 @@ export class ECReferenceTypesCache {
     ElementDrivesElement: ConcreteEntityTypes.Relationship,
     // code spec is technically a potential root class but it is ignored currently
     // see [ConcreteEntityTypes]($common)
+    /* eslint-enable quote-props, @typescript-eslint/naming-convention */
   };
 
   private async getRootBisClass(ecclass: ECClass) {
+    const cacheKey = ecclass.fullName;
+    const cached = this._rootBisClassCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     let bisRootForConstraint: ECClass = ecclass;
     await ecclass.traverseBaseClasses((baseClass) => {
       // The depth first traversal will descend all the way to the root class before making any lateral traversal
@@ -88,12 +101,20 @@ export class ECReferenceTypesCache {
         await bisRootForConstraint.appliesTo
       );
     }
+
+    this._rootBisClassCache.set(cacheKey, bisRootForConstraint);
     return bisRootForConstraint;
   }
 
   private async getAbstractConstraintClass(
     constraint: RelationshipConstraint
   ): Promise<ECClass> {
+    const cacheKey = `${constraint.relationshipClass.fullName}:${constraint.isSource ? "Source" : "Target"}`;
+    const cached = this._constraintClassCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     // constraint classes must share a base so we can get the root from any of them, just use the first
     const ecclass = await (constraint.constraintClasses?.[0] ||
       constraint.abstractConstraint);
@@ -101,15 +122,17 @@ export class ECReferenceTypesCache {
       ecclass !== undefined,
       "At least one constraint class or an abstract constraint must have been defined, the constraint is not valid"
     );
+
+    this._constraintClassCache.set(cacheKey, ecclass);
     return ecclass;
   }
 
   /** initialize from an imodel with metadata */
   public async initAllSchemasInIModel(imodel: IModelDb): Promise<void> {
-    // const schemaLoader = new SchemaLoader((name: string) =>
-    //   imodel.getSchemaProps(name)
-    // );
-    // Issue for `createQueryReader` reported: https://github.com/iTwin/itwinjs-core/issues/7984
+    let schemaCount = 0;
+
+    const initStartTime = performance.now();
+
     const query = `
       WITH RECURSIVE refs(SchemaId) AS (
         SELECT ECInstanceId FROM ECDbMeta.ECSchemaDef WHERE Name='BisCore'
@@ -143,13 +166,15 @@ export class ECReferenceTypesCache {
       const endTime = performance.now();
       Logger.logTrace(
         TransformerLoggerCategory.ECReferenceTypesCache,
-        `IModelTransformer Completed schema: ${schemaName} in ${(endTime - startTime).toFixed(2)}ms`
+        `Completed schema: ${schemaName} in ${(endTime - startTime).toFixed(2)}ms`
       );
+      schemaCount++;
     }
 
-    Logger.logInfo(
-      TransformerLoggerCategory.IModelImporter,
-      "IModelTransformer Init All Schemas In IModel Complete -- Use Schema Context"
+    const initEndTime = performance.now();
+    Logger.logTrace(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `Completed ${schemaCount} schemas in ${(initEndTime - initStartTime).toFixed(2)}ms`
     );
   }
 
@@ -313,5 +338,9 @@ export class ECReferenceTypesCache {
   public clear() {
     this._initedSchemas.clear();
     this._propQualifierToRefType.clear();
+    this._relClassNameEndToRefTypes.clear();
+    this._rootBisClassCache.clear();
+    this._relationshipInfoCache.clear();
+    this._constraintClassCache.clear();
   }
 }

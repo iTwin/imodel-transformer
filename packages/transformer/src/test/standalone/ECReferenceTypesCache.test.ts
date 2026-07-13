@@ -211,7 +211,6 @@ describe("ECReferenceTypesCache", () => {
     assert(ecdbMapVersion !== undefined);
     assert(Semver.gte(ecdbMapVersion, "2.0.4"));
     await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWithQueryView]);
-    emptyWithBrandNewBiscore.saveChanges();
     await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
   });
 

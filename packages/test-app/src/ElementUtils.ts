@@ -18,6 +18,7 @@ import {
   SpatialViewDefinition,
   SubCategory,
   ViewDefinition,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { IModel, QueryBinder } from "@itwin/core-common";
 
@@ -117,7 +118,7 @@ export namespace ElementUtils {
   ): Promise<Id64Set> {
     const elementIds = new Set<Id64String>();
     if (iModelDb.containsClass(ExternalSourceAspect.classFullName)) {
-      const sql = `SELECT Element.Id FROM ${ExternalSourceAspect.classFullName} WHERE Kind=kind`;
+      const sql = `SELECT Element.Id AS id FROM ${ExternalSourceAspect.classFullName} WHERE Kind=:kind`;
       const bindings = new QueryBinder().bindString(
         "kind",
         ExternalSourceAspect.Kind.Scope
@@ -149,33 +150,39 @@ export namespace ElementUtils {
     );
     let viewId = iModelDb.elements.queryElementIdByCode(viewCode);
     if (viewId === undefined) {
-      const modelSelectorId = ModelSelector.insert(
+      const modelIds = await queryModelIds(
         iModelDb,
-        definitionModelId,
-        name,
-        await queryModelIds(iModelDb, SpatialModel.classFullName)
+        SpatialModel.classFullName
       );
-      const categorySelectorId = CategorySelector.insert(
-        iModelDb,
-        definitionModelId,
-        name,
-        await querySpatialCategoryIds(iModelDb)
-      );
-      const displayStyleId = DisplayStyle3d.insert(
-        iModelDb,
-        definitionModelId,
-        name
-      );
-      viewId = SpatialViewDefinition.insertWithCamera(
-        iModelDb,
-        definitionModelId,
-        name,
-        modelSelectorId,
-        categorySelectorId,
-        displayStyleId,
-        iModelDb.projectExtents
-      );
-      iModelDb.saveChanges("Inserted ViewDefinition");
+      const categoryIds = await querySpatialCategoryIds(iModelDb);
+      viewId = withEditTxn(iModelDb, "insert ViewDefinition", (txn) => {
+        const modelSelectorId = ModelSelector.insert(
+          txn,
+          definitionModelId,
+          name,
+          modelIds
+        );
+        const categorySelectorId = CategorySelector.insert(
+          txn,
+          definitionModelId,
+          name,
+          categoryIds
+        );
+        const displayStyleId = DisplayStyle3d.insert(
+          txn,
+          definitionModelId,
+          name
+        );
+        return SpatialViewDefinition.insertWithCamera(
+          txn,
+          definitionModelId,
+          name,
+          modelSelectorId,
+          categorySelectorId,
+          displayStyleId,
+          iModelDb.projectExtents
+        );
+      });
     }
     return viewId;
   }

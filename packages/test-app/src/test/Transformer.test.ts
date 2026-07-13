@@ -19,6 +19,7 @@ import {
   SnapshotDb,
   SpatialCategory,
   SpatialElement,
+  withEditTxn,
 } from "@itwin/core-backend";
 import { Logger, LogLevel } from "@itwin/core-bentley";
 import {
@@ -211,8 +212,7 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="SomeNumber" typeName="string" />
             ${
               version === "01.01"
-                ? // eslint-disable-next-line @typescript-eslint/quotes
-                  `<ECProperty propertyName="NewProperty" typeName="string" />`
+                ? '<ECProperty propertyName="NewProperty" typeName="string" />'
                 : ""
             }
           </ECStructClass >
@@ -221,8 +221,7 @@ describe("imodel-transformer", () => {
             <ECProperty propertyName="MyProp" typeName="string"/>
             ${
               version === "01.01"
-                ? // eslint-disable-next-line @typescript-eslint/quotes
-                  `<ECProperty propertyName="MyProp2" typeName="string" />`
+                ? '<ECProperty propertyName="MyProp2" typeName="string" />'
                 : ""
             }
             <ECStructArrayProperty propertyName="MyArray" typeName="TestStruct" minOccurs="0" maxOccurs="unbounded" />
@@ -263,13 +262,15 @@ describe("imodel-transformer", () => {
 
     const transformedElemProps = elementProps;
 
-    const _newElemId = newSchemaSourceDb.elements.insertElement({
-      classFullName: "Test:TestElement",
-      model: firstModelId,
-      code: Code.createEmpty(),
-      category: firstSpatialCategId,
-      ...elementProps,
-    } as PhysicalElementProps);
+    withEditTxn(newSchemaSourceDb, "insert test element", (txn) => {
+      txn.insertElement({
+        classFullName: "Test:TestElement",
+        model: firstModelId,
+        code: Code.createEmpty(),
+        category: firstSpatialCategId,
+        ...elementProps,
+      } as PhysicalElementProps);
+    });
 
     const targetDbFileName = initOutputFile("EditSchemas.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
@@ -289,10 +290,11 @@ describe("imodel-transformer", () => {
 
     async function getStructInstances(
       db: IModelDb
-    ): Promise<typeof elementProps | {}> {
+    ): Promise<typeof elementProps | object> {
       const result = db.createQueryReader(
         "SELECT MyProp, MyArray FROM test.TestElement LIMIT 1",
         undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
       return (await result.step()) ? result.current.toRow() : {};
@@ -348,13 +350,15 @@ describe("imodel-transformer", () => {
       myProp: "10",
     };
 
-    const _newElemId = newSchemaSourceDb.elements.insertElement({
-      classFullName: "Test:TestElement",
-      model: firstModelId,
-      code: Code.createEmpty(),
-      category: firstSpatialCategId,
-      ...elementProps,
-    } as PhysicalElementProps);
+    withEditTxn(newSchemaSourceDb, "insert test element", (txn) => {
+      txn.insertElement({
+        classFullName: "Test:TestElement",
+        model: firstModelId,
+        code: Code.createEmpty(),
+        category: firstSpatialCategId,
+        ...elementProps,
+      } as PhysicalElementProps);
+    });
 
     const targetDbFileName = initOutputFile("targetDb-Struct.bim");
     const targetDb = SnapshotDb.createEmpty(targetDbFileName, {
@@ -368,10 +372,11 @@ describe("imodel-transformer", () => {
 
     async function getStructValue(
       db: IModelDb
-    ): Promise<typeof elementProps | {}> {
+    ): Promise<typeof elementProps | object> {
       const result = db.createQueryReader(
         "SELECT MyProp, MyStruct FROM test.TestElement LIMIT 1",
         undefined,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
         { usePrimaryConn: true, rowFormat: QueryRowFormat.UseJsPropertyNames }
       );
       return (await result.step()) ? result.current.toRow() : {};
