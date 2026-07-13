@@ -6,12 +6,8 @@
  * @module iModels
  */
 
-import { DbResult, TupleKeyedMap } from "@itwin/core-bentley";
-import {
-  ConcreteEntityTypes,
-  IModelError,
-  RelTypeInfo,
-} from "@itwin/core-common";
+import { TupleKeyedMap } from "@itwin/core-bentley";
+import { ConcreteEntityTypes, RelTypeInfo } from "@itwin/core-common";
 import {
   ECClass,
   Mixin,
@@ -20,7 +16,6 @@ import {
   RelationshipConstraint,
   Schema,
   SchemaKey,
-  SchemaLoader,
   StrengthDirection,
 } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
@@ -112,37 +107,30 @@ export class ECReferenceTypesCache {
 
   /** initialize from an imodel with metadata */
   public async initAllSchemasInIModel(imodel: IModelDb): Promise<void> {
-    const schemaLoader = new SchemaLoader((name: string) =>
-      imodel.getSchemaProps(name)
-    );
-    // Issue for `createQueryReader` reported: https://github.com/iTwin/itwinjs-core/issues/7984
-    // eslint-disable-next-line @itwin/no-internal, deprecation/deprecation
-    await imodel.withPreparedStatement(
-      `
+    const query = `
       WITH RECURSIVE refs(SchemaId) AS (
         SELECT ECInstanceId FROM ECDbMeta.ECSchemaDef WHERE Name='BisCore'
-        UNION ALL
+        UNION
         SELECT sr.SourceECInstanceId
         FROM ECDbMeta.SchemaHasSchemaReferences sr
         JOIN refs ON sr.TargetECInstanceId = refs.SchemaId
       )
-      SELECT s.Name
+      SELECT s.Name as name
       FROM refs
       JOIN ECDbMeta.ECSchemaDef s ON refs.SchemaId=s.ECInstanceId
-      -- ensure schema dependency order
-      ORDER BY ECInstanceId
-    `,
-      async (stmt) => {
-        let status: DbResult;
-        while ((status = stmt.step()) === DbResult.BE_SQLITE_ROW) {
-          const schemaName = stmt.getValue(0).getString();
-          const schema = schemaLoader.getSchema(schemaName);
-          await this.considerInitSchema(schema);
-        }
-        if (status !== DbResult.BE_SQLITE_DONE)
-          throw new IModelError(status, "unexpected query failure");
+    `;
+
+    for await (const row of imodel.createQueryReader(query, undefined, {
+      usePrimaryConn: true,
+    })) {
+      const schemaName = row.name;
+      const schemaItemKey = new SchemaKey(schemaName);
+      const schema = await imodel.schemaContext.getSchema(schemaItemKey);
+      if (!schema) {
+        throw new Error(`Failed to load schema: ${schemaName}`);
       }
-    );
+      await this.considerInitSchema(schema);
+    }
   }
 
   private async considerInitSchema(schema: Schema): Promise<void> {
