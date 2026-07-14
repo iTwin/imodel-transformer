@@ -6,7 +6,7 @@
  * @module iModels
  */
 
-import { TupleKeyedMap } from "@itwin/core-bentley";
+import { Logger, TupleKeyedMap } from "@itwin/core-bentley";
 import { ConcreteEntityTypes, RelTypeInfo } from "@itwin/core-common";
 import {
   ECClass,
@@ -20,6 +20,7 @@ import {
 } from "@itwin/ecschema-metadata";
 import * as assert from "assert";
 import { IModelDb } from "@itwin/core-backend";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal
@@ -147,6 +148,10 @@ export class ECReferenceTypesCache {
   }
 
   private async initSchema(schema: Schema): Promise<void> {
+    Logger.logTrace(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `initSchema started for ${schema.name}`
+    );
     const schemaNameLower = schema.name.toLowerCase();
 
     // Local dedup map — scoped to this single initSchema call, not persisted
@@ -204,6 +209,10 @@ export class ECReferenceTypesCache {
 
     await Promise.all(classPromises);
     this._initedSchemas.set(schema.name, schema.schemaKey);
+    Logger.logTrace(
+      TransformerLoggerCategory.ECReferenceTypesCache,
+      `initSchema completed for ${schema.name}`
+    );
   }
 
   private async relInfoFromRelClass(
