@@ -455,12 +455,15 @@ export class IModelExporter {
       return;
     }
 
-    const startChangeset =
-      args && "startChangeset" in args ? args.startChangeset : undefined;
-
-    const initOpts: ExporterInitOptions = {
-      startChangeset: { id: startChangeset?.id },
-    };
+    const hasChangeSource =
+      args !== undefined &&
+      ("csFileProps" in args ||
+        "changedInstanceIds" in args ||
+        "changesetRanges" in args ||
+        "startChangeset" in args);
+    const initOpts: ExporterInitOptions = hasChangeSource
+      ? args
+      : { startChangeset: { id: undefined }, ...args };
     await this.initialize(initOpts);
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
@@ -471,7 +474,12 @@ export class IModelExporter {
     await this.exportCodeSpecs();
     await this.exportFonts();
     if (initOpts.skipPropagateChangesToRootElements) {
-      await this.exportModelContents(IModel.repositoryModelId);
+      await this.exportChildElements(IModel.rootSubjectId);
+      await this.exportModelContents(
+        IModel.repositoryModelId,
+        Element.classFullName,
+        true
+      );
       await this.exportSubModels(IModel.repositoryModelId);
     } else {
       await this.exportModel(IModel.repositoryModelId);
