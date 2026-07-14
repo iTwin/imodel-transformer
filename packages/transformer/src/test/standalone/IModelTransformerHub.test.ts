@@ -6583,6 +6583,94 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
 
+    it("should not export unchanged elements during processChanges when only the model is updated", async () => {
+      // Create a model with multiple elements
+      const { physicalModelId, elementIds } = withEditTxn(
+        sourceDb,
+        "create model and elements",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "TestPhysicalModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "TestCategory",
+            {}
+          );
+          const ids: Id64String[] = [];
+          for (let i = 0; i < 5; i++) {
+            ids.push(
+              txn.insertElement({
+                classFullName: PhysicalObject.classFullName,
+                model: modelId,
+                category: categoryId,
+                code: Code.createEmpty(),
+                userLabel: `Element${i}`,
+              } as GeometricElementProps)
+            );
+          }
+          return { physicalModelId: modelId, elementIds: ids };
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Initial model and elements",
+        retainLocks: true,
+      });
+
+      // Run initial processAll transformation
+      const firstEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstEditTxn,
+      });
+      await transformer.process();
+      transformer.dispose();
+      firstEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial transformation",
+        retainLocks: true,
+      });
+
+      // Update only the model (not any elements) to trigger model change
+      withEditTxn(sourceDb, "update model only", (txn) => {
+        const modelProps = sourceDb.models.getModelProps(physicalModelId);
+        txn.updateModel({
+          ...modelProps,
+          jsonProperties: { UserProps: { updated: true } },
+        });
+      });
+      await sourceDb.pushChanges({
+        description: "Model-only update",
+        retainLocks: true,
+      });
+
+      // Run processChanges and spy on onExportElement
+      const secondEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: secondEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const onExportElementSpy = sinon.spy(transformer, "onExportElement");
+      await transformer.process();
+
+      // Verify that onExportElement was NOT called for the unchanged elements
+      for (const elemId of elementIds) {
+        const wasCalledWithElem = onExportElementSpy
+          .getCalls()
+          .some((call) => call.args[0].id === elemId);
+        expect(
+          wasCalledWithElem,
+          `onExportElement should not have been called for unchanged element ${elemId}`
+        ).to.be.false;
+      }
+
+      transformer.dispose();
+      secondEditTxn.end();
+    });
+
     it("should process changes successfully when element is deleted after existing elements were expanded into overflow table", async () => {
       // Import initial schema with property count that does not require overflow table
       const initialSchema = generateSchema(1, "SourceProperty", 5);

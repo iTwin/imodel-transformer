@@ -882,6 +882,11 @@ export class IModelExporter {
         ? true
         : undefined;
 
+    // Short-circuit: element is not in the changeset, skip its own export but still visit children
+    if (undefined !== this._sourceDbChanges && undefined === isUpdate) {
+      return this.exportChildElements(elementId);
+    }
+
     const element = this.sourceDb.elements.getElement({
       id: elementId,
       wantGeometry: this.wantGeometry,
