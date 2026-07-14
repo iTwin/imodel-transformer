@@ -117,6 +117,17 @@ import {
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 const { count } = IModelTestUtils;
+const countElementExternalSourceAspects = (
+  db: IModelDb,
+  elementId: Id64String
+) =>
+  db.elements
+    .getAspects(elementId, ExternalSourceAspect.classFullName)
+    .filter(
+      (aspect) =>
+        (aspect as ExternalSourceAspect).kind ===
+        ExternalSourceAspect.Kind.Element
+    ).length;
 
 describe("IModelTransformerHub", () => {
   const outputDir = path.join(
@@ -454,15 +465,23 @@ describe("IModelTransformerHub", () => {
         });
       };
 
-      withEditTxn(sourceDb, "delete first source physical element", (txn) => {
-        txn.deleteElement(physicalElement1Id);
-      });
-      await sourceDb.pushChanges({
-        accessToken,
-        description: "Delete first source element",
-        retainLocks: true,
-      });
-      await processChanges("Process first source deletion");
+      const deleteAndProcess = async (elementId: Id64String, name: string) => {
+        withEditTxn(
+          sourceDb!,
+          `delete ${name} source physical element`,
+          (txn) => {
+            txn.deleteElement(elementId);
+          }
+        );
+        await sourceDb!.pushChanges({
+          accessToken,
+          description: `Delete ${name} source element`,
+          retainLocks: true,
+        });
+        await processChanges(`Process ${name} source deletion`);
+      };
+
+      await deleteAndProcess(physicalElement1Id, "first");
       expect(
         IModelTestUtils.queryByCodeValue(targetDb, "PhysicalOne"),
         "PhysicalOne should be deleted after the first processChanges"
@@ -471,15 +490,7 @@ describe("IModelTransformerHub", () => {
         IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo")
       ).to.not.be.equal(Id64.invalid);
 
-      withEditTxn(sourceDb, "delete second source physical element", (txn) => {
-        txn.deleteElement(physicalElement2Id);
-      });
-      await sourceDb.pushChanges({
-        accessToken,
-        description: "Delete second source element",
-        retainLocks: true,
-      });
-      await processChanges("Process second source deletion");
+      await deleteAndProcess(physicalElement2Id, "second");
       expect(
         IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo"),
         "PhysicalTwo should be deleted after the second processChanges"
@@ -5076,16 +5087,14 @@ describe("IModelTransformerHub", () => {
         await sourceDb.pushChanges({
           accessToken,
           description: "insert source child Subject and update root",
+          retainLocks: true,
         });
         await targetDb.pushChanges({
           accessToken,
           description: "insert remapped target Subject",
+          retainLocks: true,
         });
 
-        await targetDb.locks.acquireLocks({
-          shared: "0x10",
-          exclusive: "0x1",
-        });
         const initialTargetEditTxn = createStartedEditTxn(targetDb);
         let transformer = new IModelTransformer(
           { source: sourceDb, target: initialTargetEditTxn },
@@ -5109,6 +5118,7 @@ describe("IModelTransformerHub", () => {
         await targetDb.pushChanges({
           accessToken,
           description: "initial transformation",
+          retainLocks: true,
         });
 
         const targetRootBeforeChanges = targetDb.elements.getElement<Subject>(
@@ -5116,21 +5126,12 @@ describe("IModelTransformerHub", () => {
           Subject
         );
         const targetRootLabelBeforeChanges = targetRootBeforeChanges.userLabel;
-        const targetRootElementAspectCountBeforeChanges = targetDb.elements
-          .getAspects(
-            remappedTargetRootSubjectId,
-            ExternalSourceAspect.classFullName
-          )
-          .filter(
-            (aspect) =>
-              (aspect as ExternalSourceAspect).kind ===
-              ExternalSourceAspect.Kind.Element
-          ).length;
+        const targetRootElementAspectCountBeforeChanges =
+          countElementExternalSourceAspects(
+            targetDb,
+            remappedTargetRootSubjectId
+          );
 
-        await sourceDb.locks.acquireLocks({
-          shared: "0x10",
-          exclusive: "0x1",
-        });
         withEditTxn(sourceDb, "update source root and child Subject", (txn) => {
           const rootSubjectProps =
             sourceDb!.elements.getElementProps<SubjectProps>(
@@ -5149,12 +5150,9 @@ describe("IModelTransformerHub", () => {
         await sourceDb.pushChanges({
           accessToken,
           description: "update source root and child Subject",
+          retainLocks: true,
         });
 
-        await targetDb.locks.acquireLocks({
-          shared: "0x10",
-          exclusive: "0x1",
-        });
         const processChangesTargetEditTxn = createStartedEditTxn(targetDb);
         transformer = new IModelTransformer(
           { source: sourceDb, target: processChangesTargetEditTxn },
@@ -5186,16 +5184,11 @@ describe("IModelTransformerHub", () => {
             .userLabel
         ).to.equal("Updated source child");
         if (skipPropagateChangesToRootElements) {
-          const targetRootElementAspectCountAfterChanges = targetDb.elements
-            .getAspects(
-              remappedTargetRootSubjectId,
-              ExternalSourceAspect.classFullName
-            )
-            .filter(
-              (aspect) =>
-                (aspect as ExternalSourceAspect).kind ===
-                ExternalSourceAspect.Kind.Element
-            ).length;
+          const targetRootElementAspectCountAfterChanges =
+            countElementExternalSourceAspects(
+              targetDb,
+              remappedTargetRootSubjectId
+            );
           expect(targetRootElementAspectCountAfterChanges).to.equal(
             targetRootElementAspectCountBeforeChanges
           );

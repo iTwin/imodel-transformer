@@ -55,7 +55,7 @@ describe("IModelExporter", () => {
     }
   });
 
-  it("forwards all ExportChangesOptions to initialize", async () => {
+  it("forwards change-source options and preserves the default start changeset", async () => {
     const sourceDb = {
       changeset: { id: "current-changeset" },
       isBriefcaseDb: () => true,
@@ -99,6 +99,16 @@ describe("IModelExporter", () => {
       await exporter.exportChanges(options);
       expect(exporter.initializedWith).to.equal(options);
     }
+
+    const skipOnlyOptions: ExportChangesOptions = {
+      skipPropagateChangesToRootElements: true,
+    };
+    const defaultExporter = new TestExporter(sourceDb);
+    await defaultExporter.exportChanges(skipOnlyOptions);
+    expect(defaultExporter.initializedWith).to.deep.equal({
+      startChangeset: { id: undefined },
+      ...skipOnlyOptions,
+    });
   });
 
   it("export element with brep geometry", async () => {

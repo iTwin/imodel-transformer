@@ -455,13 +455,16 @@ export class IModelExporter {
       return;
     }
 
-    const hasChangeSource =
+    // The change-source options are mutually exclusive. Preserve the caller's
+    // object when one is present, including its full startChangeset value.
+    // Otherwise provide the default range expected by ChangedInstanceIds.
+    const hasExplicitChangeSource =
       args !== undefined &&
       ("csFileProps" in args ||
         "changedInstanceIds" in args ||
         "changesetRanges" in args ||
         "startChangeset" in args);
-    const initOpts: ExporterInitOptions = hasChangeSource
+    const initOpts: ExporterInitOptions = hasExplicitChangeSource
       ? args
       : { startChangeset: { id: undefined }, ...args };
     await this.initialize(initOpts);
@@ -474,6 +477,9 @@ export class IModelExporter {
     await this.exportCodeSpecs();
     await this.exportFonts();
     if (initOpts.skipPropagateChangesToRootElements) {
+      // The root Subject is in the RepositoryModel. Traverse its children
+      // separately, then export other top-level repository elements while
+      // excluding the root so no element is visited twice.
       await this.exportChildElements(IModel.rootSubjectId);
       await this.exportModelContents(
         IModel.repositoryModelId,

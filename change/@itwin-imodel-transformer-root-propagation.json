@@ -2,6 +2,6 @@
   "type": "patch",
   "comment": "Preserve export change options and root-skipping traversal during synchronization",
   "packageName": "@itwin/imodel-transformer",
-  "email": "223556219+Copilot@users.noreply.github.com",
+  "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"
 }
