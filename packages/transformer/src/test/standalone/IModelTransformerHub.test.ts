@@ -115,6 +115,11 @@ import {
   TimelineIModelState,
 } from "../TestUtils/TimelineTestUtil";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
+import {
+  ChangesetScanMetrics,
+  changesetScanPass,
+  withChangesetScanInstrumentation,
+} from "../../ChangesetScanInstrumentation";
 
 const { count } = IModelTestUtils;
 
@@ -6641,12 +6646,65 @@ describe("IModelTransformerHub", () => {
         { argsForProcessChanges: {} }
       );
       await transformer.processSchemas();
-      await transformer.process();
+      const scanMetrics = new ChangesetScanMetrics();
+      await withChangesetScanInstrumentation(scanMetrics, async () => {
+        await transformer.process();
+      });
       secondTransformEditTxn.end();
       await targetDb.pushChanges({
         description: "Transformation 2: Process Changes with deletion",
         retainLocks: true,
       });
+
+      const selectedChangesetPaths = transformer["_csFileProps"]!.map(
+        (csFile) => csFile.pathname
+      );
+      const scanMetricsSnapshot = scanMetrics.snapshot();
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
+          .fileOpens
+      ).to.equal(selectedChangesetPaths.length);
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
+          .fileOpens
+      ).to.equal(selectedChangesetPaths.length);
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
+          .fileScans +
+          scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
+            .fileScans
+      ).to.equal(selectedChangesetPaths.length * 2);
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
+          .filePaths
+      ).to.deep.equal(selectedChangesetPaths);
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
+          .filePaths
+      ).to.deep.equal(selectedChangesetPaths);
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
+          .unifiedRowCount
+      ).to.be.greaterThan(0);
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
+          .unifiedRowCount
+      ).to.be.greaterThan(0);
+      expect(
+        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
+          .deletionRecordCount
+      ).to.be.greaterThan(0);
+      if (process.env.REPORT_CHANGESET_SCAN_METRICS === "1") {
+        // eslint-disable-next-line no-console
+        console.log(
+          JSON.stringify({
+            fixture: "overflow-table deletion",
+            selectedChangesetCount: selectedChangesetPaths.length,
+            selectedChangesetPaths,
+            scanMetrics: scanMetricsSnapshot,
+          })
+        );
+      }
 
       // Assert: Verify element is deleted in target
       const targetElement2 = IModelTestUtils.queryByUserLabel(

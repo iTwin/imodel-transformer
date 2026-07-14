@@ -56,6 +56,10 @@ import {
   ExportElementAspectsStrategy,
 } from "./ExportElementAspectsStrategy";
 import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
+import {
+  changesetScanPass,
+  getActiveChangesetScanMetrics,
+} from "./ChangesetScanInstrumentation";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -1449,7 +1453,13 @@ export class ChangedInstanceIds {
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
 
+    const scanMetrics = getActiveChangesetScanMetrics();
+    scanMetrics?.startPass(changesetScanPass.changedInstanceIds);
     for (const csFile of csFileProps) {
+      scanMetrics?.recordFileOpen(
+        changesetScanPass.changedInstanceIds,
+        csFile.pathname
+      );
       const csReader = SqliteChangesetReader.openFile({
         fileName: csFile.pathname,
         db: opts.iModel,
@@ -1464,6 +1474,10 @@ export class ChangedInstanceIds {
       }
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
+      scanMetrics?.recordUnifiedRows(
+        changesetScanPass.changedInstanceIds,
+        changes.length
+      );
 
       for (const change of changes) {
         // Change is recorded at table level, not EC entity level.
@@ -1484,7 +1498,9 @@ export class ChangedInstanceIds {
         await changedInstanceIds.addChange(change);
       }
       csReader.close();
+      scanMetrics?.recordFileScan(changesetScanPass.changedInstanceIds);
     }
+    scanMetrics?.finishPass(changesetScanPass.changedInstanceIds);
     return changedInstanceIds;
   }
 }

@@ -112,6 +112,10 @@ import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
 import { Property } from "@itwin/ecschema-metadata";
+import {
+  changesetScanPass,
+  getActiveChangesetScanMetrics,
+} from "./ChangesetScanInstrumentation";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -2116,7 +2120,13 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._deletedSourceRelationshipData = new Map();
 
+    const scanMetrics = getActiveChangesetScanMetrics();
+    scanMetrics?.startPass(changesetScanPass.processChangesets);
     for (const csFile of this._csFileProps ?? []) {
+      scanMetrics?.recordFileOpen(
+        changesetScanPass.processChangesets,
+        csFile.pathname
+      );
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       const csReader = SqliteChangesetReader.openFile({
         fileName: csFile.pathname,
@@ -2132,6 +2142,10 @@ export class IModelTransformer extends IModelExportHandler {
       }
       // eslint-disable-next-line @typescript-eslint/no-deprecated
       const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
+      scanMetrics?.recordUnifiedRows(
+        changesetScanPass.processChangesets,
+        changes.length
+      );
 
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
       // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -2169,6 +2183,10 @@ export class IModelTransformer extends IModelExportHandler {
           relationshipECClassIdsToSkip.has(ecClassId)
         )
           continue;
+        scanMetrics?.recordDeletionRecords(
+          changesetScanPass.processChangesets,
+          1
+        );
         await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
@@ -2179,7 +2197,9 @@ export class IModelTransformer extends IModelExportHandler {
       }
 
       csReader.close();
+      scanMetrics?.recordFileScan(changesetScanPass.processChangesets);
     }
+    scanMetrics?.finishPass(changesetScanPass.processChangesets);
     return;
   }
 
