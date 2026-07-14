@@ -8,18 +8,13 @@ import {
   IModelTransformer,
   IModelTransformArgs,
   IModelTransformOptions,
-  ExportSchemaResult,
 } from "@itwin/imodel-transformer";
 import { Schema } from "@itwin/ecschema-metadata";
 import { BenchmarkStats, createEmptyStats } from "./BenchmarkStats";
-import { BenchmarkImporter } from "./BenchmarkImporter";
 
 /**
- * An IModelTransformer subclass that captures detailed timing data for all
- * phases of a transformation: schema export, element export, and the overall
- * processSchemas/process calls.
- *
- * Uses a BenchmarkImporter for capturing import-side timing.
+ * An IModelTransformer subclass that captures timing data for the major
+ * transformation phases (processSchemas, process) and counts of exported entities.
  */
 export class BenchmarkTransformer extends IModelTransformer {
   private readonly _stats: BenchmarkStats;
@@ -33,12 +28,7 @@ export class BenchmarkTransformer extends IModelTransformer {
     options?: IModelTransformOptions
   ) {
     super(args, options);
-    // If a BenchmarkImporter was passed, reuse its stats object
-    if (args.target instanceof BenchmarkImporter) {
-      this._stats = (args.target as any)._stats;
-    } else {
-      this._stats = createEmptyStats();
-    }
+    this._stats = createEmptyStats();
   }
 
   public override async processSchemas(): Promise<void> {
@@ -47,15 +37,9 @@ export class BenchmarkTransformer extends IModelTransformer {
     this._stats.schemaTotalMs = performance.now() - start;
   }
 
-  public override async onExportSchema(
-    schema: Schema
-  ): Promise<void | ExportSchemaResult> {
-    const start = performance.now();
-    const result = await super.onExportSchema(schema);
-    const elapsed = performance.now() - start;
-    this._stats.schemaExportTimes.set(schema.name, elapsed);
+  public override async onExportSchema(schema: Schema): Promise<void> {
+    await super.onExportSchema(schema);
     this._stats.schemaCount++;
-    return result;
   }
 
   public override async process(): Promise<void> {
@@ -65,18 +49,14 @@ export class BenchmarkTransformer extends IModelTransformer {
   }
 
   public override async onExportElement(sourceElement: Element): Promise<void> {
-    const start = performance.now();
     await super.onExportElement(sourceElement);
-    this._stats.exportElementMs += performance.now() - start;
     this._stats.exportElementCount++;
   }
 
   public override async onExportRelationship(
     sourceRelationship: Relationship
   ): Promise<void> {
-    const start = performance.now();
     await super.onExportRelationship(sourceRelationship);
-    this._stats.exportRelationshipMs += performance.now() - start;
     this._stats.exportRelationshipCount++;
   }
 }

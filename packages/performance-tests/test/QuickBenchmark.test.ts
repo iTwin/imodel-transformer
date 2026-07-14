@@ -36,12 +36,7 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { Logger, LogLevel } from "@itwin/core-bentley";
 import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import { ECReferenceTypesCache } from "@itwin/imodel-transformer/lib/cjs/ECReferenceTypesCache";
-import {
-  BenchmarkImporter,
-  BenchmarkTransformer,
-  createEmptyStats,
-  printBenchmarkStats,
-} from "./benchmarking";
+import { BenchmarkTransformer, printBenchmarkStats } from "./benchmarking";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -172,14 +167,12 @@ describe("Quick Performance Benchmarks", function () {
       rootSubject: { name: "QuickPerfBenchmark Target" },
     });
 
-    // Set up benchmarked transformer with a BenchmarkImporter
-    const stats = createEmptyStats();
+    // Set up benchmarked transformer
     const editTxn = new EditTxn(targetDb, "BenchmarkTransformer");
     editTxn.start();
 
-    const benchmarkImporter = new BenchmarkImporter(editTxn, stats);
     const transformer = new BenchmarkTransformer(
-      { source: sourceDb, target: benchmarkImporter },
+      { source: sourceDb, target: editTxn },
       { loadSourceGeometry: true, noProvenance: true }
     );
 
@@ -193,7 +186,7 @@ describe("Quick Performance Benchmarks", function () {
     editTxn.end();
 
     // Print results
-    printBenchmarkStats(stats);
+    printBenchmarkStats(transformer.stats);
 
     // Cleanup
     transformer.dispose();
