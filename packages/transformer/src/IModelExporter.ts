@@ -9,8 +9,8 @@
 import {
   BriefcaseDb,
   BriefcaseManager,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
   ChangedECInstance,
-  ChangesetECAdaptor,
   DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -22,11 +22,9 @@ import {
   IModelDb,
   IModelJsNative,
   Model,
-  PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   SqliteChangeOp,
-  SqliteChangesetReader,
 } from "@itwin/core-backend";
 import {
   assert,
@@ -56,10 +54,7 @@ import {
   ExportElementAspectsStrategy,
 } from "./ExportElementAspectsStrategy";
 import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
-import {
-  changesetScanPass,
-  getActiveChangesetScanMetrics,
-} from "./ChangesetScanInstrumentation";
+import { ChangesetScanner } from "./ChangesetScanner";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -1452,55 +1447,7 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-
-    const scanMetrics = getActiveChangesetScanMetrics();
-    scanMetrics?.startPass(changesetScanPass.changedInstanceIds);
-    for (const csFile of csFileProps) {
-      scanMetrics?.recordFileOpen(
-        changesetScanPass.changedInstanceIds,
-        csFile.pathname
-      );
-      const csReader = SqliteChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: opts.iModel,
-        disableSchemaCheck: true,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
-      scanMetrics?.recordUnifiedRows(
-        changesetScanPass.changedInstanceIds,
-        changes.length
-      );
-
-      for (const change of changes) {
-        // Change is recorded at table level, not EC entity level.
-        // This `change.$meta.op` operation overwrite is needed to properly handle scenario when:
-        // 1. Source has an EC class with less than 32 properties. There are existing elements for that class.
-        // 2. Class is then updated to have more than 32 properties. Which means overflow table is now needed to store its elements.
-        //  During schema update all elements that belong to updated class, will be expanded into overflow table.
-        // 3. Changeset will have a record about `insert` operation into overflow table for already existing elements.
-        // This fix will overwrite such 'insert' and 'delete' operations to 'update' as no changes are done to main table.
-        // It ensures that changes will be processed and squashed correctly.
-        if (
-          change.$meta &&
-          (change.$meta.op === "Inserted" || change.$meta.op === "Deleted") &&
-          change.$meta.tables.every((e) => e.endsWith("Overflow"))
-        ) {
-          change.$meta.op = "Updated";
-        }
-        await changedInstanceIds.addChange(change);
-      }
-      csReader.close();
-      scanMetrics?.recordFileScan(changesetScanPass.changedInstanceIds);
-    }
-    scanMetrics?.finishPass(changesetScanPass.changedInstanceIds);
+    await ChangesetScanner.scan(opts.iModel, csFileProps, changedInstanceIds);
     return changedInstanceIds;
   }
 }

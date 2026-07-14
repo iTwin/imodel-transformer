@@ -6660,40 +6660,16 @@ describe("IModelTransformerHub", () => {
         (csFile) => csFile.pathname
       );
       const scanMetricsSnapshot = scanMetrics.snapshot();
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
-          .fileOpens
-      ).to.equal(selectedChangesetPaths.length);
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
-          .fileOpens
-      ).to.equal(selectedChangesetPaths.length);
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
-          .fileScans +
-          scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
-            .fileScans
-      ).to.equal(selectedChangesetPaths.length * 2);
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
-          .filePaths
-      ).to.deep.equal(selectedChangesetPaths);
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
-          .filePaths
-      ).to.deep.equal(selectedChangesetPaths);
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.changedInstanceIds]
-          .unifiedRowCount
-      ).to.be.greaterThan(0);
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
-          .unifiedRowCount
-      ).to.be.greaterThan(0);
-      expect(
-        scanMetricsSnapshot.passes[changesetScanPass.processChangesets]
-          .deletionRecordCount
-      ).to.be.greaterThan(0);
+      const scannerMetrics =
+        scanMetricsSnapshot.passes[changesetScanPass.singleScanner];
+      expect(Object.keys(scanMetricsSnapshot.passes)).to.deep.equal([
+        changesetScanPass.singleScanner,
+      ]);
+      expect(scannerMetrics.fileOpens).to.equal(selectedChangesetPaths.length);
+      expect(scannerMetrics.fileScans).to.equal(selectedChangesetPaths.length);
+      expect(scannerMetrics.filePaths).to.deep.equal(selectedChangesetPaths);
+      expect(scannerMetrics.unifiedRowCount).to.be.greaterThan(0);
+      expect(scannerMetrics.deletionRecordCount).to.be.greaterThan(0);
       if (process.env.REPORT_CHANGESET_SCAN_METRICS === "1") {
         // eslint-disable-next-line no-console
         console.log(
