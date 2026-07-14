@@ -302,5 +302,6 @@ export class ECReferenceTypesCache {
   public clear() {
     this._initedSchemas.clear();
     this._propQualifierToRefType.clear();
+    this._relClassNameEndToRefTypes.clear();
   }
 }
