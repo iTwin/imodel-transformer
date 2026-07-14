@@ -338,6 +338,170 @@ describe("IModelTransformerHub", () => {
     }
   });
 
+  it("should handle sequential deletes after processAll with default processChanges options", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName(
+        "ProcessChangesDeletesSource"
+      )
+    );
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName(
+        "ProcessChangesDeletesTarget"
+      )
+    );
+    let sourceDb: BriefcaseDb | undefined;
+    let targetDb: BriefcaseDb | undefined;
+
+    try {
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+      await sourceDb.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+      await targetDb.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+
+      const [physicalElement1Id, physicalElement2Id] = withEditTxn(
+        sourceDb,
+        "insert source physical elements",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SourceModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SourceCategory",
+            {}
+          );
+          const insertPhysicalElement = (name: string) => {
+            const element: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({ scope: "0x1", spec: "0x1", value: name }),
+              userLabel: name,
+            };
+            return txn.insertElement(element);
+          };
+          return [
+            insertPhysicalElement("PhysicalOne"),
+            insertPhysicalElement("PhysicalTwo"),
+          ];
+        }
+      );
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Initial source data",
+        retainLocks: true,
+      });
+
+      const processAllEditTxn = createStartedEditTxn(targetDb);
+      const processAllTransformer = new IModelTransformer({
+        source: sourceDb,
+        target: processAllEditTxn,
+      });
+      await processAllTransformer.process();
+      const syncVersionAfterProcessAll =
+        await processAllTransformer[
+          "_provenanceManager"
+        ].getSynchronizationVersion();
+      expect(syncVersionAfterProcessAll.index).to.equal(
+        sourceDb.changeset.index,
+        "processAll should persist the source synchronization version"
+      );
+      processAllTransformer.dispose();
+      processAllEditTxn.end();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Initial processAll transformation",
+        retainLocks: true,
+      });
+
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalOne")
+      ).to.not.be.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo")
+      ).to.not.be.equal(Id64.invalid);
+
+      const processChanges = async (description: string) => {
+        const editTxn = createStartedEditTxn(targetDb!);
+        const transformer = new IModelTransformer(
+          { source: sourceDb!, target: editTxn },
+          { argsForProcessChanges: {} }
+        );
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        await targetDb!.pushChanges({
+          accessToken,
+          description,
+          retainLocks: true,
+        });
+      };
+
+      withEditTxn(sourceDb, "delete first source physical element", (txn) => {
+        txn.deleteElement(physicalElement1Id);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Delete first source element",
+        retainLocks: true,
+      });
+      await processChanges("Process first source deletion");
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalOne"),
+        "PhysicalOne should be deleted after the first processChanges"
+      ).to.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo")
+      ).to.not.be.equal(Id64.invalid);
+
+      withEditTxn(sourceDb, "delete second source physical element", (txn) => {
+        txn.deleteElement(physicalElement2Id);
+      });
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Delete second source element",
+        retainLocks: true,
+      });
+      await processChanges("Process second source deletion");
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo"),
+        "PhysicalTwo should be deleted after the second processChanges"
+      ).to.equal(Id64.invalid);
+    } finally {
+      if (sourceDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      if (targetDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+      await IModelHost[_hubAccess].deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      await IModelHost[_hubAccess].deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+    }
+  });
+
   it("Transform source iModel to target iModel", async () => {
     const sourceIModelId = await createPopulatedIModelHubIModel(
       "TransformerSource",
