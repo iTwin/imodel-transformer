@@ -526,13 +526,14 @@ export class IModelImporter {
         }
       } else {
         for (let index = 0; index < currentAspects.length; index++) {
-          const { props, index: resultIndex } = currentAspects[index];
-          let id: Id64String;
+          const { props } = currentAspects[index];
           if (index < proposedAspects.length) {
-            id = props.id;
-            proposedAspects[index].props.id = id;
-            if (hasEntityChanged(props, proposedAspects[index].props)) {
-              await this.onUpdateElementAspect(proposedAspects[index].props);
+            const { props: proposedProps, index: resultIndex } =
+              proposedAspects[index];
+            const id = props.id;
+            proposedProps.id = id;
+            if (hasEntityChanged(props, proposedProps)) {
+              await this.onUpdateElementAspect(proposedProps);
             }
             result[resultIndex] = id;
           } else {
@@ -542,8 +543,8 @@ export class IModelImporter {
       }
     }
 
-    assert(result.every((r) => typeof r !== undefined));
-    return result as Id64String[];
+    assert(result.every((r) => r !== undefined));
+    return result;
   }
 
   /** Insert the ElementAspect into the target iModel.
