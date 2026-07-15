@@ -6583,11 +6583,11 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
 
-    it("should not export unchanged elements during processChanges when only the model is updated", async () => {
-      // Create a model with multiple elements
-      const { physicalModelId, elementIds } = withEditTxn(
+    it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
+      // Create a model with a parent element and a child element
+      const { physicalModelId, parentElementId, childElementId } = withEditTxn(
         sourceDb,
-        "create model and elements",
+        "create model with parent and child elements",
         (txn) => {
           const modelId = PhysicalModel.insert(
             txn,
@@ -6600,19 +6600,26 @@ describe("IModelTransformerHub", () => {
             "TestCategory",
             {}
           );
-          const ids: Id64String[] = [];
-          for (let i = 0; i < 5; i++) {
-            ids.push(
-              txn.insertElement({
-                classFullName: PhysicalObject.classFullName,
-                model: modelId,
-                category: categoryId,
-                code: Code.createEmpty(),
-                userLabel: `Element${i}`,
-              } as GeometricElementProps)
-            );
-          }
-          return { physicalModelId: modelId, elementIds: ids };
+          const parentId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ParentElement",
+          } as GeometricElementProps);
+          const childId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ChildElement",
+            parent: new ElementOwnsChildElements(parentId),
+          } as GeometricElementProps);
+          return {
+            physicalModelId: modelId,
+            parentElementId: parentId,
+            childElementId: childId,
+          };
         }
       );
       await sourceDb.pushChanges({
@@ -6634,16 +6641,16 @@ describe("IModelTransformerHub", () => {
         retainLocks: true,
       });
 
-      // Update only the model (not any elements) to trigger model change
-      withEditTxn(sourceDb, "update model only", (txn) => {
-        const modelProps = sourceDb.models.getModelProps(physicalModelId);
-        txn.updateModel({
-          ...modelProps,
-          jsonProperties: { UserProps: { updated: true } },
+      // Update only the child element (not the parent) to trigger a change
+      withEditTxn(sourceDb, "update child element only", (txn) => {
+        const childProps = sourceDb.elements.getElementProps(childElementId);
+        txn.updateElement({
+          ...childProps,
+          userLabel: "ChildElement-Updated",
         });
       });
       await sourceDb.pushChanges({
-        description: "Model-only update",
+        description: "Child element update",
         retainLocks: true,
       });
 
@@ -6656,16 +6663,23 @@ describe("IModelTransformerHub", () => {
       const onExportElementSpy = sinon.spy(transformer, "onExportElement");
       await transformer.process();
 
-      // Verify that onExportElement was NOT called for the unchanged elements
-      for (const elemId of elementIds) {
-        const wasCalledWithElem = onExportElementSpy
-          .getCalls()
-          .some((call) => call.args[0].id === elemId);
-        expect(
-          wasCalledWithElem,
-          `onExportElement should not have been called for unchanged element ${elemId}`
-        ).to.be.false;
-      }
+      // Verify: parent element was NOT exported (short-circuited)
+      const parentWasExported = onExportElementSpy
+        .getCalls()
+        .some((call) => call.args[0].id === parentElementId);
+      expect(
+        parentWasExported,
+        "onExportElement should not have been called for unchanged parent element"
+      ).to.be.false;
+
+      // Verify: child element WAS exported (still traversed through unchanged parent)
+      const childWasExported = onExportElementSpy
+        .getCalls()
+        .some((call) => call.args[0].id === childElementId);
+      expect(
+        childWasExported,
+        "onExportElement should have been called for changed child element"
+      ).to.be.true;
 
       transformer.dispose();
       secondEditTxn.end();
