@@ -117,6 +117,17 @@ import {
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 const { count } = IModelTestUtils;
+const countElementExternalSourceAspects = (
+  db: IModelDb,
+  elementId: Id64String
+) =>
+  db.elements
+    .getAspects(elementId, ExternalSourceAspect.classFullName)
+    .filter(
+      (aspect) =>
+        (aspect as ExternalSourceAspect).kind ===
+        ExternalSourceAspect.Kind.Element
+    ).length;
 
 describe("IModelTransformerHub", () => {
   const outputDir = path.join(
@@ -335,6 +346,170 @@ describe("IModelTransformerHub", () => {
         // eslint-disable-next-line no-console
         console.log("can't destroy", err);
       }
+    }
+  });
+
+  it("should handle sequential deletes after processAll with default processChanges options", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName(
+        "ProcessChangesDeletesSource"
+      )
+    );
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName(
+        "ProcessChangesDeletesTarget"
+      )
+    );
+    let sourceDb: BriefcaseDb | undefined;
+    let targetDb: BriefcaseDb | undefined;
+
+    try {
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+      await sourceDb.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+      await targetDb.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+
+      const [physicalElement1Id, physicalElement2Id] = withEditTxn(
+        sourceDb,
+        "insert source physical elements",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SourceModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SourceCategory",
+            {}
+          );
+          const insertPhysicalElement = (name: string) => {
+            const element: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({ scope: "0x1", spec: "0x1", value: name }),
+              userLabel: name,
+            };
+            return txn.insertElement(element);
+          };
+          return [
+            insertPhysicalElement("PhysicalOne"),
+            insertPhysicalElement("PhysicalTwo"),
+          ];
+        }
+      );
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Initial source data",
+        retainLocks: true,
+      });
+
+      const processAllEditTxn = createStartedEditTxn(targetDb);
+      const processAllTransformer = new IModelTransformer({
+        source: sourceDb,
+        target: processAllEditTxn,
+      });
+      await processAllTransformer.process();
+      const syncVersionAfterProcessAll =
+        await processAllTransformer[
+          "_provenanceManager"
+        ].getSynchronizationVersion();
+      expect(syncVersionAfterProcessAll.index).to.equal(
+        sourceDb.changeset.index,
+        "processAll should persist the source synchronization version"
+      );
+      processAllTransformer.dispose();
+      processAllEditTxn.end();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Initial processAll transformation",
+        retainLocks: true,
+      });
+
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalOne")
+      ).to.not.be.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo")
+      ).to.not.be.equal(Id64.invalid);
+
+      const processChanges = async (description: string) => {
+        const editTxn = createStartedEditTxn(targetDb!);
+        const transformer = new IModelTransformer(
+          { source: sourceDb!, target: editTxn },
+          { argsForProcessChanges: {} }
+        );
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        await targetDb!.pushChanges({
+          accessToken,
+          description,
+          retainLocks: true,
+        });
+      };
+
+      const deleteAndProcess = async (elementId: Id64String, name: string) => {
+        withEditTxn(
+          sourceDb!,
+          `delete ${name} source physical element`,
+          (txn) => {
+            txn.deleteElement(elementId);
+          }
+        );
+        await sourceDb!.pushChanges({
+          accessToken,
+          description: `Delete ${name} source element`,
+          retainLocks: true,
+        });
+        await processChanges(`Process ${name} source deletion`);
+      };
+
+      await deleteAndProcess(physicalElement1Id, "first");
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalOne"),
+        "PhysicalOne should be deleted after the first processChanges"
+      ).to.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo")
+      ).to.not.be.equal(Id64.invalid);
+
+      await deleteAndProcess(physicalElement2Id, "second");
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo"),
+        "PhysicalTwo should be deleted after the second processChanges"
+      ).to.equal(Id64.invalid);
+    } finally {
+      if (sourceDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      if (targetDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+      await IModelHost[_hubAccess].deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      await IModelHost[_hubAccess].deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
     }
   });
 
@@ -4837,6 +5012,203 @@ describe("IModelTransformerHub", () => {
       });
 
       await tearDown();
+    });
+  }
+
+  for (const skipPropagateChangesToRootElements of [true, false]) {
+    it(`should ${
+      skipPropagateChangesToRootElements ? "skip" : "propagate"
+    } a remapped root Subject update during processChanges and synchronize its children`, async () => {
+      const sourceIModelId = await HubWrappers.createIModel(
+        accessToken,
+        iTwinId,
+        IModelTransformerTestUtils.generateUniqueName(
+          "RemappedRootProcessChangesSource"
+        )
+      );
+      const targetIModelId = await HubWrappers.createIModel(
+        accessToken,
+        iTwinId,
+        IModelTransformerTestUtils.generateUniqueName(
+          "RemappedRootProcessChangesTarget"
+        )
+      );
+      let sourceDb: BriefcaseDb | undefined;
+      let targetDb: BriefcaseDb | undefined;
+
+      try {
+        sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        targetDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+        await sourceDb.locks.acquireLocks({
+          shared: "0x10",
+          exclusive: "0x1",
+        });
+        await targetDb.locks.acquireLocks({
+          shared: "0x10",
+          exclusive: "0x1",
+        });
+
+        const sourceChildSubjectId = withEditTxn(
+          sourceDb,
+          "insert source child Subject and update root",
+          (txn) => {
+            const childSubjectId = Subject.insert(
+              txn,
+              IModel.rootSubjectId,
+              "Source child"
+            );
+            const rootSubjectProps =
+              sourceDb!.elements.getElementProps<SubjectProps>(
+                IModel.rootSubjectId
+              );
+            rootSubjectProps.code = Subject.createCode(
+              sourceDb!,
+              IModel.rootSubjectId,
+              "Source root"
+            );
+            rootSubjectProps.userLabel = "Source root";
+            txn.updateElement(rootSubjectProps);
+            return childSubjectId;
+          }
+        );
+        const remappedTargetRootSubjectId = withEditTxn(
+          targetDb,
+          "insert remapped target Subject",
+          (txn) => Subject.insert(txn, IModel.rootSubjectId, "Mapped root")
+        );
+        await sourceDb.pushChanges({
+          accessToken,
+          description: "insert source child Subject and update root",
+          retainLocks: true,
+        });
+        await targetDb.pushChanges({
+          accessToken,
+          description: "insert remapped target Subject",
+          retainLocks: true,
+        });
+
+        const initialTargetEditTxn = createStartedEditTxn(targetDb);
+        let transformer = new IModelTransformer(
+          { source: sourceDb, target: initialTargetEditTxn },
+          {
+            targetScopeElementId: remappedTargetRootSubjectId,
+            skipPropagateChangesToRootElements: true,
+          }
+        );
+        transformer.context.remapElement(
+          IModel.rootSubjectId,
+          remappedTargetRootSubjectId
+        );
+        await transformer.process();
+        await transformer.updateSynchronizationVersion({
+          initializeReverseSyncVersion: true,
+        });
+        const targetChildSubjectId =
+          transformer.context.findTargetElementId(sourceChildSubjectId);
+        transformer.dispose();
+        initialTargetEditTxn.end();
+        await targetDb.pushChanges({
+          accessToken,
+          description: "initial transformation",
+          retainLocks: true,
+        });
+
+        const targetRootBeforeChanges = targetDb.elements.getElement<Subject>(
+          remappedTargetRootSubjectId,
+          Subject
+        );
+        const targetRootLabelBeforeChanges = targetRootBeforeChanges.userLabel;
+        const targetRootElementAspectCountBeforeChanges =
+          countElementExternalSourceAspects(
+            targetDb,
+            remappedTargetRootSubjectId
+          );
+
+        withEditTxn(sourceDb, "update source root and child Subject", (txn) => {
+          const rootSubjectProps =
+            sourceDb!.elements.getElementProps<SubjectProps>(
+              IModel.rootSubjectId
+            );
+          rootSubjectProps.userLabel = "Updated source root";
+          txn.updateElement(rootSubjectProps);
+
+          const childSubjectProps =
+            sourceDb!.elements.getElementProps<SubjectProps>(
+              sourceChildSubjectId
+            );
+          childSubjectProps.userLabel = "Updated source child";
+          txn.updateElement(childSubjectProps);
+        });
+        await sourceDb.pushChanges({
+          accessToken,
+          description: "update source root and child Subject",
+          retainLocks: true,
+        });
+
+        const processChangesTargetEditTxn = createStartedEditTxn(targetDb);
+        transformer = new IModelTransformer(
+          { source: sourceDb, target: processChangesTargetEditTxn },
+          {
+            argsForProcessChanges: {},
+            targetScopeElementId: remappedTargetRootSubjectId,
+            skipPropagateChangesToRootElements,
+          }
+        );
+        transformer.context.remapElement(
+          IModel.rootSubjectId,
+          remappedTargetRootSubjectId
+        );
+        await transformer.process();
+        transformer.dispose();
+        processChangesTargetEditTxn.end();
+
+        const targetRootAfterChanges = targetDb.elements.getElement<Subject>(
+          remappedTargetRootSubjectId,
+          Subject
+        );
+        expect(targetRootAfterChanges.userLabel).to.equal(
+          skipPropagateChangesToRootElements
+            ? targetRootLabelBeforeChanges
+            : "Updated source root"
+        );
+        expect(
+          targetDb.elements.getElement<Subject>(targetChildSubjectId, Subject)
+            .userLabel
+        ).to.equal("Updated source child");
+        if (skipPropagateChangesToRootElements) {
+          const targetRootElementAspectCountAfterChanges =
+            countElementExternalSourceAspects(
+              targetDb,
+              remappedTargetRootSubjectId
+            );
+          expect(targetRootElementAspectCountAfterChanges).to.equal(
+            targetRootElementAspectCountBeforeChanges
+          );
+        }
+      } finally {
+        if (sourceDb)
+          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+        if (targetDb)
+          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+        await IModelHost[_hubAccess].deleteIModel({
+          accessToken,
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost[_hubAccess].deleteIModel({
+          accessToken,
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      }
     });
   }
 

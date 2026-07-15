@@ -9,6 +9,7 @@ import {
   ElementRefersToElements,
   GeometryPart,
   GraphicalElement3dRepresentsElement,
+  IModelDb,
   IModelJsFs,
   PhysicalModel,
   PhysicalObject,
@@ -29,7 +30,13 @@ import {
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import { assert, expect } from "chai";
 import * as path from "path";
-import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
+import {
+  ChangedInstanceIds,
+  ExportChangesOptions,
+  ExporterInitOptions,
+  IModelExporter,
+  IModelExportHandler,
+} from "../../IModelExporter";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -46,6 +53,62 @@ describe("IModelExporter", () => {
     if (!IModelJsFs.existsSync(outputDir)) {
       IModelJsFs.mkdirSync(outputDir);
     }
+  });
+
+  it("forwards change-source options and preserves the default start changeset", async () => {
+    const sourceDb = {
+      changeset: { id: "current-changeset" },
+      isBriefcaseDb: () => true,
+    } as unknown as IModelDb;
+    const changedInstanceIds = new ChangedInstanceIds(sourceDb);
+
+    class TestExporter extends IModelExporter {
+      public initializedWith?: ExporterInitOptions;
+
+      public override async initialize(
+        options: ExporterInitOptions
+      ): Promise<void> {
+        this.initializedWith = options;
+        this["_sourceDbChanges"] = new ChangedInstanceIds(this.sourceDb);
+      }
+
+      public override async exportCodeSpecs(): Promise<void> {}
+      public override async exportFonts(): Promise<void> {}
+      public override async exportModel(): Promise<void> {}
+      public override async exportChildElements(): Promise<void> {}
+      public override async exportModelContents(): Promise<void> {}
+      public override async exportSubModels(): Promise<void> {}
+      public override async exportRelationships(): Promise<void> {}
+    }
+
+    const optionsToTest: ExportChangesOptions[] = [
+      {
+        skipPropagateChangesToRootElements: true,
+        startChangeset: { id: "start-changeset", index: 3 },
+      },
+      { skipPropagateChangesToRootElements: false, csFileProps: [] },
+      {
+        skipPropagateChangesToRootElements: true,
+        changesetRanges: [[1, 2]],
+      },
+      { skipPropagateChangesToRootElements: false, changedInstanceIds },
+    ];
+
+    for (const options of optionsToTest) {
+      const exporter = new TestExporter(sourceDb);
+      await exporter.exportChanges(options);
+      expect(exporter.initializedWith).to.equal(options);
+    }
+
+    const skipOnlyOptions: ExportChangesOptions = {
+      skipPropagateChangesToRootElements: true,
+    };
+    const defaultExporter = new TestExporter(sourceDb);
+    await defaultExporter.exportChanges(skipOnlyOptions);
+    expect(defaultExporter.initializedWith).to.deep.equal({
+      startChangeset: { id: undefined },
+      ...skipOnlyOptions,
+    });
   });
 
   it("export element with brep geometry", async () => {
