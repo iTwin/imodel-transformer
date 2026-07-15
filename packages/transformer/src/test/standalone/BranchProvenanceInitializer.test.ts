@@ -141,7 +141,10 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
             master: masterDb,
             branch: forkDb,
           };
+          // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.initialize-branch-provenance
+          // initializeBranchProvenance creates and ends its own EditTxn.
           const result = await initializeBranchProvenance(initProvenanceArgs);
+          // __PUBLISH_EXTRACT_END__
           // initializeBranchProvenance resets the passed in databases when we use "keep-reopened-db"
           masterDb = initProvenanceArgs.master as StandaloneDb;
           forkDb = initProvenanceArgs.branch as StandaloneDb;
