@@ -111,7 +111,6 @@ import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
-import { Property } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -1767,15 +1766,24 @@ export class IModelTransformer extends IModelExportHandler {
       sourceRelationship.targetId
     );
     // TODO: move to cloneRelationship in IModelCloneContext
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- forEach deprecated in core 5.10, migration tracked separately
-    sourceRelationship.forEach((propertyName: string, property: Property) => {
+    const relationshipClass =
+      sourceRelationship.iModel.schemaContext.getSchemaItemSync(
+        sourceRelationship.schemaItemKey,
+        ECSchemaMetaData.RelationshipClass
+      );
+    assert(
+      relationshipClass !== undefined,
+      `Cannot get metadata for ${sourceRelationship.classFullName}.`
+    );
+    for (const property of relationshipClass.getPropertiesSync()) {
+      const propertyName = property.name;
       if (property.isPrimitive() && "Id" === property.extendedTypeName) {
         (targetRelationshipProps as any)[ECJsNames.toJsName(propertyName)] =
           this.context.findTargetElementId(
             sourceRelationship.asAny[ECJsNames.toJsName(propertyName)]
           );
       }
-    });
+    }
     return targetRelationshipProps;
   }
 

@@ -15,7 +15,12 @@ import {
   Id64String,
   Mutable,
 } from "@itwin/core-bentley";
-import { Property, RelationshipClass, Schema } from "@itwin/ecschema-metadata";
+import {
+  EntityClass,
+  Property,
+  RelationshipClass,
+  Schema,
+} from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   AuxCoordSystem,
@@ -531,27 +536,35 @@ function getAllElemMetaDataProperties(
     className: string,
     entity: Entity
   ): Record<string, Property> {
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    const metaData = entity.getMetaDataSync();
+    const metaData = entity.iModel.schemaContext.getSchemaItemSync(
+      entity.schemaItemKey
+    );
+    if (
+      !EntityClass.isEntityClass(metaData) &&
+      !RelationshipClass.isRelationshipClass(metaData)
+    ) {
+      throw new Error(`Cannot get metadata for ${entity.classFullName}.`);
+    }
     const allProperties = { ...metaData.getPropertiesSync() };
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    entity.forEach((name, property) => {
+    for (const property of metaData.getPropertiesSync()) {
+      const name = property.name;
       const base = elem.iModel.schemaContext.getSchemaItemSync(
         property.class.fullName
       );
       if (base !== undefined && base instanceof Entity) {
         Object.assign(allProperties, getAllClassMetaDataProperties(name, base));
       }
-    });
+    }
 
     Object.assign(allProperties, aliasedProperties[className.toLowerCase()]);
     return allProperties;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  const classMetaData = elem.getMetaDataSync();
-  if (!classMetaData || classMetaData instanceof RelationshipClass)
-    return undefined;
+  const classMetaData = elem.iModel.schemaContext.getSchemaItemSync(
+    elem.schemaItemKey,
+    EntityClass
+  );
+  if (!classMetaData) return undefined;
 
   return getAllClassMetaDataProperties(elem.classFullName, elem);
 }
