@@ -1424,7 +1424,10 @@ describe("Catalog", () => {
     );
 
     // iterate through the imported PhysicalTypes and place instances for each
-    const componentPlacer = new TemplateModelCloner(facilityEditTxn);
+    // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.template-cloner-construction
+    // TemplateModelCloner uses the transaction for its in-place edits.
+    const templateCloner = new TemplateModelCloner(facilityEditTxn);
+    // __PUBLISH_EXTRACT_END__
     const physicalTypeSql = `SELECT ECInstanceId FROM ${PhysicalType.classFullName}`;
     const physicalTypeIds = new Set<Id64String>();
     for await (const row of iModelDb.createQueryReader(
@@ -1451,11 +1454,13 @@ describe("Catalog", () => {
           new YawPitchRollAngles(),
           new Range3d()
         );
-        const templateToInstanceMap = await componentPlacer.placeTemplate3d(
+        // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.template-cloner-placement
+        const templateToInstanceMap = await templateCloner.placeTemplate3d(
           physicalType.recipe.id,
           physicalModelId,
           placement
         );
+        // __PUBLISH_EXTRACT_END__
         const templateEquipmentId = await queryEquipmentId(
           iModelDb,
           physicalType.recipe.id
@@ -1497,7 +1502,7 @@ describe("Catalog", () => {
         new YawPitchRollAngles(),
         new Range3d()
       );
-      const templateToInstanceMap = await componentPlacer.placeTemplate3d(
+      const templateToInstanceMap = await templateCloner.placeTemplate3d(
         assemblyTemplateId,
         physicalModelId,
         placement
@@ -1554,7 +1559,7 @@ describe("Catalog", () => {
     );
     for (const location of drawingGraphicLocations) {
       const placement = new Placement2d(location, Angle.zero(), new Range2d());
-      await componentPlacer.placeTemplate2d(
+      await templateCloner.placeTemplate2d(
         drawingGraphicTemplateId,
         drawingId,
         placement
@@ -1569,7 +1574,7 @@ describe("Catalog", () => {
       drawingGraphicLocations.length
     );
 
-    componentPlacer.dispose();
+    templateCloner.dispose();
 
     facilityEditTxn.saveChanges("import from catalog");
     facilityEditTxn.end();

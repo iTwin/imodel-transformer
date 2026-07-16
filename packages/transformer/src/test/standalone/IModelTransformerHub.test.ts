@@ -3155,12 +3155,14 @@ describe("IModelTransformerHub", () => {
       expect(result.model.deleteIds).to.deep.equal(expectedModelDeleteIds);
       expect(result.model.updateIds).to.deep.equal(expectedModelUpdateIds);
 
+      // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
+      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.reverse-synchronization
+      // Reverse sync writes provenance to the source, so both databases need an EditTxn.
       const masterSyncEditTxn = createStartedEditTxn(masterDb);
       const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
       const synchronizer = new IModelTransformer(
         { source: branchDb, target: masterSyncEditTxn },
         {
-          // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
           argsForProcessChanges: {},
           sourceEditTxn: reverseSyncSourceEditTxn,
         }
@@ -3168,6 +3170,7 @@ describe("IModelTransformerHub", () => {
       await synchronizer.process();
       masterSyncEditTxn.end("save", "synchronize");
       reverseSyncSourceEditTxn.end("save", "synchronize provenance");
+      // __PUBLISH_EXTRACT_END__
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
 
