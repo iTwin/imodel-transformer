@@ -273,6 +273,7 @@ export class IModelTransformer extends IModelExportHandler {
     readonly exporter: IModelExporter;
     getIsForwardSynchronization(): Promise<boolean>;
     getIsReverseSynchronization(): Promise<boolean>;
+    getPerformanceStatistics(): TransformerPerformanceStatistics | undefined;
     getProvenanceDb(): Promise<IModelDb>;
     protected getSynchronizationVersion(): Promise<ChangesetIndexAndId>;
     protected hasElementChanged(sourceElement: Element_2): boolean;
@@ -341,6 +342,7 @@ export interface IModelTransformOptions {
     argsForProcessChanges?: ProcessChangesOptions;
     branchRelationshipDataBehavior?: "unsafe-migrate" | "reject";
     cloneUsingBinaryGeometry?: boolean;
+    collectPerformanceStatistics?: boolean;
     danglingReferencesBehavior?: "reject" | "ignore";
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
@@ -435,6 +437,41 @@ export enum TransformerLoggerCategory {
     IModelImporter = "imodel-transformer.IModelImporter",
     // @beta
     IModelTransformer = "imodel-transformer.IModelTransformer"
+}
+
+// @beta
+export interface TransformerPerformanceMetric {
+    readonly failureCount: number;
+    readonly invocationCount: number;
+    readonly maximumMilliseconds: number;
+    readonly totalMilliseconds: number;
+}
+
+// @beta
+export enum TransformerPerformanceOperation {
+    ChangeDataAcquisition = "changeDataAcquisition",
+    ChangeDataProcessing = "changeDataProcessing",
+    CodeSpecs = "codeSpecs",
+    DeferredElementAspects = "deferredElementAspects",
+    DeferredElements = "deferredElements",
+    Deletions = "deletions",
+    ElementAspects = "elementAspects",
+    ElementsAndModels = "elementsAndModels",
+    Finalization = "finalization",
+    Fonts = "fonts",
+    GeometryOptimization = "geometryOptimization",
+    Initialization = "initialization",
+    Process = "process",
+    ProjectExtents = "projectExtents",
+    Relationships = "relationships",
+    SaveChanges = "saveChanges",
+    Schemas = "schemas"
+}
+
+// @beta
+export interface TransformerPerformanceStatistics {
+    readonly operations: Readonly<Partial<Record<TransformerPerformanceOperation, TransformerPerformanceMetric>>>;
+    readonly schemaVersion: 1;
 }
 
 // (No @packageDocumentation comment for this package)

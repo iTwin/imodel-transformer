@@ -24,3 +24,6 @@ beta;interface;RelationshipPropsForDelete
 beta;interface;TargetScopeProvenanceJsonProps
 beta;class;TemplateModelCloner
 public;enum;TransformerLoggerCategory
+beta;interface;TransformerPerformanceMetric
+beta;enum;TransformerPerformanceOperation
+beta;interface;TransformerPerformanceStatistics

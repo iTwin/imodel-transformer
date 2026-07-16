@@ -1,0 +1,7 @@
+{
+  "type": "minor",
+  "comment": "Add opt-in transformer performance statistics for major processing operations",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

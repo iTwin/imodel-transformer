@@ -112,6 +112,13 @@ import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
 import { Property } from "@itwin/ecschema-metadata";
+import {
+  clearExporterPerformanceCollector,
+  setExporterPerformanceCollector,
+  TransformerPerformanceCollector,
+  TransformerPerformanceOperation,
+  TransformerPerformanceStatistics,
+} from "./TransformerPerformanceStatistics";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -130,6 +137,12 @@ export interface IModelTransformArgs {
  * @note if adding an option, you must explicitly add its serialization to [[IModelTransformer.saveStateToFile]]!
  */
 export interface IModelTransformOptions {
+  /** Set to `true` to collect aggregated performance measurements for major transformation operations.
+   * Statistics can be retrieved from [[IModelTransformer.getPerformanceStatistics]].
+   * @default false
+   */
+  collectPerformanceStatistics?: boolean;
+
   /** The Id of the Element in the **target** iModel that represents the **source** repository as a whole and scopes its [ExternalSourceAspect]($backend) instances.
    * It is always a good idea to define this, although particularly necessary in any multi-source scenario such as multiple branches that reverse synchronize
    * or physical consolidation.
@@ -454,6 +467,7 @@ export class IModelTransformer extends IModelExportHandler {
     IModelTransformOptions,
     "targetScopeElementId" | "danglingReferencesBehavior"
   >;
+  private readonly _performanceCollector?: TransformerPerformanceCollector;
   private _changesetRanges: [number, number][] | undefined = undefined;
 
   /**
@@ -498,6 +512,9 @@ export class IModelTransformer extends IModelExportHandler {
         options?.skipPropagateChangesToRootElements ?? true,
       tryAlignGeolocation: options?.tryAlignGeolocation ?? false,
     };
+    this._performanceCollector = this._options.collectPerformanceStatistics
+      ? new TransformerPerformanceCollector()
+      : undefined;
     // check if authorization client is defined
     if (IModelHost.authorizationClient === undefined) {
       Logger.logWarning(
@@ -516,6 +533,7 @@ export class IModelTransformer extends IModelExportHandler {
       this.exporter = source;
     }
     this.sourceDb = this.exporter.sourceDb;
+    setExporterPerformanceCollector(this.exporter, this._performanceCollector);
     this.exporter.registerHandler(this);
     this.exporter.wantGeometry = options?.loadSourceGeometry ?? false; // optimization to not load source GeometryStreams by default
     if (!this._options.includeSourceProvenance) {
@@ -617,7 +635,37 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
+    clearExporterPerformanceCollector(
+      this.exporter,
+      this._performanceCollector
+    );
     this.context[Symbol.dispose]();
+  }
+
+  /** Get a snapshot of measurements collected over this transformer's lifetime.
+   * @returns `undefined` if performance statistics collection was not enabled.
+   * @beta
+   */
+  public getPerformanceStatistics():
+    | TransformerPerformanceStatistics
+    | undefined {
+    return this._performanceCollector?.getStatistics();
+  }
+
+  private async measurePerformance<T>(
+    operation: TransformerPerformanceOperation,
+    action: () => Promise<T>
+  ): Promise<T> {
+    if (this._performanceCollector === undefined) return action();
+    return this._performanceCollector.measure(operation, action);
+  }
+
+  private measurePerformanceSync<T>(
+    operation: TransformerPerformanceOperation,
+    action: () => T
+  ): T {
+    if (this._performanceCollector === undefined) return action();
+    return this._performanceCollector.measureSync(operation, action);
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
@@ -1930,27 +1978,34 @@ export class IModelTransformer extends IModelExportHandler {
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
   public async processSchemas(): Promise<void> {
-    // we do not need to initialize for this since no entities are exported
-    try {
-      IModelJsFs.mkdirSync(this._schemaExportDir);
-      this._longNamedSchemasMap.clear();
-      await this.exporter.exportSchemas();
-      const exportedSchemaFiles = IModelJsFs.readdirSync(this._schemaExportDir);
-      if (exportedSchemaFiles.length === 0) return;
-      const schemaFullPaths = exportedSchemaFiles.map((s) =>
-        path.join(this._schemaExportDir, s)
-      );
-      const maybeLongNameResolvingSchemaCtx =
-        this._longNamedSchemasMap.size > 0
-          ? this._makeLongNameResolvingSchemaCtx()
-          : undefined;
-      return await this.targetDb.importSchemas(schemaFullPaths, {
-        ecSchemaXmlContext: maybeLongNameResolvingSchemaCtx,
-      });
-    } finally {
-      IModelJsFs.removeSync(this._schemaExportDir);
-      this._longNamedSchemasMap.clear();
-    }
+    return this.measurePerformance(
+      TransformerPerformanceOperation.Schemas,
+      async () => {
+        // we do not need to initialize for this since no entities are exported
+        try {
+          IModelJsFs.mkdirSync(this._schemaExportDir);
+          this._longNamedSchemasMap.clear();
+          await this.exporter.exportSchemas();
+          const exportedSchemaFiles = IModelJsFs.readdirSync(
+            this._schemaExportDir
+          );
+          if (exportedSchemaFiles.length === 0) return;
+          const schemaFullPaths = exportedSchemaFiles.map((s) =>
+            path.join(this._schemaExportDir, s)
+          );
+          const maybeLongNameResolvingSchemaCtx =
+            this._longNamedSchemasMap.size > 0
+              ? this._makeLongNameResolvingSchemaCtx()
+              : undefined;
+          return await this.targetDb.importSchemas(schemaFullPaths, {
+            ecSchemaXmlContext: maybeLongNameResolvingSchemaCtx,
+          });
+        } finally {
+          IModelJsFs.removeSync(this._schemaExportDir);
+          this._longNamedSchemasMap.clear();
+        }
+      }
+    );
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.
@@ -2031,22 +2086,45 @@ export class IModelTransformer extends IModelExportHandler {
    */
   public async initialize(): Promise<void> {
     if (this._initialized) return;
-    this.assertEditTxnActive();
+    return this.measurePerformance(
+      TransformerPerformanceOperation.Initialization,
+      async () => {
+        this.assertEditTxnActive();
 
-    await this.initScopeProvenance();
+        await this.initScopeProvenance();
 
-    await this._tryInitChangesetData(this._options.argsForProcessChanges);
-    await this.context.initialize();
+        const processChangesOptions = this._options.argsForProcessChanges;
+        if (processChangesOptions === undefined) {
+          await this._tryInitChangesetData(processChangesOptions);
+        } else {
+          await this.measurePerformance(
+            TransformerPerformanceOperation.ChangeDataAcquisition,
+            async () => this._tryInitChangesetData(processChangesOptions)
+          );
+        }
+        await this.context.initialize();
 
-    // need exporter initialized to do remapdeletedsourceentities.
-    await this.exporter.initialize(
-      await this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
+        const processChangeData = async () => {
+          // need exporter initialized to do remapdeletedsourceentities.
+          await this.exporter.initialize(
+            await this.getExportInitOpts(processChangesOptions ?? {})
+          );
+
+          // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
+          await this.processChangesets();
+        };
+        if (processChangesOptions === undefined) {
+          await processChangeData();
+        } else {
+          await this.measurePerformance(
+            TransformerPerformanceOperation.ChangeDataProcessing,
+            processChangeData
+          );
+        }
+
+        this._initialized = true;
+      }
     );
-
-    // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
-    await this.processChangesets();
-
-    this._initialized = true;
   }
 
   /**
@@ -2470,13 +2548,18 @@ export class IModelTransformer extends IModelExportHandler {
    *
    */
   public async process(): Promise<void> {
-    await this.initialize();
+    return this.measurePerformance(
+      TransformerPerformanceOperation.Process,
+      async () => {
+        await this.initialize();
 
-    this.logSettings();
+        this.logSettings();
 
-    return this._options.argsForProcessChanges !== undefined
-      ? this.processChanges(this._options.argsForProcessChanges)
-      : this.processAll();
+        return this._options.argsForProcessChanges !== undefined
+          ? this.processChanges(this._options.argsForProcessChanges)
+          : this.processAll();
+      }
+    );
   }
 
   /** Export everything from the source iModel and import the transformed entities into the target iModel.
@@ -2488,26 +2571,48 @@ export class IModelTransformer extends IModelExportHandler {
     // processAll always has changes to process, so mark it as such for version tracking
     this._sourceChangeDataState = "has-changes";
 
-    await this.exporter.exportCodeSpecs();
-    await this.exporter.exportFonts();
+    await this.measurePerformance(
+      TransformerPerformanceOperation.CodeSpecs,
+      async () => this.exporter.exportCodeSpecs()
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.Fonts,
+      async () => this.exporter.exportFonts()
+    );
 
-    if (this._options.skipPropagateChangesToRootElements) {
-      // The RepositoryModel and root Subject of the target iModel should not be transformed.
-      await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
-      await this.exporter.exportModelContents(
-        IModel.repositoryModelId,
-        Element.classFullName,
-        true
-      ); // after the Subject hierarchy, process the other elements of the RepositoryModel
-      await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
-    } else {
-      await this.exporter.exportModel(IModel.repositoryModelId);
-    }
-    await this.completePartiallyCommittedElements();
-    await this.exporter["exportAllAspects"](); // eslint-disable-line @typescript-eslint/dot-notation
-    await this.completePartiallyCommittedAspects();
-    await this.exporter.exportRelationships(
-      ElementRefersToElements.classFullName
+    await this.measurePerformance(
+      TransformerPerformanceOperation.ElementsAndModels,
+      async () => {
+        if (this._options.skipPropagateChangesToRootElements) {
+          // The RepositoryModel and root Subject of the target iModel should not be transformed.
+          await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject
+          await this.exporter.exportModelContents(
+            IModel.repositoryModelId,
+            Element.classFullName,
+            true
+          ); // after the Subject hierarchy, process the other elements of the RepositoryModel
+          await this.exporter.exportSubModels(IModel.repositoryModelId); // start below the RepositoryModel
+        } else {
+          await this.exporter.exportModel(IModel.repositoryModelId);
+        }
+      }
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.DeferredElements,
+      async () => this.completePartiallyCommittedElements()
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.ElementAspects,
+      async () => this.exporter["exportAllAspects"]() // eslint-disable-line @typescript-eslint/dot-notation
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.DeferredElementAspects,
+      async () => this.completePartiallyCommittedAspects()
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.Relationships,
+      async () =>
+        this.exporter.exportRelationships(ElementRefersToElements.classFullName)
     );
     if (
       this._options.forceExternalSourceAspectProvenance &&
@@ -2519,11 +2624,22 @@ export class IModelTransformer extends IModelExportHandler {
       );
     }
 
-    if (this._options.optimizeGeometry)
-      this.importer.optimizeGeometry(this._options.optimizeGeometry);
+    const optimizeGeometryOptions = this._options.optimizeGeometry;
+    if (optimizeGeometryOptions) {
+      this.measurePerformanceSync(
+        TransformerPerformanceOperation.GeometryOptimization,
+        () => this.importer.optimizeGeometry(optimizeGeometryOptions)
+      );
+    }
 
-    this.importer.computeProjectExtents();
-    await this.finalizeTransformation();
+    this.measurePerformanceSync(
+      TransformerPerformanceOperation.ProjectExtents,
+      () => this.importer.computeProjectExtents()
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.Finalization,
+      async () => this.finalizeTransformation()
+    );
   }
 
   /** Export changes from the source iModel and import the transformed entities into the target iModel.
@@ -2540,20 +2656,42 @@ export class IModelTransformer extends IModelExportHandler {
     this._targetModelsImportedInCurrentTransform.clear();
     // must wait for initialization of synchronization provenance data
     await this.exporter.exportChanges(await this.getExportInitOpts(options));
-    await this.completePartiallyCommittedElements();
-    await this.completePartiallyCommittedAspects();
+    await this.measurePerformance(
+      TransformerPerformanceOperation.DeferredElements,
+      async () => this.completePartiallyCommittedElements()
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.DeferredElementAspects,
+      async () => this.completePartiallyCommittedAspects()
+    );
 
-    if (this._options.optimizeGeometry)
-      this.importer.optimizeGeometry(this._options.optimizeGeometry);
+    const optimizeGeometryOptions = this._options.optimizeGeometry;
+    if (optimizeGeometryOptions) {
+      this.measurePerformanceSync(
+        TransformerPerformanceOperation.GeometryOptimization,
+        () => this.importer.optimizeGeometry(optimizeGeometryOptions)
+      );
+    }
 
-    this.importer.computeProjectExtents();
-    await this.finalizeTransformation();
+    this.measurePerformanceSync(
+      TransformerPerformanceOperation.ProjectExtents,
+      () => this.importer.computeProjectExtents()
+    );
+    await this.measurePerformance(
+      TransformerPerformanceOperation.Finalization,
+      async () => this.finalizeTransformation()
+    );
 
     const defaultSaveTargetChanges = () => {
       this._targetEditTxn.saveChanges();
     };
 
-    await (options.saveTargetChanges ?? defaultSaveTargetChanges)(this);
+    await this.measurePerformance(
+      TransformerPerformanceOperation.SaveChanges,
+      async () => {
+        await (options.saveTargetChanges ?? defaultSaveTargetChanges)(this);
+      }
+    );
   }
 
   /** Changeset data must be initialized in order to build correct changeOptions.
