@@ -108,6 +108,22 @@ await initializeBranchProvenance({ master, branch: branchDb });
 // No migration needed — works the same as before.
 ```
 
+## Breaking changes: `IModelTransformer` provenance APIs reorganized
+
+As part of [the decomposition of `IModelTransformer`](https://github.com/iTwin/imodel-transformer/pull/295), synchronization direction resolution and provenance management were moved into focused internal classes. Most commonly used `IModelTransformer` APIs remain available as delegates, including `initElementProvenance()`, `getSynchronizationVersion()`, `tryGetProvenanceScopeAspect()`, `initScopeProvenance()`, and `updateSynchronizationVersion()`.
+
+The following APIs were removed from `IModelTransformer`:
+
+- `determineSyncType()`
+- `noEsaSyncDirectionErrorMessage`
+- `getProvenanceSourceDb()`
+- `forEachTrackedElement()`
+- `initElementProvenanceOptions()`
+- `initRelationshipProvenanceOptions()`
+- `queryScopeExternalSourceAspect()`
+
+Subclasses that need the extracted provenance functionality can use the protected `_provenanceManager`. To determine synchronization direction, use `getIsForwardSynchronization()` or `getIsReverseSynchronization()`.
+
 ## Breaking changes: Many synchronous methods are now asynchronous
 
 As part of the upgrade to iTwin.js 5.0, a large number of previously synchronous methods across the public API now return `Promise` and must be `await`ed. If you override any of these methods in a subclass, your override must also be declared `async` (or return a `Promise`).
