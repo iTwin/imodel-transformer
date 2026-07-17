@@ -23,6 +23,7 @@ import {
   GeometryPartProps,
   GeometryStreamBuilder,
   IModel,
+  IModelError,
   PhysicalElementProps,
   RelationshipProps,
   SubCategoryAppearance,
@@ -109,6 +110,29 @@ describe("IModelExporter", () => {
       startChangeset: { id: undefined },
       ...skipOnlyOptions,
     });
+  });
+
+  it("throws instead of falling back to exportAll when the source has no changesets", async () => {
+    const sourceDb = {
+      changeset: { id: "" },
+      isBriefcaseDb: () => true,
+    } as unknown as IModelDb;
+
+    class TestExporter extends IModelExporter {
+      public exportAllCalled = false;
+
+      public override async exportAll(): Promise<void> {
+        this.exportAllCalled = true;
+      }
+    }
+
+    const exporter = new TestExporter(sourceDb);
+    await expect(exporter.exportChanges()).to.be.rejectedWith(
+      IModelError,
+      "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
+    );
+
+    expect(exporter.exportAllCalled).to.be.false;
   });
 
   it("export element with brep geometry", async () => {

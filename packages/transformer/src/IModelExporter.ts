@@ -81,7 +81,6 @@ export type ExporterInitOptions = ExportChangesOptions;
  */
 export type ExportChangesOptions = {
   skipPropagateChangesToRootElements?: boolean;
-  exportAllIfNoChangesetsPresent?: boolean;
 } /**
  * an array of ChangesetFileProps which are used to read the changesets and populate the ChangedInstanceIds using [[ChangedInstanceIds.initialize]] in [[IModelExporter.exportChanges]]
  * @note mutually exclusive with @see changesetRanges, @see startChangeset and @see changedInstanceIds, so define one of the four, never more
@@ -436,6 +435,7 @@ export class IModelExporter {
 
   /** Export changes from the source iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
+   * @throws [[IModelError]] if the source iModel has no changesets and no custom changes. Call [[exportAll]] to export all content.
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
@@ -448,15 +448,11 @@ export class IModelExporter {
         "Must be a briefcase to export changes"
       );
 
-    if (
-      "" === this.sourceDb.changeset.id &&
-      !this.sourceDbChanges?.hasChanges
-    ) {
-      if (args?.exportAllIfNoChangesetsPresent) {
-        await this.exportAll(); // no changesets or custom changes, so revert to exportAll
-      }
-      return; // if not set, silent return and don't export anything
-    }
+    if ("" === this.sourceDb.changeset.id && !this.sourceDbChanges?.hasChanges)
+      throw new IModelError(
+        IModelStatus.BadRequest,
+        "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
+      );
 
     // The change-source options are mutually exclusive. Preserve the caller's
     // object when one is present, including its full startChangeset value.
