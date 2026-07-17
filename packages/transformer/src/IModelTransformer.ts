@@ -982,6 +982,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Returns true if a change within sourceElement is detected.
    * @param sourceElement The Element from the source iModel
    * @note A subclass can override this method to provide custom change detection behavior.
+   * @note During change processing, elements not present in the changeset are short-circuited
+   * in the exporter before reaching this method. To add elements to the changeset programmatically,
+   * use [[addCustomChanges]] rather than overriding this method to expand processing.
    */
   protected hasElementChanged(sourceElement: Element): boolean {
     const sourceDbChanges = this.exporter.sourceDbChanges;

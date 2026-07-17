@@ -102,11 +102,13 @@ import {
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 /** Creates an EditTxn for the given db and starts it. */
+// __PUBLISH_EXTRACT_START__ EditTxnInTransformer.create-started-edit-txn
 export function createStartedEditTxn(db: IModelDb): EditTxn {
   const editTxn = new EditTxn(db, "IModelTransformer");
   editTxn.start();
   return editTxn;
 }
+// __PUBLISH_EXTRACT_END__
 
 export class HubWrappers extends TestUtils.HubWrappers {
   protected static override get hubMock() {
