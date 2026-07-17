@@ -35,6 +35,7 @@ import {
   Id64Set,
   Id64String,
   IModelStatus,
+  ITwinError,
   Logger,
   YieldManager,
 } from "@itwin/core-bentley";
@@ -435,7 +436,7 @@ export class IModelExporter {
 
   /** Export changes from the source iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
-   * @throws [[IModelError]] if the source iModel has no changesets and no custom changes. Call [[exportAll]] to export all content.
+   * @throws [[ITwinError]] with scope `@itwin/imodel-transformer` and key `no-changesets` if the source iModel has no changesets and no custom changes. Call [[exportAll]] to export all content.
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
@@ -467,10 +468,14 @@ export class IModelExporter {
       "" === this.sourceDb.changeset.id &&
       !this.sourceDbChanges?.hasChanges
     ) {
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: "@itwin/imodel-transformer",
+          key: "no-changesets",
+        },
+        message:
+          "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content.",
+      });
     }
 
     if (!hasExplicitChangeSource) await this.initialize(initOpts);

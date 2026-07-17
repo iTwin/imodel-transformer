@@ -17,13 +17,12 @@ import {
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64 } from "@itwin/core-bentley";
+import { Id64, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
   GeometryPartProps,
   GeometryStreamBuilder,
   IModel,
-  IModelError,
   PhysicalElementProps,
   RelationshipProps,
   SubCategoryAppearance,
@@ -127,10 +126,18 @@ describe("IModelExporter", () => {
     }
 
     const exporter = new TestExporter(sourceDb);
-    await expect(exporter.exportChanges()).to.be.rejectedWith(
-      IModelError,
-      "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
-    );
+    try {
+      await exporter.exportChanges();
+      assert.fail("Expected exportChanges() to throw");
+    } catch (error) {
+      expect(
+        ITwinError.isError(error, "@itwin/imodel-transformer", "no-changesets")
+      ).to.be.true;
+      expect(error).to.have.property(
+        "message",
+        "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
+      );
+    }
 
     expect(exporter.exportAllCalled).to.be.false;
   });
