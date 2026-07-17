@@ -448,12 +448,6 @@ export class IModelExporter {
         "Must be a briefcase to export changes"
       );
 
-    if ("" === this.sourceDb.changeset.id && !this.sourceDbChanges?.hasChanges)
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
-      );
-
     // The change-source options are mutually exclusive. Preserve the caller's
     // object when one is present, including its full startChangeset value.
     // Otherwise provide the default range expected by ChangedInstanceIds.
@@ -466,7 +460,20 @@ export class IModelExporter {
     const initOpts: ExporterInitOptions = hasExplicitChangeSource
       ? args
       : { startChangeset: { id: undefined }, ...args };
-    await this.initialize(initOpts);
+
+    if (hasExplicitChangeSource) await this.initialize(initOpts);
+
+    if (
+      "" === this.sourceDb.changeset.id &&
+      !this.sourceDbChanges?.hasChanges
+    ) {
+      throw new IModelError(
+        IModelStatus.BadRequest,
+        "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
+      );
+    }
+
+    if (!hasExplicitChangeSource) await this.initialize(initOpts);
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
       this._sourceDbChanges !== undefined,

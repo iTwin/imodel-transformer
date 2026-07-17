@@ -135,6 +135,29 @@ describe("IModelExporter", () => {
     expect(exporter.exportAllCalled).to.be.false;
   });
 
+  it("exports caller-supplied changes when the source has no changesets", async () => {
+    const sourceDb = {
+      changeset: { id: "" },
+      isBriefcaseDb: () => true,
+    } as unknown as IModelDb;
+    const changedInstanceIds = new ChangedInstanceIds(sourceDb);
+    changedInstanceIds.element.insertIds.add("0x1");
+
+    class TestExporter extends IModelExporter {
+      public override async exportCodeSpecs(): Promise<void> {}
+      public override async exportFonts(): Promise<void> {}
+      public override async exportModel(): Promise<void> {}
+      public override async exportChildElements(): Promise<void> {}
+      public override async exportModelContents(): Promise<void> {}
+      public override async exportSubModels(): Promise<void> {}
+      public override async exportRelationships(): Promise<void> {}
+    }
+
+    const exporter = new TestExporter(sourceDb);
+    await expect(exporter.exportChanges({ changedInstanceIds })).to.eventually
+      .be.fulfilled;
+  });
+
   it("export element with brep geometry", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelExporter",
