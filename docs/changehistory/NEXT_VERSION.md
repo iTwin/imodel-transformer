@@ -6,7 +6,7 @@
 
 This makes change processing predictable and prevents configuration errors from silently running a full export or completing an empty transformation. Briefcases with changesets, including changesets without relevant instance changes, and workflows that supply custom changes are unaffected.
 
-If the source briefcase has no changesets and you intend to transform all content, call the explicit full-processing API instead:
+If the source briefcase has no changesets and you intend to transform all content, call the explicit full-processing API instead. For `IModelTransformer`, omitting `argsForProcessChanges` makes `process()` call `processAll()` and transform all content; supplying it makes `process()` call `processChanges()` for incremental processing.
 
 ```ts
 // Direct exporter usage

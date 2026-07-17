@@ -151,7 +151,16 @@ describe("IModelExporter", () => {
     changedInstanceIds.element.insertIds.add("0x1");
 
     class TestExporter extends IModelExporter {
-      public override async exportCodeSpecs(): Promise<void> {}
+      public exportHookCalled = false;
+
+      public override async exportAll(): Promise<void> {
+        assert.fail("exportChanges() must not fall back to exportAll()");
+      }
+
+      public override async exportCodeSpecs(): Promise<void> {
+        expect(this.sourceDbChanges).to.equal(changedInstanceIds);
+        this.exportHookCalled = true;
+      }
       public override async exportFonts(): Promise<void> {}
       public override async exportModel(): Promise<void> {}
       public override async exportChildElements(): Promise<void> {}
@@ -163,6 +172,7 @@ describe("IModelExporter", () => {
     const exporter = new TestExporter(sourceDb);
     await expect(exporter.exportChanges({ changedInstanceIds })).to.eventually
       .be.fulfilled;
+    expect(exporter.exportHookCalled).to.be.true;
   });
 
   it("export element with brep geometry", async () => {
