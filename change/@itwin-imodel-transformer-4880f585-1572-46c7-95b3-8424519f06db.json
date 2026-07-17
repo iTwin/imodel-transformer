@@ -2,6 +2,6 @@
   "type": "patch",
   "comment": "Replace getMetaDataSync() with getSchemaItemSync()",
   "packageName": "@itwin/imodel-transformer",
-  "email": "'DanRod1999@users.noreply.github.com'",
+  "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"
 }
