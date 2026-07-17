@@ -15,12 +15,7 @@ import {
   Id64String,
   Mutable,
 } from "@itwin/core-bentley";
-import {
-  EntityClass,
-  Property,
-  RelationshipClass,
-  Schema,
-} from "@itwin/ecschema-metadata";
+import { EntityClass, Property, Schema } from "@itwin/ecschema-metadata";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   AuxCoordSystem,
@@ -76,6 +71,7 @@ import {
   CodeSpec,
   ColorDef,
   DisplayStyle3dSettingsProps,
+  ECJsNames,
   ElementAspectProps,
   ElementProps,
   FontProps,
@@ -532,41 +528,19 @@ const aliasedProperties: Record<string, Record<string, string> | undefined> =
 function getAllElemMetaDataProperties(
   elem: Element
 ): Record<string, Property> | undefined {
-  function getAllClassMetaDataProperties(
-    className: string,
-    entity: Entity
-  ): Record<string, Property> {
-    const metaData = entity.iModel.schemaContext.getSchemaItemSync(
-      entity.schemaItemKey
-    );
-    if (
-      !EntityClass.isEntityClass(metaData) &&
-      !RelationshipClass.isRelationshipClass(metaData)
-    ) {
-      throw new Error(`Cannot get metadata for ${entity.classFullName}.`);
-    }
-    const allProperties = { ...metaData.getPropertiesSync() };
-    for (const property of metaData.getPropertiesSync()) {
-      const name = property.name;
-      const base = elem.iModel.schemaContext.getSchemaItemSync(
-        property.class.fullName
-      );
-      if (base !== undefined && base instanceof Entity) {
-        Object.assign(allProperties, getAllClassMetaDataProperties(name, base));
-      }
-    }
-
-    Object.assign(allProperties, aliasedProperties[className.toLowerCase()]);
-    return allProperties;
-  }
-
   const classMetaData = elem.iModel.schemaContext.getSchemaItemSync(
     elem.schemaItemKey,
     EntityClass
   );
   if (!classMetaData) return undefined;
 
-  return getAllClassMetaDataProperties(elem.classFullName, elem);
+  const allProperties: Record<string, Property> = {};
+  for (const property of classMetaData.getPropertiesSync()) {
+    const jsName = ECJsNames.toJsName(property.name);
+    const name = aliasedProperties[property.class.fullName]?.[jsName] ?? jsName;
+    allProperties[name] = property;
+  }
+  return allProperties;
 }
 
 /**
@@ -680,7 +654,7 @@ export async function assertIdentityTransformation(
           });
 
           const relationTargetInSourceId = (await sourceReader.step())
-            ? sourceReader.current.id
+            ? (sourceReader.current.id ?? Id64.invalid)
             : Id64.invalid;
 
           const targetParams = new QueryBinder().bindId("id", targetElemId);
@@ -689,7 +663,7 @@ export async function assertIdentityTransformation(
           });
 
           const relationTargetInTargetId = (await targetReader.step())
-            ? targetReader.current.id
+            ? (targetReader.current.id ?? Id64.invalid)
             : Id64.invalid;
 
           const mappedRelationTargetInTargetId = (
