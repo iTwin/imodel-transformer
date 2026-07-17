@@ -449,25 +449,24 @@ export class IModelExporter {
         "Must be a briefcase to export changes"
       );
 
-    // The change-source options are mutually exclusive. Preserve the caller's
-    // object when one is present, including its full startChangeset value.
-    // Otherwise provide the default range expected by ChangedInstanceIds.
+    let initOpts: ExporterInitOptions = args ?? {};
     const hasExplicitChangeSource =
-      args !== undefined &&
-      ("csFileProps" in args ||
-        "changedInstanceIds" in args ||
-        "changesetRanges" in args ||
-        "startChangeset" in args);
-    const initOpts: ExporterInitOptions = hasExplicitChangeSource
-      ? args
-      : { startChangeset: { id: undefined }, ...args };
+      "csFileProps" in initOpts ||
+      "changedInstanceIds" in initOpts ||
+      "changesetRanges" in initOpts ||
+      "startChangeset" in initOpts;
+    const currentChangesetId = this.sourceDb.changeset.id;
 
-    if (hasExplicitChangeSource) await this.initialize(initOpts);
+    if (!hasExplicitChangeSource && currentChangesetId !== "") {
+      initOpts = {
+        ...initOpts,
+        startChangeset: { id: currentChangesetId },
+      };
+    }
 
-    if (
-      "" === this.sourceDb.changeset.id &&
-      !this.sourceDbChanges?.hasChanges
-    ) {
+    await this.initialize(initOpts);
+
+    if (currentChangesetId === "" && !this.sourceDbChanges?.hasChanges) {
       ITwinError.throwError({
         iTwinErrorId: {
           scope: "@itwin/imodel-transformer",
@@ -478,7 +477,6 @@ export class IModelExporter {
       });
     }
 
-    if (!hasExplicitChangeSource) await this.initialize(initOpts);
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
       this._sourceDbChanges !== undefined,

@@ -106,7 +106,7 @@ describe("IModelExporter", () => {
     const defaultExporter = new TestExporter(sourceDb);
     await defaultExporter.exportChanges(skipOnlyOptions);
     expect(defaultExporter.initializedWith).to.deep.equal({
-      startChangeset: { id: undefined },
+      startChangeset: { id: "current-changeset" },
       ...skipOnlyOptions,
     });
   });
