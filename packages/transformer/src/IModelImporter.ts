@@ -253,13 +253,12 @@ export class IModelImporter {
     } catch (error) {
       if (!this.targetDb.containsClass(modelProps.classFullName)) {
         // Translate only confirmed missing-class failures; otherwise retain the backend error's identity.
-        const errorMessage = `Model class "${modelProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
         ITwinError.throwError({
           iTwinErrorId: {
             scope: IModelTransformerErrorScope,
             key: IModelTransformerError.TargetClassNotFound,
           },
-          message: errorMessage,
+          message: `Model class "${modelProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`,
           cause: error,
         });
       }
@@ -394,13 +393,12 @@ export class IModelImporter {
       return elementId;
     } catch (error) {
       if (!this.targetDb.containsClass(elementProps.classFullName)) {
-        const errorMessage = `Element class "${elementProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
         ITwinError.throwError({
           iTwinErrorId: {
             scope: IModelTransformerErrorScope,
             key: IModelTransformerError.TargetClassNotFound,
           },
-          message: errorMessage,
+          message: `Element class "${elementProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`,
           cause: error,
         });
       }
@@ -598,13 +596,12 @@ export class IModelImporter {
       return id;
     } catch (error) {
       if (!this.targetDb.containsClass(aspectProps.classFullName)) {
-        const errorMessage = `ElementAspect class "${aspectProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
         ITwinError.throwError({
           iTwinErrorId: {
             scope: IModelTransformerErrorScope,
             key: IModelTransformerError.TargetClassNotFound,
           },
-          message: errorMessage,
+          message: `ElementAspect class "${aspectProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`,
           cause: error,
         });
       }
@@ -713,13 +710,12 @@ export class IModelImporter {
       return targetRelInstanceId;
     } catch (error) {
       if (!this.targetDb.containsClass(relationshipProps.classFullName)) {
-        const errorMessage = `Relationship class "${relationshipProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
         ITwinError.throwError({
           iTwinErrorId: {
             scope: IModelTransformerErrorScope,
             key: IModelTransformerError.TargetClassNotFound,
           },
-          message: errorMessage,
+          message: `Relationship class "${relationshipProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`,
           cause: error,
         });
       }

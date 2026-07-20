@@ -57,6 +57,7 @@ import {
   Id64,
   Id64Array,
   Id64String,
+  ITwinError,
   Logger,
   LogLevel,
 } from "@itwin/core-bentley";
@@ -85,6 +86,8 @@ import {
   IModelExporter,
   IModelImporter,
   IModelTransformer,
+  IModelTransformerError,
+  IModelTransformerErrorScope,
   IModelTransformOptions,
   ProcessChangesOptions,
   TransformerLoggerCategory,
@@ -115,6 +118,8 @@ import {
   TimelineIModelState,
 } from "../TestUtils/TimelineTestUtil";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
+import { IModelCloneContext } from "../../IModelCloneContext";
+import { SyncTypeResolver } from "../../SyncTypeResolver";
 
 const { count } = IModelTestUtils;
 const countElementExternalSourceAspects = (
@@ -138,6 +143,18 @@ describe("IModelTransformerHub", () => {
   let accessToken: AccessToken;
 
   let saveAndPushChanges: (db: BriefcaseDb, desc: string) => Promise<void>;
+
+  function assertTransformerError(
+    error: unknown,
+    key: IModelTransformerError,
+    message: string | RegExp
+  ): void {
+    expect(ITwinError.isError(error, IModelTransformerErrorScope, key)).to.be
+      .true;
+    if (typeof message === "string")
+      expect(error).to.have.property("message", message);
+    else expect(error).to.have.property("message").that.matches(message);
+  }
 
   before(async () => {
     HubMock.startup("IModelTransformerHub", KnownTestLocations.outputDir);
@@ -254,6 +271,40 @@ describe("IModelTransformerHub", () => {
         shared: "0x10",
         exclusive: "0x1",
       });
+
+      const originalSourceChangeset = sourceBriefcase.changeset;
+      Object.defineProperty(sourceBriefcase, "changeset", {
+        configurable: true,
+        value: { ...originalSourceChangeset, index: undefined },
+      });
+      const indexTestTxn = createStartedEditTxn(targetBriefcase);
+      const indexTestContext = new IModelCloneContext(
+        sourceBriefcase,
+        targetBriefcase
+      );
+      const indexTestResolver = new SyncTypeResolver(
+        indexTestContext,
+        IModel.rootSubjectId
+      );
+      try {
+        new ProvenanceManager(
+          IModel.rootSubjectId,
+          {},
+          indexTestResolver,
+          indexTestTxn
+        );
+        assert.fail("Expected missing changeset index to throw");
+      } catch (error) {
+        assertTransformerError(
+          error,
+          IModelTransformerError.ChangesetIndexUnavailable,
+          "database has no changeset index"
+        );
+      } finally {
+        indexTestContext[Symbol.dispose]();
+        indexTestTxn.end("abandon");
+        delete (sourceBriefcase as Partial<BriefcaseDb>).changeset;
+      }
 
       // we do not expect to save reverse sync version by default for processAll transformations
       const targetEditTxn1 = createStartedEditTxn(targetBriefcase);
@@ -4654,7 +4705,46 @@ describe("IModelTransformerHub", () => {
     await tearDown();
   });
 
+  it("identifies a synchronization range that skips changesets", async () => {
+    let errorAsserted = false;
+    const timeline: Timeline = [
+      { master: { 1: 1 } },
+      { branch: { branch: "master" } },
+      { master: { 2: 1 } },
+      { master: { 3: 1 } },
+      {
+        branch: {
+          sync: [
+            "master",
+            {
+              since: 3,
+              expectThrow: true,
+              assert: {
+                onError(error) {
+                  assertTransformerError(
+                    error,
+                    IModelTransformerError.SynchronizationRangeInvalid,
+                    /synchronization is missing changesets, startChangesetId should be exactly/
+                  );
+                  errorAsserted = true;
+                },
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const { tearDown } = await runTimeline(timeline, {
+      iTwinId,
+      accessToken,
+    });
+    expect(errorAsserted).to.be.true;
+    await tearDown();
+  });
+
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
+    let synchronizationVersionErrorAsserted = false;
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
     let targetScopeElementId: Id64String | undefined;
     const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
@@ -4735,7 +4825,22 @@ describe("IModelTransformerHub", () => {
       {
         branch: {
           // Forward sync and forward sync looks for a prop 'version' on the ESA which will be missing so expect to throw.
-          sync: ["master", { expectThrow: true }],
+          sync: [
+            "master",
+            {
+              expectThrow: true,
+              assert: {
+                onError(error) {
+                  assertTransformerError(
+                    error,
+                    IModelTransformerError.SynchronizationVersionMissing,
+                    "Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.\n         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'"
+                  );
+                  synchronizationVersionErrorAsserted = true;
+                },
+              },
+            },
+          ],
         },
       },
       {
@@ -4865,6 +4970,7 @@ describe("IModelTransformerHub", () => {
       },
     });
 
+    expect(synchronizationVersionErrorAsserted).to.be.true;
     await tearDown();
   });
 

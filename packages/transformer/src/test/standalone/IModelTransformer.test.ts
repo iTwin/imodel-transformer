@@ -156,6 +156,63 @@ describe("IModelTransformer", () => {
     "IModelTransformer"
   );
 
+  function assertTransformerError(
+    error: unknown,
+    key: IModelTransformerError,
+    message: string
+  ): void {
+    expect(ITwinError.isError(error, IModelTransformerErrorScope, key)).to.be
+      .true;
+    expect(error).to.have.property("message", message);
+  }
+
+  function expectSynchronousTransformerError(
+    fn: () => unknown,
+    key: IModelTransformerError,
+    message: string
+  ): void {
+    try {
+      fn();
+      assert.fail("Expected operation to throw");
+    } catch (error) {
+      assertTransformerError(error, key, message);
+    }
+  }
+
+  async function expectTransformerError(
+    operation: Promise<unknown>,
+    key: IModelTransformerError,
+    message: string
+  ): Promise<void> {
+    try {
+      await operation;
+      assert.fail("Expected operation to throw");
+    } catch (error) {
+      assertTransformerError(error, key, message);
+    }
+  }
+
+  function createErrorTestDbs(name: string): {
+    sourceDb: SnapshotDb;
+    targetDb: SnapshotDb;
+  } {
+    const sourceDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        `${name}-source.bim`
+      ),
+      { rootSubject: { name: `${name}-source` } }
+    );
+    const targetDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelTransformer",
+        `${name}-target.bim`
+      ),
+      { rootSubject: { name: `${name}-target` } }
+    );
+    return { sourceDb, targetDb };
+  }
+
   /** Instead creating empty snapshots and populating them via routines for new tests incurring a wait,
    * if it's going to be reused, store it here as a getter and a promise that `SnapshotDb.createFrom` can be called on
    */
@@ -5804,7 +5861,188 @@ describe("IModelTransformer", () => {
     IModelJsFs.removeSync(sourceDbFile);
   });
 
+  describe("error identifiers", () => {
+    it("identifies mismatched custom importer options", () => {
+      const { sourceDb, targetDb } = createErrorTestDbs(
+        "ImporterOptionMismatch"
+      );
+      const editTxn = createStartedEditTxn(targetDb);
+      const importer = new RecordingIModelImporter(editTxn);
+
+      try {
+        expectSynchronousTransformerError(
+          () =>
+            new IModelTransformer(
+              { source: sourceDb, target: importer },
+              { preserveElementIdsForFiltering: true }
+            ),
+          IModelTransformerError.ImporterOptionMismatch,
+          "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option."
+        );
+      } finally {
+        editTxn.end("abandon");
+        targetDb.close();
+        sourceDb.close();
+      }
+    });
+
+    it("identifies unsupported entity-reference containers", async () => {
+      const { sourceDb, targetDb } = createErrorTestDbs(
+        "InvalidEntityReference"
+      );
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert source subject",
+        (txn) => Subject.insert(txn, IModel.rootSubjectId, "Source subject")
+      );
+      const sourceSubject =
+        sourceDb.elements.getElement<Subject>(sourceSubjectId);
+      Object.defineProperty(sourceSubject, "parent", { value: [] });
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+
+      try {
+        await expectTransformerError(
+          transformer.preExportElement(sourceSubject),
+          IModelTransformerError.InvalidEntityReference,
+          "Id64 container '[]' is unsupported.\nCurrently only singular Id64 strings or prop-like objects containing an 'id' property are supported."
+        );
+      } finally {
+        transformer.dispose();
+        editTxn.end("abandon");
+        targetDb.close();
+        sourceDb.close();
+      }
+    });
+
+    it("identifies invalid transformed codes", async () => {
+      const { sourceDb, targetDb } = createErrorTestDbs("InvalidCode");
+      const sourceSubjectId = withEditTxn(
+        sourceDb,
+        "insert source subject",
+        (txn) => Subject.insert(txn, IModel.rootSubjectId, "Source subject")
+      );
+      const sourceSubject =
+        sourceDb.elements.getElement<Subject>(sourceSubjectId);
+      const editTxn = createStartedEditTxn(targetDb);
+
+      class InvalidCodeTransformer extends IModelTransformer {
+        public override async onTransformElement(
+          sourceElement: Element
+        ): Promise<ElementProps> {
+          const props = await super.onTransformElement(sourceElement);
+          props.code = {
+            spec: Id64.invalid,
+            scope: IModel.rootSubjectId,
+            value: "invalid code",
+          };
+          return props;
+        }
+      }
+
+      const transformer = new InvalidCodeTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+      try {
+        await expectTransformerError(
+          transformer.onExportElement(sourceSubject),
+          IModelTransformerError.InvalidCode,
+          "Invalid CodeSpec"
+        );
+      } finally {
+        transformer.dispose();
+        editTxn.end("abandon");
+        targetDb.close();
+        sourceDb.close();
+      }
+    });
+
+    it("identifies a missing parent model", () => {
+      const { sourceDb, targetDb } = createErrorTestDbs("ParentModelRequired");
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+      const repositoryModel = sourceDb.models.getModel<Model>(
+        IModel.repositoryModelId
+      );
+      const repositoryModelProps = repositoryModel.toJSON();
+      const toJsonStub = sinon.stub(repositoryModel, "toJSON").returns({
+        ...repositoryModelProps,
+        parentModel: undefined,
+      });
+
+      try {
+        expectSynchronousTransformerError(
+          () =>
+            transformer.onTransformModel(
+              repositoryModel,
+              IModel.repositoryModelId
+            ),
+          IModelTransformerError.ParentModelRequired,
+          "targetElementProps must have a defined parentModel"
+        );
+      } finally {
+        toJsonStub.restore();
+        transformer.dispose();
+        editTxn.end("abandon");
+        targetDb.close();
+        sourceDb.close();
+      }
+    });
+
+    it("identifies an unknown synchronization direction", async () => {
+      const { sourceDb, targetDb } = createErrorTestDbs(
+        "SynchronizationTypeNotDetermined"
+      );
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        { argsForProcessChanges: {} }
+      );
+
+      try {
+        await expectTransformerError(
+          transformer.process(),
+          IModelTransformerError.SynchronizationTypeNotDetermined,
+          "Couldn't find an external source aspect to determine sync direction. This often means that the master->branch relationship has not been established. Consider running the transformer with wasSourceIModelCopiedToTarget set to true."
+        );
+      } finally {
+        transformer.dispose();
+        editTxn.end("abandon");
+        targetDb.close();
+        sourceDb.close();
+      }
+    });
+  });
+
   describe("EditTxn validation", () => {
+    it("identifies an inactive target transaction", async () => {
+      const { sourceDb, targetDb } = createErrorTestDbs("EditTxnNotActive");
+      const editTxn = new EditTxn(targetDb, "inactive target transaction");
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+
+      try {
+        await expectTransformerError(
+          transformer.process(),
+          IModelTransformerError.EditTxnNotActive,
+          "The target EditTxn must be started before calling process(). Call targetEditTxn.start() before invoking the transformer."
+        );
+      } finally {
+        transformer.dispose();
+        targetDb.close();
+        sourceDb.close();
+      }
+    });
+
     it("should throw when reverse sync process is called without sourceEditTxn", async () => {
       const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
         "IModelTransformer",

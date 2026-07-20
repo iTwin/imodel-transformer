@@ -608,28 +608,26 @@ export class IModelTransformer extends IModelExportHandler {
       Boolean(this._options.preserveElementIdsForFiltering) !==
       this.importer.options.preserveElementIdsForFiltering
     ) {
-      const errMessage =
-        "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.";
       ITwinError.throwError({
         iTwinErrorId: {
           scope: IModelTransformerErrorScope,
           key: IModelTransformerError.ImporterOptionMismatch,
         },
-        message: errMessage,
+        message:
+          "A custom importer was passed as a target but its 'preserveElementIdsForFiltering' option is out of sync with the transformer's option.",
       });
     }
     if (
       Boolean(this._options.skipPropagateChangesToRootElements) !==
       this.importer.options.skipPropagateChangesToRootElements
     ) {
-      const errMessage =
-        "A custom importer was passed as a target but its 'skipPropagateChangesToRootElements' option is out of sync with the transformer's option.";
       ITwinError.throwError({
         iTwinErrorId: {
           scope: IModelTransformerErrorScope,
           key: IModelTransformerError.ImporterOptionMismatch,
         },
-        message: errMessage,
+        message:
+          "A custom importer was passed as a target but its 'skipPropagateChangesToRootElements' option is out of sync with the transformer's option.",
       });
     }
   }

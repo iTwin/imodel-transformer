@@ -169,6 +169,32 @@ describe("IModelExporter", () => {
     expect(exporter.exportAllCalled).to.be.false;
   });
 
+  it("identifies use without an export handler", () => {
+    class TestExporter extends IModelExporter {
+      public getHandler(): IModelExportHandler {
+        return this.handler;
+      }
+    }
+
+    const exporter = new TestExporter({} as IModelDb);
+    try {
+      exporter.getHandler();
+      assert.fail("Expected getHandler() to throw");
+    } catch (error) {
+      expect(
+        ITwinError.isError(
+          error,
+          IModelTransformerErrorScope,
+          IModelTransformerError.ExportHandlerNotRegistered
+        )
+      ).to.be.true;
+      expect(error).to.have.property(
+        "message",
+        "IModelExportHandler not registered"
+      );
+    }
+  });
+
   it("exports caller-supplied changes when the source has no changesets", async () => {
     const sourceDb = {
       changeset: { id: "" },

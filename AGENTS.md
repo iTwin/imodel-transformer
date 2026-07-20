@@ -64,6 +64,7 @@ Use the error type to communicate who owns the failure and whether consumers can
 ## Changes / PR hygiene
 
 - Versioning/changelog is **beachball**. Every PR that changes published behavior needs a change file (`pnpm change`); `pnpm check` enforces it.
+- Document minor and major release changes in `docs/changehistory/NEXT_VERSION.md`, including migration steps for breaking changes.
 - Pick the change `type` deliberately: use **`major`** for breaking changes (e.g. the edit-txn requirement), not `patch`.
 
 ## Agent guardrails

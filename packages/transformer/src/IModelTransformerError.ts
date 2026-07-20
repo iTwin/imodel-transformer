@@ -75,6 +75,6 @@ export enum IModelTransformerError {
   SynchronizationTypeNotDetermined = "synchronization-type-not-determined",
   /** The previous synchronization version is missing. */
   SynchronizationVersionMissing = "synchronization-version-missing",
-  /** A class required for an insert is absent from the target iModel. */
+  /** A required class is absent from the target iModel. */
   TargetClassNotFound = "target-class-not-found",
 }
