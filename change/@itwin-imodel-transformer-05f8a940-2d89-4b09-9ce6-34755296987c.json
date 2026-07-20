@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Refactor source change state initialization to distinguish processAll from unconnected change processing",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
