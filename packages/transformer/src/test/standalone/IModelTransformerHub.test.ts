@@ -3155,12 +3155,14 @@ describe("IModelTransformerHub", () => {
       expect(result.model.deleteIds).to.deep.equal(expectedModelDeleteIds);
       expect(result.model.updateIds).to.deep.equal(expectedModelUpdateIds);
 
+      // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
+      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.reverse-synchronization
+      // Reverse sync writes provenance to the source, so both databases need an EditTxn.
       const masterSyncEditTxn = createStartedEditTxn(masterDb);
       const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
       const synchronizer = new IModelTransformer(
         { source: branchDb, target: masterSyncEditTxn },
         {
-          // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
           argsForProcessChanges: {},
           sourceEditTxn: reverseSyncSourceEditTxn,
         }
@@ -3168,6 +3170,7 @@ describe("IModelTransformerHub", () => {
       await synchronizer.process();
       masterSyncEditTxn.end("save", "synchronize");
       reverseSyncSourceEditTxn.end("save", "synchronize provenance");
+      // __PUBLISH_EXTRACT_END__
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
 
@@ -6950,6 +6953,226 @@ describe("IModelTransformerHub", () => {
     afterEach(async () => {
       await closeAndDeleteBriefcase(sourceDb);
       await closeAndDeleteBriefcase(targetDb);
+    });
+
+    it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
+      // Create a model with a parent element and a child element
+      const { parentElementId, childElementId } = withEditTxn(
+        sourceDb,
+        "create model with parent and child elements",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "TestPhysicalModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "TestCategory",
+            {}
+          );
+          const parentId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ParentElement",
+          } as GeometricElementProps);
+          const childId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ChildElement",
+            parent: new ElementOwnsChildElements(parentId),
+          } as GeometricElementProps);
+          return {
+            physicalModelId: modelId,
+            parentElementId: parentId,
+            childElementId: childId,
+          };
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Initial model and elements",
+        retainLocks: true,
+      });
+
+      // Run initial processAll transformation
+      const firstEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstEditTxn,
+      });
+      await transformer.process();
+      transformer.dispose();
+      firstEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial transformation",
+        retainLocks: true,
+      });
+
+      // Update only the child element (not the parent) to trigger a change
+      withEditTxn(sourceDb, "update child element only", (txn) => {
+        const childProps = sourceDb.elements.getElementProps(childElementId);
+        txn.updateElement({
+          ...childProps,
+          userLabel: "ChildElement-Updated",
+        });
+      });
+      await sourceDb.pushChanges({
+        description: "Child element update",
+        retainLocks: true,
+      });
+
+      // Run processChanges and spy on onExportElement
+      const secondEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: secondEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const onExportElementSpy = sinon.spy(transformer, "onExportElement");
+      await transformer.process();
+
+      // Verify: parent element was NOT exported (short-circuited)
+      const parentWasExported = onExportElementSpy
+        .getCalls()
+        .some((call) => call.args[0].id === parentElementId);
+      expect(
+        parentWasExported,
+        "onExportElement should not have been called for unchanged parent element"
+      ).to.be.false;
+
+      // Verify: child element WAS exported (still traversed through unchanged parent)
+      const childWasExported = onExportElementSpy
+        .getCalls()
+        .some((call) => call.args[0].id === childElementId);
+      expect(
+        childWasExported,
+        "onExportElement should have been called for changed child element"
+      ).to.be.true;
+
+      transformer.dispose();
+      secondEditTxn.end();
+    });
+
+    it("should still export updated aspects when the owning element is unchanged during processChanges", async () => {
+      // Import a schema with a custom UniqueAspect so we can test aspect-only updates
+      // without interference from the provenance system
+      const testSchemaPath =
+        IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
+      await sourceDb.importSchemas([testSchemaPath]);
+      await targetDb.importSchemas([testSchemaPath]);
+      await sourceDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+      await targetDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+
+      // Create an element with a unique aspect
+      const elementId = withEditTxn(
+        sourceDb,
+        "create element with unique aspect",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "TestPhysicalModelForAspect"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "TestCategoryForAspect",
+            {}
+          );
+          const elemId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ElementWithUniqueAspect",
+          } as GeometricElementProps);
+          txn.insertAspect({
+            classFullName: "TestSchema1:MyUniqueAspect",
+            element: { id: elemId },
+            myProp1: "original-value",
+          } as any);
+          return elemId;
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Initial element with unique aspect",
+        retainLocks: true,
+      });
+
+      // Run initial processAll transformation
+      const firstEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstEditTxn,
+      });
+      await transformer.process();
+      transformer.dispose();
+      firstEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial transformation",
+        retainLocks: true,
+      });
+
+      // Verify initial aspect value on target
+      const targetElementId = IModelTestUtils.queryByUserLabel(
+        targetDb,
+        "ElementWithUniqueAspect"
+      );
+      const targetAspectsBefore = targetDb.elements.getAspects(
+        targetElementId,
+        "TestSchema1:MyUniqueAspect"
+      );
+      expect(targetAspectsBefore).to.have.lengthOf(1);
+      expect((targetAspectsBefore[0] as any).myProp1).to.equal(
+        "original-value"
+      );
+
+      // Update only the aspect (not the element directly)
+      withEditTxn(sourceDb, "update unique aspect only", (txn) => {
+        const aspects = sourceDb.elements.getAspects(
+          elementId,
+          "TestSchema1:MyUniqueAspect"
+        );
+        txn.updateAspect({
+          ...aspects[0].toJSON(),
+          myProp1: "updated-value",
+        } as any);
+      });
+      await sourceDb.pushChanges({
+        description: "Aspect-only update",
+        retainLocks: true,
+      });
+
+      // Run processChanges — the aspect change should propagate to the target
+      const secondEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: secondEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      await transformer.process();
+      transformer.dispose();
+      secondEditTxn.end();
+
+      // Verify: the aspect on the target element was updated
+      const targetAspectsAfter = targetDb.elements.getAspects(
+        targetElementId,
+        "TestSchema1:MyUniqueAspect"
+      );
+      expect(targetAspectsAfter).to.have.lengthOf(1);
+      expect(
+        (targetAspectsAfter[0] as any).myProp1,
+        "target aspect should have been updated to 'updated-value' by processChanges"
+      ).to.equal("updated-value");
     });
 
     it("should process changes successfully when element is deleted after existing elements were expanded into overflow table", async () => {

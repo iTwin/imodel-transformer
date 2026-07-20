@@ -6,39 +6,25 @@ This document covers transformer-specific patterns only.
 
 ## IModelTransformer
 
-The transformer requires a **started** `EditTxn` for the target db. Pass it directly or via a pre-configured `IModelImporter`:
+The transformer requires a **started** `EditTxn` for the target database. Pass the transaction directly:
 
-```ts
-// Direct — transformer creates a default importer internally
-const transformer = new IModelTransformer({ source: sourceDb, target: editTxn });
+[[include:EditTxnInTransformer.direct-transformer]]
 
-// Via custom importer
-const importer = new IModelImporter(editTxn, importOptions);
-const transformer = new IModelTransformer({ source: sourceDb, target: importer });
-```
+To customize import behavior, create an `IModelImporter` with the started transaction and pass the importer instead:
 
-The transformer **never** calls `editTxn.end()` — the caller owns that. It does call `saveChanges()` internally during `processChanges` (controlled by `ProcessChangesOptions.saveTargetChanges`).
+[[include:EditTxnInTransformer.transformer-with-custom-importer]]
+
+The caller owns the transaction lifecycle and must call `editTxn.end()`. During `processChanges`, `ProcessChangesOptions.saveTargetChanges` controls whether the transformer calls `saveChanges()`.
 
 ## Reverse synchronization
 
-Reverse sync writes provenance back to the **source** (branch) db, so it requires two `EditTxn`s — one for the target (master) and one for the source (branch):
+Reverse synchronization writes provenance to the source branch database. It therefore requires one transaction for the target master database and another for the source branch database. The example uses this helper to create each started transaction:
 
-```ts
-const masterEditTxn = new EditTxn(masterDb, "reverse sync");
-masterEditTxn.start();
-const branchEditTxn = new EditTxn(branchDb, "reverse sync provenance");
-branchEditTxn.start();
+[[include:EditTxnInTransformer.create-started-edit-txn]]
 
-// source = branch, target = master; transformer auto-detects reverse sync from provenance
-const transformer = new IModelTransformer(
-  { source: branchDb, target: masterEditTxn },
-  { sourceEditTxn: branchEditTxn, argsForProcessChanges: {} }
-);
-await transformer.process();
+In the transformation below, `branchDb` is the source and `masterDb` is the target:
 
-masterEditTxn.end();
-branchEditTxn.end();
-```
+[[include:EditTxnInTransformer.reverse-synchronization]]
 
 The transformer detects reverse sync automatically based on provenance direction. Without `sourceEditTxn`, it throws at runtime.
 
@@ -46,87 +32,49 @@ The transformer detects reverse sync automatically based on provenance direction
 
 The importer takes a single `EditTxn` and derives `targetDb` from it:
 
-```ts
-const importer = new IModelImporter(editTxn, options);
-// importer.targetDb === editTxn.iModel
-```
+[[include:EditTxnInTransformer.custom-importer]]
 
 ## TemplateModelCloner
 
-Always an in-place operation (source === target). Takes a single `EditTxn`:
+`TemplateModelCloner` performs in-place operations, so its source and target are the same database. The example starts with `facilityEditTxn` already active for the database that owns the template and the new instance:
 
-```ts
-const cloner = new TemplateModelCloner(editTxn);
-const idMap = await cloner.placeTemplate3d(templateModelId, targetModelId, placement);
-```
+[[include:EditTxnInTransformer.template-cloner-construction]]
+
+Pass the template model ID, target model ID, and placement when placing the template:
+
+[[include:EditTxnInTransformer.template-cloner-placement]]
 
 ## initializeBranchProvenance
 
-Owns its own `EditTxn` internally — callers do not pass or manage one:
+`initializeBranchProvenance` creates and ends its own transaction. Pass an `initProvenanceArgs` object with `master` and `branch` properties; do not create a transaction for this operation:
 
-```ts
-await initializeBranchProvenance({ master: masterDb, branch: branchDb });
-```
+[[include:EditTxnInTransformer.initialize-branch-provenance]]
 
-## Error handling: when to use try/catch
+## Ending transactions after errors
 
-The transformer **never** calls `editTxn.end()` — the caller owns that. Since `end()` defaults to `"save"`, the simplest correct usage is:
+`EditTxn.end()` saves by default. For a disposable database or a test that can rely on database cleanup after a failure, call `end()` after successful processing:
 
-```ts
-const editTxn = createStartedEditTxn(targetDb);
-const transformer = new IModelTransformer({ source: sourceDb, target: editTxn });
-await transformer.process();
-editTxn.end(); // defaults to "save"
-```
+[[include:EditTxnInTransformer.direct-transformer]]
 
-If `process()` throws, the error propagates and the transaction is cleaned up when the db closes. This is fine for most cases, including tests and short-lived databases.
+If `process()` throws before `end()` runs, the transaction remains active until the database closes.
 
-### When try/catch IS needed: rollback on failure
+### Abandon on failure
 
-Use try/catch/finally when you need to **explicitly abandon** a failed transaction — typically in production code where a partial save would cause problems (e.g. before pushing to iModelHub):
+Use `try` and `finally` when failed processing must explicitly abandon the transaction. This prevents production code from saving or pushing partial changes:
 
-```ts
-const editTxn = createStartedEditTxn(targetDb);
-let succeeded = false;
-try {
-  const transformer = new IModelTransformer({ source: sourceDb, target: editTxn });
-  await transformer.process();
-  succeeded = true;
-} finally {
-  editTxn.end(succeeded ? "save" : "abandon");
-}
-```
+[[include:EditTxnInTransformer.rollback-on-failure]]
 
-This ensures the target db is not left in a partially written state before a push.
+The `finally` block saves a successful transformation and abandons a failed one.
 
 ### Reverse sync: two transactions
 
-Reverse sync manages two `EditTxn`s. In production, end both in a finally block:
-
-```ts
-const masterEditTxn = createStartedEditTxn(masterDb);
-const branchEditTxn = createStartedEditTxn(branchDb);
-let succeeded = false;
-try {
-  const transformer = new IModelTransformer(
-    { source: branchDb, target: masterEditTxn },
-    { sourceEditTxn: branchEditTxn, argsForProcessChanges: {} }
-  );
-  await transformer.process();
-  succeeded = true;
-} finally {
-  masterEditTxn.end(succeeded ? "save" : "abandon");
-  branchEditTxn.end(succeeded ? "save" : "abandon");
-}
-```
-
-For tests or cases where abandoning is unnecessary, you can simply call `end()` on both after `process()`.
+Reverse synchronization must save or abandon the source and target transactions together. Track one `processSucceeded` flag, then call `end(processSucceeded ? "save" : "abandon")` on both transactions in the `finally` block.
 
 ### Summary
 
-| Pattern | Try/catch needed? | Why |
-|---|---|---|
-| `createStartedEditTxn` + transformer (tests / discardable dbs) | No | Just call `end()` after; db close handles cleanup on failure |
-| `createStartedEditTxn` + transformer (production / before push) | Recommended | Use `end("abandon")` on failure to avoid pushing partial state |
-| Reverse sync (production) | Recommended | Both transactions should be abandoned together on failure |
-| `initializeBranchProvenance` | No | Manages its own transaction internally |
+| Pattern | Cleanup |
+|---|---|
+| Test or disposable database | Call `end()` after successful processing. Closing the database cleans up an active transaction after a failure. |
+| Production transformation | In `finally`, save after success or abandon after failure. |
+| Reverse synchronization | End both transactions with the same save or abandon mode. |
+| `initializeBranchProvenance` | No caller-managed transaction. |

@@ -111,7 +111,6 @@ import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
-import { Property } from "@itwin/ecschema-metadata";
 import { getElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
 import { getElementAspectCleanup } from "./ElementAspectCleanup";
 
@@ -989,6 +988,9 @@ export class IModelTransformer extends IModelExportHandler {
   /** Returns true if a change within sourceElement is detected.
    * @param sourceElement The Element from the source iModel
    * @note A subclass can override this method to provide custom change detection behavior.
+   * @note During change processing, elements not present in the changeset are short-circuited
+   * in the exporter before reaching this method. To add elements to the changeset programmatically,
+   * use [[addCustomChanges]] rather than overriding this method to expand processing.
    */
   protected hasElementChanged(sourceElement: Element): boolean {
     const sourceDbChanges = this.exporter.sourceDbChanges;
@@ -1784,15 +1786,24 @@ export class IModelTransformer extends IModelExportHandler {
       sourceRelationship.targetId
     );
     // TODO: move to cloneRelationship in IModelCloneContext
-    // eslint-disable-next-line @typescript-eslint/no-deprecated -- forEach deprecated in core 5.10, migration tracked separately
-    sourceRelationship.forEach((propertyName: string, property: Property) => {
+    const relationshipClass =
+      sourceRelationship.iModel.schemaContext.getSchemaItemSync(
+        sourceRelationship.schemaItemKey,
+        ECSchemaMetaData.RelationshipClass
+      );
+    assert(
+      relationshipClass !== undefined,
+      `Cannot get metadata for ${sourceRelationship.classFullName}.`
+    );
+    for (const property of relationshipClass.getPropertiesSync()) {
+      const propertyName = property.name;
       if (property.isPrimitive() && "Id" === property.extendedTypeName) {
         (targetRelationshipProps as any)[ECJsNames.toJsName(propertyName)] =
           this.context.findTargetElementId(
             sourceRelationship.asAny[ECJsNames.toJsName(propertyName)]
           );
       }
-    });
+    }
     return targetRelationshipProps;
   }
 

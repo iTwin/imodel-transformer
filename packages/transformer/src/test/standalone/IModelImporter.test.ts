@@ -62,7 +62,11 @@ describe("IModelImporter", () => {
       );
 
       const editTxn = createStartedEditTxn(targetDb);
+      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.custom-importer
+      // IModelImporter derives targetDb from the EditTxn.
       const importer = new IModelImporter(editTxn);
+      // __PUBLISH_EXTRACT_END__
+      expect(importer.targetDb).to.equal(editTxn.iModel);
       importer.doNotUpdateElementIds.add(protectedId);
 
       await importer.deleteElement(protectedId);
