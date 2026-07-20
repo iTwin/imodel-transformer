@@ -16,36 +16,16 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { Code, ElementAspectProps, IModel } from "@itwin/core-common";
-import { Id64String, ITwinError } from "@itwin/core-bentley";
+import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
-import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
+import { IModelTransformerError } from "../../IModelTransformerError";
 import {
   createStartedEditTxn,
+  expectTransformerError,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 
 describe("IModelImporter", () => {
-  async function expectTransformerError(
-    promise: Promise<unknown>,
-    key: IModelTransformerError,
-    message: string
-  ): Promise<unknown> {
-    let error: unknown;
-    try {
-      await promise;
-    } catch (caughtError) {
-      error = caughtError;
-    }
-
-    expect(ITwinError.isError(error, IModelTransformerErrorScope, key)).to.be
-      .true;
-    expect(error).to.have.property("message", message);
-    return error;
-  }
-
   it("deleteElement skips elements in doNotUpdateElementIds (no-op guard)", async () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelImporter",

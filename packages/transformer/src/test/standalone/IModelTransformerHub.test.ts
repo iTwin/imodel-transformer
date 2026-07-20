@@ -57,7 +57,6 @@ import {
   Id64,
   Id64Array,
   Id64String,
-  ITwinError,
   Logger,
   LogLevel,
 } from "@itwin/core-bentley";
@@ -87,13 +86,13 @@ import {
   IModelImporter,
   IModelTransformer,
   IModelTransformerError,
-  IModelTransformerErrorScope,
   IModelTransformOptions,
   ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
 import {
+  assertTransformerError,
   CountingIModelImporter,
   createStartedEditTxn,
   HubWrappers,
@@ -141,18 +140,6 @@ describe("IModelTransformerHub", () => {
   let accessToken: AccessToken;
 
   let saveAndPushChanges: (db: BriefcaseDb, desc: string) => Promise<void>;
-
-  function assertTransformerError(
-    error: unknown,
-    key: IModelTransformerError,
-    message: string | RegExp
-  ): void {
-    expect(ITwinError.isError(error, IModelTransformerErrorScope, key)).to.be
-      .true;
-    if (typeof message === "string")
-      expect(error).to.have.property("message", message);
-    else expect(error).to.have.property("message").that.matches(message);
-  }
 
   before(async () => {
     HubMock.startup("IModelTransformerHub", KnownTestLocations.outputDir);

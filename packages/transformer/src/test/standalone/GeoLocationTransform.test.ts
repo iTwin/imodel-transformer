@@ -41,34 +41,17 @@ import {
 } from "../../IModelTransformer";
 import { expect } from "chai";
 import * as sinon from "sinon";
-import { ITwinError, Logger } from "@itwin/core-bentley";
+import { Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
-import { createStartedEditTxn } from "../IModelTransformerUtils";
 import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
+  createStartedEditTxn,
+  expectTransformerError,
+} from "../IModelTransformerUtils";
+import { IModelTransformerError } from "../../IModelTransformerError";
 
 interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
   geographicCRS: GeographicCRS | undefined;
-}
-
-function expectTransformerError(
-  fn: () => unknown,
-  key: IModelTransformerError,
-  message: string
-): void {
-  let error: unknown;
-  try {
-    fn();
-  } catch (caughtError) {
-    error = caughtError;
-  }
-
-  expect(ITwinError.isError(error, IModelTransformerErrorScope, key)).to.be
-    .true;
-  expect(error).to.have.property("message", message);
 }
 
 // Create a test iModel with a specified ECEF location and number of spherical elements
@@ -793,7 +776,7 @@ describe("Non Linear Geolocation Transformations", () => {
       tryAlignGeolocation: true,
     };
 
-    expectTransformerError(
+    await expectTransformerError(
       () =>
         new IModelTransformer(
           { source: sourceDb, target: editTxn },
@@ -858,7 +841,7 @@ describe("Non Linear Geolocation Transformations", () => {
       tryAlignGeolocation: true,
     };
 
-    expectTransformerError(
+    await expectTransformerError(
       () =>
         new IModelTransformer(
           { source: sourceDb, target: editTxn },
