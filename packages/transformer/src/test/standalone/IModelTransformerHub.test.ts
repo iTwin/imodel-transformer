@@ -295,6 +295,8 @@ describe("IModelTransformerHub", () => {
         );
       const jsonProps1 = JSON.parse(scopeEsaResult1?.jsonProperties ?? "{}");
       assert.isEmpty(jsonProps1.reverseSyncVersion ?? "");
+      const syncVersionAfterProcessAll = scopeEsaResult1?.version;
+      assert.isDefined(syncVersionAfterProcessAll);
       targetEditTxn1.end();
       await targetBriefcase.pushChanges({
         description: "target changes for transformation 1",
@@ -309,6 +311,41 @@ describe("IModelTransformerHub", () => {
       assert.isDefined(sourceModelId2);
       await sourceBriefcase.pushChanges({
         description: "source changes for inserting physical elements M2",
+        retainLocks: true,
+      });
+
+      const processChangesEditTxn = createStartedEditTxn(targetBriefcase);
+      const processChangesTransformer = new IModelTransformer(
+        {
+          source: sourceBriefcase,
+          target: processChangesEditTxn,
+        },
+        { argsForProcessChanges: {} }
+      );
+      await processChangesTransformer.initialize();
+      await processChangesTransformer.updateSynchronizationVersion();
+      const scopeEsaBeforeProcessChanges =
+        await ProvenanceManager.queryScopeExternalSourceAspect(
+          targetBriefcase,
+          {
+            id: undefined,
+            classFullName: ExternalSourceAspect.classFullName,
+            scope: { id: IModel.rootSubjectId },
+            kind: ExternalSourceAspect.Kind.Scope,
+            element: { id: IModel.rootSubjectId },
+            identifier: sourceBriefcase.iModelId,
+          }
+        );
+      assert.equal(
+        scopeEsaBeforeProcessChanges?.version,
+        syncVersionAfterProcessAll,
+        "change initialization without processing should not update the synchronization version"
+      );
+      await processChangesTransformer.process();
+      processChangesTransformer.dispose();
+      processChangesEditTxn.end();
+      await targetBriefcase.pushChanges({
+        description: "target changes for process changes transformation",
         retainLocks: true,
       });
 

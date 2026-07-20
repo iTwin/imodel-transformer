@@ -748,6 +748,7 @@ export class IModelTransformer extends IModelExportHandler {
     return this._provenanceManager.updateSynchronizationVersion({
       initializeReverseSyncVersion,
       shouldUpdateSynchronizationVersion:
+        this._didFinalizeTransformation &&
         this._shouldUpdateSynchronizationVersion,
     });
   }
@@ -1608,6 +1609,7 @@ export class IModelTransformer extends IModelExportHandler {
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private async finalizeTransformation() {
     this.importer.finalize();
+    this._didFinalizeTransformation = true;
     await this.updateSynchronizationVersion({
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
     });
@@ -2025,6 +2027,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
+  private _didFinalizeTransformation = false;
   private _shouldUpdateSynchronizationVersion = false;
   /** Downloaded changesets for connected change processing. An empty array means there are no changes; undefined means changeset processing was not initialized. */
   private _csFileProps?: ChangesetFileProps[] = undefined;
@@ -2480,6 +2483,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async process(): Promise<void> {
     await this.initialize();
 
+    this._didFinalizeTransformation = false;
     this.logSettings();
 
     return this._options.argsForProcessChanges !== undefined
