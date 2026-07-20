@@ -42,15 +42,11 @@ import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import * as nodeAssert from "assert";
 import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor";
-import {
-  ElementAspectExportCoordinator,
-  registerElementAspectExportCoordinator,
-} from "./ElementAspectExportCoordinator";
+import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
 import {
   ChangedInstanceIds,
   type ChangedInstanceIdsInitOptions,
   ChangedInstanceOps,
-  getAspectOwnerElementIds,
 } from "./ChangedInstanceIds";
 export {
   ChangedInstanceIds,
@@ -341,8 +337,13 @@ export class IModelExporter {
   private _elementAspectExportProcessor: ElementAspectExportProcessor;
   /** Coordinates accepted-owner scopes and bounded group processing. */
   private readonly _elementAspectExportCoordinator: ElementAspectExportCoordinator;
-  /** The set of ElementAspect classes excluded from export. */
-  private _excludedElementAspectClassFullNames = new Set<string>();
+
+  /** Coordinates accepted ElementAspect owners and bounded group processing.
+   * @internal
+   */
+  public get elementAspectExportCoordinator(): ElementAspectExportCoordinator {
+    return this._elementAspectExportCoordinator;
+  }
   /** Whether change traversal skips root-owned entities. */
   private _skipPropagateChangesToRootElements = false;
   private readonly _rootElementIds = new Set<Id64String>([
@@ -374,13 +375,10 @@ export class IModelExporter {
     );
     this._elementAspectExportCoordinator = new ElementAspectExportCoordinator(
       IModelExporter._elementAspectOwnerBatchSize,
-      () => this._excludedElementAspectClassFullNames,
+      () =>
+        this._elementAspectExportProcessor.excludedElementAspectClassFullNames,
       async (elementIds) =>
         this._elementAspectExportProcessor.exportAllElementAspects(elementIds)
-    );
-    registerElementAspectExportCoordinator(
-      this,
-      this._elementAspectExportCoordinator
     );
   }
 
@@ -434,7 +432,6 @@ export class IModelExporter {
 
   /** Add a rule to exclude all ElementAspects of a specified class. */
   public excludeElementAspectClass(classFullName: string): void {
-    this._excludedElementAspectClassFullNames.add(classFullName);
     this._elementAspectExportProcessor.excludeElementAspectClass(classFullName);
   }
 
@@ -450,7 +447,7 @@ export class IModelExporter {
    */
   public async exportAll(): Promise<void> {
     await this.initialize({});
-    this._elementAspectExportCoordinator.clearOwnerExportDecisions();
+    this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
     this._elementAspectExportProcessor.setAspectChanges(
       this._sourceDbChanges?.aspect
     );
@@ -506,7 +503,7 @@ export class IModelExporter {
       });
     }
 
-    this._elementAspectExportCoordinator.clearOwnerExportDecisions();
+    this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
     this._skipPropagateChangesToRootElements =
       initOpts.skipPropagateChangesToRootElements ?? false;
     // _sourceDbChanges are initialized in this.initialize
@@ -1068,7 +1065,7 @@ export class IModelExporter {
             ...this._sourceDbChanges.element.updateIds,
           ]
         : []),
-      ...getAspectOwnerElementIds(this._sourceDbChanges),
+      ...this._sourceDbChanges.aspectOwnerElementIds,
     ]);
     if (!includeElementChanges) {
       for (const elementId of this._sourceDbChanges.element.insertIds) {
@@ -1151,9 +1148,11 @@ export class IModelExporter {
   ): Promise<boolean> {
     if (!this.visitElements) return false;
 
-    const cachedDecision =
-      this._elementAspectExportCoordinator.getOwnerExportDecision(elementId);
-    if (cachedDecision !== undefined) return cachedDecision;
+    if (
+      this._elementAspectExportCoordinator.hasAcceptedOwnerDecision(elementId)
+    ) {
+      return true;
+    }
 
     const element = this.sourceDb.elements.getElement({
       id: elementId,

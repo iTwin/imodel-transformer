@@ -28,7 +28,6 @@ import {
 import {
   ChangedInstanceIds,
   ChangedInstanceOps,
-  getAspectOwnerElementIds,
 } from "../../ChangedInstanceIds";
 import { expect } from "chai";
 
@@ -221,8 +220,8 @@ describe("ChangedInstanceIds", () => {
         [],
         []
       );
-      expect(getAspectOwnerElementIds(sourceDbChanges).has(childDrawing1.id!))
-        .to.be.true;
+      expect(sourceDbChanges.aspectOwnerElementIds.has(childDrawing1.id!)).to.be
+        .true;
       assertHasValues(
         sourceDbChanges.relationship,
         "relationship",
@@ -515,7 +514,7 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [aspect1Id], [], []);
-      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
         childDrawing1.id,
       ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
@@ -528,7 +527,7 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [aspect1Id], []);
-      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
         childDrawing1.id,
       ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
@@ -565,7 +564,7 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], [aspect1Id]);
-      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
         childDrawing1.id,
       ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
@@ -599,7 +598,7 @@ describe("ChangedInstanceIds", () => {
         },
       } as Parameters<ChangedInstanceIds["addChange"]>[0]);
 
-      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
         childDrawing1.id,
       ]);
     });

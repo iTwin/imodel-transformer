@@ -10,12 +10,12 @@ export type ElementAspectExportPreparation = (
   elementIds: ReadonlySet<Id64String>
 ) => Promise<void>;
 
-/** Coordinates accepted ElementAspect owner scopes, flushing bounded owner groups and running preparation before aspect export.
+/** Coordinates scoped batches of accepted ElementAspect owners, including per-batch filtering decisions and preparation before aspect export.
  * @internal
  */
 export class ElementAspectExportCoordinator {
   private readonly _acceptedOwnerIds = new Set<Id64String>();
-  private readonly _ownerExportDecisions = new Map<Id64String, boolean>();
+  private readonly _acceptedOwnerDecisions = new Set<Id64String>();
   private _batchSize: number;
   private _depth = 0;
   private _prepare?: ElementAspectExportPreparation;
@@ -36,8 +36,8 @@ export class ElementAspectExportCoordinator {
   }
 
   /** Number of cached owner export decisions in the current group. */
-  public get ownerExportDecisionCount(): number {
-    return this._ownerExportDecisions.size;
+  public get acceptedOwnerDecisionCount(): number {
+    return this._acceptedOwnerDecisions.size;
   }
 
   /** Sets the callback that prepares each accepted-owner group before its aspects are exported. */
@@ -112,21 +112,21 @@ export class ElementAspectExportCoordinator {
     }
   }
 
-  /** Returns the cached export decision for an owner in the current group. */
-  public getOwnerExportDecision(elementId: Id64String): boolean | undefined {
-    return this._ownerExportDecisions.get(elementId);
+  /** Returns whether an owner passed element export filtering in the current group. */
+  public hasAcceptedOwnerDecision(elementId: Id64String): boolean {
+    return this._acceptedOwnerDecisions.has(elementId);
   }
 
   /** Records that an owner passed element export filtering in the active scope. */
   public recordAcceptedOwnerDecision(elementId: Id64String): void {
     if (this.isActive) {
-      this._ownerExportDecisions.set(elementId, true);
+      this._acceptedOwnerDecisions.add(elementId);
     }
   }
 
   /** Clears cached owner export decisions. */
-  public clearOwnerExportDecisions(): void {
-    this._ownerExportDecisions.clear();
+  public clearAcceptedOwnerDecisions(): void {
+    this._acceptedOwnerDecisions.clear();
   }
 
   /** Runs preparation and aspect export for an explicit owner set. */
@@ -143,13 +143,13 @@ export class ElementAspectExportCoordinator {
     try {
       await this.exportOwners(elementIds);
     } finally {
-      this._ownerExportDecisions.clear();
+      this._acceptedOwnerDecisions.clear();
     }
   }
 
   private resetBatchState(): void {
     this._acceptedOwnerIds.clear();
-    this._ownerExportDecisions.clear();
+    this._acceptedOwnerDecisions.clear();
   }
 
   private reset(): void {
@@ -157,23 +157,4 @@ export class ElementAspectExportCoordinator {
     this.resetBatchState();
     this._batchSize = this._defaultBatchSize;
   }
-}
-
-const coordinators = new WeakMap<object, ElementAspectExportCoordinator>();
-
-export function registerElementAspectExportCoordinator(
-  owner: object,
-  coordinator: ElementAspectExportCoordinator
-): void {
-  coordinators.set(owner, coordinator);
-}
-
-export function getElementAspectExportCoordinator(
-  owner: object
-): ElementAspectExportCoordinator {
-  const coordinator = coordinators.get(owner);
-  if (coordinator === undefined) {
-    throw new Error("ElementAspect export coordinator is not registered.");
-  }
-  return coordinator;
 }

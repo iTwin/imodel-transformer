@@ -39,10 +39,7 @@ import {
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
-import {
-  ElementAspectCleanup,
-  registerElementAspectCleanup,
-} from "./ElementAspectCleanup";
+import { ElementAspectCleanup } from "./ElementAspectCleanup";
 import {
   EntityClass,
   PropertyType,
@@ -105,6 +102,15 @@ export class IModelImporter {
    */
   public get editTxn(): EditTxn {
     return this._editTxn;
+  }
+
+  private readonly _elementAspectCleanup: ElementAspectCleanup;
+
+  /** Deletes replaceable ElementAspects through this importer's customized deletion callback.
+   * @internal
+   */
+  public get elementAspectCleanup(): ElementAspectCleanup {
+    return this._elementAspectCleanup;
   }
 
   /** resolved initialization options for the importer
@@ -174,11 +180,10 @@ export class IModelImporter {
         options?.skipPropagateChangesToRootElements ?? true,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
-    registerElementAspectCleanup(
-      this,
-      new ElementAspectCleanup(this.targetDb, this._editTxn, async (aspect) =>
-        this.onDeleteElementAspect(aspect)
-      )
+    this._elementAspectCleanup = new ElementAspectCleanup(
+      this.targetDb,
+      this._editTxn,
+      async (aspect) => this.onDeleteElementAspect(aspect)
     );
   }
 

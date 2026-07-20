@@ -31,26 +31,6 @@ import {
 import { IModelError, QueryBinder } from "@itwin/core-common";
 import type { ExportChangesOptions } from "./IModelExporter";
 
-const aspectOwnerElementIds = new WeakMap<object, Set<Id64String>>();
-
-export function addAspectOwnerElementId(
-  changes: object,
-  elementId: Id64String
-): void {
-  let elementIds = aspectOwnerElementIds.get(changes);
-  if (elementIds === undefined) {
-    elementIds = new Set<Id64String>();
-    aspectOwnerElementIds.set(changes, elementIds);
-  }
-  elementIds.add(elementId);
-}
-
-export function getAspectOwnerElementIds(
-  changes: object
-): ReadonlySet<Id64String> {
-  return aspectOwnerElementIds.get(changes) ?? new Set<Id64String>();
-}
-
 /**
  * Arguments for [[ChangedInstanceIds.initialize]]
  * @public
@@ -113,6 +93,14 @@ export class ChangedInstanceIds {
   private _aspectSubclassIds?: Set<string>;
   private _relationshipSubclassIds?: Set<string>;
   private _relationshipSubclassIdsToSkip?: Set<string>;
+  private readonly _aspectOwnerElementIds = new Set<Id64String>();
+
+  /** Element IDs that own the aspects represented by `aspect` changes.
+   * @internal
+   */
+  public get aspectOwnerElementIds(): ReadonlySet<Id64String> {
+    return this._aspectOwnerElementIds;
+  }
 
   private _db: IModelDb;
   public constructor(db: IModelDb) {
@@ -235,7 +223,7 @@ export class ChangedInstanceIds {
         change.Element?.Id ??
         this.tryGetAspectOwnerElementId(change.ECInstanceId);
       if (ownerElementId !== undefined) {
-        addAspectOwnerElementId(this, ownerElementId);
+        this._aspectOwnerElementIds.add(ownerElementId);
       }
       this.handleChange(this.aspect, changeType, change.ECInstanceId);
     } else if (this.isModel(ecClassId))
@@ -349,7 +337,7 @@ export class ChangedInstanceIds {
   ): void {
     if (elementIds !== undefined) {
       for (const elementId of Id64.iterable(elementIds)) {
-        addAspectOwnerElementId(this, elementId);
+        this._aspectOwnerElementIds.add(elementId);
       }
     }
     for (const id of Id64.iterable(ids)) {
@@ -375,7 +363,7 @@ export class ChangedInstanceIds {
               "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable.",
           });
         }
-        addAspectOwnerElementId(this, ownerElementId);
+        this._aspectOwnerElementIds.add(ownerElementId);
       }
 
       this.handleChange(this.aspect, changeType, id);
@@ -387,7 +375,7 @@ export class ChangedInstanceIds {
     aspectId: Id64String,
     ownerElementId: Id64String
   ): void {
-    addAspectOwnerElementId(this, ownerElementId);
+    this._aspectOwnerElementIds.add(ownerElementId);
     this.handleChange(this.aspect, changeType, aspectId);
   }
 

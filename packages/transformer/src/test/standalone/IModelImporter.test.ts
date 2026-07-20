@@ -31,7 +31,6 @@ import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
-import { getElementAspectCleanup } from "../../ElementAspectCleanup";
 
 describe("IModelImporter", () => {
   it("deleteElement skips elements in doNotUpdateElementIds (no-op guard)", async () => {
@@ -235,7 +234,7 @@ describe("IModelImporter", () => {
         }
       }
       const importer = new TrackingImporter(editTxn);
-      await getElementAspectCleanup(importer).delete(
+      await importer.elementAspectCleanup.delete(
         new Set([elementId]),
         new Set(["TestDeleteAspectsSchema:TestUniqueAspect"]),
         provenanceScopeId,

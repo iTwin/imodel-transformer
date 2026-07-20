@@ -125,7 +125,6 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
-import { getElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -1714,7 +1713,7 @@ describe("IModelTransformer", () => {
     );
     const exporter = new IModelExporter(sourceDb);
     const editTxn = createStartedEditTxn(targetDb);
-    const coordinator = getElementAspectExportCoordinator(exporter);
+    const coordinator = exporter.elementAspectExportCoordinator;
     const beginScope = sinon.spy(coordinator, "begin");
     const endScope = sinon.spy(coordinator, "end");
     sinon.stub(exporter, "exportElement").resolves();
@@ -1775,7 +1774,7 @@ describe("IModelTransformer", () => {
       await expect(
         transformer.processElement(sourceElementId)
       ).to.be.rejectedWith(failure);
-      expect(getElementAspectExportCoordinator(exporter).isActive).to.be.false;
+      expect(exporter.elementAspectExportCoordinator.isActive).to.be.false;
       transformer.dispose();
     } finally {
       editTxn.end("abandon");

@@ -55,6 +55,8 @@ export class ChangedInstanceIds {
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
+    // @internal
+    get aspectOwnerElementIds(): ReadonlySet<Id64String>;
     // (undocumented)
     codeSpec: ChangedInstanceOps;
     // (undocumented)
@@ -138,6 +140,8 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 // @beta
 export class IModelExporter {
     constructor(sourceDb: IModelDb);
+    // @internal
+    get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -210,6 +214,8 @@ export class IModelImporter {
     readonly doNotUpdateElementIds: Set<string>;
     get editTxn(): EditTxn;
     protected readonly _editTxn: EditTxn;
+    // @internal
+    get elementAspectCleanup(): ElementAspectCleanup;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],

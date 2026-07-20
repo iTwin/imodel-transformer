@@ -46,8 +46,13 @@ export class ElementAspectExportProcessor {
     Promise<ReadonlyMap<Id64String, { schemaName: string; className: string }>>
   >();
   /** ElementAspect classes excluded from source queries. */
-  public readonly excludedElementAspectClassFullNames = new Set<string>();
+  private readonly _excludedElementAspectClassFullNames = new Set<string>();
   private _aspectChanges: ChangedInstanceOps | undefined;
+
+  /** ElementAspect class names excluded from source queries. */
+  public get excludedElementAspectClassFullNames(): ReadonlySet<string> {
+    return this._excludedElementAspectClassFullNames;
+  }
   private readonly _sourceDb: IModelDb;
   private readonly _handler: ElementAspectExportProcessorHandler;
 
@@ -137,7 +142,7 @@ export class ElementAspectExportProcessor {
 
   /** Excludes an ElementAspect class from subsequent queries and export callbacks. */
   public excludeElementAspectClass(classFullName: string): void {
-    this.excludedElementAspectClassFullNames.add(classFullName);
+    this._excludedElementAspectClassFullNames.add(classFullName);
     this._excludedElementAspectClasses.add(
       this._sourceDb.getJsClass<typeof ElementAspect>(classFullName)
     );
@@ -195,7 +200,8 @@ export class ElementAspectExportProcessor {
       elementIds === undefined ? undefined : (new Set(elementIds) as Id64Set);
     for (const [classId, { schemaName, className }] of aspectClassNameIdMap) {
       const classFullName = `${schemaName}:${className}`;
-      if (this.excludedElementAspectClassFullNames.has(classFullName)) continue;
+      if (this._excludedElementAspectClassFullNames.has(classFullName))
+        continue;
 
       const queryParams = new QueryBinder().bindId("classId", classId);
       const elementFilter =

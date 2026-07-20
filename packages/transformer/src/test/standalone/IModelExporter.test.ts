@@ -54,7 +54,6 @@ import {
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { getElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
@@ -202,7 +201,7 @@ describe("IModelExporter", () => {
 
       const exporter = new IModelExporter(sourceDb);
       exporter.registerHandler(new Handler());
-      const coordinator = getElementAspectExportCoordinator(exporter);
+      const coordinator = exporter.elementAspectExportCoordinator;
       coordinator.setPreparation(async (_excludedClasses, elementIds) => {
         preparedOwnerBatchSizes.push(elementIds.size);
       });
@@ -490,11 +489,11 @@ describe("IModelExporter", () => {
         }
       }
       exporter.registerHandler(new Handler());
-      const coordinator = getElementAspectExportCoordinator(exporter);
+      const coordinator = exporter.elementAspectExportCoordinator;
       coordinator.begin(10);
       await exporter.exportChildElements(IModel.rootSubjectId);
 
-      expect(coordinator.ownerExportDecisionCount).to.equal(0);
+      expect(coordinator.acceptedOwnerDecisionCount).to.equal(0);
       coordinator.abort();
     } finally {
       sourceDb.close();

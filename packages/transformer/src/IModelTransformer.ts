@@ -111,8 +111,6 @@ import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
-import { getElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
-import { getElementAspectCleanup } from "./ElementAspectCleanup";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -545,7 +543,7 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     this._targetEditTxn = this.importer.editTxn;
     this._sourceEditTxn = options?.sourceEditTxn;
-    getElementAspectExportCoordinator(this.exporter).setPreparation(
+    this.exporter.elementAspectExportCoordinator.setPreparation(
       async (excludedClasses, elementIds) =>
         this.prepareElementAspects(excludedClasses, elementIds)
     );
@@ -1123,7 +1121,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async processScopedElementExport(
     exportElements: () => Promise<void>
   ): Promise<void> {
-    await getElementAspectExportCoordinator(this.exporter).run(exportElements);
+    await this.exporter.elementAspectExportCoordinator.run(exportElements);
   }
 
   /** Override of [IModelExportHandler.shouldExportElement]($transformer) that is called to determine if an element should be exported from the source iModel.
@@ -1831,7 +1829,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
     }
 
-    await getElementAspectCleanup(this.importer).delete(
+    await this.importer.elementAspectCleanup.delete(
       targetElementIds,
       excludedElementAspectClassFullNames,
       this.targetScopeElementId
@@ -2544,7 +2542,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
 
-    await getElementAspectExportCoordinator(this.exporter).run(async () => {
+    await this.exporter.elementAspectExportCoordinator.run(async () => {
       if (this._options.skipPropagateChangesToRootElements) {
         // The RepositoryModel and root Subject of the target iModel should not be transformed.
         await this.exporter.exportChildElements(IModel.rootSubjectId); // start below the root Subject

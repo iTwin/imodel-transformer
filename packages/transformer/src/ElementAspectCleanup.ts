@@ -92,20 +92,3 @@ export class ElementAspectCleanup {
     }
   }
 }
-
-const cleanups = new WeakMap<object, ElementAspectCleanup>();
-
-export function registerElementAspectCleanup(
-  owner: object,
-  cleanup: ElementAspectCleanup
-): void {
-  cleanups.set(owner, cleanup);
-}
-
-export function getElementAspectCleanup(owner: object): ElementAspectCleanup {
-  const cleanup = cleanups.get(owner);
-  if (cleanup === undefined) {
-    throw new Error("ElementAspect cleanup is not registered.");
-  }
-  return cleanup;
-}
