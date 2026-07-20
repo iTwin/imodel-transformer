@@ -39,7 +39,11 @@ import {
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
-import { Property, PropertyType } from "@itwin/ecschema-metadata";
+import {
+  EntityClass,
+  PropertyType,
+  RelationshipClass,
+} from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -866,8 +870,16 @@ export function hasEntityChanged(
   namesToIgnore?: Set<string>
 ): boolean {
   let changed: boolean = false;
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  entity.forEach((propertyName: string, property: Property) => {
+  const entityClass = entity.iModel.schemaContext.getSchemaItemSync(
+    entity.schemaItemKey
+  );
+  assert(
+    EntityClass.isEntityClass(entityClass) ||
+      RelationshipClass.isRelationshipClass(entityClass),
+    `Cannot get metadata for ${entity.classFullName}.`
+  );
+  for (const property of entityClass.getPropertiesSync()) {
+    const propertyName = property.name;
     if (!changed) {
       if (namesToIgnore && namesToIgnore.has(propertyName)) {
         // skip
@@ -888,7 +900,7 @@ export function hasEntityChanged(
         );
       }
     }
-  });
+  }
   return changed;
 }
 
