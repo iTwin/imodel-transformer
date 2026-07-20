@@ -669,18 +669,18 @@ export class ProvenanceManager {
    * transformation could overwrite this correct reverseSyncVersion and should only be done
    * during the first transformation between a master and branch iModel.
    *
-   * @param sourceChangeDataState The current state of change data — used to skip updates
-   * when there are no changes.
+   * @param shouldUpdateSynchronizationVersion Whether the source synchronization version
+   * should be updated after processing.
    */
   public async updateSynchronizationVersion({
     initializeReverseSyncVersion = false,
-    sourceChangeDataState,
+    shouldUpdateSynchronizationVersion,
   }: {
     initializeReverseSyncVersion?: boolean;
-    sourceChangeDataState: "has-changes" | "no-changes" | "unconnected";
+    shouldUpdateSynchronizationVersion: boolean;
   }) {
     const shouldSkipSyncVersionUpdate =
-      !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";
+      !initializeReverseSyncVersion && !shouldUpdateSynchronizationVersion;
     if (shouldSkipSyncVersionUpdate) return;
 
     // If noProvenance is set, there's no scope ESA to update

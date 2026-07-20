@@ -369,8 +369,6 @@ export type ProcessChangesOptions = ExportChangesOptions & {
   ignoreMissingChangesetsInSynchronizations?: boolean;
 };
 
-type ChangeDataState = "has-changes" | "no-changes" | "unconnected";
-
 /**
  * @beta
  */
@@ -749,7 +747,8 @@ export class IModelTransformer extends IModelExportHandler {
   } = {}) {
     return this._provenanceManager.updateSynchronizationVersion({
       initializeReverseSyncVersion,
-      sourceChangeDataState: this._sourceChangeDataState,
+      shouldUpdateSynchronizationVersion:
+        this._shouldUpdateSynchronizationVersion,
     });
   }
 
@@ -2026,8 +2025,8 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
-  private _sourceChangeDataState: ChangeDataState = "has-changes";
-  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
+  private _shouldUpdateSynchronizationVersion = false;
+  /** Downloaded changesets for connected change processing. An empty array means there are no changes; undefined means changeset processing was not initialized. */
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
   /**
@@ -2077,9 +2076,9 @@ export class IModelTransformer extends IModelExportHandler {
         !this.exporter.sourceDbChanges.hasChanges
       )
         return;
-      // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
-      if (this._sourceChangeDataState === "no-changes")
-        this._sourceChangeDataState = "has-changes";
+      // Changeset props are undefined when change processing is unconnected, so its synchronization version cannot be updated.
+      if (this._csFileProps !== undefined)
+        this._shouldUpdateSynchronizationVersion = true;
     }
 
     const relationshipECClassIdsToSkip = new Set<string>();
@@ -2363,14 +2362,12 @@ export class IModelTransformer extends IModelExportHandler {
       this.sourceDb.iTwinId === undefined ||
       this.sourceDb.changeset.index === undefined
     ) {
-      this._sourceChangeDataState = "unconnected";
       return;
     }
 
     const syncVersion = await this.getSynchronizationVersion();
     const noChanges = syncVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
-      this._sourceChangeDataState = "no-changes";
       this._csFileProps = [];
       return;
     }
@@ -2436,8 +2433,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._csFileProps = csFileProps;
 
     /** Theres a possibility that our csFileProps length is still 0 here, since we skip cs indices found in the pendingSync and pendingReverseSync indices arrays. */
-    this._sourceChangeDataState =
-      this._csFileProps.length === 0 ? "no-changes" : "has-changes";
+    this._shouldUpdateSynchronizationVersion = this._csFileProps.length > 0;
   }
 
   /** Asserts that the EditTxn is active before any write operations. */
@@ -2493,6 +2489,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async processAll(): Promise<void> {
     this._targetElementIdsRemappedByCode.clear();
     this._targetModelsImportedInCurrentTransform.clear();
+    this._shouldUpdateSynchronizationVersion = true;
 
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();

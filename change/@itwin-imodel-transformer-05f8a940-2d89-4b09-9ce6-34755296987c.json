@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Refactor source change state initialization to distinguish processAll from unconnected change processing",
+  "comment": "Replace source change state tracking with an explicit synchronization version update gate",
   "packageName": "@itwin/imodel-transformer",
   "email": "DanRod1999@users.noreply.github.com",
   "dependentChangeType": "patch"

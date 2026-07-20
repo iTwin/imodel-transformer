@@ -261,6 +261,25 @@ describe("IModelTransformerHub", () => {
         source: sourceBriefcase,
         target: targetEditTxn1,
       });
+      await transformer1.initialize();
+      await transformer1.updateSynchronizationVersion();
+      const scopeEsaBeforeProcess =
+        await ProvenanceManager.queryScopeExternalSourceAspect(
+          targetBriefcase,
+          {
+            id: undefined,
+            classFullName: ExternalSourceAspect.classFullName,
+            scope: { id: IModel.rootSubjectId },
+            kind: ExternalSourceAspect.Kind.Scope,
+            element: { id: IModel.rootSubjectId },
+            identifier: sourceBriefcase.iModelId,
+          }
+        );
+      assert.equal(
+        scopeEsaBeforeProcess?.version,
+        "",
+        "initialization without processing should not update the synchronization version"
+      );
       await transformer1.process();
       const scopeEsaResult1 =
         await ProvenanceManager.queryScopeExternalSourceAspect(
