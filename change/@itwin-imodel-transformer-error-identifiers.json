@@ -1,6 +1,6 @@
 {
-  "type": "minor",
-  "comment": "Export strongly typed identifiers and helpers for errors originating from @itwin/imodel-transformer.",
+  "type": "major",
+  "comment": "Package-owned actionable errors now expose stable typed ITwinError identifiers while backend errors and internal failures retain their original boundaries.",
   "packageName": "@itwin/imodel-transformer",
   "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"

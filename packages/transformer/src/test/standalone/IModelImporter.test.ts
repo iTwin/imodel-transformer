@@ -16,14 +16,36 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { Code, ElementAspectProps, IModel } from "@itwin/core-common";
-import { Id64String } from "@itwin/core-bentley";
+import { Id64String, ITwinError } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 
 describe("IModelImporter", () => {
+  async function expectTransformerError(
+    promise: Promise<unknown>,
+    key: IModelTransformerError,
+    message: string
+  ): Promise<unknown> {
+    let error: unknown;
+    try {
+      await promise;
+    } catch (caughtError) {
+      error = caughtError;
+    }
+
+    expect(ITwinError.isError(error, IModelTransformerErrorScope, key)).to.be
+      .true;
+    expect(error).to.have.property("message", message);
+    return error;
+  }
+
   it("deleteElement skips elements in doNotUpdateElementIds (no-op guard)", async () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelImporter",
@@ -153,32 +175,44 @@ describe("IModelImporter", () => {
       const editTxn = createStartedEditTxn(targetDb);
       const importer = new IModelImporter(editTxn);
       const missing = "TestImporterSchema:DoesNotExist";
-      await expect(
-        (importer as any).onInsertModel({
-          classFullName: missing,
-          modeledElement: { id: IModel.rootSubjectId },
-        })
-      ).to.be.rejectedWith(/not found in the target iModel/);
-      await expect(
-        (importer as any).onInsertElement({
-          classFullName: missing,
-          model: IModel.repositoryModelId,
-          code: Code.createEmpty(),
-        })
-      ).to.be.rejectedWith(/not found in the target iModel/);
-      await expect(
-        (importer as any).onInsertElementAspect({
-          classFullName: missing,
-          element: { id: IModel.rootSubjectId },
-        })
-      ).to.be.rejectedWith(/not found in the target iModel/);
-      await expect(
-        (importer as any).onInsertRelationship({
-          classFullName: missing,
-          sourceId: IModel.rootSubjectId,
-          targetId: IModel.rootSubjectId,
-        })
-      ).to.be.rejectedWith(/not found in the target iModel/);
+      const errors = await Promise.all([
+        expectTransformerError(
+          (importer as any).onInsertModel({
+            classFullName: missing,
+            modeledElement: { id: IModel.rootSubjectId },
+          }),
+          IModelTransformerError.TargetClassNotFound,
+          `Model class "${missing}" not found in the target iModel. Was the latest version of the schema imported?`
+        ),
+        expectTransformerError(
+          (importer as any).onInsertElement({
+            classFullName: missing,
+            model: IModel.repositoryModelId,
+            code: Code.createEmpty(),
+          }),
+          IModelTransformerError.TargetClassNotFound,
+          `Element class "${missing}" not found in the target iModel. Was the latest version of the schema imported?`
+        ),
+        expectTransformerError(
+          (importer as any).onInsertElementAspect({
+            classFullName: missing,
+            element: { id: IModel.rootSubjectId },
+          }),
+          IModelTransformerError.TargetClassNotFound,
+          `ElementAspect class "${missing}" not found in the target iModel. Was the latest version of the schema imported?`
+        ),
+        expectTransformerError(
+          (importer as any).onInsertRelationship({
+            classFullName: missing,
+            sourceId: IModel.rootSubjectId,
+            targetId: IModel.rootSubjectId,
+          }),
+          IModelTransformerError.TargetClassNotFound,
+          `Relationship class "${missing}" not found in the target iModel. Was the latest version of the schema imported?`
+        ),
+      ]);
+      for (const error of errors)
+        expect(error).to.have.property("cause").that.is.instanceOf(Error);
       expect(
         await importer.importElementMultiAspects([]),
         "empty aspect array should be a no-op"
@@ -200,26 +234,39 @@ describe("IModelImporter", () => {
     try {
       const editTxn = createStartedEditTxn(targetDb);
       const importer = new IModelImporter(editTxn);
-      await expect(importer.importModel({} as any)).to.be.rejectedWith(
-        /Model Id not provided/
+      const invalidModelIdMessage =
+        "Model Id not provided, should be the same as the ModeledElementId";
+      await expectTransformerError(
+        importer.importModel({} as any),
+        IModelTransformerError.InvalidModelId,
+        invalidModelIdMessage
       );
-      await expect(
+      await expectTransformerError(
+        importer.importModel({ id: "invalid" } as any),
+        IModelTransformerError.InvalidModelId,
+        invalidModelIdMessage
+      );
+      await expectTransformerError(
         (importer as any).onUpdateElement({
           classFullName: "BisCore:Subject",
-        })
-      ).to.be.rejectedWith(/ElementId not provided/);
-      await expect(
+        }),
+        IModelTransformerError.ElementIdRequired,
+        "ElementId not provided"
+      );
+      await expectTransformerError(
         (importer as any).onUpdateRelationship({
           classFullName: "BisCore:ElementRefersToElements",
-        })
-      ).to.be.rejectedWith(/Relationship instance Id not provided/);
+        }),
+        IModelTransformerError.RelationshipIdRequired,
+        "Relationship instance Id not provided"
+      );
       editTxn.end("abandon");
     } finally {
       targetDb.close();
     }
   });
 
-  it("importElement requires an id when preserveElementIdsForFiltering is set", async () => {
+  it("validates element and subcategory ids when preserveElementIdsForFiltering is set", async () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelImporter",
       "PreserveIds.bim"
@@ -232,13 +279,35 @@ describe("IModelImporter", () => {
       const importer = new IModelImporter(editTxn, {
         preserveElementIdsForFiltering: true,
       });
-      await expect(
+      await expectTransformerError(
         importer.importElement({
           classFullName: "BisCore:Subject",
           model: IModel.repositoryModelId,
           code: Code.createEmpty(),
-        } as any)
-      ).to.be.rejectedWith(/must be defined during a preserveIds operation/);
+        } as any),
+        IModelTransformerError.ElementIdRequired,
+        "elementProps.id must be defined during a preserveIds operation"
+      );
+      await expectTransformerError(
+        importer.importElement({
+          id: "invalid",
+          classFullName: "BisCore:SubCategory",
+          model: IModel.dictionaryId,
+          code: Code.createEmpty(),
+        } as any),
+        IModelTransformerError.InvalidSubCategory,
+        "subcategory had invalid id"
+      );
+      await expectTransformerError(
+        importer.importElement({
+          id: "0x123",
+          classFullName: "BisCore:SubCategory",
+          model: IModel.dictionaryId,
+          code: Code.createEmpty(),
+        } as any),
+        IModelTransformerError.InvalidSubCategory,
+        "subcategory with id 0x123 had no parent"
+      );
       editTxn.end("abandon");
     } finally {
       targetDb.close();

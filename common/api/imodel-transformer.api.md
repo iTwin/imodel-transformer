@@ -32,7 +32,6 @@ import { Id64String } from '@itwin/core-bentley';
 import { IModelDb } from '@itwin/core-backend';
 import { IModelElementCloneContext } from '@itwin/core-backend';
 import { IModelJsNative } from '@itwin/core-backend';
-import type { ITwinErrorId } from '@itwin/core-bentley';
 import { Model } from '@itwin/core-backend';
 import { ModelProps } from '@itwin/core-common';
 import { Placement2d } from '@itwin/core-common';
@@ -337,24 +336,44 @@ export class IModelTransformer extends IModelExportHandler {
     }): Promise<void>;
 }
 
-// @public
-export namespace IModelTransformerError {
-    const scope = "@itwin/imodel-transformer";
-    const key: {
-        readonly noChangesets: "no-changesets";
-    };
-    export interface Id extends ITwinErrorId {
-        readonly key: Key;
-        readonly scope: typeof scope;
-    }
-    export type Key = (typeof key)[keyof typeof key];
-    const id: {
-        readonly noChangesets: {
-            readonly scope: "@itwin/imodel-transformer";
-            readonly key: "no-changesets";
-        };
-    };
+// @beta
+export enum IModelTransformerError {
+    ChangedInstanceMetadataMissing = "changed-instance-metadata-missing",
+    ChangesetIndexUnavailable = "changeset-index-unavailable",
+    DanglingReference = "dangling-reference",
+    DependencyMappingMissing = "dependency-mapping-missing",
+    DependencyVersionMismatch = "dependency-version-mismatch",
+    EditTxnNotActive = "edit-txn-not-active",
+    ElementIdNotPreservable = "element-id-not-preservable",
+    ElementIdRequired = "element-id-required",
+    ExportChangesRequiresBriefcase = "export-changes-requires-briefcase",
+    ExportHandlerNotRegistered = "export-handler-not-registered",
+    GeographicCoordinateSystemMismatch = "geographic-coordinate-system-mismatch",
+    GeographicCoordinateSystemUnavailable = "geographic-coordinate-system-unavailable",
+    GeolocationUnavailable = "geolocation-unavailable",
+    ImporterOptionMismatch = "importer-option-mismatch",
+    InvalidCode = "invalid-code",
+    InvalidEntityReference = "invalid-entity-reference",
+    InvalidModelId = "invalid-model-id",
+    InvalidSubCategory = "invalid-subcategory",
+    NoChangesets = "no-changesets",
+    ParentModelRequired = "parent-model-required",
+    ProvenanceSchemaUnsupported = "provenance-schema-unsupported",
+    ProvenanceScopeConflict = "provenance-scope-conflict",
+    RelationshipClassNotFound = "relationship-class-not-found",
+    RelationshipIdRequired = "relationship-id-required",
+    RelationshipProvenanceNotFound = "relationship-provenance-not-found",
+    RootSubjectNotProcessable = "root-subject-not-processable",
+    SchemaLoadFailed = "schema-load-failed",
+    SourceEditTxnRequired = "source-edit-txn-required",
+    SynchronizationRangeInvalid = "synchronization-range-invalid",
+    SynchronizationTypeNotDetermined = "synchronization-type-not-determined",
+    SynchronizationVersionMissing = "synchronization-version-missing",
+    TargetClassNotFound = "target-class-not-found"
 }
+
+// @beta
+export const IModelTransformerErrorScope = "@itwin/imodel-transformer";
 
 // @beta
 export interface IModelTransformOptions {

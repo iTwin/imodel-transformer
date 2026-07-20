@@ -37,7 +37,10 @@ import {
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
-import { IModelTransformerError } from "../../IModelTransformerError";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -112,12 +115,7 @@ describe("IModelExporter", () => {
     });
   });
 
-  it("throws instead of falling back to exportAll when the source has no changesets", async () => {
-    const sourceDb = {
-      changeset: { id: "" },
-      isBriefcaseDb: () => true,
-    } as unknown as IModelDb;
-
+  it("throws typed errors for sources that cannot export changes", async () => {
     class TestExporter extends IModelExporter {
       public exportAllCalled = false;
 
@@ -126,6 +124,30 @@ describe("IModelExporter", () => {
       }
     }
 
+    const standaloneExporter = new TestExporter({
+      isBriefcaseDb: () => false,
+    } as unknown as IModelDb);
+    try {
+      await standaloneExporter.exportChanges();
+      assert.fail("Expected exportChanges() to throw");
+    } catch (error) {
+      expect(
+        ITwinError.isError(
+          error,
+          IModelTransformerErrorScope,
+          IModelTransformerError.ExportChangesRequiresBriefcase
+        )
+      ).to.be.true;
+      expect(error).to.have.property(
+        "message",
+        "Must be a briefcase to export changes"
+      );
+    }
+
+    const sourceDb = {
+      changeset: { id: "" },
+      isBriefcaseDb: () => true,
+    } as unknown as IModelDb;
     const exporter = new TestExporter(sourceDb);
     try {
       await exporter.exportChanges();
@@ -134,8 +156,8 @@ describe("IModelExporter", () => {
       expect(
         ITwinError.isError(
           error,
-          IModelTransformerError.scope,
-          IModelTransformerError.key.noChangesets
+          IModelTransformerErrorScope,
+          IModelTransformerError.NoChangesets
         )
       ).to.be.true;
       expect(error).to.have.property(

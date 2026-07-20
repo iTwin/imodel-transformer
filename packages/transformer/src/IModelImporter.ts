@@ -10,6 +10,7 @@ import {
   Id64,
   Id64String,
   IModelStatus,
+  ITwinError,
   Logger,
 } from "@itwin/core-bentley";
 import {
@@ -44,6 +45,10 @@ import {
   PropertyType,
   RelationshipClass,
 } from "@itwin/ecschema-metadata";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
 
@@ -199,10 +204,14 @@ export class IModelImporter {
   /** Import the specified ModelProps (either as an insert or an update) into the target iModel. */
   public async importModel(modelProps: ModelProps): Promise<void> {
     if (undefined === modelProps.id || !Id64.isValidId64(modelProps.id))
-      throw new IModelError(
-        IModelStatus.InvalidId,
-        "Model Id not provided, should be the same as the ModeledElementId"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.InvalidModelId,
+        },
+        message:
+          "Model Id not provided, should be the same as the ModeledElementId",
+      });
 
     if (this.doNotUpdateElement(modelProps.id)) {
       Logger.logInfo(
@@ -243,11 +252,18 @@ export class IModelImporter {
       return modelId;
     } catch (error) {
       if (!this.targetDb.containsClass(modelProps.classFullName)) {
-        // replace standard insert error with something more helpful
+        // Translate only confirmed missing-class failures; otherwise retain the backend error's identity.
         const errorMessage = `Model class "${modelProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
-        throw new IModelError(IModelStatus.InvalidName, errorMessage);
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.TargetClassNotFound,
+          },
+          message: errorMessage,
+          cause: error,
+        });
       }
-      throw error; // throw original error
+      throw error;
     }
   }
 
@@ -308,10 +324,14 @@ export class IModelImporter {
 
     if (this.options.preserveElementIdsForFiltering) {
       if (elementProps.id === undefined) {
-        throw new IModelError(
-          IModelStatus.BadElement,
-          "elementProps.id must be defined during a preserveIds operation"
-        );
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.ElementIdRequired,
+          },
+          message:
+            "elementProps.id must be defined during a preserveIds operation",
+        });
       }
 
       // Categories are the only element that onInserted will immediately insert a new element (their default subcategory)
@@ -374,11 +394,17 @@ export class IModelImporter {
       return elementId;
     } catch (error) {
       if (!this.targetDb.containsClass(elementProps.classFullName)) {
-        // replace standard insert error with something more helpful
         const errorMessage = `Element class "${elementProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
-        throw new IModelError(IModelStatus.InvalidName, errorMessage);
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.TargetClassNotFound,
+          },
+          message: errorMessage,
+          cause: error,
+        });
       }
-      throw error; // throw original error
+      throw error;
     }
   }
 
@@ -387,7 +413,13 @@ export class IModelImporter {
    */
   protected async onUpdateElement(elementProps: ElementProps): Promise<void> {
     if (!elementProps.id) {
-      throw new IModelError(IModelStatus.InvalidId, "ElementId not provided");
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ElementIdRequired,
+        },
+        message: "ElementId not provided",
+      });
     }
     this._editTxn.updateElement(elementProps);
     Logger.logInfo(
@@ -566,11 +598,17 @@ export class IModelImporter {
       return id;
     } catch (error) {
       if (!this.targetDb.containsClass(aspectProps.classFullName)) {
-        // replace standard insert error with something more helpful
         const errorMessage = `ElementAspect class "${aspectProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
-        throw new IModelError(IModelStatus.InvalidName, errorMessage);
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.TargetClassNotFound,
+          },
+          message: errorMessage,
+          cause: error,
+        });
       }
-      throw error; // throw original error
+      throw error;
     }
   }
 
@@ -675,11 +713,17 @@ export class IModelImporter {
       return targetRelInstanceId;
     } catch (error) {
       if (!this.targetDb.containsClass(relationshipProps.classFullName)) {
-        // replace standard insert error with something more helpful
         const errorMessage = `Relationship class "${relationshipProps.classFullName}" not found in the target iModel. Was the latest version of the schema imported?`;
-        throw new IModelError(IModelStatus.InvalidName, errorMessage);
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.TargetClassNotFound,
+          },
+          message: errorMessage,
+          cause: error,
+        });
       }
-      throw error; // throw original error
+      throw error;
     }
   }
 
@@ -690,10 +734,13 @@ export class IModelImporter {
     relationshipProps: RelationshipProps
   ): Promise<void> {
     if (!relationshipProps.id) {
-      throw new IModelError(
-        IModelStatus.InvalidId,
-        "Relationship instance Id not provided"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.RelationshipIdRequired,
+        },
+        message: "Relationship instance Id not provided",
+      });
     }
     this._editTxn.updateRelationship(relationshipProps);
     Logger.logInfo(
@@ -947,14 +994,20 @@ function isDefaultSubCategory(props: SubCategoryProps): boolean {
   if (props.id === undefined) return false;
 
   if (!Id64.isId64(props.id))
-    throw new IModelError(
-      IModelStatus.BadElement,
-      "subcategory had invalid id"
-    );
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.InvalidSubCategory,
+      },
+      message: "subcategory had invalid id",
+    });
   if (props.parent?.id === undefined)
-    throw new IModelError(
-      IModelStatus.BadElement,
-      `subcategory with id ${props.id} had no parent`
-    );
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.InvalidSubCategory,
+      },
+      message: `subcategory with id ${props.id} had no parent`,
+    });
   return props.id === IModelDb.getDefaultSubCategoryId(props.parent.id);
 }
