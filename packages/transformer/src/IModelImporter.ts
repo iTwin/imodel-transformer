@@ -39,6 +39,10 @@ import {
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
 import * as assert from "assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
+import {
+  ElementAspectCleanup,
+  registerElementAspectCleanup,
+} from "./ElementAspectCleanup";
 import { Property, PropertyType } from "@itwin/ecschema-metadata";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelImporter;
@@ -114,7 +118,6 @@ export class IModelImporter {
    * To resolve code values to their intended values call [[IModelImporter.resolveDuplicateCodeValues]].
    */
   private _duplicateCodeValueMap: Map<Id64String, string>;
-
   /**
    * A set of elementIds that the transformer adds to while exporting elements to indicate that the element already exists in the target.
    * Defaults to an empty set.
@@ -167,6 +170,12 @@ export class IModelImporter {
         options?.skipPropagateChangesToRootElements ?? true,
     };
     this._duplicateCodeValueMap = new Map<Id64String, string>();
+    registerElementAspectCleanup(
+      this,
+      new ElementAspectCleanup(this.targetDb, this._editTxn, async (aspect) =>
+        this.onDeleteElementAspect(aspect)
+      )
+    );
   }
 
   /**

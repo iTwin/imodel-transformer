@@ -3,6 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import * as path from "node:path";
+import * as sinon from "sinon";
 import { KnownTestLocations } from "../TestUtils";
 import {
   DocumentListModel,
@@ -22,8 +23,13 @@ import {
   ElementProps,
   ExternalSourceAspectProps,
   IModel,
+  QueryBinder,
 } from "@itwin/core-common";
-import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
+import {
+  ChangedInstanceIds,
+  ChangedInstanceOps,
+  getAspectOwnerElementIds,
+} from "../../ChangedInstanceIds";
 import { expect } from "chai";
 
 describe("ChangedInstanceIds", () => {
@@ -56,11 +62,7 @@ describe("ChangedInstanceIds", () => {
     // add data to source iModel
     withEditTxn(sourceDb, "add data to source iModel", (txn) => {
       const sourceSubjectId = Subject.insert(txn, IModel.rootSubjectId, "S1");
-      documentListModel = DocumentListModel.insert(
-        txn,
-        sourceSubjectId,
-        "DL"
-      );
+      documentListModel = DocumentListModel.insert(txn, sourceSubjectId, "DL");
       parentDrawing = insertDrawingElement(
         txn,
         sourceDb,
@@ -187,10 +189,16 @@ describe("ChangedInstanceIds", () => {
   describe("addCustomElementChange", async function () {
     it("should add changes for related entities when element is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      await sourceDbChanges.addCustomElementChange(
-        "Inserted",
-        childDrawing1.id!
-      );
+      const getAspect = sinon.spy(sourceDb.elements, "getAspect");
+      try {
+        await sourceDbChanges.addCustomElementChange(
+          "Inserted",
+          childDrawing1.id!
+        );
+      } finally {
+        getAspect.restore();
+      }
+      expect(getAspect.notCalled).to.be.true;
 
       assertHasValues(
         sourceDbChanges.element,
@@ -213,6 +221,8 @@ describe("ChangedInstanceIds", () => {
         [],
         []
       );
+      expect(getAspectOwnerElementIds(sourceDbChanges).has(childDrawing1.id!))
+        .to.be.true;
       assertHasValues(
         sourceDbChanges.relationship,
         "relationship",
@@ -484,6 +494,9 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [aspect1Id], [], []);
+      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+        childDrawing1.id,
+      ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
 
@@ -494,16 +507,48 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [aspect1Id], []);
+      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+        childDrawing1.id,
+      ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("rejects a custom deleted aspect without owner IDs", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+
+      expect(() =>
+        sourceDbChanges.addCustomAspectChange("Deleted", aspect1Id)
+      ).to.throw(
+        "Custom deleted ElementAspect changes require the owning element ID."
+      );
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+    });
+
+    it("rejects a missing custom aspect without owner IDs", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+
+      expect(() =>
+        sourceDbChanges.addCustomAspectChange("Updated", "0xffffff")
+      ).to.throw(
+        "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable."
+      );
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
     });
 
     it("should add custom changes when aspect is Deleted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      sourceDbChanges.addCustomAspectChange("Deleted", aspect1Id);
+      sourceDbChanges.addCustomAspectChange(
+        "Deleted",
+        aspect1Id,
+        childDrawing1.id
+      );
       // Act
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], [aspect1Id]);
+      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+        childDrawing1.id,
+      ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
 
@@ -514,6 +559,30 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("recovers the current owner when an aspect update omits Element.Id", async () => {
+      const reader = sourceDb.createQueryReader(
+        `SELECT ECClassId FROM ${ExternalSourceAspect.classFullName}
+         WHERE ECInstanceId=:aspectId`,
+        new QueryBinder().bindId("aspectId", aspect1Id)
+      );
+      expect(await reader.step()).to.be.true;
+      const classId = reader.current[0];
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      await sourceDbChanges.addChange({
+        ECInstanceId: aspect1Id,
+        ECClassId: classId,
+        $meta: {
+          op: "Updated",
+          tables: ["bis_ExternalSourceAspect"],
+          classFullName: ExternalSourceAspect.classFullName,
+        },
+      } as Parameters<ChangedInstanceIds["addChange"]>[0]);
+
+      expect([...getAspectOwnerElementIds(sourceDbChanges)]).to.deep.equal([
+        childDrawing1.id,
+      ]);
     });
   });
 });

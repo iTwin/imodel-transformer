@@ -32,6 +32,7 @@ import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { Property } from "@itwin/ecschema-metadata";
+import { BigMap } from "./BigMap";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -40,7 +41,7 @@ const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
  */
 export class IModelCloneContext extends IModelElementCloneContext {
   private _refTypesCache = new ECReferenceTypesCache();
-  private _aspectRemapTable = new Map<Id64String, Id64String>();
+  private _aspectRemapTable = new BigMap<Id64String>();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {

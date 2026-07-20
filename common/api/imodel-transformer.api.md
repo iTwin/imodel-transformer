@@ -48,7 +48,7 @@ export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangedECInstance): Promise<void>;
     // @beta
-    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
@@ -137,7 +137,7 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 
 // @beta
 export class IModelExporter {
-    constructor(sourceDb: IModelDb, elementAspectsStrategy?: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy);
+    constructor(sourceDb: IModelDb);
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
