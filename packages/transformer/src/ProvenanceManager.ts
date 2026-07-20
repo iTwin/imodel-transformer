@@ -677,11 +677,7 @@ export class ProvenanceManager {
     sourceChangeDataState,
   }: {
     initializeReverseSyncVersion?: boolean;
-    sourceChangeDataState:
-      | "uninited"
-      | "has-changes"
-      | "no-changes"
-      | "unconnected";
+    sourceChangeDataState: "has-changes" | "no-changes" | "unconnected";
   }) {
     const shouldSkipSyncVersionUpdate =
       !initializeReverseSyncVersion && sourceChangeDataState !== "has-changes";

@@ -369,11 +369,7 @@ export type ProcessChangesOptions = ExportChangesOptions & {
   ignoreMissingChangesetsInSynchronizations?: boolean;
 };
 
-type ChangeDataState =
-  | "uninited"
-  | "has-changes"
-  | "no-changes"
-  | "unconnected";
+type ChangeDataState = "has-changes" | "no-changes" | "unconnected";
 
 /**
  * @beta
@@ -2030,7 +2026,7 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
-  private _sourceChangeDataState: ChangeDataState = "uninited";
+  private _sourceChangeDataState: ChangeDataState = "has-changes";
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
 
@@ -2361,8 +2357,9 @@ export class IModelTransformer extends IModelExportHandler {
   }
 
   private async _tryInitChangesetData(args?: ProcessChangesOptions) {
+    if (!args) return;
+
     if (
-      !args ||
       this.sourceDb.iTwinId === undefined ||
       this.sourceDb.changeset.index === undefined
     ) {
@@ -2496,8 +2493,6 @@ export class IModelTransformer extends IModelExportHandler {
   private async processAll(): Promise<void> {
     this._targetElementIdsRemappedByCode.clear();
     this._targetModelsImportedInCurrentTransform.clear();
-    // processAll always has changes to process, so mark it as such for version tracking
-    this._sourceChangeDataState = "has-changes";
 
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
