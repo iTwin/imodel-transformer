@@ -2200,7 +2200,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (notConnectedModel || noChanges) return;
 
     /**
-     * if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs.
+     * If the deleted source entity is in the provenanceDb, then we can use its ids to query for ESAs.
      * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
      */
     const changeDataInProvenanceDb =

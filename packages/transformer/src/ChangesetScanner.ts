@@ -4,13 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  ChangedECInstance,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  ChangesetECAdaptor,
+  ChangeInstance,
+  ChangesetReader,
   IModelDb,
-  PartialECChangeUnifier,
-  SqliteChangesetReader,
+  PartialChangeUnifier,
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
 import { ChangesetFileProps } from "@itwin/core-common";
@@ -79,21 +76,14 @@ export class ChangesetScanner {
           changesetScanPass.singleScanner,
           csFile.pathname
         );
-        const csReader = SqliteChangesetReader.openFile({
+        const csReader = ChangesetReader.openFile({
           fileName: csFile.pathname,
           db: iModel,
-          disableSchemaCheck: true,
         });
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        const ecChangeUnifier = new PartialECChangeUnifier(iModel);
+        const changeUnifier = new PartialChangeUnifier();
         try {
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          const csAdaptor = new ChangesetECAdaptor(csReader);
-          while (csAdaptor.step()) {
-            ecChangeUnifier.appendFrom(csAdaptor);
-          }
-          // eslint-disable-next-line @typescript-eslint/no-deprecated
-          const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
+          while (csReader.step()) changeUnifier.appendFrom(csReader);
+          const changes = [...changeUnifier.instances];
           scanMetrics?.recordUnifiedRows(
             changesetScanPass.singleScanner,
             changes.length
@@ -101,21 +91,15 @@ export class ChangesetScanner {
 
           const deletionRecords: ChangesetDeletionRecord[] = [];
           for (const change of changes) {
-            const changeType = change.$meta?.op;
-            const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+            const ecClassId = change.ECClassId;
             if (ecClassId === undefined)
               throw new Error(
-                `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
-              );
-            if (changeType === undefined)
-              throw new Error(
-                `ChangeType was undefined for id: ${change.ECInstanceId}.`
+                `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`
               );
             // Change is recorded at table level, not EC entity level.
             // This normalizes overflow-table expansion records so they do not
             // appear as element inserts or deletes.
             if (
-              change.$meta &&
               (change.$meta.op === "Inserted" ||
                 change.$meta.op === "Deleted") &&
               change.$meta.tables.every((table) => table.endsWith("Overflow"))
@@ -124,9 +108,18 @@ export class ChangesetScanner {
             }
 
             if (options.populateChangedInstanceIds !== false)
-              await changedInstanceIds.addChange(change);
-            if (change.$meta?.op === "Deleted") {
-              deletionRecords.push(this.toDeletionRecord(change));
+              await changedInstanceIds.addChange({
+                ECInstanceId: change.ECInstanceId,
+                ECClassId: ecClassId,
+                $meta: {
+                  tables: change.$meta.tables,
+                  op: change.$meta.op,
+                  stage: change.$meta.stage,
+                  changeIndexes: change.$meta.changeIndexes,
+                },
+              });
+            if (change.$meta.op === "Deleted") {
+              deletionRecords.push(this.toDeletionRecord(iModel, change));
             }
           }
           scanMetrics?.recordDeletionRecords(
@@ -135,7 +128,11 @@ export class ChangesetScanner {
           );
           deletionRecordsByChangeset.push(deletionRecords);
         } finally {
-          csReader.close();
+          try {
+            changeUnifier[Symbol.dispose]();
+          } finally {
+            csReader[Symbol.dispose]();
+          }
         }
         scanMetrics?.recordFileScan(changesetScanPass.singleScanner);
       }
@@ -153,20 +150,20 @@ export class ChangesetScanner {
   }
 
   private static toDeletionRecord(
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    change: ChangedECInstance
+    iModel: IModelDb,
+    change: ChangeInstance
   ): ChangesetDeletionRecord {
-    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    const ecClassId = change.ECClassId;
     if (ecClassId === undefined) {
       throw new Error(
-        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
+        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`
       );
     }
 
     return {
       ecInstanceId: change.ECInstanceId,
       ecClassId,
-      classFullName: change.$meta?.classFullName,
+      classFullName: iModel.getClassNameFromId(ecClassId),
       federationGuid: change.FederationGuid,
       sourceECInstanceId: change.SourceECInstanceId,
       targetECInstanceId: change.TargetECInstanceId,
