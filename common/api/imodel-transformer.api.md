@@ -32,6 +32,7 @@ import { Id64String } from '@itwin/core-bentley';
 import { IModelDb } from '@itwin/core-backend';
 import { IModelElementCloneContext } from '@itwin/core-backend';
 import { IModelJsNative } from '@itwin/core-backend';
+import type { ITwinErrorId } from '@itwin/core-bentley';
 import { Model } from '@itwin/core-backend';
 import { ModelProps } from '@itwin/core-common';
 import { Placement2d } from '@itwin/core-common';
@@ -334,6 +335,25 @@ export class IModelTransformer extends IModelExportHandler {
     updateSynchronizationVersion(input?: {
         initializeReverseSyncVersion?: boolean | undefined;
     }): Promise<void>;
+}
+
+// @public
+export namespace IModelTransformerError {
+    const scope = "@itwin/imodel-transformer";
+    const key: {
+        readonly noChangesets: "no-changesets";
+    };
+    export interface Id extends ITwinErrorId {
+        readonly key: Key;
+        readonly scope: typeof scope;
+    }
+    export type Key = (typeof key)[keyof typeof key];
+    const id: {
+        readonly noChangesets: {
+            readonly scope: "@itwin/imodel-transformer";
+            readonly key: "no-changesets";
+        };
+    };
 }
 
 // @beta

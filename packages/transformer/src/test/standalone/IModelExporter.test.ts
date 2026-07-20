@@ -37,6 +37,7 @@ import {
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
+import { IModelTransformerError } from "../../IModelTransformerError";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -131,7 +132,11 @@ describe("IModelExporter", () => {
       assert.fail("Expected exportChanges() to throw");
     } catch (error) {
       expect(
-        ITwinError.isError(error, "@itwin/imodel-transformer", "no-changesets")
+        ITwinError.isError(
+          error,
+          IModelTransformerError.scope,
+          IModelTransformerError.key.noChangesets
+        )
       ).to.be.true;
       expect(error).to.have.property(
         "message",

@@ -13,6 +13,7 @@ beta;class;IModelImporter
 beta;interface;IModelImportOptions
 beta;interface;IModelTransformArgs
 beta;class;IModelTransformer
+public;namespace;IModelTransformerError
 beta;interface;IModelTransformOptions
 alpha;function;initializeBranchProvenance
 beta;interface;InitOptions

@@ -3,6 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 export * from "./TransformerLoggerCategory";
+export * from "./IModelTransformerError";
 export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
