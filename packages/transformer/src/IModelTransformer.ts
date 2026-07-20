@@ -2076,8 +2076,9 @@ export class IModelTransformer extends IModelExportHandler {
         !this.exporter.sourceDbChanges.hasChanges
       )
         return;
-      // Changeset props are undefined when change processing is unconnected, so its synchronization version cannot be updated.
-      if (this._csFileProps !== undefined)
+      if (
+        this.canTrackProcessChangesVersion(this._options.argsForProcessChanges)
+      )
         this._shouldUpdateSynchronizationVersion = true;
     }
 
@@ -2355,15 +2356,18 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
-  private async _tryInitChangesetData(args?: ProcessChangesOptions) {
-    if (!args) return;
+  private canTrackProcessChangesVersion(
+    args: ProcessChangesOptions | undefined
+  ): args is ProcessChangesOptions {
+    return (
+      args !== undefined &&
+      this.sourceDb.iTwinId !== undefined &&
+      this.sourceDb.changeset.index !== undefined
+    );
+  }
 
-    if (
-      this.sourceDb.iTwinId === undefined ||
-      this.sourceDb.changeset.index === undefined
-    ) {
-      return;
-    }
+  private async _tryInitChangesetData(args?: ProcessChangesOptions) {
+    if (!this.canTrackProcessChangesVersion(args)) return;
 
     const syncVersion = await this.getSynchronizationVersion();
     const noChanges = syncVersion.index === this.sourceDb.changeset.index;
