@@ -1,8 +1,18 @@
 # Next release notes
 
+## Schema-processing strategies
+
+`IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy` is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.
+
+Schema-processing failures now use the stable `schemaProcessingErrorScope` and `SchemaProcessingErrorKey` identifiers. One failure rejects with a `SchemaProcessingError`; multiple failures reject with an `AggregateError` containing machine-readable schema errors. Existing callers should use `isSchemaProcessingError()` or `ITwinError.isError()` instead of matching messages.
+
+`IModelExporter.exportSchemas()` now accepts per-call `shouldExportSchema` and `onExportSchema` callbacks. Each omitted callback falls back to the registered handler for that invocation, and the handler is not mutated.
+
+Applications must provide compatible `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` peer dependencies for dynamic differencing, merging, and generated-schema serialization.
+
 ## Breaking changes: EditTxn-based constructors
 
-`IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` constructors now require an explicit [`EditTxn`](https://www.itwinjs.org/reference/core-backend/imodels/edittxn/) from `@itwin/core-backend`from the target iModel. This aligns the transformer with the iTwin.js platform's move toward explicit edit transactions and eliminates the possibility of mismatched db/txn references.
+`IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` constructors now require an explicit [`EditTxn`](https://www.itwinjs.org/reference/core-backend/imodels/edittxn/) from `@itwin/core-backend` for the target iModel. This aligns the transformer with the iTwin.js platform's move toward explicit edit transactions and eliminates the possibility of mismatched db/txn references.
 
 For detailed usage patterns and lifecycle guidance, see the [EditTxn in Transformer learning doc](../learning/EditTxnInTransformer.md).
 
@@ -30,8 +40,8 @@ editTxn.end(); // saves changes; use end("abandon") to roll back
 ```
 
 The `target` field accepts either:
-- An `EditTxn` — the transformer creates a default `IModelImporter` internally (most common).
-- A pre-configured `IModelImporter` — for custom import behavior.
+- An `EditTxn`: the transformer creates a default `IModelImporter` internally (most common).
+- A pre-configured `IModelImporter`: for custom import behavior.
 
 The target `IModelDb` is derived from `editTxn.iModel` (or `importer.targetDb`).
 
@@ -105,7 +115,7 @@ No changes to the call signature. The function now uses an `EditTxn` internally,
 
 ```ts
 await initializeBranchProvenance({ master, branch: branchDb });
-// No migration needed — works the same as before.
+// No migration needed. This works the same as before.
 ```
 
 ## Breaking changes: Many synchronous methods are now asynchronous

@@ -58,6 +58,8 @@
     "@itwin/core-common": "^5.9.1",
     "@itwin/core-geometry": "^5.9.1",
     "@itwin/core-quantity": "^5.9.1",
+    "@itwin/ecschema-editing": "^5.9.1",
+    "@itwin/ecschema-locaters": "^5.9.1",
     "@itwin/ecschema-metadata": "^5.9.1"
   },
   "//devDependencies": [
@@ -71,7 +73,8 @@
     "@itwin/core-common": "^5.10.3",
     "@itwin/core-geometry": "^5.10.3",
     "@itwin/core-quantity": "^5.10.3",
-    "@itwin/ecschema-locaters": "^5.9.1",
+    "@itwin/ecschema-editing": "5.10.3",
+    "@itwin/ecschema-locaters": "5.10.3",
     "@itwin/ecschema-metadata": "^5.10.3",
     "@itwin/eslint-plugin": "^5.2.1",
     "@types/chai": "^4.3.20",

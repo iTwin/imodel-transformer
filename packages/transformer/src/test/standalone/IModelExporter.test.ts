@@ -111,6 +111,57 @@ describe("IModelExporter", () => {
     });
   });
 
+  it("uses per-call schema callbacks without mutating the handler", async () => {
+    const sourceDb = SnapshotDb.createEmpty(
+      IModelTransformerTestUtils.prepareOutputFile(
+        "IModelExporter",
+        "SchemaCallbacks.bim"
+      ),
+      { rootSubject: { name: "SchemaCallbacks" } }
+    );
+    class Handler extends IModelExportHandler {
+      public shouldExportCount = 0;
+      public onExportCount = 0;
+
+      public override async shouldExportSchema(): Promise<boolean> {
+        ++this.shouldExportCount;
+        return true;
+      }
+
+      public override async onExportSchema(): Promise<void> {
+        ++this.onExportCount;
+      }
+    }
+
+    const handler = new Handler();
+    const exporter = new IModelExporter(sourceDb);
+    exporter.registerHandler(handler);
+    const callbackSchemas: string[] = [];
+
+    await exporter.exportSchemas({
+      shouldExportSchema: async () => false,
+      onExportSchema: async (schema) => {
+        callbackSchemas.push(schema.name);
+      },
+    });
+    expect(handler.shouldExportCount).to.equal(0);
+    expect(handler.onExportCount).to.equal(0);
+
+    await exporter.exportSchemas({
+      onExportSchema: async (schema) => {
+        callbackSchemas.push(schema.name);
+      },
+    });
+    expect(handler.shouldExportCount).to.be.greaterThan(0);
+    expect(handler.onExportCount).to.equal(0);
+    expect(callbackSchemas.length).to.be.greaterThan(0);
+
+    await exporter.exportSchemas();
+    expect(handler.onExportCount).to.be.greaterThan(0);
+
+    sourceDb.close();
+  });
+
   it("export element with brep geometry", async () => {
     const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
       "IModelExporter",

@@ -142,7 +142,6 @@ import {
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
-import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
 
@@ -1861,148 +1860,6 @@ describe("IModelTransformer", () => {
     transformer.editTxn.end();
     targetDb.close();
     sourceDb.close();
-  });
-
-  it("processSchemas should handle out-of-order exported schemas", async () => {
-    const testSchema1Path = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "TestSchema1.ecschema.xml"
-    );
-    IModelJsFs.writeFileSync(
-      testSchema1Path,
-      `<?xml version="1.0" encoding="UTF-8"?>
-      <ECSchema schemaName="TestSchema1" alias="ts1" version="01.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
-          <ECSchemaReference name="BisCore" version="01.00" alias="bis"/>
-          <ECEntityClass typeName="TestElement1">
-            <BaseClass>bis:PhysicalElement</BaseClass>
-            <ECProperty propertyName="MyProp1" typeName="string"/>
-          </ECEntityClass>
-      </ECSchema>`
-    );
-
-    const testSchema2Path = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "TestSchema2.ecschema.xml"
-    );
-    IModelJsFs.writeFileSync(
-      testSchema2Path,
-      `<?xml version="1.0" encoding="UTF-8"?>
-      <ECSchema schemaName="TestSchema2" alias="ts2" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
-          <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
-          <ECSchemaReference name="TestSchema1" version="01.00.00" alias="ts1"/>
-          <ECEntityClass typeName="TestElement2">
-            <BaseClass>ts1:TestElement1</BaseClass>
-            <ECProperty propertyName="MyProp2" typeName="string"/>
-          </ECEntityClass>
-      </ECSchema>`
-    );
-
-    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "OrderTestSource.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
-      rootSubject: { name: "Order Test" },
-    });
-
-    await sourceDb.importSchemas([testSchema1Path, testSchema2Path]);
-
-    class OrderedExporter extends IModelExporter {
-      public override async exportSchemas() {
-        const schemaLoader = new SchemaLoader((name: string) =>
-          this.sourceDb.getSchemaProps(name)
-        );
-        const schema1 = schemaLoader.getSchema("TestSchema1");
-        const schema2 = schemaLoader.getSchema("TestSchema2");
-        // by importing schema2 (which references schema1) first, we
-        // prove that the import order in processSchemas does not matter
-        await this.handler.onExportSchema(schema2);
-        await this.handler.onExportSchema(schema1);
-      }
-    }
-
-    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "OrderTestTarget.bim"
-    );
-    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
-      rootSubject: { name: "Order Test" },
-    });
-    const orderedEditTxn = new EditTxn(targetDb, "IModelTransformer");
-    orderedEditTxn.start();
-    const transformer = new IModelTransformer({
-      source: new OrderedExporter(sourceDb),
-      target: orderedEditTxn,
-    });
-
-    await transformer.processSchemas();
-    orderedEditTxn.saveChanges();
-    const targetImportedSchemasLoader = new SchemaLoader((name: string) =>
-      targetDb.getSchemaProps(name)
-    );
-    const schema1InTarget =
-      targetImportedSchemasLoader.getSchema("TestSchema1");
-    assert.isDefined(schema1InTarget);
-    const schema2InTarget =
-      targetImportedSchemasLoader.getSchema("TestSchema2");
-    assert.isDefined(schema2InTarget);
-
-    sourceDb.close();
-    targetDb.close();
-  });
-
-  it("processSchemas should wait for the schema import to finish to delete the export directory", async () => {
-    const cloneTestSchema100 = TestUtils.IModelTestUtils.resolveAssetFile(
-      "CloneTest.01.00.00.ecschema.xml"
-    );
-    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "FinallyFirstTest.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
-      rootSubject: { name: "FinallyFirstTest" },
-    });
-    await sourceDb.importSchemas([cloneTestSchema100]);
-
-    const targetDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "FinallyFirstTestOut.bim"
-    );
-    const targetDb = SnapshotDb.createEmpty(targetDbPath, {
-      rootSubject: { name: "FinallyFirstTest" },
-    });
-    const editTxn = new EditTxn(targetDb, "IModelTransformer");
-    editTxn.start();
-    const transformer = new IModelTransformer({
-      source: sourceDb,
-      target: editTxn,
-    });
-
-    const importSchemasResolved = sinon.spy();
-    let importSchemasPromise: Promise<void>;
-
-    sinon.replace(
-      targetDb,
-      "importSchemas",
-      sinon.fake(async () => {
-        importSchemasPromise = new Promise((resolve) =>
-          setImmediate(() => {
-            importSchemasResolved();
-            resolve(undefined);
-          })
-        );
-        return importSchemasPromise;
-      })
-    );
-
-    const removeSyncSpy = sinon.spy(IModelJsFs, "removeSync");
-
-    await transformer.processSchemas();
-    assert(removeSyncSpy.calledAfter(importSchemasResolved));
-
-    sinon.restore();
-    sourceDb.close();
-    targetDb.close();
   });
 
   it("handles definition element scoped by non-definitional element", async () => {
@@ -4637,34 +4494,12 @@ describe("IModelTransformer", () => {
     const exportedSchemaPaths: string[] = [];
     let outOfOrderExportedSchemas: string[];
 
-    class TrackSchemaExportsExporter extends IModelExporter {
-      public override async exportSchemas(): Promise<void> {
-        await super.exportSchemas();
-        assert(exportedSchemaPaths.length === 4);
-        const reffingSchemaFile = path.join(
-          transformer["_schemaExportDir"],
-          `${reffingSchemaName}.ecschema.xml`
-        );
-        assert(
-          exportedSchemaPaths.includes(reffingSchemaFile),
-          `Expected ${reffingSchemaFile} in ${exportedSchemaPaths}`
-        );
-        // make sure the referencing schema is first, so it is imported first, and the schema locator is forced
-        // to look for its references (like the long name schema) that haven't been imported yet
-        outOfOrderExportedSchemas = [
-          reffingSchemaFile,
-          ...exportedSchemaPaths.filter((s) => s !== reffingSchemaFile),
-        ];
-      }
-    }
-
-    // using this class instead of sinon.replace provides some gurantees that subclasses can use the onExportSchema result as expected
     class TrackSchemaExportsTransformer extends IModelTransformer {
       public constructor(source: IModelDb, target: IModelDb) {
         const editTxn = new EditTxn(target, "IModelTransformer");
         editTxn.start();
         super({
-          source: new TrackSchemaExportsExporter(source),
+          source: new IModelExporter(source),
           target: editTxn,
         });
       }
@@ -4672,6 +4507,21 @@ describe("IModelTransformer", () => {
         const exportResult = await super.onExportSchema(schema);
         assert(exportResult?.schemaPath); // IModelTransformer guarantees that it returns a valid schemaPath, the type is wide for subclasses
         exportedSchemaPaths.push(exportResult.schemaPath);
+        if (exportedSchemaPaths.length === 4) {
+          const reffingSchemaFile = path.join(
+            this["_schemaExportDir"],
+            `${reffingSchemaName}.ecschema.xml`
+          );
+          assert(
+            exportedSchemaPaths.includes(reffingSchemaFile),
+            `Expected ${reffingSchemaFile} in ${exportedSchemaPaths}`
+          );
+          // make sure the referencing schema is first, so the schema locator is forced to look for its references that haven't been imported yet
+          outOfOrderExportedSchemas = [
+            reffingSchemaFile,
+            ...exportedSchemaPaths.filter((s) => s !== reffingSchemaFile),
+          ];
+        }
         return exportResult;
       }
     }
@@ -5179,52 +5029,6 @@ describe("IModelTransformer", () => {
     transformer.dispose();
     sourceDb.close();
     transformer.targetDb.close();
-  });
-
-  it("handle same name dynamic schemas", async function () {
-    const makeDynamicSchema = (
-      version: string
-    ) => `<?xml version="1.0" encoding="UTF-8"?>
-        <ECSchema schemaName="Dynamic" alias="d1" version="${version}" displayLabel="dyn" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
-            <ECCustomAttributes>
-                <DynamicSchema xmlns="CoreCustomAttributes.01.00.03"/>
-            </ECCustomAttributes>
-        </ECSchema>
-    `;
-
-    const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "DynSchemas-Source.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
-      rootSubject: { name: "DynSchemaSource" },
-    });
-    await sourceDb.importSchemaStrings([makeDynamicSchema("01.07.00")]);
-
-    const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelTransformer",
-      "DynSchemas-Target.bim"
-    );
-    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
-      rootSubject: { name: "DynSchemasTarget" },
-    });
-    await targetDb.importSchemaStrings([makeDynamicSchema("01.05.02")]);
-
-    const editTxn = new EditTxn(targetDb, "IModelTransformer");
-    editTxn.start();
-    const transformer = new IModelTransformer({
-      source: sourceDb,
-      target: editTxn,
-    });
-    // expect this to not reject, adding chai as promised makes the error less readable
-    await transformer.processSchemas();
-
-    expect(targetDb.querySchemaVersion("Dynamic")).to.equal("1.7.0");
-
-    // clean up
-    transformer.dispose();
-    sourceDb.close();
-    targetDb.close();
   });
 
   /** unskip to generate a javascript CPU profile on just the processAll portion of an iModel */

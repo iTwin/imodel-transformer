@@ -69,6 +69,17 @@ export interface ExportSchemaResult {
 }
 
 /**
+ * Options for [[IModelExporter.exportSchemas]].
+ * @beta
+ */
+export interface ExportSchemasOptions {
+  /** If supplied, used instead of the handler's callback for this invocation. */
+  shouldExportSchema?: (schemaKey: SchemaKey) => Promise<boolean>;
+  /** If supplied, used instead of the handler's callback for this invocation. */
+  onExportSchema?: (schema: Schema) => Promise<void | ExportSchemaResult>;
+}
+
+/**
  * Arguments for [[IModelExporter.initialize]], usually in case you want to query changedata early
  * such as in the case of the IModelTransformer
  * @beta
@@ -534,9 +545,18 @@ export class IModelExporter {
   private _resetChangeDataOnExport = true;
 
   /** Export schemas from the source iModel.
+   * @note If a callback is omitted, the corresponding registered handler
+   * callback is used.
    * @note This must be called separately from [[exportAll]] or [[exportChanges]].
    */
-  public async exportSchemas(): Promise<void> {
+  public async exportSchemas(options?: ExportSchemasOptions): Promise<void> {
+    const shouldExportSchema =
+      options?.shouldExportSchema ??
+      (async (schemaKey: SchemaKey) =>
+        this.handler.shouldExportSchema(schemaKey));
+    const onExportSchema =
+      options?.onExportSchema ??
+      (async (schema: Schema) => this.handler.onExportSchema(schema));
     const sql = `
       SELECT s.Name, s.VersionMajor, s.VersionWrite, s.VersionMinor
       FROM ECDbMeta.ECSchemaDef s
@@ -561,7 +581,7 @@ export class IModelExporter {
         schemaName,
         new ECVersion(versionMajor, versionWrite, versionMinor)
       );
-      if (await this.handler.shouldExportSchema(schemaKey)) {
+      if (await shouldExportSchema(schemaKey)) {
         schemaKeysToExport.push(schemaKey);
       }
     }
@@ -574,7 +594,7 @@ export class IModelExporter {
           throw new Error(`Failed to load schema: ${schemaKey.name}`);
         }
         Logger.logTrace(loggerCategory, `exportSchema(${schemaKey.name})`);
-        return this.handler.onExportSchema(schema);
+        return onExportSchema(schema);
       })
     );
   }

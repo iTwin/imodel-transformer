@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Add strategy-based schema processing and dynamic schema unions. processSchemas defaults to NewerVersionSchemaImportStrategy, schema export callbacks are scoped to each call, and schema failures expose stable ITwinError identifiers.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "major"
+}

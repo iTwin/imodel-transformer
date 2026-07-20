@@ -6,6 +6,8 @@ export * from "./TransformerLoggerCategory";
 export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
+export * from "./SchemaProcessingStrategy";
+export * from "./SchemaProcessingErrors";
 export * from "./BranchProvenanceInitializer";
 
 import * as semver from "semver";
