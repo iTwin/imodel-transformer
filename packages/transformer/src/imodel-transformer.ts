@@ -119,3 +119,11 @@ if (
  * @docs-group-description Logging
  * Logger categories used by this package.
  */
+/**
+ * @docs-group-description ElementAspectExportCoordinator
+ * Internal coordination for scoped, owner-batched ElementAspect export.
+ */
+/**
+ * @docs-group-description ElementAspectExportProcessor
+ * Internal source queries, filtering, and export callbacks for ElementAspects owned by accepted elements.
+ */
