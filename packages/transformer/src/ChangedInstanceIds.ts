@@ -26,6 +26,7 @@ import {
   Id64Set,
   Id64String,
   IModelStatus,
+  ITwinError,
 } from "@itwin/core-bentley";
 import { IModelError, QueryBinder } from "@itwin/core-common";
 import type { ExportChangesOptions } from "./IModelExporter";
@@ -353,16 +354,26 @@ export class ChangedInstanceIds {
     }
     for (const id of Id64.iterable(ids)) {
       if (elementIds === undefined && changeType === "Deleted") {
-        throw new Error(
-          "Custom deleted ElementAspect changes require the owning element ID."
-        );
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: "@itwin/imodel-transformer",
+            key: "missing-aspect-owner",
+          },
+          message:
+            "Custom deleted ElementAspect changes require the owning element ID.",
+        });
       }
       if (elementIds === undefined && changeType !== "Deleted") {
         const ownerElementId = this.tryGetAspectOwnerElementId(id);
         if (ownerElementId === undefined) {
-          throw new Error(
-            "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable."
-          );
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: "@itwin/imodel-transformer",
+              key: "missing-aspect-owner",
+            },
+            message:
+              "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable.",
+          });
         }
         addAspectOwnerElementId(this, ownerElementId);
       }

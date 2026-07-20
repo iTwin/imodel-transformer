@@ -18,7 +18,7 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { Id64String } from "@itwin/core-bentley";
+import { Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   ElementProps,
   ExternalSourceAspectProps,
@@ -487,6 +487,27 @@ describe("ChangedInstanceIds", () => {
   });
 
   describe("addCustomAspectChange", async function () {
+    function expectMissingAspectOwnerError(
+      operation: () => void,
+      message: string
+    ): void {
+      let thrownError: unknown;
+      try {
+        operation();
+      } catch (error) {
+        thrownError = error;
+      }
+
+      expect(
+        ITwinError.isError(
+          thrownError,
+          "@itwin/imodel-transformer",
+          "missing-aspect-owner"
+        )
+      ).to.be.true;
+      expect(thrownError).to.have.property("message", message);
+    }
+
     it("should add custom changes when aspect is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       sourceDbChanges.addCustomAspectChange("Inserted", aspect1Id);
@@ -516,9 +537,8 @@ describe("ChangedInstanceIds", () => {
     it("rejects a custom deleted aspect without owner IDs", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
 
-      expect(() =>
-        sourceDbChanges.addCustomAspectChange("Deleted", aspect1Id)
-      ).to.throw(
+      expectMissingAspectOwnerError(
+        () => sourceDbChanges.addCustomAspectChange("Deleted", aspect1Id),
         "Custom deleted ElementAspect changes require the owning element ID."
       );
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
@@ -527,9 +547,8 @@ describe("ChangedInstanceIds", () => {
     it("rejects a missing custom aspect without owner IDs", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
 
-      expect(() =>
-        sourceDbChanges.addCustomAspectChange("Updated", "0xffffff")
-      ).to.throw(
+      expectMissingAspectOwnerError(
+        () => sourceDbChanges.addCustomAspectChange("Updated", "0xffffff"),
         "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable."
       );
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
