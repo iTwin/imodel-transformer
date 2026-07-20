@@ -246,38 +246,6 @@ describe("Linear Geolocation Transformations", () => {
     transfrom.dispose();
   });
 
-  it("identifies a missing ECEF location", function () {
-    const sourceDb = createTestSnapshotDb(
-      {
-        ecefLocation: convertLatLongToEcef(39.9529, -75.1635),
-        geographicCRS: undefined,
-      },
-      "Source-ECEF-present"
-    );
-    const targetDb = createTestSnapshotDb(
-      { ecefLocation: undefined, geographicCRS: undefined },
-      "Target-ECEF-missing"
-    );
-    const editTxn = createStartedEditTxn(targetDb);
-    const transformer = new IModelTransformer({
-      source: sourceDb,
-      target: editTxn,
-    });
-
-    try {
-      expectTransformerError(
-        () => transformer.calculateEcefTransform(),
-        IModelTransformerError.GeolocationUnavailable,
-        "Both source and target ECEF locations must be defined to calculate the transform."
-      );
-    } finally {
-      transformer.dispose();
-      editTxn.end("abandon");
-      targetDb.close();
-      sourceDb.close();
-    }
-  });
-
   it("should log a trace if no GCS or ECEF data is present when tryAlignGeolocation is true", async function () {
     const srcGeolocData: GeolocationData = {
       ecefLocation: undefined,

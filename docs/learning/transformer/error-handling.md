@@ -6,30 +6,7 @@
 
 Use `ITwinError.isError` with both the transformer scope and the expected key. Do not branch on the message because messages may change without notice.
 
-```ts
-import { ITwinError } from "@itwin/core-bentley";
-import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "@itwin/imodel-transformer";
-
-try {
-  await transformer.process();
-} catch (error) {
-  if (
-    ITwinError.isError(
-      error,
-      IModelTransformerErrorScope,
-      IModelTransformerError.DanglingReference
-    )
-  ) {
-    // Correct the source reference or choose a different dangling-reference policy.
-    return;
-  }
-
-  throw error;
-}
-```
+[[include:ErrorHandling.handle-identified-error]]
 
 The enum documentation describes each condition. The key is stable within the API lifecycle indicated by its release tag.
 
@@ -48,32 +25,10 @@ Custom transformer and importer subclasses should use the same boundary. Add a t
 
 Transformer-owned conditions previously used a mix of `IModelError` and plain `Error`. Code that checks `instanceof IModelError`, reads `errorNumber`, or compares messages must use the transformer scope and key instead.
 
-```ts
-if (
-  ITwinError.isError(
-    error,
-    IModelTransformerErrorScope,
-    IModelTransformerError.TargetClassNotFound
-  )
-) {
-  // Import the missing schema before retrying.
-}
-```
+Use the same `ITwinError.isError` pattern shown above with the key for the condition you need to handle, such as `IModelTransformerError.TargetClassNotFound`.
 
 Continue using the upstream error contract when the error originates outside the transformer. The transformer intentionally passes those errors through, so existing status checks for core or database failures remain valid.
 
 ## Inspect the cause
 
-A translated transformer error may include the original failure in `cause`. Treat it as diagnostic context rather than the primary discriminator.
-
-```ts
-if (
-  ITwinError.isError(
-    error,
-    IModelTransformerErrorScope,
-    IModelTransformerError.TargetClassNotFound
-  )
-) {
-  console.error(error.cause);
-}
-```
+A translated transformer error may include the original failure in `cause`. After `ITwinError.isError` identifies the transformer condition, use `error.cause` as diagnostic context rather than the primary discriminator.

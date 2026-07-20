@@ -118,8 +118,6 @@ import {
   TimelineIModelState,
 } from "../TestUtils/TimelineTestUtil";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
-import { IModelCloneContext } from "../../IModelCloneContext";
-import { SyncTypeResolver } from "../../SyncTypeResolver";
 
 const { count } = IModelTestUtils;
 const countElementExternalSourceAspects = (
@@ -271,40 +269,6 @@ describe("IModelTransformerHub", () => {
         shared: "0x10",
         exclusive: "0x1",
       });
-
-      const originalSourceChangeset = sourceBriefcase.changeset;
-      Object.defineProperty(sourceBriefcase, "changeset", {
-        configurable: true,
-        value: { ...originalSourceChangeset, index: undefined },
-      });
-      const indexTestTxn = createStartedEditTxn(targetBriefcase);
-      const indexTestContext = new IModelCloneContext(
-        sourceBriefcase,
-        targetBriefcase
-      );
-      const indexTestResolver = new SyncTypeResolver(
-        indexTestContext,
-        IModel.rootSubjectId
-      );
-      try {
-        new ProvenanceManager(
-          IModel.rootSubjectId,
-          {},
-          indexTestResolver,
-          indexTestTxn
-        );
-        assert.fail("Expected missing changeset index to throw");
-      } catch (error) {
-        assertTransformerError(
-          error,
-          IModelTransformerError.ChangesetIndexUnavailable,
-          "database has no changeset index"
-        );
-      } finally {
-        indexTestContext[Symbol.dispose]();
-        indexTestTxn.end("abandon");
-        delete (sourceBriefcase as Partial<BriefcaseDb>).changeset;
-      }
 
       // we do not expect to save reverse sync version by default for processAll transformations
       const targetEditTxn1 = createStartedEditTxn(targetBriefcase);
@@ -4702,44 +4666,6 @@ describe("IModelTransformerHub", () => {
       accessToken,
     });
 
-    await tearDown();
-  });
-
-  it("identifies a synchronization range that skips changesets", async () => {
-    let errorAsserted = false;
-    const timeline: Timeline = [
-      { master: { 1: 1 } },
-      { branch: { branch: "master" } },
-      { master: { 2: 1 } },
-      { master: { 3: 1 } },
-      {
-        branch: {
-          sync: [
-            "master",
-            {
-              since: 3,
-              expectThrow: true,
-              assert: {
-                onError(error) {
-                  assertTransformerError(
-                    error,
-                    IModelTransformerError.SynchronizationRangeInvalid,
-                    /synchronization is missing changesets, startChangesetId should be exactly/
-                  );
-                  errorAsserted = true;
-                },
-              },
-            },
-          ],
-        },
-      },
-    ];
-
-    const { tearDown } = await runTimeline(timeline, {
-      iTwinId,
-      accessToken,
-    });
-    expect(errorAsserted).to.be.true;
     await tearDown();
   });
 

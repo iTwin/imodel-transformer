@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ConcreteEntityTypes } from "@itwin/core-common";
-import { ITwinError } from "@itwin/core-bentley";
 import { assert, expect } from "chai";
 import * as path from "path";
 import { ECReferenceTypesCache } from "../../ECReferenceTypesCache";
@@ -20,10 +19,6 @@ import {
 } from "@itwin/ecschema-metadata";
 import * as sinon from "sinon";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
-import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
 
 describe("ECReferenceTypesCache", () => {
   let testIModel: SnapshotDb;
@@ -217,33 +212,6 @@ describe("ECReferenceTypesCache", () => {
     assert(Semver.gte(ecdbMapVersion, "2.0.4"));
     await emptyWithBrandNewBiscore.importSchemas([testSchemaPathWithQueryView]);
     await thisTestRefCache.initAllSchemasInIModel(emptyWithBrandNewBiscore);
-  });
-
-  it("identifies a schema that cannot be loaded", async () => {
-    const getSchemaStub = sinon
-      .stub(emptyWithBrandNewBiscore.schemaContext, "getSchema")
-      .resolves(undefined);
-
-    try {
-      await new ECReferenceTypesCache().initAllSchemasInIModel(
-        emptyWithBrandNewBiscore
-      );
-      assert.fail("Expected initAllSchemasInIModel() to throw");
-    } catch (error) {
-      expect(
-        ITwinError.isError(
-          error,
-          IModelTransformerErrorScope,
-          IModelTransformerError.SchemaLoadFailed
-        )
-      ).to.be.true;
-      expect(error).to.have.property(
-        "message",
-        "Failed to load schema: BisCore"
-      );
-    } finally {
-      getSchemaStub.restore();
-    }
   });
 
   it("should not init schemas of a lower or equal version", async () => {

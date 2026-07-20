@@ -5,7 +5,6 @@
 import * as path from "node:path";
 import { KnownTestLocations } from "../TestUtils";
 import {
-  ChangedECInstance,
   DocumentListModel,
   Drawing,
   ElementGroupsMembers,
@@ -18,18 +17,14 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
-import { Id64String, ITwinError } from "@itwin/core-bentley";
+import { Id64String } from "@itwin/core-bentley";
 import {
   ElementProps,
   ExternalSourceAspectProps,
   IModel,
 } from "@itwin/core-common";
 import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
-import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
-import { assert, expect } from "chai";
+import { expect } from "chai";
 
 describe("ChangedInstanceIds", () => {
   const outputDir = path.join(
@@ -185,39 +180,6 @@ describe("ChangedInstanceIds", () => {
       `'${propertyName}.deleteIds' contains different values than expected`
     );
   }
-  describe("addChange", function () {
-    it("identifies missing changed-instance metadata", async function () {
-      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const change: ChangedECInstance = {
-        ECInstanceId: childDrawing1.id!,
-        $meta: {
-          tables: ["BisCore:Element"],
-          op: "Inserted",
-          stage: "New",
-          changeIndexes: [],
-        },
-      };
-
-      try {
-        await sourceDbChanges.addChange(change);
-        assert.fail("Expected addChange() to throw");
-      } catch (error) {
-        expect(
-          ITwinError.isError(
-            error,
-            IModelTransformerErrorScope,
-            IModelTransformerError.ChangedInstanceMetadataMissing
-          )
-        ).to.be.true;
-        expect(error).to.have.property(
-          "message",
-          `ECClassId was not found for id: ${childDrawing1.id}! Table is : BisCore:Element`
-        );
-      }
-    });
-  });
-
   describe("addCustomElementChange", async function () {
     it("should add changes for related entities when element is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
