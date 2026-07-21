@@ -51,6 +51,7 @@ import {
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
+import { ElementAspectExportCoordinator } from "../../ElementAspectExportCoordinator";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -240,6 +241,30 @@ describe("IModelExporter", () => {
       sinon.restore();
       sourceDb.close();
     }
+  });
+
+  it("processes explicit aspect owner sets in bounded groups", async () => {
+    const preparedOwnerBatchSizes: number[] = [];
+    const exportedOwnerBatchSizes: number[] = [];
+    const coordinator = new ElementAspectExportCoordinator(
+      1_000,
+      () => new Set<string>(),
+      async (ownerBatch) => {
+        exportedOwnerBatchSizes.push(ownerBatch.size);
+      }
+    );
+    coordinator.setPreparation(async (_excludedClasses, ownerBatch) => {
+      preparedOwnerBatchSizes.push(ownerBatch.size);
+    });
+    const ownerIds = new Set<Id64String>();
+    for (let index = 0; index < 2_001; index++) {
+      ownerIds.add(Id64.fromLocalAndBriefcaseIds(index + 1, 0));
+    }
+
+    await coordinator.exportOwners(ownerIds);
+
+    expect(preparedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
+    expect(exportedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
   });
 
   it("rebuilds unchanged unique aspects for changed owners", async () => {

@@ -448,9 +448,6 @@ export class IModelExporter {
   public async exportAll(): Promise<void> {
     await this.initialize({});
     this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
-    this._elementAspectExportProcessor.setAspectChanges(
-      this._sourceDbChanges?.aspect
-    );
 
     await this.exportCodeSpecs();
     await this.exportFonts();
@@ -905,22 +902,21 @@ export class IModelExporter {
    * @note This method is called from within [[exportChanges]] and [[exportAll]], so usually does not need to be called directly.
    */
   public async shouldExportElement(element: Element): Promise<boolean> {
-    let shouldExport = true;
     if (this._excludedElementIds.has(element.id)) {
       Logger.logInfo(loggerCategory, `Excluded element ${element.id} by Id`);
-      shouldExport = false;
-    }
-    if (shouldExport && element instanceof GeometricElement) {
-      if (this._excludedElementCategoryIds.has(element.category)) {
-        Logger.logInfo(
-          loggerCategory,
-          `Excluded element ${element.id} by Category`
-        );
-        shouldExport = false;
-      }
+      return false;
     }
     if (
-      shouldExport &&
+      element instanceof GeometricElement &&
+      this._excludedElementCategoryIds.has(element.category)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded element ${element.id} by Category`
+      );
+      return false;
+    }
+    if (
       !this.wantTemplateModels &&
       element instanceof RecipeDefinitionElement
     ) {
@@ -928,30 +924,25 @@ export class IModelExporter {
         loggerCategory,
         `Excluded RecipeDefinitionElement ${element.id} because wantTemplate=false`
       );
-      shouldExport = false;
+      return false;
     }
-    if (shouldExport) {
-      for (const excludedElementClass of this._excludedElementClasses) {
-        if (element instanceof excludedElementClass) {
-          Logger.logInfo(
-            loggerCategory,
-            `Excluded element ${element.id} by class: ${excludedElementClass.classFullName}`
-          );
-          shouldExport = false;
-          break;
-        }
+    for (const excludedElementClass of this._excludedElementClasses) {
+      if (element instanceof excludedElementClass) {
+        Logger.logInfo(
+          loggerCategory,
+          `Excluded element ${element.id} by class: ${excludedElementClass.classFullName}`
+        );
+        return false;
       }
     }
-    if (shouldExport) {
-      // element has passed standard exclusion rules, now give handler a chance to accept/reject
-      shouldExport = await this.handler.shouldExportElement(element);
+    // element has passed standard exclusion rules, now give handler a chance to accept/reject
+    if (!(await this.handler.shouldExportElement(element))) {
+      return false;
     }
-    if (shouldExport) {
-      this._elementAspectExportCoordinator.recordAcceptedOwnerDecision(
-        element.id
-      );
-    }
-    return shouldExport;
+    this._elementAspectExportCoordinator.recordAcceptedOwnerDecision(
+      element.id
+    );
+    return true;
   }
 
   /** Export the specified element and its child elements (if applicable).

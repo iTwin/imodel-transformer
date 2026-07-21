@@ -129,8 +129,29 @@ export class ElementAspectExportCoordinator {
     this._acceptedOwnerDecisions.clear();
   }
 
-  /** Runs preparation and aspect export for an explicit owner set. */
+  /** Runs preparation and aspect export for an explicit owner set in bounded groups. */
   public async exportOwners(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<void> {
+    if (elementIds.size <= this._defaultBatchSize) {
+      await this.exportOwnerBatch(elementIds);
+      return;
+    }
+
+    let ownerBatch = new Set<Id64String>();
+    for (const elementId of elementIds) {
+      ownerBatch.add(elementId);
+      if (ownerBatch.size === this._defaultBatchSize) {
+        await this.exportOwnerBatch(ownerBatch);
+        ownerBatch = new Set<Id64String>();
+      }
+    }
+    if (ownerBatch.size > 0) {
+      await this.exportOwnerBatch(ownerBatch);
+    }
+  }
+
+  private async exportOwnerBatch(
     elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
     await this._prepare?.(this._excludedClassFullNames(), elementIds);
