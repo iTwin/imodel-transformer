@@ -32,6 +32,7 @@ import {
   Id64Set,
   Id64String,
   IModelStatus,
+  ITwinError,
   Logger,
   YieldManager,
 } from "@itwin/core-bentley";
@@ -433,6 +434,7 @@ export class IModelExporter {
 
   /** Export changes from the source iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
+   * @throws [[ITwinError]] with scope `@itwin/imodel-transformer` and key `no-changesets` if the source iModel has no changesets and no custom changes. Call [[exportAll]] to export all content.
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
@@ -445,21 +447,34 @@ export class IModelExporter {
         "Must be a briefcase to export changes"
       );
 
-    if (
-      "" === this.sourceDb.changeset.id &&
-      !this.sourceDbChanges?.hasChanges
-    ) {
-      await this.exportAll(); // no changesets or custom changes, so revert to exportAll
-      return;
+    let initOpts: ExporterInitOptions = args ?? {};
+    const hasExplicitChangeSource =
+      "csFileProps" in initOpts ||
+      "changedInstanceIds" in initOpts ||
+      "changesetRanges" in initOpts ||
+      "startChangeset" in initOpts;
+    const currentChangesetId = this.sourceDb.changeset.id;
+
+    if (!hasExplicitChangeSource && currentChangesetId !== "") {
+      initOpts = {
+        ...initOpts,
+        startChangeset: { id: currentChangesetId },
+      };
     }
 
-    const startChangeset =
-      args && "startChangeset" in args ? args.startChangeset : undefined;
-
-    const initOpts: ExporterInitOptions = {
-      startChangeset: { id: startChangeset?.id },
-    };
     await this.initialize(initOpts);
+
+    if (currentChangesetId === "" && !this.sourceDbChanges?.hasChanges) {
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: "@itwin/imodel-transformer",
+          key: "no-changesets",
+        },
+        message:
+          "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content.",
+      });
+    }
+
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
       this._sourceDbChanges !== undefined,
@@ -469,7 +484,15 @@ export class IModelExporter {
     await this.exportCodeSpecs();
     await this.exportFonts();
     if (initOpts.skipPropagateChangesToRootElements) {
-      await this.exportModelContents(IModel.repositoryModelId);
+      // The root Subject is in the RepositoryModel. Traverse its children
+      // separately, then export other top-level repository elements while
+      // excluding the root so no element is visited twice.
+      await this.exportChildElements(IModel.rootSubjectId);
+      await this.exportModelContents(
+        IModel.repositoryModelId,
+        Element.classFullName,
+        true
+      );
       await this.exportSubModels(IModel.repositoryModelId);
     } else {
       await this.exportModel(IModel.repositoryModelId);
@@ -879,6 +902,11 @@ export class IModelExporter {
       : this._sourceDbChanges?.element.updateIds.has(elementId)
         ? true
         : undefined;
+
+    // Short-circuit: element is not in the changeset, skip its own export but still visit children
+    if (undefined !== this._sourceDbChanges && undefined === isUpdate) {
+      return this.exportChildElements(elementId);
+    }
 
     const element = this.sourceDb.elements.getElement({
       id: elementId,

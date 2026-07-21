@@ -118,6 +118,17 @@ import {
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 
 const { count } = IModelTestUtils;
+const countElementExternalSourceAspects = (
+  db: IModelDb,
+  elementId: Id64String
+) =>
+  db.elements
+    .getAspects(elementId, ExternalSourceAspect.classFullName)
+    .filter(
+      (aspect) =>
+        (aspect as ExternalSourceAspect).kind ===
+        ExternalSourceAspect.Kind.Element
+    ).length;
 
 describe("IModelTransformerHub", () => {
   const outputDir = path.join(
@@ -336,6 +347,170 @@ describe("IModelTransformerHub", () => {
         // eslint-disable-next-line no-console
         console.log("can't destroy", err);
       }
+    }
+  });
+
+  it("should handle sequential deletes after processAll with default processChanges options", async () => {
+    const sourceIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName(
+        "ProcessChangesDeletesSource"
+      )
+    );
+    const targetIModelId = await createPopulatedIModelHubIModel(
+      IModelTransformerTestUtils.generateUniqueName(
+        "ProcessChangesDeletesTarget"
+      )
+    );
+    let sourceDb: BriefcaseDb | undefined;
+    let targetDb: BriefcaseDb | undefined;
+
+    try {
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      targetDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
+      await sourceDb.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+      await targetDb.locks.acquireLocks({
+        shared: "0x10",
+        exclusive: "0x1",
+      });
+
+      const [physicalElement1Id, physicalElement2Id] = withEditTxn(
+        sourceDb,
+        "insert source physical elements",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SourceModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "SourceCategory",
+            {}
+          );
+          const insertPhysicalElement = (name: string) => {
+            const element: PhysicalElementProps = {
+              classFullName: PhysicalObject.classFullName,
+              model: modelId,
+              category: categoryId,
+              code: new Code({ scope: "0x1", spec: "0x1", value: name }),
+              userLabel: name,
+            };
+            return txn.insertElement(element);
+          };
+          return [
+            insertPhysicalElement("PhysicalOne"),
+            insertPhysicalElement("PhysicalTwo"),
+          ];
+        }
+      );
+      await sourceDb.pushChanges({
+        accessToken,
+        description: "Initial source data",
+        retainLocks: true,
+      });
+
+      const processAllEditTxn = createStartedEditTxn(targetDb);
+      const processAllTransformer = new IModelTransformer({
+        source: sourceDb,
+        target: processAllEditTxn,
+      });
+      await processAllTransformer.process();
+      const syncVersionAfterProcessAll =
+        await processAllTransformer[
+          "_provenanceManager"
+        ].getSynchronizationVersion();
+      expect(syncVersionAfterProcessAll.index).to.equal(
+        sourceDb.changeset.index,
+        "processAll should persist the source synchronization version"
+      );
+      processAllTransformer.dispose();
+      processAllEditTxn.end();
+      await targetDb.pushChanges({
+        accessToken,
+        description: "Initial processAll transformation",
+        retainLocks: true,
+      });
+
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalOne")
+      ).to.not.be.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo")
+      ).to.not.be.equal(Id64.invalid);
+
+      const processChanges = async (description: string) => {
+        const editTxn = createStartedEditTxn(targetDb!);
+        const transformer = new IModelTransformer(
+          { source: sourceDb!, target: editTxn },
+          { argsForProcessChanges: {} }
+        );
+        await transformer.process();
+        transformer.dispose();
+        editTxn.end();
+        await targetDb!.pushChanges({
+          accessToken,
+          description,
+          retainLocks: true,
+        });
+      };
+
+      const deleteAndProcess = async (elementId: Id64String, name: string) => {
+        withEditTxn(
+          sourceDb!,
+          `delete ${name} source physical element`,
+          (txn) => {
+            txn.deleteElement(elementId);
+          }
+        );
+        await sourceDb!.pushChanges({
+          accessToken,
+          description: `Delete ${name} source element`,
+          retainLocks: true,
+        });
+        await processChanges(`Process ${name} source deletion`);
+      };
+
+      await deleteAndProcess(physicalElement1Id, "first");
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalOne"),
+        "PhysicalOne should be deleted after the first processChanges"
+      ).to.equal(Id64.invalid);
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo")
+      ).to.not.be.equal(Id64.invalid);
+
+      await deleteAndProcess(physicalElement2Id, "second");
+      expect(
+        IModelTestUtils.queryByCodeValue(targetDb, "PhysicalTwo"),
+        "PhysicalTwo should be deleted after the second processChanges"
+      ).to.equal(Id64.invalid);
+    } finally {
+      if (sourceDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+      if (targetDb)
+        await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+      await IModelHost[_hubAccess].deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: sourceIModelId,
+      });
+      await IModelHost[_hubAccess].deleteIModel({
+        accessToken,
+        iTwinId,
+        iModelId: targetIModelId,
+      });
     }
   });
 
@@ -2981,12 +3156,14 @@ describe("IModelTransformerHub", () => {
       expect(result.model.deleteIds).to.deep.equal(expectedModelDeleteIds);
       expect(result.model.updateIds).to.deep.equal(expectedModelUpdateIds);
 
+      // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
+      // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.reverse-synchronization
+      // Reverse sync writes provenance to the source, so both databases need an EditTxn.
       const masterSyncEditTxn = createStartedEditTxn(masterDb);
       const reverseSyncSourceEditTxn = createStartedEditTxn(branchDb);
       const synchronizer = new IModelTransformer(
         { source: branchDb, target: masterSyncEditTxn },
         {
-          // NOTE: not using a targetScopeElementId because this test deals with temporary dbs, but that is a bad practice, use one
           argsForProcessChanges: {},
           sourceEditTxn: reverseSyncSourceEditTxn,
         }
@@ -2994,6 +3171,7 @@ describe("IModelTransformerHub", () => {
       await synchronizer.process();
       masterSyncEditTxn.end("save", "synchronize");
       reverseSyncSourceEditTxn.end("save", "synchronize provenance");
+      // __PUBLISH_EXTRACT_END__
       await branchDb.pushChanges({ accessToken, description: "synchronize" });
       synchronizer.dispose();
 
@@ -4841,6 +5019,203 @@ describe("IModelTransformerHub", () => {
     });
   }
 
+  for (const skipPropagateChangesToRootElements of [true, false]) {
+    it(`should ${
+      skipPropagateChangesToRootElements ? "skip" : "propagate"
+    } a remapped root Subject update during processChanges and synchronize its children`, async () => {
+      const sourceIModelId = await HubWrappers.createIModel(
+        accessToken,
+        iTwinId,
+        IModelTransformerTestUtils.generateUniqueName(
+          "RemappedRootProcessChangesSource"
+        )
+      );
+      const targetIModelId = await HubWrappers.createIModel(
+        accessToken,
+        iTwinId,
+        IModelTransformerTestUtils.generateUniqueName(
+          "RemappedRootProcessChangesTarget"
+        )
+      );
+      let sourceDb: BriefcaseDb | undefined;
+      let targetDb: BriefcaseDb | undefined;
+
+      try {
+        sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        targetDb = await HubWrappers.downloadAndOpenBriefcase({
+          accessToken,
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+        await sourceDb.locks.acquireLocks({
+          shared: "0x10",
+          exclusive: "0x1",
+        });
+        await targetDb.locks.acquireLocks({
+          shared: "0x10",
+          exclusive: "0x1",
+        });
+
+        const sourceChildSubjectId = withEditTxn(
+          sourceDb,
+          "insert source child Subject and update root",
+          (txn) => {
+            const childSubjectId = Subject.insert(
+              txn,
+              IModel.rootSubjectId,
+              "Source child"
+            );
+            const rootSubjectProps =
+              sourceDb!.elements.getElementProps<SubjectProps>(
+                IModel.rootSubjectId
+              );
+            rootSubjectProps.code = Subject.createCode(
+              sourceDb!,
+              IModel.rootSubjectId,
+              "Source root"
+            );
+            rootSubjectProps.userLabel = "Source root";
+            txn.updateElement(rootSubjectProps);
+            return childSubjectId;
+          }
+        );
+        const remappedTargetRootSubjectId = withEditTxn(
+          targetDb,
+          "insert remapped target Subject",
+          (txn) => Subject.insert(txn, IModel.rootSubjectId, "Mapped root")
+        );
+        await sourceDb.pushChanges({
+          accessToken,
+          description: "insert source child Subject and update root",
+          retainLocks: true,
+        });
+        await targetDb.pushChanges({
+          accessToken,
+          description: "insert remapped target Subject",
+          retainLocks: true,
+        });
+
+        const initialTargetEditTxn = createStartedEditTxn(targetDb);
+        let transformer = new IModelTransformer(
+          { source: sourceDb, target: initialTargetEditTxn },
+          {
+            targetScopeElementId: remappedTargetRootSubjectId,
+            skipPropagateChangesToRootElements: true,
+          }
+        );
+        transformer.context.remapElement(
+          IModel.rootSubjectId,
+          remappedTargetRootSubjectId
+        );
+        await transformer.process();
+        await transformer.updateSynchronizationVersion({
+          initializeReverseSyncVersion: true,
+        });
+        const targetChildSubjectId =
+          transformer.context.findTargetElementId(sourceChildSubjectId);
+        transformer.dispose();
+        initialTargetEditTxn.end();
+        await targetDb.pushChanges({
+          accessToken,
+          description: "initial transformation",
+          retainLocks: true,
+        });
+
+        const targetRootBeforeChanges = targetDb.elements.getElement<Subject>(
+          remappedTargetRootSubjectId,
+          Subject
+        );
+        const targetRootLabelBeforeChanges = targetRootBeforeChanges.userLabel;
+        const targetRootElementAspectCountBeforeChanges =
+          countElementExternalSourceAspects(
+            targetDb,
+            remappedTargetRootSubjectId
+          );
+
+        withEditTxn(sourceDb, "update source root and child Subject", (txn) => {
+          const rootSubjectProps =
+            sourceDb!.elements.getElementProps<SubjectProps>(
+              IModel.rootSubjectId
+            );
+          rootSubjectProps.userLabel = "Updated source root";
+          txn.updateElement(rootSubjectProps);
+
+          const childSubjectProps =
+            sourceDb!.elements.getElementProps<SubjectProps>(
+              sourceChildSubjectId
+            );
+          childSubjectProps.userLabel = "Updated source child";
+          txn.updateElement(childSubjectProps);
+        });
+        await sourceDb.pushChanges({
+          accessToken,
+          description: "update source root and child Subject",
+          retainLocks: true,
+        });
+
+        const processChangesTargetEditTxn = createStartedEditTxn(targetDb);
+        transformer = new IModelTransformer(
+          { source: sourceDb, target: processChangesTargetEditTxn },
+          {
+            argsForProcessChanges: {},
+            targetScopeElementId: remappedTargetRootSubjectId,
+            skipPropagateChangesToRootElements,
+          }
+        );
+        transformer.context.remapElement(
+          IModel.rootSubjectId,
+          remappedTargetRootSubjectId
+        );
+        await transformer.process();
+        transformer.dispose();
+        processChangesTargetEditTxn.end();
+
+        const targetRootAfterChanges = targetDb.elements.getElement<Subject>(
+          remappedTargetRootSubjectId,
+          Subject
+        );
+        expect(targetRootAfterChanges.userLabel).to.equal(
+          skipPropagateChangesToRootElements
+            ? targetRootLabelBeforeChanges
+            : "Updated source root"
+        );
+        expect(
+          targetDb.elements.getElement<Subject>(targetChildSubjectId, Subject)
+            .userLabel
+        ).to.equal("Updated source child");
+        if (skipPropagateChangesToRootElements) {
+          const targetRootElementAspectCountAfterChanges =
+            countElementExternalSourceAspects(
+              targetDb,
+              remappedTargetRootSubjectId
+            );
+          expect(targetRootElementAspectCountAfterChanges).to.equal(
+            targetRootElementAspectCountBeforeChanges
+          );
+        }
+      } finally {
+        if (sourceDb)
+          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, sourceDb);
+        if (targetDb)
+          await HubWrappers.closeAndDeleteBriefcaseDb(accessToken, targetDb);
+        await IModelHost[_hubAccess].deleteIModel({
+          accessToken,
+          iTwinId,
+          iModelId: sourceIModelId,
+        });
+        await IModelHost[_hubAccess].deleteIModel({
+          accessToken,
+          iTwinId,
+          iModelId: targetIModelId,
+        });
+      }
+    });
+  }
+
   it("should skip provenance changesets made to branch during reverse sync", async () => {
     const timeline: Timeline = [
       { master: { 1: 1 } },
@@ -6582,6 +6957,226 @@ describe("IModelTransformerHub", () => {
     afterEach(async () => {
       await closeAndDeleteBriefcase(sourceDb);
       await closeAndDeleteBriefcase(targetDb);
+    });
+
+    it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
+      // Create a model with a parent element and a child element
+      const { parentElementId, childElementId } = withEditTxn(
+        sourceDb,
+        "create model with parent and child elements",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "TestPhysicalModel"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "TestCategory",
+            {}
+          );
+          const parentId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ParentElement",
+          } as GeometricElementProps);
+          const childId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ChildElement",
+            parent: new ElementOwnsChildElements(parentId),
+          } as GeometricElementProps);
+          return {
+            physicalModelId: modelId,
+            parentElementId: parentId,
+            childElementId: childId,
+          };
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Initial model and elements",
+        retainLocks: true,
+      });
+
+      // Run initial processAll transformation
+      const firstEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstEditTxn,
+      });
+      await transformer.process();
+      transformer.dispose();
+      firstEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial transformation",
+        retainLocks: true,
+      });
+
+      // Update only the child element (not the parent) to trigger a change
+      withEditTxn(sourceDb, "update child element only", (txn) => {
+        const childProps = sourceDb.elements.getElementProps(childElementId);
+        txn.updateElement({
+          ...childProps,
+          userLabel: "ChildElement-Updated",
+        });
+      });
+      await sourceDb.pushChanges({
+        description: "Child element update",
+        retainLocks: true,
+      });
+
+      // Run processChanges and spy on onExportElement
+      const secondEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: secondEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      const onExportElementSpy = sinon.spy(transformer, "onExportElement");
+      await transformer.process();
+
+      // Verify: parent element was NOT exported (short-circuited)
+      const parentWasExported = onExportElementSpy
+        .getCalls()
+        .some((call) => call.args[0].id === parentElementId);
+      expect(
+        parentWasExported,
+        "onExportElement should not have been called for unchanged parent element"
+      ).to.be.false;
+
+      // Verify: child element WAS exported (still traversed through unchanged parent)
+      const childWasExported = onExportElementSpy
+        .getCalls()
+        .some((call) => call.args[0].id === childElementId);
+      expect(
+        childWasExported,
+        "onExportElement should have been called for changed child element"
+      ).to.be.true;
+
+      transformer.dispose();
+      secondEditTxn.end();
+    });
+
+    it("should still export updated aspects when the owning element is unchanged during processChanges", async () => {
+      // Import a schema with a custom UniqueAspect so we can test aspect-only updates
+      // without interference from the provenance system
+      const testSchemaPath =
+        IModelTransformerTestUtils.getPathToSchemaWithUniqueAspect();
+      await sourceDb.importSchemas([testSchemaPath]);
+      await targetDb.importSchemas([testSchemaPath]);
+      await sourceDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+      await targetDb.pushChanges({
+        description: "Import test schema",
+        retainLocks: true,
+      });
+
+      // Create an element with a unique aspect
+      const elementId = withEditTxn(
+        sourceDb,
+        "create element with unique aspect",
+        (txn) => {
+          const modelId = PhysicalModel.insert(
+            txn,
+            IModel.rootSubjectId,
+            "TestPhysicalModelForAspect"
+          );
+          const categoryId = SpatialCategory.insert(
+            txn,
+            IModel.dictionaryId,
+            "TestCategoryForAspect",
+            {}
+          );
+          const elemId = txn.insertElement({
+            classFullName: PhysicalObject.classFullName,
+            model: modelId,
+            category: categoryId,
+            code: Code.createEmpty(),
+            userLabel: "ElementWithUniqueAspect",
+          } as GeometricElementProps);
+          txn.insertAspect({
+            classFullName: "TestSchema1:MyUniqueAspect",
+            element: { id: elemId },
+            myProp1: "original-value",
+          } as any);
+          return elemId;
+        }
+      );
+      await sourceDb.pushChanges({
+        description: "Initial element with unique aspect",
+        retainLocks: true,
+      });
+
+      // Run initial processAll transformation
+      const firstEditTxn = createStartedEditTxn(targetDb);
+      let transformer = new IModelTransformer({
+        source: sourceDb,
+        target: firstEditTxn,
+      });
+      await transformer.process();
+      transformer.dispose();
+      firstEditTxn.end();
+      await targetDb.pushChanges({
+        description: "Initial transformation",
+        retainLocks: true,
+      });
+
+      // Verify initial aspect value on target
+      const targetElementId = IModelTestUtils.queryByUserLabel(
+        targetDb,
+        "ElementWithUniqueAspect"
+      );
+      const targetAspectsBefore = targetDb.elements.getAspects(
+        targetElementId,
+        "TestSchema1:MyUniqueAspect"
+      );
+      expect(targetAspectsBefore).to.have.lengthOf(1);
+      expect((targetAspectsBefore[0] as any).myProp1).to.equal(
+        "original-value"
+      );
+
+      // Update only the aspect (not the element directly)
+      withEditTxn(sourceDb, "update unique aspect only", (txn) => {
+        const aspects = sourceDb.elements.getAspects(
+          elementId,
+          "TestSchema1:MyUniqueAspect"
+        );
+        txn.updateAspect({
+          ...aspects[0].toJSON(),
+          myProp1: "updated-value",
+        } as any);
+      });
+      await sourceDb.pushChanges({
+        description: "Aspect-only update",
+        retainLocks: true,
+      });
+
+      // Run processChanges — the aspect change should propagate to the target
+      const secondEditTxn = createStartedEditTxn(targetDb);
+      transformer = new IModelTransformer(
+        { source: sourceDb, target: secondEditTxn },
+        { argsForProcessChanges: {} }
+      );
+      await transformer.process();
+      transformer.dispose();
+      secondEditTxn.end();
+
+      // Verify: the aspect on the target element was updated
+      const targetAspectsAfter = targetDb.elements.getAspects(
+        targetElementId,
+        "TestSchema1:MyUniqueAspect"
+      );
+      expect(targetAspectsAfter).to.have.lengthOf(1);
+      expect(
+        (targetAspectsAfter[0] as any).myProp1,
+        "target aspect should have been updated to 'updated-value' by processChanges"
+      ).to.equal("updated-value");
     });
 
     it("should process changes successfully when element is deleted after existing elements were expanded into overflow table", async () => {

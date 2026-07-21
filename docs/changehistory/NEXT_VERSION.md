@@ -1,5 +1,25 @@
 # Next release notes
 
+## Breaking change: `exportChanges()` no longer falls back to `exportAll()`
+
+`IModelExporter.exportChanges()` no longer calls `exportAll()` when the source briefcase has no changesets and no custom changes. It now throws an `ITwinError` with scope `@itwin/imodel-transformer` and key `no-changesets`. `IModelTransformer.process()` propagates this error when `argsForProcessChanges` is specified, before finalizing the transformation or updating its synchronization version.
+
+This makes change processing predictable and prevents configuration errors from silently running a full export or completing an empty transformation. Briefcases with changesets, including changesets without relevant instance changes, and workflows that supply custom changes are unaffected.
+
+If the source briefcase has no changesets and you intend to transform all content, call the explicit full-processing API instead. For `IModelTransformer`, omitting `argsForProcessChanges` makes `process()` call `processAll()` and transform all content; supplying it makes `process()` call `processChanges()` for incremental processing.
+
+```ts
+// Direct exporter usage
+await exporter.exportAll();
+
+// IModelTransformer usage: omit argsForProcessChanges
+const transformer = new IModelTransformer({
+  source: sourceDb,
+  target: targetEditTxn,
+});
+await transformer.process();
+```
+
 ## Breaking changes: EditTxn-based constructors
 
 `IModelTransformer`, `IModelImporter`, and `TemplateModelCloner` constructors now require an explicit [`EditTxn`](https://www.itwinjs.org/reference/core-backend/imodels/edittxn/) from `@itwin/core-backend`from the target iModel. This aligns the transformer with the iTwin.js platform's move toward explicit edit transactions and eliminates the possibility of mismatched db/txn references.
@@ -30,6 +50,7 @@ editTxn.end(); // saves changes; use end("abandon") to roll back
 ```
 
 The `target` field accepts either:
+
 - An `EditTxn` — the transformer creates a default `IModelImporter` internally (most common).
 - A pre-configured `IModelImporter` — for custom import behavior.
 
@@ -133,6 +154,22 @@ for (const change of unifier.instances) {
 
 The transformer uses the same reader and unifier to collect changed instance
 IDs and deletion metadata in one pass per selected changeset file.
+
+## Breaking changes: `IModelTransformer` provenance APIs reorganized
+
+As part of [the decomposition of `IModelTransformer`](https://github.com/iTwin/imodel-transformer/pull/295), synchronization direction resolution and provenance management were moved into focused internal classes. Most commonly used `IModelTransformer` APIs remain available, including `initElementProvenance()`, `getSynchronizationVersion()`, `tryGetProvenanceScopeAspect()`, `initScopeProvenance()`, and `updateSynchronizationVersion()`.
+
+The following APIs were removed from `IModelTransformer`:
+
+- `determineSyncType()`
+- `noEsaSyncDirectionErrorMessage`
+- `getProvenanceSourceDb()`
+- `forEachTrackedElement()`
+- `initElementProvenanceOptions()`
+- `initRelationshipProvenanceOptions()`
+- `queryScopeExternalSourceAspect()`
+
+Subclasses that need the extracted provenance functionality can use the protected `_provenanceManager`. To determine synchronization direction, use `getIsForwardSynchronization()` or `getIsReverseSynchronization()`.
 
 ## Breaking changes: Many synchronous methods are now asynchronous
 
