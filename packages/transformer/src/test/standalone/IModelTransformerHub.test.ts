@@ -12,6 +12,7 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   CategorySelector,
+  ChangesetReader,
   DefinitionContainer,
   DefinitionModel,
   DefinitionPartition,
@@ -115,11 +116,6 @@ import {
   TimelineIModelState,
 } from "../TestUtils/TimelineTestUtil";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
-import {
-  ChangesetScanMetrics,
-  changesetScanPass,
-  withChangesetScanInstrumentation,
-} from "../../ChangesetScanInstrumentation";
 
 const { count } = IModelTestUtils;
 
@@ -6646,10 +6642,12 @@ describe("IModelTransformerHub", () => {
         { argsForProcessChanges: {} }
       );
       await transformer.processSchemas();
-      const scanMetrics = new ChangesetScanMetrics();
-      await withChangesetScanInstrumentation(scanMetrics, async () => {
+      const openFileSpy = sinon.spy(ChangesetReader, "openFile");
+      try {
         await transformer.process();
-      });
+      } finally {
+        openFileSpy.restore();
+      }
       secondTransformEditTxn.end();
       await targetDb.pushChanges({
         description: "Transformation 2: Process Changes with deletion",
@@ -6659,28 +6657,10 @@ describe("IModelTransformerHub", () => {
       const selectedChangesetPaths = transformer["_csFileProps"]!.map(
         (csFile) => csFile.pathname
       );
-      const scanMetricsSnapshot = scanMetrics.snapshot();
-      const scannerMetrics =
-        scanMetricsSnapshot.passes[changesetScanPass.singleScanner];
-      expect(Object.keys(scanMetricsSnapshot.passes)).to.deep.equal([
-        changesetScanPass.singleScanner,
-      ]);
-      expect(scannerMetrics.fileOpens).to.equal(selectedChangesetPaths.length);
-      expect(scannerMetrics.fileScans).to.equal(selectedChangesetPaths.length);
-      expect(scannerMetrics.filePaths).to.deep.equal(selectedChangesetPaths);
-      expect(scannerMetrics.unifiedRowCount).to.be.greaterThan(0);
-      expect(scannerMetrics.deletionRecordCount).to.be.greaterThan(0);
-      if (process.env.REPORT_CHANGESET_SCAN_METRICS === "1") {
-        // eslint-disable-next-line no-console
-        console.log(
-          JSON.stringify({
-            fixture: "overflow-table deletion",
-            selectedChangesetCount: selectedChangesetPaths.length,
-            selectedChangesetPaths,
-            scanMetrics: scanMetricsSnapshot,
-          })
-        );
-      }
+      expect(openFileSpy.callCount).to.equal(selectedChangesetPaths.length);
+      expect(
+        openFileSpy.getCalls().map(({ args }) => args[0].fileName)
+      ).to.deep.equal(selectedChangesetPaths);
 
       // Assert: Verify element is deleted in target
       const targetElement2 = IModelTestUtils.queryByUserLabel(
