@@ -106,8 +106,8 @@ import { ProvenanceManager } from "./ProvenanceManager";
 import { Property } from "@itwin/ecschema-metadata";
 import {
   ChangesetDeletionRecord,
+  ChangesetDeletionRecordsByChangeset,
   ChangesetScanner,
-  ChangesetScanResult,
 } from "./ChangesetScanner";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
@@ -2019,7 +2019,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _sourceChangeDataState: ChangeDataState = "uninited";
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
-  private _changesetScanResult?: ChangesetScanResult;
+  private _deletionRecordsByChangeset?: ChangesetDeletionRecordsByChangeset;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
@@ -2060,7 +2060,7 @@ export class IModelTransformer extends IModelExportHandler {
         ("changedInstanceIds" in exporterInitOptions
           ? exporterInitOptions.changedInstanceIds
           : new ChangedInstanceIds(this.sourceDb));
-      this._changesetScanResult = await ChangesetScanner.scan(
+      this._deletionRecordsByChangeset = await ChangesetScanner.scan(
         this.sourceDb,
         this._csFileProps,
         changedInstanceIds,
@@ -2107,8 +2107,8 @@ export class IModelTransformer extends IModelExportHandler {
         this._sourceChangeDataState = "has-changes";
     }
 
-    const scanResult = this._changesetScanResult;
-    if (scanResult === undefined) return;
+    const deletionRecordsByChangeset = this._deletionRecordsByChangeset;
+    if (deletionRecordsByChangeset === undefined) return;
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
@@ -2151,7 +2151,7 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._deletedSourceRelationshipData = new Map();
 
-    for (const changes of scanResult.deletionRecordsByChangeset) {
+    for (const changes of deletionRecordsByChangeset) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
       const elemIdToScopeEsa = new Map<Id64String, ChangesetDeletionRecord>();
       for (const change of changes) {

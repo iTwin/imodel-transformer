@@ -42,21 +42,18 @@ export interface ChangesetDeletionRecord {
 }
 
 /**
- * Changeset data needed by the transformer after changed instance IDs are collected.
+ * Pre-delete properties grouped by changeset. [[ChangedInstanceIds]] retains
+ * operation sets but not the properties needed to remap deleted instances.
+ * Grouping keeps scoped ExternalSourceAspect metadata paired with deletions
+ * from the same changeset.
  * @internal
  */
-export interface ChangesetScanResult {
-  /**
-   * Deletion records grouped in the same order as the scanned changeset files.
-   * The transformer resolves scoped ExternalSourceAspect metadata within each
-   * changeset. Flattening this array could pair a deletion with stale metadata
-   * from another changeset and remap the wrong target.
-   */
-  deletionRecordsByChangeset: ChangesetDeletionRecord[][];
-}
+export type ChangesetDeletionRecordsByChangeset = ChangesetDeletionRecord[][];
 
 /**
- * Reads changeset files once to collect changed instance IDs and deletion metadata.
+ * Reads each changeset once, unifies table changes into EC instance changes,
+ * normalizes overflow-only inserts and deletes to updates, writes all operations
+ * to [[ChangedInstanceIds]], and retains properties needed to process deletions.
  * @internal
  */
 export class ChangesetScanner {
@@ -66,13 +63,14 @@ export class ChangesetScanner {
    * @param csFileProps Ordered changeset files to scan.
    * @param changedInstanceIds Aggregate updated with the unified changes unless disabled by [[options]].
    * @param options Controls whether the aggregate is populated while deletion records are collected.
+   * @returns Deleted-instance properties needed after the scan; changed IDs are written to [[changedInstanceIds]].
    */
   public static async scan(
     iModel: IModelDb,
     csFileProps: ChangesetFileProps[],
     changedInstanceIds: ChangedInstanceIds,
     options: { populateChangedInstanceIds?: boolean } = {}
-  ): Promise<ChangesetScanResult> {
+  ): Promise<ChangesetDeletionRecordsByChangeset> {
     const deletionRecordsByChangeset: ChangesetDeletionRecord[][] = [];
     for (const csFile of csFileProps) {
       const csReader = ChangesetReader.openFile({
@@ -115,9 +113,7 @@ export class ChangesetScanner {
       }
     }
 
-    return {
-      deletionRecordsByChangeset,
-    };
+    return deletionRecordsByChangeset;
   }
 
   private static toDeletionRecord(
