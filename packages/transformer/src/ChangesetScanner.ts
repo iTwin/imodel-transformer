@@ -17,27 +17,55 @@ import {
   getActiveChangesetScanMetrics,
 } from "./ChangesetScanInstrumentation";
 
-/** @internal */
+/**
+ * Metadata retained from a deleted EC instance for later target remapping.
+ * Properties are optional when the deleted instance did not contain that value.
+ * @internal
+ */
 export interface ChangesetDeletionRecord {
+  /** ID of the deleted source instance. */
   ecInstanceId: Id64String;
+  /** EC class ID of the deleted source instance. */
   ecClassId: Id64String;
+  /** Full EC class name resolved from [[ecClassId]]. */
   classFullName?: string;
+  /** Federation GUID used to find the corresponding target element. */
   federationGuid?: string;
+  /** Source endpoint of a deleted relationship. */
   sourceECInstanceId?: Id64String;
+  /** Target endpoint of a deleted relationship. */
   targetECInstanceId?: Id64String;
+  /** Scope of a deleted ExternalSourceAspect. */
   scopeId?: Id64String;
+  /** Element owning a deleted ElementAspect. */
   elementId?: Id64String;
+  /** Kind of a deleted ExternalSourceAspect. */
   kind?: string;
+  /** Identifier of a deleted ExternalSourceAspect. */
   identifier?: string;
 }
 
-/** @internal */
+/**
+ * Changeset data needed by the transformer after changed instance IDs are collected.
+ * @internal
+ */
 export interface ChangesetScanResult {
+  /** Deletion records grouped in the same order as the scanned changeset files. */
   deletionRecordsByChangeset: ChangesetDeletionRecord[][];
 }
 
-/** @internal */
+/**
+ * Reads changeset files once to collect changed instance IDs and deletion metadata.
+ * @internal
+ */
 export class ChangesetScanner {
+  /**
+   * Scans each changeset file in order with one reader and unifier per file.
+   * @param iModel Database used to resolve EC class names.
+   * @param csFileProps Ordered changeset files to scan.
+   * @param changedInstanceIds Aggregate updated with the unified changes unless disabled by [[options]].
+   * @param options Controls whether the aggregate is populated while deletion records are collected.
+   */
   public static async scan(
     iModel: IModelDb,
     csFileProps: ChangesetFileProps[],
