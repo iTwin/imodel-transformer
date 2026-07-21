@@ -50,7 +50,12 @@ export interface ChangesetDeletionRecord {
  * @internal
  */
 export interface ChangesetScanResult {
-  /** Deletion records grouped in the same order as the scanned changeset files. */
+  /**
+   * Deletion records grouped in the same order as the scanned changeset files.
+   * The transformer resolves scoped ExternalSourceAspect metadata within each
+   * changeset. Flattening this array could pair a deletion with stale metadata
+   * from another changeset and remap the wrong target.
+   */
   deletionRecordsByChangeset: ChangesetDeletionRecord[][];
 }
 
