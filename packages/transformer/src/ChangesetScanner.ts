@@ -33,30 +33,7 @@ export interface ChangesetDeletionRecord {
 
 /** @internal */
 export interface ChangesetScanResult {
-  changedInstanceIds: ChangedInstanceIds;
-  changesetPaths: string[];
   deletionRecordsByChangeset: ChangesetDeletionRecord[][];
-}
-
-const scanResults = new WeakMap<ChangedInstanceIds, ChangesetScanResult>();
-
-/** @internal */
-export function getChangesetScanResult(
-  changedInstanceIds: ChangedInstanceIds | undefined,
-  csFileProps: ChangesetFileProps[]
-): ChangesetScanResult | undefined {
-  if (changedInstanceIds === undefined) return undefined;
-  const result = scanResults.get(changedInstanceIds);
-  if (
-    result === undefined ||
-    result.changesetPaths.length !== csFileProps.length
-  )
-    return undefined;
-  return result.changesetPaths.every(
-    (path, index) => path === csFileProps[index].pathname
-  )
-    ? result
-    : undefined;
 }
 
 /** @internal */
@@ -140,13 +117,9 @@ export class ChangesetScanner {
       scanMetrics?.finishPass(changesetScanPass.singleScanner);
     }
 
-    const result = {
-      changedInstanceIds,
-      changesetPaths: csFileProps.map(({ pathname }) => pathname),
+    return {
       deletionRecordsByChangeset,
     };
-    scanResults.set(changedInstanceIds, result);
-    return result;
   }
 
   private static toDeletionRecord(

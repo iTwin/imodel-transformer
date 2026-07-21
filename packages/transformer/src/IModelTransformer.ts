@@ -107,7 +107,7 @@ import { Property } from "@itwin/ecschema-metadata";
 import {
   ChangesetDeletionRecord,
   ChangesetScanner,
-  getChangesetScanResult,
+  ChangesetScanResult,
 } from "./ChangesetScanner";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
@@ -2019,6 +2019,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _sourceChangeDataState: ChangeDataState = "uninited";
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
+  private _changesetScanResult?: ChangesetScanResult;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
@@ -2035,15 +2036,48 @@ export class IModelTransformer extends IModelExportHandler {
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
     await this.context.initialize();
 
-    // need exporter initialized to do remapdeletedsourceentities.
-    await this.exporter.initialize(
-      await this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
+    const exporterInitOptions = await this.getExportInitOpts(
+      this._options.argsForProcessChanges ?? {}
     );
+    await this.initializeChangesetScanAndExporter(exporterInitOptions);
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
     await this.processChangesets();
 
     this._initialized = true;
+  }
+
+  private async initializeChangesetScanAndExporter(
+    exporterInitOptions: ExporterInitOptions
+  ): Promise<void> {
+    if (
+      this._csFileProps !== undefined &&
+      this._csFileProps.length > 0 &&
+      this.sourceDb.isBriefcaseDb()
+    ) {
+      const changedInstanceIds =
+        this.exporter.sourceDbChanges ??
+        ("changedInstanceIds" in exporterInitOptions
+          ? exporterInitOptions.changedInstanceIds
+          : new ChangedInstanceIds(this.sourceDb));
+      this._changesetScanResult = await ChangesetScanner.scan(
+        this.sourceDb,
+        this._csFileProps,
+        changedInstanceIds,
+        {
+          populateChangedInstanceIds:
+            this.exporter.sourceDbChanges === undefined &&
+            !("changedInstanceIds" in exporterInitOptions),
+        }
+      );
+      await this.exporter.initialize({
+        changedInstanceIds,
+        skipPropagateChangesToRootElements:
+          exporterInitOptions.skipPropagateChangesToRootElements,
+      });
+    } else {
+      await this.exporter.initialize(exporterInitOptions);
+    }
   }
 
   /**
@@ -2073,22 +2107,7 @@ export class IModelTransformer extends IModelExportHandler {
         this._sourceChangeDataState = "has-changes";
     }
 
-    let scanResult = getChangesetScanResult(
-      this.exporter.sourceDbChanges,
-      csFileProps ?? []
-    );
-    if (
-      scanResult === undefined &&
-      this.exporter.sourceDbChanges !== undefined &&
-      csFileProps !== undefined
-    ) {
-      scanResult = await ChangesetScanner.scan(
-        this.sourceDb,
-        csFileProps,
-        this.exporter.sourceDbChanges,
-        { populateChangedInstanceIds: false }
-      );
-    }
+    const scanResult = this._changesetScanResult;
     if (scanResult === undefined) return;
 
     const relationshipECClassIdsToSkip = new Set<string>();
@@ -2548,6 +2567,13 @@ export class IModelTransformer extends IModelExportHandler {
     opts: ExportChangesOptions
   ): Promise<ExporterInitOptions> {
     if (!this._options.argsForProcessChanges) return {};
+    if ("changedInstanceIds" in opts) {
+      return {
+        changedInstanceIds: opts.changedInstanceIds,
+        skipPropagateChangesToRootElements:
+          this._options.skipPropagateChangesToRootElements,
+      };
+    }
     const startChangeset =
       "startChangeset" in opts ? opts.startChangeset : undefined;
     return {
