@@ -9,8 +9,7 @@
 import {
   BriefcaseDb,
   BriefcaseManager,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  ChangedECInstance,
+  ChangeInstance,
   DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -1178,20 +1177,19 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
+   * Adds the provided [[ChangeInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
+   * @param change Changed EC instance with the ID, operation, and EC class ID of the changed entity.
    */
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  public async addChange(change: ChangedECInstance): Promise<void> {
+  public async addChange(change: ChangeInstance): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    const ecClassId = change.ECClassId;
     if (ecClassId === undefined)
       throw new Error(
-        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
+        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`
       );
-    const changeType: SqliteChangeOp | undefined = change.$meta?.op;
+    const changeType: SqliteChangeOp | undefined = change.$meta.op;
     if (changeType === undefined)
       throw new Error(
         `ChangeType was undefined for id: ${change.ECInstanceId}.`

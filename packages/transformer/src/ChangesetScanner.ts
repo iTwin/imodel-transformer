@@ -100,16 +100,7 @@ export class ChangesetScanner {
           }
 
           if (options.populateChangedInstanceIds !== false)
-            await changedInstanceIds.addChange({
-              ECInstanceId: change.ECInstanceId,
-              ECClassId: ecClassId,
-              $meta: {
-                tables: change.$meta.tables,
-                op: change.$meta.op,
-                stage: change.$meta.stage,
-                changeIndexes: change.$meta.changeIndexes,
-              },
-            });
+            await changedInstanceIds.addChange(change);
           if (change.$meta.op === "Deleted") {
             deletionRecords.push(this.toDeletionRecord(iModel, change));
           }
