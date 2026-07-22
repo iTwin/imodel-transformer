@@ -5,7 +5,7 @@
 import {
   GuidString,
   Id64String,
-  IModelStatus,
+  ITwinError,
   Logger,
 } from "@itwin/core-bentley";
 import {
@@ -23,7 +23,6 @@ import {
   ChangesetIndexAndId,
   ExternalSourceAspectProps,
   IModel,
-  IModelError,
   QueryBinder,
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
@@ -33,6 +32,10 @@ import type {
 } from "./IModelTransformer";
 import type { SyncTypeResolver } from "./SyncTypeResolver";
 import type { IModelCloneContext } from "./IModelCloneContext";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 
@@ -89,7 +92,13 @@ export class ProvenanceManager {
         sourceDb.changeset.index === undefined ||
         targetDb.changeset.index === undefined
       )
-        throw new Error("database has no changeset index");
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.ChangesetIndexUnavailable,
+          },
+          message: "database has no changeset index",
+        });
       this._startingChangesetIndices = {
         target: targetDb.changeset.index,
         source: sourceDb.changeset.index,
@@ -166,7 +175,13 @@ export class ProvenanceManager {
     params.bindString(2, className);
     const result = db.createQueryReader(sql, params, { usePrimaryConn: true });
     if (await result.step()) return result.current.id;
-    throw new Error(`Could not find class ${classFullName} in the db`);
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.RelationshipClassNotFound,
+      },
+      message: `Could not find class ${classFullName} in the db`,
+    });
   }
 
   // ── Static provenance metadata ──────────────────────────────────────────
@@ -205,10 +220,13 @@ export class ProvenanceManager {
     if (args.provenanceDb === args.provenanceSourceDb) return;
 
     if (!args.provenanceDb.containsClass(ExternalSourceAspect.classFullName)) {
-      throw new IModelError(
-        IModelStatus.BadSchema,
-        "The BisCore schema version of the target database is too old"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ProvenanceSchemaUnsupported,
+        },
+        message: "The BisCore schema version of the target database is too old",
+      });
     }
 
     const sourceDb = args.isReverseSynchronization
@@ -379,10 +397,15 @@ export class ProvenanceManager {
   public async getProvenanceEditTxn(): Promise<EditTxn> {
     if (await this._isReverseSynchronization()) {
       if (!this._sourceEditTxn) {
-        throw new Error(
-          "A reverse synchronization requires a sourceEditTxn to write provenance back to the source iModel. " +
-            "Pass sourceEditTxn in IModelTransformOptions."
-        );
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.SourceEditTxnRequired,
+          },
+          message:
+            "A reverse synchronization requires a sourceEditTxn to write provenance back to the source iModel. " +
+            "Pass sourceEditTxn in IModelTransformOptions.",
+        });
       }
       return this._sourceEditTxn;
     }
@@ -485,10 +508,13 @@ export class ProvenanceManager {
       const hasConflictingScope = await reader.step();
 
       if (hasConflictingScope) {
-        throw new IModelError(
-          IModelStatus.InvalidId,
-          "Provenance scope conflict"
-        );
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.ProvenanceScopeConflict,
+          },
+          message: "Provenance scope conflict",
+        });
       }
       if (!this._transformerOptions.noProvenance) {
         const id = provenanceEditTxn.insertAspect({
@@ -626,8 +652,14 @@ export class ProvenanceManager {
         return { index: -1, id: "" };
       }
       if (version === undefined) {
-        throw new Error(`Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.
-         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'`);
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.SynchronizationVersionMissing,
+          },
+          message: `Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.
+         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'`,
+        });
       }
       const [id, index] = version === "" ? ["", -1] : version.split(";");
       if (Number.isNaN(Number(index)))
@@ -866,7 +898,13 @@ export class ProvenanceManager {
       usePrimaryConn: true,
     });
     if (!(await reader.step()))
-      throw new Error("relationship provenance query returned no rows");
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.RelationshipProvenanceNotFound,
+        },
+        message: "relationship provenance query returned no rows",
+      });
     const elementId = reader.current[0];
 
     const jsonProperties = args.forceOldRelationshipProvenanceMethod

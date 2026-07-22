@@ -29,6 +29,10 @@ import {
   ChangedInstanceIds,
   ChangedInstanceOps,
 } from "../../ChangedInstanceIds";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
 import { expect } from "chai";
 
 describe("ChangedInstanceIds", () => {
@@ -500,8 +504,8 @@ describe("ChangedInstanceIds", () => {
       expect(
         ITwinError.isError(
           thrownError,
-          "@itwin/imodel-transformer",
-          "missing-aspect-owner"
+          IModelTransformerErrorScope,
+          IModelTransformerError.AspectOwnerRequired
         )
       ).to.be.true;
       expect(thrownError).to.have.property("message", message);

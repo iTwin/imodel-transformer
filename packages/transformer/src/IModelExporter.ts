@@ -48,6 +48,10 @@ import {
   type ChangedInstanceIdsInitOptions,
   ChangedInstanceOps,
 } from "./ChangedInstanceIds";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 export {
   ChangedInstanceIds,
   type ChangedInstanceIdsInitOptions,
@@ -316,7 +320,13 @@ export class IModelExporter {
   /** The handler called by this IModelExporter. */
   protected get handler(): IModelExportHandler {
     if (undefined === this._handler) {
-      throw new Error("IModelExportHandler not registered");
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ExportHandlerNotRegistered,
+        },
+        message: "IModelExportHandler not registered",
+      });
     }
 
     return this._handler;
@@ -467,10 +477,13 @@ export class IModelExporter {
    */
   public async exportChanges(args?: ExportChangesOptions): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb())
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Must be a briefcase to export changes"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ExportChangesRequiresBriefcase,
+        },
+        message: "Must be a briefcase to export changes",
+      });
 
     let initOpts: ExporterInitOptions = args ?? {};
     const hasExplicitChangeSource =
@@ -492,8 +505,8 @@ export class IModelExporter {
     if (currentChangesetId === "" && !this.sourceDbChanges?.hasChanges) {
       ITwinError.throwError({
         iTwinErrorId: {
-          scope: "@itwin/imodel-transformer",
-          key: "no-changesets",
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.NoChangesets,
         },
         message:
           "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content.",
@@ -613,7 +626,13 @@ export class IModelExporter {
       schemaKeysToExport.map(async (schemaKey) => {
         const schema = await this.sourceDb.schemaContext.getSchema(schemaKey);
         if (!schema) {
-          throw new Error(`Failed to load schema: ${schemaKey.name}`);
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.SchemaLoadFailed,
+            },
+            message: `Failed to load schema: ${schemaKey.name}`,
+          });
         }
         Logger.logTrace(loggerCategory, `exportSchema(${schemaKey.name})`);
         return this.handler.onExportSchema(schema);

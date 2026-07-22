@@ -30,6 +30,10 @@ import {
 } from "@itwin/core-bentley";
 import { IModelError, QueryBinder } from "@itwin/core-common";
 import type { ExportChangesOptions } from "./IModelExporter";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 /**
  * Arguments for [[ChangedInstanceIds.initialize]]
@@ -204,14 +208,22 @@ export class ChangedInstanceIds {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
     if (ecClassId === undefined)
-      throw new Error(
-        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ChangedInstanceMetadataMissing,
+        },
+        message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`,
+      });
     const changeType: SqliteChangeOp | undefined = change.$meta?.op;
     if (changeType === undefined)
-      throw new Error(
-        `ChangeType was undefined for id: ${change.ECInstanceId}.`
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ChangedInstanceMetadataMissing,
+        },
+        message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
+      });
     if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
 
     if (this.isRelationship(ecClassId))
@@ -344,8 +356,8 @@ export class ChangedInstanceIds {
       if (elementIds === undefined && changeType === "Deleted") {
         ITwinError.throwError({
           iTwinErrorId: {
-            scope: "@itwin/imodel-transformer",
-            key: "missing-aspect-owner",
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.AspectOwnerRequired,
           },
           message:
             "Custom deleted ElementAspect changes require the owning element ID.",
@@ -356,8 +368,8 @@ export class ChangedInstanceIds {
         if (ownerElementId === undefined) {
           ITwinError.throwError({
             iTwinErrorId: {
-              scope: "@itwin/imodel-transformer",
-              key: "missing-aspect-owner",
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.AspectOwnerRequired,
             },
             message:
               "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable.",

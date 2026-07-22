@@ -6,7 +6,7 @@
  * @module iModels
  */
 
-import { Logger, TupleKeyedMap } from "@itwin/core-bentley";
+import { ITwinError, Logger, TupleKeyedMap } from "@itwin/core-bentley";
 import { ConcreteEntityTypes, RelTypeInfo } from "@itwin/core-common";
 import {
   ECClass,
@@ -21,6 +21,10 @@ import {
 import * as assert from "assert";
 import { IModelDb } from "@itwin/core-backend";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal
@@ -128,7 +132,13 @@ export class ECReferenceTypesCache {
       const schemaItemKey = new SchemaKey(schemaName);
       const schema = await imodel.schemaContext.getSchema(schemaItemKey);
       if (!schema) {
-        throw new Error(`Failed to load schema: ${schemaName}`);
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.SchemaLoadFailed,
+          },
+          message: `Failed to load schema: ${schemaName}`,
+        });
       }
       await this.considerInitSchema(schema);
     }

@@ -9,6 +9,8 @@ The `@itwin/imodel-transformer` package provides some classes that implement [Ex
 The above classes contain the lower-level functionality required to implement transformation and data exchange services.
 These classes should be considered a framework and not confused with the actual packaged and deployed services that use the framework.
 
+See [Error handling in imodel-transformer](./error-handling.md) for the package's error ownership rules and guidance for handling identified transformer errors.
+
 ## IModelExporter
 
 The [IModelExporter]($transformer) and [IModelExportHandler]($transformer) base classes are used when the **source** data in an ETL workflow is contained within an iModel.
