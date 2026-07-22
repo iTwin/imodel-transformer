@@ -269,6 +269,7 @@ export type TimelineStateChange =
           expectThrow?: boolean;
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
+            onError?: (error: unknown) => void;
           };
         },
       ];
@@ -371,6 +372,7 @@ export async function runTimeline(
             expectThrow?: boolean;
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
+              onError?: (error: unknown) => void;
             };
           },
         ]
@@ -551,6 +553,7 @@ export async function runTimeline(
           assertFxns?.afterProcessChanges?.(syncer);
           processSucceeded = true;
         } catch (err: any) {
+          assertFxns?.onError?.(err);
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
             printChangelogs();

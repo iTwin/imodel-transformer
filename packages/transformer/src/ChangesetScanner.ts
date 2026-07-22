@@ -10,9 +10,13 @@ import {
   PartialChangeUnifier,
   PropertyFilter,
 } from "@itwin/core-backend";
-import { Id64String } from "@itwin/core-bentley";
+import { Id64String, ITwinError } from "@itwin/core-bentley";
 import { ChangesetFileProps } from "@itwin/core-common";
 import type { ChangedInstanceIds } from "./IModelExporter";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 /**
  * Metadata retained from a deleted EC instance for later target remapping.
@@ -86,9 +90,13 @@ export class ChangesetScanner {
         for (const change of changeUnifier.instances) {
           const ecClassId = change.ECClassId;
           if (ecClassId === undefined)
-            throw new Error(
-              `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`
-            );
+            ITwinError.throwError({
+              iTwinErrorId: {
+                scope: IModelTransformerErrorScope,
+                key: IModelTransformerError.ChangedInstanceMetadataMissing,
+              },
+              message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
+            });
           // Change is recorded at table level, not EC entity level.
           // This normalizes overflow-table expansion records so they do not
           // appear as element inserts or deletes.
@@ -124,9 +132,13 @@ export class ChangesetScanner {
   ): ChangesetDeletionRecord {
     const ecClassId = change.ECClassId;
     if (ecClassId === undefined) {
-      throw new Error(
-        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ChangedInstanceMetadataMissing,
+        },
+        message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
+      });
     }
 
     return {

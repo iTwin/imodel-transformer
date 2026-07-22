@@ -3,13 +3,19 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 export * from "./TransformerLoggerCategory";
+export * from "./IModelTransformerError";
 export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
 export * from "./BranchProvenanceInitializer";
 
 import * as semver from "semver";
+import { ITwinError } from "@itwin/core-bentley";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 // must use an untyped require to not hoist src into lib/cjs, also the compiled output will be in 'lib/cjs', not 'src' so use `../..` to reach package.json
 const {
@@ -83,19 +89,27 @@ if (
         .filter(isTaglessVersion)
         .reverse();
 
-      throw Error(
-        [
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.DependencyVersionMismatch,
+        },
+        message: [
           errHeader,
           `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.`,
           "Be aware that older versions may be missing bug fixes.",
           ...latestFirstApplicableVersions,
-        ].join("\n")
-      );
+        ].join("\n"),
+      });
     });
   } else {
-    throw Error(
-      `${errHeader}You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
-    );
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.DependencyVersionMismatch,
+      },
+      message: `${errHeader}You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`,
+    });
   }
 }
 
@@ -118,4 +132,8 @@ if (
 /**
  * @docs-group-description Logging
  * Logger categories used by this package.
+ */
+/**
+ * @docs-group-description IModelTransformerError
+ * Stable identifiers for errors originating from this package.
  */

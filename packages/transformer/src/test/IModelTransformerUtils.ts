@@ -13,6 +13,7 @@ import {
   Id64,
   Id64Set,
   Id64String,
+  ITwinError,
   Mutable,
 } from "@itwin/core-bentley";
 import { EntityClass, Property, Schema } from "@itwin/ecschema-metadata";
@@ -99,6 +100,10 @@ import {
   ProcessChangesOptions,
   RelationshipPropsForDelete,
 } from "../IModelTransformer";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../IModelTransformerError";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
 
 /** Creates an EditTxn for the given db and starts it. */
@@ -109,6 +114,33 @@ export function createStartedEditTxn(db: IModelDb): EditTxn {
   return editTxn;
 }
 // __PUBLISH_EXTRACT_END__
+
+export function assertTransformerError(
+  error: unknown,
+  key: IModelTransformerError,
+  message: string | RegExp
+): void {
+  expect(ITwinError.isError(error, IModelTransformerErrorScope, key)).to.be
+    .true;
+  if (typeof message === "string")
+    expect(error).to.have.property("message", message);
+  else expect(error).to.have.property("message").that.matches(message);
+}
+
+export async function expectTransformerError(
+  operation: Promise<unknown> | (() => unknown),
+  key: IModelTransformerError,
+  message: string | RegExp
+): Promise<unknown> {
+  let error: unknown;
+  try {
+    await (typeof operation === "function" ? operation() : operation);
+  } catch (caughtError) {
+    error = caughtError;
+  }
+  assertTransformerError(error, key, message);
+  return error;
+}
 
 export class HubWrappers extends TestUtils.HubWrappers {
   protected static override get hubMock() {

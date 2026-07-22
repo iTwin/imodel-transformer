@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert } from "chai";
+import { assert, expect } from "chai";
 import * as path from "path";
 import {
   DefinitionContainer,
@@ -43,6 +43,7 @@ import {
   Id64,
   Id64Set,
   Id64String,
+  ITwinError,
   Logger,
   LogLevel,
 } from "@itwin/core-bentley";
@@ -75,6 +76,10 @@ import {
   TemplateModelCloner,
 } from "../../IModelTransformer";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
 import { createStartedEditTxn } from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
@@ -1438,6 +1443,7 @@ describe("Catalog", () => {
       physicalTypeIds.add(row[0] as Id64String);
     }
     let x = 0;
+    let dependencyErrorAsserted = false;
     for (const physicalTypeId of physicalTypeIds) {
       x += 5;
       const physicalType = iModelDb.elements.getElement<PhysicalType>(
@@ -1449,6 +1455,24 @@ describe("Catalog", () => {
           physicalType.recipe.id,
           TemplateRecipe3d
         );
+        if (!dependencyErrorAsserted) {
+          try {
+            await templateCloner.onTransformElement(physicalType);
+            assert.fail("Expected an unmapped recipe dependency to throw");
+          } catch (error) {
+            expect(
+              ITwinError.isError(
+                error,
+                IModelTransformerErrorScope,
+                IModelTransformerError.DependencyMappingMissing
+              )
+            ).to.be.true;
+            expect(error)
+              .to.have.property("message")
+              .that.matches(/^Remapping for dependency .+ not found$/);
+          }
+          dependencyErrorAsserted = true;
+        }
         const placement = new Placement3d(
           new Point3d(x, 0),
           new YawPitchRollAngles(),
@@ -1574,6 +1598,7 @@ describe("Catalog", () => {
       drawingGraphicLocations.length
     );
 
+    assert.isTrue(dependencyErrorAsserted);
     templateCloner.dispose();
 
     facilityEditTxn.saveChanges("import from catalog");

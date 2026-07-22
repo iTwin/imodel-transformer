@@ -87,12 +87,14 @@ import {
   IModelExporter,
   IModelImporter,
   IModelTransformer,
+  IModelTransformerError,
   IModelTransformOptions,
   ProcessChangesOptions,
   TransformerLoggerCategory,
 } from "../../imodel-transformer";
 import { ProvenanceManager } from "../../ProvenanceManager";
 import {
+  assertTransformerError,
   CountingIModelImporter,
   createStartedEditTxn,
   HubWrappers,
@@ -4657,6 +4659,7 @@ describe("IModelTransformerHub", () => {
   });
 
   it("should fail processingChanges on pre-version-tracking forks unless branchRelationshipDataBehavior is 'unsafe-migrate'", async () => {
+    let synchronizationVersionErrorAsserted = false;
     let targetScopeProvenanceProps: ExternalSourceAspectProps | undefined;
     let targetScopeElementId: Id64String | undefined;
     const setBranchRelationshipDataBehaviorToUnsafeMigrate = (
@@ -4737,7 +4740,22 @@ describe("IModelTransformerHub", () => {
       {
         branch: {
           // Forward sync and forward sync looks for a prop 'version' on the ESA which will be missing so expect to throw.
-          sync: ["master", { expectThrow: true }],
+          sync: [
+            "master",
+            {
+              expectThrow: true,
+              assert: {
+                onError(error) {
+                  assertTransformerError(
+                    error,
+                    IModelTransformerError.SynchronizationVersionMissing,
+                    "Could not find synchronization version in scope aspect. This may be due to the last successful run of the transformer being done with an older version.\n         Consider running the transformer with branchRelationshipDataBehavior set to 'unsafe-migrate'"
+                  );
+                  synchronizationVersionErrorAsserted = true;
+                },
+              },
+            },
+          ],
         },
       },
       {
@@ -4867,6 +4885,7 @@ describe("IModelTransformerHub", () => {
       },
     });
 
+    expect(synchronizationVersionErrorAsserted).to.be.true;
     await tearDown();
   });
 

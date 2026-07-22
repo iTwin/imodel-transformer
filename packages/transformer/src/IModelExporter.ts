@@ -55,6 +55,10 @@ import {
 } from "./ExportElementAspectsStrategy";
 import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
 import { ChangesetScanner } from "./ChangesetScanner";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
@@ -314,7 +318,13 @@ export class IModelExporter {
   /** The handler called by this IModelExporter. */
   protected get handler(): IModelExportHandler {
     if (undefined === this._handler) {
-      throw new Error("IModelExportHandler not registered");
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ExportHandlerNotRegistered,
+        },
+        message: "IModelExportHandler not registered",
+      });
     }
 
     return this._handler;
@@ -434,7 +444,7 @@ export class IModelExporter {
 
   /** Export changes from the source iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
-   * @throws [[ITwinError]] with scope `@itwin/imodel-transformer` and key `no-changesets` if the source iModel has no changesets and no custom changes. Call [[exportAll]] to export all content.
+   * @throws [[ITwinError]] identified by [[IModelTransformerError.NoChangesets]] if the source iModel has no changesets and no custom changes. Call [[exportAll]] to export all content.
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
@@ -442,10 +452,13 @@ export class IModelExporter {
    */
   public async exportChanges(args?: ExportChangesOptions): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb())
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Must be a briefcase to export changes"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ExportChangesRequiresBriefcase,
+        },
+        message: "Must be a briefcase to export changes",
+      });
 
     let initOpts: ExporterInitOptions = args ?? {};
     const hasExplicitChangeSource =
@@ -467,8 +480,8 @@ export class IModelExporter {
     if (currentChangesetId === "" && !this.sourceDbChanges?.hasChanges) {
       ITwinError.throwError({
         iTwinErrorId: {
-          scope: "@itwin/imodel-transformer",
-          key: "no-changesets",
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.NoChangesets,
         },
         message:
           "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content.",
@@ -578,7 +591,13 @@ export class IModelExporter {
       schemaKeysToExport.map(async (schemaKey) => {
         const schema = await this.sourceDb.schemaContext.getSchema(schemaKey);
         if (!schema) {
-          throw new Error(`Failed to load schema: ${schemaKey.name}`);
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.SchemaLoadFailed,
+            },
+            message: `Failed to load schema: ${schemaKey.name}`,
+          });
         }
         Logger.logTrace(loggerCategory, `exportSchema(${schemaKey.name})`);
         return this.handler.onExportSchema(schema);
@@ -1214,14 +1233,22 @@ export class ChangedInstanceIds {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
     const ecClassId = change.ECClassId;
     if (ecClassId === undefined)
-      throw new Error(
-        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ChangedInstanceMetadataMissing,
+        },
+        message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
+      });
     const changeType: SqliteChangeOp | undefined = change.$meta.op;
     if (changeType === undefined)
-      throw new Error(
-        `ChangeType was undefined for id: ${change.ECInstanceId}.`
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ChangedInstanceMetadataMissing,
+        },
+        message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
+      });
     if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
 
     if (this.isRelationship(ecClassId))
