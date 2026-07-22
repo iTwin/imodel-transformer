@@ -92,7 +92,6 @@ import {
   GeometryStreamBuilder,
   ImageSourceFormat,
   IModel,
-  IModelError,
   InformationPartitionElementProps,
   LineStyle,
   ModelProps,
@@ -120,6 +119,7 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+import { IModelTransformerError } from "../../IModelTransformerError";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -128,6 +128,7 @@ import {
   ClassCounter,
   cmpProfileVersion,
   createStartedEditTxn,
+  expectTransformerError,
   FilterByViewTransformer,
   getProfileVersion,
   IModelToTextFileExporter,
@@ -1526,9 +1527,11 @@ describe("IModelTransformer", () => {
     await transformer1.process(); // first one succeeds using IModel.rootSubjectId as the default targetScopeElementId
 
     try {
-      await expect(
-        transformer2.process() // expect IModelError to be thrown because of the targetScopeElementId conflict with second transformation
-      ).to.be.rejectedWith(IModelError);
+      await expectTransformerError(
+        transformer2.process(),
+        IModelTransformerError.ProvenanceScopeConflict,
+        "Provenance scope conflict"
+      );
     } finally {
       transformerEditTxn.end();
       transformer1.dispose();
@@ -1607,6 +1610,11 @@ describe("IModelTransformer", () => {
       source: sourceDb,
       target: editTxn,
     });
+    await expectTransformerError(
+      transformer.processElement(IModel.rootSubjectId),
+      IModelTransformerError.RootSubjectNotProcessable,
+      "The root Subject should not be directly imported"
+    );
     await transformer.processElement(sourceElementId);
     editTxn.saveChanges();
 
@@ -3043,7 +3051,9 @@ describe("IModelTransformer", () => {
       { preserveElementIdsForFiltering: true }
     );
 
-    await expect(secondTransformer.process()).to.be.rejectedWith(
+    await expectTransformerError(
+      secondTransformer.process(),
+      IModelTransformerError.ElementIdNotPreservable,
       `Element id(${targetSubjectId}) cannot be preserved. Found a different mapping(${newSubjectId}) from source element`
     );
 
@@ -3126,7 +3136,9 @@ describe("IModelTransformer", () => {
       { preserveElementIdsForFiltering: true }
     );
 
-    await expect(secondTransformer.process()).to.be.rejectedWith(
+    await expectTransformerError(
+      secondTransformer.process(),
+      IModelTransformerError.ElementIdNotPreservable,
       `Element id(${targetSubjectId1}) cannot be preserved. An unrelated element in the target already uses id: ${targetSubjectId1}`
     );
 
@@ -3160,7 +3172,9 @@ describe("IModelTransformer", () => {
       sourceDb,
       () => StandaloneDb.openFile(targetDbForRejectedPath)
     );
-    await expect(defaultTransformer.process()).to.be.rejectedWith(
+    await expectTransformerError(
+      defaultTransformer.process(),
+      IModelTransformerError.DanglingReference,
       /Found a reference to an element "[^"]*" that doesn't exist/
     );
     defaultTransformer.targetDb.close();
@@ -3171,9 +3185,9 @@ describe("IModelTransformer", () => {
         () => StandaloneDb.openFile(targetDbForRejectedPath),
         { danglingReferencesBehavior: "reject" }
       );
-    await expect(
-      rejectDanglingReferencesTransformer.process()
-    ).to.be.rejectedWith(
+    await expectTransformerError(
+      rejectDanglingReferencesTransformer.process(),
+      IModelTransformerError.DanglingReference,
       /Found a reference to an element "[^"]*" that doesn't exist/
     );
     defaultTransformer.targetDb.close();
@@ -5763,7 +5777,11 @@ describe("IModelTransformer", () => {
           { source: targetDb, target: editTxn },
           { argsForProcessChanges: {} }
         ); // no sourceEditTxn
-        await expect(transformer.process()).to.be.rejectedWith(/sourceEditTxn/);
+        await expectTransformerError(
+          transformer.process(),
+          IModelTransformerError.SourceEditTxnRequired,
+          /sourceEditTxn/
+        );
         transformer.dispose();
         editTxn.end();
       } finally {

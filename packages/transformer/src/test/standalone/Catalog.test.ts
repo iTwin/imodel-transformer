@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert } from "chai";
+import { assert, expect } from "chai";
 import * as path from "path";
 import {
   DefinitionContainer,
@@ -43,6 +43,7 @@ import {
   Id64,
   Id64Set,
   Id64String,
+  ITwinError,
   Logger,
   LogLevel,
 } from "@itwin/core-bentley";
@@ -75,6 +76,10 @@ import {
   TemplateModelCloner,
 } from "../../IModelTransformer";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
 import { createStartedEditTxn } from "../IModelTransformerUtils";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
@@ -1424,7 +1429,10 @@ describe("Catalog", () => {
     );
 
     // iterate through the imported PhysicalTypes and place instances for each
-    const componentPlacer = new TemplateModelCloner(facilityEditTxn);
+    // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.template-cloner-construction
+    // TemplateModelCloner uses the transaction for its in-place edits.
+    const templateCloner = new TemplateModelCloner(facilityEditTxn);
+    // __PUBLISH_EXTRACT_END__
     const physicalTypeSql = `SELECT ECInstanceId FROM ${PhysicalType.classFullName}`;
     const physicalTypeIds = new Set<Id64String>();
     for await (const row of iModelDb.createQueryReader(
@@ -1435,6 +1443,7 @@ describe("Catalog", () => {
       physicalTypeIds.add(row[0] as Id64String);
     }
     let x = 0;
+    let dependencyErrorAsserted = false;
     for (const physicalTypeId of physicalTypeIds) {
       x += 5;
       const physicalType = iModelDb.elements.getElement<PhysicalType>(
@@ -1446,16 +1455,36 @@ describe("Catalog", () => {
           physicalType.recipe.id,
           TemplateRecipe3d
         );
+        if (!dependencyErrorAsserted) {
+          try {
+            await templateCloner.onTransformElement(physicalType);
+            assert.fail("Expected an unmapped recipe dependency to throw");
+          } catch (error) {
+            expect(
+              ITwinError.isError(
+                error,
+                IModelTransformerErrorScope,
+                IModelTransformerError.DependencyMappingMissing
+              )
+            ).to.be.true;
+            expect(error)
+              .to.have.property("message")
+              .that.matches(/^Remapping for dependency .+ not found$/);
+          }
+          dependencyErrorAsserted = true;
+        }
         const placement = new Placement3d(
           new Point3d(x, 0),
           new YawPitchRollAngles(),
           new Range3d()
         );
-        const templateToInstanceMap = await componentPlacer.placeTemplate3d(
+        // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.template-cloner-placement
+        const templateToInstanceMap = await templateCloner.placeTemplate3d(
           physicalType.recipe.id,
           physicalModelId,
           placement
         );
+        // __PUBLISH_EXTRACT_END__
         const templateEquipmentId = await queryEquipmentId(
           iModelDb,
           physicalType.recipe.id
@@ -1497,7 +1526,7 @@ describe("Catalog", () => {
         new YawPitchRollAngles(),
         new Range3d()
       );
-      const templateToInstanceMap = await componentPlacer.placeTemplate3d(
+      const templateToInstanceMap = await templateCloner.placeTemplate3d(
         assemblyTemplateId,
         physicalModelId,
         placement
@@ -1554,7 +1583,7 @@ describe("Catalog", () => {
     );
     for (const location of drawingGraphicLocations) {
       const placement = new Placement2d(location, Angle.zero(), new Range2d());
-      await componentPlacer.placeTemplate2d(
+      await templateCloner.placeTemplate2d(
         drawingGraphicTemplateId,
         drawingId,
         placement
@@ -1569,7 +1598,8 @@ describe("Catalog", () => {
       drawingGraphicLocations.length
     );
 
-    componentPlacer.dispose();
+    assert.isTrue(dependencyErrorAsserted);
+    templateCloner.dispose();
 
     facilityEditTxn.saveChanges("import from catalog");
     facilityEditTxn.end();

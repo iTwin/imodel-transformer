@@ -17,7 +17,7 @@ import {
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Id64 } from "@itwin/core-bentley";
+import { Id64, ITwinError } from "@itwin/core-bentley";
 import {
   Code,
   GeometryPartProps,
@@ -37,6 +37,10 @@ import {
   IModelExporter,
   IModelExportHandler,
 } from "../../IModelExporter";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
@@ -106,9 +110,96 @@ describe("IModelExporter", () => {
     const defaultExporter = new TestExporter(sourceDb);
     await defaultExporter.exportChanges(skipOnlyOptions);
     expect(defaultExporter.initializedWith).to.deep.equal({
-      startChangeset: { id: undefined },
+      startChangeset: { id: "current-changeset" },
       ...skipOnlyOptions,
     });
+  });
+
+  it("throws typed errors for sources that cannot export changes", async () => {
+    class TestExporter extends IModelExporter {
+      public exportAllCalled = false;
+
+      public override async exportAll(): Promise<void> {
+        this.exportAllCalled = true;
+      }
+    }
+
+    const standaloneExporter = new TestExporter({
+      isBriefcaseDb: () => false,
+    } as unknown as IModelDb);
+    try {
+      await standaloneExporter.exportChanges();
+      assert.fail("Expected exportChanges() to throw");
+    } catch (error) {
+      expect(
+        ITwinError.isError(
+          error,
+          IModelTransformerErrorScope,
+          IModelTransformerError.ExportChangesRequiresBriefcase
+        )
+      ).to.be.true;
+      expect(error).to.have.property(
+        "message",
+        "Must be a briefcase to export changes"
+      );
+    }
+
+    const sourceDb = {
+      changeset: { id: "" },
+      isBriefcaseDb: () => true,
+    } as unknown as IModelDb;
+    const exporter = new TestExporter(sourceDb);
+    try {
+      await exporter.exportChanges();
+      assert.fail("Expected exportChanges() to throw");
+    } catch (error) {
+      expect(
+        ITwinError.isError(
+          error,
+          IModelTransformerErrorScope,
+          IModelTransformerError.NoChangesets
+        )
+      ).to.be.true;
+      expect(error).to.have.property(
+        "message",
+        "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content."
+      );
+    }
+
+    expect(exporter.exportAllCalled).to.be.false;
+  });
+
+  it("exports caller-supplied changes when the source has no changesets", async () => {
+    const sourceDb = {
+      changeset: { id: "" },
+      isBriefcaseDb: () => true,
+    } as unknown as IModelDb;
+    const changedInstanceIds = new ChangedInstanceIds(sourceDb);
+    changedInstanceIds.element.insertIds.add("0x1");
+
+    class TestExporter extends IModelExporter {
+      public exportHookCalled = false;
+
+      public override async exportAll(): Promise<void> {
+        assert.fail("exportChanges() must not fall back to exportAll()");
+      }
+
+      public override async exportCodeSpecs(): Promise<void> {
+        expect(this.sourceDbChanges).to.equal(changedInstanceIds);
+        this.exportHookCalled = true;
+      }
+      public override async exportFonts(): Promise<void> {}
+      public override async exportModel(): Promise<void> {}
+      public override async exportChildElements(): Promise<void> {}
+      public override async exportModelContents(): Promise<void> {}
+      public override async exportSubModels(): Promise<void> {}
+      public override async exportRelationships(): Promise<void> {}
+    }
+
+    const exporter = new TestExporter(sourceDb);
+    await expect(exporter.exportChanges({ changedInstanceIds })).to.eventually
+      .be.fulfilled;
+    expect(exporter.exportHookCalled).to.be.true;
   });
 
   it("export element with brep geometry", async () => {
