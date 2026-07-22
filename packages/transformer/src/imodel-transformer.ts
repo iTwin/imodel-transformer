@@ -133,3 +133,7 @@ if (
  * @docs-group-description Logging
  * Logger categories used by this package.
  */
+/**
+ * @docs-group-description IModelTransformerError
+ * Stable identifiers for errors originating from this package.
+ */

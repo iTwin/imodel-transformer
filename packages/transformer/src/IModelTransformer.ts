@@ -2240,13 +2240,21 @@ export class IModelTransformer extends IModelExportHandler {
         const changeType: SqliteChangeOp | undefined = change.$meta?.op;
         const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
         if (ecClassId === undefined)
-          throw new Error(
-            `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
-          );
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.ChangedInstanceMetadataMissing,
+            },
+            message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`,
+          });
         if (changeType === undefined)
-          throw new Error(
-            `ChangeType was undefined for id: ${change.ECInstanceId}.`
-          );
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.ChangedInstanceMetadataMissing,
+            },
+            message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
+          });
         if (
           changeType !== "Deleted" ||
           relationshipECClassIdsToSkip.has(ecClassId)

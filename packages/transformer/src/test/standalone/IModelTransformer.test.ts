@@ -69,7 +69,6 @@ import {
   Guid,
   Id64,
   Id64String,
-  ITwinError,
   Logger,
   LoggingMetaData,
   LogLevel,
@@ -120,10 +119,7 @@ import {
   IModelTransformOptions,
 } from "../../IModelTransformer";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
-import {
-  IModelTransformerError,
-  IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
+import { IModelTransformerError } from "../../IModelTransformerError";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -132,6 +128,7 @@ import {
   ClassCounter,
   cmpProfileVersion,
   createStartedEditTxn,
+  expectTransformerError,
   FilterByViewTransformer,
   getProfileVersion,
   IModelToTextFileExporter,
@@ -1530,22 +1527,11 @@ describe("IModelTransformer", () => {
     await transformer1.process(); // first one succeeds using IModel.rootSubjectId as the default targetScopeElementId
 
     try {
-      await expect(
-        transformer2.process().catch((error) => {
-          expect(
-            ITwinError.isError(
-              error,
-              IModelTransformerErrorScope,
-              IModelTransformerError.ProvenanceScopeConflict
-            )
-          ).to.be.true;
-          expect(error).to.have.property(
-            "message",
-            "Provenance scope conflict"
-          );
-          throw error;
-        })
-      ).to.be.rejectedWith("Provenance scope conflict");
+      await expectTransformerError(
+        transformer2.process(),
+        IModelTransformerError.ProvenanceScopeConflict,
+        "Provenance scope conflict"
+      );
     } finally {
       transformerEditTxn.end();
       transformer1.dispose();
@@ -1624,22 +1610,11 @@ describe("IModelTransformer", () => {
       source: sourceDb,
       target: editTxn,
     });
-    await expect(
-      transformer.processElement(IModel.rootSubjectId).catch((error) => {
-        expect(
-          ITwinError.isError(
-            error,
-            IModelTransformerErrorScope,
-            IModelTransformerError.RootSubjectNotProcessable
-          )
-        ).to.be.true;
-        expect(error).to.have.property(
-          "message",
-          "The root Subject should not be directly imported"
-        );
-        throw error;
-      })
-    ).to.be.rejectedWith("The root Subject should not be directly imported");
+    await expectTransformerError(
+      transformer.processElement(IModel.rootSubjectId),
+      IModelTransformerError.RootSubjectNotProcessable,
+      "The root Subject should not be directly imported"
+    );
     await transformer.processElement(sourceElementId);
     editTxn.saveChanges();
 
@@ -3076,18 +3051,9 @@ describe("IModelTransformer", () => {
       { preserveElementIdsForFiltering: true }
     );
 
-    await expect(
-      secondTransformer.process().catch((error) => {
-        expect(
-          ITwinError.isError(
-            error,
-            IModelTransformerErrorScope,
-            IModelTransformerError.ElementIdNotPreservable
-          )
-        ).to.be.true;
-        throw error;
-      })
-    ).to.be.rejectedWith(
+    await expectTransformerError(
+      secondTransformer.process(),
+      IModelTransformerError.ElementIdNotPreservable,
       `Element id(${targetSubjectId}) cannot be preserved. Found a different mapping(${newSubjectId}) from source element`
     );
 
@@ -3170,18 +3136,9 @@ describe("IModelTransformer", () => {
       { preserveElementIdsForFiltering: true }
     );
 
-    await expect(
-      secondTransformer.process().catch((error) => {
-        expect(
-          ITwinError.isError(
-            error,
-            IModelTransformerErrorScope,
-            IModelTransformerError.ElementIdNotPreservable
-          )
-        ).to.be.true;
-        throw error;
-      })
-    ).to.be.rejectedWith(
+    await expectTransformerError(
+      secondTransformer.process(),
+      IModelTransformerError.ElementIdNotPreservable,
       `Element id(${targetSubjectId1}) cannot be preserved. An unrelated element in the target already uses id: ${targetSubjectId1}`
     );
 
@@ -3211,34 +3168,15 @@ describe("IModelTransformer", () => {
     const targetDbForRejectedPath = targetDbForRejected.pathName;
     targetDbForRejected.close();
 
-    const expectDanglingReference = async (
-      promise: Promise<unknown>
-    ): Promise<void> => {
-      let error: unknown;
-      try {
-        await promise;
-      } catch (caughtError) {
-        error = caughtError;
-      }
-      expect(
-        ITwinError.isError(
-          error,
-          IModelTransformerErrorScope,
-          IModelTransformerError.DanglingReference
-        )
-      ).to.be.true;
-      expect(error)
-        .to.have.property("message")
-        .that.matches(
-          /Found a reference to an element "[^"]*" that doesn't exist/
-        );
-    };
-
     const defaultTransformer = new ShiftedIdsEmptyTargetTransformer(
       sourceDb,
       () => StandaloneDb.openFile(targetDbForRejectedPath)
     );
-    await expectDanglingReference(defaultTransformer.process());
+    await expectTransformerError(
+      defaultTransformer.process(),
+      IModelTransformerError.DanglingReference,
+      /Found a reference to an element "[^"]*" that doesn't exist/
+    );
     defaultTransformer.targetDb.close();
 
     const rejectDanglingReferencesTransformer =
@@ -3247,8 +3185,10 @@ describe("IModelTransformer", () => {
         () => StandaloneDb.openFile(targetDbForRejectedPath),
         { danglingReferencesBehavior: "reject" }
       );
-    await expectDanglingReference(
-      rejectDanglingReferencesTransformer.process()
+    await expectTransformerError(
+      rejectDanglingReferencesTransformer.process(),
+      IModelTransformerError.DanglingReference,
+      /Found a reference to an element "[^"]*" that doesn't exist/
     );
     defaultTransformer.targetDb.close();
 
@@ -5837,18 +5777,11 @@ describe("IModelTransformer", () => {
           { source: targetDb, target: editTxn },
           { argsForProcessChanges: {} }
         ); // no sourceEditTxn
-        await expect(
-          transformer.process().catch((error) => {
-            expect(
-              ITwinError.isError(
-                error,
-                IModelTransformerErrorScope,
-                IModelTransformerError.SourceEditTxnRequired
-              )
-            ).to.be.true;
-            throw error;
-          })
-        ).to.be.rejectedWith(/sourceEditTxn/);
+        await expectTransformerError(
+          transformer.process(),
+          IModelTransformerError.SourceEditTxnRequired,
+          /sourceEditTxn/
+        );
         transformer.dispose();
         editTxn.end();
       } finally {
