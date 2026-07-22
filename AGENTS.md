@@ -51,9 +51,20 @@ Local and CI Node versions can differ. Treat the CI workflow (`.github/workflows
 - Package CI/release: **GitHub Actions** (`.github/workflows/`). CI = build + lint + test on a core-version matrix.
 - Docs: **Azure Pipelines** (`.azure-pipelines/generate-docs.yaml`), delegating to the shared `docs-build.yaml@itwinjs-core` job — part of the docs path lives outside this repo.
 
+## Error ownership
+
+Use the error type to communicate who owns the failure and whether consumers can recover from it:
+
+- For consumer-actionable conditions detected by this package, throw `ITwinError` with `IModelTransformerErrorScope` and a member of `IModelTransformerError`. Treat these identifiers as stable API; consumers should branch on the scope and key, not the message.
+- Preserve errors originating from core/backend/database APIs. In particular, rethrow core-created `IModelError` instances unchanged unless the transformer deliberately translates the failure into a more specific package-owned condition.
+- When translating a caught error, use a transformer error identifier and retain the original error as `cause`.
+- Use plain `Error` or an assertion for impossible internal states and implementation bugs. Do not add stable transformer error identifiers for conditions consumers cannot reasonably handle.
+- Do not construct new `IModelError` instances for transformer-owned conditions; `IModelError` status handling is reserved for errors originating from iTwin.js core APIs.
+
 ## Changes / PR hygiene
 
 - Versioning/changelog is **beachball**. Every PR that changes published behavior needs a change file (`pnpm change`); `pnpm check` enforces it.
+- Document minor and major release changes in `docs/changehistory/NEXT_VERSION.md`, including migration steps for breaking changes.
 - Pick the change `type` deliberately: use **`major`** for breaking changes (e.g. the edit-txn requirement), not `patch`.
 
 ## Agent guardrails

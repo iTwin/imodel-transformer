@@ -2,7 +2,7 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import { Id64String } from "@itwin/core-bentley";
+import { Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   ElementOwnsExternalSourceAspects,
   ExternalSourceAspect,
@@ -12,6 +12,10 @@ import { IModel } from "@itwin/core-common";
 import type { TargetScopeProvenanceJsonProps } from "./IModelTransformer";
 import type { IModelCloneContext } from "./IModelCloneContext";
 import { ProvenanceManager } from "./ProvenanceManager";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
 
 /** @internal */
 export type SyncType = "not-sync" | "forward" | "reverse";
@@ -92,7 +96,13 @@ export class SyncTypeResolver {
     if (esaPropsFromSourceDb !== undefined) {
       return "reverse";
     }
-    throw new Error(SyncTypeResolver.noEsaSyncDirectionErrorMessage);
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.SynchronizationTypeNotDetermined,
+      },
+      message: SyncTypeResolver.noEsaSyncDirectionErrorMessage,
+    });
   }
 
   /** Returns the sync type, lazily resolving it on first call. */

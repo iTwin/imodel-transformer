@@ -43,7 +43,11 @@ import { expect } from "chai";
 import * as sinon from "sinon";
 import { Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
-import { createStartedEditTxn } from "../IModelTransformerUtils";
+import {
+  createStartedEditTxn,
+  expectTransformerError,
+} from "../IModelTransformerUtils";
+import { IModelTransformerError } from "../../IModelTransformerError";
 
 interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
@@ -772,13 +776,13 @@ describe("Non Linear Geolocation Transformations", () => {
       tryAlignGeolocation: true,
     };
 
-    expect(
+    await expectTransformerError(
       () =>
         new IModelTransformer(
           { source: sourceDb, target: editTxn },
           transformerOptions
-        )
-    ).to.throw(
+        ),
+      IModelTransformerError.GeographicCoordinateSystemUnavailable,
       "Target iModel does not have a geographic coordinate system defined."
     );
 
@@ -837,13 +841,13 @@ describe("Non Linear Geolocation Transformations", () => {
       tryAlignGeolocation: true,
     };
 
-    expect(
+    await expectTransformerError(
       () =>
         new IModelTransformer(
           { source: sourceDb, target: editTxn },
           transformerOptions
-        )
-    ).to.throw(
+        ),
+      IModelTransformerError.GeographicCoordinateSystemMismatch,
       "Source and target geographic coordinate systems must match to calculate the spatial transform."
     );
 
