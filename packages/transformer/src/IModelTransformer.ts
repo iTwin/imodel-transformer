@@ -2358,10 +2358,13 @@ export class IModelTransformer extends IModelExportHandler {
         sourceIdOfRelationshipInSource === undefined ||
         targetIdOfRelationshipInSource === undefined
       ) {
-        throw new IModelError(
-          IModelStatus.BadElement,
-          `Relationship deletion ${changedInstanceId} is missing an endpoint.`
-        );
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.ChangedInstanceMetadataMissing,
+          },
+          message: `Relationship deletion ${changedInstanceId} is missing an endpoint.`,
+        });
       }
 
       const sourceIdOfRelationshipInTarget = await getTargetIdFromSourceId(

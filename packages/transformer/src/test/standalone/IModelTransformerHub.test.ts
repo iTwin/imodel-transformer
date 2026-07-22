@@ -97,6 +97,7 @@ import {
   assertTransformerError,
   CountingIModelImporter,
   createStartedEditTxn,
+  expectTransformerError,
   HubWrappers,
   IModelToTextFileExporter,
   IModelTransformerTestUtils,
@@ -6977,6 +6978,33 @@ describe("IModelTransformerHub", () => {
     afterEach(async () => {
       await closeAndDeleteBriefcase(sourceDb);
       await closeAndDeleteBriefcase(targetDb);
+    });
+
+    it("identifies a relationship deletion missing an endpoint", async () => {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+      try {
+        await expectTransformerError(
+          transformer["processDeletedOp"](
+            {
+              ecInstanceId: "0x123",
+              ecClassId: "0x456",
+            },
+            new Map(),
+            true,
+            new Set<Id64String>(),
+            new Set<Id64String>()
+          ),
+          IModelTransformerError.ChangedInstanceMetadataMissing,
+          "Relationship deletion 0x123 is missing an endpoint."
+        );
+      } finally {
+        transformer.dispose();
+        editTxn.end();
+      }
     });
 
     it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
