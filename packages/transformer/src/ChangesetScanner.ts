@@ -8,6 +8,7 @@ import {
   ChangesetReader,
   IModelDb,
   PartialChangeUnifier,
+  PropertyFilter,
 } from "@itwin/core-backend";
 import { Id64String } from "@itwin/core-bentley";
 import { ChangesetFileProps } from "@itwin/core-common";
@@ -76,6 +77,7 @@ export class ChangesetScanner {
       const csReader = ChangesetReader.openFile({
         fileName: csFile.pathname,
         db: iModel,
+        propFilter: PropertyFilter.BisCoreElement,
       });
       const changeUnifier = new PartialChangeUnifier();
       try {

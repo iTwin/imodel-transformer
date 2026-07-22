@@ -39,6 +39,7 @@ import {
   PhysicalObject,
   PhysicalPartition,
   PhysicalType,
+  PropertyFilter,
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
@@ -7256,6 +7257,11 @@ describe("IModelTransformerHub", () => {
       expect(
         openFileSpy.getCalls().map(({ args }) => args[0].fileName)
       ).to.deep.equal(selectedChangesetPaths);
+      expect(
+        openFileSpy.getCalls().map(({ args }) => args[0].propFilter)
+      ).to.deep.equal(
+        selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
+      );
 
       // Assert: Verify element is deleted in target
       const targetElement2 = IModelTestUtils.queryByUserLabel(
