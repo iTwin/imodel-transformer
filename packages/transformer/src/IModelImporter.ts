@@ -491,18 +491,22 @@ export class IModelImporter {
     }
 
     const elementId: Id64String = aspectPropsArray[0].element.id;
-    // Determine the set of ElementMultiAspect classes to consider
-    const aspectClassFullNames = new Set<string>();
-    aspectPropsArray.forEach((aspectsProps: ElementAspectProps): void => {
-      aspectClassFullNames.add(aspectsProps.classFullName);
+    const proposedAspectsByClass = new Map<
+      string,
+      Array<{ props: ElementAspectProps; index: number }>
+    >();
+    aspectPropsArray.forEach((props, index): void => {
+      const proposedAspects =
+        proposedAspectsByClass.get(props.classFullName) ?? [];
+      proposedAspects.push({ props, index });
+      proposedAspectsByClass.set(props.classFullName, proposedAspects);
     });
 
     // Handle ElementMultiAspects in groups by class
-    for (const aspectClassFullName of aspectClassFullNames) {
-      const proposedAspects = aspectPropsArray
-        .map((props, index) => ({ props, index }))
-        .filter(({ props }) => aspectClassFullName === props.classFullName);
-
+    for (const [
+      aspectClassFullName,
+      proposedAspects,
+    ] of proposedAspectsByClass) {
       const currentAspects = this.targetDb.elements
         .getAspects(elementId, aspectClassFullName)
         .map((props, index) => ({ props, index }) as const)
