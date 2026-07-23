@@ -2,8 +2,8 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import util from "util";
-import child_proc from "child_process";
+import util from "node:util";
+import child_proc from "node:child_process";
 
 export async function getBranchName(): Promise<string> {
   let branch: string;

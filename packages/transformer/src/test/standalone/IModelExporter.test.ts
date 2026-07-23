@@ -28,8 +28,8 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { assert, expect } from "chai";
-import * as path from "path";
+import { assert, expect } from "vitest";
+import * as path from "node:path";
 import {
   ChangedInstanceIds,
   ExportChangesOptions,
@@ -45,12 +45,10 @@ import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
-
 describe("IModelExporter", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelExporter");
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -197,8 +195,7 @@ describe("IModelExporter", () => {
     }
 
     const exporter = new TestExporter(sourceDb);
-    await expect(exporter.exportChanges({ changedInstanceIds })).to.eventually
-      .be.fulfilled;
+    await exporter.exportChanges({ changedInstanceIds });
     expect(exporter.exportHookCalled).to.be.true;
   });
 
@@ -255,7 +252,7 @@ describe("IModelExporter", () => {
     const exporter = new IModelExporter(sourceDb);
     exporter.registerHandler(new TestFlatImportHandler());
     exporter.wantGeometry = true;
-    await expect(exporter.exportAll()).to.eventually.be.fulfilled;
+    await exporter.exportAll();
 
     const geomPartInTarget = flatTargetDb.elements.getElement<GeometryPart>(
       { id: geomPartId, wantGeometry: true, wantBRepData: true },
@@ -362,9 +359,7 @@ describe("IModelExporter", () => {
       });
 
       const exporter = new IModelExporter(sourceDb);
-      await expect(
-        exporter.exportRelationships(ElementRefersToElements.classFullName)
-      ).to.eventually.be.fulfilled;
+      await exporter.exportRelationships(ElementRefersToElements.classFullName);
 
       const targetRelationships = [];
       for await (const row of targetDb.createQueryReader(

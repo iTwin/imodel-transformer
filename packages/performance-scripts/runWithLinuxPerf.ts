@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
 const usageText = `\
 To use this the 'linux-perf' PROFILE_TYPE, you must include the
@@ -21,19 +21,21 @@ PERF_WARMUP_DELAY='500' # the amount of time to wait for perf to initialize befo
 The program will now exit.
 `;
 
-if (!(
-  (process.env.NODE_OPTIONS?.includes("--perf-basic-prof")
-  || process.env.NODE_OPTIONS?.includes("--perf-prof"))
-  && process.env.NODE_OPTIONS?.includes("--interpreted-frames-native-stack")
-)) {
+if (
+  !(
+    (process.env.NODE_OPTIONS?.includes("--perf-basic-prof") ||
+      process.env.NODE_OPTIONS?.includes("--perf-prof")) &&
+    process.env.NODE_OPTIONS?.includes("--interpreted-frames-native-stack")
+  )
+) {
   console.error(usageText);
   process.exit(1);
 }
 
-import * as path from "path";
-import * as fs from "fs";
-import * as v8 from "v8";
-import * as child_process from "child_process";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import * as v8 from "node:v8";
+import * as child_process from "node:child_process";
 
 let attachedLinuxPerf: child_process.ChildProcess | undefined = undefined;
 
@@ -72,27 +74,32 @@ export async function runWithLinuxPerf<F extends () => any>(
     { stdio: "inherit" }
   );
 
-  await new Promise((res, rej) => attachedLinuxPerf!.on("spawn", res).on("error", rej));
+  await new Promise((res, rej) =>
+    attachedLinuxPerf!.on("spawn", res).on("error", rej)
+  );
 
   // FIXME: listen for some verbose perf output or something to determine when it's started listening. Or maybe wait for SIGPROF?
   // give perf a moment to attach
   const perfWarmupDelay = +(process.env.PERF_WARMUP_DELAY || 500);
-  await new Promise(r => setTimeout(r, perfWarmupDelay));
+  await new Promise((r) => setTimeout(r, perfWarmupDelay));
 
   const result = await f();
 
-  const attachedPerfExited = new Promise((res, rej) => attachedLinuxPerf!.on("exit", res).on("error", rej));
+  const attachedPerfExited = new Promise((res, rej) =>
+    attachedLinuxPerf!.on("exit", res).on("error", rej)
+  );
   attachedLinuxPerf.kill("SIGTERM");
   await attachedPerfExited;
 
   const maybeNameTimePortion = timestamp ? `_${new Date().toISOString()}` : "";
-  const profilePath = path.join(profileDir, `${profileName}${maybeNameTimePortion}${profileExtension}`);
-
-  const perfDump = child_process.spawn(
-    "perf",
-    ["script", "-f"],
-    { stdio: ["inherit", "pipe", "inherit"] }
+  const profilePath = path.join(
+    profileDir,
+    `${profileName}${maybeNameTimePortion}${profileExtension}`
   );
+
+  const perfDump = child_process.spawn("perf", ["script", "-f"], {
+    stdio: ["inherit", "pipe", "inherit"],
+  });
 
   const outStream = fs.createWriteStream(profilePath);
   perfDump.stdout.pipe(outStream);
@@ -108,18 +115,24 @@ export async function runWithLinuxPerf<F extends () => any>(
   return result;
 }
 
-export default function RunWithLinuxPerf(funcData: { object: any, key: string }[]) {
+export default function RunWithLinuxPerf(
+  funcData: { object: any; key: string }[]
+) {
   for (const { object, key } of funcData) {
     const original = object[key];
     object[key] = function (...args: any[]) {
-      return runWithLinuxPerf(() => {
-        const result = original.call(this, ...args);
-        const isPromise = Promise.resolve(result) === result;
-        if (!isPromise)
-          throw Error("runWithLinuxPerf only supports instrumenting async functions!")
-        return result;
-      }, { profileName: key });
+      return runWithLinuxPerf(
+        () => {
+          const result = original.call(this, ...args);
+          const isPromise = Promise.resolve(result) === result;
+          if (!isPromise)
+            throw Error(
+              "runWithLinuxPerf only supports instrumenting async functions!"
+            );
+          return result;
+        },
+        { profileName: key }
+      );
     };
   }
-};
-
+}

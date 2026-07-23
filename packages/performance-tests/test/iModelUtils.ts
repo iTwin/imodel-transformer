@@ -2,8 +2,8 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   ElementGroupsMembers,
   IModelDb,
@@ -15,9 +15,8 @@ import {
 } from "@itwin/core-backend";
 import { Guid, OpenMode } from "@itwin/core-bentley";
 import { Code } from "@itwin/core-common";
-import { initOutputFile } from "./TestUtils";
+import { createBox, initOutputFile } from "./TestUtils";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import { getTShirtSizeFromName, TestIModel } from "./TestContext";
 
 const outputDir = path.join(__dirname, ".output");
@@ -64,7 +63,7 @@ export function generateTestIModel(iModelParam: IModelParams): TestIModel {
           {
             classFullName: PhysicalObject.classFullName,
             category: categoryId,
-            geom: IModelTransformerTestUtils.createBox(Point3d.create(i, i, i)),
+            geom: createBox(Point3d.create(i, i, i)),
             placement: {
               origin: Point3d.create(i, i, i),
               angles: YawPitchRollAngles.createDegrees(i, i, i),

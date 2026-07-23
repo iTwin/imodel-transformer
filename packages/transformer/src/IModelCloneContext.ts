@@ -5,7 +5,7 @@
 /** @packageDocumentation
  * @module iModels
  */
-import * as assert from "assert";
+import { strict as assert } from "node:assert";
 import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,

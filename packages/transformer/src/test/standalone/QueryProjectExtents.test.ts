@@ -5,9 +5,8 @@
 
 /* eslint-disable @itwin/no-internal */
 
-import { expect } from "chai";
-import * as path from "path";
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import { expect } from "vitest";
+import * as path from "node:path";
 import {
   BriefcaseDb,
   BriefcaseManager,
@@ -37,13 +36,13 @@ describe("computeProjectExtents with no geometry", () => {
   );
   let iTwinId: GuidString;
 
-  before(() => {
+  beforeAll(() => {
     HubMock.startup("QueryProjectExtents", KnownTestLocations.outputDir);
     iTwinId = HubMock.iTwinId;
     IModelJsFs.recursiveMkDirSync(outputDir);
   });
 
-  after(() => {
+  afterAll(() => {
     HubMock.shutdown();
   });
 

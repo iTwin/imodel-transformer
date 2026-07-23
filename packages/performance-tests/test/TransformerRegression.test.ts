@@ -9,8 +9,8 @@
  */
 
 import "./setup";
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import {
   BriefcaseDb,
@@ -36,7 +36,7 @@ import {
 } from "./TestUtils";
 import { getBranchName } from "./GitUtils";
 import { getTestIModels } from "./TestContext";
-import assert from "assert";
+import assert from "node:assert";
 import nativeTransformerTestModule from "./transformers/NativeTransformer";
 import rawForkCreateFedGuidsTestModule from "./transformers/RawForkCreateFedGuids";
 import rawForkOperationsTestModule from "./transformers/RawForkOperations";

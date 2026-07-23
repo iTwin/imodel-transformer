@@ -179,17 +179,16 @@ jobs:
     - name: Install dependencies
       run: pnpm install
 
-    # `cover` runs mocha against the compiled lib/cjs output, so build first.
-    - name: Build transformer
-      run: pnpm --filter @itwin/imodel-transformer build
-
-    # Gate: `cover` runs nyc with check-coverage, failing on a threshold breach.
-    # pipefail (GitHub bash default) aborts before the summary line on failure.
+    # Vitest's V8 provider enforces the package's coverage thresholds.
     - name: Check coverage thresholds
       shell: bash
       run: |
-        pnpm --filter @itwin/imodel-transformer cover 2>&1 | tee coverage.log
-        awk '/Statements/{s=$3} /Branches/{b=$3} /Functions/{f=$3} /Lines/{l=$3} \
-          END{printf "Coverage — Statements %s · Branches %s · Functions %s · Lines %s\n", s, b, f, l}' \
-          coverage.log >> "$GITHUB_STEP_SUMMARY"
+        pnpm --filter @itwin/imodel-transformer cover
+        node <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+        const { total } = require("./packages/transformer/coverage/coverage-summary.json");
+        console.log("### Coverage\n");
+        console.log("| Statements | Branches | Functions | Lines |");
+        console.log("| ---: | ---: | ---: | ---: |");
+        console.log(`| ${total.statements.pct}% | ${total.branches.pct}% | ${total.functions.pct}% | ${total.lines.pct}% |`);
+        EOF
 

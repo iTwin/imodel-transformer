@@ -3,11 +3,10 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
-import * as fs from "fs";
-import * as path from "path";
+import { assert, expect } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as Semver from "semver";
-import * as sinon from "sinon";
 import {
   CategorySelector,
   DefinitionModel,
@@ -142,7 +141,6 @@ import {
 } from "../IModelTransformerUtils";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
@@ -182,7 +180,7 @@ describe("IModelTransformer", () => {
     }
   }
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -205,7 +203,7 @@ describe("IModelTransformer", () => {
     }
   });
 
-  after(async () => {
+  afterAll(async () => {
     await ReusedSnapshots.cleanup();
   });
 
@@ -1986,29 +1984,28 @@ describe("IModelTransformer", () => {
       target: editTxn,
     });
 
-    const importSchemasResolved = sinon.spy();
+    const importSchemasResolved = vi.fn();
     let importSchemasPromise: Promise<void>;
 
-    sinon.replace(
-      targetDb,
-      "importSchemas",
-      sinon.fake(async () => {
-        importSchemasPromise = new Promise((resolve) =>
-          setImmediate(() => {
-            importSchemasResolved();
-            resolve(undefined);
-          })
-        );
-        return importSchemasPromise;
-      })
-    );
+    vi.spyOn(targetDb, "importSchemas").mockImplementation(async () => {
+      importSchemasPromise = new Promise((resolve) =>
+        setImmediate(() => {
+          importSchemasResolved();
+          resolve(undefined);
+        })
+      );
+      return importSchemasPromise;
+    });
 
-    const removeSyncSpy = sinon.spy(IModelJsFs, "removeSync");
+    const removeSyncSpy = vi.spyOn(IModelJsFs, "removeSync");
 
     await transformer.processSchemas();
-    assert(removeSyncSpy.calledAfter(importSchemasResolved));
+    assert(
+      Math.max(...removeSyncSpy.mock.invocationCallOrder) >
+        Math.max(...importSchemasResolved.mock.invocationCallOrder)
+    );
 
-    sinon.restore();
+    vi.restoreAllMocks();
     sourceDb.close();
     targetDb.close();
   });
@@ -2079,8 +2076,8 @@ describe("IModelTransformer", () => {
       target: editTxn,
     });
 
-    await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
-    await expect(transformer.process()).to.eventually.be.fulfilled;
+    await transformer.processSchemas();
+    await transformer.process();
 
     // check if target imodel has the elements that source imodel had
     expect(targetDb.codeSpecs.hasName("MyCodeSpec")).to.be.true;
@@ -2204,8 +2201,8 @@ describe("IModelTransformer", () => {
       target: editTxn,
     });
 
-    await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
-    await expect(transformer.process()).to.eventually.be.fulfilled;
+    await transformer.processSchemas();
+    await transformer.process();
 
     // check if target imodel has the elements that source imodel had
     expect(targetDb.codeSpecs.hasName("ModelCodeSpec")).to.be.true;
@@ -3209,7 +3206,7 @@ describe("IModelTransformer", () => {
         createTargetDb,
         opts
       );
-      await expect(transformer.process()).not.to.be.rejected;
+      await transformer.process();
       transformer.editTxn.saveChanges("save changes");
       transformer.editTxn.end();
 
@@ -3383,7 +3380,7 @@ describe("IModelTransformer", () => {
       multiAspectProps.identifier
     );
 
-    sinon.restore();
+    vi.restoreAllMocks();
     targetTxn.end();
     sourceDb.close();
     targetDb.close();
@@ -3686,7 +3683,7 @@ describe("IModelTransformer", () => {
     expect(targetRelationships).to.have.lengthOf(1);
     expect(targetRelationships[0].prop).to.equal(relPropValue);
 
-    sinon.restore();
+    vi.restoreAllMocks();
     sourceDb.close();
     targetDb.close();
   });
@@ -3894,8 +3891,8 @@ describe("IModelTransformer", () => {
       { includeSourceProvenance: true }
     );
 
-    await expect(transformer.processSchemas()).to.eventually.be.fulfilled;
-    await expect(transformer.process()).to.eventually.be.fulfilled;
+    await transformer.processSchemas();
+    await transformer.process();
 
     const elem1InTargetId = transformer.context.findTargetElementId(elem1Id);
     const elem1AspectsInTarget = targetDb.elements.getAspects(elem1InTargetId);
@@ -4083,8 +4080,7 @@ describe("IModelTransformer", () => {
       target: editTxn,
     });
     assert.isTrue(transformer.context.isBetweenIModels);
-    // no need to expect.eventually.fulfilled, because chai-as-promised ellipses long error messages so best
-    // to just let it throw itself since that's what we're testing
+    // Let the operation throw directly so failures retain their full error messages.
     await transformer.processSchemas();
     transformer.dispose();
   });
@@ -4569,7 +4565,7 @@ describe("IModelTransformer", () => {
       source: sourceDb,
       target: editTxn,
     });
-    await expect(transformer.process()).not.to.be.rejected;
+    await transformer.process();
     editTxn.saveChanges();
 
     const targetElement11 = targetDb.elements.getElement(
@@ -4672,7 +4668,7 @@ describe("IModelTransformer", () => {
       }
     }
 
-    // using this class instead of sinon.replace provides some gurantees that subclasses can use the onExportSchema result as expected
+    // This class ensures subclasses can use the onExportSchema result as expected.
     class TrackSchemaExportsTransformer extends IModelTransformer {
       public constructor(source: IModelDb, target: IModelDb) {
         const editTxn = new EditTxn(target, "IModelTransformer");
@@ -4694,7 +4690,7 @@ describe("IModelTransformer", () => {
 
     try {
       // force import references out of order to make sure we hit an issue if schema locator can't find things
-      sinon.replace(IModelJsFs, "readdirSync", () =>
+      vi.spyOn(IModelJsFs, "readdirSync").mockImplementation(() =>
         outOfOrderExportedSchemas.map((s) => path.basename(s))
       );
       await transformer.processSchemas();
@@ -4704,7 +4700,7 @@ describe("IModelTransformer", () => {
       sourceDb.close();
       targetDb.close();
       transformer.dispose();
-      sinon.restore();
+      vi.restoreAllMocks();
     }
   });
 
@@ -4982,9 +4978,9 @@ describe("IModelTransformer", () => {
     });
   });
 
-  it("should remap textures in target iModel", async function () {
+  it("should remap textures in target iModel", async (ctx) => {
     const atleastInItjs4x = Semver.gte(coreBackendPkgJson.version, "4.0.0");
-    if (!atleastInItjs4x) this.skip();
+    if (!atleastInItjs4x) ctx.skip();
 
     // create source iModel
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
@@ -5242,7 +5238,7 @@ describe("IModelTransformer", () => {
   });
 
   /** unskip to generate a javascript CPU profile on just the processAll portion of an iModel */
-  it.skip("should profile an IModel transformation", async function () {
+  it.skip("should profile an IModel transformation", async (ctx) => {
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
       "ProfileTransformation.bim"
@@ -5272,7 +5268,7 @@ describe("IModelTransformer", () => {
         await transformer.process();
       },
       {
-        profileName: `newbranch_${this.test?.title.replace(/ /g, "_")}`,
+        profileName: `newbranch_${ctx.task.name.replace(/ /g, "_")}`,
         timestamp: true,
         sampleIntervalMicroSec: 30, // this is a quick transformation, let's get more resolution
       }

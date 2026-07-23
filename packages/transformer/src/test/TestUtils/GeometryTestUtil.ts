@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as fs from "fs";
+import * as fs from "node:fs";
 import { Point3d, Transform, YawPitchRollAngles } from "@itwin/core-geometry";
 import { BRepEntity, ColorDef } from "@itwin/core-common";
 import { IModelTestUtils } from "./IModelTestUtils";

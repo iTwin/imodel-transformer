@@ -24,7 +24,7 @@ import {
   IModel,
 } from "@itwin/core-common";
 import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
-import { expect } from "chai";
+import { expect } from "vitest";
 
 describe("ChangedInstanceIds", () => {
   const outputDir = path.join(
@@ -44,7 +44,7 @@ describe("ChangedInstanceIds", () => {
   let parentRelationshipId: Id64String;
   let relationshipId: Id64String;
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -116,7 +116,7 @@ describe("ChangedInstanceIds", () => {
     });
   });
 
-  after(() => {
+  afterAll(() => {
     sourceDb.close();
   });
 
