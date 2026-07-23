@@ -4,7 +4,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "vitest";
+import { assert, expect, vi } from "vitest";
 import * as path from "node:path";
 import * as semver from "semver";
 import {
@@ -12,6 +12,7 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   CategorySelector,
+  ChangesetReader,
   DefinitionContainer,
   DefinitionModel,
   DefinitionPartition,
@@ -38,6 +39,7 @@ import {
   PhysicalObject,
   PhysicalPartition,
   PhysicalType,
+  PropertyFilter,
   SnapshotDb,
   SpatialCategory,
   SpatialViewDefinition,
@@ -95,6 +97,7 @@ import {
   assertTransformerError,
   CountingIModelImporter,
   createStartedEditTxn,
+  expectTransformerError,
   HubWrappers,
   IModelToTextFileExporter,
   IModelTransformerTestUtils,
@@ -6971,6 +6974,33 @@ describe("IModelTransformerHub", () => {
       await closeAndDeleteBriefcase(targetDb);
     });
 
+    it("identifies a relationship deletion missing an endpoint", async () => {
+      const editTxn = createStartedEditTxn(targetDb);
+      const transformer = new IModelTransformer({
+        source: sourceDb,
+        target: editTxn,
+      });
+      try {
+        await expectTransformerError(
+          transformer["processDeletedOp"](
+            {
+              ecInstanceId: "0x123",
+              ecClassId: "0x456",
+            },
+            new Map(),
+            true,
+            new Set<Id64String>(),
+            new Set<Id64String>()
+          ),
+          IModelTransformerError.ChangedInstanceMetadataMissing,
+          "Relationship deletion 0x123 is missing an endpoint."
+        );
+      } finally {
+        transformer.dispose();
+        editTxn.end();
+      }
+    });
+
     it("should skip unchanged parent elements but still export changed child elements during processChanges", async () => {
       // Create a model with a parent element and a child element
       const { parentElementId, childElementId } = withEditTxn(
@@ -7249,12 +7279,32 @@ describe("IModelTransformerHub", () => {
         { argsForProcessChanges: {} }
       );
       await transformer.processSchemas();
-      await transformer.process();
-      secondTransformEditTxn.end();
-      await targetDb.pushChanges({
-        description: "Transformation 2: Process Changes with deletion",
-        retainLocks: true,
-      });
+      const openFileSpy = vi.spyOn(ChangesetReader, "openFile");
+      try {
+        await transformer.process();
+        secondTransformEditTxn.end();
+        await targetDb.pushChanges({
+          description: "Transformation 2: Process Changes with deletion",
+          retainLocks: true,
+        });
+
+        const selectedChangesetPaths = transformer["_csFileProps"]!.map(
+          (csFile) => csFile.pathname
+        );
+        expect(openFileSpy).toHaveBeenCalledTimes(
+          selectedChangesetPaths.length
+        );
+        expect(
+          openFileSpy.mock.calls.map(([args]) => args.fileName)
+        ).to.deep.equal(selectedChangesetPaths);
+        expect(
+          openFileSpy.mock.calls.map(([args]) => args.propFilter)
+        ).to.deep.equal(
+          selectedChangesetPaths.map(() => PropertyFilter.BisCoreElement)
+        );
+      } finally {
+        openFileSpy.mockRestore();
+      }
 
       // Assert: Verify element is deleted in target
       const targetElement2 = IModelTestUtils.queryByUserLabel(
