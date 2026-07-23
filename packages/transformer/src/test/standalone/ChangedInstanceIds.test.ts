@@ -5,6 +5,8 @@
 import * as path from "node:path";
 import { KnownTestLocations } from "../TestUtils";
 import {
+  ChangeInstance,
+  ChangesetReader,
   DocumentListModel,
   Drawing,
   ElementGroupsMembers,
@@ -12,19 +14,27 @@ import {
   ExternalSourceAspect,
   IModelDb,
   IModelJsFs,
+  PropertyFilter,
   SnapshotDb,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  expectTransformerError,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 import { Id64String } from "@itwin/core-bentley";
 import {
+  ChangesetFileProps,
   ElementProps,
   ExternalSourceAspectProps,
   IModel,
 } from "@itwin/core-common";
 import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
 import { expect } from "chai";
+import * as sinon from "sinon";
+import { ChangesetScanner } from "../../ChangesetScanner";
+import { IModelTransformerError } from "../../IModelTransformerError";
 
 describe("ChangedInstanceIds", () => {
   const outputDir = path.join(
@@ -43,6 +53,50 @@ describe("ChangedInstanceIds", () => {
   let parentAspect1Id: Id64String;
   let parentRelationshipId: Id64String;
   let relationshipId: Id64String;
+
+  describe("error propagation", () => {
+    it("identifies missing changed-instance metadata", async () => {
+      const changes = new ChangedInstanceIds(sourceDb);
+      const change = {
+        ECInstanceId: "0x1",
+        $meta: {
+          op: "Updated",
+          stage: "New",
+          tables: ["bis_Element"],
+          changeIndexes: [1],
+          instanceKey: "0x1-0x0",
+          propFilter: PropertyFilter.InstanceKey,
+          changeFetchedPropNames: [],
+          isIndirectChange: false,
+        },
+      } as ChangeInstance;
+
+      await expectTransformerError(
+        changes.addChange(change),
+        IModelTransformerError.ChangedInstanceMetadataMissing,
+        "ECClassId was not found for id: 0x1! Table is : bis_Element"
+      );
+    });
+
+    it("preserves ChangesetReader errors", async () => {
+      const readerError = new Error("reader failed");
+      const openFileStub = sinon
+        .stub(ChangesetReader, "openFile")
+        .throws(readerError);
+      try {
+        await ChangesetScanner.scan(
+          sourceDb,
+          [{ pathname: "unused" } as ChangesetFileProps],
+          new ChangedInstanceIds(sourceDb)
+        );
+        expect.fail("Expected scan to throw");
+      } catch (error) {
+        expect(error).to.equal(readerError);
+      } finally {
+        openFileStub.restore();
+      }
+    });
+  });
 
   before(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
