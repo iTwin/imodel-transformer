@@ -512,7 +512,7 @@ export class IModelExporter {
     } else {
       await this.exportModel(IModel.repositoryModelId);
     }
-    await this.exportAllAspects();
+    await this.exportElementAspects();
     await this.exportRelationships(ElementRefersToElements.classFullName);
 
     // handle deletes
@@ -976,8 +976,9 @@ export class IModelExporter {
   }
 
   /** Exports all aspects present in the iModel.
+   * @internal
    */
-  private async exportAllAspects(): Promise<void> {
+  public async exportElementAspects(): Promise<void> {
     return this._exportElementAspectsStrategy.exportAllElementAspects();
   }
 

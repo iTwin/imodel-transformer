@@ -1,5 +1,28 @@
 # Next release notes
 
+## Breaking change: `IModelTransformer` no longer extends `IModelExportHandler`
+
+`IModelTransformer` now registers a dedicated internal `IModelExportHandler` with its exporter instead of acting as the export handler itself. Existing transformer subclass overrides such as `shouldExportElement()`, `onExportElement()`, `onProgress()`, and `onSkipElement()` continue to be invoked with the same behavior.
+
+Code that treated an `IModelTransformer` instance as an `IModelExportHandler` must use a separate handler for direct `IModelExporter` workflows:
+
+```ts
+const transformer = new IModelTransformer({
+  source: sourceDb,
+  target: targetEditTxn,
+});
+
+// The transformer configures its own internal export handler.
+await transformer.process();
+
+// Direct exporter workflows require their own handler.
+const exporter = new IModelExporter(sourceDb);
+exporter.registerHandler(myExportHandler);
+await exporter.exportAll();
+```
+
+The `IModelTransformer.exporter` property and support for passing a preconfigured exporter as `IModelTransformArgs.source` are unchanged.
+
 ## Breaking change: transformer errors now have stable identifiers
 
 Errors detected and owned by `@itwin/imodel-transformer` now use `ITwinError` with scope `@itwin/imodel-transformer` and a key from `IModelTransformerError`. These errors previously used a mix of `IModelError` and plain `Error`.

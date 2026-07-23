@@ -209,6 +209,80 @@ describe("IModelTransformer", () => {
     await ReusedSnapshots.cleanup();
   });
 
+  it("should use a dedicated export handler and preserve callback dispatch", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "DedicatedExportHandler-Source.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "DedicatedExportHandler-Source" },
+    });
+    const [excludedElementId] = withEditTxn(
+      sourceDb,
+      "insert test subjects",
+      (txn) => [
+        Subject.insert(txn, IModel.rootSubjectId, "Excluded"),
+        Subject.insert(txn, IModel.rootSubjectId, "Exported"),
+      ]
+    );
+
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "DedicatedExportHandler-Target.bim"
+    );
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "DedicatedExportHandler-Target" },
+    });
+
+    class CapturingExporter extends IModelExporter {
+      public registeredHandler?: IModelExportHandler;
+
+      public override registerHandler(handler: IModelExportHandler): void {
+        this.registeredHandler = handler;
+        super.registerHandler(handler);
+      }
+    }
+
+    class CallbackTransformer extends IModelTransformer {
+      public progressCount = 0;
+      public skippedElementIds: Id64String[] = [];
+
+      public override async onProgress(): Promise<void> {
+        ++this.progressCount;
+      }
+
+      public override async onSkipElement(
+        sourceElementId: Id64String
+      ): Promise<void> {
+        this.skippedElementIds.push(sourceElementId);
+      }
+    }
+
+    const exporter = new CapturingExporter(sourceDb);
+    exporter.excludeElement(excludedElementId);
+    exporter.progressInterval = 1;
+    const editTxn = new EditTxn(targetDb, "dedicated export handler");
+    editTxn.start();
+    const transformer = new CallbackTransformer(
+      { source: exporter, target: editTxn },
+      { noProvenance: true }
+    );
+
+    expect(exporter.registeredHandler).to.be.instanceOf(IModelExportHandler);
+    expect(exporter.registeredHandler).not.to.equal(transformer);
+    expect(transformer).not.to.be.instanceOf(IModelExportHandler);
+
+    await transformer.processChildElements(IModel.rootSubjectId);
+
+    expect(transformer.skippedElementIds).to.deep.equal([excludedElementId]);
+    expect(transformer.progressCount).to.be.greaterThan(0);
+
+    transformer.dispose();
+    editTxn.end();
+    sourceDb.close();
+    targetDb.close();
+  });
+
   it("should transform changes from source to target", async () => {
     // Source IModelDb
     const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
