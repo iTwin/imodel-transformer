@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Use ChangeInstance and ChangesetReader for changeset processing",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
