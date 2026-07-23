@@ -81,7 +81,7 @@ describe("IModelImporter", () => {
     }
   });
 
-  it("importElementMultiAspects deletes surplus aspects via onDeleteElementAspect", async () => {
+  it("importElementMultiAspects preserves result order when deleting surplus aspects", async () => {
     const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
       "IModelImporter",
       "DeleteElementAspect.bim"
@@ -94,6 +94,9 @@ describe("IModelImporter", () => {
 <ECSchema schemaName="TestImporterSchema" alias="tis" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
   <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
   <ECEntityClass typeName="TestMultiAspect" modifier="Sealed">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+  </ECEntityClass>
+  <ECEntityClass typeName="OtherTestMultiAspect" modifier="Sealed">
     <BaseClass>bis:ElementMultiAspect</BaseClass>
   </ECEntityClass>
 </ECSchema>`;
@@ -112,8 +115,10 @@ describe("IModelImporter", () => {
       );
 
       const aspectClassFullName = "TestImporterSchema:TestMultiAspect";
-      const makeAspectProps = (): ElementAspectProps => ({
-        classFullName: aspectClassFullName,
+      const otherAspectClassFullName =
+        "TestImporterSchema:OtherTestMultiAspect";
+      const makeAspectProps = (classFullName: string): ElementAspectProps => ({
+        classFullName,
         element: new ElementOwnsMultiAspects(elementId),
       });
 
@@ -121,18 +126,37 @@ describe("IModelImporter", () => {
       const importer = new IModelImporter(editTxn);
 
       await importer.importElementMultiAspects([
-        makeAspectProps(),
-        makeAspectProps(),
+        makeAspectProps(aspectClassFullName),
+        makeAspectProps(aspectClassFullName),
+        makeAspectProps(otherAspectClassFullName),
+      ]);
+      editTxn.saveChanges();
+      const currentAspects = targetDb.elements.getAspects(
+        elementId,
+        aspectClassFullName
+      );
+      const currentOtherAspects = targetDb.elements.getAspects(
+        elementId,
+        otherAspectClassFullName
+      );
+      expect(
+        currentAspects.length,
+        "two aspects should have been inserted"
+      ).to.equal(2);
+      expect(
+        currentOtherAspects.length,
+        "one other aspect should have been inserted"
+      ).to.equal(1);
+
+      const result = await importer.importElementMultiAspects([
+        makeAspectProps(otherAspectClassFullName),
+        makeAspectProps(aspectClassFullName),
       ]);
       editTxn.saveChanges();
       expect(
-        targetDb.elements.getAspects(elementId, aspectClassFullName).length,
-        "two aspects should have been inserted"
-      ).to.equal(2);
-
-      // Re-import with one aspect: the surplus is removed via onDeleteElementAspect.
-      await importer.importElementMultiAspects([makeAspectProps()]);
-      editTxn.saveChanges();
+        result,
+        "ids should follow the proposed aspect order"
+      ).to.deep.equal([currentOtherAspects[0].id, currentAspects[0].id]);
       expect(
         targetDb.elements.getAspects(elementId, aspectClassFullName).length,
         "surplus aspect should have been deleted"
