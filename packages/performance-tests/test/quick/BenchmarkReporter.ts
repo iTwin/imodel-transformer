@@ -36,6 +36,15 @@ export class BenchmarkReporter {
     samples: readonly BenchmarkSample[],
     jobMilliseconds?: number
   ): void {
+    if (samples.length === 0)
+      throw new Error("Cannot report an empty quick performance sample set");
+    const scenarioIds = new Set(samples.map((sample) => sample.scenarioId));
+    if (scenarioIds.size !== 1)
+      throw new Error(
+        `Cannot mix quick performance scenarios in one report: ${[
+          ...scenarioIds,
+        ].join(", ")}`
+      );
     const measured = samples.filter((sample) => sample.measured);
     const walls = measured.map((sample) => sample.wallMilliseconds);
     const wallMedian = median(walls);
@@ -53,6 +62,7 @@ export class BenchmarkReporter {
       fixtureId: measured[0]?.fixtureId,
       jobMilliseconds,
       measuredSamples: measured.length,
+      scenarioId: samples[0].scenarioId,
       varianceStatus: classifyVariance(
         measured.length,
         wallCoefficientOfVariation,
@@ -98,8 +108,9 @@ export class BenchmarkReporter {
     fs.writeFileSync(
       path.join(outputDir, "summary.csv"),
       [
-        "fixture,measuredSamples,jobMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs",
+        "scenario,fixture,measuredSamples,jobMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs",
         [
+          summary.scenarioId,
           summary.fixtureId,
           summary.measuredSamples,
           summary.jobMilliseconds ?? "",

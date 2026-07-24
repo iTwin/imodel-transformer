@@ -5,6 +5,10 @@
 
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
+import {
+  BenchmarkScenario,
+  BenchmarkScenarioDefinition,
+} from "../BenchmarkScenario";
 import { PreparedDataset } from "../FixtureMaterializer";
 import { createStartedEditTxn } from "../LocalHubFixture";
 import {
@@ -12,15 +16,9 @@ import {
   assertSynchronizationProvenance,
 } from "../validation/validateFixture";
 
-export interface PreparedIncrementalSynchronization {
-  abort(): void;
-  finish(): Promise<string>;
-  measure(): Promise<void>;
-}
-
 export function incrementalSynchronization(
   dataset: PreparedDataset
-): PreparedIncrementalSynchronization {
+): BenchmarkScenario {
   if (!HubMock.isValid)
     throw new Error("Quick performance scenarios require an active HubMock");
   const editTxn = createStartedEditTxn(dataset.hub.targetDb);
@@ -53,3 +51,8 @@ export function incrementalSynchronization(
     },
   };
 }
+
+export const incrementalSynchronizationScenario: BenchmarkScenarioDefinition = {
+  id: "incremental-synchronization",
+  factory: incrementalSynchronization,
+};

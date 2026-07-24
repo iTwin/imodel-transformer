@@ -11,6 +11,7 @@ import {
   prepareBenchmarkOutputDirectory,
 } from "./BenchmarkRunner";
 import { balancedIncrementalDescriptor } from "./FixtureCatalog";
+import { getScenarioDefinition } from "./ScenarioCatalog";
 
 function writeManifest(outputDir: string): void {
   fs.writeFileSync(
@@ -30,9 +31,11 @@ async function main() {
     return;
   }
   if (command === "verify-fixture") {
+    const scenario = getScenarioDefinition(process.env.QUICK_PERF_SCENARIO);
     const samples = await new BenchmarkRunner(
       balancedIncrementalDescriptor,
-      outputDir
+      outputDir,
+      scenario
     ).run(1);
     if (new Set(samples.map((sample) => sample.semanticDigest)).size !== 1)
       throw new Error("Fixture reconstruction is not deterministic");

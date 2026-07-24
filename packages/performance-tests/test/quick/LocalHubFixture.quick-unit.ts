@@ -23,6 +23,8 @@ import {
 } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { IModelTransformer } from "@itwin/imodel-transformer";
+import { BenchmarkReporter } from "./BenchmarkReporter";
+import { BenchmarkScenarioDefinition } from "./BenchmarkScenario";
 import {
   benchmarkOutputMarkerName,
   BenchmarkRunner,
@@ -36,6 +38,10 @@ import {
   ReconstructedHub,
   reconstructHub,
 } from "./LocalHubFixture";
+import {
+  incrementalSynchronization,
+  incrementalSynchronizationScenario,
+} from "./scenarios/incrementalSynchronization";
 import { assertSynchronizationProvenance } from "./validation/validateFixture";
 
 function required<T>(value: T | undefined, name: string): T {
@@ -152,7 +158,8 @@ describe("LocalHubFixture reconstruction", () => {
     try {
       await new BenchmarkRunner(
         balancedIncrementalDescriptor,
-        unsafeOutput
+        unsafeOutput,
+        incrementalSynchronizationScenario
       ).run(1);
     } catch (error) {
       failure = error;
@@ -181,7 +188,8 @@ describe("LocalHubFixture reconstruction", () => {
     try {
       await new BenchmarkRunner(
         balancedIncrementalDescriptor,
-        path.join(outputDir, "zero-samples")
+        path.join(outputDir, "zero-samples"),
+        incrementalSynchronizationScenario
       ).run(0);
     } catch (error) {
       failure = error;
@@ -289,6 +297,143 @@ describe("LocalHubFixture reconstruction", () => {
         .undefined;
     } finally {
       if (hub) await disposeReconstructedHub(hub);
+    }
+  });
+});
+
+describe("BenchmarkRunner scenario injection", function () {
+  this.timeout(5 * 60 * 1000);
+
+  const testDescriptor = {
+    ...balancedIncrementalDescriptor,
+    id: "balanced-incremental-runner-test",
+    distribution: {
+      base: {
+        aspects: 480,
+        elements: 240,
+        geometricElements: 120,
+        relationships: 120,
+      },
+      operations: {
+        aspects: { deletes: 48, inserts: 24, updates: 24 },
+        elements: { deletes: 24, inserts: 24, updates: 24 },
+        geometryUpdates: 6,
+        relationships: { deletes: 33, inserts: 12, updates: 12 },
+        sourceChangesets: 8,
+      },
+    },
+  };
+
+  it("uses the injected factory, propagates its identity, and cleans every sample", async () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-perf-injected-")
+    );
+    const calls = { abort: 0, factory: 0, finish: 0, measure: 0 };
+    const scenario: BenchmarkScenarioDefinition = {
+      id: "injected-scenario",
+      factory: (dataset) => {
+        calls.factory++;
+        const delegate = incrementalSynchronization(dataset);
+        return {
+          abort() {
+            calls.abort++;
+            delegate.abort();
+          },
+          async finish() {
+            calls.finish++;
+            return delegate.finish();
+          },
+          async measure() {
+            calls.measure++;
+            await delegate.measure();
+          },
+        };
+      },
+    };
+    try {
+      const samples = await new BenchmarkRunner(
+        testDescriptor,
+        outputDir,
+        scenario
+      ).run(1);
+      expect(calls).to.deep.equal({
+        abort: 2,
+        factory: 2,
+        finish: 2,
+        measure: 2,
+      });
+      expect(samples.map((sample) => sample.scenarioId)).to.deep.equal([
+        scenario.id,
+        scenario.id,
+      ]);
+      expect(HubMock.isValid).to.be.false;
+      expect(
+        fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
+      ).to.be.empty;
+
+      BenchmarkReporter.write(outputDir, samples);
+      const jsonLines = fs
+        .readFileSync(path.join(outputDir, "samples.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { scenarioId: string });
+      expect(jsonLines.map((sample) => sample.scenarioId)).to.deep.equal([
+        scenario.id,
+        scenario.id,
+      ]);
+      const summary = JSON.parse(
+        fs.readFileSync(path.join(outputDir, "summary.json"), "utf8")
+      ) as { scenarioId: string };
+      expect(summary.scenarioId).to.equal(scenario.id);
+      expect(
+        fs.readFileSync(path.join(outputDir, "summary.csv"), "utf8")
+      ).to.match(/^scenario,fixture,.+\ninjected-scenario,/);
+      expect(() =>
+        BenchmarkReporter.write(outputDir, [
+          samples[0],
+          { ...samples[1], scenarioId: "different-scenario" },
+        ])
+      ).to.throw("Cannot mix quick performance scenarios");
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("aborts and tears down the reconstructed hub after a scenario failure", async () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-perf-failure-")
+    );
+    let aborts = 0;
+    const scenario: BenchmarkScenarioDefinition = {
+      id: "failing-scenario",
+      factory: () => ({
+        abort() {
+          aborts++;
+        },
+        async finish() {
+          throw new Error("finish must not run");
+        },
+        async measure() {
+          throw new Error("expected scenario failure");
+        },
+      }),
+    };
+    let failure: unknown;
+    try {
+      await new BenchmarkRunner(testDescriptor, outputDir, scenario).run(1);
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      expect(failure).to.be.instanceOf(Error);
+      expect((failure as Error).message).to.equal("expected scenario failure");
+      expect(aborts).to.equal(1);
+      expect(HubMock.isValid).to.be.false;
+      expect(
+        fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
+      ).to.be.empty;
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
     }
   });
 });

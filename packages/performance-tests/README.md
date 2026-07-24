@@ -23,10 +23,16 @@ pnpm --dir ../transformer build:cjs
 pnpm test:quick
 ```
 
-The default is one warm-up plus eight measured samples. Set
-`QUICK_PERF_SAMPLES` only for local diagnostics. Reports are written under
-`test/quick/.quick-output/` unless `QUICK_PERF_OUTPUT` is set and include
-`samples.jsonl`, `summary.json`, and `summary.csv`.
+The default scenario is `incremental-synchronization`, selected with
+`QUICK_PERF_SCENARIO`. Unknown scenario names fail before fixture
+reconstruction. The default run is sample 0 as a warm-up plus eight measured
+samples. Each sample is a fresh reconstruction, one timed scenario execution,
+and untimed verification and cleanup. The warm-up follows the same lifecycle
+but is excluded from summary timing statistics. Set `QUICK_PERF_SAMPLES` only
+for local diagnostics. Reports are written under `test/quick/.quick-output/`
+unless `QUICK_PERF_OUTPUT` is set and include `samples.jsonl`, `summary.json`,
+and `summary.csv`. Every sample and report includes the scenario ID, and the
+reporter rejects mixed-scenario sample sets.
 
 The calibrated fixture contains 6,000 base elements, 12,000 aspects, 3,000
 relationships, and 3,000 geometry-bearing elements. Its eight changesets apply
@@ -35,14 +41,31 @@ deletes, 300 relationship inserts/updates, 825 relationship deletes, and 150
 geometry updates. This is 25 deterministic repetitions of one balanced content
 unit, preserving the original scenario ratios.
 
-`varianceStatus` requires coefficient of variation and normalized MAD at or
-below 5%. An unstable manual run emits a workflow warning and must not be used
-as regression evidence. It does not currently fail the manual workflow: six
-local calibration suites informed the final scale, and three ratio-correct final
-suites on a shared workstation produced 1.38-1.48 second medians but only two
-met the CV threshold. A hard gate would therefore have false-failed one of three
-final runs. Revisit the failure policy after repeated measurements on the target
-Windows runner or a dedicated performance agent.
+`varianceStatus` requires coefficient of variation (standard deviation divided
+by mean) and normalized MAD at or below 5%. CV can exceed the target when host
+scheduling or background load delays one sample. An unstable manual run emits a
+workflow warning and must not be used as regression evidence, but correctness
+and the 15-minute budget remain hard gates. Variance does not currently fail the
+manual workflow: six local calibration suites informed the final scale, and
+three ratio-correct final suites on a shared workstation produced 1.38-1.48
+second medians but only two met the CV threshold. A hard gate would therefore
+have false-failed one of three final runs. The GitHub workflow now targets
+`ubuntu-latest`, but no Linux reliability evidence exists until that workflow
+runs. Revisit the failure policy after repeated measurements on the hosted
+Linux runner or a dedicated performance agent.
+
+The GitHub Actions workflow is manual-only. Select the branch with GitHub's
+native workflow ref and the scenario with its dispatch input:
+
+```sh
+gh workflow run quick-performance.yml --ref <branch> \
+  -f scenario=incremental-synchronization
+```
+
+GitHub can dispatch this workflow only after `quick-performance.yml` exists on
+the repository's default branch. The `--ref` selects which committed branch
+revision runs after that requirement is met; there is intentionally no custom
+branch input and no automatic pull-request or push trigger.
 
 `pnpm quick:build-fixture` writes the canonical recipe manifest.
 `pnpm quick:verify-fixture` performs two fresh reconstructions (warm-up plus one

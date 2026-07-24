@@ -2,16 +2,31 @@ name: Quick performance
 
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: Quick performance scenario
+        required: true
+        default: incremental-synchronization
+        type: choice
+        options:
+          - incremental-synchronization
+
+permissions:
+  contents: read
 
 jobs:
-  balanced-incremental:
-    name: Balanced incremental
-    runs-on: windows-latest
+  quick-performance:
+    name: ${{ inputs.scenario }}
+    runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      NODE_OPTIONS: --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
 
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
@@ -29,35 +44,51 @@ jobs:
         run: pnpm --dir packages/transformer build:cjs
 
       - name: Validate quick harness
-        run: >-
-          pnpm --dir packages/performance-tests exec mocha
-          --timeout 300000
-          --require ts-node/register
-          test/quick/FixtureManifest.quick-unit.ts
-          test/quick/statistics.quick-unit.ts
-          test/quick/LocalHubFixture.quick-unit.ts
+        run: |
+          pnpm --dir packages/performance-tests exec mocha \
+            --timeout 300000 \
+            --require ts-node/register \
+            test/quick/FixtureManifest.quick-unit.ts \
+            test/quick/ScenarioCatalog.quick-unit.ts \
+            test/quick/statistics.quick-unit.ts \
+            test/quick/LocalHubFixture.quick-unit.ts \
+            2>&1 | sed \
+              -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
+              -e "s#${RUNNER_TEMP}#<runner-temp>#g"
 
       - name: Run quick performance suite
-        run: pnpm --dir packages/performance-tests test:quick
+        run: |
+          pnpm --dir packages/performance-tests test:quick \
+            2>&1 | sed \
+              -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
+              -e "s#${RUNNER_TEMP}#<runner-temp>#g"
         env:
           QUICK_PERF_OUTPUT: ${{ runner.temp }}/quick-performance
+          QUICK_PERF_SCENARIO: ${{ inputs.scenario }}
 
       - name: Report variance reliability
         if: always()
-        shell: pwsh
+        shell: bash
         run: |
-          $report = "${{ runner.temp }}/quick-performance/summary.json"
-          if (Test-Path $report) {
-            $summary = Get-Content $report | ConvertFrom-Json
-            "### Quick performance reliability" >> $env:GITHUB_STEP_SUMMARY
-            "Status: **$($summary.varianceStatus)**" >> $env:GITHUB_STEP_SUMMARY
-            "CV: $($summary.wallMilliseconds.coefficientOfVariation)" >> $env:GITHUB_STEP_SUMMARY
-            "Normalized MAD: $($summary.wallMilliseconds.normalizedMad)" >> $env:GITHUB_STEP_SUMMARY
-            "Unstable samples: $($summary.unstableSamples -join ', ')" >> $env:GITHUB_STEP_SUMMARY
-            if ($summary.varianceStatus -ne "stable") {
-              Write-Output "::warning title=Unstable quick performance variance::Do not use this run as regression evidence."
-            }
-          }
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+          const report = path.join(process.env.RUNNER_TEMP, "quick-performance", "summary.json");
+          if (!fs.existsSync(report))
+            process.exit(0);
+          const summary = JSON.parse(fs.readFileSync(report, "utf8"));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            "### Quick performance reliability",
+            `Scenario: **${summary.scenarioId}**`,
+            `Status: **${summary.varianceStatus}**`,
+            `CV: ${summary.wallMilliseconds.coefficientOfVariation}`,
+            `Normalized MAD: ${summary.wallMilliseconds.normalizedMad}`,
+            `Unstable samples: ${summary.unstableSamples.join(", ")}`,
+            "",
+          ].join("\n"));
+          if (summary.varianceStatus !== "stable")
+            console.log("::warning title=Unstable quick performance variance::Do not use this run as regression evidence.");
+          NODE
 
       - name: Publish report
         if: always()

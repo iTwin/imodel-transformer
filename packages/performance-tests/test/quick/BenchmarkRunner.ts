@@ -7,10 +7,13 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { IModelHost } from "@itwin/core-backend";
+import {
+  BenchmarkScenario,
+  BenchmarkScenarioDefinition,
+} from "./BenchmarkScenario";
 import { DatasetDescriptor } from "./DatasetDescriptor";
 import { materializeFixture, PreparedDataset } from "./FixtureMaterializer";
 import { disposeReconstructedHub } from "./LocalHubFixture";
-import { incrementalSynchronization } from "./scenarios/incrementalSynchronization";
 
 export const benchmarkOutputMarkerName =
   ".imodel-transformer-quick-performance";
@@ -89,7 +92,7 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
 }
 
 async function cleanupSample(
-  scenario: ReturnType<typeof incrementalSynchronization> | undefined,
+  scenario: BenchmarkScenario | undefined,
   dataset: PreparedDataset | undefined,
   sampleDir: string
 ): Promise<unknown[]> {
@@ -121,6 +124,7 @@ export interface BenchmarkSample {
   readonly reconstructionMilliseconds: number;
   readonly rssDeltaBytes: number;
   readonly sample: number;
+  readonly scenarioId: string;
   readonly semanticDigest: string;
   readonly teardownMilliseconds: number;
   readonly verificationMilliseconds: number;
@@ -130,7 +134,8 @@ export interface BenchmarkSample {
 export class BenchmarkRunner {
   public constructor(
     private readonly _descriptor: DatasetDescriptor,
-    private readonly _outputDir: string
+    private readonly _outputDir: string,
+    private readonly _scenario: BenchmarkScenarioDefinition
   ) {}
 
   public async run(measuredSamples = 8): Promise<BenchmarkSample[]> {
@@ -145,7 +150,7 @@ export class BenchmarkRunner {
       for (let sample = 0; sample <= measuredSamples; sample++) {
         const sampleDir = path.join(this._outputDir, `sample-${sample}`);
         let dataset: PreparedDataset | undefined;
-        let scenario: ReturnType<typeof incrementalSynchronization> | undefined;
+        let scenario: BenchmarkScenario | undefined;
         let operationError: Error | undefined;
         let completedSample:
           | Omit<BenchmarkSample, "teardownMilliseconds">
@@ -156,7 +161,7 @@ export class BenchmarkRunner {
             sampleDir,
             `quick-sample-${sample}`
           );
-          scenario = incrementalSynchronization(dataset);
+          scenario = this._scenario.factory(dataset);
           const rssBefore = process.memoryUsage().rss;
           const cpuBefore = process.cpuUsage();
           const wallStart = process.hrtime.bigint();
@@ -178,6 +183,7 @@ export class BenchmarkRunner {
             reconstructionMilliseconds: dataset.reconstructionMilliseconds,
             rssDeltaBytes,
             sample,
+            scenarioId: this._scenario.id,
             semanticDigest,
             verificationMilliseconds,
             wallMilliseconds,
