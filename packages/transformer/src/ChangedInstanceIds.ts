@@ -9,16 +9,13 @@
 import {
   BriefcaseDb,
   BriefcaseManager,
-  ChangedECInstance,
-  ChangesetECAdaptor,
+  ChangeInstance,
   ElementMultiAspect,
   ElementRefersToElements,
   ElementUniqueAspect,
   IModelDb,
   IModelJsNative,
-  PartialECChangeUnifier,
   SqliteChangeOp,
-  SqliteChangesetReader,
 } from "@itwin/core-backend";
 import {
   Id64,
@@ -34,6 +31,7 @@ import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "./IModelTransformerError";
+import { ChangesetScanner } from "./ChangesetScanner";
 
 /**
  * Arguments for [[ChangedInstanceIds.initialize]]
@@ -198,24 +196,23 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
+   * Adds the provided [[ChangeInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
+   * @param change Changed EC instance with the ID, operation, and EC class ID of the changed entity.
    */
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  public async addChange(change: ChangedECInstance): Promise<void> {
+  public async addChange(change: ChangeInstance): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    const ecClassId = change.ECClassId;
     if (ecClassId === undefined)
       ITwinError.throwError({
         iTwinErrorId: {
           scope: IModelTransformerErrorScope,
           key: IModelTransformerError.ChangedInstanceMetadataMissing,
         },
-        message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`,
+        message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
       });
-    const changeType: SqliteChangeOp | undefined = change.$meta?.op;
+    const changeType: SqliteChangeOp | undefined = change.$meta.op;
     if (changeType === undefined)
       ITwinError.throwError({
         iTwinErrorId: {
@@ -543,43 +540,7 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-
-    for (const csFile of csFileProps) {
-      const csReader = SqliteChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: opts.iModel,
-        disableSchemaCheck: true,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
-
-      for (const change of changes) {
-        // Change is recorded at table level, not EC entity level.
-        // This `change.$meta.op` operation overwrite is needed to properly handle scenario when:
-        // 1. Source has an EC class with less than 32 properties. There are existing elements for that class.
-        // 2. Class is then updated to have more than 32 properties. Which means overflow table is now needed to store its elements.
-        //  During schema update all elements that belong to updated class, will be expanded into overflow table.
-        // 3. Changeset will have a record about `insert` operation into overflow table for already existing elements.
-        // This fix will overwrite such 'insert' and 'delete' operations to 'update' as no changes are done to main table.
-        // It ensures that changes will be processed and squashed correctly.
-        if (
-          change.$meta &&
-          (change.$meta.op === "Inserted" || change.$meta.op === "Deleted") &&
-          change.$meta.tables.every((e) => e.endsWith("Overflow"))
-        ) {
-          change.$meta.op = "Updated";
-        }
-        await changedInstanceIds.addChange(change);
-      }
-      csReader.close();
-    }
+    await ChangesetScanner.scan(opts.iModel, csFileProps, changedInstanceIds);
     return changedInstanceIds;
   }
 }

@@ -539,18 +539,22 @@ export class IModelImporter {
     }
 
     const elementId: Id64String = aspectPropsArray[0].element.id;
-    // Determine the set of ElementMultiAspect classes to consider
-    const aspectClassFullNames = new Set<string>();
-    aspectPropsArray.forEach((aspectsProps: ElementAspectProps): void => {
-      aspectClassFullNames.add(aspectsProps.classFullName);
+    const proposedAspectsByClass = new Map<
+      string,
+      Array<{ props: ElementAspectProps; index: number }>
+    >();
+    aspectPropsArray.forEach((props, index): void => {
+      const proposedAspects =
+        proposedAspectsByClass.get(props.classFullName) ?? [];
+      proposedAspects.push({ props, index });
+      proposedAspectsByClass.set(props.classFullName, proposedAspects);
     });
 
     // Handle ElementMultiAspects in groups by class
-    for (const aspectClassFullName of aspectClassFullNames) {
-      const proposedAspects = aspectPropsArray
-        .map((props, index) => ({ props, index }))
-        .filter(({ props }) => aspectClassFullName === props.classFullName);
-
+    for (const [
+      aspectClassFullName,
+      proposedAspects,
+    ] of proposedAspectsByClass) {
       const currentAspects = this.targetDb.elements
         .getAspects(elementId, aspectClassFullName)
         .map((props, index) => ({ props, index }) as const)
@@ -574,13 +578,14 @@ export class IModelImporter {
         }
       } else {
         for (let index = 0; index < currentAspects.length; index++) {
-          const { props, index: resultIndex } = currentAspects[index];
-          let id: Id64String;
+          const { props } = currentAspects[index];
           if (index < proposedAspects.length) {
-            id = props.id;
-            proposedAspects[index].props.id = id;
-            if (hasEntityChanged(props, proposedAspects[index].props)) {
-              await this.onUpdateElementAspect(proposedAspects[index].props);
+            const { props: proposedProps, index: resultIndex } =
+              proposedAspects[index];
+            const id = props.id;
+            proposedProps.id = id;
+            if (hasEntityChanged(props, proposedProps)) {
+              await this.onUpdateElementAspect(proposedProps);
             }
             result[resultIndex] = id;
           } else {
@@ -590,8 +595,8 @@ export class IModelImporter {
       }
     }
 
-    assert(result.every((r) => typeof r !== undefined));
-    return result as Id64String[];
+    assert(result.every((r) => r !== undefined));
+    return result;
   }
 
   /** Insert the ElementAspect into the target iModel.

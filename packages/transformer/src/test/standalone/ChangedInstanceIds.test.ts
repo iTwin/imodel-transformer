@@ -6,6 +6,8 @@ import * as path from "node:path";
 import * as sinon from "sinon";
 import { KnownTestLocations } from "../TestUtils";
 import {
+  ChangeInstance,
+  ChangesetReader,
   DocumentListModel,
   Drawing,
   ElementGroupsMembers,
@@ -13,13 +15,18 @@ import {
   ExternalSourceAspect,
   IModelDb,
   IModelJsFs,
+  PropertyFilter,
   SnapshotDb,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
+import {
+  expectTransformerError,
+  IModelTransformerTestUtils,
+} from "../IModelTransformerUtils";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
 import {
+  ChangesetFileProps,
   ElementProps,
   ExternalSourceAspectProps,
   IModel,
@@ -34,6 +41,7 @@ import {
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
 import { expect } from "chai";
+import { ChangesetScanner } from "../../ChangesetScanner";
 
 describe("ChangedInstanceIds", () => {
   const outputDir = path.join(
@@ -52,6 +60,50 @@ describe("ChangedInstanceIds", () => {
   let parentAspect1Id: Id64String;
   let parentRelationshipId: Id64String;
   let relationshipId: Id64String;
+
+  describe("error propagation", () => {
+    it("identifies missing changed-instance metadata", async () => {
+      const changes = new ChangedInstanceIds(sourceDb);
+      const change = {
+        ECInstanceId: "0x1",
+        $meta: {
+          op: "Updated",
+          stage: "New",
+          tables: ["bis_Element"],
+          changeIndexes: [1],
+          instanceKey: "0x1-0x0",
+          propFilter: PropertyFilter.InstanceKey,
+          changeFetchedPropNames: [],
+          isIndirectChange: false,
+        },
+      } as ChangeInstance;
+
+      await expectTransformerError(
+        changes.addChange(change),
+        IModelTransformerError.ChangedInstanceMetadataMissing,
+        "ECClassId was not found for id: 0x1! Table is : bis_Element"
+      );
+    });
+
+    it("preserves ChangesetReader errors", async () => {
+      const readerError = new Error("reader failed");
+      const openFileStub = sinon
+        .stub(ChangesetReader, "openFile")
+        .throws(readerError);
+      try {
+        await ChangesetScanner.scan(
+          sourceDb,
+          [{ pathname: "unused" } as ChangesetFileProps],
+          new ChangedInstanceIds(sourceDb)
+        );
+        expect.fail("Expected scan to throw");
+      } catch (error) {
+        expect(error).to.equal(readerError);
+      } finally {
+        openFileStub.restore();
+      }
+    });
+  });
 
   before(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
@@ -592,15 +644,21 @@ describe("ChangedInstanceIds", () => {
       expect(await reader.step()).to.be.true;
       const classId = reader.current[0];
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      await sourceDbChanges.addChange({
+      const change: ChangeInstance = {
         ECInstanceId: aspect1Id,
         ECClassId: classId,
         $meta: {
           op: "Updated",
+          stage: "New",
           tables: ["bis_ExternalSourceAspect"],
-          classFullName: ExternalSourceAspect.classFullName,
+          changeIndexes: [1],
+          instanceKey: `${classId}-${aspect1Id}`,
+          propFilter: PropertyFilter.InstanceKey,
+          changeFetchedPropNames: [],
+          isIndirectChange: false,
         },
-      } as Parameters<ChangedInstanceIds["addChange"]>[0]);
+      };
+      await sourceDbChanges.addChange(change);
 
       expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
         childDrawing1.id,

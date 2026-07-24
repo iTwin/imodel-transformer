@@ -5,7 +5,7 @@
 ```ts
 
 import { BriefcaseDb } from '@itwin/core-backend';
-import { ChangedECInstance } from '@itwin/core-backend';
+import { ChangeInstance } from '@itwin/core-backend';
 import { ChangesetFileProps } from '@itwin/core-common';
 import { ChangesetIndexAndId } from '@itwin/core-common';
 import { CodeSpec } from '@itwin/core-common';
@@ -46,7 +46,7 @@ import { Transform } from '@itwin/core-geometry';
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
-    addChange(change: ChangedECInstance): Promise<void>;
+    addChange(change: ChangeInstance): Promise<void>;
     // @beta
     addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta

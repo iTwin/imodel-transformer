@@ -170,6 +170,32 @@ await initializeBranchProvenance({ master, branch: branchDb });
 // No migration needed — works the same as before.
 ```
 
+## Breaking changes: `ChangedInstanceIds.addChange`
+
+`ChangedInstanceIds.addChange` now accepts a
+[`ChangeInstance`](https://www.itwinjs.org/reference/core-backend/ecdb/changeinstance/)
+from the new iTwin.js changeset APIs instead of the deprecated
+`ChangedECInstance`.
+
+If you call `addChange` directly, use `ChangesetReader` and
+`PartialChangeUnifier` to produce the input:
+
+```ts
+using reader = ChangesetReader.openFile({ db, fileName: changesetPath });
+using unifier = new PartialChangeUnifier();
+
+while (reader.step()) {
+  unifier.appendFrom(reader);
+}
+
+for (const change of unifier.instances) {
+  await changedInstanceIds.addChange(change);
+}
+```
+
+The transformer uses the same reader and unifier to collect changed instance
+IDs and deletion metadata in one pass per selected changeset file.
+
 ## Breaking changes: `IModelTransformer` provenance APIs reorganized
 
 As part of [the decomposition of `IModelTransformer`](https://github.com/iTwin/imodel-transformer/pull/295), synchronization direction resolution and provenance management were moved into focused internal classes. Most commonly used `IModelTransformer` APIs remain available, including `initElementProvenance()`, `getSynchronizationVersion()`, `tryGetProvenanceScopeAspect()`, `initScopeProvenance()`, and `updateSynchronizationVersion()`.

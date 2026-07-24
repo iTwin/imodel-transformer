@@ -33,9 +33,6 @@ import {
 import {
   BriefcaseManager,
   // eslint-disable-next-line @typescript-eslint/no-deprecated
-  ChangedECInstance,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  ChangesetECAdaptor,
   ChangeSummaryManager,
   ChannelRootAspect,
   ConcreteEntity,
@@ -61,15 +58,10 @@ import {
   InformationPartitionElement,
   KnownLocations,
   Model,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   RelationshipProps,
   Schema,
-  SqliteChangeOp,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  SqliteChangesetReader,
   Subject,
 } from "@itwin/core-backend";
 import {
@@ -112,6 +104,11 @@ import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
+import {
+  ChangesetDeletionRecord,
+  ChangesetDeletionRecordsByChangeset,
+  ChangesetScanner,
+} from "./ChangesetScanner";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
@@ -2145,6 +2142,7 @@ export class IModelTransformer extends IModelExportHandler {
   private _sourceChangeDataState: ChangeDataState = "uninited";
   /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
   private _csFileProps?: ChangesetFileProps[] = undefined;
+  private _deletionRecordsByChangeset?: ChangesetDeletionRecordsByChangeset;
 
   /**
    * Initialize prerequisites of processing, you must initialize with an [[InitOptions]] if you
@@ -2161,15 +2159,48 @@ export class IModelTransformer extends IModelExportHandler {
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
     await this.context.initialize();
 
-    // need exporter initialized to do remapdeletedsourceentities.
-    await this.exporter.initialize(
-      await this.getExportInitOpts(this._options.argsForProcessChanges ?? {})
+    const exporterInitOptions = await this.getExportInitOpts(
+      this._options.argsForProcessChanges ?? {}
     );
+    await this.initializeChangesetScanAndExporter(exporterInitOptions);
 
     // Exporter must be initialized prior to processing changesets in order to properly handle entity recreations (an entity delete followed by an insert of that same entity).
     await this.processChangesets();
 
     this._initialized = true;
+  }
+
+  private async initializeChangesetScanAndExporter(
+    exporterInitOptions: ExporterInitOptions
+  ): Promise<void> {
+    if (
+      this._csFileProps !== undefined &&
+      this._csFileProps.length > 0 &&
+      this.sourceDb.isBriefcaseDb()
+    ) {
+      const changedInstanceIds =
+        this.exporter.sourceDbChanges ??
+        ("changedInstanceIds" in exporterInitOptions
+          ? exporterInitOptions.changedInstanceIds
+          : new ChangedInstanceIds(this.sourceDb));
+      this._deletionRecordsByChangeset = await ChangesetScanner.scan(
+        this.sourceDb,
+        this._csFileProps,
+        changedInstanceIds,
+        {
+          populateChangedInstanceIds:
+            this.exporter.sourceDbChanges === undefined &&
+            !("changedInstanceIds" in exporterInitOptions),
+        }
+      );
+      await this.exporter.initialize({
+        changedInstanceIds,
+        skipPropagateChangesToRootElements:
+          exporterInitOptions.skipPropagateChangesToRootElements,
+      });
+    } else {
+      await this.exporter.initialize(exporterInitOptions);
+    }
   }
 
   /**
@@ -2187,7 +2218,8 @@ export class IModelTransformer extends IModelExportHandler {
     if (this.exporter.sourceDbChanges)
       await this.addCustomChanges(this.exporter.sourceDbChanges);
 
-    if (this._csFileProps === undefined || this._csFileProps.length === 0) {
+    const csFileProps = this._csFileProps;
+    if (csFileProps === undefined || csFileProps.length === 0) {
       if (
         this.exporter.sourceDbChanges === undefined ||
         !this.exporter.sourceDbChanges.hasChanges
@@ -2197,6 +2229,9 @@ export class IModelTransformer extends IModelExportHandler {
       if (this._sourceChangeDataState === "no-changes")
         this._sourceChangeDataState = "has-changes";
     }
+
+    const deletionRecordsByChangeset = this._deletionRecordsByChangeset;
+    if (deletionRecordsByChangeset === undefined) return;
 
     const relationshipECClassIdsToSkip = new Set<string>();
     for await (const row of this.sourceDb.createQueryReader(
@@ -2239,77 +2274,31 @@ export class IModelTransformer extends IModelExportHandler {
 
     this._deletedSourceRelationshipData = new Map();
 
-    for (const csFile of this._csFileProps ?? []) {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const csReader = SqliteChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: this.sourceDb,
-        disableSchemaCheck: true,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const ecChangeUnifier = new PartialECChangeUnifier(this.sourceDb);
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
-
+    for (const changes of deletionRecordsByChangeset) {
       /** a map of element ids to this transformation scope's ESA data for that element, in case the ESA is deleted in the target */
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const elemIdToScopeEsa = new Map<Id64String, ChangedECInstance>();
+      const elemIdToScopeEsa = new Map<Id64String, ChangesetDeletionRecord>();
       for (const change of changes) {
+        if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
         if (
-          change.ECClassId !== undefined &&
-          relationshipECClassIdsToSkip.has(change.ECClassId)
-        )
-          continue;
-        const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        if (
-          changeType === "Deleted" &&
-          change?.$meta?.classFullName === ExternalSourceAspect.classFullName &&
-          change.Scope.Id === this.targetScopeElementId &&
-          change.Kind === ExternalSourceAspect.Kind.Element
+          change.classFullName === ExternalSourceAspect.classFullName &&
+          change.scopeId === this.targetScopeElementId &&
+          change.kind === ExternalSourceAspect.Kind.Element &&
+          change.elementId !== undefined
         ) {
-          elemIdToScopeEsa.set(change.Element.Id, change);
+          elemIdToScopeEsa.set(change.elementId, change);
         }
       }
       // Loop to process deletes.
       for (const change of changes) {
-        const changeType: SqliteChangeOp | undefined = change.$meta?.op;
-        const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
-        if (ecClassId === undefined)
-          ITwinError.throwError({
-            iTwinErrorId: {
-              scope: IModelTransformerErrorScope,
-              key: IModelTransformerError.ChangedInstanceMetadataMissing,
-            },
-            message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`,
-          });
-        if (changeType === undefined)
-          ITwinError.throwError({
-            iTwinErrorId: {
-              scope: IModelTransformerErrorScope,
-              key: IModelTransformerError.ChangedInstanceMetadataMissing,
-            },
-            message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
-          });
-        if (
-          changeType !== "Deleted" ||
-          relationshipECClassIdsToSkip.has(ecClassId)
-        )
-          continue;
+        if (relationshipECClassIdsToSkip.has(change.ecClassId)) continue;
         await this.processDeletedOp(
           change,
           elemIdToScopeEsa,
-          relationshipECClassIds.has(ecClassId ?? ""),
+          relationshipECClassIds.has(change.ecClassId),
           alreadyImportedElementInserts,
           alreadyImportedModelInserts
         );
       }
-
-      csReader.close();
     }
     return;
   }
@@ -2337,10 +2326,8 @@ export class IModelTransformer extends IModelExportHandler {
    * @returns void
    */
   private async processDeletedOp(
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    change: ChangedECInstance,
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    mapOfDeletedElemIdToScopeEsas: Map<string, ChangedECInstance>,
+    change: ChangesetDeletionRecord,
+    mapOfDeletedElemIdToScopeEsas: Map<string, ChangesetDeletionRecord>,
     isRelationship: boolean,
     alreadyImportedElementInserts: Set<Id64String>,
     alreadyImportedModelInserts: Set<Id64String>
@@ -2355,7 +2342,7 @@ export class IModelTransformer extends IModelExportHandler {
     if (notConnectedModel || noChanges) return;
 
     /**
-     * if our ChangedECInstance is in the provenanceDb, then we can use the ids we find in the ChangedECInstance to query for ESAs.
+     * If the deleted source entity is in the provenanceDb, then we can use its ids to query for ESAs.
      * This is because the ESAs are stored on an element Id thats present in the provenanceDb.
      */
     const changeDataInProvenanceDb =
@@ -2369,7 +2356,7 @@ export class IModelTransformer extends IModelExportHandler {
       }
       const fedGuid = isRelationship
         ? element?.federationGuid
-        : change.FederationGuid;
+        : change.federationGuid;
       if (changeDataInProvenanceDb) {
         // TODO: clarify what happens if there are multiple (e.g. elements were merged)
         for await (const row of this.sourceDb.createQueryReader(
@@ -2384,7 +2371,7 @@ export class IModelTransformer extends IModelExportHandler {
           identifierValue = row.Identifier;
         }
         identifierValue =
-          identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.Identifier;
+          identifierValue ?? mapOfDeletedElemIdToScopeEsas.get(id)?.identifier;
       }
 
       // Check for targetId by an esa first
@@ -2402,11 +2389,23 @@ export class IModelTransformer extends IModelExportHandler {
       return undefined;
     };
 
-    const changedInstanceId = change.ECInstanceId;
+    const changedInstanceId = change.ecInstanceId;
     if (isRelationship) {
-      const sourceIdOfRelationshipInSource = change.SourceECInstanceId;
-      const targetIdOfRelationshipInSource = change.TargetECInstanceId;
-      const classFullName = change.$meta?.classFullName;
+      const sourceIdOfRelationshipInSource = change.sourceECInstanceId;
+      const targetIdOfRelationshipInSource = change.targetECInstanceId;
+      const classFullName = change.classFullName;
+      if (
+        sourceIdOfRelationshipInSource === undefined ||
+        targetIdOfRelationshipInSource === undefined
+      ) {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.ChangedInstanceMetadataMissing,
+          },
+          message: `Relationship deletion ${changedInstanceId} is missing an endpoint.`,
+        });
+      }
 
       const sourceIdOfRelationshipInTarget = await getTargetIdFromSourceId(
         sourceIdOfRelationshipInSource
@@ -2709,6 +2708,13 @@ export class IModelTransformer extends IModelExportHandler {
     opts: ExportChangesOptions
   ): Promise<ExporterInitOptions> {
     if (!this._options.argsForProcessChanges) return {};
+    if ("changedInstanceIds" in opts) {
+      return {
+        changedInstanceIds: opts.changedInstanceIds,
+        skipPropagateChangesToRootElements:
+          this._options.skipPropagateChangesToRootElements,
+      };
+    }
     const startChangeset =
       "startChangeset" in opts ? opts.startChangeset : undefined;
     return {
