@@ -38,7 +38,6 @@ import { getBranchName } from "./GitUtils";
 import { getTestIModels } from "./TestContext";
 import assert from "assert";
 import nativeTransformerTestModule from "./transformers/NativeTransformer";
-import rawForkCreateFedGuidsTestModule from "./transformers/RawForkCreateFedGuids";
 import rawForkOperationsTestModule from "./transformers/RawForkOperations";
 import rawInserts from "./rawInserts";
 
@@ -77,7 +76,6 @@ const loadTransformers = async () => {
   const transformerModules = new Map<string, TestTransformerModule>([
     ["NativeTransformer", nativeTransformerTestModule],
     ["RawForkOperations", rawForkOperationsTestModule],
-    ["RawForkCreateFedGuids", rawForkCreateFedGuidsTestModule],
     ...envSpecifiedExtraTransformerCases,
   ]);
   return transformerModules;

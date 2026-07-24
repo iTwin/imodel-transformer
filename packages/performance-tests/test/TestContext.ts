@@ -83,11 +83,6 @@ export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
     fedGuids: true,
     fileName: "testIModel-fedguids-true.bim",
   });
-  yield generateTestIModel({
-    numElements: 100_000,
-    fedGuids: false,
-    fileName: "testIModel-fedguids-false.bim",
-  });
 }
 
 export async function downloadBriefcase(
