@@ -25,7 +25,7 @@
     "format": "prettier \"./src/**/*.ts\" --write",
     "lint:with-warnings": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit 1>&2",
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental false 1>&2",
     "no-internal-report": "no-internal-report src/**/*.ts"
   },
   "repository": {
