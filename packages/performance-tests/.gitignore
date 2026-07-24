@@ -1,2 +1,5 @@
 .env
 **/.output
+.quick-cache/
+.quick-output/
+**/*.bim
