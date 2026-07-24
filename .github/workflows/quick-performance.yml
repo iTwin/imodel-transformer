@@ -1,6 +1,9 @@
 name: Quick performance
 
 on:
+  push:
+    branches:
+      - hl662-plan-quick-perf-pipeline
   workflow_dispatch:
     inputs:
       scenario:
@@ -16,7 +19,7 @@ permissions:
 
 jobs:
   quick-performance:
-    name: ${{ inputs.scenario }}
+    name: ${{ inputs.scenario || 'incremental-synchronization' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -64,7 +67,7 @@ jobs:
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"
         env:
           QUICK_PERF_OUTPUT: ${{ runner.temp }}/quick-performance
-          QUICK_PERF_SCENARIO: ${{ inputs.scenario }}
+          QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
 
       - name: Report variance reliability
         if: always()
