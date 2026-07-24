@@ -14,7 +14,7 @@
  * - Identifying performance regressions
  */
 
-import { assert } from "chai";
+import { assert } from "vitest";
 import {
   Code,
   ColorDef,
@@ -47,8 +47,7 @@ import {
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
-import * as path from "path";
+import * as path from "node:path";
 
 const coreBackendVersion = coreBackendPkgJson.version;
 
@@ -172,9 +171,7 @@ function printResults(results: {
 }
 
 describe.skip("IModelTransformer Performance Tests", () => {
-  it("should transform 10k elements", async function () {
-    this.timeout(120000); // 2 minutes for large element count
-
+  it("should transform 10k elements", async () => {
     const elementCount = 10000;
 
     // Create source iModel

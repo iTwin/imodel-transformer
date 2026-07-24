@@ -17,9 +17,11 @@ import {
   ExternalSourceProps,
   RepositoryLinkProps,
 } from "@itwin/core-common";
-import * as assert from "assert";
+import { strict as assert } from "node:assert";
 import { ProvenanceManager } from "./ProvenanceManager";
-import { pathToFileURL } from "url";
+import { pathToFileURL } from "node:url";
+import { transformerPackageMetadata } from "./TransformerPackageMetadata";
+
 /**
  * @alpha
  */
@@ -147,10 +149,8 @@ export async function initializeBranchProvenance(
     model: IModelDb.rootSubjectId,
     code: Code.createEmpty(),
     repository: new ExternalSourceIsInRepository(masterRepoLinkId),
-    /* eslint-disable @typescript-eslint/no-require-imports */
-    connectorName: require("../../package.json").name,
-    connectorVersion: require("../../package.json").version,
-    /* eslint-enable @typescript-eslint/no-require-imports */
+    connectorName: transformerPackageMetadata.name,
+    connectorVersion: transformerPackageMetadata.version,
   } as ExternalSourceProps);
 
   const fedGuidlessElemsSql = `
