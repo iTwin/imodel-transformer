@@ -7,11 +7,9 @@
 // This file is a minimal copy from itwinjs-core. Deprecation warnings are expected
 // and will be resolved upstream.
 
-import * as chai from "chai";
-import { assert, expect } from "chai";
-import * as chaiAsPromised from "chai-as-promised";
+import { assert, expect } from "vitest";
 import { Base64 } from "js-base64";
-import * as path from "path";
+import * as path from "node:path";
 import {
   AccessToken,
   BeEvent,
@@ -155,8 +153,6 @@ import {
 import { KnownTestLocations } from "./KnownTestLocations";
 import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
 import { TimelineIModelState } from "./TimelineTestUtil";
-
-chai.use(chaiAsPromised);
 
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 

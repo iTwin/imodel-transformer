@@ -9,9 +9,9 @@ import {
 } from "../TestTransformerModule";
 import { StandaloneDb } from "@itwin/core-backend";
 import { initOutputFile } from "../TestUtils";
-import * as fs from "fs";
+import * as fs from "node:fs";
 import { setToStandalone } from "../iModelUtils";
-import path from "path";
+import path from "node:path";
 
 const outputDir = path.join(__dirname, ".output");
 

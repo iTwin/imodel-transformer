@@ -38,7 +38,7 @@ import {
   SubCategory,
 } from "@itwin/core-backend";
 import type { RelationshipPropsForDelete } from "./IModelTransformer";
-import * as assert from "assert";
+import { strict as assert } from "node:assert";
 import { deleteElementTreeCascade } from "./ElementCascadingDeleter";
 import {
   EntityClass,

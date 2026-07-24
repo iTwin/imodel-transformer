@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { BigMap } from "../../BigMap";
-import { assert } from "chai";
+import { assert } from "vitest";
 
 describe("BigMap", function () {
   // Test map keys will be assigned into 2 different submaps when BigMap is created

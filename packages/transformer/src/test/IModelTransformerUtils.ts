@@ -3,10 +3,10 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
-import * as path from "path";
-import * as fs from "fs";
-import * as inspector from "inspector";
+import { assert, expect } from "vitest";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import * as inspector from "node:inspector";
 import {
   CompressedId64Set,
   Guid,

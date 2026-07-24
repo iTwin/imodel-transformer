@@ -1,74 +1,46 @@
 # AGENTS.md
 
-Guidance for AI agents working in `iTwin/imodel-transformer`. For what the package does, versioning/strict peer-dep behavior, and env vars, read `packages/transformer/README.md` first — this file only covers things that aren't obvious from the README, `package.json`, or `CONTRIBUTING.md`.
+Guidance for AI agents working in `iTwin/imodel-transformer`. Read `packages/transformer/README.md` for package behavior, strict peer-dependency handling, and environment variables.
 
-## Layout
+## Workspace
 
-pnpm workspace, four packages under `packages/`:
+| Package                        | Purpose                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------ |
+| `packages/transformer`         | Published `@itwin/imodel-transformer` library and its Vitest suite.                  |
+| `packages/test-app`            | CLI and sample app for manual runs.                                                  |
+| `packages/performance-tests`   | Mocha performance-regression suite. Run it explicitly; root `pnpm test` excludes it. |
+| `packages/performance-scripts` | Performance profiling helpers.                                                       |
 
-| Package | Name | What it is |
-|---|---|---|
-| `transformer` | `@itwin/imodel-transformer` | The published library. All real code + tests live here. |
-| `test-app` | `transformer-test-app` | CLI/sample app for manual runs. |
-| `performance-tests` | `transformer-performance-tests` | Perf regression suite. **Not run by `pnpm test`.** |
-| `performance-scripts` | — | Helper scripts; has no real tests. |
+## Build and test
 
-## Build & test gotchas
+- In `packages/transformer`, use `pnpm build`, `pnpm test`, and `pnpm cover`. Vitest runs `src/test/**/*.test.ts` directly; `build` separately validates the compiled CommonJS output.
+- `pnpm cover` uses Vitest's V8 provider, enforces the configured thresholds, and writes reports to `packages/transformer/coverage`.
+- `extract-api` regenerates `common/api/*`. Never edit those files manually. Commit regenerated reports when a public API changes.
+- `src/test/setupVitest.ts` starts and stops `IModelHost` and registers custom assertions for each test file. Tests run in a bounded pool of forked workers with worker-local output directories.
+- `HubMock` comes from `@itwin/core-backend` internals.
 
-(Scripts themselves are in `package.json`; these are the non-obvious bits.)
+### Edit transactions
 
-- Run `build` and `test` from inside `packages/transformer` with `pnpm` (running from root can trigger perf tests, and `lint` only works at a package root); run the full suite via `pnpm`, not by invoking `mocha` directly against individual tests.
-- `pnpm test` runs every package **except** `transformer-performance-tests` — it's filtered out, run it explicitly if needed.
-- Inside `packages/transformer`, `build` runs `tsc` → copy test assets → `extract-api`. Mocha runs the compiled `lib/cjs/**/*.test.js`, so **build before test** — editing `.ts` alone won't change what runs.
-- `pnpm cover` (nyc) only produces real coverage for `transformer`; no artifact is persisted and CI does not publish coverage.
-- API report: `extract-api` regenerates `common/api/*`. If a public API changes, commit the updated report or CI fails. Never hand-edit `common/api/*`.
-
-## Test stack
-
-Mocha + Chai (+ Sinon, chai-as-promised) + nyc. Tests are in `packages/transformer/src/test/`, mostly under `standalone/`. They compile to `lib/cjs/test/` and run from there.
-
-iModelHub is mocked via `HubMock` from `@itwin/core-backend` internals.
-
-### Edit transactions (active breaking-change area)
-
-Newer tests wrap edits in `withEditTxn` (imported from `@itwin/core-backend`) instead of bare `db.saveChanges()`:
+Use the `withEditTxn` pattern already present in a test instead of adding a bare `db.saveChanges()`:
 
 ```ts
 const id = withEditTxn(db, "insert PhysicalObject", (txn) => {
-  // ...do inserts/updates against db...
   return someId;
 });
 ```
 
-A migration to require edit transactions is in progress (`#306` converted several test files; `#305`/`IModelTransformer.ts` related). When you touch or add tests, **match the `withEditTxn` pattern already used in the file** rather than reintroducing raw `saveChanges`. Treat anything around edit-txn semantics as a **major / breaking** change — flag it, don't silently "fix" it.
+The edit-transaction migration is a breaking-change area tracked by #305 and #306. Flag semantic changes as major rather than silently folding them into unrelated work.
 
-## Node version
+## Validation and release
 
-Local and CI Node versions can differ. Treat the CI workflow (`.github/workflows/ci.yml`) as the source of truth for the version to run, and `package.json` `engines` for the supported range — match CI when running locally. Don't hardcode a version here.
-
-## CI & docs
-
-- Package CI/release: **GitHub Actions** (`.github/workflows/`). CI = build + lint + test on a core-version matrix.
-- Docs: **Azure Pipelines** (`.azure-pipelines/generate-docs.yaml`), delegating to the shared `docs-build.yaml@itwinjs-core` job — part of the docs path lives outside this repo.
+- Use the Node version from `.github/workflows/ci.yml`; `package.json` defines the supported range.
+- Package CI and release run in `.github/workflows/`. Documentation uses `.azure-pipelines/generate-docs.yaml` and the external `docs-build.yaml@itwinjs-core` template.
+- Published behavior changes require a beachball change file. `pnpm check` validates it.
+- Document minor and major changes in `docs/changehistory/NEXT_VERSION.md`, including migration steps for breaking changes.
 
 ## Error ownership
 
-Use the error type to communicate who owns the failure and whether consumers can recover from it:
-
-- For consumer-actionable conditions detected by this package, throw `ITwinError` with `IModelTransformerErrorScope` and a member of `IModelTransformerError`. Treat these identifiers as stable API; consumers should branch on the scope and key, not the message.
-- Preserve errors originating from core/backend/database APIs. In particular, rethrow core-created `IModelError` instances unchanged unless the transformer deliberately translates the failure into a more specific package-owned condition.
-- When translating a caught error, use a transformer error identifier and retain the original error as `cause`.
-- Use plain `Error` or an assertion for impossible internal states and implementation bugs. Do not add stable transformer error identifiers for conditions consumers cannot reasonably handle.
-- Do not construct new `IModelError` instances for transformer-owned conditions; `IModelError` status handling is reserved for errors originating from iTwin.js core APIs.
-
-## Changes / PR hygiene
-
-- Versioning/changelog is **beachball**. Every PR that changes published behavior needs a change file (`pnpm change`); `pnpm check` enforces it.
-- Document minor and major release changes in `docs/changehistory/NEXT_VERSION.md`, including migration steps for breaking changes.
-- Pick the change `type` deliberately: use **`major`** for breaking changes (e.g. the edit-txn requirement), not `patch`.
-
-## Agent guardrails
-
-- Default to one logical change per task. Don't refactor adjacent code or "modernize" tooling (e.g. swapping mocha→vitest) unless explicitly asked — those are tracked as separate work.
-- Don't create branches, push, or open PRs unless the user explicitly asks. Draft locally first.
-- Perf tests are intentionally excluded from `pnpm test`; don't wire them into the default path without being asked.
+- For consumer-actionable transformer failures, throw `ITwinError` with `IModelTransformerErrorScope` and an `IModelTransformerError` key. Consumers branch on the scope and key, not the message.
+- Preserve errors from core, backend, and database APIs unless deliberately translating them to a more specific transformer error. Preserve the original error as `cause` when translating.
+- Use plain `Error` or an assertion for internal invariants and implementation bugs.
+- Do not create `IModelError` instances for transformer-owned failures.

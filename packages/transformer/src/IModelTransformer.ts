@@ -5,9 +5,9 @@
 /** @packageDocumentation
  * @module iModels
  */
-import * as path from "path";
+import * as path from "node:path";
 import * as Semver from "semver";
-import * as nodeAssert from "assert";
+import { strict as nodeAssert } from "node:assert";
 import {
   assert,
   Guid,

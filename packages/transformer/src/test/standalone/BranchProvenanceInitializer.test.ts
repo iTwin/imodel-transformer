@@ -2,7 +2,7 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as fs from "fs";
+import * as fs from "node:fs";
 import {
   EditTxn,
   ElementGroupsMembers,
@@ -34,9 +34,9 @@ import {
 } from "@itwin/core-common";
 import { IModelTransformer } from "../../IModelTransformer";
 import { Guid, OpenMode, TupleKeyedMap } from "@itwin/core-bentley";
-import { assert, expect } from "chai";
+import { assert, expect } from "vitest";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
+import { transformerPackageMetadata } from "../../TransformerPackageMetadata";
 
 describe("compare imodels from BranchProvenanceInitializer and traditional branch init", () => {
   // truth table (sourceHasFedGuid, targetHasFedGuid, forceCreateFedGuidsForMaster) -> (relSourceAspectNum, relTargetAspectNum)
@@ -87,7 +87,7 @@ describe("compare imodels from BranchProvenanceInitializer and traditional branc
   let transformerForkDb: StandaloneDb | undefined;
   let noTransformerForkDb: StandaloneDb | undefined;
 
-  before(async () => {
+  beforeAll(async () => {
     [generatedIModel, sourceTargetFedGuidsToElemIds] = setupIModel();
   });
 
@@ -415,10 +415,8 @@ async function classicalTransformerBranchInit(
       model: IModelDb.rootSubjectId,
       code: Code.createEmpty(),
       repository: new ExternalSourceIsInRepository(repoLinkId),
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-      connectorName: require("../../../../package.json").name,
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-      connectorVersion: require("../../../../package.json").version,
+      connectorName: transformerPackageMetadata.name,
+      connectorVersion: transformerPackageMetadata.version,
     })
     .insert(args.editTxn);
 

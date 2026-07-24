@@ -3,12 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as chai from "chai";
-import { expect } from "chai";
-import * as chaiAsPromised from "chai-as-promised";
-import "./TransformerTestStartup";
-
-chai.use(chaiAsPromised);
+import { expect } from "vitest";
 import {
   ElementOwnsMultiAspects,
   StandaloneDb,
