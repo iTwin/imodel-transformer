@@ -1,9 +1,6 @@
 name: Quick performance
 
 on:
-  push:
-    branches:
-      - hl662-plan-quick-perf-pipeline
   workflow_dispatch:
     inputs:
       scenario:
