@@ -22,7 +22,14 @@ import {
   IModelDb,
   Relationship,
 } from "@itwin/core-backend";
-import { Id64 } from "@itwin/core-bentley";
+import { Id64, Id64String } from "@itwin/core-bentley";
+
+const bisCoreRootClassFullNames: Record<ConcreteEntityTypes, string> = {
+  [ConcreteEntityTypes.Model]: "BisCore:Model",
+  [ConcreteEntityTypes.Element]: "BisCore:Element",
+  [ConcreteEntityTypes.ElementAspect]: "BisCore:ElementAspect",
+  [ConcreteEntityTypes.Relationship]: "BisCore:Relationship",
+};
 
 /** @internal */
 export namespace EntityUnifier {
@@ -37,15 +44,16 @@ export namespace EntityUnifier {
     db: IModelDb,
     arg: { entity: ConcreteEntity } | { entityReference: EntityReference }
   ) {
-    const [type, id] =
-      "entityReference" in arg
-        ? EntityReferences.split(arg.entityReference)
-        : [undefined, arg.entity.id];
-    const classFullName =
-      "entityReference" in arg
-        ? // eslint-disable-next-line @itwin/no-internal, @typescript-eslint/no-non-null-assertion
-          ConcreteEntityTypes.toBisCoreRootClassFullName(type!)
-        : `[${arg.entity.schemaName}].[${arg.entity.className}]`;
+    let classFullName: string;
+    let id: Id64String | undefined;
+    if ("entityReference" in arg) {
+      const [type, entityId] = EntityReferences.split(arg.entityReference);
+      classFullName = bisCoreRootClassFullNames[type];
+      id = entityId;
+    } else {
+      classFullName = `[${arg.entity.schemaName}].[${arg.entity.className}]`;
+      id = arg.entity.id;
+    }
 
     if (id === undefined || Id64.isInvalid(id)) return false;
 

@@ -73,16 +73,14 @@ export async function initializeBranchProvenance(
         SET FederationGuid=randomblob(16)
         WHERE FederationGuid IS NULL
       `,
-      // eslint-disable-next-line @itwin/no-internal
       (s) =>
-        assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
+        assert(s.step() === DbResult.BE_SQLITE_DONE, args.master.getLastError())
     );
     const masterPath = args.master.pathName;
     const reopenMaster = makeDbReopener(args.master);
     args.master.close(); // prevent busy
     args.branch.withSqliteStatement(
       `ATTACH DATABASE '${pathToFileURL(`${masterPath}`)}?mode=ro' AS master`,
-      // eslint-disable-next-line @itwin/no-internal
       (s) =>
         assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
@@ -95,7 +93,6 @@ export async function initializeBranchProvenance(
         WHERE m.Id=main.bis_Element.Id
       )`,
 
-      // eslint-disable-next-line @itwin/no-internal
       (s) =>
         assert(s.step() === DbResult.BE_SQLITE_DONE, args.branch.getLastError())
     );
@@ -110,7 +107,6 @@ export async function initializeBranchProvenance(
           `Error detaching db (we will close anyway): ${args.branch.getLastError()}`
         );
       // this is the case until native side changes
-      // eslint-disable-next-line @itwin/no-internal
       assert(res === DbResult.BE_SQLITE_ERROR, args.branch.getLastError());
     });
     args.branch.performCheckpoint();

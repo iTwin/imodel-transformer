@@ -16,13 +16,16 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
   public override async exportElementAspectsForElement(
     elementId: Id64String
   ): Promise<void> {
-    const allUniqueAspects = this.sourceDb.elements._queryAspects(
+    const allAspects = this.sourceDb.elements.getAspects(
       elementId,
-      ElementUniqueAspect.classFullName,
+      undefined,
       this.excludedElementAspectClassFullNames
     );
-    for (const uniqueAspect of allUniqueAspects) {
-      if (!(await this.shouldExportElementAspect(uniqueAspect))) {
+    for (const uniqueAspect of allAspects) {
+      if (
+        !(uniqueAspect instanceof ElementUniqueAspect) ||
+        !(await this.shouldExportElementAspect(uniqueAspect))
+      ) {
         continue;
       }
       const isInsertChange =
@@ -41,14 +44,12 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
       }
     }
 
-    const allMultiAspects = this.sourceDb.elements._queryAspects(
-      elementId,
-      ElementMultiAspect.classFullName,
-      this.excludedElementAspectClassFullNames
-    );
     const multiAspects: ElementMultiAspect[] = [];
-    for (const aspect of allMultiAspects) {
-      if (await this.shouldExportElementAspect(aspect)) {
+    for (const aspect of allAspects) {
+      if (
+        aspect instanceof ElementMultiAspect &&
+        (await this.shouldExportElementAspect(aspect))
+      ) {
         multiAspects.push(aspect);
       }
     }
