@@ -46,6 +46,7 @@ import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
 import * as fs from "fs";
+import * as inspector from "node:inspector/promises";
 import { ChangedInstanceIds } from "../../IModelExporter";
 import { IModelTransformer } from "../../IModelTransformer";
 import {
@@ -287,17 +288,11 @@ describe("IModelTransformer Performance Tests", () => {
     targetDb.close();
   });
 
-  it("should transform 10k elements using hub", async function () {
+  it.only("should transform 10k elements using hub", async function () {
     console.log("===========================================");
     console.log("  iModel Transformer Performance Test");
     console.log(`  Elements: ${NUM_ELEMENTS}`);
     console.log("===========================================\n");
-
-    let hostOptions = {};
-    if (coreBackendVersion === "5.6.1")
-      hostOptions = { disableThinnedNativeInstanceWorkflow: true };
-
-    await IModelHost.startup(hostOptions);
 
     try {
       // Create source iModel with elements
@@ -334,8 +329,13 @@ describe("IModelTransformer Performance Tests", () => {
       const schemaDuration = schemaEndTime - schemaStartTime;
 
       // Stop CPU profiling and save
-      // const { profile: schemaProfile } = await schemaSession.post("Profiler.stop");
-      // const schemaProfilePath = path.join(__dirname, "output", `10kElemProcessSchemas${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
+      // const { profile: schemaProfile } =
+      //   await schemaSession.post("Profiler.stop");
+      // const schemaProfilePath = path.join(
+      //   __dirname,
+      //   "output",
+      //   `10kElemProcessSchemas-${coreBackendVersion}.cpuprofile`
+      // );
       // fs.writeFileSync(schemaProfilePath, JSON.stringify(schemaProfile));
       // console.log(`Schema CPU profile saved to: ${schemaProfilePath}`);
       // schemaSession.disconnect();
@@ -344,10 +344,10 @@ describe("IModelTransformer Performance Tests", () => {
       console.log("Running transformer.process()...");
 
       // Start CPU profiling
-      // const session = new inspector.Session();
-      // session.connect();
-      // await session.post("Profiler.enable");
-      // await session.post("Profiler.start");
+      const session = new inspector.Session();
+      session.connect();
+      await session.post("Profiler.enable");
+      await session.post("Profiler.start");
 
       const processStartTime = performance.now();
       await transformer.process();
@@ -355,11 +355,15 @@ describe("IModelTransformer Performance Tests", () => {
       const processDuration = processEndTime - processStartTime;
 
       // // Stop CPU profiling and save
-      // const { profile } = await session.post("Profiler.stop");
-      // const profilePath = path.join(__dirname, "output", `10kElemTransform${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
-      // fs.writeFileSync(profilePath, JSON.stringify(profile));
-      // console.log(`CPU profile saved to: ${profilePath}`);
-      // session.disconnect();
+      const { profile } = await session.post("Profiler.stop");
+      const profilePath = path.join(
+        __dirname,
+        "output",
+        `10kElemTransform-${coreBackendVersion}.cpuprofile`
+      );
+      fs.writeFileSync(profilePath, JSON.stringify(profile));
+      console.log(`CPU profile saved to: ${profilePath}`);
+      session.disconnect();
 
       // Cleanup
       transformer.dispose();
@@ -382,14 +386,12 @@ describe("IModelTransformer Performance Tests", () => {
     } catch (error) {
       console.error("Error during performance test:", error);
       throw error;
-    } finally {
-      await IModelHost.shutdown();
     }
   });
 });
 
 describe("Changeset scanning performance", () => {
-  it.only("benchmarks changeset scanning across multiple files", async function () {
+  it("benchmarks changeset scanning across multiple files", async function () {
     this.timeout(10 * 60 * 1000);
 
     const elementCount = Number(

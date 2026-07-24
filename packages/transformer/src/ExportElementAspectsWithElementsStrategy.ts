@@ -16,7 +16,7 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
   public override async exportElementAspectsForElement(
     elementId: Id64String
   ): Promise<void> {
-    const allUniqueAspects = this.sourceDb.elements._queryAspects(
+    const allUniqueAspects = await this.sourceDb.elements._queryAspectsAsync(
       elementId,
       ElementUniqueAspect.classFullName,
       this.excludedElementAspectClassFullNames
@@ -41,7 +41,7 @@ export class ExportElementAspectsWithElementsStrategy extends ExportElementAspec
       }
     }
 
-    const allMultiAspects = this.sourceDb.elements._queryAspects(
+    const allMultiAspects = await this.sourceDb.elements._queryAspectsAsync(
       elementId,
       ElementMultiAspect.classFullName,
       this.excludedElementAspectClassFullNames

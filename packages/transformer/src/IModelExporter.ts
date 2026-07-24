@@ -966,7 +966,7 @@ export class IModelExporter {
       return;
     }
     const childElementIds: Id64String[] =
-      this.sourceDb.elements.queryChildren(elementId);
+      await this.sourceDb.elements.queryChildrenAsync(elementId);
     if (childElementIds.length > 0) {
       Logger.logTrace(loggerCategory, `exportChildElements(${elementId})`);
       for (const childElementId of childElementIds) {
