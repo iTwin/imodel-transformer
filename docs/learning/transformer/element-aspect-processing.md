@@ -109,7 +109,7 @@ The implementation also:
 - binds each owner group into source and target ECSQL with `InVirtualSet`;
 - caches stable unique and multi-aspect class metadata;
 - pages target cleanup;
-- keeps each multi-aspect callback scoped to one owner; and
+- combines all accepted concrete multi-aspect classes into one callback per owner;
 - retains aspect remaps in a core `BigMap` until deferred references are complete.
 
 Entity filters and importer callbacks still run per entity because they are existing behavior boundaries. The database work for scoped aspect reads and cleanup is set-based.

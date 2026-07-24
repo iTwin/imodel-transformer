@@ -22,6 +22,7 @@ import {
 } from "@itwin/core-backend";
 import {
   assert,
+  Id64Set,
   Id64String,
   IModelStatus,
   ITwinError,
@@ -59,6 +60,20 @@ export {
 };
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
+
+interface AspectElementFact {
+  id: Id64String;
+  parentId?: Id64String;
+  modelId: Id64String;
+  classFullName: string;
+  categoryId?: Id64String;
+}
+
+interface AspectModelFact {
+  id: Id64String;
+  parentModelId?: Id64String;
+  isTemplate: boolean;
+}
 
 /**
  * @beta
@@ -1087,6 +1102,18 @@ export class IModelExporter {
     }
     if (changedElementIds.size === 0) return new Set<Id64String>();
 
+    const elementFacts =
+      await this.queryAspectElementHierarchyFacts(changedElementIds);
+    const modelFacts = await this.queryAspectModelHierarchyFacts(
+      new Set(
+        [...elementFacts.values()].map((elementFact) => elementFact.modelId)
+      )
+    );
+    await this.queryAspectElementFacts(
+      new Set(modelFacts.keys()),
+      elementFacts
+    );
+
     const elementIds = new Set<Id64String>();
     for (const elementId of changedElementIds) {
       if (
@@ -1096,8 +1123,11 @@ export class IModelExporter {
         continue;
       }
       if (
-        this.sourceDb.elements.tryGetElement(elementId) !== undefined &&
-        (await this.shouldExportElementHierarchyForAspect(elementId))
+        await this.shouldExportElementHierarchyForAspect(
+          elementId,
+          elementFacts,
+          modelFacts
+        )
       ) {
         elementIds.add(elementId);
       }
@@ -1106,15 +1136,26 @@ export class IModelExporter {
   }
 
   private async shouldExportElementHierarchyForAspect(
-    elementId: Id64String
+    elementId: Id64String,
+    elementFacts: ReadonlyMap<Id64String, AspectElementFact>,
+    modelFacts: ReadonlyMap<Id64String, AspectModelFact>
   ): Promise<boolean> {
-    let element = this.sourceDb.elements.tryGetElement(elementId);
-    while (element !== undefined) {
-      if (!(await this.shouldExportElementForAspect(element.id))) return false;
-      if (!(await this.shouldExportModelForAspect(element.model))) {
+    let elementFact = elementFacts.get(elementId);
+    while (elementFact !== undefined) {
+      if (
+        !(await this.shouldExportElementForAspect(elementFact.id, elementFact))
+      )
+        return false;
+      if (
+        !(await this.shouldExportModelForAspect(
+          elementFact.modelId,
+          elementFacts,
+          modelFacts
+        ))
+      ) {
         return false;
       }
-      const parentId = element.parent?.id;
+      const parentId = elementFact.parentId;
       if (
         parentId === undefined ||
         (this._skipPropagateChangesToRootElements &&
@@ -1122,28 +1163,44 @@ export class IModelExporter {
       ) {
         return true;
       }
-      element = this.sourceDb.elements.tryGetElement(parentId);
+      elementFact = elementFacts.get(parentId);
     }
     return false;
   }
 
   private async shouldExportModelForAspect(
-    modelId: Id64String
+    modelId: Id64String,
+    elementFacts: ReadonlyMap<Id64String, AspectElementFact>,
+    modelFacts: ReadonlyMap<Id64String, AspectModelFact>
   ): Promise<boolean> {
-    const model = this.sourceDb.models.getModel(modelId);
-    if (model.isTemplate && !this.wantTemplateModels) return false;
+    const modelFact = modelFacts.get(modelId);
+    if (modelFact === undefined) {
+      this.sourceDb.models.getModel(modelId);
+      return false;
+    }
+    if (modelFact.isTemplate && !this.wantTemplateModels) return false;
     if (
-      model.id !== IModel.repositoryModelId &&
-      model.id !== IModel.dictionaryId &&
-      model.id !== "0xe" &&
-      !(await this.shouldExportElementForAspect(model.id))
+      modelFact.id !== IModel.repositoryModelId &&
+      modelFact.id !== IModel.dictionaryId &&
+      modelFact.id !== "0xe" &&
+      !(await this.shouldExportElementForAspect(
+        modelFact.id,
+        elementFacts.get(modelFact.id)
+      ))
     ) {
       return false;
     }
-    if (model.parentModel === undefined || model.parentModel === model.id) {
+    if (
+      modelFact.parentModelId === undefined ||
+      modelFact.parentModelId === modelFact.id
+    ) {
       return true;
     }
-    return this.shouldExportModelForAspect(model.parentModel);
+    return this.shouldExportModelForAspect(
+      modelFact.parentModelId,
+      elementFacts,
+      modelFacts
+    );
   }
 
   private async runScopedElementExport(
@@ -1154,7 +1211,8 @@ export class IModelExporter {
 
   /** Apply the element export filter when deciding whether to process an aspect owner. @internal */
   private async shouldExportElementForAspect(
-    elementId: Id64String
+    elementId: Id64String,
+    elementFact?: AspectElementFact
   ): Promise<boolean> {
     if (!this.visitElements) return false;
 
@@ -1164,12 +1222,209 @@ export class IModelExporter {
       return true;
     }
 
+    if (
+      this.shouldExportElement ===
+        IModelExporter.prototype.shouldExportElement &&
+      elementFact !== undefined &&
+      !this.shouldExportElementFact(elementFact)
+    ) {
+      return false;
+    }
+
     const element = this.sourceDb.elements.getElement({
       id: elementId,
       wantGeometry: false,
       wantBRepData: false,
     });
     return this.shouldExportElement(element);
+  }
+
+  private shouldExportElementFact(elementFact: AspectElementFact): boolean {
+    if (this._excludedElementIds.has(elementFact.id)) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded element ${elementFact.id} by Id`
+      );
+      return false;
+    }
+
+    const elementClass = this.sourceDb.getJsClass<typeof Element>(
+      elementFact.classFullName
+    );
+    if (
+      (elementFact.classFullName === GeometricElement.classFullName ||
+        elementClass.prototype instanceof GeometricElement) &&
+      elementFact.categoryId !== undefined &&
+      this._excludedElementCategoryIds.has(elementFact.categoryId)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded element ${elementFact.id} by Category`
+      );
+      return false;
+    }
+    if (
+      !this.wantTemplateModels &&
+      (elementFact.classFullName === RecipeDefinitionElement.classFullName ||
+        elementClass.prototype instanceof RecipeDefinitionElement)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded RecipeDefinitionElement ${elementFact.id} because wantTemplate=false`
+      );
+      return false;
+    }
+    for (const excludedElementClass of this._excludedElementClasses) {
+      if (
+        elementFact.classFullName === excludedElementClass.classFullName ||
+        elementClass.prototype instanceof excludedElementClass
+      ) {
+        Logger.logInfo(
+          loggerCategory,
+          `Excluded element ${elementFact.id} by class: ${excludedElementClass.classFullName}`
+        );
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async queryAspectElementHierarchyFacts(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<Map<Id64String, AspectElementFact>> {
+    const elementFacts = new Map<Id64String, AspectElementFact>();
+    const queriedElementIds = new Set<Id64String>();
+    let pendingElementIds = new Set(elementIds);
+    while (pendingElementIds.size > 0) {
+      const currentElementIds = pendingElementIds;
+      pendingElementIds = new Set<Id64String>();
+      await this.queryAspectElementFacts(currentElementIds, elementFacts);
+      for (const elementId of currentElementIds)
+        queriedElementIds.add(elementId);
+      for (const elementId of currentElementIds) {
+        const parentId = elementFacts.get(elementId)?.parentId;
+        if (
+          parentId !== undefined &&
+          !queriedElementIds.has(parentId) &&
+          !elementFacts.has(parentId)
+        ) {
+          pendingElementIds.add(parentId);
+        }
+      }
+    }
+    return elementFacts;
+  }
+
+  private async queryAspectElementFacts(
+    elementIds: ReadonlySet<Id64String>,
+    elementFacts: Map<Id64String, AspectElementFact>
+  ): Promise<void> {
+    const unqueriedElementIds = new Set(
+      [...elementIds].filter((elementId) => !elementFacts.has(elementId))
+    );
+    if (unqueriedElementIds.size === 0) return;
+
+    for (const elementIdBatch of this.getAspectOwnerIdBatches(
+      unqueriedElementIds
+    )) {
+      const queryParams = new QueryBinder().bindIdSet(
+        "elementIds",
+        elementIdBatch
+      );
+      for await (const row of this.sourceDb.createQueryReader(
+        `SELECT e.ECInstanceId id, e.Parent.Id parentId, e.Model.Id modelId,
+                ec_className(e.ECClassId, 's') schemaName,
+                ec_className(e.ECClassId, 'c') className
+         FROM bis.Element e
+         WHERE InVirtualSet(:elementIds, e.ECInstanceId)`,
+        queryParams,
+        { usePrimaryConn: true }
+      )) {
+        elementFacts.set(row.id, {
+          id: row.id,
+          parentId: row.parentId ?? undefined,
+          modelId: row.modelId,
+          classFullName: `${row.schemaName}:${row.className}`,
+        });
+      }
+      if (this._excludedElementCategoryIds.size > 0) {
+        const categoryQueryParams = new QueryBinder().bindIdSet(
+          "elementIds",
+          elementIdBatch
+        );
+        for await (const row of this.sourceDb.createQueryReader(
+          `SELECT g.ECInstanceId id, g.Category.Id categoryId
+           FROM bis.GeometricElement g
+           WHERE InVirtualSet(:elementIds, g.ECInstanceId)`,
+          categoryQueryParams,
+          { usePrimaryConn: true }
+        )) {
+          const elementFact = elementFacts.get(row.id);
+          if (elementFact !== undefined) {
+            elementFact.categoryId = row.categoryId;
+          }
+        }
+      }
+    }
+  }
+
+  private async queryAspectModelHierarchyFacts(
+    modelIds: ReadonlySet<Id64String>
+  ): Promise<Map<Id64String, AspectModelFact>> {
+    const modelFacts = new Map<Id64String, AspectModelFact>();
+    const queriedModelIds = new Set<Id64String>();
+    let pendingModelIds = new Set(modelIds);
+    while (pendingModelIds.size > 0) {
+      const currentModelIds = pendingModelIds;
+      pendingModelIds = new Set<Id64String>();
+      for (const modelIdBatch of this.getAspectOwnerIdBatches(
+        currentModelIds
+      )) {
+        const queryParams = new QueryBinder().bindIdSet(
+          "modelIds",
+          modelIdBatch
+        );
+        for await (const row of this.sourceDb.createQueryReader(
+          `SELECT ECInstanceId id, ParentModel.Id parentModelId, IsTemplate isTemplate
+           FROM bis.Model
+           WHERE InVirtualSet(:modelIds, ECInstanceId)`,
+          queryParams,
+          { usePrimaryConn: true }
+        )) {
+          modelFacts.set(row.id, {
+            id: row.id,
+            parentModelId: row.parentModelId ?? undefined,
+            isTemplate: row.isTemplate === true || row.isTemplate === 1,
+          });
+        }
+      }
+      for (const modelId of currentModelIds) queriedModelIds.add(modelId);
+      for (const modelId of currentModelIds) {
+        const parentModelId = modelFacts.get(modelId)?.parentModelId;
+        if (
+          parentModelId !== undefined &&
+          !queriedModelIds.has(parentModelId) &&
+          !modelFacts.has(parentModelId)
+        ) {
+          pendingModelIds.add(parentModelId);
+        }
+      }
+    }
+    return modelFacts;
+  }
+
+  private *getAspectOwnerIdBatches(
+    ids: ReadonlySet<Id64String>
+  ): Iterable<Id64Set> {
+    let batch = new Set<Id64String>();
+    for (const id of ids) {
+      batch.add(id);
+      if (batch.size === IModelExporter._elementAspectOwnerBatchSize) {
+        yield batch;
+        batch = new Set<Id64String>();
+      }
+    }
+    if (batch.size > 0) yield batch;
   }
 
   /** Exports all relationships that subclass from the specified base class.

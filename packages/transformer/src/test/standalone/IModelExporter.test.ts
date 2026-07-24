@@ -357,16 +357,13 @@ describe("IModelExporter", () => {
           return ids;
         }
       );
-      const batches: Id64String[][] = [];
+      const batches: ElementMultiAspect[][] = [];
       let exportedAspectCount = 0;
       class Handler extends IModelExportHandler {
         public override async onExportElementMultiAspects(
           aspects: ElementMultiAspect[]
         ) {
-          const batchOwnerIds = [
-            ...new Set(aspects.map((aspect) => aspect.element.id)),
-          ];
-          batches.push(batchOwnerIds);
+          batches.push(aspects);
           exportedAspectCount += aspects.length;
         }
       }
@@ -376,9 +373,18 @@ describe("IModelExporter", () => {
       await exporter.exportAll();
 
       expect(exportedAspectCount).to.equal(8);
-      expect(batches.length).to.be.greaterThan(0);
-      expect(batches.every((batch) => batch.length === 1)).to.be.true;
-      expect(new Set(batches.flat())).to.deep.equal(new Set(ownerIds));
+      expect(batches).to.have.lengthOf(ownerIds.length);
+      expect(
+        batches.every(
+          (batch) =>
+            batch.length === 4 &&
+            new Set(batch.map((aspect) => aspect.element.id)).size === 1 &&
+            new Set(batch.map((aspect) => aspect.classFullName)).size === 2
+        )
+      ).to.be.true;
+      expect(
+        new Set(batches.map((batch) => batch[0].element.id))
+      ).to.deep.equal(new Set(ownerIds));
     } finally {
       sourceDb.close();
     }
@@ -524,6 +530,101 @@ describe("IModelExporter", () => {
 
       expect(coordinator.acceptedOwnerDecisionCount).to.equal(0);
       coordinator.abort();
+    } finally {
+      sourceDb.close();
+    }
+  });
+
+  it("prefilters changed aspect owners with shared structural queries", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "AspectOwnerStructuralPrefilter.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "AspectOwnerStructuralPrefilter" },
+    });
+    try {
+      const { ownerIds } = withEditTxn(
+        sourceDb,
+        "insert aspect owner hierarchy",
+        (txn) => {
+          const parentId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "SharedParent"
+          );
+          return {
+            ownerIds: [
+              Subject.insert(txn, parentId, "OwnerA"),
+              Subject.insert(txn, parentId, "OwnerB"),
+            ],
+          };
+        }
+      );
+      const exporter = new IModelExporter(sourceDb);
+      const changes = new ChangedInstanceIds(sourceDb);
+      for (const ownerId of ownerIds) {
+        changes.element.updateIds.add(ownerId);
+        exporter.excludeElement(ownerId);
+      }
+      exporter["_sourceDbChanges"] = changes;
+      const getElement = sinon.spy(sourceDb.elements, "getElement");
+      const getModel = sinon.spy(sourceDb.models, "getModel");
+      const createQueryReader = sinon.spy(sourceDb, "createQueryReader");
+
+      const acceptedOwnerIds =
+        await exporter["getChangedElementIdsForAspectExport"]();
+
+      expect(acceptedOwnerIds).to.deep.equal(new Set<Id64String>());
+      expect(getElement.callCount).to.equal(0);
+      expect(getModel.callCount).to.equal(0);
+      const queries = createQueryReader
+        .getCalls()
+        .map((call) => String(call.args[0]));
+      expect(
+        queries.filter((query) => query.includes("FROM bis.Element e"))
+      ).to.have.lengthOf(3);
+      expect(
+        queries.filter((query) => query.includes("FROM bis.Model"))
+      ).to.have.lengthOf(1);
+    } finally {
+      sinon.restore();
+      sourceDb.close();
+    }
+  });
+
+  it("preserves custom exporter element-filter overrides for aspect owners", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "AspectOwnerCustomFilter.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "AspectOwnerCustomFilter" },
+    });
+    try {
+      const ownerId = withEditTxn(sourceDb, "insert aspect owner", (txn) =>
+        Subject.insert(txn, IModel.rootSubjectId, "Owner")
+      );
+      let ownerFilterCalls = 0;
+      class CustomExporter extends IModelExporter {
+        public override async shouldExportElement(
+          element: Element
+        ): Promise<boolean> {
+          if (element.id === ownerId) ownerFilterCalls++;
+          return true;
+        }
+      }
+      const exporter = new CustomExporter(sourceDb);
+      const changes = new ChangedInstanceIds(sourceDb);
+      changes.element.updateIds.add(ownerId);
+      exporter.excludeElement(ownerId);
+      exporter["_sourceDbChanges"] = changes;
+
+      const acceptedOwnerIds =
+        await exporter["getChangedElementIdsForAspectExport"]();
+
+      expect(acceptedOwnerIds).to.deep.equal(new Set([ownerId]));
+      expect(ownerFilterCalls).to.equal(1);
     } finally {
       sourceDb.close();
     }

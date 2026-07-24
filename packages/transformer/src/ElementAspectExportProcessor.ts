@@ -105,32 +105,22 @@ export class ElementAspectExportProcessor {
       elementIds
     );
 
-    let batchedElementMultiAspects: ElementMultiAspect[] = [];
+    const multiAspectsByOwner = new Map<Id64String, ElementMultiAspect[]>();
     await this.exportAspectsLoop<ElementMultiAspect>(
       ElementMultiAspect.classFullName,
       async (multiAspect) => {
-        if (batchedElementMultiAspects.length === 0) {
-          batchedElementMultiAspects.push(multiAspect);
-          return;
+        const ownerAspects = multiAspectsByOwner.get(multiAspect.element.id);
+        if (ownerAspects === undefined) {
+          multiAspectsByOwner.set(multiAspect.element.id, [multiAspect]);
+        } else {
+          ownerAspects.push(multiAspect);
         }
-        if (
-          batchedElementMultiAspects[0].element.id !== multiAspect.element.id
-        ) {
-          await this._handler.onExportElementMultiAspects(
-            batchedElementMultiAspects
-          );
-          await this._handler.trackProgress();
-          batchedElementMultiAspects = [];
-        }
-        batchedElementMultiAspects.push(multiAspect);
       },
       elementIds
     );
 
-    if (batchedElementMultiAspects.length > 0) {
-      await this._handler.onExportElementMultiAspects(
-        batchedElementMultiAspects
-      );
+    for (const multiAspects of multiAspectsByOwner.values()) {
+      await this._handler.onExportElementMultiAspects(multiAspects);
       await this._handler.trackProgress();
     }
   }
@@ -222,13 +212,11 @@ export class ElementAspectExportProcessor {
       for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
         aspectQueryReader
       )) {
-        const row = rowProxy.toRow();
-        const aspectProps: ElementAspectProps = {
-          ...row,
-          classFullName,
-          className: undefined,
-        };
-        delete (aspectProps as any).className;
+        const { className: _className, ...aspectProps } =
+          rowProxy.toRow() as ElementAspectProps & {
+            className?: string;
+          };
+        aspectProps.classFullName = classFullName;
         yield this._sourceDb.constructEntity<T>(aspectProps);
       }
     }
@@ -264,6 +252,7 @@ export class ElementAspectExportProcessor {
         FROM ECDbMeta.ClassHasAllBaseClasses r
         JOIN ECDbMeta.ECClassDef c ON c.ECInstanceId = r.SourceECInstanceId
         WHERE r.TargetECInstanceId = ec_classId(:baseClassName)
+        ORDER BY schemaName, className
       `,
       new QueryBinder().bindString(
         "baseClassName",
