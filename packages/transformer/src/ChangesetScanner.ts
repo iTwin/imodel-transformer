@@ -12,7 +12,7 @@ import {
 } from "@itwin/core-backend";
 import { Id64String, ITwinError } from "@itwin/core-bentley";
 import { ChangesetFileProps } from "@itwin/core-common";
-import type { ChangedInstanceIds } from "./IModelExporter";
+import type { ChangedInstanceIds } from "./ChangedInstanceIds";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,

@@ -20,6 +20,7 @@ import {
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
+  ElementAspect,
   ElementMultiAspect,
   ElementOwnsChildElements,
   ElementOwnsExternalSourceAspects,
@@ -113,7 +114,11 @@ import {
   Transform,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { IModelExporter, IModelExportHandler } from "../../IModelExporter";
+import {
+  ChangedInstanceIds,
+  IModelExporter,
+  IModelExportHandler,
+} from "../../IModelExporter";
 import {
   IModelTransformer,
   IModelTransformOptions,
@@ -144,7 +149,6 @@ import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 import { SchemaLoader } from "@itwin/ecschema-metadata";
-import { DetachedExportElementAspectsStrategy } from "../../DetachedExportElementAspectsStrategy";
 import { SchemaTestUtils } from "../TestUtils";
 
 describe("IModelTransformer", () => {
@@ -400,7 +404,8 @@ describe("IModelTransformer", () => {
       // TODO: explain which elements are updated
       assert.equal(targetImporter.numElementsUpdated, 38);
       assert.equal(targetImporter.numElementsExplicitlyDeleted, 0);
-      assert.equal(targetImporter.numElementAspectsInserted, 0);
+      // Full processing rebuilds the accepted aspect set after cleanup.
+      assert.equal(targetImporter.numElementAspectsInserted, 3);
       assert.equal(targetImporter.numElementAspectsUpdated, 0);
       assert.equal(targetImporter.numRelationshipsInserted, 0);
       assert.equal(targetImporter.numRelationshipsUpdated, 0);
@@ -1627,6 +1632,445 @@ describe("IModelTransformer", () => {
     seedDb.close();
     sourceDb.close();
     targetDb.close();
+  });
+
+  it("processElement exports the owner's aspects", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ProcessElementAspects-Source.bim"
+    );
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ProcessElementAspects-Target.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "ProcessElementAspectsSource" },
+    });
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "ProcessElementAspectsTarget" },
+    });
+    const sourceElementId = withEditTxn(
+      sourceDb,
+      "insert source aspect",
+      (txn) => {
+        const elementId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "AspectOwner"
+        );
+        txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(elementId),
+          scope: { id: IModel.rootSubjectId },
+          identifier: "processElement",
+          kind: ExternalSourceAspect.Kind.Element,
+        } as ExternalSourceAspectProps);
+        return elementId;
+      }
+    );
+    const editTxn = createStartedEditTxn(targetDb);
+    try {
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        { includeSourceProvenance: true, noProvenance: true }
+      );
+      await transformer.processElement(sourceElementId);
+      const targetElementId =
+        transformer.context.findTargetElementId(sourceElementId);
+      expect(
+        targetDb.elements.getAspects(
+          targetElementId,
+          ExternalSourceAspect.classFullName
+        )
+      ).to.have.lengthOf(1);
+      expect(
+        (
+          targetDb.elements.getAspects(
+            targetElementId,
+            ExternalSourceAspect.classFullName
+          )[0] as ExternalSourceAspect
+        ).identifier
+      ).to.equal("processElement");
+      transformer.dispose();
+    } finally {
+      editTxn.end("abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("all subset entry points use scoped ElementAspect processing", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ScopedAspectEntryPoints-Source.bim"
+    );
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ScopedAspectEntryPoints-Target.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "ScopedAspectEntryPointsSource" },
+    });
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "ScopedAspectEntryPointsTarget" },
+    });
+    const sourceElementId = withEditTxn(
+      sourceDb,
+      "insert subset entry point element",
+      (txn) => Subject.insert(txn, IModel.rootSubjectId, "SubsetElement")
+    );
+    const exporter = new IModelExporter(sourceDb);
+    const editTxn = createStartedEditTxn(targetDb);
+    const coordinator = exporter.elementAspectExportCoordinator;
+    const beginScope = sinon.spy(coordinator, "begin");
+    const endScope = sinon.spy(coordinator, "end");
+    sinon.stub(exporter, "exportElement").resolves();
+    sinon.stub(exporter, "exportChildElements").resolves();
+    sinon.stub(exporter, "exportModel").resolves();
+    sinon.stub(exporter, "exportModelContents").resolves();
+    try {
+      const transformer = new IModelTransformer({
+        source: exporter,
+        target: editTxn,
+      });
+      await transformer.processElement(sourceElementId);
+      await transformer.processChildElements(sourceElementId);
+      await transformer.processModel(IModel.repositoryModelId);
+      await transformer.processModelContents(
+        IModel.repositoryModelId,
+        IModel.repositoryModelId
+      );
+      expect(beginScope.callCount).to.equal(4);
+      expect(endScope.callCount).to.equal(4);
+      transformer.dispose();
+    } finally {
+      editTxn.end("abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("aborts a scoped aspect pass when subset element export fails", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ScopedAspectFailure-Source.bim"
+    );
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ScopedAspectFailure-Target.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "ScopedAspectFailureSource" },
+    });
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "ScopedAspectFailureTarget" },
+    });
+    const sourceElementId = withEditTxn(
+      sourceDb,
+      "insert failing subset element",
+      (txn) => Subject.insert(txn, IModel.rootSubjectId, "Failure")
+    );
+    const exporter = new IModelExporter(sourceDb);
+    const failure = new Error("subset export failed");
+    sinon.stub(exporter, "exportElement").rejects(failure);
+    const editTxn = createStartedEditTxn(targetDb);
+    try {
+      const transformer = new IModelTransformer({
+        source: exporter,
+        target: editTxn,
+      });
+      await expect(
+        transformer.processElement(sourceElementId)
+      ).to.be.rejectedWith(failure);
+      expect(exporter.elementAspectExportCoordinator.isActive).to.be.false;
+      transformer.dispose();
+    } finally {
+      editTxn.end("abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("processSubject does not export aspects for unrelated mapped elements", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ProcessSubjectAspects-Source.bim"
+    );
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "ProcessSubjectAspects-Target.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "ProcessSubjectAspectsSource" },
+    });
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "ProcessSubjectAspectsTarget" },
+    });
+    const ids = withEditTxn(
+      sourceDb,
+      "insert source subjects and aspect",
+      (txn) => {
+        const selected = Subject.insert(txn, IModel.rootSubjectId, "Selected");
+        const unrelated = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Unrelated"
+        );
+        const sourceScope = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "SourceScope"
+        );
+        txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(unrelated),
+          scope: { id: sourceScope },
+          identifier: "source-unrelated",
+          kind: ExternalSourceAspect.Kind.Element,
+        } as ExternalSourceAspectProps);
+        return { selected, unrelated, sourceScope };
+      }
+    );
+    const targetIds = withEditTxn(
+      targetDb,
+      "insert target subjects and aspect",
+      (txn) => {
+        const selected = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "TargetSelected"
+        );
+        const unrelated = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "TargetUnrelated"
+        );
+        const targetScope = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "TargetScope"
+        );
+        txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(unrelated),
+          scope: { id: targetScope },
+          identifier: "target-unrelated",
+          kind: ExternalSourceAspect.Kind.Element,
+        } as ExternalSourceAspectProps);
+        return { selected, unrelated, targetScope };
+      }
+    );
+    const editTxn = createStartedEditTxn(targetDb);
+    try {
+      const transformer = new IModelTransformer(
+        { source: sourceDb, target: editTxn },
+        { includeSourceProvenance: true, noProvenance: true }
+      );
+      transformer.context.remapElement(ids.selected, targetIds.selected);
+      transformer.context.remapElement(ids.unrelated, targetIds.unrelated);
+      transformer.context.remapElement(ids.sourceScope, targetIds.targetScope);
+      await transformer.processSubject(ids.selected, targetIds.selected);
+      expect(
+        (
+          targetDb.elements.getAspects(
+            targetIds.unrelated,
+            ExternalSourceAspect.classFullName
+          )[0] as ExternalSourceAspect
+        ).identifier
+      ).to.equal("target-unrelated");
+      transformer.dispose();
+    } finally {
+      editTxn.end("abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("does not clean target aspects for filtered changed owners", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "FilteredAspectCleanup-Source.bim"
+    );
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "FilteredAspectCleanup-Target.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "FilteredAspectCleanupSource" },
+    });
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "FilteredAspectCleanupTarget" },
+    });
+    const sourceElementId = withEditTxn(
+      sourceDb,
+      "insert filtered source element",
+      (txn) => Subject.insert(txn, IModel.rootSubjectId, "Filtered")
+    );
+    const targetIds = withEditTxn(
+      targetDb,
+      "insert filtered target aspect",
+      (txn) => {
+        const targetElementId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "FilteredTarget"
+        );
+        const targetScopeId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "TargetScope"
+        );
+        const aspectId = txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(targetElementId),
+          scope: { id: targetScopeId },
+          identifier: "preserve-filtered",
+          kind: ExternalSourceAspect.Kind.Element,
+        } as ExternalSourceAspectProps);
+        return { targetElementId, targetScopeId, aspectId };
+      }
+    );
+    class FilteringTransformer extends IModelTransformer {
+      public override async shouldExportElement(element: Element) {
+        return element.id !== sourceElementId;
+      }
+    }
+    const exporter = new IModelExporter(sourceDb);
+    const changes = new ChangedInstanceIds(sourceDb);
+    changes.element.updateIds.add(sourceElementId);
+    exporter["_sourceDbChanges"] = changes;
+    const editTxn = createStartedEditTxn(targetDb);
+    try {
+      const transformer = new FilteringTransformer(
+        { source: exporter, target: editTxn },
+        { includeSourceProvenance: true, noProvenance: true }
+      );
+      transformer.context.remapElement(
+        sourceElementId,
+        targetIds.targetElementId
+      );
+      const acceptedOwnerIds =
+        await exporter["getChangedElementIdsForAspectExport"]();
+      await transformer["prepareElementAspects"](
+        new Set(),
+        acceptedOwnerIds ?? new Set()
+      );
+      expect(targetDb.elements.getAspect(targetIds.aspectId).id).to.equal(
+        targetIds.aspectId
+      );
+      transformer.dispose();
+    } finally {
+      editTxn.end("abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
+  });
+
+  it("rebuilds the accepted aspect set after rejecting an aspect", async () => {
+    const sourceDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "RejectedAspectCleanup-Source.bim"
+    );
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelTransformer",
+      "RejectedAspectCleanup-Target.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
+      rootSubject: { name: "RejectedAspectCleanupSource" },
+    });
+    const targetDb = SnapshotDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "RejectedAspectCleanupTarget" },
+    });
+    const sourceIds = withEditTxn(
+      sourceDb,
+      "insert rejected source aspect",
+      (txn) => {
+        const elementId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "AspectOwner"
+        );
+        const scopeId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "SourceScope"
+        );
+        const aspectId = txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(elementId),
+          scope: { id: scopeId },
+          identifier: "rejected",
+          kind: ExternalSourceAspect.Kind.Element,
+        } as ExternalSourceAspectProps);
+        return { elementId, scopeId, aspectId };
+      }
+    );
+    const targetIds = withEditTxn(
+      targetDb,
+      "insert replaceable target aspect",
+      (txn) => {
+        const elementId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "AspectOwner"
+        );
+        const scopeId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "TargetScope"
+        );
+        const aspectId = txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(elementId),
+          scope: { id: scopeId },
+          identifier: "target",
+          kind: ExternalSourceAspect.Kind.Element,
+        } as ExternalSourceAspectProps);
+        return { elementId, scopeId, aspectId };
+      }
+    );
+    const exporter = new IModelExporter(sourceDb);
+    const changes = new ChangedInstanceIds(sourceDb);
+    changes.element.updateIds.add(sourceIds.elementId);
+    changes.model.updateIds.add(IModel.repositoryModelId);
+    changes.addCustomAspectChange(
+      "Deleted",
+      sourceIds.aspectId,
+      sourceIds.elementId
+    );
+    exporter["_sourceDbChanges"] = changes;
+    class RejectingAspectTransformer extends IModelTransformer {
+      public override async shouldExportElementAspect(
+        _aspect: ElementAspect
+      ): Promise<boolean> {
+        return false;
+      }
+    }
+    const editTxn = createStartedEditTxn(targetDb);
+    try {
+      const transformer = new RejectingAspectTransformer(
+        { source: exporter, target: editTxn },
+        { includeSourceProvenance: true, noProvenance: true }
+      );
+      transformer.context.remapElement(
+        sourceIds.elementId,
+        targetIds.elementId
+      );
+      transformer.context.remapElement(sourceIds.scopeId, targetIds.scopeId);
+      await transformer.initialize();
+      await exporter.exportAll();
+      expect(
+        targetDb.elements.getAspects(
+          targetIds.elementId,
+          ExternalSourceAspect.classFullName
+        )
+      ).to.have.lengthOf(0);
+      transformer.dispose();
+    } finally {
+      editTxn.end("abandon");
+      sourceDb.close();
+      targetDb.close();
+    }
   });
 
   it("Should not visit elements or relationships", async () => {
@@ -4816,15 +5260,15 @@ describe("IModelTransformer", () => {
     }
   });
 
-  it("should transform all aspects when detachedAspectProcessing is turned on", async () => {
+  it("should transform all aspects", async () => {
     // arrange
     // prepare source
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
-      "DetachedAspectProcessing.bim"
+      "ElementAspectProcessing.bim"
     );
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
-      rootSubject: { name: "DetachedAspectProcessing" },
+      rootSubject: { name: "ElementAspectProcessing" },
     });
     const elements = withEditTxn(sourceDb, "insert test data", (txn) => [
       Subject.insert(txn, IModel.rootSubjectId, "Subject1"),
@@ -4853,16 +5297,13 @@ describe("IModelTransformer", () => {
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
-      "DetachedAspectProcessing-Target.bim"
+      "ElementAspectProcessing-Target.bim"
     );
     const targetDb = StandaloneDb.createEmpty(targetDbFile, {
-      rootSubject: { name: "DetachedAspectProcessing-Target" },
+      rootSubject: { name: "ElementAspectProcessing-Target" },
     });
 
-    const exporter = new IModelExporter(
-      sourceDb,
-      DetachedExportElementAspectsStrategy
-    );
+    const exporter = new IModelExporter(sourceDb);
     const editTxn = new EditTxn(targetDb, "IModelTransformer");
     editTxn.start();
     const transformer = new IModelTransformer(
@@ -4897,16 +5338,16 @@ describe("IModelTransformer", () => {
     });
   });
 
-  it("should transform all aspects when detachedAspectProcessing is turned on and schema name and aspect class name has SQLite reserved keyword", async () => {
+  it("should transform all aspects when schema and aspect class names use SQLite reserved keywords", async () => {
     // arrange
     // prepare source
     const sourceDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
-      "DetachedAspectProcessingWithReservedSQLiteKeyword.bim"
+      "ElementAspectProcessingWithReservedSQLiteKeyword.bim"
     );
     const sourceDb = SnapshotDb.createEmpty(sourceDbFile, {
       rootSubject: {
-        name: "DetachedAspectProcessingWithReservedSQLiteKeyword",
+        name: "ElementAspectProcessingWithReservedSQLiteKeyword",
       },
     });
     const elements = withEditTxn(sourceDb, "insert test data", (txn) => [
@@ -4939,18 +5380,15 @@ describe("IModelTransformer", () => {
     // create target iModel
     const targetDbFile: string = IModelTransformerTestUtils.prepareOutputFile(
       "IModelTransformer",
-      "DetachedAspectProcessingWithReservedSQLiteKeyword-Target.bim"
+      "ElementAspectProcessingWithReservedSQLiteKeyword-Target.bim"
     );
     const targetDb = StandaloneDb.createEmpty(targetDbFile, {
       rootSubject: {
-        name: "DetachedAspectProcessingWithReservedSQLiteKeyword-Target",
+        name: "ElementAspectProcessingWithReservedSQLiteKeyword-Target",
       },
     });
 
-    const exporter = new IModelExporter(
-      sourceDb,
-      DetachedExportElementAspectsStrategy
-    );
+    const exporter = new IModelExporter(sourceDb);
     const editTxn = new EditTxn(targetDb, "IModelTransformer");
     editTxn.start();
     const transformer = new IModelTransformer(

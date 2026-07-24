@@ -286,6 +286,7 @@ Affected classes and methods:
 - `onExportModel`
 - `onExportRelationship`
 - `onTransformElement`
+
 - `onTransformElementAspect`
 - `shouldDetectDeletes`
 - `shouldExportCodeSpec`
@@ -350,3 +351,21 @@ if (transformer.isForwardSynchronization) { ... }
 // After (v2)
 if (await transformer.getIsForwardSynchronization()) { ... }
 ```
+
+## Breaking changes: ElementAspect processing
+
+In 2.x, ElementAspects are exported separately from element callbacks using bounded, owner-scoped groups. The constructor no longer accepts an aspect-processing selector, and the previous implementation that exported aspects beside their owning elements is removed.
+
+Existing `IModelExportHandler` callbacks and `shouldExportElementAspect` remain available. `IModelExporter` also continues to support `excludeElementAspectClass`. These callbacks retain their filtering and export roles, but aspect callbacks are no longer guaranteed to run next to the callback for their owning element.
+
+During change processing, the transformer clears replaceable target aspects for accepted changed owners and rebuilds them from the source. Excluded aspect classes and transformer provenance aspects are preserved. Custom inserted or updated aspect changes infer the owner while the source aspect exists. Custom deleted or missing aspects require the owning element ID and throw when it is omitted:
+
+```ts
+changedInstanceIds.addCustomAspectChange(
+  "Deleted",
+  deletedAspectId,
+  owningElementId
+);
+```
+
+For the processing entry points, Exporter/Transformer/Importer boundaries, workflow diagram, filtering, batching, and custom-change examples, see the [Processing ElementAspects learning guide](../learning/transformer/element-aspect-processing.md).

@@ -48,13 +48,15 @@ export class ChangedInstanceIds {
     constructor(db: IModelDb);
     addChange(change: ChangeInstance): Promise<void>;
     // @beta
-    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
+    // @internal
+    get aspectOwnerElementIds(): ReadonlySet<Id64String>;
     // (undocumented)
     codeSpec: ChangedInstanceOps;
     // (undocumented)
@@ -137,7 +139,9 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 
 // @beta
 export class IModelExporter {
-    constructor(sourceDb: IModelDb, elementAspectsStrategy?: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy);
+    constructor(sourceDb: IModelDb);
+    // @internal
+    get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -210,6 +214,8 @@ export class IModelImporter {
     readonly doNotUpdateElementIds: Set<string>;
     get editTxn(): EditTxn;
     protected readonly _editTxn: EditTxn;
+    // @internal
+    get elementAspectCleanup(): ElementAspectCleanup;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
@@ -338,6 +344,7 @@ export class IModelTransformer extends IModelExportHandler {
 
 // @beta
 export enum IModelTransformerError {
+    AspectOwnerRequired = "aspect-owner-required",
     ChangedInstanceMetadataMissing = "changed-instance-metadata-missing",
     ChangesetIndexUnavailable = "changeset-index-unavailable",
     DanglingReference = "dangling-reference",

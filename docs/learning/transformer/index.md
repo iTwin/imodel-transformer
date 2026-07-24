@@ -24,6 +24,8 @@ While it is possible to export data from an iModel using the standard [IModelDb]
 - Easily exclude certain entity types to filter the export content using [IModelExporter.excludeElementsInCategory]($transformer), [IModelExporter.excludeElementClass]($transformer), or [IModelExporter.excludeElementAspectClass]($transformer)
 - Integration with [IModelTransformer]($transformer)
 
+Learn how `IModelExporter` filters, batches, and exports ElementAspects in the [Processing ElementAspects guide](./element-aspect-processing.md). The guide also covers change handling and the owner metadata required for custom deleted aspect changes.
+
 Below is an example of using [IModelExporter]($transformer) and [IModelExportHandler]($transformer) to export all [Code]($common) values from an iModel:
 
 ```ts

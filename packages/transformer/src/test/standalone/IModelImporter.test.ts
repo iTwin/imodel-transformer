@@ -10,12 +10,21 @@ import "./TransformerTestStartup";
 
 chai.use(chaiAsPromised);
 import {
+  ElementAspect,
+  ElementOwnsExternalSourceAspects,
   ElementOwnsMultiAspects,
+  ElementOwnsUniqueAspect,
+  ExternalSourceAspect,
   StandaloneDb,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { Code, ElementAspectProps, IModel } from "@itwin/core-common";
+import {
+  Code,
+  ElementAspectProps,
+  ExternalSourceAspectProps,
+  IModel,
+} from "@itwin/core-common";
 import { Id64String } from "@itwin/core-bentley";
 import { IModelImporter } from "../../IModelImporter";
 import { IModelTransformerError } from "../../IModelTransformerError";
@@ -89,6 +98,7 @@ describe("IModelImporter", () => {
     const targetDb = StandaloneDb.createEmpty(targetDbFile, {
       rootSubject: { name: "DeleteElementAspect" },
     });
+
     try {
       const schema = `<?xml version="1.0" encoding="UTF-8"?>
 <ECSchema schemaName="TestImporterSchema" alias="tis" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
@@ -161,6 +171,112 @@ describe("IModelImporter", () => {
         targetDb.elements.getAspects(elementId, aspectClassFullName).length,
         "surplus aspect should have been deleted"
       ).to.equal(1);
+      editTxn.end();
+    } finally {
+      targetDb.close();
+    }
+  });
+
+  it("deleteElementAspects preserves excluded and transformer provenance aspects", async () => {
+    const targetDbFile = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelImporter",
+      "DeleteElementAspects.bim"
+    );
+    const targetDb = StandaloneDb.createEmpty(targetDbFile, {
+      rootSubject: { name: "DeleteElementAspects" },
+    });
+    try {
+      await targetDb.importSchemaStrings([
+        `<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="TestDeleteAspectsSchema" alias="tdas" version="01.00.00" xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.1">
+  <ECSchemaReference name="BisCore" version="01.00.04" alias="bis"/>
+  <ECEntityClass typeName="TestUniqueAspect" modifier="Sealed">
+    <BaseClass>bis:ElementUniqueAspect</BaseClass>
+  </ECEntityClass>
+  <ECEntityClass typeName="TestMultiAspect" modifier="Sealed">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+  </ECEntityClass>
+</ECSchema>`,
+      ]);
+      const schemaEditTxn = createStartedEditTxn(targetDb);
+      schemaEditTxn.saveChanges();
+      schemaEditTxn.end();
+
+      const { elementId, provenanceScopeId } = withEditTxn(
+        targetDb,
+        "insert aspect test data",
+        (txn) => {
+          const element = Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "AspectHost"
+          ).insert(txn);
+          const provenanceScope = Subject.create(
+            targetDb,
+            IModel.rootSubjectId,
+            "ProvenanceScope"
+          ).insert(txn);
+          return { elementId: element, provenanceScopeId: provenanceScope };
+        }
+      );
+      const aspectIds = withEditTxn(
+        targetDb,
+        "insert target aspects",
+        (txn) => ({
+          excluded: txn.insertAspect({
+            classFullName: "TestDeleteAspectsSchema:TestUniqueAspect",
+            element: new ElementOwnsUniqueAspect(elementId),
+          }),
+          replaceable: txn.insertAspect({
+            classFullName: "TestDeleteAspectsSchema:TestMultiAspect",
+            element: new ElementOwnsMultiAspects(elementId),
+          }),
+          nonProvenance: txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: IModel.rootSubjectId },
+            identifier: "replaceable",
+            kind: ExternalSourceAspect.Kind.Element,
+          } as ExternalSourceAspectProps),
+          provenance: txn.insertAspect({
+            classFullName: ExternalSourceAspect.classFullName,
+            element: new ElementOwnsExternalSourceAspects(elementId),
+            scope: { id: provenanceScopeId },
+            identifier: "provenance",
+            kind: ExternalSourceAspect.Kind.Element,
+          } as ExternalSourceAspectProps),
+        })
+      );
+
+      const editTxn = createStartedEditTxn(targetDb);
+      class TrackingImporter extends IModelImporter {
+        public deletedAspectCount = 0;
+
+        protected override async onDeleteElementAspect(
+          aspect: ElementAspect
+        ): Promise<void> {
+          this.deletedAspectCount++;
+          await super.onDeleteElementAspect(aspect);
+        }
+      }
+      const importer = new TrackingImporter(editTxn);
+      await importer.elementAspectCleanup.delete(
+        new Set([elementId]),
+        new Set(["TestDeleteAspectsSchema:TestUniqueAspect"]),
+        provenanceScopeId,
+        1
+      );
+      editTxn.saveChanges();
+
+      const hasAspect = (id: string) =>
+        targetDb.elements
+          .getAspects(elementId)
+          .some((aspect) => aspect.id === id);
+      expect(hasAspect(aspectIds.excluded)).to.be.true;
+      expect(hasAspect(aspectIds.replaceable)).to.be.false;
+      expect(hasAspect(aspectIds.nonProvenance)).to.be.false;
+      expect(hasAspect(aspectIds.provenance)).to.be.true;
+      expect(importer.deletedAspectCount).to.equal(2);
       editTxn.end();
     } finally {
       targetDb.close();
