@@ -136,3 +136,7 @@ if (
  * @docs-group-description IModelTransformerError
  * Stable identifiers for errors originating from this package.
  */
+/**
+ * @docs-group-description TransformerPackageMetadata
+ * Internal metadata describing this package and its peer dependencies.
+ */
