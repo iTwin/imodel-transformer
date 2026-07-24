@@ -375,12 +375,6 @@ export type ProcessChangesOptions = ExportChangesOptions & {
   ignoreMissingChangesetsInSynchronizations?: boolean;
 };
 
-type ChangeDataState =
-  | "uninited"
-  | "has-changes"
-  | "no-changes"
-  | "unconnected";
-
 /**
  * @beta
  */
@@ -769,7 +763,9 @@ export class IModelTransformer extends IModelExportHandler {
   } = {}) {
     return this._provenanceManager.updateSynchronizationVersion({
       initializeReverseSyncVersion,
-      sourceChangeDataState: this._sourceChangeDataState,
+      shouldUpdateSynchronizationVersion:
+        this._didFinalizeTransformation &&
+        this._shouldUpdateSynchronizationVersion,
     });
   }
 
@@ -1682,6 +1678,7 @@ export class IModelTransformer extends IModelExportHandler {
   // FIXME<MIKE>: is this necessary when manually using low level transform APIs? (document if so)
   private async finalizeTransformation() {
     this.importer.finalize();
+    this._didFinalizeTransformation = true;
     await this.updateSynchronizationVersion({
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
     });
@@ -2099,8 +2096,9 @@ export class IModelTransformer extends IModelExportHandler {
 
   /** state to prevent reinitialization, @see [[initialize]] */
   private _initialized = false;
-  private _sourceChangeDataState: ChangeDataState = "uninited";
-  /** length === 0 when _changeDataState = "no-change", length > 0 means "has-changes", otherwise undefined  */
+  private _didFinalizeTransformation = false;
+  private _shouldUpdateSynchronizationVersion = false;
+  /** Downloaded changesets for connected change processing. An empty array means there are no changes; undefined means changeset processing was not initialized. */
   private _csFileProps?: ChangesetFileProps[] = undefined;
   private _deletionRecordsByChangeset?: ChangesetDeletionRecordsByChangeset;
 
@@ -2185,9 +2183,10 @@ export class IModelTransformer extends IModelExportHandler {
         !this.exporter.sourceDbChanges.hasChanges
       )
         return;
-      // our sourcedbChanges aren't empty (probably due to someone adding custom changes), change our sourceChangeDataState to has-changes
-      if (this._sourceChangeDataState === "no-changes")
-        this._sourceChangeDataState = "has-changes";
+      if (
+        this.canTrackProcessChangesVersion(this._options.argsForProcessChanges)
+      )
+        this._shouldUpdateSynchronizationVersion = true;
     }
 
     const deletionRecordsByChangeset = this._deletionRecordsByChangeset;
@@ -2438,20 +2437,22 @@ export class IModelTransformer extends IModelExportHandler {
     }
   }
 
+  private canTrackProcessChangesVersion(
+    args: ProcessChangesOptions | undefined
+  ): args is ProcessChangesOptions {
+    return (
+      args !== undefined &&
+      this.sourceDb.iTwinId !== undefined &&
+      this.sourceDb.changeset.index !== undefined
+    );
+  }
+
   private async _tryInitChangesetData(args?: ProcessChangesOptions) {
-    if (
-      !args ||
-      this.sourceDb.iTwinId === undefined ||
-      this.sourceDb.changeset.index === undefined
-    ) {
-      this._sourceChangeDataState = "unconnected";
-      return;
-    }
+    if (!this.canTrackProcessChangesVersion(args)) return;
 
     const syncVersion = await this.getSynchronizationVersion();
     const noChanges = syncVersion.index === this.sourceDb.changeset.index;
     if (noChanges) {
-      this._sourceChangeDataState = "no-changes";
       this._csFileProps = [];
       return;
     }
@@ -2522,8 +2523,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._csFileProps = csFileProps;
 
     /** Theres a possibility that our csFileProps length is still 0 here, since we skip cs indices found in the pendingSync and pendingReverseSync indices arrays. */
-    this._sourceChangeDataState =
-      this._csFileProps.length === 0 ? "no-changes" : "has-changes";
+    this._shouldUpdateSynchronizationVersion = this._csFileProps.length > 0;
   }
 
   /** Asserts that the EditTxn is active before any write operations. */
@@ -2576,6 +2576,7 @@ export class IModelTransformer extends IModelExportHandler {
   public async process(): Promise<void> {
     await this.initialize();
 
+    this._didFinalizeTransformation = false;
     this.logSettings();
 
     return this._options.argsForProcessChanges !== undefined
@@ -2589,8 +2590,7 @@ export class IModelTransformer extends IModelExportHandler {
   private async processAll(): Promise<void> {
     this._targetElementIdsRemappedByCode.clear();
     this._targetModelsImportedInCurrentTransform.clear();
-    // processAll always has changes to process, so mark it as such for version tracking
-    this._sourceChangeDataState = "has-changes";
+    this._shouldUpdateSynchronizationVersion = true;
 
     await this.exporter.exportCodeSpecs();
     await this.exporter.exportFonts();
