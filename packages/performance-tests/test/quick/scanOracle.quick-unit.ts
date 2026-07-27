@@ -91,13 +91,61 @@ describe("changeset scan oracle", () => {
     expect(squashed.font.insertIds.size).to.equal(0);
   });
 
-  it("drops repeated ops without changing the squashed outcome", () => {
+  it("drops repeated inserts and updates without changing the outcome", () => {
     const ledger = new ScanLedger();
     for (let index = 0; index < 50; index++)
       ledger.record("element", "Updated", "0x40");
     ledger.record("element", "Deleted", "0x40");
     expect(ledger.entries).to.have.length(2);
     expect([...squashLedger(ledger).element.deleteIds]).to.deep.equal(["0x40"]);
+  });
+
+  it("rejects a repeated delete instead of deduplicating it", () => {
+    const ledger = new ScanLedger();
+    ledger.record("element", "Inserted", "0x41");
+    ledger.record("element", "Deleted", "0x41");
+    expect(() => ledger.record("element", "Deleted", "0x41")).to.throw(
+      /second "Deleted"/
+    );
+  });
+
+  // Pins the reason the recorder rejects repeated deletes rather than deduplicating them: the
+  // Deleted branch is conditional on insertIds.has(id), and the first delete falsifies that
+  // condition. Deduplicating would collapse this to the empty result, which is wrong.
+  it("does not treat a repeated delete as idempotent", () => {
+    const insertThenDelete = squashLedger([
+      { collection: "element", id: "0x42", op: "Inserted" },
+      { collection: "element", id: "0x42", op: "Deleted" },
+    ]);
+    expect(insertThenDelete.element.insertIds.size).to.equal(0);
+    expect(insertThenDelete.element.deleteIds.size).to.equal(0);
+
+    const withSecondDelete = squashLedger([
+      { collection: "element", id: "0x42", op: "Inserted" },
+      { collection: "element", id: "0x42", op: "Deleted" },
+      { collection: "element", id: "0x42", op: "Deleted" },
+    ]);
+    expect([...withSecondDelete.element.deleteIds]).to.deep.equal(["0x42"]);
+  });
+
+  // The transformer's Inserted branch clears deleteIds but not updateIds, and its Updated branch
+  // guards on insertIds but not deleteIds, so each leaves an id in two collections at once. Neither
+  // sequence is producible from a changeset, but both are reachable through addCustomElementChange.
+  // The oracle mirrors the behaviour rather than normalizing it, so that it keeps agreeing with the
+  it("mirrors the transformer's incomplete reconciliation rather than normalizing it", () => {
+    const updateThenInsert = squashLedger([
+      { collection: "element", id: "0x43", op: "Updated" },
+      { collection: "element", id: "0x43", op: "Inserted" },
+    ]);
+    expect([...updateThenInsert.element.insertIds]).to.deep.equal(["0x43"]);
+    expect([...updateThenInsert.element.updateIds]).to.deep.equal(["0x43"]);
+
+    const deleteThenUpdate = squashLedger([
+      { collection: "element", id: "0x44", op: "Deleted" },
+      { collection: "element", id: "0x44", op: "Updated" },
+    ]);
+    expect([...deleteThenUpdate.element.updateIds]).to.deep.equal(["0x44"]);
+    expect([...deleteThenUpdate.element.deleteIds]).to.deep.equal(["0x44"]);
   });
 
   it("records batches of ids", () => {

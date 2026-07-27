@@ -41,13 +41,23 @@ export type ScanExpectation = Readonly<Record<ScanCollection, ScanOps>>;
 /**
  * Ordered record of every change a recipe performs, used to predict the scan result.
  *
- * Repeating an op for the same instance is idempotent under all three squash rules, so the recorder
- * drops repeats. That keeps an update-heavy recipe's ledger proportional to touched instances rather
- * than to touched instances times changesets, without changing the squashed outcome.
+ * An update-heavy recipe touches the same instances in every changeset, so recording every sighting
+ * would make the ledger proportional to instances times changesets. The recorder drops a repeat of
+ * the op it last saw for that instance, which is safe because `Inserted` and `Updated` are both
+ * idempotent under repetition: `Inserted` unconditionally adds to `insertIds`, and `Updated` either
+ * adds to `updateIds` or is suppressed by a state a second sighting cannot change.
+ *
+ * `Deleted` is *not* idempotent, so it is rejected rather than deduplicated. Its branch is
+ * conditional on `insertIds.has(id)` and the first delete falsifies that condition, so
+ * insert-then-delete cancels to nothing while insert-then-delete-then-delete leaves the id in
+ * `deleteIds`. Deduplicating it would silently produce the wrong expectation for any recipe that
+ * repeated one. A repeated delete is not producible from a valid changeset sequence anyway - the
+ * row is already gone - so rejecting it reports a recipe authoring error instead of hiding it.
  */
 export class ScanLedger {
   private readonly _entries: ScanLedgerEntry[] = [];
   private readonly _lastOp = new Map<string, ScanOp>();
+  private readonly _deleted = new Set<string>();
 
   public record(
     collection: ScanCollection,
@@ -57,7 +67,13 @@ export class ScanLedger {
     const iterable = typeof ids === "string" ? [ids] : ids;
     for (const id of iterable) {
       const key = `${collection}\u0000${id}`;
-      if (this._lastOp.get(key) === op) continue;
+      if (op === "Deleted") {
+        if (this._deleted.has(key))
+          throw new Error(
+            `Ledger recorded a second "Deleted" for ${collection} ${id}. Deletes do not squash idempotently, and a valid changeset sequence cannot delete a row twice.`
+          );
+        this._deleted.add(key);
+      } else if (this._lastOp.get(key) === op) continue;
       this._lastOp.set(key, op);
       this._entries.push({ collection, id, op });
     }
@@ -125,7 +141,15 @@ function applyOp(ops: MutableScanOps, op: ScanOp, id: Id64String): void {
   }
 }
 
-export function squashLedger(ledger: ScanLedger): ScanExpectation {
+/**
+ * Replays a ledger through the squash rules.
+ *
+ * Accepts raw entries as well as a {@link ScanLedger} so that squash semantics can be pinned
+ * directly by tests, including sequences {@link ScanLedger.record} deliberately refuses to accept.
+ */
+export function squashLedger(
+  ledger: ScanLedger | readonly ScanLedgerEntry[]
+): ScanExpectation {
   const result = Object.fromEntries(
     scanCollections.map((collection) => [
       collection,
@@ -136,7 +160,10 @@ export function squashLedger(ledger: ScanLedger): ScanExpectation {
       },
     ])
   ) as Record<ScanCollection, MutableScanOps>;
-  for (const entry of ledger.entries)
+  const entries = Array.isArray(ledger)
+    ? (ledger as readonly ScanLedgerEntry[])
+    : (ledger as ScanLedger).entries;
+  for (const entry of entries)
     applyOp(result[entry.collection], entry.op, entry.id);
   return result;
 }
