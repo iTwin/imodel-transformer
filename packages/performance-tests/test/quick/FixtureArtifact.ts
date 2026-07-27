@@ -39,6 +39,11 @@ export interface FixtureArtifactManifest {
     readonly firstIndex?: number;
     readonly lastIndex?: number;
   };
+  /**
+   * Present only when the recipe returned data to carry across the stage boundary. Absent means
+   * the recipe emitted nothing — stage 2 reads this key rather than probing the filesystem.
+   */
+  readonly recipeDataFile?: string;
   readonly buildMilliseconds: number;
   readonly builtAt: string;
 }
@@ -47,6 +52,89 @@ export interface FixtureArtifactManifest {
 export interface FixtureArtifact {
   readonly directory: string;
   readonly manifest: FixtureArtifactManifest;
+}
+
+function describeValue(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value !== "object") return typeof value;
+  const name = value.constructor?.name;
+  return name && name !== "Object" ? name : "object";
+}
+
+/**
+ * Reject anything that would not survive `JSON.stringify`/`parse` intact.
+ *
+ * A plain round-trip comparison is not enough: `JSON.stringify(new Set())` yields `{}`, and both
+ * sides then have zero enumerable keys, so a lossy `Set` would compare equal. Walking the original
+ * and requiring JSON-native values at every node catches that, plus `Map`, `Date`, `BigInt`, `NaN`,
+ * `undefined`, functions and class instances — and names the path that is wrong.
+ */
+function assertJsonNative(value: unknown, at: string, seen: Set<object>): void {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value))
+      throw new Error(
+        `Recipe data at ${at} is ${String(
+          value
+        )}, which JSON serializes as null`
+      );
+    return;
+  }
+  if (typeof value !== "object")
+    throw new Error(
+      `Recipe data at ${at} is a ${describeValue(
+        value
+      )}, which JSON cannot represent`
+    );
+  if (seen.has(value)) throw new Error(`Recipe data at ${at} is circular`);
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      assertJsonNative(entry, `${at}[${index}]`, seen)
+    );
+  } else {
+    const prototype = Object.getPrototypeOf(value) as object | null;
+    if (prototype !== Object.prototype && prototype !== null)
+      throw new Error(
+        `Recipe data at ${at} is a ${describeValue(
+          value
+        )}; only plain objects and arrays survive JSON`
+      );
+    for (const [key, entry] of Object.entries(value))
+      assertJsonNative(entry, `${at}.${key}`, seen);
+  }
+  seen.delete(value);
+}
+
+/**
+ * Serialize a recipe's returned data into the artifact, failing at build time rather than
+ * producing a silently lossy artifact a scenario would misread much later.
+ */
+export function writeFixtureRecipeData(
+  directory: string,
+  data: unknown
+): string {
+  assertJsonNative(data, "<root>", new Set());
+  fs.writeFileSync(
+    path.join(directory, artifactRecipeDataFileName),
+    `${JSON.stringify(data, undefined, 2)}\n`
+  );
+  return artifactRecipeDataFileName;
+}
+
+/** Read recipe data from an artifact or working copy; `undefined` when the recipe emitted none. */
+export function readFixtureRecipeData(
+  directory: string,
+  manifest: FixtureArtifactManifest
+): unknown {
+  if (manifest.recipeDataFile === undefined) return undefined;
+  const file = path.join(directory, manifest.recipeDataFile);
+  if (!fs.existsSync(file))
+    throw new Error(
+      `Fixture artifact manifest declares recipe data at ${manifest.recipeDataFile} but the file is missing`
+    );
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 export function changesetArtifactFileName(
@@ -101,26 +189,6 @@ export function readChangesetFileProps(
   });
 }
 
-/**
- * Recipe-specific data captured at build time, if the recipe produced any.
- *
- * Absent for recipes that return nothing, which is why this reads as "undefined" rather than
- * throwing: an artifact without recipe data is a valid artifact.
- */
-export function readRecipeData(directory: string): unknown {
-  const file = path.join(directory, artifactRecipeDataFileName);
-  if (!fs.existsSync(file)) return undefined;
-  return JSON.parse(fs.readFileSync(file, "utf-8"));
-}
-
-export function writeRecipeData(directory: string, data: unknown): void {
-  if (data === undefined) return;
-  fs.writeFileSync(
-    path.join(directory, artifactRecipeDataFileName),
-    `${JSON.stringify(data)}\n`
-  );
-}
-
 export function artifactBriefcasePath(directory: string): string {
   return path.join(directory, artifactBriefcaseFileName);
 }
@@ -160,6 +228,13 @@ export function validateFixtureArtifactManifest(
     typeof manifest.builtAt !== "string"
   )
     throw new Error("Fixture artifact manifest has an invalid shape");
+  if (
+    manifest.recipeDataFile !== undefined &&
+    typeof manifest.recipeDataFile !== "string"
+  )
+    throw new Error(
+      "Fixture artifact manifest has an invalid recipeDataFile entry"
+    );
   validateDescriptor(manifest.descriptor);
   return manifest as FixtureArtifactManifest;
 }
@@ -186,6 +261,13 @@ export function readFixtureArtifact(directory: string): FixtureArtifact {
   if (changesets.length !== manifest.changesets.count)
     throw new Error(
       `Fixture artifact has ${changesets.length} changesets but its manifest declares ${manifest.changesets.count}`
+    );
+  if (
+    manifest.recipeDataFile !== undefined &&
+    !fs.existsSync(path.join(directory, manifest.recipeDataFile))
+  )
+    throw new Error(
+      `Fixture artifact is missing the recipe data its manifest declares: ${manifest.recipeDataFile}`
     );
   return { directory, manifest };
 }

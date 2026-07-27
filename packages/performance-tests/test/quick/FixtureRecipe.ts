@@ -18,32 +18,36 @@ import {
   validateScanFixture,
 } from "./recipes/updateHeavyScan";
 import { assertFixtureDistribution } from "./validation/validateFixture";
+import { ScanLedgerEntry } from "./validation/scanOracle";
 
 /**
  * A recipe produces the *change mix* for a fixture: it seeds the source iModel and then applies a
  * deterministic series of pushed changesets. It never touches HubMock; the fixture provider owns
  * the hub lifecycle.
+ *
+ * `TArtifactData` is anything the recipe must tell the scenario that cannot be recovered from the
+ * artifact afterwards — most importantly the exact ids it operated on. Deleted ids are gone from
+ * the tip-pinned briefcase, and deriving them from the changeset files would be circular for a
+ * scenario whose job is to verify those same files. Stage 1 captures the returned value once, so
+ * every sample and every A/B arm reads byte-identical expectations.
  */
-export interface FixtureRecipe<TState = unknown> {
+export interface FixtureRecipe<TState = unknown, TArtifactData = unknown> {
   readonly id: string;
   /** Create the source seed file. Returns state carried into {@link applySourceChangesets}. */
   createSeed(fileName: string, descriptor: DatasetDescriptor): Promise<TState>;
   /**
    * Apply and push the recipe's changesets to an open source briefcase.
    *
-   * Any returned value is recipe-specific data captured into the fixture artifact and handed back
-   * to the scenario at measure time. This exists because a recipe runs while the artifact is built
-   * but a scenario runs later against a copy, so anything the recipe knows and the scenario needs
-   * has to survive that boundary. A recipe that needs nothing returns `undefined`.
-   *
-   * The value must be JSON-serializable. The framework never inspects it.
+   * Any returned value is serialized into the artifact as `recipe.json` and surfaced to the
+   * scenario as `PreparedDetachedDataset.recipe`. It must round-trip through JSON; returning
+   * nothing is the normal case.
    */
   applySourceChangesets(
     db: BriefcaseDb,
     accessToken: AccessToken,
     descriptor: DatasetDescriptor,
     state: TState
-  ): Promise<unknown>;
+  ): Promise<TArtifactData | void>;
   /**
    * Assert the built source iModel matches what the descriptor promises.
    *
@@ -63,7 +67,10 @@ export const balancedIncrementalRecipe: FixtureRecipe<BalancedRecipeState> = {
   validate: async (db, descriptor) => assertFixtureDistribution(db, descriptor),
 };
 
-export const updateHeavyScanRecipe: FixtureRecipe<ScanRecipeState> = {
+export const updateHeavyScanRecipe: FixtureRecipe<
+  ScanRecipeState,
+  readonly ScanLedgerEntry[]
+> = {
   id: "update-heavy-scan",
   createSeed: async (fileName, descriptor) =>
     createScanSeed(fileName, descriptor),
@@ -72,18 +79,18 @@ export const updateHeavyScanRecipe: FixtureRecipe<ScanRecipeState> = {
   validate: async (db, descriptor) => validateScanFixture(db, descriptor),
 };
 
-const recipes = new Map<string, FixtureRecipe<any>>([
+const recipes = new Map<string, FixtureRecipe<any, any>>([
   [balancedIncrementalRecipe.id, balancedIncrementalRecipe],
   [updateHeavyScanRecipe.id, updateHeavyScanRecipe],
 ]);
 
-export function registerFixtureRecipe(recipe: FixtureRecipe<any>): void {
+export function registerFixtureRecipe(recipe: FixtureRecipe<any, any>): void {
   if (recipes.has(recipe.id))
     throw new Error(`Duplicate quick performance recipe: ${recipe.id}`);
   recipes.set(recipe.id, recipe);
 }
 
-export function getFixtureRecipe(id: string): FixtureRecipe<any> {
+export function getFixtureRecipe(id: string): FixtureRecipe<any, any> {
   const recipe = recipes.get(id);
   if (!recipe)
     throw new Error(

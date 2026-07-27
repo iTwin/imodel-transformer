@@ -17,10 +17,10 @@ import {
   fixtureArtifactVersion,
   readChangesetFileProps,
   readFixtureArtifact,
-  readRecipeData,
+  readFixtureRecipeData,
   toRelativeChangesetProps,
   writeFixtureArtifactManifest,
-  writeRecipeData,
+  writeFixtureRecipeData,
 } from "../FixtureArtifact";
 import {
   BuiltFixture,
@@ -147,7 +147,6 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
         path.join(artifactDir, artifactChangesetPropsFileName),
         `${JSON.stringify(toRelativeChangesetProps(downloaded), undefined, 2)}\n`
       );
-      writeRecipeData(artifactDir, recipeData);
 
       const releaseErrors = await releaseBuildHub(
         hub,
@@ -160,6 +159,11 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
           "Failed to release the fixture build hub"
         );
       hub = undefined;
+
+      const recipeDataFile =
+        recipeData === undefined || recipeData === null
+          ? undefined
+          : writeFixtureRecipeData(artifactDir, recipeData);
 
       const buildMilliseconds =
         Number(process.hrtime.bigint() - start) / 1_000_000;
@@ -184,6 +188,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
           firstIndex: indices.length > 0 ? Math.min(...indices) : undefined,
           lastIndex: indices.length > 0 ? Math.max(...indices) : undefined,
         },
+        recipeDataFile,
         buildMilliseconds,
         builtAt: new Date().toISOString(),
       };
@@ -237,7 +242,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       sourceDb,
       csFileProps,
       manifest: artifact.manifest,
-      recipeData: readRecipeData(sampleDir),
+      recipe: readFixtureRecipeData(sampleDir, artifact.manifest),
       reconstructionMilliseconds:
         Number(process.hrtime.bigint() - start) / 1_000_000,
     };

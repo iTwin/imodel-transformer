@@ -58,7 +58,7 @@ class ChangesetScanningScenario {
     if (!this._result)
       throw new Error("Changeset scanning scenario finished before measuring");
 
-    const entries = dataset.recipeData as ScanLedgerEntry[] | undefined;
+    const entries = dataset.recipe as ScanLedgerEntry[] | undefined;
     if (!entries)
       throw new Error(
         `Fixture "${dataset.descriptor.id}" carries no recipe ledger, so the scan result cannot be verified`
