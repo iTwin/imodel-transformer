@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - changeset-scanning
 
 permissions:
   contents: read
@@ -50,6 +51,7 @@ jobs:
             --require ts-node/register \
             test/quick/FixtureManifest.quick-unit.ts \
             test/quick/ScenarioCatalog.quick-unit.ts \
+            test/quick/scanOracle.quick-unit.ts \
             test/quick/statistics.quick-unit.ts \
             test/quick/LocalHubFixture.quick-unit.ts \
             2>&1 | sed \
@@ -81,6 +83,7 @@ jobs:
             "### Quick performance reliability",
             `Scenario: **${summary.scenarioId}**`,
             `Status: **${summary.varianceStatus}**`,
+            `Transformer: ${summary.versions?.transformer} / core-backend: ${summary.versions?.coreBackend} / node: ${summary.versions?.node}`,
             `CV: ${summary.wallMilliseconds.coefficientOfVariation}`,
             `Normalized MAD: ${summary.wallMilliseconds.normalizedMad}`,
             `Unstable samples: ${summary.unstableSamples.join(", ")}`,

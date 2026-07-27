@@ -12,6 +12,7 @@ import {
   medianAbsoluteDeviation,
   percentile,
 } from "./validation/statistics";
+import { resolvedVersions } from "./versions";
 
 export const maximumCoefficientOfVariation = 0.05;
 export const maximumNormalizedMad = 0.05;
@@ -63,6 +64,7 @@ export class BenchmarkReporter {
       jobMilliseconds,
       measuredSamples: measured.length,
       scenarioId: samples[0].scenarioId,
+      versions: resolvedVersions(),
       varianceStatus: classifyVariance(
         measured.length,
         wallCoefficientOfVariation,
@@ -108,7 +110,7 @@ export class BenchmarkReporter {
     fs.writeFileSync(
       path.join(outputDir, "summary.csv"),
       [
-        "scenario,fixture,measuredSamples,jobMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs",
+        "scenario,fixture,measuredSamples,jobMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs,transformer,coreBackend,node",
         [
           summary.scenarioId,
           summary.fixtureId,
@@ -122,6 +124,9 @@ export class BenchmarkReporter {
           summary.reconstructionMilliseconds.total,
           summary.verificationMilliseconds.total,
           summary.teardownMilliseconds.total,
+          summary.versions.transformer,
+          summary.versions.coreBackend,
+          summary.versions.node,
         ].join(","),
       ].join("\n")
     );

@@ -7,14 +7,19 @@ import * as path from "path";
 import { expect } from "chai";
 import { BenchmarkReporter } from "./BenchmarkReporter";
 import { BenchmarkRunner } from "./BenchmarkRunner";
+import { scenarioBudgetMilliseconds } from "./BenchmarkScenario";
 import { getFixtureDescriptor } from "./FixtureCatalog";
 import { getScenarioDefinition } from "./ScenarioCatalog";
 
-describe("quick transformer performance", function () {
-  this.timeout(15 * 60 * 1000);
+/** Headroom above the scenario budget so the budget assertion reports before Mocha kills the test. */
+const budgetHeadroomMilliseconds = 60 * 1000;
 
-  it("runs the balanced incremental synchronization fixture", async () => {
-    const scenario = getScenarioDefinition(process.env.QUICK_PERF_SCENARIO);
+describe("quick transformer performance", function () {
+  const scenario = getScenarioDefinition(process.env.QUICK_PERF_SCENARIO);
+  const budget = scenarioBudgetMilliseconds(scenario);
+  this.timeout(budget + budgetHeadroomMilliseconds);
+
+  it(`runs the ${scenario.id} scenario within its budget`, async () => {
     const measuredSamples = Number(process.env.QUICK_PERF_SAMPLES ?? "8");
     const outputDir =
       process.env.QUICK_PERF_OUTPUT ??
@@ -42,6 +47,6 @@ describe("quick transformer performance", function () {
     expect(new Set(samples.map((sample) => sample.scenarioId))).to.deep.equal(
       new Set([scenario.id])
     );
-    expect(jobMilliseconds).to.be.lessThan(15 * 60 * 1000);
+    expect(jobMilliseconds).to.be.lessThan(budget);
   });
 });

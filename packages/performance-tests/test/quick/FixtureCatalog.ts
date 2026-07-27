@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { DatasetDescriptor } from "./DatasetDescriptor";
 import { canonicalSha256 } from "./FixtureManifest";
+import { resolvedVersions } from "./versions";
 
 const scale = 25;
 const distribution = {
@@ -37,18 +38,7 @@ const distribution = {
   },
 } as const;
 
-function packageVersion(packageName: string): string {
-  const packageJson = JSON.parse(
-    fs.readFileSync(require.resolve(`${packageName}/package.json`), "utf8")
-  ) as { version: string };
-  return packageJson.version;
-}
-
-const generator = {
-  coreBackend: packageVersion("@itwin/core-backend"),
-  node: process.version,
-  transformer: packageVersion("@itwin/imodel-transformer"),
-};
+const generator = resolvedVersions();
 
 const recipeIdentity = {
   schema: "QuickPerf.01.00.00",
