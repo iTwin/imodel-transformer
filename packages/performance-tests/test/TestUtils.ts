@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { assert } from "chai";
+import { assert } from "vitest";
 import { IModelDb } from "@itwin/core-backend";
 import { DbResult, StopWatch } from "@itwin/core-bentley";
 import { GeometryStreamBuilder, GeometryStreamProps } from "@itwin/core-common";
@@ -83,7 +83,7 @@ export function timed<R extends any | Promise<any>>(
   }
 }
 
-// Mocha tests must know the test cases ahead time, so we collect the the Imodels first before beginning the tests
+// Vitest must know the test cases during collection, so collect the iModels first.
 export async function preFetchAsyncIterator<T>(
   iter: AsyncGenerator<T>
 ): Promise<T[]> {
