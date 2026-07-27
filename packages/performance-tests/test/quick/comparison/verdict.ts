@@ -31,6 +31,21 @@ export const defaultPairs = 8;
 export const escalatedPairs = 16;
 export const minimumPairs = 6;
 
+/**
+ * Practical equivalence margin: the change below which nobody would act, declared from domain
+ * relevance rather than derived from the measurement.
+ *
+ * This is deliberately NOT the noise floor. The floor says what the machine can resolve; the margin
+ * says what is worth caring about. Deriving one from the other makes `unchanged` hostage to how
+ * quiet the machine happened to be, and reduces a statement a reader wants ("smaller than we care
+ * about") to one they do not ("smaller than today's noise").
+ *
+ * When the measured floor exceeds this margin, the environment cannot resolve what we care about
+ * and the honest output is `inconclusive` saying exactly that. The margin is never widened to make
+ * `unchanged` reachable.
+ */
+export const defaultEquivalenceMarginPercent = 5;
+
 export interface ValidityFailure {
   readonly check: string;
   readonly detail: string;

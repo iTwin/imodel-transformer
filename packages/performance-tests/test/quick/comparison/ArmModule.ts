@@ -5,15 +5,33 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { IModelTransformer } from "@itwin/imodel-transformer";
+import type { IModelDb } from "@itwin/core-backend";
+import type {
+  TestTransformerModule,
+  TransformRunner,
+} from "../../TestTransformerModule";
 
 /**
  * Arm module contract for quick-performance comparison.
  *
- * Modelled on `TestTransformerModule`, which the weekly harness dynamic-imports
- * (`TransformerRegression.test.ts`). The difference is what varies: a quick-performance arm varies
- * the TRANSFORMER BUILD while holding core-backend fixed, so the contract is mostly about proving
- * that the fixed part really is fixed.
+ * This is a thin SUPERSET of `TestTransformerModule`, the contract the weekly regression harness
+ * already dynamic-imports via `EXTRA_TRANSFORMERS` (`TransformerRegression.test.ts`). Taking that
+ * shape rather than inventing a parallel one means the three arms that already exist --
+ * `NativeTransformer`, `RawForkOperations`, `RawForkCreateFedGuids` -- are usable here immediately,
+ * and an arm written for either suite works in both.
+ *
+ * Two additions, both optional, so every existing module stays valid:
+ *
+ * - `createChangeProcessingTransform`, because the existing contract covers identity and fork-init
+ *   only, and the quick scenario measures `process()` under `argsForProcessChanges`.
+ * - `dispose` on the runner. This one is not cosmetic. The existing implementations perform
+ *   teardown INSIDE `run()` -- `NativeTransformer` calls `transformer.dispose()` and `editTxn.end()`
+ *   there -- so the arm, not the harness, decides the boundary of the measured region. That is
+ *   tolerable for a weekly regression number and not tolerable for a comparison resolving a few
+ *   percent, because two arms could differ in what they fold into the timed region and the
+ *   difference would be indistinguishable from a real effect. An arm that supplies `dispose` gets
+ *   its teardown run outside the timed region; an arm that does not is still accepted, and the
+ *   report records that its measurement includes teardown.
  *
  * Resolution behaviour this contract is built on, established empirically in this workspace:
  *
@@ -23,31 +41,48 @@ import type { IModelTransformer } from "@itwin/imodel-transformer";
  * - An arm placed inside the workspace ALSO resolves nothing, because pnpm does not hoist
  *   `@itwin/core-backend` to the root `node_modules`.
  * - Linking the arm's declared peers to the harness's own resolved realpaths yields the same
- *   realpath, the same module instance, and the same `IModelHost` class -- and the transformer's
- *   built-in peer-version check passes.
+ *   realpath and the same core-backend version. Verified across two arms carrying DIFFERENT
+ *   transformer versions loaded in separate processes: both resolved one identical realpath.
+ * - Only peers may be redirected. The arm's own runtime dependencies -- `semver` today -- must come
+ *   from the arm's own install, and loading fails outright if that install has not been run.
  *
  * Co-resolution is therefore achievable but must be CONSTRUCTED. It is never assumed, and never
- * inferred from a version string: two identical version strings can still be two distinct module
- * instances, and `IModelHost` plus the native addon are process-global singletons that must not be
- * loaded twice.
+ * inferred from a version string: two identical version strings can still be two distinct copies on
+ * disk, and within any one process `IModelHost` and the native addon must be loaded exactly once.
  */
 
-/** The transformer surface an arm must expose. Scenarios take this instead of a static import. */
-export interface QuickArmTransformerApi {
-  readonly IModelTransformer: typeof IModelTransformer;
+/** Which measured operation an arm supplies. */
+export type ArmOperation = "identity" | "fork-init" | "change-processing";
+
+/** `TransformRunner` plus teardown the harness can keep out of the timed region. */
+export interface QuickTransformRunner extends TransformRunner {
+  dispose?(): void;
 }
 
-export interface QuickArmModule {
-  readonly transformer: QuickArmTransformerApi;
+/** Superset of the weekly harness contract; every member is optional there and here. */
+export interface QuickArmModule extends TestTransformerModule {
+  createChangeProcessingTransform?(
+    sourceDb: IModelDb,
+    targetDb: IModelDb
+  ): Promise<QuickTransformRunner>;
 }
+
+const operationFactories: Record<ArmOperation, keyof QuickArmModule> = {
+  identity: "createIdentityTransform",
+  "fork-init": "createForkInitTransform",
+  "change-processing": "createChangeProcessingTransform",
+};
 
 export interface ArmSpec {
   /** Stable identifier used in reports, e.g. `"A"`, `"B"`, or a git ref. */
   readonly id: string;
   /** Root of the built arm package: the directory containing its `package.json`. */
   readonly packageRoot: string;
-  /** Entry point relative to `packageRoot`. */
-  readonly entryPoint?: string;
+  /**
+   * Module to import, resolved from `packageRoot`. Matches `EXTRA_TRANSFORMERS` semantics: the
+   * module's DEFAULT export must conform to `QuickArmModule`.
+   */
+  readonly modulePath?: string;
   /** Human-readable provenance, e.g. the git ref the arm was built from. */
   readonly label?: string;
 }
@@ -55,6 +90,7 @@ export interface ArmSpec {
 export interface ResolvedArm {
   readonly spec: ArmSpec;
   readonly module: QuickArmModule;
+  readonly operations: readonly ArmOperation[];
   readonly transformerVersion: string;
   readonly coreBackendVersion: string;
   readonly coreBackendRealPath: string;
@@ -137,6 +173,13 @@ export function assertArmCoreBackendIdentity(
   );
 }
 
+/** Operations an arm actually supplies. Every factory is optional in the shared contract. */
+export function armOperations(module: QuickArmModule): ArmOperation[] {
+  return (Object.keys(operationFactories) as ArmOperation[]).filter(
+    (operation) => typeof module[operationFactories[operation]] === "function"
+  );
+}
+
 /** Load one arm and prove it shares the harness's core-backend before returning it. */
 export async function loadArm(
   spec: ArmSpec,
@@ -153,27 +196,68 @@ export async function loadArm(
   const armCoreBackend = realResolve("@itwin/core-backend", packageRoot);
   assertArmCoreBackendIdentity(armCoreBackend, harnessCoreBackend, spec.id);
 
-  const entry = path.join(
-    packageRoot,
-    spec.entryPoint ?? "lib/cjs/imodel-transformer.js"
-  );
-  if (!fs.existsSync(entry))
-    throw new Error(`Arm "${spec.id}" has no entry point at ${entry}`);
-
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const loaded = require(entry) as Partial<QuickArmTransformerApi>;
-  if (typeof loaded.IModelTransformer !== "function")
+  const specifier = spec.modulePath ?? packageRoot;
+  const resolved = require.resolve(specifier, { paths: [packageRoot] });
+  // Default export, matching how the weekly harness consumes `EXTRA_TRANSFORMERS` entries.
+  const imported = (await import(resolved)) as {
+    default?: QuickArmModule;
+  };
+  const module = imported.default;
+  if (module === undefined || typeof module !== "object")
     throw new Error(
-      `Arm "${spec.id}" does not export IModelTransformer from ${entry}`
+      `Arm "${spec.id}" must default-export a TestTransformerModule-shaped object from ${resolved}`
+    );
+
+  const operations = armOperations(module);
+  if (operations.length === 0)
+    throw new Error(
+      `Arm "${spec.id}" supplies no transform factory. Expected at least one of: ${Object.values(
+        operationFactories
+      ).join(", ")}.`
     );
 
   return {
     spec,
-    module: { transformer: { IModelTransformer: loaded.IModelTransformer } },
+    module,
+    operations,
     transformerVersion: manifest.version ?? "unknown",
     coreBackendVersion: JSON.parse(fs.readFileSync(armCoreBackend, "utf8"))
       .version,
     coreBackendRealPath: armCoreBackend,
+  };
+}
+
+export interface ArmRunnerHandle {
+  readonly runner: QuickTransformRunner;
+  /**
+   * True when the arm supplied no `dispose`, so whatever teardown it performs happens inside
+   * `run()` and therefore inside the timed region. Recorded in the report rather than corrected,
+   * because only the arm knows what its teardown is.
+   */
+  readonly teardownInMeasuredRegion: boolean;
+}
+
+/** Build the runner for one operation, or explain precisely why this arm cannot supply it. */
+export async function createArmRunner(
+  arm: ResolvedArm,
+  operation: ArmOperation,
+  sourceDb: IModelDb,
+  targetDb: IModelDb
+): Promise<ArmRunnerHandle> {
+  const factory = arm.module[operationFactories[operation]];
+  if (typeof factory !== "function")
+    throw new Error(
+      `Arm "${arm.spec.id}" does not implement "${operationFactories[operation]}", ` +
+        `so it cannot run the "${operation}" operation. It supplies: ${arm.operations.join(", ")}.`
+    );
+  const runner = (await factory.call(
+    arm.module,
+    sourceDb,
+    targetDb
+  )) as QuickTransformRunner;
+  return {
+    runner,
+    teardownInMeasuredRegion: typeof runner.dispose !== "function",
   };
 }
 
@@ -185,11 +269,18 @@ export async function loadArm(
  */
 export function assertArmsComparable(
   armA: ResolvedArm,
-  armB: ResolvedArm
+  armB: ResolvedArm,
+  operation: ArmOperation
 ): void {
   if (armA.coreBackendRealPath !== armB.coreBackendRealPath)
     throw new Error(
       `Arms "${armA.spec.id}" and "${armB.spec.id}" resolve different core-backend instances; ` +
         "the comparison is invalid."
     );
+  for (const arm of [armA, armB])
+    if (!arm.operations.includes(operation))
+      throw new Error(
+        `Arm "${arm.spec.id}" cannot run the "${operation}" operation; it supplies: ` +
+          `${arm.operations.join(", ")}.`
+      );
 }
