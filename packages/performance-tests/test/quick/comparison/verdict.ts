@@ -78,10 +78,16 @@ export interface VerdictResult {
   readonly magnitudeGate?: MagnitudeGate;
   readonly signGate?: SignGate;
   /**
-   * True only when the sign gate failed while the magnitude gate passed. Escalating on any other
-   * inconclusive result spends a second full run on a gate that escalation does not improve: the
-   * magnitude threshold is fixed, so only the estimator sharpens, and its power at an effect near
-   * the band is essentially unchanged between 8 and 16 pairs.
+   * True only when the sign gate failed while the magnitude gate passed. The sign gate is the
+   * binding constraint across the usable effect range, and escalation is what relaxes it -- from
+   * unanimity at 8 pairs to 14/16. Escalating on a magnitude failure instead spends a second full
+   * run on the gate that was not the obstacle.
+   *
+   * Note the tempting but invalid check: magnitude power measured at the band is ~50% at every
+   * pair count. That is an identity -- the band is the 95th percentile of the null median and the
+   * median is centred on the true effect -- not evidence that escalation achieves nothing. Each
+   * pair count is being evaluated at a different effect size there. At a FIXED effect, escalation
+   * roughly doubles detection.
    */
   readonly escalationRecommended: boolean;
   readonly provisionalBand: boolean;
