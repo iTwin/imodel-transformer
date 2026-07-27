@@ -335,11 +335,25 @@ gives it enough pairs to fire.
 
 ### 6.4 Fixture identity
 
-Both arms consume the same stage-1 fixture artifact, identified by `recipeHash`. Mismatch is `invalid`.
+Where both arms consume the same stage-1 artifact, that artifact's `recipeHash` must match across arms. Mismatch is
+`invalid`.
+
+Not every scenario can share an artifact. `incremental-synchronization` measures `process()` with
+`argsForProcessChanges`, which re-enters `BriefcaseManager` and needs a live target briefcase to push provenance to;
+it stays on a live-hub topology and rebuilds per sample, so **each arm builds its own fixture**.
+
+That remains valid here, for reasons that were checked rather than assumed: fixture generation is deterministic (no
+`Math.random`, `Guid.createValue`, `randomUUID` or `Date.now()` in the recipe, scenario or validation paths), and
+`semanticDigest` hashes sorted labels, payloads, sequences, geometry and relationship tuples while deliberately
+excluding ElementIds, briefcase ids and GUIDs. Independent rebuilds are therefore content-identical, and the cross-arm
+digest gate of §6.2 is what carries the guarantee in place of artifact identity.
+
+What independent rebuild costs is not correctness but resolution — see §7.1. It raises that scenario's noise floor,
+which is precisely why its band may not travel to another scenario.
 
 ---
 
-## 7. Environment class
+## 7. Calibration key — what a band and a baseline are allowed to describe
 
 A baseline or band captured on one machine class is noise on another: hosted Ubuntu CV was measured at 1.03%, while
 six local macOS runs measured 6.32, 3.71, 3.00, 4.80, 2.17, 6.43 percent.
@@ -349,8 +363,40 @@ bucketed to a power of two, major Node version, and a CI marker (runner label wh
 `local`). The human-readable components are stored next to the hash so a mismatch can be explained rather than just
 detected.
 
-Bands and baselines are looked up by environment class. A lookup miss is `uncalibrated`, never a silent fall-back to
-another environment's band.
+### 7.1 The environment is not sufficient on its own
+
+**Bands are keyed by `scenarioId + recipeHash + environmentClass`, the same key as baselines** — plus `k` and band
+kind (§1.2, §8), which describe the process structure the pool was collected under.
+
+The noise floor is a property of the *measured region*, not only of the machine. Two scenarios on one machine can have
+materially different floors:
+
+- `incremental-synchronization` runs on a live-hub topology and rebuilds its fixture per sample. That rebuild sits
+  immediately before the timed region — outside it, so it does not enter `wallMilliseconds`, but it lengthens the
+  process, widens the time gap between the A and B measurements of a pair, and leaves different page-cache and GC
+  state going into the measured call. It is symmetric across arms, so it does not bias the estimate; it raises the
+  floor.
+- A scenario consuming a byte-identical stage-1 artifact has none of that.
+
+Transporting a band between them silently manufactures verdicts in one direction and suppresses real ones in the
+other. `recipeHash` is included for the same reason it is on baselines: a larger recipe is a longer measured region
+and a different noise profile.
+
+A lookup miss is `uncalibrated`. There is **no fall-back across scenarios**, exactly as there is none across machines.
+
+### 7.2 Cost consequence, stated rather than discovered
+
+Calibration is **per scenario, not per machine**. At a 24-pair established band that is roughly 192 executions for
+each scenario that needs a verdict.
+
+This is a deliberate cost, and the way to manage it is to decide which scenarios need a verdict at all — the rest stay
+descriptive, which is an honest output. It is **not** to be managed by sharing a band.
+
+### 7.3 Measuring the rebuild's contribution instead of arguing about it
+
+`reconstructionMilliseconds` is already captured per sample (`BenchmarkRunner.ts`). On the first A/A run, regress
+`wallMilliseconds` on it to quantify how much of the floor the per-sample rebuild actually accounts for. This is free
+data already being collected, and it converts a plausible mechanism into a measured one.
 
 ---
 
