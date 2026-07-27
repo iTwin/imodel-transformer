@@ -315,6 +315,18 @@ The margin is a domain judgement — "we do not act on anything under X%" — an
 derived**. Until one is declared, `unchanged` is unreachable by construction and the verdict is `inconclusive` with
 the reason recorded as no declared margin.
 
+**The declared margin is 5%** (`defaultEquivalenceMarginPercent`). `unchanged` therefore means "demonstrably smaller
+than 5%", which is a claim about relevance, not about how quiet the machine was.
+
+The report prints the **declared margin and the measured detectability side by side**, because their relationship is
+what tells the reader whether the run could have answered the question at all. Where the floor exceeds the margin, the
+environment cannot resolve what we care about, and that is stated rather than papered over.
+
+Note this 5% coincides with the existing `classifyVariance` constant (§9), which makes retiring that constant a
+clarification rather than the introduction of a second unexplained number. The two are **not** the same quantity: one
+is a declared relevance threshold on a *difference between arms*, the other is a hardcoded dispersion threshold on a
+*single run*. They agree numerically today by intention, and nothing may couple them.
+
 **If the declared margin falls below the measured noise floor, the output is `inconclusive`** with an explicit note
 that this environment cannot resolve the declared margin. The margin is never widened to make it reachable.
 
@@ -336,6 +348,26 @@ Both arms must resolve the **same exact** `@itwin/core-backend` version. A misma
 continued. The package itself refuses unsupported transformer/core-backend peer combinations unless explicitly
 bypassed (`packages/transformer/src/imodel-transformer.ts:43-52`); stamping a version into a report does not make an
 invalid comparison valid. Core-backend-vs-core-backend comparison is out of scope for the initial implementation.
+
+**Co-resolution across subprocesses is confirmed achievable, and must be constructed.** Verified in this workspace by
+building two arm packages carrying *different* transformer versions, linking each arm's declared peers to the
+harness's resolved realpaths, and loading each in its own process: both resolved one byte-identical core-backend
+realpath at one version. Three findings this gate depends on:
+
+- pnpm does **not** hoist `@itwin/core-backend` to the workspace root, so an arm resolves nothing by default —
+  including an arm placed inside the workspace. Bare resolution fails with `MODULE_NOT_FOUND`.
+- Only **peers** may be redirected. The arm's own runtime dependencies (`semver` today) must come from the arm's own
+  install; loading fails outright if that install has not been run. Overriding them would replace part of what is
+  under test.
+- Identity is checked by **realpath, not version string**. Two copies of one version are two distinct trees on disk,
+  and within any single process `IModelHost` and the native addon must be loaded exactly once.
+
+An in-process alternative exists — the weekly harness loads every arm into one process, which forces a single
+core-backend by construction — and it is **not** adopted. Subprocess isolation here is not about permitting arms to
+differ in core-backend; §6.1 forbids that. It is about **measurement independence**: the pair-as-unit design requires
+each observation to come from fresh process state, and in-process arms would have the second arm measured on a heap
+the first had already warmed. Order alternation cancels the mean of such an effect while inflating the per-pair
+spread, and per-pair spread is the quantity the entire design exists to reduce.
 
 ### 6.2 Behaviour equality
 
@@ -371,6 +403,28 @@ digest gate of §6.2 is what carries the guarantee in place of artifact identity
 
 What independent rebuild costs is not correctness but resolution — see §7.1. It raises that scenario's noise floor,
 which is precisely why its band may not travel to another scenario.
+
+### 6.5 The harness owns the measured region, not the arm
+
+Arms are supplied as `TestTransformerModule`-shaped modules — the same contract the weekly regression harness already
+dynamic-imports through `EXTRA_TRANSFORMERS`. Reusing that shape means the arms that already exist
+(`NativeTransformer`, `RawForkOperations`, `RawForkCreateFedGuids`) are usable here without modification, and a new arm
+written for either suite works in both. The quick contract adds two optional members and takes nothing away:
+
+- `createChangeProcessingTransform`, because the shared contract covers identity and fork-init only, while the quick
+  scenario measures `process()` under `argsForProcessChanges`.
+- `dispose` on the runner.
+
+The second is a correctness matter, not tidiness. The existing implementations perform teardown **inside** `run()` —
+`NativeTransformer` calls `transformer.dispose()` and `editTxn.end()` there — which means the arm, not the harness,
+decides what falls inside the timed region. That is harmless for a weekly regression number and unacceptable for a
+comparison resolving a few percent: two arms could differ in what they fold into `run()`, and that difference would be
+indistinguishable from a real effect. Note that A/A calibration cannot catch it, because A/A runs identical code in
+both arms and so has no cross-arm boundary difference to expose.
+
+An arm supplying `dispose` has its teardown run outside the timed region. An arm that does not is still accepted — only
+the arm knows what its teardown is — and the report records `teardownInMeasuredRegion` for it. A comparison whose arms
+disagree on that flag is reported, because the arms are measuring different regions.
 
 ---
 

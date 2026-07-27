@@ -4,7 +4,16 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { expect } from "chai";
-import { assertArmCoreBackendIdentity } from "./ArmModule";
+import type { IModelDb } from "@itwin/core-backend";
+import type { TestTransformerModule } from "../../TestTransformerModule";
+import {
+  armOperations,
+  assertArmCoreBackendIdentity,
+  assertArmsComparable,
+  createArmRunner,
+  QuickArmModule,
+  ResolvedArm,
+} from "./ArmModule";
 import {
   binomialPmf,
   signGateRequirement,
@@ -30,7 +39,11 @@ import {
   NoiseBandPool,
 } from "./NoiseBand";
 import { SeededRandom } from "./SeededRandom";
-import { decideVerdict, signGateTargetLevel } from "./verdict";
+import {
+  decideVerdict,
+  defaultEquivalenceMarginPercent,
+  signGateTargetLevel,
+} from "./verdict";
 
 function normalPool(count: number, sigma: number, seed = 7): number[] {
   const random = new SeededRandom(seed);
@@ -465,9 +478,34 @@ describe("quick performance comparison statistics", () => {
         band,
         look: 1,
         mode: "paired",
-        equivalenceMargin: percentToLogRatio(5),
+        equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
       });
       expect(result.verdict).to.equal("unchanged");
+    });
+
+    it("declares the equivalence margin from domain relevance, not from the floor", () => {
+      // Nam's call. It is a fixed statement of what is worth acting on, so it must not move when
+      // the machine happens to be quiet or noisy -- that is the whole point of separating it from
+      // the band. Pinned so a later "tidy-up" cannot quietly re-derive it from the measurement.
+      expect(defaultEquivalenceMarginPercent).to.equal(5);
+      const quiet = deriveNoiseBand(makePool(normalPool(400, 0.005, 3)), 8);
+      const noisy = deriveNoiseBand(makePool(normalPool(400, 0.05, 3)), 8);
+      expect(noisy.band).to.be.greaterThan(quiet.band * 5);
+      for (const environment of [quiet, noisy]) {
+        const result = decideVerdict({
+          aggregate: aggregateLogRatios(
+            Array.from({ length: 8 }, (_, index) =>
+              percentToLogRatio(index % 2 === 0 ? 0.05 : -0.05)
+            )
+          ),
+          band: environment,
+          look: 1,
+          mode: "paired",
+          equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
+        });
+        // Same declared margin in both environments; only RESOLVABILITY differs.
+        expect(["unchanged", "inconclusive"]).to.contain(result.verdict);
+      }
     });
 
     it("refuses to widen a margin the environment cannot resolve", () => {
@@ -521,6 +559,104 @@ describe("quick performance comparison statistics", () => {
           "B"
         )
       ).to.throw(/different @itwin\/core-backend/);
+    });
+  });
+
+  describe("arm module contract", () => {
+    // Compile-time proof of the superset claim: anything satisfying the weekly harness contract is
+    // already a valid quick arm. If this stops compiling, the two suites have diverged.
+    const existingArm: TestTransformerModule = {
+      async createIdentityTransform() {
+        return { run: async () => {} };
+      },
+    };
+    const asQuickArm: QuickArmModule = existingArm;
+
+    const stubDb = {} as IModelDb;
+
+    function resolvedArm(id: string, module: QuickArmModule): ResolvedArm {
+      return {
+        spec: { id, packageRoot: `/arms/${id}` },
+        module,
+        operations: armOperations(module),
+        transformerVersion: "2.0.0",
+        coreBackendVersion: "5.10.3",
+        coreBackendRealPath: "/pnpm/core-backend",
+      };
+    }
+
+    it("accepts an existing weekly-harness arm unchanged", () => {
+      expect(armOperations(asQuickArm)).to.deep.equal(["identity"]);
+    });
+
+    it("reports every operation an arm supplies, and only those", () => {
+      const arm: QuickArmModule = {
+        async createIdentityTransform() {
+          return { run: async () => {} };
+        },
+        async createChangeProcessingTransform() {
+          return { run: async () => {}, dispose: () => {} };
+        },
+      };
+      expect(armOperations(arm)).to.deep.equal([
+        "identity",
+        "change-processing",
+      ]);
+    });
+
+    it("refuses an operation the arm does not supply, naming what it does", async () => {
+      const arm = resolvedArm("A", asQuickArm);
+      let message = "";
+      try {
+        await createArmRunner(arm, "change-processing", stubDb, stubDb);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).to.match(/does not implement/);
+      expect(message).to.contain("createChangeProcessingTransform");
+      // The error has to say what IS available, or the operator has to go read the arm.
+      expect(message).to.contain("identity");
+    });
+
+    it("records when an arm's teardown falls inside the measured region", async () => {
+      // The existing implementations dispose inside `run()`, so the arm rather than the harness
+      // sets the boundary of the timed region. Accepted, but never silently.
+      const withoutDispose = resolvedArm("legacy", asQuickArm);
+      const handle = await createArmRunner(
+        withoutDispose,
+        "identity",
+        stubDb,
+        stubDb
+      );
+      expect(handle.teardownInMeasuredRegion).to.equal(true);
+
+      const withDispose = resolvedArm("modern", {
+        async createIdentityTransform() {
+          return { run: async () => {}, dispose: () => {} };
+        },
+      });
+      const clean = await createArmRunner(
+        withDispose,
+        "identity",
+        stubDb,
+        stubDb
+      );
+      expect(clean.teardownInMeasuredRegion).to.equal(false);
+    });
+
+    it("rejects a pair where either arm cannot run the operation", () => {
+      const capable = resolvedArm("A", {
+        async createChangeProcessingTransform() {
+          return { run: async () => {} };
+        },
+      });
+      const incapable = resolvedArm("B", asQuickArm);
+      expect(() =>
+        assertArmsComparable(capable, incapable, "change-processing")
+      ).to.throw(/Arm "B" cannot run/);
+      expect(() =>
+        assertArmsComparable(capable, capable, "change-processing")
+      ).to.not.throw();
     });
   });
 
