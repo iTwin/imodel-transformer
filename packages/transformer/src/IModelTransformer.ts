@@ -32,6 +32,8 @@ import {
 } from "@itwin/core-geometry";
 import {
   BriefcaseManager,
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  ChangeSummaryManager,
   ChannelRootAspect,
   ConcreteEntity,
   DefinitionElement,
@@ -214,6 +216,15 @@ export interface IModelTransformOptions {
    * @default false
    */
   forceExternalSourceAspectProvenance?: boolean;
+
+  /**
+   * Do not detach the change cache that we build. Use this if you want to do multiple transformations to
+   * the same iModels, to avoid the performance cost of reinitializing the change cache which can be
+   * expensive. You should only use this if you know the cache will be reused.
+   * @note You must detach the change cache yourself.
+   * @default false
+   */
+  noDetachChangeCache?: boolean;
 
   /**
    * Do not error out if a scoping ESA @see ExternalSourceAspectProps is found without a version or jsonProperties defined on that scoping ESA.
@@ -541,10 +552,7 @@ export class IModelTransformer extends IModelExportHandler {
     // create the IModelCloneContext, it must be initialized later
     this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
 
-    if ("codeValueBehavior" in this.sourceDb) {
-      this.sourceDb.codeValueBehavior = "exact";
-      this.targetDb.codeValueBehavior = "exact";
-    }
+    this.setCodeValueBehavior("exact");
     this._syncTypeResolver = new SyncTypeResolver(
       this.context,
       this._options.targetScopeElementId,
@@ -1672,10 +1680,18 @@ export class IModelTransformer extends IModelExportHandler {
       initializeReverseSyncVersion: this._isProvenanceInitTransform,
     });
 
-    if ("codeValueBehavior" in this.sourceDb) {
-      this.sourceDb.codeValueBehavior = "trim-unicode-whitespace";
-      this.targetDb.codeValueBehavior = "trim-unicode-whitespace";
+    // TODO: ignore if we remove change cache usage
+    if (!this._options.noDetachChangeCache) {
+      if (ChangeSummaryManager.isChangeCacheAttached(this.sourceDb))
+        ChangeSummaryManager.detachChangeCache(this.sourceDb);
     }
+
+    this.setCodeValueBehavior("trim-unicode-whitespace");
+  }
+
+  private setCodeValueBehavior(behavior: "exact" | "trim-unicode-whitespace") {
+    this.sourceDb.codeValueBehavior = behavior;
+    this.targetDb.codeValueBehavior = behavior;
   }
 
   /** Imports all relationships that subclass from the specified base class.

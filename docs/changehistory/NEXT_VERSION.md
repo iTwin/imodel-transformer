@@ -1,11 +1,5 @@
 # Next release notes
 
-## Breaking change: `noDetachChangeCache` removed
-
-The `IModelTransformOptions.noDetachChangeCache` option has been removed. The transformer no longer creates or attaches a change cache, so it now leaves any cache attached by the caller unchanged.
-
-If you set `noDetachChangeCache: true` to prevent the transformer from detaching a cache, remove the option. No replacement is required because the transformer now always leaves caller-owned caches attached.
-
 ## Breaking change: transformer errors now have stable identifiers
 
 Errors detected and owned by `@itwin/imodel-transformer` now use `ITwinError` with scope `@itwin/imodel-transformer` and a key from `IModelTransformerError`. These errors previously used a mix of `IModelError` and plain `Error`.

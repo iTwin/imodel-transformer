@@ -18,17 +18,19 @@ import {
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementAspect,
+  Entity,
   EntityReferences,
   IModelDb,
+  Model,
   Relationship,
 } from "@itwin/core-backend";
 import { Id64, Id64String } from "@itwin/core-bentley";
 
-const bisCoreRootClassFullNames: Record<ConcreteEntityTypes, string> = {
-  [ConcreteEntityTypes.Model]: "BisCore:Model",
-  [ConcreteEntityTypes.Element]: "BisCore:Element",
-  [ConcreteEntityTypes.ElementAspect]: "BisCore:ElementAspect",
-  [ConcreteEntityTypes.Relationship]: "BisCore:Relationship",
+const bisCoreRootClasses: Record<ConcreteEntityTypes, typeof Entity> = {
+  [ConcreteEntityTypes.Model]: Model,
+  [ConcreteEntityTypes.Element]: Element,
+  [ConcreteEntityTypes.ElementAspect]: ElementAspect,
+  [ConcreteEntityTypes.Relationship]: Relationship,
 };
 
 /** @internal */
@@ -45,17 +47,17 @@ export namespace EntityUnifier {
     arg: { entity: ConcreteEntity } | { entityReference: EntityReference }
   ) {
     let classFullName: string;
-    let id: Id64String | undefined;
+    let id: Id64String;
     if ("entityReference" in arg) {
       const [type, entityId] = EntityReferences.split(arg.entityReference);
-      classFullName = bisCoreRootClassFullNames[type];
+      classFullName = bisCoreRootClasses[type].classFullName;
       id = entityId;
     } else {
       classFullName = `[${arg.entity.schemaName}].[${arg.entity.className}]`;
       id = arg.entity.id;
     }
 
-    if (id === undefined || Id64.isInvalid(id)) return false;
+    if (Id64.isInvalid(id)) return false;
 
     const query = `SELECT 1 FROM ${classFullName} WHERE ECInstanceId=:id`;
     const params = new QueryBinder().bindId("id", id);

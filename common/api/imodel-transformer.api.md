@@ -384,6 +384,7 @@ export interface IModelTransformOptions {
     forceExternalSourceAspectProvenance?: boolean;
     includeSourceProvenance?: boolean;
     loadSourceGeometry?: boolean;
+    noDetachChangeCache?: boolean;
     noProvenance?: boolean;
     optimizeGeometry?: OptimizeGeometryOptions;
     preserveElementIdsForFiltering?: boolean;
