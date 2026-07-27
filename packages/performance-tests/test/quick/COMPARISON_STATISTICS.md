@@ -58,8 +58,24 @@ process structure, not of the estimator alone. Bands record `k` and are rejected
 ### 1.3 Execution cost
 
 Per pair: `2 arms x (1 + k) = 8` scenario executions. At the default `P = 8`, a comparison run is **64 executions**,
-against today's single-arm run of 9. With the permitted escalation to `P = 16` it is **128**, and 128 is the number the
-budget must be planned against — not 64.
+against today's single-arm run of 9. With the permitted escalation to `P = 16` it is **128**, and 128 is the hard cap
+the budget must be able to absorb.
+
+**The expected cost is much closer to 64 than to 128**, because the escalation trigger is conditional (§3.1) and fires
+far less often than `inconclusive` occurs. Measured through the shipped rule at `P = 8`, 20,000 trials per row:
+
+| true effect | escalates | `inconclusive` | expected executions |
+|---|---|---|---|
+| 0 (nothing changed) | 4.6% | 99.8% | **67** |
+| 0.5 sigma | 19.7% | 96.9% | 77 |
+| 1.0 sigma | 46.0% | 77.7% | 93 |
+| 2.0 sigma | 16.8% | 17.0% | 75 |
+
+The first row is the one that governs weekly capacity planning, because most runs contain no regression. Note the gap
+between the two middle columns: escalating on undifferentiated `inconclusive` would have escalated **99.8%** of
+unchanged runs, making 128 the effective cost of a quiet week. The narrowed trigger of §3.1 is what turns that into
+67. Escalation cost peaks in the middle of the effect range, which is where the extra pairs actually change an
+outcome.
 
 `P` and `k` are parameters, not constants, and neither is frozen until W1 reports the stage-1 artifact copy cost.
 
@@ -329,6 +345,22 @@ is a declared relevance threshold on a *difference between arms*, the other is a
 
 **If the declared margin falls below the measured noise floor, the output is `inconclusive`** with an explicit note
 that this environment cannot resolve the declared margin. The margin is never widened to make it reachable.
+
+Because the band scales with the per-pair spread, that condition reduces to a single checkable number. With
+`band = c(P) * sigma_d` and `margin = ln(1.05) = 0.0488`:
+
+| `P` | `c(P)` | margin resolvable iff |
+|---|---|---|
+| 8 | 0.809 | `sigma_d <= 6.03%` |
+| 16 | 0.587 | `sigma_d <= 8.31%` |
+| 24 | 0.478 | `sigma_d <= 10.21%` |
+
+**This is the acceptance criterion for the first A/A run.** `sigma_d` is the per-pair spread of `ln(B/A)` *after*
+pairing has cancelled the common-mode component, so it is not the same quantity as the single-run CVs measured
+previously (1.03% hosted, 2.17-6.43% local) and should be smaller than them. If A/A returns `sigma_d` under about 6%,
+the declared margin is resolvable at the base pair count and `unchanged` is reachable. If it returns near or above
+that, the margin is not resolvable at `P = 8`, and the response is more pairs or a longer measured region — never a
+wider margin, and never a narrower band.
 
 ### 5.4 Everything else
 

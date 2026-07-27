@@ -233,7 +233,15 @@ export function decideVerdict(input: VerdictInput): VerdictResult {
       )}%, so this environment cannot resolve it.`,
       magnitudeGate,
       signGate,
-      escalationRecommended: false,
+      // An unresolvable margin blocks `unchanged`, but it does not block a change verdict -- that
+      // is decided against the band above, never against the margin. So the ordinary escalation
+      // condition still applies here, and escalating helps twice over: it relaxes unanimity to
+      // 14/16, and the band itself tightens at the larger pair count, which can lift the floor
+      // back below the margin. Suppressing escalation in this branch would discard a detectable
+      // regression precisely in the noisy environments that produced it.
+      escalationRecommended: Boolean(
+        input.look === 1 && magnitudeGate.passed && signGate && !signGate.passed
+      ),
       provisionalBand,
     };
 

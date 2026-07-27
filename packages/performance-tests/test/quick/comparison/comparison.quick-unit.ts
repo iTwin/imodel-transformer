@@ -73,6 +73,12 @@ interface PowerCharacterization {
   readonly signOnly: number;
   /** Fraction landing on the side opposite the true effect. */
   readonly wrongDirection: number;
+  /**
+   * Fraction that would escalate to look 2. Because A3 narrowed the trigger to "consistency failed
+   * while magnitude passed", this is far below the `inconclusive` rate, and it is what turns the
+   * worst-case execution budget into an expected one.
+   */
+  readonly escalated: number;
 }
 
 /**
@@ -96,6 +102,7 @@ function characterizePower(
   let magnitudeOnly = 0;
   let signOnly = 0;
   let wrongDirection = 0;
+  let escalated = 0;
   for (let trial = 0; trial < trials; trial++) {
     const logRatios = Array.from({ length: pairs }, () =>
       gaussian(random, mu, 1)
@@ -108,7 +115,9 @@ function characterizePower(
       band,
       look: 1,
       mode: "paired",
+      equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
     });
+    if (result.escalationRecommended) escalated++;
     if (result.magnitudeGate?.passed === true) magnitudeOnly++;
     if (result.signGate?.passed === true) signOnly++;
     if (result.verdict === "regressed" || result.verdict === "improved") {
@@ -122,6 +131,7 @@ function characterizePower(
     magnitudeOnly: magnitudeOnly / trials,
     signOnly: signOnly / trials,
     wrongDirection: wrongDirection / trials,
+    escalated: escalated / trials,
   };
 }
 
@@ -730,6 +740,46 @@ describe("quick performance comparison statistics", () => {
         const atBand = characterizePower(band.band, pairs, band, 4000, 99);
         expect(atBand.magnitudeOnly).to.be.closeTo(0.5, 0.05);
       }
+    });
+
+    it("escalates rarely, so the expected budget is far below the worst case", () => {
+      // The planning number that matters. A3 narrowed the trigger to "consistency failed while
+      // magnitude passed", which is a much smaller set than `inconclusive`. Quoting 2x the budget
+      // as if every run escalated would overstate the cost of the common case by an order of
+      // magnitude -- and the common case is a weekly run where nothing changed.
+      const band = deriveNoiseBand(pool, 8);
+      const quiet = characterizePower(0, 8, band, 4000, 99);
+      expect(quiet.escalated).to.be.lessThan(0.05);
+
+      // Escalation concentrates where it is useful: a real effect large enough to clear the band
+      // but not yet unanimous in sign. That is the only place look 2 changes an outcome.
+      const borderline = characterizePower(1, 8, band, 4000, 99);
+      expect(borderline.escalated).to.be.greaterThan(quiet.escalated * 3);
+
+      // Expected cost per run, in units of the look-1 budget.
+      const expectedMultiplier = 1 + quiet.escalated;
+      expect(expectedMultiplier).to.be.lessThan(1.05);
+    });
+
+    it("still escalates when the margin is unresolvable but a change may be detectable", () => {
+      // Regression guard. A margin below the noise floor blocks `unchanged`, but change verdicts
+      // are decided against the BAND, never the margin -- so escalation must not be suppressed
+      // here. It helps twice: unanimity relaxes to 14/16, and the band tightens at P = 16, which
+      // can lift the floor back under the margin. This branch is live exactly where it hurts
+      // most: local macOS measured CV 2-6% against a declared 5% margin.
+      const band = deriveNoiseBand(pool, 8);
+      const split = [1.4, 1.5, 1.6, 1.45, 1.55, 1.5, 1.48, -0.2];
+      const result = decideVerdict({
+        aggregate: aggregateLogRatios(split),
+        band,
+        look: 1,
+        mode: "paired",
+        equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
+      });
+      expect(result.verdict).to.equal("inconclusive");
+      expect(result.magnitudeGate?.passed).to.equal(true);
+      expect(result.signGate?.passed).to.equal(false);
+      expect(result.escalationRecommended).to.equal(true);
     });
 
     it("improves substantially at the escalated pair count, at a fixed effect size", () => {
