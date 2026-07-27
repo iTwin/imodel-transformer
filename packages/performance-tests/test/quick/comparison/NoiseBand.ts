@@ -44,20 +44,48 @@ export const provisionalBandMinimumRuns = 2;
 export const bandQuantile = 0.95;
 
 /**
- * Accumulated A/A observations for one environment class.
+ * Identity of a noise band pool.
  *
- * The raw per-pair log-ratios are retained rather than a summary, because the band must be
- * re-derived for whichever pair count is in play.
+ * The noise floor is a property of the measured region, not only of the machine, so the scenario
+ * and its recipe are part of the key -- not just the environment. A scenario that rebuilds its
+ * fixture per sample has a longer process and a wider gap between the two arms of a pair, which
+ * reduces the common-mode cancellation the paired design rests on and raises its floor. Sharing a
+ * band across scenarios would manufacture verdicts for the quiet one and suppress them for the
+ * noisy one.
  */
-export interface NoiseBandPool {
-  readonly environmentClass: string;
+export interface NoiseBandKey {
   readonly scenarioId: string;
-  readonly kind: NoiseBandKind;
+  readonly recipeHash: string;
+  readonly environmentClass: string;
   /**
    * Samples per arm per pair the pool was collected under. A band describes a whole process
    * structure, not an estimator, so a pool collected at a different `k` does not apply.
    */
   readonly samplesPerArmPerPair: number;
+  readonly kind: NoiseBandKind;
+}
+
+/**
+ * Storage key. Lookup and persistence must both go through this so the stored key can never drift
+ * away from what {@link assertPoolApplies} enforces.
+ */
+export function noiseBandKey(key: NoiseBandKey): string {
+  return [
+    key.scenarioId,
+    key.recipeHash,
+    key.environmentClass,
+    `k${key.samplesPerArmPerPair}`,
+    key.kind,
+  ].join("/");
+}
+
+/**
+ * Accumulated A/A observations for one calibration key.
+ *
+ * The raw per-pair log-ratios are retained rather than a summary, because the band must be
+ * re-derived for whichever pair count is in play.
+ */
+export interface NoiseBandPool extends NoiseBandKey {
   /** Per-pair log-ratios from A/A runs, in collection order. */
   readonly observations: readonly number[];
   /** Number of distinct A/A runs contributing, needed to capture between-run drift. */
@@ -172,12 +200,7 @@ export function deriveNoiseBand(
  */
 export function assertPoolApplies(
   pool: NoiseBandPool,
-  expected: {
-    environmentClass: string;
-    scenarioId: string;
-    samplesPerArmPerPair: number;
-    kind: NoiseBandKind;
-  }
+  expected: NoiseBandKey
 ): void {
   const mismatches: string[] = [];
   if (pool.environmentClass !== expected.environmentClass)
@@ -186,6 +209,8 @@ export function assertPoolApplies(
     );
   if (pool.scenarioId !== expected.scenarioId)
     mismatches.push(`scenario ${pool.scenarioId} != ${expected.scenarioId}`);
+  if (pool.recipeHash !== expected.recipeHash)
+    mismatches.push(`recipe hash ${pool.recipeHash} != ${expected.recipeHash}`);
   if (pool.samplesPerArmPerPair !== expected.samplesPerArmPerPair)
     mismatches.push(
       `samples per arm per pair ${pool.samplesPerArmPerPair} != ${expected.samplesPerArmPerPair}`

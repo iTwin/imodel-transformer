@@ -21,9 +21,11 @@ import {
   percentToLogRatio,
 } from "./logRatio";
 import {
+  assertPoolApplies,
   classifyBandStatus,
   deriveNoiseBand,
   medianNullThreshold,
+  noiseBandKey,
   NoiseBandPool,
 } from "./NoiseBand";
 import { SeededRandom } from "./SeededRandom";
@@ -47,6 +49,7 @@ function makePool(observations: number[], runs = 3): NoiseBandPool {
   return {
     environmentClass: "test-env",
     scenarioId: "incremental-synchronization",
+    recipeHash: "recipe-abc",
     kind: "paired",
     samplesPerArmPerPair: 3,
     observations,
@@ -186,6 +189,53 @@ describe("quick performance comparison statistics", () => {
       expect(classifyBandStatus(24, 2)).to.equal("provisional");
       expect(classifyBandStatus(16, 2)).to.equal("provisional");
       expect(classifyBandStatus(15, 5)).to.equal("uncalibrated");
+    });
+  });
+
+  describe("calibration key", () => {
+    const pool = makePool(normalPool(24, 0.03));
+    const key = {
+      scenarioId: pool.scenarioId,
+      recipeHash: pool.recipeHash,
+      environmentClass: pool.environmentClass,
+      samplesPerArmPerPair: pool.samplesPerArmPerPair,
+      kind: pool.kind,
+    };
+
+    it("keys a band by scenario and recipe, not by environment alone", () => {
+      expect(noiseBandKey(key)).to.not.equal(
+        noiseBandKey({ ...key, scenarioId: "scanner" })
+      );
+      expect(noiseBandKey(key)).to.not.equal(
+        noiseBandKey({ ...key, recipeHash: "recipe-xyz" })
+      );
+    });
+
+    it("accepts a pool that matches on every key component", () => {
+      expect(() => assertPoolApplies(pool, key)).to.not.throw();
+    });
+
+    it("refuses to carry a band across scenarios", () => {
+      // A scenario that rebuilds its fixture per sample has a longer process and a wider gap
+      // between the arms of a pair, so its floor is not the floor of an artifact-backed scenario.
+      expect(() =>
+        assertPoolApplies(pool, { ...key, scenarioId: "scanner" })
+      ).to.throw(/scenario/);
+    });
+
+    it("refuses to carry a band across recipes, environments, k, or band kind", () => {
+      expect(() =>
+        assertPoolApplies(pool, { ...key, recipeHash: "recipe-xyz" })
+      ).to.throw(/recipe hash/);
+      expect(() =>
+        assertPoolApplies(pool, { ...key, environmentClass: "other-env" })
+      ).to.throw(/environment class/);
+      expect(() =>
+        assertPoolApplies(pool, { ...key, samplesPerArmPerPair: 1 })
+      ).to.throw(/samples per arm per pair/);
+      expect(() =>
+        assertPoolApplies(pool, { ...key, kind: "unpaired" })
+      ).to.throw(/band kind/);
     });
   });
 
