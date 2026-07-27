@@ -11,11 +11,7 @@ import {
 import { Id64String } from "@itwin/core-bentley";
 import { ExportElementAspectsStrategy } from "./ExportElementAspectsStrategy";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
-import {
-  ElementAspectProps,
-  QueryBinder,
-  QueryRowFormat,
-} from "@itwin/core-common";
+import { QueryBinder } from "@itwin/core-common";
 
 /**
  * Detached ElementAspect export strategy for [[IModelExporter]].
@@ -129,30 +125,17 @@ export class DetachedExportElementAspectsStrategy extends ExportElementAspectsSt
       const classFullName = `${schemaName}:${className}`;
       if (this.excludedElementAspectClassFullNames.has(classFullName)) continue;
 
-      const getAspectPropsSql = `SELECT * FROM [${schemaName}]:[${className}] WHERE ECClassId = :classId ORDER BY Element.Id`;
+      const getAspectIdsSql = `SELECT ECInstanceId as id FROM [${schemaName}]:[${className}] WHERE ECClassId = :classId ORDER BY Element.Id`;
       const aspectQueryReader = this.sourceDb.createQueryReader(
-        getAspectPropsSql,
+        getAspectIdsSql,
         new QueryBinder().bindId("classId", classId),
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }
+        { usePrimaryConn: true }
       );
       const aspectAsyncQueryReader =
         ensureECSqlReaderIsAsyncIterableIterator(aspectQueryReader);
-      let firstDone = false;
       for await (const rowProxy of aspectAsyncQueryReader) {
         const row = rowProxy.toRow();
-        const aspectProps: ElementAspectProps = {
-          ...row,
-          classFullName,
-          className: undefined,
-        }; // add in property required by EntityProps
-        if (!firstDone) {
-          firstDone = true;
-        }
-        delete (aspectProps as any).className; // clear property from SELECT * that we don't want in the final instance
-        const aspectEntity = this.sourceDb.constructEntity<T>(aspectProps);
-
-        yield aspectEntity;
+        yield this.sourceDb.elements.getAspect(row.id) as T;
       }
     }
   }
