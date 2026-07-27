@@ -60,6 +60,7 @@ jobs:
             test/quick/statistics.quick-unit.ts \
             test/quick/LocalHubFixture.quick-unit.ts \
             test/quick/FixtureArtifact.quick-unit.ts \
+            test/quick/comparison/comparison.quick-unit.ts \
             2>&1 | sed \
               -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"
