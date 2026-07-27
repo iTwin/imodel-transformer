@@ -376,3 +376,241 @@ describe.skip("IModelTransformer Performance Tests", () => {
     }
   });
 });
+
+describe.skip("Changeset scanning performance", () => {
+  it("benchmarks changeset scanning across multiple files", async function () {
+    this.timeout(10 * 60 * 1000);
+
+    const elementCount = Number(
+      process.env.TRANSFORMER_CHANGESET_SCAN_ELEMENTS ?? 2500
+    );
+    const changesetCount = Number(
+      process.env.TRANSFORMER_CHANGESET_SCAN_CHANGESETS ?? 20
+    );
+    const measuredRuns = Number(
+      process.env.TRANSFORMER_CHANGESET_SCAN_RUNS ?? 3
+    );
+    for (const [name, value] of [
+      ["TRANSFORMER_CHANGESET_SCAN_ELEMENTS", elementCount],
+      ["TRANSFORMER_CHANGESET_SCAN_CHANGESETS", changesetCount],
+      ["TRANSFORMER_CHANGESET_SCAN_RUNS", measuredRuns],
+    ] as const) {
+      assert.isTrue(
+        Number.isSafeInteger(value) && value > 0,
+        `${name} must be a positive integer`
+      );
+    }
+
+    HubMock.startup(
+      "TransformerChangesetScanPerf",
+      KnownTestLocations.outputDir
+    );
+    const accessToken = await HubWrappers.getAccessToken(TestUserType.Regular);
+    let sourceDb: BriefcaseDb | undefined;
+    try {
+      const { db: seedDb } = await createSourceWithElements(elementCount);
+      const seedPath = seedDb.pathName;
+      seedDb.close();
+
+      const iModelId = await IModelHost[_hubAccess].createNewIModel({
+        accessToken,
+        iTwinId: HubMock.iTwinId,
+        iModelName: "Transformer changeset scan perf",
+        description: "Changeset scanning performance fixture",
+        version0: seedPath,
+        noLocks: true,
+      });
+      sourceDb = await HubWrappers.downloadAndOpenBriefcase({
+        accessToken,
+        iTwinId: HubMock.iTwinId,
+        iModelId,
+      });
+
+      const elementIds: string[] = [];
+      for await (const row of sourceDb.createQueryReader(
+        `SELECT ECInstanceId FROM ${PhysicalObject.classFullName}`
+      )) {
+        elementIds.push(row[0] as string);
+      }
+      assert.lengthOf(elementIds, elementCount);
+
+      for (
+        let changesetIndex = 1;
+        changesetIndex <= changesetCount;
+        ++changesetIndex
+      ) {
+        const elementsToDelete =
+          changesetIndex === changesetCount
+            ? Math.max(1, Math.floor(elementCount / 20))
+            : 0;
+        withEditTxn(
+          sourceDb,
+          `prepare performance changeset ${changesetIndex}`,
+          (txn) => {
+            for (
+              let elementIndex = 0;
+              elementIndex < elementIds.length;
+              ++elementIndex
+            ) {
+              txn.updateElement({
+                id: elementIds[elementIndex],
+                classFullName: PhysicalObject.classFullName,
+                userLabel: `Change_${changesetIndex}_Element_${elementIndex}`,
+                placement: {
+                  origin: {
+                    x: elementIndex * 2,
+                    y: changesetIndex,
+                    z: 0,
+                  },
+                  angles: {},
+                },
+              } as Partial<PhysicalElementProps>);
+            }
+            if (elementsToDelete > 0)
+              txn.deleteElement(elementIds.slice(0, elementsToDelete));
+          }
+        );
+        await sourceDb.pushChanges({
+          accessToken,
+          description: `performance changeset ${changesetIndex}`,
+        });
+      }
+
+      const csFileProps = await IModelHost[_hubAccess].downloadChangesets({
+        accessToken,
+        iModelId,
+        range: { first: 1, end: changesetCount },
+        targetDir: BriefcaseManager.getChangeSetsPath(iModelId),
+      });
+      assert.lengthOf(csFileProps, changesetCount);
+      const deletedElementCount = Math.max(1, Math.floor(elementCount / 20));
+
+      const measure = async (operation: () => Promise<void>) => {
+        const cpuStart = process.cpuUsage();
+        const elapsedStart = performance.now();
+        await operation();
+        const elapsedMs = performance.now() - elapsedStart;
+        const cpuUsage = process.cpuUsage(cpuStart);
+        return {
+          elapsedMs,
+          userCpuMs: cpuUsage.user / 1000,
+          systemCpuMs: cpuUsage.system / 1000,
+        };
+      };
+      const scanChangedInstanceIds = async () =>
+        measure(async () => {
+          const changedInstanceIds = await ChangedInstanceIds.initialize({
+            iModel: sourceDb!,
+            csFileProps,
+          });
+          assert.isDefined(changedInstanceIds);
+          assert.equal(
+            changedInstanceIds.element.updateIds.size,
+            elementCount - deletedElementCount
+          );
+          assert.equal(
+            changedInstanceIds.element.deleteIds.size,
+            deletedElementCount
+          );
+        });
+      let targetIndex = 0;
+      const initializeTransformer = async () => {
+        const targetFileName = initOutputFile(
+          `changeset_scan_target_${targetIndex++}.bim`
+        );
+        fs.copyFileSync(seedPath, targetFileName);
+        const targetDb = StandaloneDb.openFile(targetFileName);
+        const targetEditTxn = createStartedEditTxn(targetDb);
+        const transformer = new IModelTransformer(
+          { source: sourceDb!, target: targetEditTxn },
+          {
+            argsForProcessChanges: { csFileProps },
+            wasSourceIModelCopiedToTarget: true,
+          }
+        );
+        try {
+          return await measure(async () => transformer.initialize());
+        } finally {
+          transformer.dispose();
+          targetEditTxn.end();
+          targetDb.close();
+        }
+      };
+      const summarize = (
+        samples: Array<Awaited<ReturnType<typeof measure>>>
+      ) => {
+        const median = (values: number[]) => {
+          const sortedValues = [...values].sort((lhs, rhs) => lhs - rhs);
+          const middle = Math.floor(sortedValues.length / 2);
+          return sortedValues.length % 2 === 0
+            ? (sortedValues[middle - 1] + sortedValues[middle]) / 2
+            : sortedValues[middle];
+        };
+        return {
+          medianElapsedMs: median(samples.map((sample) => sample.elapsedMs)),
+          medianUserCpuMs: median(samples.map((sample) => sample.userCpuMs)),
+          medianSystemCpuMs: median(
+            samples.map((sample) => sample.systemCpuMs)
+          ),
+          elapsedSamplesMs: samples.map((sample) => sample.elapsedMs),
+        };
+      };
+
+      await scanChangedInstanceIds();
+      const changedInstanceIdsSamples = [];
+      for (let run = 0; run < measuredRuns; ++run)
+        changedInstanceIdsSamples.push(await scanChangedInstanceIds());
+
+      await initializeTransformer();
+      const transformerInitializationSamples = [];
+      for (let run = 0; run < measuredRuns; ++run)
+        transformerInitializationSamples.push(await initializeTransformer());
+
+      const changedInstanceIdsResult = summarize(changedInstanceIdsSamples);
+      const transformerInitializationResult = summarize(
+        transformerInitializationSamples
+      );
+      const printScanResult = (
+        label: string,
+        result: ReturnType<typeof summarize>
+      ) => {
+        console.log(`  ${label}:`);
+        console.log(
+          `    Median elapsed: ${result.medianElapsedMs.toFixed(2)} ms`
+        );
+        console.log(
+          `    Median user CPU: ${result.medianUserCpuMs.toFixed(2)} ms`
+        );
+        console.log(
+          `    Median system CPU: ${result.medianSystemCpuMs.toFixed(2)} ms`
+        );
+        console.log(
+          `    Elapsed samples: ${result.elapsedSamplesMs
+            .map((sample) => sample.toFixed(2))
+            .join(", ")} ms`
+        );
+      };
+
+      const separator = "===========================================";
+      console.log(`\n${separator}`);
+      console.log("  Changeset Scanning Performance Results");
+      console.log(`  core-backend: ${coreBackendVersion}`);
+      console.log(separator);
+      console.log(`  Elements: ${elementCount}`);
+      console.log(`  Changesets: ${changesetCount}`);
+      console.log(`  Update operations: ${elementCount * changesetCount}`);
+      console.log(`  Deleted elements: ${deletedElementCount}`);
+      console.log(`  Measured runs: ${measuredRuns}\n`);
+      printScanResult("ChangedInstanceIds scan", changedInstanceIdsResult);
+      console.log("");
+      printScanResult(
+        "Transformer initialization",
+        transformerInitializationResult
+      );
+      console.log(separator);
+    } finally {
+      sourceDb?.close();
+      HubMock.shutdown();
+    }
+  });
+});
