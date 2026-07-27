@@ -25,6 +25,7 @@ import {
   classifyBandStatus,
   deriveNoiseBand,
   medianNullThreshold,
+  NoiseBand,
   noiseBandKey,
   NoiseBandPool,
 } from "./NoiseBand";
@@ -43,6 +44,72 @@ function normalPool(count: number, sigma: number, seed = 7): number[] {
     );
   }
   return values;
+}
+
+/** One draw from `N(mu, sigma)`, so trials can be run at a known true effect size. */
+function gaussian(random: SeededRandom, mu: number, sigma: number): number {
+  const u1 = Math.max(random.next(), Number.EPSILON);
+  const u2 = random.next();
+  return mu + sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+interface PowerCharacterization {
+  /** Fraction of trials returning `regressed` or `improved` -- both gates held. */
+  readonly detected: number;
+  readonly magnitudeOnly: number;
+  readonly signOnly: number;
+  /** Fraction landing on the side opposite the true effect. */
+  readonly wrongDirection: number;
+}
+
+/**
+ * Run the real verdict rule against synthetic pairs drawn at a known true effect, and report how
+ * often it fires.
+ *
+ * This is the falsifiable form of the power claims in COMPARISON_STATISTICS.md. Prose asserting a
+ * false-positive rate cannot notice when a threshold constant stops matching the rule it describes;
+ * this can. The A1 defect -- a transcribed decimal excluding the exact unanimous level, making
+ * `regressed` unreachable at every effect size -- shows up here as detection collapsing to zero.
+ */
+function characterizePower(
+  mu: number,
+  pairs: number,
+  band: NoiseBand,
+  trials: number,
+  seed: number
+): PowerCharacterization {
+  const random = new SeededRandom(seed);
+  let detected = 0;
+  let magnitudeOnly = 0;
+  let signOnly = 0;
+  let wrongDirection = 0;
+  for (let trial = 0; trial < trials; trial++) {
+    const logRatios = Array.from({ length: pairs }, () =>
+      gaussian(random, mu, 1)
+    );
+    // The bootstrap is not consulted by either change gate, so a small resample count here keeps
+    // the characterization affordable without touching what is being measured.
+    const aggregate = aggregateLogRatios(logRatios, { resamples: 40 });
+    const result = decideVerdict({
+      aggregate,
+      band,
+      look: 1,
+      mode: "paired",
+    });
+    if (result.magnitudeGate?.passed === true) magnitudeOnly++;
+    if (result.signGate?.passed === true) signOnly++;
+    if (result.verdict === "regressed" || result.verdict === "improved") {
+      detected++;
+      const opposite = mu >= 0 ? "improved" : "regressed";
+      if (result.verdict === opposite) wrongDirection++;
+    }
+  }
+  return {
+    detected: detected / trials,
+    magnitudeOnly: magnitudeOnly / trials,
+    signOnly: signOnly / trials,
+    wrongDirection: wrongDirection / trials,
+  };
 }
 
 function makePool(observations: number[], runs = 3): NoiseBandPool {
@@ -454,6 +521,92 @@ describe("quick performance comparison statistics", () => {
           "B"
         )
       ).to.throw(/different @itwin\/core-backend/);
+    });
+  });
+
+  describe("power characterization of the verdict rule", () => {
+    // A pool large enough that the band sits near its asymptote, so these figures describe the
+    // RULE rather than the sampling noise of a 24-pair calibration.
+    const pool = makePool(normalPool(4000, 1, 11));
+
+    it("derives a band near the asymptotic median-null value at P = 8", () => {
+      const band = deriveNoiseBand(pool, 8);
+      expect(band.band).to.be.closeTo(0.809, 0.03);
+      // The individual-pair diagnostic is 2.4x looser and does not shrink with P at all. Using it
+      // as the gate -- the A2 defect -- leaves the rule far more permissive than it claims.
+      expect(band.individualPair95).to.be.closeTo(1.964, 0.05);
+      expect(band.individualPair95).to.be.greaterThan(band.band * 2);
+    });
+
+    it("holds the false-positive rate under 1% when nothing changed", () => {
+      const band = deriveNoiseBand(pool, 8);
+      const result = characterizePower(0, 8, band, 4000, 99);
+      expect(result.detected).to.be.lessThan(0.01);
+      // Each gate alone is far more permissive than the conjunction -- the magnitude gate alone
+      // fires at roughly its nominal 5%. That is why both are required.
+      expect(result.magnitudeOnly).to.be.closeTo(0.05, 0.02);
+      expect(result.signOnly).to.be.greaterThan(result.detected);
+    });
+
+    it("detects real effects, and detection increases with effect size", () => {
+      const band = deriveNoiseBand(pool, 8);
+      const at1 = characterizePower(1, 8, band, 4000, 99);
+      const at15 = characterizePower(1.5, 8, band, 4000, 99);
+      const at2 = characterizePower(2, 8, band, 4000, 99);
+
+      expect(at1.detected).to.be.within(0.15, 0.32);
+      expect(at15.detected).to.be.within(0.45, 0.68);
+      expect(at2.detected).to.be.within(0.72, 0.92);
+
+      // Guards A1 directly: a threshold that excludes the exact unanimous level makes `regressed`
+      // unreachable at EVERY effect size, so these collapse to zero rather than degrading.
+      expect(at2.detected).to.be.greaterThan(0.5);
+    });
+
+    it("essentially never reports a change in the wrong direction", () => {
+      const band = deriveNoiseBand(pool, 8);
+      for (const mu of [1, 2]) {
+        const result = characterizePower(mu, 8, band, 4000, 99);
+        expect(result.wrongDirection).to.equal(0);
+      }
+    });
+
+    it("is limited by the sign gate, not the magnitude gate, near the band", () => {
+      const band = deriveNoiseBand(pool, 8);
+      const atBand = characterizePower(band.band, 8, band, 4000, 99);
+      // Both gates must hold, so the binding constraint is whichever fires less often. The sign
+      // gate is binding across the whole usable range, which is what makes escalation worth
+      // anything: escalation relaxes unanimity to 14/16, and that is the gate under strain.
+      expect(atBand.signOnly).to.be.lessThan(atBand.magnitudeOnly);
+      expect(atBand.detected).to.be.closeTo(atBand.signOnly, 0.05);
+      // The band is NOT the effect size the harness reliably catches -- detection there is about
+      // an eighth. Reporting the band as "the MDE" would overstate detection several-fold.
+      expect(atBand.detected).to.be.within(0.05, 0.25);
+    });
+
+    it("has ~50% magnitude power at its own band for any P, which is an identity not a finding", () => {
+      // The band is the 95th percentile of the null median, and the median is centred on the true
+      // effect, so at `mu = band` the magnitude gate is a coin flip at EVERY pair count. Comparing
+      // that number across P appears to show escalation achieving nothing; it only shows that each
+      // P is being evaluated at a different effect size. Pinned so nobody re-derives that mistake.
+      for (const pairs of [8, 16]) {
+        const band = deriveNoiseBand(pool, pairs);
+        const atBand = characterizePower(band.band, pairs, band, 4000, 99);
+        expect(atBand.magnitudeOnly).to.be.closeTo(0.5, 0.05);
+      }
+    });
+
+    it("improves substantially at the escalated pair count, at a fixed effect size", () => {
+      const at8 = deriveNoiseBand(pool, 8);
+      const at16 = deriveNoiseBand(pool, 16);
+      // The band is a function of P -- a stored scalar reused at a different P would be wrong.
+      expect(at16.band).to.be.lessThan(at8.band);
+
+      // Holding the true effect fixed is the only comparison that answers "is the extra run worth
+      // it". It is: detection roughly doubles.
+      const initial = characterizePower(1, 8, at8, 4000, 99);
+      const escalated = characterizePower(1, 16, at16, 4000, 99);
+      expect(escalated.detected).to.be.greaterThan(initial.detected * 1.8);
     });
   });
 });

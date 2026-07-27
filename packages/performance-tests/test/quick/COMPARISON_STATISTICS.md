@@ -113,9 +113,17 @@ Sign convention: **positive means arm B is slower than arm A.** Stated once in t
 3. No other analysis points exist. In particular there is **no early stop on a significant result** — that is the
    mechanism that inflates the false-positive rate, and it is prohibited.
 
-The escalation trigger is deliberately narrower than "any `inconclusive`". Escalating on an undifferentiated
-`inconclusive` spends 64 additional executions in cases where the extra pairs are not addressing the gate that
-actually failed. Narrowing the continuation set also strengthens the family-wise argument rather than weakening it.
+The escalation trigger is deliberately narrower than "any `inconclusive`". The consistency gate is the binding
+constraint across the usable effect range (§4.4), and escalation is precisely what relaxes it — from unanimity at 8
+pairs to 14/16. Escalating on a magnitude failure instead spends 64 additional executions on the gate that was not the
+obstacle. Narrowing the continuation set also strengthens the family-wise argument rather than weakening it.
+
+One measurement must not be used to justify this, because it is an identity rather than a finding: magnitude power
+evaluated **at the band** is ~50% at every pair count. The band is the 95th percentile of the null median and the
+median is centred on the true effect, so `mu = band` is a coin flip by construction. Comparing that figure across `P`
+appears to show escalation achieving nothing; it only shows that each `P` is being evaluated at a *different* effect
+size, since the band itself tightens with `P`. At a **fixed** effect, escalation roughly doubles detection
+(0.230 to 0.517 at `mu = 1.0`). A regression test pins this so the mistake is not re-derived.
 
 Because the only permitted continuation is on a pre-declared subset of `inconclusive`, and both looks use gates
 declared in advance (§5.2), the family-wise false-positive rate is bounded by the union of the two look-level rates:
@@ -225,10 +233,23 @@ At a true effect exactly equal to the band, measured through this implementation
 | gate | power at `mu = band` |
 |---|---|
 | magnitude alone | ~50% |
-| magnitude **and** consistency (what a verdict requires) | ~14% |
+| magnitude **and** consistency (what a verdict requires) | ~13% |
 
-The magnitude gate reaches 80% power at roughly **1.4x the band**. A reader told "MDE 4%" will assume 4% regressions
-are caught; at the band they are caught less than a sixth of the time.
+Full characterization, `P = 8`, effects in units of the per-pair sd, 4,000 trials through the shipped verdict rule
+(pinned by tests in `comparison/comparison.quick-unit.ts`):
+
+| true effect | magnitude | consistency | **verdict** |
+|---|---|---|---|
+| 0 (A/A) | 0.048 | 0.009 | **0.002** |
+| 0.5 | 0.237 | 0.052 | **0.032** |
+| 0.81 (= band) | 0.509 | 0.160 | **0.127** |
+| 1.0 | 0.687 | 0.260 | **0.230** |
+| 1.5 | 0.953 | 0.575 | **0.566** |
+| 2.0 | 0.997 | 0.837 | **0.836** |
+
+Two things follow. The **consistency gate is binding everywhere** — the verdict column tracks it, not the magnitude
+column — which is why escalation, whose whole effect is to relax unanimity to 14/16, is the lever that matters. And a
+reader told "MDE 4%" will assume 4% regressions are caught; at the band they are caught about an eighth of the time.
 
 Reports therefore print the band as a **noise-floor scale with its power annotated**, plus the ~80%-power point, and
 never as a bare "MDE".
