@@ -14,6 +14,42 @@ import { NoiseBand } from "./NoiseBand";
  * alone is a direction with no size. `unchanged` is a separate claim from `inconclusive` and
  * requires its own evidence -- "we showed it did not move" and "we could not tell" are different
  * statements, and reporting the second as the first is how a regression ships.
+ *
+ * WHY THE CONSISTENCY GATE SURVIVED ITS REVIEW, AND WHY IT WAS LOOSENED
+ *
+ * The gate was challenged on the grounds that resampling the real A/A pool already makes the
+ * magnitude gate nonparametric, so the consistency gate's distribution-free justification is
+ * redundant and is costing minimum detectable effect for nothing.
+ *
+ * Half right, and the half that is wrong matters more. The magnitude gate is nonparametric in the
+ * SHAPE of the per-pair distribution, but it is not robust to a change in SCALE between the run
+ * that produced the band and the run being judged against it. Bands are persisted and reused --
+ * that is the entire point of storing them -- so scale drift is the expected operating condition,
+ * not an edge case. Measured false-positive rate at zero true effect, band calibrated at one
+ * spread and the comparison run drawn at a multiple of it (20,000 trials per cell):
+ *
+ *   run spread     magnitude only     + 8/8     + 7/8     + 6/8
+ *   1.0x                  4.88%       0.24%     1.48%     3.68%
+ *   1.5x                 18.75%       0.66%     3.96%    11.67%
+ *   3.0x                 50.97%       0.83%     6.53%    23.96%
+ *
+ * The consistency gate is scale-free: its null is 50/50 under any distribution with zero median,
+ * whatever the spread. That is what holds the top-right of that table flat while the magnitude
+ * gate alone degrades to a coin flip. Local runs have already been observed spanning 2.17% to
+ * 6.43% CV on one machine class, so the 3.0x row is roughly the observed range, not a worst case.
+ *
+ * The obvious alternative -- detect staleness from the run's own spread and reject the band -- was
+ * measured and is too weak to replace this: at 1.5x drift it flags only 34% of runs, while already
+ * false-flagging 6.7% of well-calibrated ones. Useful as a supplement, not as a substitute.
+ *
+ * What the challenge got right is the price. Unanimity is over-insurance: it bought a 0.24%
+ * false-positive rate against a 5% budget and cost 2.38x band for 80% power. Loosening to the
+ * level below (7/8 at P = 8, 12/16 at P = 16) holds the combined rate at or near the 5% budget
+ * across the whole drift range while moving the 80% point to 1.67x band -- recovering most of the
+ * distance to the 1.42x an unprotected magnitude gate would give, at a fraction of the exposure.
+ *
+ * Note the level is declared on the CONJUNCTION, which is the rule that actually ships. Per-gate
+ * levels are not the operative quantity and are reported only as diagnostics.
  */
 
 export type ComparisonVerdict =
@@ -26,7 +62,7 @@ export type ComparisonVerdict =
   | "invalid";
 
 /** One declared target level per look; the agreement COUNT is derived from it exactly. */
-export const signGateTargetLevel = 0.01;
+export const signGateTargetLevel = 0.1;
 export const defaultPairs = 8;
 export const escalatedPairs = 16;
 export const minimumPairs = 6;
@@ -267,11 +303,11 @@ export function decideVerdict(input: VerdictInput): VerdictResult {
     reason: magnitudeGate.passed
       ? `Median log-ratio ${magnitudeGate.statisticPercent.toFixed(
           2
-        )}% clears the band, but only ${signGate?.agreeing ?? 0}/${
-          signGate?.effectivePairs ?? 0
-        } pairs agree in sign (requirement ${
+        )}% clears the band, but the per-pair directions are split ${
+          signGate?.agreeing ?? 0
+        }/${signGate?.effectivePairs ?? 0} (requirement ${
           signGate?.requirement.requiredAgreeing ?? "n/a"
-        })`
+        }), so the effect is driven by a few extreme pairs rather than a consistent shift`
       : `Median log-ratio ${magnitudeGate.statisticPercent.toFixed(
           2
         )}% does not clear the ${input.band.kind} A/A band of ${magnitudeGate.thresholdPercent.toFixed(

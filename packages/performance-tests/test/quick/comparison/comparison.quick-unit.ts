@@ -95,7 +95,9 @@ function characterizePower(
   pairs: number,
   band: NoiseBand,
   trials: number,
-  seed: number
+  seed: number,
+  /** Spread of the comparison run relative to the pool the band came from. 1 = well calibrated. */
+  runSigma = 1
 ): PowerCharacterization {
   const random = new SeededRandom(seed);
   let detected = 0;
@@ -105,7 +107,7 @@ function characterizePower(
   let escalated = 0;
   for (let trial = 0; trial < trials; trial++) {
     const logRatios = Array.from({ length: pairs }, () =>
-      gaussian(random, mu, 1)
+      gaussian(random, mu, runSigma)
     );
     // The bootstrap is not consulted by either change gate, so a small resample count here keeps
     // the characterization affordable without touching what is being measured.
@@ -165,23 +167,31 @@ describe("quick performance comparison statistics", () => {
 
     it("derives gate requirements as counts, not as rounded p-values", () => {
       const atEight = signGateRequirement(8, signGateTargetLevel);
-      expect(atEight.requiredAgreeing).to.equal(8);
+      expect(atEight.requiredAgreeing).to.equal(7);
       expect(atEight.unachievable).to.equal(false);
       const atSixteen = signGateRequirement(16, signGateTargetLevel);
-      expect(atSixteen.requiredAgreeing).to.equal(14);
+      expect(atSixteen.requiredAgreeing).to.equal(12);
       expect(atSixteen.unachievable).to.equal(false);
+      // The counts are derived, never transcribed. Unanimity at P = 8 is p = 0.0078125, and a
+      // threshold written as `<= 0.0078` excludes it -- which would make a change verdict
+      // unreachable at every effect size rather than merely strict.
+      expect(atEight.achievedLevel).to.be.closeTo(0.0703, 1e-4);
+      expect(atSixteen.achievedLevel).to.be.closeTo(0.0768, 1e-4);
     });
 
     it("flags a level that no count can achieve instead of never firing", () => {
-      // At four pairs, unanimity is p = 0.125, so a 1% target is unreachable.
-      const requirement = signGateRequirement(4, signGateTargetLevel);
+      // At four pairs, unanimity is p = 0.125, so anything tighter is unreachable.
+      const requirement = signGateRequirement(4, 0.01);
       expect(requirement.unachievable).to.equal(true);
     });
 
     it("bounds the family-wise rate across the two permitted looks", () => {
+      // The per-gate levels are NOT the operative rate -- the rule fires only when the magnitude
+      // gate also passes, and the measured combined rate is far below their sum (see the power
+      // characterization). This bound is therefore conservative by construction.
       const look1 = signGateRequirement(8, signGateTargetLevel).achievedLevel;
       const look2 = signGateRequirement(16, signGateTargetLevel).achievedLevel;
-      expect(look1 + look2).to.be.lessThan(0.05);
+      expect(look1 + look2).to.be.lessThan(0.15);
     });
   });
 
@@ -395,15 +405,19 @@ describe("quick performance comparison statistics", () => {
     });
 
     it("does not call a large split-sign result a regression", () => {
+      // Six of eight pairs agree. The median clears the band comfortably, but a direction that
+      // two pairs actively contradict is an outlier- or bimodality-driven effect, not the
+      // consistent shift the suite exists to detect. This is the failure mode the consistency
+      // gate is genuinely good at, and the reason it survived being demoted to a diagnostic.
       const aggregate = aggregateLogRatios([
-        percentToLogRatio(30),
-        percentToLogRatio(28),
-        percentToLogRatio(26),
-        percentToLogRatio(24),
-        percentToLogRatio(22),
-        percentToLogRatio(20),
-        percentToLogRatio(18),
+        percentToLogRatio(60),
+        percentToLogRatio(55),
+        percentToLogRatio(50),
+        percentToLogRatio(45),
+        percentToLogRatio(40),
+        percentToLogRatio(35),
         percentToLogRatio(-4),
+        percentToLogRatio(-6),
       ]);
       const result = decideVerdict({
         aggregate,
@@ -418,14 +432,14 @@ describe("quick performance comparison statistics", () => {
 
     it("recommends escalation only when signs failed while magnitude passed", () => {
       const splitSigns = aggregateLogRatios([
-        percentToLogRatio(30),
-        percentToLogRatio(28),
-        percentToLogRatio(26),
-        percentToLogRatio(24),
-        percentToLogRatio(22),
-        percentToLogRatio(20),
-        percentToLogRatio(18),
+        percentToLogRatio(60),
+        percentToLogRatio(55),
+        percentToLogRatio(50),
+        percentToLogRatio(45),
+        percentToLogRatio(40),
+        percentToLogRatio(35),
         percentToLogRatio(-4),
+        percentToLogRatio(-6),
       ]);
       expect(
         decideVerdict({
@@ -684,29 +698,56 @@ describe("quick performance comparison statistics", () => {
       expect(band.individualPair95).to.be.greaterThan(band.band * 2);
     });
 
-    it("holds the false-positive rate under 1% when nothing changed", () => {
+    it("holds the false-positive rate under the 5% budget when nothing changed", () => {
       const band = deriveNoiseBand(pool, 8);
       const result = characterizePower(0, 8, band, 4000, 99);
-      expect(result.detected).to.be.lessThan(0.01);
-      // Each gate alone is far more permissive than the conjunction -- the magnitude gate alone
-      // fires at roughly its nominal 5%. That is why both are required.
+      // The OPERATIVE rate is the conjunction -- the rule that ships. Per-gate rates are
+      // diagnostics and are deliberately looser than this.
+      expect(result.detected).to.be.lessThan(0.05);
       expect(result.magnitudeOnly).to.be.closeTo(0.05, 0.02);
-      expect(result.signOnly).to.be.greaterThan(result.detected);
+      expect(result.detected).to.be.lessThan(result.magnitudeOnly);
     });
 
     it("detects real effects, and detection increases with effect size", () => {
       const band = deriveNoiseBand(pool, 8);
-      const at1 = characterizePower(1, 8, band, 4000, 99);
-      const at15 = characterizePower(1.5, 8, band, 4000, 99);
-      const at2 = characterizePower(2, 8, band, 4000, 99);
+      const at1 = characterizePower(band.band, 8, band, 4000, 99);
+      const at167 = characterizePower(1.67 * band.band, 8, band, 4000, 99);
+      const at2 = characterizePower(2 * band.band, 8, band, 4000, 99);
 
-      expect(at1.detected).to.be.within(0.15, 0.32);
-      expect(at15.detected).to.be.within(0.45, 0.68);
-      expect(at2.detected).to.be.within(0.72, 0.92);
+      expect(at1.detected).to.be.within(0.25, 0.45);
+      // The declared 80% power point of the shipped rule. Report this, never the band, as the
+      // detectable effect -- the band is the ~35% point and calling it the MDE overstates it.
+      expect(at167.detected).to.be.within(0.72, 0.87);
+      expect(at2.detected).to.be.within(0.86, 0.97);
 
-      // Guards A1 directly: a threshold that excludes the exact unanimous level makes `regressed`
+      // Guards A1 directly: a threshold that excludes the exact achievable level makes `regressed`
       // unreachable at EVERY effect size, so these collapse to zero rather than degrading.
       expect(at2.detected).to.be.greaterThan(0.5);
+    });
+
+    it("keeps false positives bounded when the stored band is stale", () => {
+      // The reason the consistency gate is a gate and not a diagnostic. The magnitude gate is
+      // nonparametric in the SHAPE of the per-pair distribution but not in its SCALE, and bands
+      // are persisted and reused, so a comparison run noisier than its calibration run is the
+      // expected operating condition. Observed local CVs already span 2.17-6.43% on one machine
+      // class, so a 3x drift is roughly the real range rather than a worst case.
+      const band = deriveNoiseBand(pool, 8);
+      const drifts = [1, 1.5, 2, 3];
+      const combined = drifts.map(
+        (d) => characterizePower(0, 8, band, 4000, 99, d).detected
+      );
+      const magnitudeAlone = drifts.map(
+        (d) => characterizePower(0, 8, band, 4000, 99, d).magnitudeOnly
+      );
+
+      // Magnitude alone degrades towards a coin flip as the band goes stale...
+      expect(magnitudeAlone[magnitudeAlone.length - 1]).to.be.greaterThan(0.4);
+      // ...while the shipped conjunction stays near its nominal level, because the sign test's
+      // null is 50/50 under ANY zero-median distribution, whatever its spread.
+      for (const rate of combined) expect(rate).to.be.lessThan(0.1);
+      expect(combined[combined.length - 1]).to.be.lessThan(
+        magnitudeAlone[magnitudeAlone.length - 1] / 5
+      );
     });
 
     it("essentially never reports a change in the wrong direction", () => {
@@ -720,14 +761,20 @@ describe("quick performance comparison statistics", () => {
     it("is limited by the sign gate, not the magnitude gate, near the band", () => {
       const band = deriveNoiseBand(pool, 8);
       const atBand = characterizePower(band.band, 8, band, 4000, 99);
-      // Both gates must hold, so the binding constraint is whichever fires less often. The sign
-      // gate is binding across the whole usable range, which is what makes escalation worth
-      // anything: escalation relaxes unanimity to 14/16, and that is the gate under strain.
+      // Both gates must hold, so the binding constraint is whichever fires less often. The
+      // consistency gate remains binding after being loosened to 7/8, which is what makes
+      // escalation worth anything: it relaxes the requirement to 12/16 AND re-derives a tighter
+      // band, and the consistency side is the one under strain.
       expect(atBand.signOnly).to.be.lessThan(atBand.magnitudeOnly);
-      expect(atBand.detected).to.be.closeTo(atBand.signOnly, 0.05);
+      // Neither gate alone determines the outcome. After loosening, the two are far better
+      // balanced -- the conjunction is materially below BOTH marginals, which is exactly the
+      // regime where requiring both buys real protection rather than just costing power.
+      expect(atBand.detected).to.be.lessThan(atBand.signOnly);
+      expect(atBand.detected).to.be.lessThan(atBand.magnitudeOnly);
       // The band is NOT the effect size the harness reliably catches -- detection there is about
-      // an eighth. Reporting the band as "the MDE" would overstate detection several-fold.
-      expect(atBand.detected).to.be.within(0.05, 0.25);
+      // a third. Reporting the band as "the MDE" overstates detection more than twofold; the
+      // honest figure is the 80% point at 1.67x band.
+      expect(atBand.detected).to.be.within(0.25, 0.45);
     });
 
     it("has ~50% magnitude power at its own band for any P, which is an identity not a finding", () => {
@@ -768,7 +815,8 @@ describe("quick performance comparison statistics", () => {
       // can lift the floor back under the margin. This branch is live exactly where it hurts
       // most: local macOS measured CV 2-6% against a declared 5% margin.
       const band = deriveNoiseBand(pool, 8);
-      const split = [1.4, 1.5, 1.6, 1.45, 1.55, 1.5, 1.48, -0.2];
+      // Six of eight agreeing: clears the band, fails the 7/8 consistency requirement.
+      const split = [2.4, 2.5, 2.6, 2.45, 2.55, 2.5, -0.2, -0.3];
       const result = decideVerdict({
         aggregate: aggregateLogRatios(split),
         band,
@@ -790,9 +838,9 @@ describe("quick performance comparison statistics", () => {
 
       // Holding the true effect fixed is the only comparison that answers "is the extra run worth
       // it". It is: detection roughly doubles.
-      const initial = characterizePower(1, 8, at8, 4000, 99);
-      const escalated = characterizePower(1, 16, at16, 4000, 99);
-      expect(escalated.detected).to.be.greaterThan(initial.detected * 1.8);
+      const initial = characterizePower(at8.band, 8, at8, 4000, 99);
+      const escalated = characterizePower(at8.band, 16, at16, 4000, 99);
+      expect(escalated.detected).to.be.greaterThan(initial.detected * 1.6);
     });
   });
 });

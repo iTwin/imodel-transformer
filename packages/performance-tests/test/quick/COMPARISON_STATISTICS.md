@@ -13,6 +13,8 @@ Amendments in revision 2, all of which changed behaviour rather than wording:
 | A3 | Escalation is triggered only by consistency-failed-while-magnitude-passed, not by any `inconclusive`. §3.1 |
 | A5 | `k` is chosen from a pilot and frozen before calibration; it is not a budget lever afterwards. §1.3 |
 | A6 | The order-effect check runs on the accumulated pool at `>= 24` pairs, never per-run. §6.3 |
+| A8 | Bands are keyed by `scenarioId + recipeHash + environmentClass`, not by environment alone. A lookup miss stays `uncalibrated`; bands never travel between scenarios. §7 |
+| A9 | The consistency gate is loosened from unanimity to `7/8` (`12/16` at look 2). Unanimity held the combined false-positive rate at 0.24% against a 5% budget while costing 1.7x in detectable effect. §4.5 |
 | — | The band is reported as a noise-floor scale with power annotated, never as "the MDE". §4.4 |
 
 This document fixes the sampling structure, estimator, uncertainty model, verdict rule and stopping rule for the
@@ -66,16 +68,16 @@ far less often than `inconclusive` occurs. Measured through the shipped rule at 
 
 | true effect | escalates | `inconclusive` | expected executions |
 |---|---|---|---|
-| 0 (nothing changed) | 4.6% | 99.8% | **67** |
-| 0.5 sigma | 19.7% | 96.9% | 77 |
-| 1.0 sigma | 46.0% | 77.7% | 93 |
-| 2.0 sigma | 16.8% | 17.0% | 75 |
+| 0 (nothing changed) | 4.0% | 98.3% | **67** |
+| 0.5 sigma | 12.1% | 86.7% | 72 |
+| 1.0 sigma | 17.6% | 46.5% | 75 |
+| 2.0 sigma | 1.2% | 1.3% | 65 |
 
 The first row is the one that governs weekly capacity planning, because most runs contain no regression. Note the gap
-between the two middle columns: escalating on undifferentiated `inconclusive` would have escalated **99.8%** of
+between the two middle columns: escalating on undifferentiated `inconclusive` would have escalated **98.3%** of
 unchanged runs, making 128 the effective cost of a quiet week. The narrowed trigger of §3.1 is what turns that into
 67. Escalation cost peaks in the middle of the effect range, which is where the extra pairs actually change an
-outcome.
+outcome, and even there the expected cost is 75 rather than 128.
 
 `P` and `k` are parameters, not constants, and neither is frozen until W1 reports the stage-1 artifact copy cost.
 
@@ -129,25 +131,32 @@ Sign convention: **positive means arm B is slower than arm A.** Stated once in t
 3. No other analysis points exist. In particular there is **no early stop on a significant result** — that is the
    mechanism that inflates the false-positive rate, and it is prohibited.
 
-The escalation trigger is deliberately narrower than "any `inconclusive`". The consistency gate is the binding
-constraint across the usable effect range (§4.4), and escalation is precisely what relaxes it — from unanimity at 8
-pairs to 14/16. Escalating on a magnitude failure instead spends 64 additional executions on the gate that was not the
+The escalation trigger is deliberately narrower than "any `inconclusive`". The consistency gate remains the binding
+constraint across the usable effect range (§4.4) after being loosened, and escalation relaxes it twice over — the
+requirement moves from `7/8` to `12/16`, **and** the band is re-derived at the larger `P` and tightens (0.809 to
+0.587). Escalating on a magnitude failure instead spends 64 additional executions on the gate that was not the
 obstacle. Narrowing the continuation set also strengthens the family-wise argument rather than weakening it.
+
+**The band must be re-derived at look 2, never carried over.** It is a function of `P` (§4.1); reusing the `P = 8`
+scalar at `P = 16` would apply a threshold 38% too wide.
 
 One measurement must not be used to justify this, because it is an identity rather than a finding: magnitude power
 evaluated **at the band** is ~50% at every pair count. The band is the 95th percentile of the null median and the
 median is centred on the true effect, so `mu = band` is a coin flip by construction. Comparing that figure across `P`
 appears to show escalation achieving nothing; it only shows that each `P` is being evaluated at a *different* effect
 size, since the band itself tightens with `P`. At a **fixed** effect, escalation roughly doubles detection
-(0.230 to 0.517 at `mu = 1.0`). A regression test pins this so the mistake is not re-derived.
+(33.8% to 67.7% at `mu = 1.0x band`). A regression test pins this so the mistake is not re-derived.
 
 Because the only permitted continuation is on a pre-declared subset of `inconclusive`, and both looks use gates
-declared in advance (§5.2), the family-wise false-positive rate is bounded by the union of the two look-level rates:
-`0.0078125 + 0.00418... = 0.0120`, comfortably under 0.05.
+declared in advance (§5.2), the family-wise rate is bounded above by the union of the two look-level consistency
+levels: `0.0703125 + 0.0768... = 0.147`. That bound is **very** loose, because it ignores the magnitude gate that must
+also pass. The rate that matters is measured directly through the shipped rule: **1.48%** at look 1 and **2.09%** at
+look 2, both comfortably inside the 5% budget. The look-2 figure is measured with the band re-derived at `P = 16`, as
+the rule requires.
 
-These two numbers are the **achieved** levels of the count-based gates in §5.2, not thresholds chosen by hand. Both
-are the largest achievable exact binomial level at or below the single declared target of `0.01`. There is no separate
-`0.01` threshold anywhere in the implementation.
+Those per-gate levels are **achieved** levels of the count-based gates in §5.2, not thresholds chosen by hand — each is
+the largest achievable exact binomial level at or below the single declared target of `0.10`. They are reported, never
+compared against, and are not the operative false-positive rate.
 
 ### 3.2 Failed pairs
 
@@ -224,20 +233,26 @@ Count of positive `d_i` against `Binomial(P, 0.5)`, two-sided. This makes no dis
 exact at these sample sizes, which is precisely why it is in the verdict rule.
 
 **The rule is expressed in counts, never in a transcribed decimal p-value.** One target level is declared
-(`0.01`); the required count is the smallest agreeing count whose exact two-sided tail is at or below it; the p is
+(`0.10`); the required count is the smallest agreeing count whose exact two-sided tail is at or below it; the p is
 computed for reporting only.
 
-This is not a stylistic preference. The exact unanimous level at `P = 8` is `2 x 0.5^8 = 0.0078125`, and a threshold
-written as `<= 0.0078` excludes it — making `regressed` and `improved` unreachable at `P = 8` at any effect size. If
-no count achieves the target (as at `P = 4`, where unanimity is only `0.125`), the implementation raises an
-`unachievable` flag rather than silently never firing.
+**The declared level is on the CONJUNCTION, not on this gate.** A verdict requires both gates, so no per-gate level is
+the operative false-positive rate. The per-gate level is a tuning parameter chosen so that the *measured* combined
+rate sits at or under the 5% budget across the plausible range of band staleness (§4.5); the marginal 7% level of this
+gate on its own is a diagnostic and is never the number to quote.
 
 | P | required split | exact two-sided p |
 |---|---|---|
-| 8 | 8/8 | 0.0078125 |
-| 8 | 7/8 | 0.0703125 — **not** sufficient |
-| 16 | 14/16 | 0.00418... |
-| 16 | 13/16 | 0.02127... — not sufficient |
+| 8 | **7/8** | 0.0703125 |
+| 8 | 6/8 | 0.2890625 — not sufficient |
+| 16 | **12/16** | 0.0768... |
+| 16 | 11/16 | 0.2101... — not sufficient |
+
+Unanimity (`8/8`, p = 0.0078125) was the original requirement and was loosened — see §4.5 for the measurement that
+justified it. The A1 defect that motivated deriving counts rather than transcribing decimals is unchanged and still
+governs: a threshold written as `<= 0.0078` excludes the exact level `0.0078125`, which would make a change verdict
+unreachable at every effect size. Where no count achieves the declared target, the implementation raises an
+`unachievable` flag rather than silently never firing.
 
 ### 4.4 Detectability — and why the band is not "the MDE"
 
@@ -249,23 +264,22 @@ At a true effect exactly equal to the band, measured through this implementation
 | gate | power at `mu = band` |
 |---|---|
 | magnitude alone | ~50% |
-| magnitude **and** consistency (what a verdict requires) | ~13% |
+| magnitude **and** consistency (what a verdict requires) | ~34% |
 
-Full characterization, `P = 8`, effects in units of the per-pair sd, 4,000 trials through the shipped verdict rule
+Full characterization of the **shipped rule**, `P = 8`, effect in multiples of the band, 20,000 trials
 (pinned by tests in `comparison/comparison.quick-unit.ts`):
 
-| true effect | magnitude | consistency | **verdict** |
+| true effect | **verdict** | wrong direction | escalates |
 |---|---|---|---|
-| 0 (A/A) | 0.048 | 0.009 | **0.002** |
-| 0.5 | 0.237 | 0.052 | **0.032** |
-| 0.81 (= band) | 0.509 | 0.160 | **0.127** |
-| 1.0 | 0.687 | 0.260 | **0.230** |
-| 1.5 | 0.953 | 0.575 | **0.566** |
-| 2.0 | 0.997 | 0.837 | **0.836** |
+| 0 (A/A) | **1.48%** | 0.73% | 3.4% |
+| 1.00x band | **33.8%** | 0.00% | 16.7% |
+| 1.42x band | **64.9%** | 0.00% | 15.0% |
+| **1.67x band** | **79.9%** | 0.00% | 10.8% |
+| 2.00x band | **92.2%** | 0.00% | 5.3% |
 
-Two things follow. The **consistency gate is binding everywhere** — the verdict column tracks it, not the magnitude
-column — which is why escalation, whose whole effect is to relax unanimity to 14/16, is the lever that matters. And a
-reader told "MDE 4%" will assume 4% regressions are caught; at the band they are caught about an eighth of the time.
+**The operative 80% power point is 1.67x band.** That is the number reports quote. Per-gate power is never quoted:
+the rule fires only when both gates pass, so a single gate's power describes a rule that does not ship. A reader told
+"MDE 4%" will assume 4% regressions are caught; at the band they are caught about a third of the time.
 
 Reports therefore print the band as a **noise-floor scale with its power annotated**, plus the ~80%-power point, and
 never as a bare "MDE".
@@ -273,6 +287,56 @@ never as a bare "MDE".
 **The band is printed on every comparison report.** When the environment is uncalibrated, it prints as
 `unknown (uncalibrated)` accompanied by the bootstrap half-width explicitly labelled *within-run spread, not a noise
 floor*. A within-run spread is not a noise floor and the report never lets the two be confused.
+
+### 4.5 Why the consistency gate is a gate and not a diagnostic
+
+The gate was challenged on a strong argument: since A2 made the band an empirical resample of the real A/A pool, the
+magnitude gate is already nonparametric, so the consistency gate's distribution-free justification is redundant and is
+costing minimum detectable effect for nothing. Under unanimity the cost was large — the 80% point sat at `2.38x` band
+against `1.42x` for an unprotected magnitude gate, while the combined false-positive rate was 0.24% against a 5%
+budget. Paying 1.7x in MDE for 20x more false-positive protection than anyone asked for is a bad trade.
+
+The argument is half right, and the half that is wrong decides the design. The magnitude gate is nonparametric in the
+**shape** of the per-pair distribution, but it is not robust to a change in **scale** between the run that produced the
+band and the run being judged against it. Bands are persisted and reused — that is the entire purpose of storing them
+— so scale drift is the expected operating condition, not an edge case.
+
+Measured false-positive rate at zero true effect, band calibrated at one spread and the comparison run drawn at a
+multiple of it, 20,000 trials per cell:
+
+| run spread | magnitude only | + 8/8 | **+ 7/8** | + 6/8 |
+|---|---|---|---|---|
+| 1.0x | 4.88% | 0.24% | **1.48%** | 3.68% |
+| 1.5x | 18.75% | 0.66% | **3.96%** | 11.67% |
+| 2.0x | 32.00% | 0.74% | **5.44%** | 17.70% |
+| 3.0x | 50.97% | 0.83% | **6.53%** | 23.96% |
+
+The consistency gate is **scale-free**: its null is 50/50 under any distribution with zero median, whatever the
+spread. That is what holds its columns flat while a magnitude-only rule degrades to a coin flip. Local runs have
+already been observed spanning 2.17% to 6.43% CV on one machine class, so the `3.0x` row is roughly the observed
+range rather than a pessimistic bound.
+
+The obvious alternative — detect staleness from the run's own spread and reject the band — was measured and cannot
+replace this. At `1.5x` drift it flags only 34% of runs while already false-flagging 6.7% of well-calibrated ones,
+which leaves the 11-19% false-positive region wide open. It is worth adding as a supplementary check, not as a
+substitute.
+
+So the gate stays, at the loosest level that keeps the combined rate within budget across the drift range:
+
+| requirement | 80% power point | combined FP, calibrated | combined FP, 3x drift |
+|---|---|---|---|
+| magnitude only | 1.42x band | 4.88% | 50.97% |
+| + 6/8 | 1.46x band | 3.68% | 23.96% |
+| **+ 7/8 (adopted)** | **1.67x band** | **1.48%** | **6.53%** |
+| + 8/8 (previous) | 2.38x band | 0.24% | 0.83% |
+
+`6/8` is nearly free in power but buys little protection; `8/8` buys protection nobody needs at a large cost. `7/8`
+recovers most of the distance to an unprotected gate while holding the false-positive rate near budget even when the
+stored band badly understates current noise.
+
+One note on framing: a proposal to demote this gate to a diagnostic that emits `inconclusive` when the sign split is
+near 50/50 is not a demotion — it is this gate at a lower threshold. The choice was never gate-or-diagnostic; it was
+only ever which count.
 
 ---
 
@@ -298,8 +362,10 @@ not tell" are different claims, and reporting the second as the first is how a r
 Both gates must hold. Either alone is insufficient.
 
 1. **Magnitude** — `|d_median| > band`, where the band is derived at this run's own `P` (§4.1).
-2. **Consistency** — agreeing sign count at or above the required count for this `P`: **8/8** at look 1, **14/16** at
-   look 2. Ties contribute to neither side and reduce the effective pair count.
+2. **Consistency** — agreeing sign count at or above the required count for this `P`: **7/8** at look 1, **12/16** at
+   look 2. Ties contribute to neither side and reduce the effective pair count. This gate is what makes the verdict
+   robust to a stale band (§4.5), and it is also the detector for an effect carried by a few extreme pairs rather than
+   a consistent shift — a split result is reported as such, not as a change.
 
 Direction is the sign of `d_median`.
 
@@ -413,10 +479,10 @@ per-pair `ln(second / first)`. A significant result means a systematic warm-up o
 noise. It fails calibration — the resulting band is not stored, and the defect is fixed rather than absorbed into a
 wider band.
 
-**This test runs on the accumulated pool at `>= 24` pairs, never per-run.** Applied to a single 8-pair run it is the
-same unanimity requirement as the main sign test (§4.3), so it has essentially no power and a real ordering defect
-would pass calibration unnoticed — the precise failure the check exists to catch. Deferring it to the pool is what
-gives it enough pairs to fire.
+**This test runs on the accumulated pool at `>= 24` pairs, never per-run.** Applied to a single 8-pair run it carries
+the same requirement as the main sign test (§4.3) with no magnitude gate to share the load, so it has little power and
+a real ordering defect would pass calibration unnoticed — the precise failure the check exists to catch. Deferring it
+to the pool is what gives it enough pairs to fire.
 
 ### 6.4 Fixture identity
 
