@@ -1,4 +1,8 @@
-import * as os from "os";
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
+import * as os from "node:os";
 
 const profileTypes = ["linux-perf", "js-cpu", "sqlite"] as const;
 const profileType = process.env.PROFILE_TYPE;
@@ -27,15 +31,15 @@ if you do not use them.
 The program will now exit.`;
 
 if (!process.env.FUNCTIONS) {
-  console.error(usageText)
+  console.error(usageText);
   process.exit(1);
 }
 
-import * as vm from "vm";
+import * as vm from "node:vm";
 
-const funcsToInstrument = process.env.FUNCTIONS.split(",").map(s => s.trim());
-const funcData = funcsToInstrument.map(f => {
-  const dotIndex = f.lastIndexOf('.');
+const funcsToInstrument = process.env.FUNCTIONS.split(",").map((s) => s.trim());
+const funcData = funcsToInstrument.map((f) => {
+  const dotIndex = f.lastIndexOf(".");
   const objExpr = f.substring(0, dotIndex);
   const key = f.substring(dotIndex + 1);
 
@@ -52,22 +56,29 @@ const funcData = funcsToInstrument.map(f => {
   const context = vm.createContext({ require: ctxRequire });
   const object = vm.runInContext(objExpr, context);
   return { object, key };
-})
+});
 
 switch (profileType) {
   case "linux-perf":
     if (os.userInfo().uid !== 0)
-      console.warn("You are not running as root, perf may have issues, see stderr.");
-    (require("./runWithLinuxPerf") as typeof import("./runWithLinuxPerf")).default(funcData);
+      console.warn(
+        "You are not running as root, perf may have issues, see stderr."
+      );
+    (
+      require("./runWithLinuxPerf") as typeof import("./runWithLinuxPerf")
+    ).default(funcData);
     break;
   case "js-cpu":
-    (require("./runWithJsCpuProfile") as typeof import("./runWithJsCpuProfile")).default(funcData);
+    (
+      require("./runWithJsCpuProfile") as typeof import("./runWithJsCpuProfile")
+    ).default(funcData);
     break;
   case "sqlite":
-    (require("./runWithSqliteProfiler") as typeof import("./runWithSqliteProfiler")).default(funcData);
+    (
+      require("./runWithSqliteProfiler") as typeof import("./runWithSqliteProfiler")
+    ).default(funcData);
     break;
   default:
     console.error(usageText);
     process.exit(1);
 }
-

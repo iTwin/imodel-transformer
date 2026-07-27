@@ -3,21 +3,35 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import * as path from "node:path";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { IModelHost, IModelHostOptions } from "@itwin/core-backend";
 import { Logger, LogLevel, ProcessDetector } from "@itwin/core-bentley";
-import * as path from "path";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+// Register custom matchers before each test file loads.
+import "./TestUtils/AdvancedEqual";
 
-export async function transformerTestStartup() {
+export async function startTransformerTestHost(): Promise<void> {
   Logger.initializeToConsole();
   Logger.setLevelDefault(LogLevel.Error);
   const cfg: IModelHostOptions = {};
   if (ProcessDetector.isIOSAppBackend) {
     cfg.cacheDir = undefined; // Let the native side handle the cache.
   } else {
-    cfg.cacheDir = path.join(__dirname, ".cache"); // Set the cache dir to be under the lib directory.
+    cfg.cacheDir = path.join(KnownTestLocations.outputDir, ".cache");
   }
-  return IModelHost.startup(cfg);
+  await IModelHost.startup(cfg);
 }
 
-before(async () => transformerTestStartup());
-after(async () => IModelHost.shutdown());
+beforeAll(async () => {
+  await startTransformerTestHost();
+});
+
+afterAll(async () => {
+  await IModelHost.shutdown();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});

@@ -31,8 +31,7 @@ import {
   IModel,
 } from "@itwin/core-common";
 import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
-import { expect } from "chai";
-import * as sinon from "sinon";
+import { expect, vi } from "vitest";
 import { ChangesetScanner } from "../../ChangesetScanner";
 import { IModelTransformerError } from "../../IModelTransformerError";
 
@@ -80,9 +79,11 @@ describe("ChangedInstanceIds", () => {
 
     it("preserves ChangesetReader errors", async () => {
       const readerError = new Error("reader failed");
-      const openFileStub = sinon
-        .stub(ChangesetReader, "openFile")
-        .throws(readerError);
+      const openFileSpy = vi
+        .spyOn(ChangesetReader, "openFile")
+        .mockImplementation(() => {
+          throw readerError;
+        });
       try {
         await ChangesetScanner.scan(
           sourceDb,
@@ -91,14 +92,14 @@ describe("ChangedInstanceIds", () => {
         );
         expect.fail("Expected scan to throw");
       } catch (error) {
-        expect(error).to.equal(readerError);
+        expect(error).toBe(readerError);
       } finally {
-        openFileStub.restore();
+        openFileSpy.mockRestore();
       }
     });
   });
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -170,7 +171,7 @@ describe("ChangedInstanceIds", () => {
     });
   });
 
-  after(() => {
+  afterAll(() => {
     sourceDb.close();
   });
 
