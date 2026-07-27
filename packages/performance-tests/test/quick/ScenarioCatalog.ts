@@ -13,6 +13,18 @@ const scenarios = new Map<string, BenchmarkScenarioDefinition>([
   [incrementalSynchronizationScenario.id, incrementalSynchronizationScenario],
 ]);
 
+export function registerScenarioDefinition(
+  scenario: BenchmarkScenarioDefinition
+): void {
+  if (scenarios.has(scenario.id))
+    throw new Error(`Duplicate quick performance scenario: ${scenario.id}`);
+  scenarios.set(scenario.id, scenario);
+}
+
+export function listScenarioIds(): string[] {
+  return [...scenarios.keys()];
+}
+
 export function getScenarioDefinition(
   requestedId?: string
 ): BenchmarkScenarioDefinition {
@@ -20,9 +32,9 @@ export function getScenarioDefinition(
   const scenario = scenarios.get(scenarioId);
   if (!scenario)
     throw new Error(
-      `Unknown quick performance scenario "${scenarioId}". Available scenarios: ${[
-        ...scenarios.keys(),
-      ].join(", ")}`
+      `Unknown quick performance scenario "${scenarioId}". Available scenarios: ${listScenarioIds().join(
+        ", "
+      )}`
     );
   return scenario;
 }

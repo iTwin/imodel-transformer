@@ -7,16 +7,20 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { IModelHost } from "@itwin/core-backend";
+import { assertScenarioSupportsFixture } from "./BenchmarkResolution";
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
 } from "./BenchmarkScenario";
-import { DatasetDescriptor } from "./DatasetDescriptor";
-import { materializeFixture, PreparedDataset } from "./FixtureMaterializer";
-import { disposeReconstructedHub } from "./LocalHubFixture";
+import { DatasetDescriptor, FixtureTopology } from "./DatasetDescriptor";
+import { PreparedDataset } from "./FixtureMaterializer";
+import { FixtureProvider, getFixtureProvider } from "./FixtureProvider";
 
 export const benchmarkOutputMarkerName =
   ".imodel-transformer-quick-performance";
+
+/** Where stage 1 writes its artifact, relative to the run output directory. */
+export const fixtureArtifactDirectoryName = "fixture-artifact";
 
 function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -78,6 +82,7 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
     if (
       /^sample-\d+$/.test(entry) ||
       [
+        fixtureArtifactDirectoryName,
         "manifest.json",
         "samples.jsonl",
         "summary.csv",
@@ -92,6 +97,7 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
 }
 
 async function cleanupSample(
+  provider: FixtureProvider,
   scenario: BenchmarkScenario | undefined,
   dataset: PreparedDataset | undefined,
   sampleDir: string
@@ -103,7 +109,7 @@ async function cleanupSample(
     errors.push(error);
   }
   try {
-    if (dataset) await disposeReconstructedHub(dataset.hub);
+    if (dataset) await provider.disposeSample(dataset);
   } catch (error) {
     errors.push(error);
   }
@@ -121,12 +127,16 @@ export interface BenchmarkSample {
   readonly fixtureId: string;
   readonly measured: boolean;
   readonly operations: DatasetDescriptor["distribution"]["operations"];
+  /** Stage-1 cost, identical on every sample: the fixture is built once per run. */
+  readonly fixtureBuildMilliseconds: number;
+  /** Stage-2 cost for this sample: producing its pristine working copy. */
   readonly reconstructionMilliseconds: number;
   readonly rssDeltaBytes: number;
   readonly sample: number;
   readonly scenarioId: string;
   readonly semanticDigest: string;
   readonly teardownMilliseconds: number;
+  readonly topology: FixtureTopology;
   readonly verificationMilliseconds: number;
   readonly wallMilliseconds: number;
 }
@@ -136,7 +146,9 @@ export class BenchmarkRunner {
     private readonly _descriptor: DatasetDescriptor,
     private readonly _outputDir: string,
     private readonly _scenario: BenchmarkScenarioDefinition
-  ) {}
+  ) {
+    assertScenarioSupportsFixture(_scenario, _descriptor);
+  }
 
   public async run(measuredSamples = 8): Promise<BenchmarkSample[]> {
     if (!Number.isInteger(measuredSamples) || measuredSamples < 1)
@@ -144,73 +156,94 @@ export class BenchmarkRunner {
         "Quick performance requires at least one measured sample"
       );
     prepareBenchmarkOutputDirectory(this._outputDir);
+    const provider = getFixtureProvider(this._descriptor);
     const samples: BenchmarkSample[] = [];
     await IModelHost.startup();
     try {
-      for (let sample = 0; sample <= measuredSamples; sample++) {
-        const sampleDir = path.join(this._outputDir, `sample-${sample}`);
-        let dataset: PreparedDataset | undefined;
-        let scenario: BenchmarkScenario | undefined;
-        let operationError: Error | undefined;
-        let completedSample:
-          | Omit<BenchmarkSample, "teardownMilliseconds">
-          | undefined;
-        try {
-          dataset = await materializeFixture(
-            this._descriptor,
-            sampleDir,
-            `quick-sample-${sample}`
+      // Stage 1: build the fixture exactly once, outside the sample loop.
+      const built = await provider.build(
+        this._descriptor,
+        path.join(this._outputDir, fixtureArtifactDirectoryName)
+      );
+      try {
+        for (let sample = 0; sample <= measuredSamples; sample++) {
+          const sampleDir = path.join(this._outputDir, `sample-${sample}`);
+          let dataset: PreparedDataset | undefined;
+          let scenario: BenchmarkScenario | undefined;
+          let operationError: Error | undefined;
+          let completedSample:
+            | Omit<BenchmarkSample, "teardownMilliseconds">
+            | undefined;
+          try {
+            // Stage 2: a pristine working copy per sample. Mutation is the scenario's business.
+            dataset = await provider.materialize(
+              built,
+              sampleDir,
+              `quick-sample-${sample}`
+            );
+            scenario = this._scenario.factory(dataset);
+            const rssBefore = process.memoryUsage().rss;
+            const cpuBefore = process.cpuUsage();
+            const wallStart = process.hrtime.bigint();
+            await scenario.measure();
+            const wallMilliseconds =
+              Number(process.hrtime.bigint() - wallStart) / 1_000_000;
+            const cpu = process.cpuUsage(cpuBefore);
+            const rssDeltaBytes = process.memoryUsage().rss - rssBefore;
+            const verificationStart = process.hrtime.bigint();
+            const semanticDigest = await scenario.finish();
+            const verificationMilliseconds =
+              Number(process.hrtime.bigint() - verificationStart) / 1_000_000;
+            completedSample = {
+              cpuSystemMilliseconds: cpu.system / 1000,
+              cpuUserMilliseconds: cpu.user / 1000,
+              fixtureBuildMilliseconds: built.buildMilliseconds,
+              fixtureId: this._descriptor.id,
+              measured: sample !== 0,
+              operations: this._descriptor.distribution.operations,
+              reconstructionMilliseconds: dataset.reconstructionMilliseconds,
+              rssDeltaBytes,
+              sample,
+              scenarioId: this._scenario.id,
+              semanticDigest,
+              topology: this._descriptor.layout.topology,
+              verificationMilliseconds,
+              wallMilliseconds,
+            };
+          } catch (error) {
+            operationError = normalizeError(error);
+          }
+          const teardownStart = process.hrtime.bigint();
+          const cleanupErrors = await cleanupSample(
+            provider,
+            scenario,
+            dataset,
+            sampleDir
           );
-          scenario = this._scenario.factory(dataset);
-          const rssBefore = process.memoryUsage().rss;
-          const cpuBefore = process.cpuUsage();
-          const wallStart = process.hrtime.bigint();
-          await scenario.measure();
-          const wallMilliseconds =
-            Number(process.hrtime.bigint() - wallStart) / 1_000_000;
-          const cpu = process.cpuUsage(cpuBefore);
-          const rssDeltaBytes = process.memoryUsage().rss - rssBefore;
-          const verificationStart = process.hrtime.bigint();
-          const semanticDigest = await scenario.finish();
-          const verificationMilliseconds =
-            Number(process.hrtime.bigint() - verificationStart) / 1_000_000;
-          completedSample = {
-            cpuSystemMilliseconds: cpu.system / 1000,
-            cpuUserMilliseconds: cpu.user / 1000,
-            fixtureId: this._descriptor.id,
-            measured: sample !== 0,
-            operations: this._descriptor.distribution.operations,
-            reconstructionMilliseconds: dataset.reconstructionMilliseconds,
-            rssDeltaBytes,
-            sample,
-            scenarioId: this._scenario.id,
-            semanticDigest,
-            verificationMilliseconds,
-            wallMilliseconds,
-          };
-        } catch (error) {
-          operationError = normalizeError(error);
+          const teardownMilliseconds =
+            Number(process.hrtime.bigint() - teardownStart) / 1_000_000;
+          if (operationError && cleanupErrors.length === 0)
+            throw operationError;
+          if (cleanupErrors.length > 0)
+            throw new AggregateError(
+              operationError
+                ? [operationError, ...cleanupErrors]
+                : cleanupErrors,
+              "Quick performance sample cleanup failed"
+            );
+          if (!completedSample)
+            throw new Error(
+              "Quick performance sample completed without a result"
+            );
+          const sampleResult = { ...completedSample, teardownMilliseconds };
+          samples.push(sampleResult);
+          fs.appendFileSync(
+            path.join(this._outputDir, "samples.jsonl"),
+            `${JSON.stringify(sampleResult)}\n`
+          );
         }
-        const teardownStart = process.hrtime.bigint();
-        const cleanupErrors = await cleanupSample(scenario, dataset, sampleDir);
-        const teardownMilliseconds =
-          Number(process.hrtime.bigint() - teardownStart) / 1_000_000;
-        if (operationError && cleanupErrors.length === 0) throw operationError;
-        if (cleanupErrors.length > 0)
-          throw new AggregateError(
-            operationError ? [operationError, ...cleanupErrors] : cleanupErrors,
-            "Quick performance sample cleanup failed"
-          );
-        if (!completedSample)
-          throw new Error(
-            "Quick performance sample completed without a result"
-          );
-        const sampleResult = { ...completedSample, teardownMilliseconds };
-        samples.push(sampleResult);
-        fs.appendFileSync(
-          path.join(this._outputDir, "samples.jsonl"),
-          `${JSON.stringify(sampleResult)}\n`
-        );
+      } finally {
+        await provider.disposeBuild(built);
       }
     } finally {
       await IModelHost.shutdown();

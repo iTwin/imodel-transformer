@@ -36,7 +36,7 @@ export class BenchmarkReporter {
     outputDir: string,
     samples: readonly BenchmarkSample[],
     jobMilliseconds?: number
-  ): void {
+  ) {
     if (samples.length === 0)
       throw new Error("Cannot report an empty quick performance sample set");
     const scenarioIds = new Set(samples.map((sample) => sample.scenarioId));
@@ -61,6 +61,9 @@ export class BenchmarkReporter {
     });
     const summary = {
       fixtureId: measured[0]?.fixtureId,
+      topology: measured[0]?.topology,
+      /** Stage 1 runs once per job, so this is a scalar, not a per-sample distribution. */
+      fixtureBuildMilliseconds: samples[0].fixtureBuildMilliseconds,
       jobMilliseconds,
       measuredSamples: measured.length,
       scenarioId: samples[0].scenarioId,
@@ -110,12 +113,13 @@ export class BenchmarkReporter {
     fs.writeFileSync(
       path.join(outputDir, "summary.csv"),
       [
-        "scenario,fixture,measuredSamples,jobMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs,transformer,coreBackend,node",
+        "scenario,fixture,measuredSamples,jobMs,fixtureBuildMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs,transformer,coreBackend,node",
         [
           summary.scenarioId,
           summary.fixtureId,
           summary.measuredSamples,
           summary.jobMilliseconds ?? "",
+          summary.fixtureBuildMilliseconds,
           summary.wallMilliseconds.median,
           summary.wallMilliseconds.p90,
           summary.wallMilliseconds.p95,
@@ -130,5 +134,6 @@ export class BenchmarkReporter {
         ].join(","),
       ].join("\n")
     );
+    return summary;
   }
 }

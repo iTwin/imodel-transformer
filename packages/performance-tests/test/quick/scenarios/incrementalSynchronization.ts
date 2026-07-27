@@ -4,12 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
 } from "../BenchmarkScenario";
-import { PreparedDataset } from "../FixtureMaterializer";
+import { PreparedDataset, requireLiveHubDataset } from "../FixtureMaterializer";
 import { createStartedEditTxn } from "../LocalHubFixture";
 import {
   assertSemanticallyEqual,
@@ -19,11 +18,10 @@ import {
 export function incrementalSynchronization(
   dataset: PreparedDataset
 ): BenchmarkScenario {
-  if (!HubMock.isValid)
-    throw new Error("Quick performance scenarios require an active HubMock");
-  const editTxn = createStartedEditTxn(dataset.hub.targetDb);
+  const { hub } = requireLiveHubDataset(dataset);
+  const editTxn = createStartedEditTxn(hub.targetDb);
   const transformer = new IModelTransformer(
-    { source: dataset.hub.sourceDb, target: editTxn },
+    { source: hub.sourceDb, target: editTxn },
     { argsForProcessChanges: {} }
   );
   let disposed = false;
@@ -40,19 +38,18 @@ export function incrementalSynchronization(
     },
     async finish() {
       dispose();
-      await assertSynchronizationProvenance(
-        dataset.hub.sourceDb,
-        dataset.hub.targetDb
-      );
-      return assertSemanticallyEqual(
-        dataset.hub.sourceDb,
-        dataset.hub.targetDb
-      );
+      await assertSynchronizationProvenance(hub.sourceDb, hub.targetDb);
+      return assertSemanticallyEqual(hub.sourceDb, hub.targetDb);
     },
   };
 }
 
 export const incrementalSynchronizationScenario: BenchmarkScenarioDefinition = {
   id: "incremental-synchronization",
+  defaultFixtureId: "balanced-incremental",
+  capabilities: {
+    topology: "source-and-empty-target",
+    requiredClaims: ["incremental synchronization"],
+  },
   factory: incrementalSynchronization,
 };

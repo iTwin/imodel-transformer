@@ -40,9 +40,10 @@ const distribution = {
 
 const generator = resolvedVersions();
 
-const recipeIdentity = {
+const recipeIdentity = (topology: string) => ({
   schema: "QuickPerf.01.00.00",
   seed: 328,
+  topology,
   distribution,
   inputs: {
     recipe: fs.readFileSync(
@@ -59,30 +60,78 @@ const recipeIdentity = {
     ),
   },
   versions: generator,
-};
+});
+
+const scenarioClaims = [
+  "incremental synchronization",
+  "aspect lifecycle",
+  "relationship lifecycle",
+  "mixed scalar and geometry element changes",
+];
 
 export const balancedIncrementalDescriptor: DatasetDescriptor = {
   id: "balanced-incremental",
   version: 1,
   label: "balanced incremental",
-  scenarioClaims: [
-    "incremental synchronization",
-    "aspect lifecycle",
-    "relationship lifecycle",
-    "mixed scalar and geometry element changes",
-  ],
+  scenarioClaims,
   layout: {
     kind: "reconstructed",
+    topology: "source-and-empty-target",
     recipe: "balanced-incremental",
     seed: 328,
   },
   distribution,
   generator,
-  recipeHash: canonicalSha256(recipeIdentity),
+  recipeHash: canonicalSha256(recipeIdentity("source-and-empty-target")),
 };
 
+/**
+ * The same change mix captured as a relocatable artifact instead of rebuilt per sample.
+ *
+ * Topology, not recipe, is what differs: there is no target iModel, so nothing re-enters the hub
+ * and the source briefcase plus its changesets can be copied per sample.
+ */
+export const balancedIncrementalSourceOnlyDescriptor: DatasetDescriptor = {
+  id: "balanced-incremental-source-only",
+  version: 1,
+  label: "balanced incremental (source only)",
+  scenarioClaims: [...scenarioClaims, "changeset scanning"],
+  layout: {
+    kind: "reconstructed",
+    topology: "source-only",
+    recipe: "balanced-incremental",
+    seed: 328,
+  },
+  distribution,
+  generator,
+  recipeHash: canonicalSha256(recipeIdentity("source-only")),
+};
+
+const fixtures = new Map<string, DatasetDescriptor>([
+  [balancedIncrementalDescriptor.id, balancedIncrementalDescriptor],
+  [
+    balancedIncrementalSourceOnlyDescriptor.id,
+    balancedIncrementalSourceOnlyDescriptor,
+  ],
+]);
+
+export function registerFixtureDescriptor(descriptor: DatasetDescriptor): void {
+  if (fixtures.has(descriptor.id))
+    throw new Error(`Duplicate quick performance fixture: ${descriptor.id}`);
+  fixtures.set(descriptor.id, descriptor);
+}
+
+export function listFixtureIds(): string[] {
+  return [...fixtures.keys()];
+}
+
 export function getFixtureDescriptor(id: string): DatasetDescriptor {
-  if (id !== balancedIncrementalDescriptor.id)
-    throw new Error(`Unknown quick performance fixture: ${id}`);
-  return balancedIncrementalDescriptor;
+  const descriptor = fixtures.get(id);
+  if (!descriptor)
+    throw new Error(
+      `Unknown quick performance fixture "${id}". Available fixtures: ${listFixtureIds().join(
+        ", "
+      )}`
+    );
+  return descriptor;
 }

@@ -31,7 +31,7 @@ import {
   prepareBenchmarkOutputDirectory,
 } from "./BenchmarkRunner";
 import { balancedIncrementalDescriptor } from "./FixtureCatalog";
-import { materializeFixture } from "./FixtureMaterializer";
+import { materializeLiveHubFixture } from "./providers/liveHubProvider";
 import {
   createStartedEditTxn,
   disposeReconstructedHub,
@@ -137,7 +137,7 @@ describe("LocalHubFixture reconstruction", () => {
     };
     let failure: unknown;
     try {
-      await materializeFixture(
+      await materializeLiveHubFixture(
         invalidDescriptor,
         path.join(outputDir, "materialize-failure"),
         "materialize-failure"
@@ -331,6 +331,8 @@ describe("BenchmarkRunner scenario injection", function () {
     const calls = { abort: 0, factory: 0, finish: 0, measure: 0 };
     const scenario: BenchmarkScenarioDefinition = {
       id: "injected-scenario",
+      defaultFixtureId: balancedIncrementalDescriptor.id,
+      capabilities: { topology: "source-and-empty-target" },
       factory: (dataset) => {
         calls.factory++;
         const delegate = incrementalSynchronization(dataset);
@@ -406,6 +408,8 @@ describe("BenchmarkRunner scenario injection", function () {
     let aborts = 0;
     const scenario: BenchmarkScenarioDefinition = {
       id: "failing-scenario",
+      defaultFixtureId: balancedIncrementalDescriptor.id,
+      capabilities: { topology: "source-and-empty-target" },
       factory: () => ({
         abort() {
           aborts++;

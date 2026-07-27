@@ -1,0 +1,73 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
+
+import { BenchmarkScenarioDefinition } from "./BenchmarkScenario";
+import { DatasetDescriptor } from "./DatasetDescriptor";
+import { getFixtureDescriptor } from "./FixtureCatalog";
+import { getFixtureRecipe } from "./FixtureRecipe";
+import { getScenarioDefinition } from "./ScenarioCatalog";
+
+export interface ResolvedBenchmarkRun {
+  readonly scenario: BenchmarkScenarioDefinition;
+  readonly descriptor: DatasetDescriptor;
+}
+
+/**
+ * Validate a resolved scenario/fixture pair.
+ *
+ * Capabilities describe what a scenario *needs*; they do not choose a fixture. Selection has
+ * already happened by the time this runs, so a mismatch is a configuration error, not a signal to
+ * pick something else.
+ */
+export function assertScenarioSupportsFixture(
+  scenario: BenchmarkScenarioDefinition,
+  descriptor: DatasetDescriptor
+): void {
+  const { capabilities } = scenario;
+  if (descriptor.layout.topology !== capabilities.topology)
+    throw new Error(
+      `Scenario "${scenario.id}" requires a "${capabilities.topology}" fixture but "${descriptor.id}" is "${descriptor.layout.topology}"`
+    );
+  const missing = (capabilities.requiredClaims ?? []).filter(
+    (claim) => !descriptor.scenarioClaims.includes(claim)
+  );
+  if (missing.length > 0)
+    throw new Error(
+      `Fixture "${descriptor.id}" does not claim [${missing.join(
+        ", "
+      )}] required by scenario "${scenario.id}"`
+    );
+  // A fixture is useless if nothing knows how to generate it.
+  getFixtureRecipe(descriptor.layout.recipe);
+}
+
+/**
+ * Resolve the scenario and the fixture it will run against. `fixtureId` overrides the scenario's
+ * declared default; omit it for the normal path.
+ */
+export function resolveBenchmarkRun(
+  scenarioId?: string,
+  fixtureId?: string
+): ResolvedBenchmarkRun {
+  const scenario = getScenarioDefinition(scenarioId);
+  const descriptor = getFixtureDescriptor(
+    fixtureId ?? scenario.defaultFixtureId
+  );
+  assertScenarioSupportsFixture(scenario, descriptor);
+  return { scenario, descriptor };
+}
+
+/** Resolve from the environment, as both entry points do. */
+export function resolveBenchmarkRunFromEnvironment(
+  env: NodeJS.ProcessEnv = process.env
+): ResolvedBenchmarkRun {
+  // CI passes unset inputs through as empty strings; treat those as "not specified".
+  const orUndefined = (value: string | undefined) =>
+    value === undefined || value.trim() === "" ? undefined : value.trim();
+  return resolveBenchmarkRun(
+    orUndefined(env.QUICK_PERF_SCENARIO),
+    orUndefined(env.QUICK_PERF_FIXTURE)
+  );
+}

@@ -17,11 +17,14 @@ import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 // eslint-disable-next-line @itwin/no-internal
 import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 
-export interface ReconstructedHub {
+export interface ReconstructedSourceHub {
   readonly accessToken: AccessToken;
   readonly iTwinId: string;
   readonly sourceDb: BriefcaseDb;
   readonly sourceIModelId: string;
+}
+
+export interface ReconstructedHub extends ReconstructedSourceHub {
   readonly targetDb: BriefcaseDb;
   readonly targetIModelId: string;
 }
@@ -91,6 +94,10 @@ export async function closeAndDeleteBriefcase(
   await BriefcaseManager.deleteBriefcaseFiles(fileName, accessToken);
 }
 
+export function shutdownHubMock(): void {
+  if (HubMock.isValid) HubMock.shutdown();
+}
+
 async function cleanupHub(
   accessToken: AccessToken,
   briefcases: readonly BriefcaseDb[]
@@ -104,18 +111,27 @@ async function cleanupHub(
     }
   }
   try {
-    if (HubMock.isValid) HubMock.shutdown();
+    shutdownHubMock();
   } catch (error) {
     errors.push(error);
   }
   return errors;
 }
 
-export async function reconstructHub(
+async function reconstruct<T extends ReconstructedSourceHub>(
   outputDir: string,
   mockName: string,
-  createSourceSeed: (fileName: string) => Promise<void> | void
-): Promise<ReconstructedHub> {
+  createSourceSeed: (fileName: string) => Promise<void> | void,
+  finish: (
+    context: {
+      accessToken: AccessToken;
+      iTwinId: string;
+      seedDir: string;
+      track: (db: BriefcaseDb) => void;
+    },
+    source: { db: BriefcaseDb; iModelId: string }
+  ) => Promise<T>
+): Promise<T> {
   if (HubMock.isValid) throw new Error("Only one HubMock may be active");
 
   fs.mkdirSync(outputDir, { recursive: true });
@@ -140,10 +156,8 @@ export async function reconstructHub(
   try {
     const seedDir = path.join(outputDir, "seeds");
     const sourceSeed = path.join(seedDir, `${mockName}-source.bim`);
-    const targetSeed = path.join(seedDir, `${mockName}-target.bim`);
     fs.mkdirSync(seedDir, { recursive: true });
     await createSourceSeed(sourceSeed);
-    createEmptySeed(targetSeed, `${mockName}-target`);
 
     const source = await createAndOpenIModel(
       accessToken,
@@ -152,21 +166,15 @@ export async function reconstructHub(
       sourceSeed
     );
     openBriefcases.push(source.db);
-    const target = await createAndOpenIModel(
-      accessToken,
-      iTwinId,
-      `${mockName}-target`,
-      targetSeed
+    return await finish(
+      {
+        accessToken,
+        iTwinId,
+        seedDir,
+        track: (db) => openBriefcases.push(db),
+      },
+      source
     );
-    openBriefcases.push(target.db);
-    return {
-      accessToken,
-      iTwinId,
-      sourceDb: source.db,
-      sourceIModelId: source.iModelId,
-      targetDb: target.db,
-      targetIModelId: target.iModelId,
-    };
   } catch (error) {
     const cleanupErrors = await cleanupHub(accessToken, openBriefcases);
     if (cleanupErrors.length > 0)
@@ -178,13 +186,63 @@ export async function reconstructHub(
   }
 }
 
+/** Start a HubMock holding only a source iModel. Used by artifact-backed topologies. */
+export async function reconstructSourceHub(
+  outputDir: string,
+  mockName: string,
+  createSourceSeed: (fileName: string) => Promise<void> | void
+): Promise<ReconstructedSourceHub> {
+  return reconstruct(
+    outputDir,
+    mockName,
+    createSourceSeed,
+    async ({ accessToken, iTwinId }, source) => ({
+      accessToken,
+      iTwinId,
+      sourceDb: source.db,
+      sourceIModelId: source.iModelId,
+    })
+  );
+}
+
+/** Start a HubMock holding a source iModel and an empty target iModel. */
+export async function reconstructHub(
+  outputDir: string,
+  mockName: string,
+  createSourceSeed: (fileName: string) => Promise<void> | void
+): Promise<ReconstructedHub> {
+  return reconstruct(
+    outputDir,
+    mockName,
+    createSourceSeed,
+    async ({ accessToken, iTwinId, seedDir, track }, source) => {
+      const targetSeed = path.join(seedDir, `${mockName}-target.bim`);
+      createEmptySeed(targetSeed, `${mockName}-target`);
+      const target = await createAndOpenIModel(
+        accessToken,
+        iTwinId,
+        `${mockName}-target`,
+        targetSeed
+      );
+      track(target.db);
+      return {
+        accessToken,
+        iTwinId,
+        sourceDb: source.db,
+        sourceIModelId: source.iModelId,
+        targetDb: target.db,
+        targetIModelId: target.iModelId,
+      };
+    }
+  );
+}
+
 export async function disposeReconstructedHub(
-  hub: ReconstructedHub
+  hub: ReconstructedHub | ReconstructedSourceHub
 ): Promise<void> {
-  const errors = await cleanupHub(hub.accessToken, [
-    hub.sourceDb,
-    hub.targetDb,
-  ]);
+  const briefcases: BriefcaseDb[] = [hub.sourceDb];
+  if ("targetDb" in hub) briefcases.push(hub.targetDb);
+  const errors = await cleanupHub(hub.accessToken, briefcases);
   if (errors.length > 0)
     throw new AggregateError(errors, "Failed to dispose reconstructed HubMock");
 }

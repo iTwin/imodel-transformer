@@ -3,50 +3,47 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from "path";
 import { expect } from "chai";
+import * as path from "path";
 import { BenchmarkReporter } from "./BenchmarkReporter";
+import { resolveBenchmarkRunFromEnvironment } from "./BenchmarkResolution";
 import { BenchmarkRunner } from "./BenchmarkRunner";
 import { scenarioBudgetMilliseconds } from "./BenchmarkScenario";
-import { getFixtureDescriptor } from "./FixtureCatalog";
-import { getScenarioDefinition } from "./ScenarioCatalog";
 
-/** Headroom above the scenario budget so the budget assertion reports before Mocha kills the test. */
+/**
+ * Headroom above the scenario budget so the budget assertion reports the overrun before Mocha
+ * kills the test. Without it the two deadlines race and the timeout always wins, which reports
+ * "timeout exceeded" instead of the far more useful measured elapsed time.
+ */
 const budgetHeadroomMilliseconds = 60 * 1000;
 
-describe("quick transformer performance", function () {
-  const scenario = getScenarioDefinition(process.env.QUICK_PERF_SCENARIO);
-  const budget = scenarioBudgetMilliseconds(scenario);
-  this.timeout(budget + budgetHeadroomMilliseconds);
+describe("quick performance", () => {
+  const { descriptor, scenario } = resolveBenchmarkRunFromEnvironment();
+  const budgetMilliseconds = scenarioBudgetMilliseconds(scenario);
+  const measuredSamples = Number(process.env.QUICK_PERF_SAMPLES ?? "8");
 
-  it(`runs the ${scenario.id} scenario within its budget`, async () => {
-    const measuredSamples = Number(process.env.QUICK_PERF_SAMPLES ?? "8");
+  it(`${scenario.id} completes within budget on ${descriptor.id}`, async function () {
+    this.timeout(budgetMilliseconds + budgetHeadroomMilliseconds);
     const outputDir =
       process.env.QUICK_PERF_OUTPUT ??
-      path.join(__dirname, ".quick-output", scenario.id);
-    const runner = new BenchmarkRunner(
-      getFixtureDescriptor("balanced-incremental"),
+      path.join(__dirname, ".quick-output", descriptor.id);
+    const started = process.hrtime.bigint();
+    const samples = await new BenchmarkRunner(
+      descriptor,
       outputDir,
       scenario
-    );
-    const jobStart = process.hrtime.bigint();
-    const samples = await runner.run(measuredSamples);
-    const jobMilliseconds =
-      Number(process.hrtime.bigint() - jobStart) / 1_000_000;
-    BenchmarkReporter.write(outputDir, samples, jobMilliseconds);
+    ).run(measuredSamples);
+    const elapsedMilliseconds =
+      Number(process.hrtime.bigint() - started) / 1_000_000;
+    const summary = BenchmarkReporter.write(outputDir, samples);
 
-    expect(samples.filter((sample) => sample.measured)).to.have.length(
-      measuredSamples
-    );
+    expect(summary.measuredSamples).to.equal(measuredSamples);
     expect(
       new Set(samples.map((sample) => sample.semanticDigest)).size
-    ).to.equal(
-      1,
-      "fresh reconstructions must produce the same semantic digest"
-    );
+    ).to.equal(1, "every sample must observe the same fixture");
     expect(new Set(samples.map((sample) => sample.scenarioId))).to.deep.equal(
       new Set([scenario.id])
     );
-    expect(jobMilliseconds).to.be.lessThan(budget);
+    expect(elapsedMilliseconds).to.be.lessThan(budgetMilliseconds);
   });
 });

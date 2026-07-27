@@ -3,6 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import { FixtureTopology } from "./DatasetDescriptor";
 import { PreparedDataset } from "./FixtureMaterializer";
 
 export interface BenchmarkScenario {
@@ -15,10 +16,23 @@ export type BenchmarkScenarioFactory = (
   dataset: PreparedDataset
 ) => BenchmarkScenario;
 
+/**
+ * What a scenario needs from a fixture. Capabilities *validate* a resolved scenario/fixture pair;
+ * they never select one. Selection is {@link BenchmarkScenarioDefinition.defaultFixtureId} or an
+ * explicit override.
+ */
+export interface BenchmarkScenarioCapabilities {
+  readonly topology: FixtureTopology;
+  /** Claims the fixture must advertise in `scenarioClaims`. */
+  readonly requiredClaims?: readonly string[];
+}
+
 export const defaultScenarioBudgetMilliseconds = 15 * 60 * 1000;
 
 export interface BenchmarkScenarioDefinition {
   readonly id: string;
+  readonly defaultFixtureId: string;
+  readonly capabilities: BenchmarkScenarioCapabilities;
   readonly factory: BenchmarkScenarioFactory;
   /**
    * Wall time allowed for the measured run, excluding checkout, install and build.
