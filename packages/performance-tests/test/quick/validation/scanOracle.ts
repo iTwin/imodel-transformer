@@ -66,6 +66,20 @@ export class ScanLedger {
   public get entries(): readonly ScanLedgerEntry[] {
     return this._entries;
   }
+
+  /**
+   * Rebuilds a ledger from serialized entries.
+   *
+   * The recipe runs while the fixture artifact is built; the oracle runs later, against a copy. The
+   * ledger therefore has to survive a round trip through JSON. Replaying through `record` keeps the
+   * deduplication invariant even if the serialized form was hand-written or concatenated.
+   */
+  public static fromEntries(entries: readonly ScanLedgerEntry[]): ScanLedger {
+    const ledger = new ScanLedger();
+    for (const entry of entries)
+      ledger.record(entry.collection, entry.op, entry.id);
+    return ledger;
+  }
 }
 
 interface MutableScanOps {
