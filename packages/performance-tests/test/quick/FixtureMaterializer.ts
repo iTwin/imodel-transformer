@@ -4,81 +4,55 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as path from "path";
-import { IModelTransformer } from "@itwin/imodel-transformer";
+import { BriefcaseDb } from "@itwin/core-backend";
+import { ChangesetFileProps } from "@itwin/core-common";
 import { DatasetDescriptor } from "./DatasetDescriptor";
-import {
-  createStartedEditTxn,
-  disposeReconstructedHub,
-  ReconstructedHub,
-  reconstructHub,
-} from "./LocalHubFixture";
-import {
-  applyBalancedChangesets,
-  BalancedRecipeState,
-  createBalancedSeed,
-} from "./recipes/balancedIncremental";
-import { assertFixtureDistribution } from "./validation/validateFixture";
+import { FixtureArtifactManifest } from "./FixtureArtifact";
+import { ReconstructedHub } from "./LocalHubFixture";
 
-export interface PreparedDataset {
+interface PreparedDatasetBase {
   readonly descriptor: DatasetDescriptor;
-  readonly hub: ReconstructedHub;
+  /** Stage-2 cost for this sample: what it took to hand the scenario a pristine working copy. */
   readonly reconstructionMilliseconds: number;
 }
 
-export async function materializeFixture(
-  descriptor: DatasetDescriptor,
-  outputDir: string,
-  sampleName: string
-): Promise<PreparedDataset> {
-  const start = process.hrtime.bigint();
-  let recipeState: BalancedRecipeState | undefined;
-  let hub: ReconstructedHub | undefined;
-  try {
-    hub = await reconstructHub(outputDir, sampleName, async (sourceSeed) => {
-      recipeState = await createBalancedSeed(sourceSeed, descriptor);
-    });
-    if (!recipeState)
-      throw new Error("Balanced fixture recipe did not create state");
+/** A live HubMock with an open source briefcase and an already-transformed-into target. */
+export interface PreparedLiveHubDataset extends PreparedDatasetBase {
+  readonly topology: "source-and-empty-target";
+  readonly hub: ReconstructedHub;
+}
 
-    const editTxn = createStartedEditTxn(hub.targetDb);
-    const transformer = new IModelTransformer({
-      source: hub.sourceDb,
-      target: editTxn,
-    });
-    try {
-      await transformer.processSchemas();
-      await transformer.process();
-    } finally {
-      transformer.dispose();
-      if (editTxn.isActive) editTxn.end();
-    }
-    await hub.targetDb.pushChanges({
-      accessToken: hub.accessToken,
-      description: "establish quick fixture provenance",
-    });
-    await applyBalancedChangesets(
-      hub.sourceDb,
-      hub.accessToken,
-      descriptor,
-      recipeState
+/** A working copy of a stage-1 artifact: an open readonly source and its changeset files. */
+export interface PreparedDetachedDataset extends PreparedDatasetBase {
+  readonly topology: "source-only";
+  /** Root of this sample's working copy. */
+  readonly directory: string;
+  readonly sourceDb: BriefcaseDb;
+  /** Changeset props whose `pathname` values are absolute and point into `directory`. */
+  readonly csFileProps: ChangesetFileProps[];
+  readonly manifest: FixtureArtifactManifest;
+}
+
+export type PreparedDataset = PreparedLiveHubDataset | PreparedDetachedDataset;
+
+export function requireLiveHubDataset(
+  dataset: PreparedDataset
+): PreparedLiveHubDataset {
+  if (dataset.topology !== "source-and-empty-target")
+    throw new Error(
+      `Scenario requires a "source-and-empty-target" fixture but received "${dataset.topology}"`
     );
-    await assertFixtureDistribution(hub.sourceDb, descriptor);
-    const reconstructionMilliseconds =
-      Number(process.hrtime.bigint() - start) / 1_000_000;
-    return { descriptor, hub, reconstructionMilliseconds };
-  } catch (error) {
-    if (hub) {
-      try {
-        await disposeReconstructedHub(hub);
-      } catch (cleanupError) {
-        throw new AggregateError(
-          [error, cleanupError],
-          "Fixture materialization and cleanup both failed"
-        );
-      }
-    }
-    throw error;
-  }
+  return dataset;
+}
+
+export function requireDetachedDataset(
+  dataset: PreparedDataset
+): PreparedDetachedDataset {
+  if (dataset.topology !== "source-only")
+    throw new Error(
+      `Scenario requires a "source-only" fixture but received "${dataset.topology}"`
+    );
+  return dataset;
 }
 
 export function fixtureWorkingDirectory(

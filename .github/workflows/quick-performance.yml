@@ -10,6 +10,10 @@ on:
         type: choice
         options:
           - incremental-synchronization
+      fixture:
+        description: Fixture id (blank uses the scenario's default)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -50,8 +54,10 @@ jobs:
             --require ts-node/register \
             test/quick/FixtureManifest.quick-unit.ts \
             test/quick/ScenarioCatalog.quick-unit.ts \
+            test/quick/BenchmarkResolution.quick-unit.ts \
             test/quick/statistics.quick-unit.ts \
             test/quick/LocalHubFixture.quick-unit.ts \
+            test/quick/FixtureArtifact.quick-unit.ts \
             2>&1 | sed \
               -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"
@@ -65,6 +71,7 @@ jobs:
         env:
           QUICK_PERF_OUTPUT: ${{ runner.temp }}/quick-performance
           QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
+          QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
 
       - name: Report variance reliability
         if: always()

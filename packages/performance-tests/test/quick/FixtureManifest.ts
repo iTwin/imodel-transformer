@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createHash } from "crypto";
-import { DatasetDescriptor } from "./DatasetDescriptor";
+import { DatasetDescriptor, fixtureTopologies } from "./DatasetDescriptor";
 
 function canonicalize(value: unknown): string {
   if (Array.isArray(value))
@@ -33,7 +33,9 @@ export function validateDescriptor(value: unknown): DatasetDescriptor {
     typeof descriptor.label !== "string" ||
     !Array.isArray(descriptor.scenarioClaims) ||
     descriptor.layout?.kind !== "reconstructed" ||
-    descriptor.layout.recipe !== "balanced-incremental" ||
+    !fixtureTopologies.includes(descriptor.layout.topology) ||
+    typeof descriptor.layout.recipe !== "string" ||
+    descriptor.layout.recipe.length === 0 ||
     typeof descriptor.layout.seed !== "number" ||
     descriptor.distribution === undefined ||
     typeof descriptor.generator?.coreBackend !== "string" ||

@@ -6,41 +6,41 @@
 import * as fs from "fs";
 import * as path from "path";
 import { BenchmarkReporter } from "./BenchmarkReporter";
+import { resolveBenchmarkRunFromEnvironment } from "./BenchmarkResolution";
 import {
   BenchmarkRunner,
   prepareBenchmarkOutputDirectory,
 } from "./BenchmarkRunner";
-import { balancedIncrementalDescriptor } from "./FixtureCatalog";
-import { getScenarioDefinition } from "./ScenarioCatalog";
+import { DatasetDescriptor } from "./DatasetDescriptor";
 
-function writeManifest(outputDir: string): void {
+function writeManifest(outputDir: string, descriptor: DatasetDescriptor): void {
   fs.writeFileSync(
     path.join(outputDir, "manifest.json"),
-    `${JSON.stringify(balancedIncrementalDescriptor, undefined, 2)}\n`
+    `${JSON.stringify(descriptor, undefined, 2)}\n`
   );
 }
 
 async function main() {
   const command = process.argv[2];
+  const { descriptor, scenario } = resolveBenchmarkRunFromEnvironment();
   const outputDir =
     process.env.QUICK_PERF_OUTPUT ??
-    path.join(__dirname, ".quick-output", balancedIncrementalDescriptor.id);
+    path.join(__dirname, ".quick-output", descriptor.id);
   if (command === "build-fixture") {
     prepareBenchmarkOutputDirectory(outputDir);
-    writeManifest(outputDir);
+    writeManifest(outputDir, descriptor);
     return;
   }
   if (command === "verify-fixture") {
-    const scenario = getScenarioDefinition(process.env.QUICK_PERF_SCENARIO);
     const samples = await new BenchmarkRunner(
-      balancedIncrementalDescriptor,
+      descriptor,
       outputDir,
       scenario
     ).run(1);
     if (new Set(samples.map((sample) => sample.semanticDigest)).size !== 1)
       throw new Error("Fixture reconstruction is not deterministic");
     BenchmarkReporter.write(outputDir, samples);
-    writeManifest(outputDir);
+    writeManifest(outputDir, descriptor);
     return;
   }
   throw new Error(`Unknown quick fixture command: ${command ?? "<missing>"}`);
