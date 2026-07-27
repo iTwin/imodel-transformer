@@ -17,8 +17,10 @@ import {
   fixtureArtifactVersion,
   readChangesetFileProps,
   readFixtureArtifact,
+  readFixtureRecipeData,
   toRelativeChangesetProps,
   writeFixtureArtifactManifest,
+  writeFixtureRecipeData,
 } from "../FixtureArtifact";
 import {
   BuiltFixture,
@@ -112,7 +114,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       // The seed is uploaded as version 0, so the briefcase starts before any changeset.
       const baseChangesetIndex = hub.sourceDb.changeset.index ?? 0;
 
-      await recipe.applySourceChangesets(
+      const recipeData = await recipe.applySourceChangesets(
         hub.sourceDb,
         hub.accessToken,
         descriptor,
@@ -159,6 +161,11 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
         );
       hub = undefined;
 
+      const recipeDataFile =
+        recipeData === undefined || recipeData === null
+          ? undefined
+          : writeFixtureRecipeData(artifactDir, recipeData);
+
       const buildMilliseconds =
         Number(process.hrtime.bigint() - start) / 1_000_000;
       const indices = downloaded.map((changeset) => changeset.index);
@@ -182,6 +189,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
           firstIndex: indices.length > 0 ? Math.min(...indices) : undefined,
           lastIndex: indices.length > 0 ? Math.max(...indices) : undefined,
         },
+        recipeDataFile,
         buildMilliseconds,
         builtAt: new Date().toISOString(),
       };
@@ -235,6 +243,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       sourceDb,
       csFileProps,
       manifest: artifact.manifest,
+      recipe: readFixtureRecipeData(sampleDir, artifact.manifest),
       reconstructionMilliseconds:
         Number(process.hrtime.bigint() - start) / 1_000_000,
     };

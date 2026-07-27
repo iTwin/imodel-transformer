@@ -10,13 +10,20 @@ import * as path from "path";
 import { BriefcaseDb, IModelHost } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { ChangedInstanceIds } from "@itwin/imodel-transformer";
+import { DatasetDescriptor } from "./DatasetDescriptor";
 import {
   artifactBriefcasePath,
   artifactManifestFileName,
   readChangesetFileProps,
   readFixtureArtifact,
+  readFixtureRecipeData,
+  writeFixtureRecipeData,
 } from "./FixtureArtifact";
 import { balancedIncrementalSourceOnlyDescriptor } from "./FixtureCatalog";
+import {
+  balancedIncrementalRecipe,
+  registerFixtureRecipe,
+} from "./FixtureRecipe";
 import { requireDetachedDataset } from "./FixtureMaterializer";
 import {
   BuiltFixture,
@@ -110,6 +117,19 @@ describe("detached fixture artifact", () => {
     expect(
       fs.readdirSync(path.join(built.directory, "changesets"))
     ).to.have.length(artifact.manifest.changesets.count);
+  });
+
+  it("omits recipe data when the recipe returns nothing", () => {
+    // `balanced-incremental` opts out, so the key must be absent rather than null.
+    const raw = JSON.parse(
+      fs.readFileSync(
+        path.join(built.directory, artifactManifestFileName),
+        "utf8"
+      )
+    ) as Record<string, unknown>;
+    expect(raw).to.not.have.property("recipeDataFile");
+    expect(fs.existsSync(path.join(built.directory, "recipe.json"))).to.be
+      .false;
   });
 
   it("stores relocatable changeset pathnames", () => {
@@ -207,5 +227,153 @@ describe("detached fixture artifact", () => {
     fs.writeFileSync(propsFile, JSON.stringify(props));
     expect(() => readChangesetFileProps(corrupt)).to.throw();
     fs.rmSync(corrupt, { recursive: true, force: true });
+  });
+
+  it("carries recipe data across the stage boundary unchanged", () => {
+    const dir = path.join(root, "recipe-data");
+    fs.mkdirSync(dir, { recursive: true });
+    // The shape a scanning oracle needs: deleted ids cannot be recovered from a tip-pinned
+    // briefcase, so they only exist if the recipe hands them over here.
+    const data = {
+      elements: { insertIds: ["0x20", "0x21"], deleteIds: ["0x22"] },
+      counts: { changesets: 8 },
+      nested: [{ ok: true }, { ok: false }],
+    };
+    expect(writeFixtureRecipeData(dir, data)).to.equal("recipe.json");
+    const manifest = {
+      ...readFixtureArtifact(built.directory).manifest,
+      recipeDataFile: "recipe.json",
+    };
+    expect(readFixtureRecipeData(dir, manifest)).to.deep.equal(data);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * Values that `JSON.stringify` mangles rather than rejecting are the dangerous ones: a `Set`
+   * serializes to `{}`, so an oracle would read an empty id list and report a false pass. These
+   * must fail at build time, where the message points at the recipe.
+   */
+  it("rejects recipe data that JSON cannot represent", () => {
+    const dir = path.join(root, "bad-recipe-data");
+    fs.mkdirSync(dir, { recursive: true });
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const cases: [string, unknown][] = [
+      ["Set", { ids: new Set(["0x20"]) }],
+      ["Map", { ids: new Map([["a", 1]]) }],
+      ["Date", { builtAt: new Date() }],
+      ["BigInt", { count: BigInt(1) }],
+      ["NaN", { ratio: NaN }],
+      ["Infinity", { ratio: Infinity }],
+      ["undefined", { ids: undefined }],
+      ["function", { make: () => 1 }],
+      ["class instance", { at: new (class Point {})() }],
+      ["circular", circular],
+    ];
+    for (const [label, value] of cases)
+      expect(() => writeFixtureRecipeData(dir, value), label).to.throw(
+        /Recipe data at/
+      );
+    expect(
+      fs.existsSync(path.join(dir, "recipe.json")),
+      "a rejected value must not leave a partial artifact"
+    ).to.be.false;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails loudly when declared recipe data is missing", () => {
+    const artifact = readFixtureArtifact(built.directory);
+    expect(() =>
+      readFixtureRecipeData(built.directory, {
+        ...artifact.manifest,
+        recipeDataFile: "recipe.json",
+      })
+    ).to.throw(/missing/);
+  });
+});
+
+/**
+ * The end-to-end contract W3's oracle depends on: whatever a recipe returns must survive stage 1,
+ * the filesystem copy, and stage 2 — identically for every sample, and therefore identically for
+ * both arms of an A/B comparison.
+ */
+describe("recipe data across the stage boundary", () => {
+  const emitted = {
+    elements: { insertIds: ["0x20", "0x21"], deleteIds: ["0x22"] },
+    changesets: 8,
+  };
+  const recipeId = "balanced-incremental-with-data";
+  const descriptor: DatasetDescriptor = {
+    ...balancedIncrementalSourceOnlyDescriptor,
+    id: "balanced-incremental-emitting-data",
+    layout: {
+      ...balancedIncrementalSourceOnlyDescriptor.layout,
+      recipe: recipeId,
+    },
+  };
+  let root: string;
+  let built: BuiltFixture;
+
+  before(async function () {
+    this.timeout(600_000);
+    registerFixtureRecipe({
+      id: recipeId,
+      createSeed: async (fileName, forDescriptor) =>
+        balancedIncrementalRecipe.createSeed(fileName, forDescriptor),
+      applySourceChangesets: async (db, token, forDescriptor, state) => {
+        await balancedIncrementalRecipe.applySourceChangesets(
+          db,
+          token,
+          forDescriptor,
+          state
+        );
+        return emitted;
+      },
+    });
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-recipe-data-"));
+    await IModelHost.startup();
+    built = await detachedBriefcaseFixtureProvider.build(
+      descriptor,
+      path.join(root, "fixture-artifact")
+    );
+  });
+
+  after(async () => {
+    await detachedBriefcaseFixtureProvider.disposeBuild(built);
+    if (IModelHost.isValid) await IModelHost.shutdown();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("records the data file in the manifest rather than requiring a probe", () => {
+    const artifact = readFixtureArtifact(built.directory);
+    expect(artifact.manifest.recipeDataFile).to.equal("recipe.json");
+    expect(fs.existsSync(path.join(built.directory, "recipe.json"))).to.be.true;
+  });
+
+  it("surfaces identical data on every working copy", async function () {
+    this.timeout(300_000);
+    const datasets = [];
+    for (const name of ["sample-0", "sample-1"])
+      datasets.push(
+        requireDetachedDataset(
+          await detachedBriefcaseFixtureProvider.materialize(
+            built,
+            path.join(root, "samples", name),
+            name
+          )
+        )
+      );
+    try {
+      for (const dataset of datasets)
+        expect(dataset.recipe).to.deep.equal(emitted);
+      // Byte-identical, not merely deep-equal: this is what makes an A/B verdict trustworthy.
+      const [first, second] = datasets.map((dataset) =>
+        fs.readFileSync(path.join(dataset.directory, "recipe.json"))
+      );
+      expect(first.equals(second)).to.be.true;
+    } finally {
+      for (const dataset of datasets)
+        await detachedBriefcaseFixtureProvider.disposeSample(dataset);
+    }
   });
 });

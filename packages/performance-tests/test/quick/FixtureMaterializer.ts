@@ -31,6 +31,12 @@ export interface PreparedDetachedDataset extends PreparedDatasetBase {
   /** Changeset props whose `pathname` values are absolute and point into `directory`. */
   readonly csFileProps: ChangesetFileProps[];
   readonly manifest: FixtureArtifactManifest;
+  /**
+   * Whatever the recipe returned from `applySourceChangesets`, or `undefined` if it returned
+   * nothing. Deliberately `unknown`: the framework never interprets it, and it is byte-identical
+   * across samples and across A/B arms because it is captured once at stage 1.
+   */
+  readonly recipe?: unknown;
 }
 
 export type PreparedDataset = PreparedLiveHubDataset | PreparedDetachedDataset;
