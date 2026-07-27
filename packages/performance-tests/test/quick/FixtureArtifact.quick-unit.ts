@@ -7,7 +7,7 @@ import { expect } from "chai";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { IModelHost } from "@itwin/core-backend";
+import { BriefcaseDb, IModelHost } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { ChangedInstanceIds } from "@itwin/imodel-transformer";
 import {
@@ -18,7 +18,11 @@ import {
 } from "./FixtureArtifact";
 import { balancedIncrementalSourceOnlyDescriptor } from "./FixtureCatalog";
 import { requireDetachedDataset } from "./FixtureMaterializer";
-import { BuiltFixture, getFixtureProvider } from "./FixtureProvider";
+import {
+  BuiltFixture,
+  getFixtureProvider,
+  requireFixtureArtifact,
+} from "./FixtureProvider";
 import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider";
 
 describe("detached fixture artifact", () => {
@@ -46,6 +50,46 @@ describe("detached fixture artifact", () => {
     expect(getFixtureProvider(descriptor)).to.equal(
       detachedBriefcaseFixtureProvider
     );
+  });
+
+  /**
+   * The load-bearing invariant of the whole two-stage design: a briefcase's bytes are portable and
+   * `BriefcaseDb.open` consults no hub. Stage 2 is only a filesystem copy because this holds.
+   *
+   * `openDgnDb` makes no hub calls today, but nothing in core-backend's API contract promises it
+   * never will. If a future version validates a briefcase id or parent changeset against a hub,
+   * this fails here with a clear cause instead of surfacing as an inscrutable benchmark failure.
+   */
+  it("opens a relocated briefcase readonly with no hub of any kind", async () => {
+    expect(HubMock.isValid).to.equal(
+      false,
+      "stage 1 must release its build hub before any working copy is opened"
+    );
+    const manifest = requireFixtureArtifact(built).manifest;
+    const relocated = path.join(root, "relocated", "renamed.bim");
+    fs.mkdirSync(path.dirname(relocated), { recursive: true });
+    fs.copyFileSync(artifactBriefcasePath(built.directory), relocated);
+
+    const sourceDb = await BriefcaseDb.open({
+      fileName: relocated,
+      readonly: true,
+    });
+    try {
+      // The copy still advertises a briefcase id and a parent changeset belonging to an iModel
+      // that no longer exists anywhere. Retaining them is harmless precisely because open is
+      // hub-free; if either were ever resolved remotely, the open above would have thrown.
+      expect(sourceDb.briefcaseId).to.equal(manifest.briefcase.briefcaseId);
+      expect(sourceDb.changeset.id).to.equal(manifest.briefcase.changeset.id);
+      // realpath because macOS resolves /var to /private/var on open.
+      expect(fs.realpathSync(sourceDb.pathName)).to.equal(
+        fs.realpathSync(relocated)
+      );
+      // Readable, not merely openable.
+      expect(sourceDb.elements.getRootSubject()).to.not.be.undefined;
+    } finally {
+      sourceDb.close();
+    }
+    fs.rmSync(path.dirname(relocated), { recursive: true, force: true });
   });
 
   it("emits a self-describing artifact and leaves no build scaffolding", () => {
