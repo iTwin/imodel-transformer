@@ -91,9 +91,19 @@ interface MutableScanOps {
 /**
  * Squash semantics, written independently of `ChangedInstanceIds.handleChange`.
  *
- * Reusing the transformer's implementation would check the code against itself. The rules are:
- * an insert clears a pending delete; an update is dropped when the instance is already an insert;
- * a delete cancels a pending insert outright and otherwise supersedes a pending update.
+ * Reusing the transformer's implementation would check the code against itself. There are four
+ * rules:
+ *
+ * 1. an insert clears a pending delete;
+ * 2. an update is dropped when the instance is already an insert;
+ * 3. a delete cancels a pending insert outright;
+ * 4. a delete otherwise supersedes a pending update.
+ *
+ * Rule 1 is encoded and unit-tested here but no fixture region exercises it against a real
+ * changeset, because it is not producible: instance ids are assigned by the briefcase and a deleted
+ * id is never handed out again, so within one scanned range a delete can never be followed by an
+ * insert of the same id. It is implemented anyway rather than omitted, because an unimplemented
+ * rule would silently disagree with the transformer if a future fixture ever did produce it.
  */
 function applyOp(ops: MutableScanOps, op: ScanOp, id: Id64String): void {
   switch (op) {

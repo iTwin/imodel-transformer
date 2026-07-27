@@ -19,6 +19,7 @@ export const artifactBriefcaseFileName = "briefcase.bim";
 export const artifactChangesetDirectoryName = "changesets";
 export const artifactChangesetPropsFileName = "csFileProps.json";
 export const artifactManifestFileName = "manifest.json";
+export const artifactRecipeDataFileName = "recipe.json";
 
 export interface FixtureArtifactManifest {
   readonly artifactVersion: number;
@@ -98,6 +99,26 @@ export function readChangesetFileProps(
       );
     return { ...changeset, pathname };
   });
+}
+
+/**
+ * Recipe-specific data captured at build time, if the recipe produced any.
+ *
+ * Absent for recipes that return nothing, which is why this reads as "undefined" rather than
+ * throwing: an artifact without recipe data is a valid artifact.
+ */
+export function readRecipeData(directory: string): unknown {
+  const file = path.join(directory, artifactRecipeDataFileName);
+  if (!fs.existsSync(file)) return undefined;
+  return JSON.parse(fs.readFileSync(file, "utf-8"));
+}
+
+export function writeRecipeData(directory: string, data: unknown): void {
+  if (data === undefined) return;
+  fs.writeFileSync(
+    path.join(directory, artifactRecipeDataFileName),
+    `${JSON.stringify(data)}\n`
+  );
 }
 
 export function artifactBriefcasePath(directory: string): string {

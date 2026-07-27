@@ -25,7 +25,8 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { DatasetDescriptor } from "../DatasetDescriptor";
-import { ScanLedger } from "../validation/scanOracle";
+import { ScanLedger, ScanLedgerEntry } from "../validation/scanOracle";
+import { queryCount } from "../validation/validateFixture";
 
 const scanAspectClass = "QuickPerfScan:ScanAspect";
 
@@ -42,6 +43,18 @@ const scanAspectClass = "QuickPerfScan:ScanAspect";
  *
  * The last region is the reason this recipe can catch squash regressions that a "the sizes match"
  * assertion cannot: those ids must cancel out entirely.
+ *
+ * Note there is no region for the fourth squash rule, delete-then-insert reinstating an insert.
+ * That rule is encoded in the oracle and unit-tested directly, but no region exercises it against
+ * a real changeset because it is not producible here: ids are assigned by the briefcase and a
+ * deleted ElementId, aspect id or relationship id is never handed out again, so a delete can never
+ * be followed by an insert of the same id within one scanned range.
+ *
+ * Elements carry no geometry. An unchanged GeometryStream column never appears in a SQLite
+ * changeset, so geometry would cost build time, disk and determinism while contributing nothing to
+ * scan cost. This recipe is tuned as a sensitive regression detector, not as a representative
+ * production workload; answering the representativeness question is a separate, geometry-bearing
+ * recipe.
  */
 export interface ScanRegionSizes {
   readonly updated: number;
@@ -238,7 +251,7 @@ export async function applyScanChangesets(
   accessToken: AccessToken,
   descriptor: DatasetDescriptor,
   state: ScanRecipeState
-): Promise<ScanLedger> {
+): Promise<readonly ScanLedgerEntry[]> {
   const sizes = scanRegionSizes(descriptor);
   const changesetCount = descriptor.distribution.operations.sourceChangesets;
   const ledger = new ScanLedger();
@@ -443,5 +456,82 @@ export async function applyScanChangesets(
     });
   }
 
-  return ledger;
+  return ledger.entries;
+}
+
+/**
+ * Assert the built source iModel matches the region structure the recipe promised.
+ *
+ * This checks the tip state, which is what a copied briefcase actually contains. It is deliberately
+ * expressed in terms of regions rather than raw totals: a regression that deleted the wrong region
+ * would still produce plausible totals, but cannot produce the right per-region counts.
+ */
+export async function validateScanFixture(
+  db: BriefcaseDb,
+  descriptor: DatasetDescriptor
+): Promise<void> {
+  const sizes = scanRegionSizes(descriptor);
+  const regionCount = async (region: string) =>
+    queryCount(
+      db,
+      `SELECT count(*) cnt FROM ${PhysicalObject.classFullName.replace(
+        ":",
+        "."
+      )} WHERE CodeValue LIKE 'scan-${region}-%'`
+    );
+
+  const expectations: Array<[string, number, number]> = [
+    [
+      "region A elements (updated throughout)",
+      await regionCount("a"),
+      sizes.updated,
+    ],
+    [
+      "region B elements (deleted in the last changeset)",
+      await regionCount("b"),
+      0,
+    ],
+    [
+      "region C elements (inserted then updated)",
+      await regionCount("c"),
+      sizes.insertedThenUpdated,
+    ],
+    ["region D elements (inserted then deleted)", await regionCount("d"), 0],
+    [
+      "scan aspects",
+      await queryCount(db, "SELECT count(*) cnt FROM QuickPerfScan.ScanAspect"),
+      sizes.updated + sizes.insertedThenUpdated,
+    ],
+    [
+      "relationships",
+      await queryCount(
+        db,
+        "SELECT count(*) cnt FROM BisCore.ElementGroupsMembers"
+      ),
+      sizes.seedRelationships +
+        sizes.insertedRelationships -
+        sizes.deletedRelationships,
+    ],
+    [
+      "updated relationships",
+      await queryCount(
+        db,
+        "SELECT count(*) cnt FROM BisCore.ElementGroupsMembers WHERE MemberPriority >= 1000"
+      ),
+      sizes.updatedRelationships,
+    ],
+  ];
+
+  const failures = expectations
+    .filter(([, actual, expected]) => actual !== expected)
+    .map(
+      ([what, actual, expected]) =>
+        `${what}: expected ${expected}, got ${actual}`
+    );
+  if (failures.length > 0)
+    throw new Error(
+      `Fixture "${descriptor.id}" does not match its recipe:\n  ${failures.join(
+        "\n  "
+      )}`
+    );
 }

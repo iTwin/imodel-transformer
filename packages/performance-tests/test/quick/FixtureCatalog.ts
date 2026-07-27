@@ -107,12 +107,107 @@ export const balancedIncrementalSourceOnlyDescriptor: DatasetDescriptor = {
   recipeHash: canonicalSha256(recipeIdentity("source-only")),
 };
 
+/**
+ * Update-heavy multi-changeset source, sized so that scanning it dominates timer noise.
+ *
+ * Region sizes are derived from `base.elements` by `scanRegionSizes`; see `recipes/updateHeavyScan`
+ * for what each region proves.
+ *
+ * Calibrated at 2,420 elements x 20 changesets: the scan measures ~2.15 s with a coefficient of
+ * variation of 2.4% over 8 samples, against ~44 ms of per-sample copy, verification and teardown.
+ * Scan cost is linear in changed rows at roughly 48 ms per (1,000 elements x changeset), so the
+ * shape is a single `scanScale` knob.
+ *
+ * The size is bounded by comparison mode rather than by a single run. One run is 9 executions and
+ * finishes in well under a minute, but an A/B comparison at its escalated width is 128 executions,
+ * where the build cost amortizes away and the per-execution cost is all that matters. This shape
+ * keeps that case inside a 15 minute budget with roughly 3x headroom for slower CI hardware; a
+ * larger shape would measure the same thing no better and fit the escalated case worse.
+ */
+const scanScale = 11;
+const scanDistribution = {
+  base: {
+    // Region A (updated throughout) plus region B (updated, then deleted last).
+    aspects: 220 * scanScale,
+    elements: 220 * scanScale,
+    geometricElements: 0,
+    relationships: 40 * scanScale,
+  },
+  operations: {
+    elements: {
+      // Regions C and D, both inserted in the first changeset.
+      inserts: 30 * scanScale,
+      // Every seeded element is updated, plus region C after its insert.
+      updates: 240 * scanScale,
+      // Region B at the end, region D at the end.
+      deletes: 30 * scanScale,
+    },
+    aspects: {
+      inserts: 20 * scanScale,
+      updates: 220 * scanScale,
+      // Region B's owned aspects, cascade-deleted with their elements.
+      deletes: 20 * scanScale,
+    },
+    relationships: {
+      inserts: 10 * scanScale,
+      updates: 10 * scanScale,
+      deletes: 10 * scanScale,
+    },
+    geometryUpdates: 0,
+    sourceChangesets: 20,
+  },
+} as const;
+
+const scanRecipeIdentity = {
+  schema: "QuickPerfScan.01.00.00",
+  seed: 328,
+  topology: "source-only",
+  distribution: scanDistribution,
+  inputs: {
+    recipe: fs.readFileSync(
+      path.join(__dirname, "recipes/updateHeavyScan.ts"),
+      "utf8"
+    ),
+    schema: fs.readFileSync(
+      path.join(__dirname, "schemas/QuickPerfScan.ecschema.xml"),
+      "utf8"
+    ),
+    lockfile: fs.readFileSync(
+      path.join(__dirname, "../../../../pnpm-lock.yaml"),
+      "utf8"
+    ),
+  },
+  versions: generator,
+};
+
+export const updateHeavyScanDescriptor: DatasetDescriptor = {
+  id: "update-heavy-scan",
+  version: 1,
+  label: "update-heavy scan",
+  scenarioClaims: [
+    "changeset scanning",
+    "changed-instance squashing",
+    "aspect lifecycle",
+    "relationship lifecycle",
+  ],
+  layout: {
+    kind: "reconstructed",
+    topology: "source-only",
+    recipe: "update-heavy-scan",
+    seed: 328,
+  },
+  distribution: scanDistribution,
+  generator,
+  recipeHash: canonicalSha256(scanRecipeIdentity),
+};
+
 const fixtures = new Map<string, DatasetDescriptor>([
   [balancedIncrementalDescriptor.id, balancedIncrementalDescriptor],
   [
     balancedIncrementalSourceOnlyDescriptor.id,
     balancedIncrementalSourceOnlyDescriptor,
   ],
+  [updateHeavyScanDescriptor.id, updateHeavyScanDescriptor],
 ]);
 
 export function registerFixtureDescriptor(descriptor: DatasetDescriptor): void {

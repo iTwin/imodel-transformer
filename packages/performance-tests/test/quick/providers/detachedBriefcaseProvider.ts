@@ -17,8 +17,10 @@ import {
   fixtureArtifactVersion,
   readChangesetFileProps,
   readFixtureArtifact,
+  readRecipeData,
   toRelativeChangesetProps,
   writeFixtureArtifactManifest,
+  writeRecipeData,
 } from "../FixtureArtifact";
 import {
   BuiltFixture,
@@ -35,7 +37,6 @@ import {
   reconstructSourceHub,
   shutdownHubMock,
 } from "../LocalHubFixture";
-import { assertFixtureDistribution } from "../validation/validateFixture";
 
 /**
  * Tolerant teardown for a build that may have failed at any point. Collects errors rather than
@@ -112,13 +113,13 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       // The seed is uploaded as version 0, so the briefcase starts before any changeset.
       const baseChangesetIndex = hub.sourceDb.changeset.index ?? 0;
 
-      await recipe.applySourceChangesets(
+      const recipeData = await recipe.applySourceChangesets(
         hub.sourceDb,
         hub.accessToken,
         descriptor,
         recipeState
       );
-      await assertFixtureDistribution(hub.sourceDb, descriptor);
+      await recipe.validate(hub.sourceDb, descriptor);
 
       fs.mkdirSync(scratchDir, { recursive: true });
       const downloaded = await BriefcaseManager.downloadChangesets({
@@ -146,6 +147,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
         path.join(artifactDir, artifactChangesetPropsFileName),
         `${JSON.stringify(toRelativeChangesetProps(downloaded), undefined, 2)}\n`
       );
+      writeRecipeData(artifactDir, recipeData);
 
       const releaseErrors = await releaseBuildHub(
         hub,
@@ -235,6 +237,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       sourceDb,
       csFileProps,
       manifest: artifact.manifest,
+      recipeData: readRecipeData(sampleDir),
       reconstructionMilliseconds:
         Number(process.hrtime.bigint() - start) / 1_000_000,
     };

@@ -11,6 +11,13 @@ import {
   BalancedRecipeState,
   createBalancedSeed,
 } from "./recipes/balancedIncremental";
+import {
+  applyScanChangesets,
+  createScanSeed,
+  ScanRecipeState,
+  validateScanFixture,
+} from "./recipes/updateHeavyScan";
+import { assertFixtureDistribution } from "./validation/validateFixture";
 
 /**
  * A recipe produces the *change mix* for a fixture: it seeds the source iModel and then applies a
@@ -21,13 +28,30 @@ export interface FixtureRecipe<TState = unknown> {
   readonly id: string;
   /** Create the source seed file. Returns state carried into {@link applySourceChangesets}. */
   createSeed(fileName: string, descriptor: DatasetDescriptor): Promise<TState>;
-  /** Apply and push the recipe's changesets to an open source briefcase. */
+  /**
+   * Apply and push the recipe's changesets to an open source briefcase.
+   *
+   * Any returned value is recipe-specific data captured into the fixture artifact and handed back
+   * to the scenario at measure time. This exists because a recipe runs while the artifact is built
+   * but a scenario runs later against a copy, so anything the recipe knows and the scenario needs
+   * has to survive that boundary. A recipe that needs nothing returns `undefined`.
+   *
+   * The value must be JSON-serializable. The framework never inspects it.
+   */
   applySourceChangesets(
     db: BriefcaseDb,
     accessToken: AccessToken,
     descriptor: DatasetDescriptor,
     state: TState
-  ): Promise<void>;
+  ): Promise<unknown>;
+  /**
+   * Assert the built source iModel matches what the descriptor promises.
+   *
+   * Validation is recipe-owned because it is inherently recipe-specific: it queries the classes the
+   * recipe created. A single shared check would either be limited to what every recipe has in
+   * common, or silently wrong for every recipe but one.
+   */
+  validate(db: BriefcaseDb, descriptor: DatasetDescriptor): Promise<void>;
 }
 
 export const balancedIncrementalRecipe: FixtureRecipe<BalancedRecipeState> = {
@@ -36,10 +60,21 @@ export const balancedIncrementalRecipe: FixtureRecipe<BalancedRecipeState> = {
     createBalancedSeed(fileName, descriptor),
   applySourceChangesets: async (db, accessToken, descriptor, state) =>
     applyBalancedChangesets(db, accessToken, descriptor, state),
+  validate: async (db, descriptor) => assertFixtureDistribution(db, descriptor),
+};
+
+export const updateHeavyScanRecipe: FixtureRecipe<ScanRecipeState> = {
+  id: "update-heavy-scan",
+  createSeed: async (fileName, descriptor) =>
+    createScanSeed(fileName, descriptor),
+  applySourceChangesets: async (db, accessToken, descriptor, state) =>
+    applyScanChangesets(db, accessToken, descriptor, state),
+  validate: async (db, descriptor) => validateScanFixture(db, descriptor),
 };
 
 const recipes = new Map<string, FixtureRecipe<any>>([
   [balancedIncrementalRecipe.id, balancedIncrementalRecipe],
+  [updateHeavyScanRecipe.id, updateHeavyScanRecipe],
 ]);
 
 export function registerFixtureRecipe(recipe: FixtureRecipe<any>): void {
