@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Skip declared ElementAspect classes with no rows in the source iModel instead of querying every declared subclass on every owner batch",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

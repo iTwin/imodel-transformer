@@ -45,6 +45,13 @@ export class ElementAspectExportProcessor {
     string,
     Promise<ReadonlyMap<Id64String, { schemaName: string; className: string }>>
   >();
+  /** Aspect classes (by ECClassId) that have at least one row in the source iModel, per base class.
+   * Populated lazily with one polymorphic scan per base class, reused across every owner batch.
+   */
+  private readonly _populatedAspectClassIds = new Map<
+    string,
+    Promise<ReadonlySet<Id64String>>
+  >();
   /** ElementAspect classes excluded from source queries. */
   private readonly _excludedElementAspectClassFullNames = new Set<string>();
   private _aspectChanges: ChangedInstanceOps | undefined;
@@ -130,6 +137,16 @@ export class ElementAspectExportProcessor {
     this._aspectChanges = aspectChanges;
   }
 
+  /** Clears the cached "which aspect classes are populated" scan.
+   * Call this before each top-level exportAll()/exportChanges() so aspect classes
+   * populated for the first time since the last scan aren't silently skipped on a
+   * long-lived exporter. Declared-class metadata ({@link getAspectClasses}) does not
+   * need this: the schema doesn't change mid-transform, but which classes have rows can.
+   */
+  public resetPopulatedAspectClassCache(): void {
+    this._populatedAspectClassIds.clear();
+  }
+
   /** Excludes an ElementAspect class from subsequent queries and export callbacks. */
   public excludeElementAspectClass(classFullName: string): void {
     this._excludedElementAspectClassFullNames.add(classFullName);
@@ -186,9 +203,17 @@ export class ElementAspectExportProcessor {
     const aspectClassNameIdMap = await this.getAspectClasses(
       baseElementAspectClassFullName
     );
+    const populatedClassIds = await this.getPopulatedAspectClassIds(
+      baseElementAspectClassFullName
+    );
     const queryElementIds =
       elementIds === undefined ? undefined : (new Set(elementIds) as Id64Set);
     for (const [classId, { schemaName, className }] of aspectClassNameIdMap) {
+      // Most schemas declare far more concrete aspect subclasses than any single
+      // iModel ever populates. Skipping classes with zero rows anywhere in the
+      // source avoids firing a query per declared class per owner batch.
+      if (!populatedClassIds.has(classId)) continue;
+
       const classFullName = `${schemaName}:${className}`;
       if (this._excludedElementAspectClassFullNames.has(classFullName))
         continue;
@@ -270,5 +295,46 @@ export class ElementAspectExportProcessor {
       });
     }
     return aspectClassNameIdMap;
+  }
+
+  private async getPopulatedAspectClassIds(
+    baseElementAspectClassFullName: string
+  ): Promise<ReadonlySet<Id64String>> {
+    let populatedClassIds = this._populatedAspectClassIds.get(
+      baseElementAspectClassFullName
+    );
+    if (populatedClassIds === undefined) {
+      populatedClassIds = this.queryPopulatedAspectClassIds(
+        baseElementAspectClassFullName
+      );
+      this._populatedAspectClassIds.set(
+        baseElementAspectClassFullName,
+        populatedClassIds
+      );
+    }
+    return populatedClassIds;
+  }
+
+  /** Scans which concrete subclasses of the given base aspect class have at least
+   * one row in the source iModel. This is a single polymorphic query (the base
+   * class query itself fans out across all populated concrete tables), not one
+   * query per declared subclass.
+   */
+  private async queryPopulatedAspectClassIds(
+    baseElementAspectClassFullName: string
+  ): Promise<ReadonlySet<Id64String>> {
+    const [schemaName, className] = baseElementAspectClassFullName.split(":");
+    const populatedClassIds = new Set<Id64String>();
+    const populatedClassesQueryReader = this._sourceDb.createQueryReader(
+      `SELECT DISTINCT ECClassId as classId FROM [${schemaName}]:[${className}]`,
+      undefined,
+      { usePrimaryConn: true }
+    );
+    for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
+      populatedClassesQueryReader
+    )) {
+      populatedClassIds.add(rowProxy.toRow().classId);
+    }
+    return populatedClassIds;
   }
 }
