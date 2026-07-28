@@ -79,8 +79,18 @@ export const minimumPairs = 6;
  * When the measured floor exceeds this margin, the environment cannot resolve what we care about
  * and the honest output is `inconclusive` saying exactly that. The margin is never widened to make
  * `unchanged` reachable.
+ *
+ * Declared at 10% on the grounds that a margin is an ACTION threshold: `unchanged` asserts "we
+ * looked, and any real change is below what we would act on". The number therefore has to be the
+ * size of change this suite exists to catch, and a transformer regression small enough to sit under
+ * 10% is not one anyone would open work for. Set lower, `unchanged` stops being reachable on real
+ * hardware and every quiet week reports `inconclusive`, which trains readers to ignore the output.
+ *
+ * Note this shares no derivation with the 5% in `classifyVariance` (BenchmarkReporter.ts) -- that is
+ * a coefficient-of-variation threshold on within-run stability, a different quantity on a different
+ * scale. The numerals were a coincidence, not a lineage, and the two must not be reconciled.
  */
-export const defaultEquivalenceMarginPercent = 5;
+export const defaultEquivalenceMarginPercent = 10;
 
 export interface ValidityFailure {
   readonly check: string;

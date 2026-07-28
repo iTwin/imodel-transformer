@@ -42,6 +42,7 @@ import { SeededRandom } from "./SeededRandom";
 import {
   decideVerdict,
   defaultEquivalenceMarginPercent,
+  defaultPairs,
   signGateTargetLevel,
 } from "./verdict";
 
@@ -508,10 +509,14 @@ describe("quick performance comparison statistics", () => {
     });
 
     it("declares the equivalence margin from domain relevance, not from the floor", () => {
-      // Nam's call. It is a fixed statement of what is worth acting on, so it must not move when
-      // the machine happens to be quiet or noisy -- that is the whole point of separating it from
-      // the band. Pinned so a later "tidy-up" cannot quietly re-derive it from the measurement.
-      expect(defaultEquivalenceMarginPercent).to.equal(5);
+      // Nam's call, 10%. A margin is an ACTION threshold: `unchanged` asserts that any real change
+      // is below what we would act on, and a transformer regression under 10% is not one anyone
+      // opens work for. It is a fixed statement, so it must not move when the machine happens to be
+      // quiet or noisy -- that is the whole point of separating it from the band. Pinned so a later
+      // "tidy-up" cannot quietly re-derive it from the measurement, and so that its coincidental
+      // former agreement with the CV constant in BenchmarkReporter cannot be re-established by
+      // someone assuming the two are the same quantity. They are not.
+      expect(defaultEquivalenceMarginPercent).to.equal(10);
       const quiet = deriveNoiseBand(makePool(normalPool(400, 0.005, 3)), 8);
       const noisy = deriveNoiseBand(makePool(normalPool(400, 0.05, 3)), 8);
       expect(noisy.band).to.be.greaterThan(quiet.band * 5);
@@ -530,6 +535,59 @@ describe("quick performance comparison statistics", () => {
         // Same declared margin in both environments; only RESOLVABILITY differs.
         expect(["unchanged", "inconclusive"]).to.contain(result.verdict);
       }
+    });
+
+    it("pins the per-pair spread at which the declared margin becomes resolvable", () => {
+      // COMPARISON_STATISTICS.md §5.3 states the acceptance criterion for the first A/A run as
+      // `sigma_d <= 11.63%` at P = 8. That number is the product of two independently movable
+      // things -- the declared margin and the band coefficient c(P) -- so prose asserting it goes
+      // stale silently the moment either is tuned. Derived here from the shipped constants instead.
+      //
+      // This bar moved materially when the margin went 5% -> 10%: at 5% the criterion was
+      // sigma_d <= 5.96%, which sits INSIDE the range of single-run CVs already observed locally
+      // (2.17-6.43%), so `unchanged` was plausibly unreachable on the machines this suite runs on.
+      const margin = percentToLogRatio(defaultEquivalenceMarginPercent);
+      const unitPool = makePool(normalPool(4000, 1, 11));
+      const coefficient = deriveNoiseBand(unitPool, defaultPairs).band;
+      const maximumSigma = margin / coefficient;
+      expect(maximumSigma * 100).to.be.closeTo(11.63, 0.6);
+
+      // The criterion is a real boundary, not a label: just inside it the floor sits under the
+      // margin, and just outside it the margin is unresolvable and the honest answer is
+      // `inconclusive` -- reached by widening the noise, never by widening the margin.
+      const inside = deriveNoiseBand(
+        makePool(normalPool(4000, maximumSigma * 0.8, 11)),
+        defaultPairs
+      );
+      const outside = deriveNoiseBand(
+        makePool(normalPool(4000, maximumSigma * 1.25, 11)),
+        defaultPairs
+      );
+      expect(inside.band).to.be.lessThan(margin);
+      expect(outside.band).to.be.greaterThan(margin);
+
+      const aggregate = aggregateLogRatios(
+        Array.from({ length: defaultPairs }, (_, index) =>
+          percentToLogRatio(index % 2 === 0 ? 0.02 : -0.02)
+        )
+      );
+      const resolvable = decideVerdict({
+        aggregate,
+        band: inside,
+        look: 1,
+        mode: "paired",
+        equivalenceMargin: margin,
+      });
+      const unresolvable = decideVerdict({
+        aggregate,
+        band: outside,
+        look: 1,
+        mode: "paired",
+        equivalenceMargin: margin,
+      });
+      expect(resolvable.verdict).to.equal("unchanged");
+      expect(unresolvable.verdict).to.equal("inconclusive");
+      expect(unresolvable.reason).to.match(/below the measured noise floor/i);
     });
 
     it("refuses to widen a margin the environment cannot resolve", () => {
