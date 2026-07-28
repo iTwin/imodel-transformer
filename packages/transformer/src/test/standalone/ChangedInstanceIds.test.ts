@@ -3,7 +3,6 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import * as path from "node:path";
-import * as sinon from "sinon";
 import { KnownTestLocations } from "../TestUtils";
 import {
   ChangeInstance,
@@ -32,15 +31,12 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import {
-  ChangedInstanceIds,
-  ChangedInstanceOps,
-} from "../../ChangedInstanceIds";
+import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
-import { expect } from "chai";
+import { expect } from "vitest";
 import { ChangesetScanner } from "../../ChangesetScanner";
 
 describe("ChangedInstanceIds", () => {
@@ -87,9 +83,11 @@ describe("ChangedInstanceIds", () => {
 
     it("preserves ChangesetReader errors", async () => {
       const readerError = new Error("reader failed");
-      const openFileStub = sinon
-        .stub(ChangesetReader, "openFile")
-        .throws(readerError);
+      const openFileSpy = vi
+        .spyOn(ChangesetReader, "openFile")
+        .mockImplementation(() => {
+          throw readerError;
+        });
       try {
         await ChangesetScanner.scan(
           sourceDb,
@@ -98,14 +96,14 @@ describe("ChangedInstanceIds", () => {
         );
         expect.fail("Expected scan to throw");
       } catch (error) {
-        expect(error).to.equal(readerError);
+        expect(error).toBe(readerError);
       } finally {
-        openFileStub.restore();
+        openFileSpy.mockRestore();
       }
     });
   });
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -177,7 +175,7 @@ describe("ChangedInstanceIds", () => {
     });
   });
 
-  after(() => {
+  afterAll(() => {
     sourceDb.close();
   });
 
@@ -244,16 +242,16 @@ describe("ChangedInstanceIds", () => {
   describe("addCustomElementChange", async function () {
     it("should add changes for related entities when element is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      const getAspect = sinon.spy(sourceDb.elements, "getAspect");
+      const getAspect = vi.spyOn(sourceDb.elements, "getAspect");
       try {
         await sourceDbChanges.addCustomElementChange(
           "Inserted",
           childDrawing1.id!
         );
       } finally {
-        getAspect.restore();
+        getAspect.mockRestore();
       }
-      expect(getAspect.notCalled).to.be.true;
+      expect(getAspect).not.toHaveBeenCalled();
 
       assertHasValues(
         sourceDbChanges.element,

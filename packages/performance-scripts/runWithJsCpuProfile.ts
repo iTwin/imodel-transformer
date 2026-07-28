@@ -1,11 +1,11 @@
 /*---------------------------------------------------------------------------------------------
-* Copyright (c) Bentley Systems, Incorporated. All rights reserved.
-* See LICENSE.md in the project root for license terms and full copyright notice.
-*--------------------------------------------------------------------------------------------*/
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
 
-import * as path from "path";
-import * as fs from "fs";
-import * as inspector from "inspector";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import * as inspector from "node:inspector";
 
 /**
  * Runs a function under the cpu profiler, by default creates cpu profiles in the working directory of
@@ -28,20 +28,34 @@ export async function runWithCpuProfiler<F extends () => any>(
     sampleIntervalMicroSec = +(process.env.PROFILE_SAMPLE_INTERVAL ?? 500), // half a millisecond
   } = {}
 ): Promise<ReturnType<F>> {
-  const maybeNameTimePortion = timestamp ? `_${new Date().toISOString().replace(/[:.]/g, "-")}` : "";
-  const profilePath = path.join(profileDir, `${profileName}${maybeNameTimePortion}${profileExtension}`);
+  const maybeNameTimePortion = timestamp
+    ? `_${new Date().toISOString().replace(/[:.]/g, "-")}`
+    : "";
+  const profilePath = path.join(
+    profileDir,
+    `${profileName}${maybeNameTimePortion}${profileExtension}`
+  );
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   // implementation influenced by https://github.com/wallet77/v8-inspector-api/blob/master/src/utils.js
-  const invokeFunc = async (thisSession: inspector.Session, funcName: string, args: any = {}) => {
+  const invokeFunc = async (
+    thisSession: inspector.Session,
+    funcName: string,
+    args: any = {}
+  ) => {
     return new Promise<void>((resolve, reject) => {
-      thisSession.post(funcName, args, (err) => err ? reject(err) : resolve());
+      thisSession.post(funcName, args, (err) =>
+        err ? reject(err) : resolve()
+      );
     });
   };
-  const stopProfiler = async (thisSession: inspector.Session, funcName: "Profiler.stop", writePath: string) => {
+  const stopProfiler = async (
+    thisSession: inspector.Session,
+    funcName: "Profiler.stop",
+    writePath: string
+  ) => {
     return new Promise<void>((resolve, reject) => {
       thisSession.post(funcName, async (err, res) => {
-        if (err)
-          return reject(err);
+        if (err) return reject(err);
         await fs.promises.writeFile(writePath, JSON.stringify(res.profile));
         resolve();
       });
@@ -50,7 +64,9 @@ export async function runWithCpuProfiler<F extends () => any>(
   const session = new inspector.Session();
   session.connect();
   await invokeFunc(session, "Profiler.enable");
-  await invokeFunc(session, "Profiler.setSamplingInterval", { interval: sampleIntervalMicroSec });
+  await invokeFunc(session, "Profiler.setSamplingInterval", {
+    interval: sampleIntervalMicroSec,
+  });
   await invokeFunc(session, "Profiler.start");
   const result = await f();
   await stopProfiler(session, "Profiler.stop", profilePath);
@@ -59,18 +75,24 @@ export async function runWithCpuProfiler<F extends () => any>(
   return result;
 }
 
-export default function RunWithJSCpuProfiler(funcData: { object: any, key: string }[]) {
+export default function RunWithJSCpuProfiler(
+  funcData: { object: any; key: string }[]
+) {
   for (const { object, key } of funcData) {
     const original = object[key];
     object[key] = function (...args: any[]) {
-      return runWithCpuProfiler(() => {
-        const result = original.call(this, ...args);
-        const isPromise = Promise.resolve(result) === result;
-        if (!isPromise)
-          throw Error("runWithLinuxPerf only supports instrumenting async functions!")
-        return result;
-      }, { profileName: key });
+      return runWithCpuProfiler(
+        () => {
+          const result = original.call(this, ...args);
+          const isPromise = Promise.resolve(result) === result;
+          if (!isPromise)
+            throw Error(
+              "runWithLinuxPerf only supports instrumenting async functions!"
+            );
+          return result;
+        },
+        { profileName: key }
+      );
     };
   }
-};
-
+}

@@ -41,9 +41,8 @@ import {
   SubCategoryAppearance,
 } from "@itwin/core-common";
 import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
-import { assert, expect } from "chai";
-import * as path from "path";
-import * as sinon from "sinon";
+import { assert, expect, vi } from "vitest";
+import * as path from "node:path";
 import {
   ChangedInstanceIds,
   ExportChangesOptions,
@@ -59,8 +58,6 @@ import {
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import { createBRepDataProps } from "../TestUtils/GeometryTestUtil";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
 export async function elementAspectExportExample(
   sourceDb: IModelDb,
@@ -112,7 +109,7 @@ export function deletedElementAspectChangeExample(
 describe("IModelExporter", () => {
   const outputDir = path.join(KnownTestLocations.outputDir, "IModelExporter");
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }
@@ -210,7 +207,7 @@ describe("IModelExporter", () => {
       coordinator.setPreparation(async (_excludedClasses, elementIds) => {
         preparedOwnerBatchSizes.push(elementIds.size);
       });
-      const createQueryReader = sinon.spy(sourceDb, "createQueryReader");
+      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
       await exporter.exportElement(includedElementId);
       expect(exportedIdentifiers).to.deep.equal(["included"]);
       exportedIdentifiers.length = 0;
@@ -235,14 +232,12 @@ describe("IModelExporter", () => {
         .to.be.true;
       expect(exportedIdentifiers).to.deep.equal(["included"]);
       expect(
-        createQueryReader
-          .getCalls()
-          .filter((call) =>
-            String(call.args[0]).includes("ECDbMeta.ClassHasAllBaseClasses")
-          )
+        createQueryReader.mock.calls.filter((call) =>
+          String(call[0]).includes("ECDbMeta.ClassHasAllBaseClasses")
+        )
       ).to.have.lengthOf(2);
     } finally {
-      sinon.restore();
+      vi.restoreAllMocks();
       sourceDb.close();
     }
   });
@@ -568,19 +563,19 @@ describe("IModelExporter", () => {
         exporter.excludeElement(ownerId);
       }
       exporter["_sourceDbChanges"] = changes;
-      const getElement = sinon.spy(sourceDb.elements, "getElement");
-      const getModel = sinon.spy(sourceDb.models, "getModel");
-      const createQueryReader = sinon.spy(sourceDb, "createQueryReader");
+      const getElement = vi.spyOn(sourceDb.elements, "getElement");
+      const getModel = vi.spyOn(sourceDb.models, "getModel");
+      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
 
       const acceptedOwnerIds =
         await exporter["getChangedElementIdsForAspectExport"]();
 
       expect(acceptedOwnerIds).to.deep.equal(new Set<Id64String>());
-      expect(getElement.callCount).to.equal(0);
-      expect(getModel.callCount).to.equal(0);
-      const queries = createQueryReader
-        .getCalls()
-        .map((call) => String(call.args[0]));
+      expect(getElement.mock.calls.length).to.equal(0);
+      expect(getModel.mock.calls.length).to.equal(0);
+      const queries = createQueryReader.mock.calls.map((call) =>
+        String(call[0])
+      );
       expect(
         queries.filter((query) => query.includes("FROM bis.Element e"))
       ).to.have.lengthOf(3);
@@ -588,7 +583,7 @@ describe("IModelExporter", () => {
         queries.filter((query) => query.includes("FROM bis.Model"))
       ).to.have.lengthOf(1);
     } finally {
-      sinon.restore();
+      vi.restoreAllMocks();
       sourceDb.close();
     }
   });
@@ -777,8 +772,7 @@ describe("IModelExporter", () => {
     }
 
     const exporter = new TestExporter(sourceDb);
-    await expect(exporter.exportChanges({ changedInstanceIds })).to.eventually
-      .be.fulfilled;
+    await exporter.exportChanges({ changedInstanceIds });
     expect(exporter.exportHookCalled).to.be.true;
   });
 
@@ -835,7 +829,7 @@ describe("IModelExporter", () => {
     const exporter = new IModelExporter(sourceDb);
     exporter.registerHandler(new TestFlatImportHandler());
     exporter.wantGeometry = true;
-    await expect(exporter.exportAll()).to.eventually.be.fulfilled;
+    await exporter.exportAll();
 
     const geomPartInTarget = flatTargetDb.elements.getElement<GeometryPart>(
       { id: geomPartId, wantGeometry: true, wantBRepData: true },
@@ -942,9 +936,7 @@ describe("IModelExporter", () => {
       });
 
       const exporter = new IModelExporter(sourceDb);
-      await expect(
-        exporter.exportRelationships(ElementRefersToElements.classFullName)
-      ).to.eventually.be.fulfilled;
+      await exporter.exportRelationships(ElementRefersToElements.classFullName);
 
       const targetRelationships = [];
       for await (const row of targetDb.createQueryReader(

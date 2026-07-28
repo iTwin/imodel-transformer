@@ -41,7 +41,7 @@ import {
 } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import * as nodeAssert from "assert";
+import { strict as nodeAssert } from "node:assert";
 import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor";
 import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
 import {

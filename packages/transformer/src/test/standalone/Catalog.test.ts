@@ -3,8 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
-import * as path from "path";
+import { assert, expect } from "vitest";
+import * as path from "node:path";
 import {
   DefinitionContainer,
   DefinitionGroup,
@@ -81,8 +81,6 @@ import {
   IModelTransformerErrorScope,
 } from "../../IModelTransformerError";
 import { createStartedEditTxn } from "../IModelTransformerUtils";
-
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
 const createClassViews = false; // can set to true to make it easier to debug the catalog structure
 
@@ -1089,7 +1087,7 @@ describe("Catalog", () => {
     "Test.catalog"
   ); // WIP: what file extension should catalogs have?
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(BackendKnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(BackendKnownTestLocations.outputDir);
     }

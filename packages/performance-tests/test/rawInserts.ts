@@ -11,14 +11,13 @@ import {
   StandaloneDb,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { IModelTransformerTestUtils } from "@itwin/imodel-transformer/lib/cjs/test/IModelTransformerUtils";
 import { Logger, OpenMode } from "@itwin/core-bentley";
 import { Reporter } from "@itwin/perf-tools";
 import { TestIModel } from "./TestContext";
 import { generateTestIModel } from "./iModelUtils";
-import { initOutputFile, timed } from "./TestUtils";
-import assert from "assert";
-import path from "path";
+import { count, initOutputFile, timed } from "./TestUtils";
+import assert from "node:assert";
+import path from "node:path";
 
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
@@ -54,14 +53,8 @@ export default async function rawInserts(
     "time elapsed (seconds)",
     insertsTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(
-        sourceDb,
-        Element.classFullName
-      ),
-      "Relationship Count": IModelTransformerTestUtils.count(
-        sourceDb,
-        ElementGroupsMembers.classFullName
-      ),
+      "Element Count": count(sourceDb, Element.classFullName),
+      "Relationship Count": count(sourceDb, ElementGroupsMembers.classFullName),
       "Branch Name": branchName,
     }
   );
@@ -95,14 +88,8 @@ export default async function rawInserts(
     "time elapsed (seconds)",
     transformWithProvTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(
-        sourceDb,
-        Element.classFullName
-      ),
-      "Relationship Count": IModelTransformerTestUtils.count(
-        sourceDb,
-        ElementGroupsMembers.classFullName
-      ),
+      "Element Count": count(sourceDb, Element.classFullName),
+      "Relationship Count": count(sourceDb, ElementGroupsMembers.classFullName),
       "Branch Name": branchName,
     }
   );
@@ -139,14 +126,8 @@ export default async function rawInserts(
     "time elapsed (seconds)",
     transformNoProvTimer?.elapsedSeconds ?? -1,
     {
-      "Element Count": IModelTransformerTestUtils.count(
-        sourceDb,
-        Element.classFullName
-      ),
-      "Relationship Count": IModelTransformerTestUtils.count(
-        sourceDb,
-        ElementGroupsMembers.classFullName
-      ),
+      "Element Count": count(sourceDb, Element.classFullName),
+      "Relationship Count": count(sourceDb, ElementGroupsMembers.classFullName),
       "Branch Name": branchName,
     }
   );
