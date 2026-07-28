@@ -9,8 +9,7 @@ import {
   ElementUniqueAspect,
   IModelDb,
 } from "@itwin/core-backend";
-import { Id64Set, Id64String, Logger } from "@itwin/core-bentley";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { Id64Set, Id64String } from "@itwin/core-bentley";
 import { ChangedInstanceOps } from "./ChangedInstanceIds";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
 import {
@@ -18,8 +17,6 @@ import {
   QueryBinder,
   QueryRowFormat,
 } from "@itwin/core-common";
-
-const loggerCategory = TransformerLoggerCategory.IModelExporter;
 
 export interface ElementAspectExportProcessorHandler {
   shouldExportElementAspect(aspect: ElementAspect): Promise<boolean>;
@@ -38,9 +35,6 @@ export interface ElementAspectExportProcessorHandler {
  * @internal
  */
 export class ElementAspectExportProcessor {
-  private readonly _excludedElementAspectClasses = new Set<
-    typeof ElementAspect
-  >();
   private readonly _aspectClasses = new Map<
     string,
     Promise<ReadonlyMap<Id64String, { schemaName: string; className: string }>>
@@ -54,6 +48,11 @@ export class ElementAspectExportProcessor {
   >();
   /** ElementAspect classes excluded from source queries. */
   private readonly _excludedElementAspectClassFullNames = new Set<string>();
+  /** ECClassIds excluded from source queries: every excluded class plus all of its
+   * declared subclasses, so excluding a base aspect class also excludes its subclasses
+   * without needing an instanceof check on a materialized instance.
+   */
+  private _excludedClassIds: Promise<ReadonlySet<Id64String>> | undefined;
   private _aspectChanges: ChangedInstanceOps | undefined;
 
   /** ElementAspect class names excluded from source queries. */
@@ -150,9 +149,7 @@ export class ElementAspectExportProcessor {
   /** Excludes an ElementAspect class from subsequent queries and export callbacks. */
   public excludeElementAspectClass(classFullName: string): void {
     this._excludedElementAspectClassFullNames.add(classFullName);
-    this._excludedElementAspectClasses.add(
-      this._sourceDb.getJsClass<typeof ElementAspect>(classFullName)
-    );
+    this._excludedClassIds = undefined;
   }
 
   private async exportAspectsLoop<T extends ElementAspect>(
@@ -173,27 +170,11 @@ export class ElementAspectExportProcessor {
       ) {
         continue;
       }
-      if (!(await this.shouldExportElementAspect(aspect))) {
+      if (!(await this._handler.shouldExportElementAspect(aspect))) {
         continue;
       }
       await exportAspect(aspect);
     }
-  }
-
-  private async shouldExportElementAspect(
-    aspect: ElementAspect
-  ): Promise<boolean> {
-    for (const excludedElementAspectClass of this
-      ._excludedElementAspectClasses) {
-      if (aspect instanceof excludedElementAspectClass) {
-        Logger.logInfo(
-          loggerCategory,
-          `Excluded ElementAspect by class: ${aspect.classFullName}`
-        );
-        return false;
-      }
-    }
-    return this._handler.shouldExportElementAspect(aspect);
   }
 
   private async *queryAspects<T extends ElementAspect>(
@@ -206,6 +187,7 @@ export class ElementAspectExportProcessor {
     const populatedClassIds = await this.getPopulatedAspectClassIds(
       baseElementAspectClassFullName
     );
+    const excludedClassIds = await this.getExcludedClassIds();
     const queryElementIds =
       elementIds === undefined ? undefined : (new Set(elementIds) as Id64Set);
     for (const [classId, { schemaName, className }] of aspectClassNameIdMap) {
@@ -213,11 +195,11 @@ export class ElementAspectExportProcessor {
       // iModel ever populates. Skipping classes with zero rows anywhere in the
       // source avoids firing a query per declared class per owner batch.
       if (!populatedClassIds.has(classId)) continue;
+      // Excluding a base aspect class also excludes its subclasses (excludedClassIds
+      // is the transitive closure), so this needs no per-instance instanceof check.
+      if (excludedClassIds.has(classId)) continue;
 
       const classFullName = `${schemaName}:${className}`;
-      if (this._excludedElementAspectClassFullNames.has(classFullName))
-        continue;
-
       const queryParams = new QueryBinder().bindId("classId", classId);
       const elementFilter =
         queryElementIds === undefined
@@ -313,6 +295,40 @@ export class ElementAspectExportProcessor {
       );
     }
     return populatedClassIds;
+  }
+
+  private async getExcludedClassIds(): Promise<ReadonlySet<Id64String>> {
+    if (this._excludedClassIds === undefined) {
+      this._excludedClassIds = this.queryExcludedClassIds();
+    }
+    return this._excludedClassIds;
+  }
+
+  /** Resolves every excluded class full name to the full set of ECClassIds it covers:
+   * the class itself plus every declared subclass. Reuses the same
+   * ECDbMeta.ClassHasAllBaseClasses shape as {@link queryAspectClasses}, rooted at
+   * each excluded class instead of at ElementUniqueAspect/ElementMultiAspect.
+   */
+  private async queryExcludedClassIds(): Promise<ReadonlySet<Id64String>> {
+    const excludedClassIds = new Set<Id64String>();
+    for (const classFullName of this._excludedElementAspectClassFullNames) {
+      const excludedClassesQueryReader = this._sourceDb.createQueryReader(
+        `
+          SELECT c.ECInstanceId as classId
+          FROM ECDbMeta.ClassHasAllBaseClasses r
+          JOIN ECDbMeta.ECClassDef c ON c.ECInstanceId = r.SourceECInstanceId
+          WHERE r.TargetECInstanceId = ec_classId(:excludedClassName)
+        `,
+        new QueryBinder().bindString("excludedClassName", classFullName),
+        { usePrimaryConn: true }
+      );
+      for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
+        excludedClassesQueryReader
+      )) {
+        excludedClassIds.add(rowProxy.toRow().classId);
+      }
+    }
+    return excludedClassIds;
   }
 
   /** Scans which concrete subclasses of the given base aspect class have at least
