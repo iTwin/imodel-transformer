@@ -7,7 +7,7 @@ import { expect } from "chai";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { BriefcaseDb, IModelHost } from "@itwin/core-backend";
+import { BriefcaseDb } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { ChangedInstanceIds } from "@itwin/imodel-transformer";
 import { DatasetDescriptor } from "./DatasetDescriptor";
@@ -31,6 +31,7 @@ import {
   requireFixtureArtifact,
 } from "./FixtureProvider";
 import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider";
+import { shutdownIsolatedHost, startIsolatedHost } from "./isolatedHost";
 
 describe("detached fixture artifact", () => {
   const descriptor = balancedIncrementalSourceOnlyDescriptor;
@@ -40,7 +41,7 @@ describe("detached fixture artifact", () => {
   before(async function () {
     this.timeout(600_000);
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-artifact-"));
-    await IModelHost.startup();
+    await startIsolatedHost();
     built = await detachedBriefcaseFixtureProvider.build(
       descriptor,
       path.join(root, "fixture-artifact")
@@ -49,7 +50,7 @@ describe("detached fixture artifact", () => {
 
   after(async () => {
     await detachedBriefcaseFixtureProvider.disposeBuild(built);
-    if (IModelHost.isValid) await IModelHost.shutdown();
+    await shutdownIsolatedHost();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -331,7 +332,7 @@ describe("recipe data across the stage boundary", () => {
       },
     });
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-recipe-data-"));
-    await IModelHost.startup();
+    await startIsolatedHost();
     built = await detachedBriefcaseFixtureProvider.build(
       descriptor,
       path.join(root, "fixture-artifact")
@@ -340,7 +341,7 @@ describe("recipe data across the stage boundary", () => {
 
   after(async () => {
     await detachedBriefcaseFixtureProvider.disposeBuild(built);
-    if (IModelHost.isValid) await IModelHost.shutdown();
+    await shutdownIsolatedHost();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -375,5 +376,70 @@ describe("recipe data across the stage boundary", () => {
       for (const dataset of datasets)
         await detachedBriefcaseFixtureProvider.disposeSample(dataset);
     }
+  });
+});
+
+/**
+ * The vacuous-pass guard, exercised through the real build rather than the writer alone.
+ *
+ * A recipe returning a `Set` of ids is the realistic mistake: `JSON.stringify(new Set([...]))` is
+ * `"{}"`, so without validation stage 1 would happily emit an artifact whose ledger is an empty
+ * object. A scanning oracle would then compare its results against nothing and report green. The
+ * build must fail instead, and must not leave behind a directory that later reads as a valid
+ * artifact.
+ */
+describe("recipe data that cannot survive JSON", () => {
+  const recipeId = "balanced-incremental-emitting-a-set";
+  const descriptor: DatasetDescriptor = {
+    ...balancedIncrementalSourceOnlyDescriptor,
+    id: "balanced-incremental-emitting-a-set",
+    layout: {
+      ...balancedIncrementalSourceOnlyDescriptor.layout,
+      recipe: recipeId,
+    },
+  };
+  let root: string;
+
+  before(async function () {
+    this.timeout(600_000);
+    registerFixtureRecipe({
+      id: recipeId,
+      createSeed: async (fileName, forDescriptor) =>
+        balancedIncrementalRecipe.createSeed(fileName, forDescriptor),
+      applySourceChangesets: async (db, token, forDescriptor, state) => {
+        await balancedIncrementalRecipe.applySourceChangesets(
+          db,
+          token,
+          forDescriptor,
+          state
+        );
+        return { elements: { deleteIds: new Set(["0x20", "0x21"]) } };
+      },
+    });
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-bad-recipe-"));
+    await startIsolatedHost();
+  });
+
+  after(async () => {
+    await shutdownIsolatedHost();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("fails the build instead of emitting an empty ledger", async function () {
+    this.timeout(600_000);
+    const artifactDir = path.join(root, "fixture-artifact");
+    let built: BuiltFixture | undefined;
+    try {
+      built = await detachedBriefcaseFixtureProvider.build(
+        descriptor,
+        artifactDir
+      );
+    } catch (error) {
+      expect((error as Error).message).to.match(/Recipe data at .* is a Set/);
+    }
+    expect(built, "the build must not succeed").to.equal(undefined);
+    // A half-written artifact must never read back as usable.
+    expect(() => readFixtureArtifact(artifactDir)).to.throw();
+    expect(fs.existsSync(path.join(artifactDir, "recipe.json"))).to.be.false;
   });
 });
