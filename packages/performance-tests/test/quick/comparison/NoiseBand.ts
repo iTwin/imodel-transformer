@@ -3,7 +3,13 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import * as crypto from "crypto";
 import { median, percentile } from "../validation/statistics";
+import {
+  assertExecutionFingerprintMatches,
+  ExecutionFingerprint,
+  executionFingerprintKey,
+} from "./ExecutionFingerprint";
 import { logRatioToPercent } from "./logRatio";
 import {
   defaultResampleCount,
@@ -11,193 +17,208 @@ import {
   SeededRandom,
 } from "./SeededRandom";
 
-/**
- * A/A noise calibration.
- *
- * Running the comparison with identical code in both arms makes the true log-ratio exactly zero,
- * so the observed spread IS the noise floor for that environment, measured on real hardware with
- * the real process structure.
- *
- * The gate compares `median(d)` over P pairs, so the null it must be compared against is the
- * distribution of `median(d)` -- NOT the distribution of an individual pair's `d`. Those live on
- * different scales: the median's spread shrinks with P, an individual-pair quantile does not
- * shrink at all. Using the individual-pair quantile as the gate throws away most of the
- * resolution the pairs already paid for.
- *
- * Because the median-null depends on P, a band is DERIVED for a given pair count rather than
- * stored as a single number. Escalating from 8 to 16 pairs legitimately tightens the band, and a
- * band frozen at P = 8 would silently under-detect at P = 16.
- */
-
 export type NoiseBandKind = "paired" | "unpaired";
 export type NoiseBandStatus = "established" | "provisional" | "uncalibrated";
+export type CalibrationQuality =
+  | "target"
+  | "marginal"
+  | "unresolvable"
+  | "uncalibrated";
 
-/** Minimum accumulated pairs before any band may be derived. */
-export const provisionalBandMinimumPairs = 16;
-/** Minimum accumulated pairs for an established band. */
-export const establishedBandMinimumPairs = 24;
-/** Minimum distinct A/A runs for an established band. */
-export const establishedBandMinimumRuns = 3;
-/** Minimum distinct A/A runs for a provisional band. */
-export const provisionalBandMinimumRuns = 2;
-/** Quantile of the null distribution used as the band. */
+export const targetNoiseBandPercent = 5;
+export const meaningfulRegressionPercent = 10;
 export const bandQuantile = 0.95;
 
+export interface CalibrationRequirements {
+  readonly provisionalIndependentJobs: number;
+  readonly establishedIndependentJobs: number;
+  readonly provisionalObservations: number;
+  readonly establishedObservations: number;
+}
+
 /**
- * Identity of a noise band pool.
- *
- * The noise floor is a property of the measured region, not only of the machine, so the scenario
- * and its recipe are part of the key -- not just the environment. A scenario that rebuilds its
- * fixture per sample has a longer process and a wider gap between the two arms of a pair, which
- * reduces the common-mode cancellation the paired design rests on and raises its floor. Sharing a
- * band across scenarios would manufacture verdicts for the quiet one and suppress them for the
- * noisy one.
+ * Starting requirements, deliberately expressed as configuration rather than pair policy.
+ * Calibration is expected to accumulate across independent CI jobs.
  */
+export const defaultCalibrationRequirements: CalibrationRequirements = {
+  provisionalIndependentJobs: 1,
+  establishedIndependentJobs: 3,
+  provisionalObservations: 1,
+  establishedObservations: 3,
+};
+
 export interface NoiseBandKey {
   readonly scenarioId: string;
+  readonly fixtureId: string;
   readonly recipeHash: string;
   readonly environmentClass: string;
-  /**
-   * Samples per arm per pair the pool was collected under. A band describes a whole process
-   * structure, not an estimator, so a pool collected at a different `k` does not apply.
-   */
-  readonly samplesPerArmPerPair: number;
+  readonly execution: ExecutionFingerprint;
   readonly kind: NoiseBandKind;
 }
 
-/**
- * Storage key. Lookup and persistence must both go through this so the stored key can never drift
- * away from what {@link assertPoolApplies} enforces.
- */
 export function noiseBandKey(key: NoiseBandKey): string {
+  const executionHash = crypto
+    .createHash("sha256")
+    .update(executionFingerprintKey(key.execution))
+    .digest("hex")
+    .slice(0, 16);
   return [
     key.scenarioId,
+    key.fixtureId,
     key.recipeHash,
     key.environmentClass,
-    `k${key.samplesPerArmPerPair}`,
+    executionHash,
     key.kind,
-  ].join("/");
+  ]
+    .map(encodeURIComponent)
+    .join("/");
 }
 
-/**
- * Accumulated A/A observations for one calibration key.
- *
- * The raw per-pair log-ratios are retained rather than a summary, because the band must be
- * re-derived for whichever pair count is in play.
- */
+/** Serializable A/A observations for one exact calibration identity. */
 export interface NoiseBandPool extends NoiseBandKey {
-  /** Per-pair log-ratios from A/A runs, in collection order. */
   readonly observations: readonly number[];
-  /** Number of distinct A/A runs contributing, needed to capture between-run drift. */
-  readonly runs: number;
+  readonly independentJobs: number;
   readonly updatedAt: string;
 }
 
 export interface NoiseBand {
+  readonly key: NoiseBandKey;
   readonly kind: NoiseBandKind;
   readonly status: NoiseBandStatus;
-  /** Pair count this band was derived for. */
-  readonly pairs: number;
-  /**
-   * Gate threshold on the log scale: the 95th percentile of `|median(d)|` under the A/A null,
-   * resampled at this pair count.
-   */
+  readonly quality: CalibrationQuality;
+  readonly observations: number;
+  readonly independentJobs: number;
+  readonly statisticSampleSize: number;
   readonly band: number;
   readonly bandPercent: number;
-  /**
-   * 95th percentile of `|d|` for INDIVIDUAL pairs. A useful diagnostic reported next to the
-   * observed maximum -- it is not the gate.
-   */
-  readonly individualPair95: number;
-  readonly individualPair95Percent: number;
+  readonly individualObservation95: number;
+  readonly individualObservation95Percent: number;
   readonly observedMaximum: number;
   readonly observedMaximumPercent: number;
-  readonly pairsAccumulated: number;
-  readonly runsAccumulated: number;
-  readonly samplesPerArmPerPair: number;
 }
 
 export function classifyBandStatus(
-  pairsAccumulated: number,
-  runsAccumulated: number
+  observations: number,
+  independentJobs: number,
+  requirements: CalibrationRequirements = defaultCalibrationRequirements
 ): NoiseBandStatus {
   if (
-    pairsAccumulated >= establishedBandMinimumPairs &&
-    runsAccumulated >= establishedBandMinimumRuns
+    observations >= requirements.establishedObservations &&
+    independentJobs >= requirements.establishedIndependentJobs
   )
     return "established";
   if (
-    pairsAccumulated >= provisionalBandMinimumPairs &&
-    runsAccumulated >= provisionalBandMinimumRuns
+    observations >= requirements.provisionalObservations &&
+    independentJobs >= requirements.provisionalIndependentJobs
   )
     return "provisional";
   return "uncalibrated";
 }
 
-/**
- * Distribution of `|median(d)|` under the A/A null at a given pair count, by resampling the
- * accumulated pool with replacement.
- *
- * The pool is used uncentred. A systematic A/A offset is an ordering or warm-up defect and is
- * caught by the validity checks; absorbing it into a wider band would hide the defect.
- */
+export function classifyCalibrationQuality(
+  status: NoiseBandStatus,
+  bandPercent: number
+): CalibrationQuality {
+  if (status !== "established") return "uncalibrated";
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(bandPercent)) * 16;
+  if (bandPercent <= targetNoiseBandPercent + tolerance) return "target";
+  if (bandPercent < meaningfulRegressionPercent) return "marginal";
+  return "unresolvable";
+}
+
 export function medianNullThreshold(
   observations: readonly number[],
-  pairs: number,
+  statisticSampleSize: number,
   quantile = bandQuantile,
   resamples = defaultResampleCount,
   seed = defaultSeed
 ): number {
   if (observations.length === 0)
     throw new Error("Cannot derive a band from an empty pool");
-  if (!Number.isInteger(pairs) || pairs < 1)
-    throw new Error("Band derivation requires at least one pair");
+  if (!Number.isInteger(statisticSampleSize) || statisticSampleSize < 1)
+    throw new Error("Band derivation requires at least one observation");
   const random = new SeededRandom(seed);
   const magnitudes = new Array<number>(resamples);
   for (let index = 0; index < resamples; index++)
-    magnitudes[index] = Math.abs(median(random.resample(observations, pairs)));
+    magnitudes[index] = Math.abs(
+      median(random.resample(observations, statisticSampleSize))
+    );
   return percentile(magnitudes, quantile);
 }
 
-/** Derive the band applicable to `pairs` pairs from an accumulated pool. */
 export function deriveNoiseBand(
   pool: NoiseBandPool,
-  pairs: number,
-  options: { resamples?: number; seed?: number } = {}
+  statisticSampleSize: number,
+  options: {
+    readonly resamples?: number;
+    readonly seed?: number;
+    readonly requirements?: CalibrationRequirements;
+  } = {}
 ): NoiseBand {
-  const status = classifyBandStatus(pool.observations.length, pool.runs);
+  const expectedKind =
+    pool.execution.pairPolicy.kind === "paired" ? "paired" : "unpaired";
+  if (pool.kind !== expectedKind)
+    throw new Error(
+      `Noise band kind ${pool.kind} does not match ${pool.execution.pairPolicy.kind} execution policy`
+    );
+  const status = classifyBandStatus(
+    pool.observations.length,
+    pool.independentJobs,
+    options.requirements
+  );
   const magnitudes = pool.observations.map(Math.abs);
   const band = medianNullThreshold(
     pool.observations,
-    pairs,
+    statisticSampleSize,
     bandQuantile,
     options.resamples,
     options.seed
   );
-  const individualPair95 = percentile(magnitudes, bandQuantile);
+  const bandPercent = logRatioToPercent(band);
+  const individualObservation95 = percentile(magnitudes, bandQuantile);
   const observedMaximum = Math.max(...magnitudes);
   return {
+    key: {
+      scenarioId: pool.scenarioId,
+      fixtureId: pool.fixtureId,
+      recipeHash: pool.recipeHash,
+      environmentClass: pool.environmentClass,
+      execution: pool.execution,
+      kind: pool.kind,
+    },
     kind: pool.kind,
     status,
-    pairs,
+    quality: classifyCalibrationQuality(status, bandPercent),
+    observations: pool.observations.length,
+    independentJobs: pool.independentJobs,
+    statisticSampleSize,
     band,
-    bandPercent: logRatioToPercent(band),
-    individualPair95,
-    individualPair95Percent: logRatioToPercent(individualPair95),
+    bandPercent,
+    individualObservation95,
+    individualObservation95Percent: logRatioToPercent(individualObservation95),
     observedMaximum,
     observedMaximumPercent: logRatioToPercent(observedMaximum),
-    pairsAccumulated: pool.observations.length,
-    runsAccumulated: pool.runs,
-    samplesPerArmPerPair: pool.samplesPerArmPerPair,
   };
 }
 
-/**
- * Reject a pool that does not describe the process structure actually in use.
- *
- * A band is a property of the whole structure. Silently reusing one collected at a different `k`,
- * scenario or environment would produce a confidently wrong threshold.
- */
+export function assertBandApplies(
+  band: NoiseBand,
+  expected: NoiseBandKey,
+  statisticSampleSize: number
+): void {
+  const syntheticPool: NoiseBandPool = {
+    ...band.key,
+    observations: [0],
+    independentJobs: 1,
+    updatedAt: "",
+  };
+  assertPoolApplies(syntheticPool, expected);
+  if (band.statisticSampleSize !== statisticSampleSize)
+    throw new Error(
+      `Noise band statistic sample size ${band.statisticSampleSize} != ${statisticSampleSize}`
+    );
+}
+
 export function assertPoolApplies(
   pool: NoiseBandPool,
   expected: NoiseBandKey
@@ -209,14 +230,17 @@ export function assertPoolApplies(
     );
   if (pool.scenarioId !== expected.scenarioId)
     mismatches.push(`scenario ${pool.scenarioId} != ${expected.scenarioId}`);
+  if (pool.fixtureId !== expected.fixtureId)
+    mismatches.push(`fixture ${pool.fixtureId} != ${expected.fixtureId}`);
   if (pool.recipeHash !== expected.recipeHash)
     mismatches.push(`recipe hash ${pool.recipeHash} != ${expected.recipeHash}`);
-  if (pool.samplesPerArmPerPair !== expected.samplesPerArmPerPair)
-    mismatches.push(
-      `samples per arm per pair ${pool.samplesPerArmPerPair} != ${expected.samplesPerArmPerPair}`
-    );
   if (pool.kind !== expected.kind)
     mismatches.push(`band kind ${pool.kind} != ${expected.kind}`);
+  try {
+    assertExecutionFingerprintMatches(pool.execution, expected.execution);
+  } catch (error) {
+    mismatches.push((error as Error).message);
+  }
   if (mismatches.length > 0)
     throw new Error(
       `Noise band pool does not apply to this comparison: ${mismatches.join(
@@ -225,20 +249,12 @@ export function assertPoolApplies(
     );
 }
 
-/**
- * Effect size, on the log scale, at which the magnitude gate alone reaches `targetPower`.
- *
- * The band itself is roughly the 50%-power point, because at an effect exactly equal to the
- * threshold the estimator lands above it about half the time. Reporting the band as "the MDE"
- * invites reading it as "regressions this size are caught", which overstates it by about a factor
- * of two in detection rate.
- */
 export function powerPoint(
   observations: readonly number[],
-  pairs: number,
+  statisticSampleSize: number,
   band: number,
   targetPower: number,
-  options: { resamples?: number; seed?: number } = {}
+  options: { readonly resamples?: number; readonly seed?: number } = {}
 ): number {
   const resamples = options.resamples ?? 2_000;
   const seed = options.seed ?? defaultSeed;
@@ -247,7 +263,7 @@ export function powerPoint(
     let detected = 0;
     for (let index = 0; index < resamples; index++) {
       const drawn = random
-        .resample(observations, pairs)
+        .resample(observations, statisticSampleSize)
         .map((value) => value + shift);
       if (Math.abs(median(drawn)) > band) detected++;
     }

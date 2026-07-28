@@ -6,28 +6,30 @@
 import * as fs from "fs";
 import * as path from "path";
 import { EnvironmentClass } from "./EnvironmentClass";
+import { ExecutionFingerprint } from "./ExecutionFingerprint";
 import {
   aggregateLogRatios,
   CollapsedPair,
   LogRatioAggregate,
   logRatioToPercent,
+  percentToLogRatio,
 } from "./logRatio";
-import { NoiseBand, NoiseBandPool, powerPoint } from "./NoiseBand";
+import {
+  assertBandApplies,
+  assertPoolApplies,
+  NoiseBand,
+  NoiseBandPool,
+  powerPoint,
+} from "./NoiseBand";
 import {
   ComparisonVerdict,
   decideVerdict,
+  defaultEquivalenceMarginPercent,
   VerdictInput,
   VerdictResult,
 } from "./verdict";
 
-/**
- * Comparison report assembly.
- *
- * One report shape serves both comparison modes, but the two are not equally strong and the report
- * says so rather than letting a reader assume otherwise.
- */
-
-export type ComparisonMode = "paired" | "unpaired";
+export type ComparisonMode = "paired";
 
 export interface ArmDescription {
   readonly id: string;
@@ -37,76 +39,76 @@ export interface ArmDescription {
 }
 
 export interface DetectabilitySummary {
-  /**
-   * The band, as a percentage. This is roughly the 50%-POWER point: at a true effect exactly equal
-   * to the threshold, the estimator lands above it about half the time. It is reported with that
-   * label because "MDE 4%" reads as "catches 4% regressions", which overstates detection by about
-   * a factor of two.
-   */
-  readonly fiftyPercentPowerPercent: number;
-  /** Effect size at which the magnitude gate reaches 80% power. The honest "we will catch it" number. */
-  readonly eightyPercentPowerPercent?: number;
-  readonly bandStatus: NoiseBand["status"];
-  readonly bandKind: NoiseBand["kind"];
-  readonly pairsAccumulated: number;
-  readonly runsAccumulated: number;
-  /** Diagnostic only, never the gate. */
-  readonly individualPair95Percent: number;
+  readonly noiseBandPercent: number;
+  readonly eightyPercentMagnitudePowerPercent?: number;
+  readonly status: NoiseBand["status"];
+  readonly quality: NoiseBand["quality"];
+  readonly observations: number;
+  readonly independentJobs: number;
+  readonly individualObservation95Percent: number;
   readonly observedMaximumPercent: number;
 }
 
 export interface ComparisonReport {
   readonly scenarioId: string;
+  readonly fixtureId: string;
   readonly recipeHash: string;
   readonly mode: ComparisonMode;
-  readonly look: 1 | 2;
   readonly environment: EnvironmentClass;
+  readonly execution: ExecutionFingerprint;
   readonly armA: ArmDescription;
   readonly armB: ArmDescription;
   readonly signConvention: string;
-  readonly pairs: number;
-  readonly discardedPairs: readonly { pair: number; reason: string }[];
-  readonly samplesPerArmPerPair: number;
+  readonly observations: number;
+  readonly independentJobs: number;
+  readonly discardedObservations: readonly { index: number; reason: string }[];
   readonly aggregate: LogRatioAggregate;
   readonly verdict: VerdictResult;
   readonly detectability?: DetectabilitySummary;
-  readonly observations: readonly CollapsedPair[];
+  readonly collapsedObservations: readonly CollapsedPair[];
   readonly generatedAt: string;
 }
 
 export interface BuildComparisonReportOptions {
   readonly scenarioId: string;
+  readonly fixtureId: string;
   readonly recipeHash: string;
   readonly mode: ComparisonMode;
-  readonly look: 1 | 2;
   readonly environment: EnvironmentClass;
+  readonly execution: ExecutionFingerprint;
   readonly armA: ArmDescription;
   readonly armB: ArmDescription;
   readonly pairs: readonly CollapsedPair[];
-  readonly samplesPerArmPerPair: number;
+  readonly independentJobs: number;
   readonly band?: NoiseBand;
   readonly pool?: NoiseBandPool;
-  readonly equivalenceMargin?: number;
-  readonly discardedPairs?: readonly { pair: number; reason: string }[];
+  readonly equivalenceMarginPercent?: number;
+  readonly discardedObservations?: readonly {
+    readonly index: number;
+    readonly reason: string;
+  }[];
   readonly validityFailures?: VerdictInput["validityFailures"];
-  readonly minimumPairs?: number;
+  readonly minimumObservations?: number;
 }
 
 function summarizeDetectability(
   band: NoiseBand,
   pool: NoiseBandPool | undefined,
-  pairs: number
+  observations: number,
+  decisionThreshold: number
 ): DetectabilitySummary {
   return {
-    fiftyPercentPowerPercent: band.bandPercent,
-    eightyPercentPowerPercent: pool
-      ? logRatioToPercent(powerPoint(pool.observations, pairs, band.band, 0.8))
+    noiseBandPercent: band.bandPercent,
+    eightyPercentMagnitudePowerPercent: pool
+      ? logRatioToPercent(
+          powerPoint(pool.observations, observations, decisionThreshold, 0.8)
+        )
       : undefined,
-    bandStatus: band.status,
-    bandKind: band.kind,
-    pairsAccumulated: band.pairsAccumulated,
-    runsAccumulated: band.runsAccumulated,
-    individualPair95Percent: band.individualPair95Percent,
+    status: band.status,
+    quality: band.quality,
+    observations: band.observations,
+    independentJobs: band.independentJobs,
+    individualObservation95Percent: band.individualObservation95Percent,
     observedMaximumPercent: band.observedMaximumPercent,
   };
 }
@@ -114,36 +116,72 @@ function summarizeDetectability(
 export function buildComparisonReport(
   options: BuildComparisonReportOptions
 ): ComparisonReport {
+  if (!Number.isInteger(options.independentJobs) || options.independentJobs < 1)
+    throw new Error("Comparison requires at least one independent job");
+  const discardedCount = options.discardedObservations?.length ?? 0;
+  const totalObservations = options.pairs.length + discardedCount;
+  if (options.execution.pairPolicy.kind !== "paired")
+    throw new Error(
+      "Unpaired comparison requires a distinct estimator and is not implemented"
+    );
+  const expected =
+    options.execution.pairPolicy.pairsPerJob * options.independentJobs;
+  if (totalObservations !== expected)
+    throw new Error(
+      `Comparison contains ${totalObservations} paired observations; execution fingerprint requires ${expected}`
+    );
+  const calibrationKey = {
+    scenarioId: options.scenarioId,
+    fixtureId: options.fixtureId,
+    recipeHash: options.recipeHash,
+    environmentClass: options.environment.id,
+    execution: options.execution,
+    kind: options.mode,
+  };
+  if (options.pool) assertPoolApplies(options.pool, calibrationKey);
+  if (options.band)
+    assertBandApplies(options.band, calibrationKey, options.pairs.length);
   const aggregate = aggregateLogRatios(
     options.pairs.map((pair) => pair.logRatio)
   );
   const verdict = decideVerdict({
     aggregate,
     band: options.band,
-    equivalenceMargin: options.equivalenceMargin,
-    look: options.look,
+    equivalenceMarginPercent: options.equivalenceMarginPercent,
     mode: options.mode,
     validityFailures: options.validityFailures,
-    minimumPairs: options.minimumPairs,
+    minimumObservations: options.minimumObservations,
   });
   return {
     scenarioId: options.scenarioId,
+    fixtureId: options.fixtureId,
     recipeHash: options.recipeHash,
     mode: options.mode,
-    look: options.look,
     environment: options.environment,
+    execution: options.execution,
     armA: options.armA,
     armB: options.armB,
-    signConvention: "Positive percent change means arm B is SLOWER than arm A.",
-    pairs: options.pairs.length,
-    discardedPairs: options.discardedPairs ?? [],
-    samplesPerArmPerPair: options.samplesPerArmPerPair,
+    signConvention: "Positive percent change means arm B is slower than arm A.",
+    observations: options.pairs.length,
+    independentJobs: options.independentJobs,
+    discardedObservations: options.discardedObservations ?? [],
     aggregate,
     verdict,
     detectability: options.band
-      ? summarizeDetectability(options.band, options.pool, options.pairs.length)
+      ? summarizeDetectability(
+          options.band,
+          options.pool,
+          options.pairs.length,
+          Math.max(
+            options.band.band,
+            percentToLogRatio(
+              options.equivalenceMarginPercent ??
+                defaultEquivalenceMarginPercent
+            )
+          )
+        )
       : undefined,
-    observations: options.pairs,
+    collapsedObservations: options.pairs,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -154,86 +192,77 @@ function formatPercent(value: number | undefined): string {
     : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-/**
- * Human-readable rendering.
- *
- * Detectability is printed on EVERY report, including uncalibrated ones, where it prints as
- * unknown rather than being silently omitted -- an absent noise floor is the single most important
- * thing a reader needs to know about a comparison.
- */
 export function renderComparisonReport(report: ComparisonReport): string {
-  const lines: string[] = [];
-  lines.push(`Quick performance comparison: ${report.scenarioId}`);
+  const lines = [
+    `# Quick performance comparison: ${report.scenarioId}`,
+    "",
+    `**Verdict:** ${report.verdict.verdict.toUpperCase()} (${report.verdict.evidence})`,
+    "",
+    report.verdict.reason,
+    "",
+    "| Property | Value |",
+    "|---|---|",
+    `| Mode | ${report.mode} |`,
+    `| Fixture | ${report.fixtureId} |`,
+    `| Environment | ${report.environment.id} |`,
+    `| Arm A | ${report.armA.id} (${report.armA.transformerVersion}) |`,
+    `| Arm B | ${report.armB.id} (${report.armB.transformerVersion}) |`,
+    `| Median change | ${formatPercent(report.aggregate.percentChange)} |`,
+    `| Geometric-mean change | ${formatPercent(
+      report.aggregate.geometricMeanPercentChange
+    )} |`,
+    `| Valid observations | ${report.observations} |`,
+    `| Independent jobs | ${report.independentJobs} |`,
+    `| Discarded observations | ${report.discardedObservations.length} |`,
+    "",
+    report.signConvention,
+    "",
+    `Bootstrap ${(report.aggregate.bootstrap.level * 100).toFixed(
+      0
+    )}% interval: [${formatPercent(
+      logRatioToPercent(report.aggregate.bootstrap.lower)
+    )}, ${formatPercent(
+      logRatioToPercent(report.aggregate.bootstrap.upper)
+    )}] (indicative, not a change gate).`,
+    "",
+  ];
+  if (report.verdict.signDiagnostic)
+    lines.push(
+      `Signs: ${report.verdict.signDiagnostic.positive} slower / ${report.verdict.signDiagnostic.negative} faster / ${report.verdict.signDiagnostic.ties} tied; imbalance ${report.verdict.signDiagnostic.imbalance.toFixed(
+        3
+      )}.`,
+      ""
+    );
+  if (report.detectability)
+    lines.push(
+      `Calibration: **${report.detectability.quality}** (${report.detectability.status}); ${report.detectability.noiseBandPercent.toFixed(
+        2
+      )}% band from ${report.detectability.observations} observations across ${
+        report.detectability.independentJobs
+      } independent jobs.`,
+      `Magnitude-only 80% power point: ${
+        report.detectability.eightyPercentMagnitudePowerPercent === undefined
+          ? "unknown"
+          : `${report.detectability.eightyPercentMagnitudePowerPercent.toFixed(
+              2
+            )}%`
+      }.`,
+      ""
+    );
+  else
+    lines.push(
+      "Calibration: **unknown**. No matching A/A pool exists; output is descriptive only.",
+      ""
+    );
   lines.push(
-    `Mode: ${report.mode}${report.mode === "unpaired" ? " (baseline; no per-pair signs, wider band)" : ""}  Look: ${report.look}`
+    "Execution fingerprint:",
+    "",
+    "```json",
+    JSON.stringify(report.execution, undefined, 2),
+    "```",
+    ""
   );
-  lines.push(
-    `Arm A: ${report.armA.id}${report.armA.label ? ` (${report.armA.label})` : ""} transformer ${report.armA.transformerVersion}`
-  );
-  lines.push(
-    `Arm B: ${report.armB.id}${report.armB.label ? ` (${report.armB.label})` : ""} transformer ${report.armB.transformerVersion}`
-  );
-  lines.push(
-    `core-backend: ${report.armA.coreBackendVersion} (identical in both arms)`
-  );
-  lines.push(
-    `Environment: ${report.environment.id} (${report.environment.descriptor.platform}/${report.environment.descriptor.arch}, ${report.environment.descriptor.runner})`
-  );
-  lines.push("");
-  lines.push(`VERDICT: ${report.verdict.verdict.toUpperCase()}`);
-  lines.push(`  ${report.verdict.reason}`);
-  if (report.verdict.provisionalBand)
-    lines.push(
-      "  NOTE: band is PROVISIONAL (below the established pair/run minimum)."
-    );
-  if (report.verdict.escalationRecommended)
-    lines.push(
-      "  Escalation recommended: magnitude cleared but signs did not agree. This is the only " +
-        "inconclusive shape that more pairs actually fixes."
-    );
-  lines.push("");
-  lines.push(report.signConvention);
-  lines.push(
-    `Median change: ${formatPercent(report.aggregate.percentChange)}  (geometric mean ${formatPercent(report.aggregate.geometricMeanPercentChange)})`
-  );
-  lines.push(
-    `Bootstrap ${(report.aggregate.bootstrap.level * 100).toFixed(0)}% interval: [${formatPercent(logRatioToPercent(report.aggregate.bootstrap.lower))}, ${formatPercent(logRatioToPercent(report.aggregate.bootstrap.upper))}] (indicative, not a gate)`
-  );
-  lines.push(
-    `Pairs: ${report.pairs} valid, ${report.discardedPairs.length} discarded, k = ${report.samplesPerArmPerPair}`
-  );
-  if (report.mode === "paired") {
-    const signRequirement = report.verdict.signGate
-      ? `  requirement ${report.verdict.signGate.requirement.requiredAgreeing} of ${report.verdict.signGate.effectivePairs} (exact p = ${report.verdict.signGate.exactP.toFixed(5)})`
-      : "";
-    lines.push(
-      `Signs: ${report.aggregate.signs.positive} slower / ${report.aggregate.signs.negative} faster / ${report.aggregate.signs.ties} tied${signRequirement}`
-    );
-  }
-  lines.push("");
-  if (report.detectability) {
-    lines.push(
-      `Detectability (${report.detectability.bandKind} band, ${report.detectability.bandStatus}; ${report.detectability.pairsAccumulated} A/A pairs over ${report.detectability.runsAccumulated} runs):`
-    );
-    lines.push(
-      `  ~50% power at ${report.detectability.fiftyPercentPowerPercent.toFixed(2)}%  <- this is the band itself`
-    );
-    lines.push(
-      `  ~80% power at ${report.detectability.eightyPercentPowerPercent !== undefined ? `${report.detectability.eightyPercentPowerPercent.toFixed(2)}%` : "unknown"}  <- what is actually caught reliably`
-    );
-    lines.push(
-      `  diagnostics: individual-pair 95th pct ${report.detectability.individualPair95Percent.toFixed(2)}%, observed max ${report.detectability.observedMaximumPercent.toFixed(2)}%`
-    );
-  } else {
-    lines.push(
-      "Detectability: UNKNOWN (uncalibrated -- no A/A band for this environment)."
-    );
-    lines.push(
-      `  Within-run bootstrap half-width is ${((logRatioToPercent(report.aggregate.bootstrap.upper) - logRatioToPercent(report.aggregate.bootstrap.lower)) / 2).toFixed(2)}%. ` +
-        "That is within-run spread, NOT a noise floor and NOT an MDE."
-    );
-  }
-  return `${lines.join("\n")}\n`;
+  return lines.join("\n");
 }
 
 export function writeComparisonReport(
@@ -246,7 +275,7 @@ export function writeComparisonReport(
     `${JSON.stringify(report, undefined, 2)}\n`
   );
   fs.writeFileSync(
-    path.join(outputDir, "comparison.txt"),
+    path.join(outputDir, "comparison.md"),
     renderComparisonReport(report)
   );
 }

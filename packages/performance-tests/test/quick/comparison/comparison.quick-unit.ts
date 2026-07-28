@@ -4,21 +4,29 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { expect } from "chai";
-import type { IModelDb } from "@itwin/core-backend";
-import type { TestTransformerModule } from "../../TestTransformerModule";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import {
-  armOperations,
-  assertArmCoreBackendIdentity,
-  assertArmsComparable,
-  createArmRunner,
-  QuickArmModule,
-  ResolvedArm,
+  ArmRuntimeIdentity,
+  assertArmRuntimeComparable,
+  assertArmSpecsComparable,
+  resolveArmSpec,
 } from "./ArmModule";
+import { binomialPmf, twoSidedSignTestP } from "./binomial";
 import {
-  binomialPmf,
-  signGateRequirement,
-  twoSidedSignTestP,
-} from "./binomial";
+  buildComparisonReport,
+  BuildComparisonReportOptions,
+  renderComparisonReport,
+  writeComparisonReport,
+} from "./ComparisonReport";
+import { classifyEnvironment } from "./EnvironmentClass";
+import {
+  assertExecutionFingerprintMatches,
+  ExecutionFingerprint,
+  executionFingerprintKey,
+  validateExecutionFingerprint,
+} from "./ExecutionFingerprint";
 import {
   aggregateLogRatios,
   bootstrapMedianInterval,
@@ -31,874 +39,701 @@ import {
 } from "./logRatio";
 import {
   assertPoolApplies,
+  CalibrationQuality,
   classifyBandStatus,
+  classifyCalibrationQuality,
   deriveNoiseBand,
   medianNullThreshold,
   NoiseBand,
+  NoiseBandKey,
   noiseBandKey,
   NoiseBandPool,
+  targetNoiseBandPercent,
 } from "./NoiseBand";
 import { SeededRandom } from "./SeededRandom";
-import {
-  decideVerdict,
-  defaultEquivalenceMarginPercent,
-  defaultPairs,
-  signGateTargetLevel,
-} from "./verdict";
+import { decideVerdict, defaultEquivalenceMarginPercent } from "./verdict";
+
+const execution: ExecutionFingerprint = {
+  warmupSamplesPerArm: 1,
+  measuredSamplesPerArm: 3,
+  processPolicy: {
+    kind: "one-process-per-arm",
+    restartBetweenPairs: true,
+  },
+  pairPolicy: { kind: "paired", pairsPerJob: 1 },
+  orderPolicy: { kind: "alternating", first: "AB" },
+};
+
+const calibrationKey: NoiseBandKey = {
+  scenarioId: "changeset-scanning",
+  fixtureId: "changeset-scan-balanced",
+  recipeHash: "recipe-abc",
+  environmentClass: "test-env",
+  execution,
+  kind: "paired",
+};
 
 function normalPool(count: number, sigma: number, seed = 7): number[] {
   const random = new SeededRandom(seed);
-  const values: number[] = [];
-  for (let index = 0; index < count; index++) {
-    // Box-Muller, so the pool has a known scale to test against.
+  return Array.from({ length: count }, () => {
     const u1 = Math.max(random.next(), Number.EPSILON);
     const u2 = random.next();
-    values.push(
-      sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
-    );
-  }
-  return values;
+    return sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  });
 }
 
-/** One draw from `N(mu, sigma)`, so trials can be run at a known true effect size. */
-function gaussian(random: SeededRandom, mu: number, sigma: number): number {
-  const u1 = Math.max(random.next(), Number.EPSILON);
-  const u2 = random.next();
-  return mu + sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-}
-
-interface PowerCharacterization {
-  /** Fraction of trials returning `regressed` or `improved` -- both gates held. */
-  readonly detected: number;
-  readonly magnitudeOnly: number;
-  readonly signOnly: number;
-  /** Fraction landing on the side opposite the true effect. */
-  readonly wrongDirection: number;
-  /**
-   * Fraction that would escalate to look 2. Because A3 narrowed the trigger to "consistency failed
-   * while magnitude passed", this is far below the `inconclusive` rate, and it is what turns the
-   * worst-case execution budget into an expected one.
-   */
-  readonly escalated: number;
-}
-
-/**
- * Run the real verdict rule against synthetic pairs drawn at a known true effect, and report how
- * often it fires.
- *
- * This is the falsifiable form of the power claims in COMPARISON_STATISTICS.md. Prose asserting a
- * false-positive rate cannot notice when a threshold constant stops matching the rule it describes;
- * this can. The A1 defect -- a transcribed decimal excluding the exact unanimous level, making
- * `regressed` unreachable at every effect size -- shows up here as detection collapsing to zero.
- */
-function characterizePower(
-  mu: number,
-  pairs: number,
-  band: NoiseBand,
-  trials: number,
-  seed: number,
-  /** Spread of the comparison run relative to the pool the band came from. 1 = well calibrated. */
-  runSigma = 1
-): PowerCharacterization {
-  const random = new SeededRandom(seed);
-  let detected = 0;
-  let magnitudeOnly = 0;
-  let signOnly = 0;
-  let wrongDirection = 0;
-  let escalated = 0;
-  for (let trial = 0; trial < trials; trial++) {
-    const logRatios = Array.from({ length: pairs }, () =>
-      gaussian(random, mu, runSigma)
-    );
-    // The bootstrap is not consulted by either change gate, so a small resample count here keeps
-    // the characterization affordable without touching what is being measured.
-    const aggregate = aggregateLogRatios(logRatios, { resamples: 40 });
-    const result = decideVerdict({
-      aggregate,
-      band,
-      look: 1,
-      mode: "paired",
-      equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
-    });
-    if (result.escalationRecommended) escalated++;
-    if (result.magnitudeGate?.passed === true) magnitudeOnly++;
-    if (result.signGate?.passed === true) signOnly++;
-    if (result.verdict === "regressed" || result.verdict === "improved") {
-      detected++;
-      const opposite = mu >= 0 ? "improved" : "regressed";
-      if (result.verdict === opposite) wrongDirection++;
-    }
-  }
+function makePool(
+  observations: readonly number[],
+  independentJobs = 3
+): NoiseBandPool {
   return {
-    detected: detected / trials,
-    magnitudeOnly: magnitudeOnly / trials,
-    signOnly: signOnly / trials,
-    wrongDirection: wrongDirection / trials,
-    escalated: escalated / trials,
-  };
-}
-
-function makePool(observations: number[], runs = 3): NoiseBandPool {
-  return {
-    environmentClass: "test-env",
-    scenarioId: "incremental-synchronization",
-    recipeHash: "recipe-abc",
-    kind: "paired",
-    samplesPerArmPerPair: 3,
+    ...calibrationKey,
     observations,
-    runs,
+    independentJobs,
     updatedAt: new Date(0).toISOString(),
   };
 }
 
+function makeBand(
+  bandPercent: number,
+  status: NoiseBand["status"] = "established"
+): NoiseBand {
+  const band = percentToLogRatio(bandPercent);
+  return {
+    key: calibrationKey,
+    kind: "paired",
+    status,
+    quality: classifyCalibrationQuality(status, bandPercent),
+    observations: 30,
+    independentJobs: 3,
+    statisticSampleSize: 8,
+    band,
+    bandPercent,
+    individualObservation95: band * 2,
+    individualObservation95Percent: logRatioToPercent(band * 2),
+    observedMaximum: band * 3,
+    observedMaximumPercent: logRatioToPercent(band * 3),
+  };
+}
+
+function gaussian(random: SeededRandom, mean: number, sigma: number): number {
+  const u1 = Math.max(random.next(), Number.EPSILON);
+  const u2 = random.next();
+  return (
+    mean + sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
+  );
+}
+
 describe("quick performance comparison statistics", () => {
-  describe("exact binomial sign test", () => {
-    it("produces the exact two-sided levels", () => {
-      expect(twoSidedSignTestP(8, 8)).to.equal(0.0078125);
-      expect(twoSidedSignTestP(8, 7)).to.equal(0.0703125);
-      expect(twoSidedSignTestP(16, 14)).to.be.closeTo(0.0041809, 1e-7);
-      expect(twoSidedSignTestP(16, 13)).to.be.closeTo(0.0212708, 1e-7);
-    });
-
-    it("has a probability mass function summing to one", () => {
-      let total = 0;
-      for (let count = 0; count <= 16; count++) total += binomialPmf(16, count);
-      expect(total).to.be.closeTo(1, 1e-12);
-    });
-
-    it("derives gate requirements as counts, not as rounded p-values", () => {
-      const atEight = signGateRequirement(8, signGateTargetLevel);
-      expect(atEight.requiredAgreeing).to.equal(7);
-      expect(atEight.unachievable).to.equal(false);
-      const atSixteen = signGateRequirement(16, signGateTargetLevel);
-      expect(atSixteen.requiredAgreeing).to.equal(12);
-      expect(atSixteen.unachievable).to.equal(false);
-      // The counts are derived, never transcribed. Unanimity at P = 8 is p = 0.0078125, and a
-      // threshold written as `<= 0.0078` excludes it -- which would make a change verdict
-      // unreachable at every effect size rather than merely strict.
-      expect(atEight.achievedLevel).to.be.closeTo(0.0703, 1e-4);
-      expect(atSixteen.achievedLevel).to.be.closeTo(0.0768, 1e-4);
-    });
-
-    it("flags a level that no count can achieve instead of never firing", () => {
-      // At four pairs, unanimity is p = 0.125, so anything tighter is unreachable.
-      const requirement = signGateRequirement(4, 0.01);
-      expect(requirement.unachievable).to.equal(true);
-    });
-
-    it("bounds the family-wise rate across the two permitted looks", () => {
-      // The per-gate levels are NOT the operative rate -- the rule fires only when the magnitude
-      // gate also passes, and the measured combined rate is far below their sum (see the power
-      // characterization). This bound is therefore conservative by construction.
-      const look1 = signGateRequirement(8, signGateTargetLevel).achievedLevel;
-      const look2 = signGateRequirement(16, signGateTargetLevel).achievedLevel;
-      expect(look1 + look2).to.be.lessThan(0.15);
-    });
-  });
-
-  describe("log-ratio estimator", () => {
-    it("collapses within-process samples by median", () => {
-      expect(collapseArmSamples([100, 102, 400])).to.equal(102);
-    });
-
-    it("treats positive as arm B being slower", () => {
-      expect(logRatio(100, 110)).to.be.greaterThan(0);
-      expect(logRatio(110, 100)).to.be.lessThan(0);
-      expect(logRatioToPercent(logRatio(100, 110))).to.be.closeTo(10, 1e-9);
-    });
-
-    it("round-trips between log and percent scales", () => {
-      expect(logRatioToPercent(percentToLogRatio(7.5))).to.be.closeTo(
-        7.5,
-        1e-9
-      );
-    });
-
-    it("does not sign-flip a BA-ordered pair", () => {
+  describe("robust paired log ratios", () => {
+    it("collapses each arm by median and preserves arm direction across order", () => {
       const ab = collapsePair({
         pair: 0,
         order: "AB",
-        armASamples: [100],
-        armBSamples: [110],
+        armASamples: [100, 102, 900],
+        armBSamples: [110, 112, 1_000],
       });
       const ba = collapsePair({
         pair: 1,
         order: "BA",
-        armASamples: [100],
-        armBSamples: [110],
+        armASamples: [100, 102, 900],
+        armBSamples: [110, 112, 1_000],
       });
-      expect(ba.logRatio).to.equal(ab.logRatio);
-    });
-
-    it("orders the order-effect ratio by execution position, not by arm", () => {
-      const pairs = [
-        collapsePair({
-          pair: 0,
-          order: "AB",
-          armASamples: [100],
-          armBSamples: [110],
-        }),
-        collapsePair({
-          pair: 1,
-          order: "BA",
-          armASamples: [100],
-          armBSamples: [110],
-        }),
-      ];
-      const [first, second] = orderEffectLogRatios(pairs);
-      // AB: second/first = B/A = 1.10. BA: second/first = A/B = 1/1.10.
-      expect(first).to.be.greaterThan(0);
-      expect(second).to.be.lessThan(0);
+      expect(ab.armA).to.equal(102);
+      expect(ab.armB).to.equal(112);
+      expect(ab.logRatio).to.equal(ba.logRatio);
+      expect(ab.logRatio).to.be.greaterThan(0);
+      const [first, second] = orderEffectLogRatios([ab, ba]);
       expect(first).to.be.closeTo(-second, 1e-12);
     });
 
-    it("rejects non-positive durations rather than producing NaN", () => {
-      expect(() => logRatio(0, 100)).to.throw(/finite positive/);
-      expect(() => logRatio(100, -1)).to.throw(/finite positive/);
+    it("round-trips percentages throughout the practical range", () => {
+      for (let percent = -50; percent <= 100; percent += 0.25)
+        expect(logRatioToPercent(percentToLogRatio(percent))).to.be.closeTo(
+          percent,
+          1e-10
+        );
     });
 
-    it("excludes ties from the sign test and reduces the effective sample size", () => {
-      const aggregate = aggregateLogRatios([0.1, 0.1, 0, 0.1]);
-      expect(aggregate.signs.ties).to.equal(1);
-      expect(aggregate.signs.effectivePairs).to.equal(3);
+    it("rejects invalid durations and empty samples", () => {
+      expect(() => logRatio(0, 1)).to.throw(/finite positive/);
+      expect(() => logRatio(1, Number.NaN)).to.throw(/finite positive/);
+      expect(() => collapseArmSamples([])).to.throw(/at least one/);
     });
 
-    it("is reproducible from its own seed", () => {
-      const values = normalPool(8, 0.03);
+    it("produces deterministic robust aggregates", () => {
+      const values = [
+        percentToLogRatio(-2),
+        percentToLogRatio(1),
+        percentToLogRatio(2),
+        percentToLogRatio(80),
+      ];
+      const aggregate = aggregateLogRatios(values);
+      expect(aggregate.medianLogRatio).to.be.lessThan(aggregate.meanLogRatio);
       expect(bootstrapMedianInterval(values)).to.deep.equal(
         bootstrapMedianInterval(values)
       );
     });
-  });
 
-  describe("noise band", () => {
-    it("gates the median statistic, not individual pairs, and is therefore tighter", () => {
-      const pool = makePool(normalPool(24, 0.03));
-      const band = deriveNoiseBand(pool, 8);
-      expect(band.band).to.be.lessThan(band.individualPair95);
-    });
-
-    it("tightens as the pair count rises, so escalation is analysed against its own band", () => {
-      const observations = normalPool(24, 0.03);
-      expect(medianNullThreshold(observations, 16)).to.be.lessThan(
-        medianNullThreshold(observations, 8)
-      );
-    });
-
-    it("requires both pairs and distinct runs before it is established", () => {
-      expect(classifyBandStatus(24, 3)).to.equal("established");
-      expect(classifyBandStatus(24, 2)).to.equal("provisional");
-      expect(classifyBandStatus(16, 2)).to.equal("provisional");
-      expect(classifyBandStatus(15, 5)).to.equal("uncalibrated");
+    it("keeps exact sign diagnostics mathematically valid", () => {
+      let mass = 0;
+      for (let successes = 0; successes <= 16; successes++)
+        mass += binomialPmf(16, successes);
+      expect(mass).to.be.closeTo(1, 1e-12);
+      expect(twoSidedSignTestP(8, 8)).to.equal(0.0078125);
+      expect(twoSidedSignTestP(8, 4)).to.equal(1);
     });
   });
 
-  describe("calibration key", () => {
-    const pool = makePool(normalPool(24, 0.03));
-    const key = {
-      scenarioId: pool.scenarioId,
-      recipeHash: pool.recipeHash,
-      environmentClass: pool.environmentClass,
-      samplesPerArmPerPair: pool.samplesPerArmPerPair,
-      kind: pool.kind,
-    };
+  describe("execution fingerprint and calibration identity", () => {
+    const key = calibrationKey;
 
-    it("keys a band by scenario and recipe, not by environment alone", () => {
-      expect(noiseBandKey(key)).to.not.equal(
-        noiseBandKey({ ...key, scenarioId: "scanner" })
-      );
-      expect(noiseBandKey(key)).to.not.equal(
-        noiseBandKey({ ...key, recipeHash: "recipe-xyz" })
+    it("captures the initial eight-execution hypothesis without making it policy", () => {
+      validateExecutionFingerprint(execution);
+      expect(execution.pairPolicy.kind).to.equal("paired");
+      if (execution.pairPolicy.kind !== "paired")
+        throw new Error("Test fingerprint must be paired");
+      const totalExecutions =
+        2 *
+        execution.pairPolicy.pairsPerJob *
+        (execution.warmupSamplesPerArm + execution.measuredSamplesPerArm);
+      expect(totalExecutions).to.equal(8);
+    });
+
+    it("rejects invalid sample and pair counts", () => {
+      expect(() =>
+        validateExecutionFingerprint({
+          ...execution,
+          measuredSamplesPerArm: 0,
+        })
+      ).to.throw(/Measured samples/);
+      expect(() =>
+        validateExecutionFingerprint({
+          ...execution,
+          pairPolicy: { kind: "paired", pairsPerJob: 0 },
+        })
+      ).to.throw(/Pairs per job/);
+    });
+
+    it("keys every structure property rather than a loose policy label", () => {
+      const variants: ExecutionFingerprint[] = [
+        { ...execution, warmupSamplesPerArm: 2 },
+        { ...execution, measuredSamplesPerArm: 4 },
+        {
+          ...execution,
+          processPolicy: { kind: "one-process-per-sample" },
+        },
+        {
+          ...execution,
+          pairPolicy: { kind: "paired", pairsPerJob: 2 },
+        },
+        {
+          ...execution,
+          orderPolicy: { kind: "fixed", order: "AB" },
+        },
+      ];
+      for (const variant of variants) {
+        expect(executionFingerprintKey(variant)).to.not.equal(
+          executionFingerprintKey(execution)
+        );
+        expect(() =>
+          assertExecutionFingerprintMatches(variant, execution)
+        ).to.throw(/does not match calibration/);
+      }
+    });
+
+    it("canonicalizes property order in the stable execution key", () => {
+      const reordered: ExecutionFingerprint = {
+        orderPolicy: { first: "AB", kind: "alternating" },
+        pairPolicy: { pairsPerJob: 1, kind: "paired" },
+        processPolicy: {
+          restartBetweenPairs: true,
+          kind: "one-process-per-arm",
+        },
+        measuredSamplesPerArm: 3,
+        warmupSamplesPerArm: 1,
+      };
+      expect(executionFingerprintKey(reordered)).to.equal(
+        executionFingerprintKey(execution)
       );
     });
 
-    it("accepts a pool that matches on every key component", () => {
+    it("rejects calibration for any scenario, fixture, recipe, environment, or structure mismatch", () => {
+      const pool = makePool(normalPool(12, 0.02));
       expect(() => assertPoolApplies(pool, key)).to.not.throw();
+      const mismatches = [
+        { ...key, scenarioId: "other-scenario" },
+        { ...key, fixtureId: "other-fixture" },
+        { ...key, recipeHash: "other-recipe" },
+        { ...key, environmentClass: "other-environment" },
+        { ...key, execution: { ...execution, warmupSamplesPerArm: 0 } },
+      ];
+      for (const mismatch of mismatches)
+        expect(() => assertPoolApplies(pool, mismatch)).to.throw(
+          /does not apply/
+        );
     });
 
-    it("refuses to carry a band across scenarios", () => {
-      // A scenario that rebuilds its fixture per sample has a longer process and a wider gap
-      // between the arms of a pair, so its floor is not the floor of an artifact-backed scenario.
-      expect(() =>
-        assertPoolApplies(pool, { ...key, scenarioId: "scanner" })
-      ).to.throw(/scenario/);
-    });
-
-    it("refuses to carry a band across recipes, environments, k, or band kind", () => {
-      expect(() =>
-        assertPoolApplies(pool, { ...key, recipeHash: "recipe-xyz" })
-      ).to.throw(/recipe hash/);
-      expect(() =>
-        assertPoolApplies(pool, { ...key, environmentClass: "other-env" })
-      ).to.throw(/environment class/);
-      expect(() =>
-        assertPoolApplies(pool, { ...key, samplesPerArmPerPair: 1 })
-      ).to.throw(/samples per arm per pair/);
-      expect(() =>
-        assertPoolApplies(pool, { ...key, kind: "unpaired" })
-      ).to.throw(/band kind/);
+    it("includes fixture and typed execution identity in storage keys", () => {
+      expect(noiseBandKey(key)).to.not.equal(
+        noiseBandKey({ ...key, fixtureId: "other-fixture" })
+      );
+      expect(noiseBandKey(key)).to.not.equal(
+        noiseBandKey({
+          ...key,
+          execution: { ...execution, measuredSamplesPerArm: 5 },
+        })
+      );
     });
   });
 
-  describe("verdict rule", () => {
-    const pool = makePool(normalPool(24, 0.03));
-    const band = deriveNoiseBand(pool, 8);
-
-    it("can actually reach a change verdict at eight pairs", () => {
-      // The regression this guards: a threshold written as `<= 0.0078` excludes the exact
-      // unanimous level of 0.0078125, making `regressed` unreachable at any effect size.
-      const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, (_, index) =>
-          percentToLogRatio(12 + index * 0.1)
-        )
-      );
-      const result = decideVerdict({
-        aggregate,
-        band,
-        look: 1,
-        mode: "paired",
-      });
-      expect(result.verdict).to.equal("regressed");
-      expect(result.magnitudeGate?.passed).to.equal(true);
-      expect(result.signGate?.passed).to.equal(true);
+  describe("noise calibration", () => {
+    it("accumulates establishment across independent jobs without a fixed pair count", () => {
+      expect(classifyBandStatus(1, 1)).to.equal("provisional");
+      expect(classifyBandStatus(3, 3)).to.equal("established");
+      expect(
+        classifyBandStatus(2, 2, {
+          provisionalIndependentJobs: 2,
+          establishedIndependentJobs: 2,
+          provisionalObservations: 2,
+          establishedObservations: 2,
+        })
+      ).to.equal("established");
     });
 
-    it("reports an improvement when arm B is faster", () => {
+    it("classifies the absolute 5% target and 10% resolvability boundary", () => {
+      const cases: readonly [number, CalibrationQuality][] = [
+        [targetNoiseBandPercent, "target"],
+        [5.01, "marginal"],
+        [9.99, "marginal"],
+        [10, "unresolvable"],
+        [15, "unresolvable"],
+      ];
+      for (const [percent, expected] of cases)
+        expect(classifyCalibrationQuality("established", percent)).to.equal(
+          expected
+        );
+      expect(classifyCalibrationQuality("uncalibrated", 1)).to.equal(
+        "uncalibrated"
+      );
+      expect(classifyCalibrationQuality("provisional", 1)).to.equal(
+        "uncalibrated"
+      );
+      const exactFivePercent = deriveNoiseBand(
+        makePool(Array.from({ length: 3 }, () => percentToLogRatio(5))),
+        1
+      );
+      expect(exactFivePercent.quality).to.equal("target");
+    });
+
+    it("derives the gate for the statistic sample size, not individual observations", () => {
+      const pool = makePool(normalPool(100, 0.03));
+      const atThree = deriveNoiseBand(pool, 3);
+      const atTwelve = deriveNoiseBand(pool, 12);
+      expect(atThree.band).to.be.lessThan(atThree.individualObservation95);
+      expect(atTwelve.band).to.be.lessThan(atThree.band);
+      expect(medianNullThreshold(pool.observations, 12)).to.equal(
+        atTwelve.band
+      );
+    });
+  });
+
+  describe("magnitude-led verdict", () => {
+    const targetBand = makeBand(4);
+
+    it("issues no verdict without established matching A/A data", () => {
       const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, (_, index) =>
-          percentToLogRatio(-(12 + index * 0.1))
-        )
+        Array.from({ length: 8 }, () => percentToLogRatio(30))
+      );
+      expect(decideVerdict({ aggregate, mode: "paired" }).verdict).to.equal(
+        "uncalibrated"
       );
       expect(
-        decideVerdict({ aggregate, band, look: 1, mode: "paired" }).verdict
+        decideVerdict({
+          aggregate,
+          band: makeBand(4, "provisional"),
+          mode: "paired",
+        }).verdict
+      ).to.equal("uncalibrated");
+    });
+
+    it("uses the 10% meaningful margin even when calibration is quieter", () => {
+      const belowMargin = aggregateLogRatios(
+        Array.from({ length: 8 }, () => percentToLogRatio(8))
+      );
+      const aboveMargin = aggregateLogRatios(
+        Array.from({ length: 8 }, () => percentToLogRatio(12))
+      );
+      expect(
+        decideVerdict({
+          aggregate: belowMargin,
+          band: targetBand,
+          mode: "paired",
+        }).verdict
+      ).to.not.equal("regressed");
+      expect(
+        decideVerdict({
+          aggregate: aboveMargin,
+          band: targetBand,
+          mode: "paired",
+        }).verdict
+      ).to.equal("regressed");
+      expect(defaultEquivalenceMarginPercent).to.equal(10);
+    });
+
+    it("applies a true +/-10% percentage boundary in both directions", () => {
+      const inside = aggregateLogRatios(
+        Array.from({ length: 8 }, () => percentToLogRatio(-9.5))
+      );
+      const outside = aggregateLogRatios(
+        Array.from({ length: 8 }, () => percentToLogRatio(-10.5))
+      );
+      expect(
+        decideVerdict({
+          aggregate: inside,
+          band: targetBand,
+          mode: "paired",
+        }).verdict
+      ).to.not.equal("improved");
+      expect(
+        decideVerdict({
+          aggregate: outside,
+          band: targetBand,
+          mode: "paired",
+        }).verdict
       ).to.equal("improved");
     });
 
-    it("refuses a verdict without a band", () => {
-      const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, () => percentToLogRatio(30))
+    it("does not conjunctively require strong sign agreement", () => {
+      const sixToTwo = aggregateLogRatios(
+        [40, 35, 30, 25, 20, 15, -2, -3].map(percentToLogRatio)
       );
-      const result = decideVerdict({ aggregate, look: 1, mode: "paired" });
-      expect(result.verdict).to.equal("uncalibrated");
+      const result = decideVerdict({
+        aggregate: sixToTwo,
+        band: targetBand,
+        mode: "paired",
+      });
+      expect(result.verdict).to.equal("regressed");
+      expect(result.signDiagnostic?.nearEven).to.equal(false);
     });
 
-    it("refuses a verdict below the minimum pair count", () => {
-      const aggregate = aggregateLogRatios([0.1, 0.1, 0.1]);
-      expect(
-        decideVerdict({ aggregate, band, look: 1, mode: "paired" }).verdict
-      ).to.equal("insufficient-pairs");
+    it("uses near-even signs as a disagreement and bimodality detector", () => {
+      const fiveToThree = aggregateLogRatios(
+        [60, 55, 50, 45, 40, -5, -6, -7].map(percentToLogRatio)
+      );
+      const result = decideVerdict({
+        aggregate: fiveToThree,
+        band: targetBand,
+        mode: "paired",
+      });
+      expect(result.magnitudeGate?.passed).to.equal(true);
+      expect(result.signDiagnostic?.nearEven).to.equal(true);
+      expect(result.verdict).to.equal("inconclusive");
+      expect(result.reason).to.match(/outliers|bimodality/);
     });
 
-    it("suppresses the verdict entirely on a validity failure", () => {
+    it("reports marginal calibration as informational rather than execution policy", () => {
       const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, () => percentToLogRatio(30))
+        Array.from({ length: 8 }, () => percentToLogRatio(20))
       );
       const result = decideVerdict({
         aggregate,
-        band,
-        look: 1,
+        band: makeBand(7),
+        mode: "paired",
+      });
+      expect(result.verdict).to.equal("regressed");
+      expect(result.evidence).to.equal("informational");
+      expect(result).to.not.have.property("mergeBlocking");
+    });
+
+    it("cannot establish equivalence when the band reaches 10%", () => {
+      const aggregate = aggregateLogRatios(
+        Array.from({ length: 8 }, (_, index) =>
+          percentToLogRatio(index % 2 === 0 ? 0.1 : -0.1)
+        )
+      );
+      const result = decideVerdict({
+        aggregate,
+        band: makeBand(10),
+        mode: "paired",
+      });
+      expect(result.verdict).to.equal("inconclusive");
+      expect(result.calibrationQuality).to.equal("unresolvable");
+      expect(result.reason).to.match(/cannot resolve/);
+    });
+
+    it("establishes equivalence inside the margin with resolving calibration", () => {
+      const aggregate = aggregateLogRatios(
+        Array.from({ length: 8 }, (_, index) =>
+          percentToLogRatio(index % 2 === 0 ? 0.1 : -0.1)
+        )
+      );
+      const result = decideVerdict({
+        aggregate,
+        band: targetBand,
+        mode: "paired",
+      });
+      expect(result.verdict).to.equal("unchanged");
+      expect(result.evidence).to.equal("actionable");
+    });
+
+    it("suppresses statistical outcomes on harness validity failure", () => {
+      const result = decideVerdict({
+        aggregate: aggregateLogRatios(
+          Array.from({ length: 8 }, () => percentToLogRatio(30))
+        ),
+        band: targetBand,
         mode: "paired",
         validityFailures: [
           { check: "semanticDigest", detail: "arms disagreed" },
         ],
       });
       expect(result.verdict).to.equal("invalid");
-    });
-
-    it("does not call a large split-sign result a regression", () => {
-      // Six of eight pairs agree. The median clears the band comfortably, but a direction that
-      // two pairs actively contradict is an outlier- or bimodality-driven effect, not the
-      // consistent shift the suite exists to detect. This is the failure mode the consistency
-      // gate is genuinely good at, and the reason it survived being demoted to a diagnostic.
-      const aggregate = aggregateLogRatios([
-        percentToLogRatio(60),
-        percentToLogRatio(55),
-        percentToLogRatio(50),
-        percentToLogRatio(45),
-        percentToLogRatio(40),
-        percentToLogRatio(35),
-        percentToLogRatio(-4),
-        percentToLogRatio(-6),
-      ]);
-      const result = decideVerdict({
-        aggregate,
-        band,
-        look: 1,
-        mode: "paired",
-      });
-      expect(result.verdict).to.equal("inconclusive");
-      expect(result.magnitudeGate?.passed).to.equal(true);
-      expect(result.signGate?.passed).to.equal(false);
-    });
-
-    it("recommends escalation only when signs failed while magnitude passed", () => {
-      const splitSigns = aggregateLogRatios([
-        percentToLogRatio(60),
-        percentToLogRatio(55),
-        percentToLogRatio(50),
-        percentToLogRatio(45),
-        percentToLogRatio(40),
-        percentToLogRatio(35),
-        percentToLogRatio(-4),
-        percentToLogRatio(-6),
-      ]);
-      expect(
-        decideVerdict({
-          aggregate: splitSigns,
-          band,
-          look: 1,
-          mode: "paired",
-        }).escalationRecommended
-      ).to.equal(true);
-
-      // Magnitude failed: escalation does not move a fixed threshold, so it is not recommended.
-      const tiny = aggregateLogRatios(
-        Array.from({ length: 8 }, () => percentToLogRatio(0.01))
-      );
-      expect(
-        decideVerdict({ aggregate: tiny, band, look: 1, mode: "paired" })
-          .escalationRecommended
-      ).to.equal(false);
-    });
-
-    it("never recommends escalation at the second look", () => {
-      const splitSigns = aggregateLogRatios([
-        ...Array.from({ length: 15 }, () => percentToLogRatio(25)),
-        percentToLogRatio(-4),
-      ]);
-      expect(
-        decideVerdict({
-          aggregate: splitSigns,
-          band,
-          look: 2,
-          mode: "paired",
-        }).escalationRecommended
-      ).to.equal(false);
-    });
-
-    it("cannot establish `unchanged` until an equivalence margin is declared", () => {
-      const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, (_, index) =>
-          percentToLogRatio(index % 2 === 0 ? 0.05 : -0.05)
-        )
-      );
-      const result = decideVerdict({
-        aggregate,
-        band,
-        look: 1,
-        mode: "paired",
-      });
-      expect(result.verdict).to.equal("inconclusive");
-      expect(result.reason).to.match(/equivalence margin/i);
-    });
-
-    it("establishes `unchanged` against a declared margin", () => {
-      const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, (_, index) =>
-          percentToLogRatio(index % 2 === 0 ? 0.05 : -0.05)
-        )
-      );
-      const result = decideVerdict({
-        aggregate,
-        band,
-        look: 1,
-        mode: "paired",
-        equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
-      });
-      expect(result.verdict).to.equal("unchanged");
-    });
-
-    it("declares the equivalence margin from domain relevance, not from the floor", () => {
-      // Nam's call, 10%. A margin is an ACTION threshold: `unchanged` asserts that any real change
-      // is below what we would act on, and a transformer regression under 10% is not one anyone
-      // opens work for. It is a fixed statement, so it must not move when the machine happens to be
-      // quiet or noisy -- that is the whole point of separating it from the band. Pinned so a later
-      // "tidy-up" cannot quietly re-derive it from the measurement, and so that its coincidental
-      // former agreement with the CV constant in BenchmarkReporter cannot be re-established by
-      // someone assuming the two are the same quantity. They are not.
-      expect(defaultEquivalenceMarginPercent).to.equal(10);
-      const quiet = deriveNoiseBand(makePool(normalPool(400, 0.005, 3)), 8);
-      const noisy = deriveNoiseBand(makePool(normalPool(400, 0.05, 3)), 8);
-      expect(noisy.band).to.be.greaterThan(quiet.band * 5);
-      for (const environment of [quiet, noisy]) {
-        const result = decideVerdict({
-          aggregate: aggregateLogRatios(
-            Array.from({ length: 8 }, (_, index) =>
-              percentToLogRatio(index % 2 === 0 ? 0.05 : -0.05)
-            )
-          ),
-          band: environment,
-          look: 1,
-          mode: "paired",
-          equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
-        });
-        // Same declared margin in both environments; only RESOLVABILITY differs.
-        expect(["unchanged", "inconclusive"]).to.contain(result.verdict);
-      }
-    });
-
-    it("pins the per-pair spread at which the declared margin becomes resolvable", () => {
-      // COMPARISON_STATISTICS.md §5.3 states the acceptance criterion for the first A/A run as
-      // `sigma_d <= 11.63%` at P = 8. That number is the product of two independently movable
-      // things -- the declared margin and the band coefficient c(P) -- so prose asserting it goes
-      // stale silently the moment either is tuned. Derived here from the shipped constants instead.
-      //
-      // This bar moved materially when the margin went 5% -> 10%: at 5% the criterion was
-      // sigma_d <= 5.96%, which sits INSIDE the range of single-run CVs already observed locally
-      // (2.17-6.43%), so `unchanged` was plausibly unreachable on the machines this suite runs on.
-      const margin = percentToLogRatio(defaultEquivalenceMarginPercent);
-      const unitPool = makePool(normalPool(4000, 1, 11));
-      const coefficient = deriveNoiseBand(unitPool, defaultPairs).band;
-      const maximumSigma = margin / coefficient;
-      expect(maximumSigma * 100).to.be.closeTo(11.63, 0.6);
-
-      // The criterion is a real boundary, not a label: just inside it the floor sits under the
-      // margin, and just outside it the margin is unresolvable and the honest answer is
-      // `inconclusive` -- reached by widening the noise, never by widening the margin.
-      const inside = deriveNoiseBand(
-        makePool(normalPool(4000, maximumSigma * 0.8, 11)),
-        defaultPairs
-      );
-      const outside = deriveNoiseBand(
-        makePool(normalPool(4000, maximumSigma * 1.25, 11)),
-        defaultPairs
-      );
-      expect(inside.band).to.be.lessThan(margin);
-      expect(outside.band).to.be.greaterThan(margin);
-
-      const aggregate = aggregateLogRatios(
-        Array.from({ length: defaultPairs }, (_, index) =>
-          percentToLogRatio(index % 2 === 0 ? 0.02 : -0.02)
-        )
-      );
-      const resolvable = decideVerdict({
-        aggregate,
-        band: inside,
-        look: 1,
-        mode: "paired",
-        equivalenceMargin: margin,
-      });
-      const unresolvable = decideVerdict({
-        aggregate,
-        band: outside,
-        look: 1,
-        mode: "paired",
-        equivalenceMargin: margin,
-      });
-      expect(resolvable.verdict).to.equal("unchanged");
-      expect(unresolvable.verdict).to.equal("inconclusive");
-      expect(unresolvable.reason).to.match(/below the measured noise floor/i);
-    });
-
-    it("refuses to widen a margin the environment cannot resolve", () => {
-      const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, () => percentToLogRatio(0.05))
-      );
-      const result = decideVerdict({
-        aggregate,
-        band,
-        look: 1,
-        mode: "paired",
-        equivalenceMargin: percentToLogRatio(0.01),
-      });
-      expect(result.verdict).to.equal("inconclusive");
-      expect(result.reason).to.match(/below the measured noise floor/i);
-    });
-
-    it("drops the sign gate for unpaired baseline comparison", () => {
-      const aggregate = aggregateLogRatios(
-        Array.from({ length: 8 }, (_, index) =>
-          percentToLogRatio(index % 2 === 0 ? 14 : 13)
-        )
-      );
-      const result = decideVerdict({
-        aggregate,
-        band,
-        look: 1,
-        mode: "unpaired",
-      });
-      expect(result.verdict).to.equal("regressed");
-      expect(result.signGate).to.equal(undefined);
+      expect(result.evidence).to.equal("descriptive");
     });
   });
 
-  describe("arm identity gate", () => {
-    it("accepts arms sharing one core-backend realpath", () => {
-      expect(() =>
-        assertArmCoreBackendIdentity(
-          "/pnpm/core-backend",
-          "/pnpm/core-backend",
-          "B"
+  describe("simulation", () => {
+    it("keeps null changes quiet and detects meaningful shifts without a sign gate", () => {
+      const pool = makePool(normalPool(120, 0.02, 11), 6);
+      const band = deriveNoiseBand(pool, 8);
+      expect(band.quality).to.equal("target");
+      const random = new SeededRandom(99);
+      let falsePositives = 0;
+      let detections = 0;
+      const trials = 1_000;
+      for (let trial = 0; trial < trials; trial++) {
+        const nullResult = decideVerdict({
+          aggregate: aggregateLogRatios(
+            Array.from({ length: 8 }, () => gaussian(random, 0, 0.02)),
+            { resamples: 20 }
+          ),
+          band,
+          mode: "paired",
+        });
+        if (
+          nullResult.verdict === "regressed" ||
+          nullResult.verdict === "improved"
         )
-      ).to.not.throw();
+          falsePositives++;
+
+        const shiftedResult = decideVerdict({
+          aggregate: aggregateLogRatios(
+            Array.from({ length: 8 }, () =>
+              gaussian(random, percentToLogRatio(15), 0.02)
+            ),
+            { resamples: 20 }
+          ),
+          band,
+          mode: "paired",
+        });
+        if (shiftedResult.verdict === "regressed") detections++;
+      }
+      expect(falsePositives / trials).to.be.lessThan(0.01);
+      expect(detections / trials).to.be.greaterThan(0.95);
+    });
+  });
+
+  describe("environment classification", () => {
+    it("is stable for identical descriptors and changes with material environment identity", () => {
+      const descriptor = {
+        platform: "linux",
+        arch: "x64",
+        cpuModel: "test cpu",
+        cpuCount: 8,
+        memoryGibBucket: 16,
+        nodeMajor: 24,
+        runner: "ubuntu",
+      };
+      const first = classifyEnvironment(descriptor);
+      expect(classifyEnvironment({ ...descriptor })).to.deep.equal(first);
+      expect(
+        classifyEnvironment({ ...descriptor, nodeMajor: 25 }).id
+      ).to.not.equal(first.id);
+    });
+  });
+
+  describe("isolated arm contracts", () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "comparison-arm-"));
     });
 
-    it("rejects a mismatched core-backend rather than recording it", () => {
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    function createArm(id: string, operation: "identity" | "fork-init") {
+      const root = path.join(tempDir, id);
+      fs.mkdirSync(root);
+      fs.writeFileSync(path.join(root, "index.js"), "module.exports = {};\n");
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({
+          version: "2.0.0",
+          main: "index.js",
+          peerDependencies: { "@itwin/core-backend": "^5.10.3" },
+        })
+      );
+      return resolveArmSpec({
+        id,
+        packageRoot: root,
+        operation,
+      });
+    }
+
+    it("resolves paths and manifests without importing arm modules", () => {
+      const arm = createArm("A", "identity");
+      expect(arm.transformerVersion).to.equal("2.0.0");
+      expect(arm.coreBackendPeerRange).to.equal("^5.10.3");
+      expect(arm.modulePath).to.equal(
+        fs.realpathSync(path.join(tempDir, "A", "index.js"))
+      );
+    });
+
+    it("requires the same operation from both arm specs", () => {
+      const armA = createArm("A", "identity");
+      const armB = createArm("B", "fork-init");
+      expect(() => assertArmSpecsComparable(armA, armB)).to.throw(
+        /different operations/
+      );
+    });
+
+    it("rejects a module path that escapes the declared package", () => {
+      const armRoot = path.join(tempDir, "A");
+      fs.mkdirSync(armRoot);
+      fs.writeFileSync(
+        path.join(tempDir, "outside.js"),
+        "module.exports = {};\n"
+      );
+      fs.writeFileSync(
+        path.join(armRoot, "package.json"),
+        JSON.stringify({
+          peerDependencies: { "@itwin/core-backend": "^5.10.3" },
+        })
+      );
       expect(() =>
-        assertArmCoreBackendIdentity(
-          "/pnpm/a/core-backend",
-          "/pnpm/b/core-backend",
-          "B"
-        )
+        resolveArmSpec({
+          id: "A",
+          packageRoot: armRoot,
+          modulePath: "../outside.js",
+          operation: "identity",
+        })
+      ).to.throw(/inside its package root/);
+    });
+
+    it("compares child-reported native dependency identities", () => {
+      const identity: ArmRuntimeIdentity = {
+        armId: "A",
+        transformerVersion: "2.0.0",
+        coreBackendVersion: "5.10.3",
+        coreBackendPackageHash: "abc",
+      };
+      expect(() =>
+        assertArmRuntimeComparable(identity, { ...identity, armId: "B" })
+      ).to.not.throw();
+      expect(() =>
+        assertArmRuntimeComparable(identity, {
+          ...identity,
+          armId: "B",
+          coreBackendPackageHash: "def",
+        })
       ).to.throw(/different @itwin\/core-backend/);
     });
   });
 
-  describe("arm module contract", () => {
-    // Compile-time proof of the superset claim: anything satisfying the weekly harness contract is
-    // already a valid quick arm. If this stops compiling, the two suites have diverged.
-    const existingArm: TestTransformerModule = {
-      async createIdentityTransform() {
-        return { run: async () => {} };
-      },
-    };
-    const asQuickArm: QuickArmModule = existingArm;
-
-    const stubDb = {} as IModelDb;
-
-    function resolvedArm(id: string, module: QuickArmModule): ResolvedArm {
-      return {
-        spec: { id, packageRoot: `/arms/${id}` },
-        module,
-        operations: armOperations(module),
-        transformerVersion: "2.0.0",
-        coreBackendVersion: "5.10.3",
-        coreBackendRealPath: "/pnpm/core-backend",
-      };
-    }
-
-    it("accepts an existing weekly-harness arm unchanged", () => {
-      expect(armOperations(asQuickArm)).to.deep.equal(["identity"]);
-    });
-
-    it("reports every operation an arm supplies, and only those", () => {
-      const arm: QuickArmModule = {
-        async createIdentityTransform() {
-          return { run: async () => {} };
-        },
-        async createChangeProcessingTransform() {
-          return { run: async () => {}, dispose: () => {} };
-        },
-      };
-      expect(armOperations(arm)).to.deep.equal([
-        "identity",
-        "change-processing",
-      ]);
-    });
-
-    it("refuses an operation the arm does not supply, naming what it does", async () => {
-      const arm = resolvedArm("A", asQuickArm);
-      let message = "";
-      try {
-        await createArmRunner(arm, "change-processing", stubDb, stubDb);
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).to.match(/does not implement/);
-      expect(message).to.contain("createChangeProcessingTransform");
-      // The error has to say what IS available, or the operator has to go read the arm.
-      expect(message).to.contain("identity");
-    });
-
-    it("records when an arm's teardown falls inside the measured region", async () => {
-      // The existing implementations dispose inside `run()`, so the arm rather than the harness
-      // sets the boundary of the timed region. Accepted, but never silently.
-      const withoutDispose = resolvedArm("legacy", asQuickArm);
-      const handle = await createArmRunner(
-        withoutDispose,
-        "identity",
-        stubDb,
-        stubDb
+  describe("reports", () => {
+    it("builds and writes JSON and Markdown with calibration and execution identity", () => {
+      const pool = makePool(normalPool(30, 0.02), 3);
+      const pairs = Array.from({ length: 8 }, (_, index) =>
+        collapsePair({
+          pair: index,
+          order: index % 2 === 0 ? "AB" : "BA",
+          armASamples: [100, 101, 102],
+          armBSamples: [112, 113, 114],
+        })
       );
-      expect(handle.teardownInMeasuredRegion).to.equal(true);
-
-      const withDispose = resolvedArm("modern", {
-        async createIdentityTransform() {
-          return { run: async () => {}, dispose: () => {} };
-        },
-      });
-      const clean = await createArmRunner(
-        withDispose,
-        "identity",
-        stubDb,
-        stubDb
-      );
-      expect(clean.teardownInMeasuredRegion).to.equal(false);
-    });
-
-    it("rejects a pair where either arm cannot run the operation", () => {
-      const capable = resolvedArm("A", {
-        async createChangeProcessingTransform() {
-          return { run: async () => {} };
-        },
-      });
-      const incapable = resolvedArm("B", asQuickArm);
-      expect(() =>
-        assertArmsComparable(capable, incapable, "change-processing")
-      ).to.throw(/Arm "B" cannot run/);
-      expect(() =>
-        assertArmsComparable(capable, capable, "change-processing")
-      ).to.not.throw();
-    });
-  });
-
-  describe("power characterization of the verdict rule", () => {
-    // A pool large enough that the band sits near its asymptote, so these figures describe the
-    // RULE rather than the sampling noise of a 24-pair calibration.
-    const pool = makePool(normalPool(4000, 1, 11));
-
-    it("derives a band near the asymptotic median-null value at P = 8", () => {
-      const band = deriveNoiseBand(pool, 8);
-      expect(band.band).to.be.closeTo(0.809, 0.03);
-      // The individual-pair diagnostic is 2.4x looser and does not shrink with P at all. Using it
-      // as the gate -- the A2 defect -- leaves the rule far more permissive than it claims.
-      expect(band.individualPair95).to.be.closeTo(1.964, 0.05);
-      expect(band.individualPair95).to.be.greaterThan(band.band * 2);
-    });
-
-    it("holds the false-positive rate under the 5% budget when nothing changed", () => {
-      const band = deriveNoiseBand(pool, 8);
-      const result = characterizePower(0, 8, band, 4000, 99);
-      // The OPERATIVE rate is the conjunction -- the rule that ships. Per-gate rates are
-      // diagnostics and are deliberately looser than this.
-      expect(result.detected).to.be.lessThan(0.05);
-      expect(result.magnitudeOnly).to.be.closeTo(0.05, 0.02);
-      expect(result.detected).to.be.lessThan(result.magnitudeOnly);
-    });
-
-    it("detects real effects, and detection increases with effect size", () => {
-      const band = deriveNoiseBand(pool, 8);
-      const at1 = characterizePower(band.band, 8, band, 4000, 99);
-      const at167 = characterizePower(1.67 * band.band, 8, band, 4000, 99);
-      const at2 = characterizePower(2 * band.band, 8, band, 4000, 99);
-
-      expect(at1.detected).to.be.within(0.25, 0.45);
-      // The declared 80% power point of the shipped rule. Report this, never the band, as the
-      // detectable effect -- the band is the ~35% point and calling it the MDE overstates it.
-      expect(at167.detected).to.be.within(0.72, 0.87);
-      expect(at2.detected).to.be.within(0.86, 0.97);
-
-      // Guards A1 directly: a threshold that excludes the exact achievable level makes `regressed`
-      // unreachable at EVERY effect size, so these collapse to zero rather than degrading.
-      expect(at2.detected).to.be.greaterThan(0.5);
-    });
-
-    it("keeps false positives bounded when the stored band is stale", () => {
-      // The reason the consistency gate is a gate and not a diagnostic. The magnitude gate is
-      // nonparametric in the SHAPE of the per-pair distribution but not in its SCALE, and bands
-      // are persisted and reused, so a comparison run noisier than its calibration run is the
-      // expected operating condition. Observed local CVs already span 2.17-6.43% on one machine
-      // class, so a 3x drift is roughly the real range rather than a worst case.
-      const band = deriveNoiseBand(pool, 8);
-      const drifts = [1, 1.5, 2, 3];
-      const combined = drifts.map(
-        (d) => characterizePower(0, 8, band, 4000, 99, d).detected
-      );
-      const magnitudeAlone = drifts.map(
-        (d) => characterizePower(0, 8, band, 4000, 99, d).magnitudeOnly
-      );
-
-      // Magnitude alone degrades towards a coin flip as the band goes stale...
-      expect(magnitudeAlone[magnitudeAlone.length - 1]).to.be.greaterThan(0.4);
-      // ...while the shipped conjunction stays near its nominal level, because the sign test's
-      // null is 50/50 under ANY zero-median distribution, whatever its spread.
-      for (const rate of combined) expect(rate).to.be.lessThan(0.1);
-      expect(combined[combined.length - 1]).to.be.lessThan(
-        magnitudeAlone[magnitudeAlone.length - 1] / 5
-      );
-    });
-
-    it("essentially never reports a change in the wrong direction", () => {
-      const band = deriveNoiseBand(pool, 8);
-      for (const mu of [1, 2]) {
-        const result = characterizePower(mu, 8, band, 4000, 99);
-        expect(result.wrongDirection).to.equal(0);
-      }
-    });
-
-    it("is limited by the sign gate, not the magnitude gate, near the band", () => {
-      const band = deriveNoiseBand(pool, 8);
-      const atBand = characterizePower(band.band, 8, band, 4000, 99);
-      // Both gates must hold, so the binding constraint is whichever fires less often. The
-      // consistency gate remains binding after being loosened to 7/8, which is what makes
-      // escalation worth anything: it relaxes the requirement to 12/16 AND re-derives a tighter
-      // band, and the consistency side is the one under strain.
-      expect(atBand.signOnly).to.be.lessThan(atBand.magnitudeOnly);
-      // Neither gate alone determines the outcome. After loosening, the two are far better
-      // balanced -- the conjunction is materially below BOTH marginals, which is exactly the
-      // regime where requiring both buys real protection rather than just costing power.
-      expect(atBand.detected).to.be.lessThan(atBand.signOnly);
-      expect(atBand.detected).to.be.lessThan(atBand.magnitudeOnly);
-      // The band is NOT the effect size the harness reliably catches -- detection there is about
-      // a third. Reporting the band as "the MDE" overstates detection more than twofold; the
-      // honest figure is the 80% point at 1.67x band.
-      expect(atBand.detected).to.be.within(0.25, 0.45);
-    });
-
-    it("has ~50% magnitude power at its own band for any P, which is an identity not a finding", () => {
-      // The band is the 95th percentile of the null median, and the median is centred on the true
-      // effect, so at `mu = band` the magnitude gate is a coin flip at EVERY pair count. Comparing
-      // that number across P appears to show escalation achieving nothing; it only shows that each
-      // P is being evaluated at a different effect size. Pinned so nobody re-derives that mistake.
-      for (const pairs of [8, 16]) {
-        const band = deriveNoiseBand(pool, pairs);
-        const atBand = characterizePower(band.band, pairs, band, 4000, 99);
-        expect(atBand.magnitudeOnly).to.be.closeTo(0.5, 0.05);
-      }
-    });
-
-    it("escalates rarely, so the expected budget is far below the worst case", () => {
-      // The planning number that matters. A3 narrowed the trigger to "consistency failed while
-      // magnitude passed", which is a much smaller set than `inconclusive`. Quoting 2x the budget
-      // as if every run escalated would overstate the cost of the common case by an order of
-      // magnitude -- and the common case is a weekly run where nothing changed.
-      const band = deriveNoiseBand(pool, 8);
-      const quiet = characterizePower(0, 8, band, 4000, 99);
-      expect(quiet.escalated).to.be.lessThan(0.05);
-
-      // Escalation concentrates where it is useful: a real effect large enough to clear the band
-      // but not yet unanimous in sign. That is the only place look 2 changes an outcome.
-      const borderline = characterizePower(1, 8, band, 4000, 99);
-      expect(borderline.escalated).to.be.greaterThan(quiet.escalated * 3);
-
-      // Expected cost per run, in units of the look-1 budget.
-      const expectedMultiplier = 1 + quiet.escalated;
-      expect(expectedMultiplier).to.be.lessThan(1.05);
-    });
-
-    it("still escalates when the margin is unresolvable but a change may be detectable", () => {
-      // Regression guard. A margin below the noise floor blocks `unchanged`, but change verdicts
-      // are decided against the BAND, never the margin -- so escalation must not be suppressed
-      // here. It helps twice: unanimity relaxes to 14/16, and the band tightens at P = 16, which
-      // can lift the floor back under the margin. This branch is live exactly where it hurts
-      // most: local macOS measured CV 2-6% against a declared 5% margin.
-      const band = deriveNoiseBand(pool, 8);
-      // Six of eight agreeing: clears the band, fails the 7/8 consistency requirement.
-      const split = [2.4, 2.5, 2.6, 2.45, 2.55, 2.5, -0.2, -0.3];
-      const result = decideVerdict({
-        aggregate: aggregateLogRatios(split),
-        band,
-        look: 1,
+      const band = deriveNoiseBand(pool, pairs.length);
+      const options: BuildComparisonReportOptions = {
+        scenarioId: pool.scenarioId,
+        fixtureId: pool.fixtureId,
+        recipeHash: pool.recipeHash,
         mode: "paired",
-        equivalenceMargin: percentToLogRatio(defaultEquivalenceMarginPercent),
-      });
-      expect(result.verdict).to.equal("inconclusive");
-      expect(result.magnitudeGate?.passed).to.equal(true);
-      expect(result.signGate?.passed).to.equal(false);
-      expect(result.escalationRecommended).to.equal(true);
-    });
+        environment: {
+          id: pool.environmentClass,
+          descriptor: {
+            platform: "test",
+            arch: "x64",
+            cpuModel: "test",
+            cpuCount: 8,
+            memoryGibBucket: 16,
+            nodeMajor: 24,
+            runner: "test",
+          },
+        },
+        execution,
+        armA: {
+          id: "A",
+          transformerVersion: "1",
+          coreBackendVersion: "5",
+        },
+        armB: {
+          id: "B",
+          transformerVersion: "2",
+          coreBackendVersion: "5",
+        },
+        pairs,
+        independentJobs: 8,
+        pool,
+        band,
+      };
+      const report = buildComparisonReport(options);
+      const markdown = renderComparisonReport(report);
+      expect(markdown).to.contain("# Quick performance comparison");
+      expect(markdown).to.contain("Execution fingerprint");
+      expect(markdown).to.contain("independent jobs");
+      expect(() =>
+        buildComparisonReport({ ...options, independentJobs: 1 })
+      ).to.throw(/execution fingerprint requires 1/);
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          execution: {
+            ...execution,
+            pairPolicy: {
+              kind: "unpaired",
+              armAObservationsPerJob: 1,
+              armBObservationsPerJob: 1,
+            },
+          },
+        })
+      ).to.throw(/distinct estimator/);
+      expect(() =>
+        buildComparisonReport({
+          ...options,
+          pool: undefined,
+          band: {
+            ...band,
+            key: { ...band.key, fixtureId: "unrelated-fixture" },
+          },
+        })
+      ).to.throw(/does not apply/);
 
-    it("improves substantially at the escalated pair count, at a fixed effect size", () => {
-      const at8 = deriveNoiseBand(pool, 8);
-      const at16 = deriveNoiseBand(pool, 16);
-      // The band is a function of P -- a stored scalar reused at a different P would be wrong.
-      expect(at16.band).to.be.lessThan(at8.band);
-
-      // Holding the true effect fixed is the only comparison that answers "is the extra run worth
-      // it". It is: detection roughly doubles.
-      const initial = characterizePower(at8.band, 8, at8, 4000, 99);
-      const escalated = characterizePower(at8.band, 16, at16, 4000, 99);
-      expect(escalated.detected).to.be.greaterThan(initial.detected * 1.6);
+      const outputDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "comparison-report-")
+      );
+      try {
+        writeComparisonReport(outputDir, report);
+        expect(fs.existsSync(path.join(outputDir, "comparison.json"))).to.equal(
+          true
+        );
+        expect(fs.existsSync(path.join(outputDir, "comparison.md"))).to.equal(
+          true
+        );
+      } finally {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+      }
     });
   });
 });
