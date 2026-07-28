@@ -61,7 +61,29 @@ export type ComparisonVerdict =
   | "insufficient-pairs"
   | "invalid";
 
-/** One declared target level per look; the agreement COUNT is derived from it exactly. */
+/**
+ * One declared target level per look; the agreement COUNT is derived from it exactly.
+ *
+ * CHANGING THIS MOVES EVERY POWER STATEMENT IN EVERY REPORT. The operative 80%-power point is a
+ * property of the CONJUNCTION of both gates, so it is a function of this constant:
+ *
+ * | consistency requirement | level | 80% power point | FP calibrated | FP at 3x band drift |
+ * |---|---|---|---|---|
+ * | none (magnitude only)   |   --  | 1.42x band | 4.88% | 50.97% |
+ * | 6/8                     | 0.30  | 1.46x band | 3.68% | 23.96% |
+ * | 7/8 (current)           | 0.10  | 1.67x band | 1.48% |  6.53% |
+ * | 8/8                     | 0.01  | 2.38x band | 0.24% |  0.83% |
+ *
+ * The coupling is invisible at the call sites, which is why it is written here. Quoting `1.42x` is
+ * correct ONLY if the consistency gate is removed entirely; under any AND rule it understates the
+ * detectable effect. Reports must derive the power point from the shipped rule rather than carry a
+ * literal, and `comparison.quick-unit.ts` pins the current value so a silent revert fails loudly.
+ *
+ * The rightmost column is why the gate is a gate and not a diagnostic: the magnitude gate is
+ * nonparametric in the SHAPE of the per-pair distribution but not in its SCALE, and bands are
+ * persisted and reused, so drift between calibration and comparison is the normal operating
+ * condition rather than an edge case. See COMPARISON_STATISTICS.md §4.5.
+ */
 export const signGateTargetLevel = 0.1;
 export const defaultPairs = 8;
 export const escalatedPairs = 16;
