@@ -1,8 +1,8 @@
 # Quick performance comparison — statistical specification
 
-Status: **reviewed; amended.** Revision 2 folds in review items A1, A2, A3, A5 and A6. One item remains open: the
-equivalence margin (§5.3) is a declared domain judgement and has not yet been supplied, so `unchanged` is currently
-unreachable by construction.
+Status: **reviewed; amended.** Revision 3 folds in review items A1, A2, A3, A5, A6, A8 and A9, and records the
+declared equivalence margin (§5.3) at **10%**. No review item is outstanding. What remains open is empirical, not
+editorial: no A/A band has been measured yet, so every verdict is `uncalibrated` until one exists (§7).
 
 Amendments in revision 2, all of which changed behaviour rather than wording:
 
@@ -13,6 +13,7 @@ Amendments in revision 2, all of which changed behaviour rather than wording:
 | A3 | Escalation is triggered only by consistency-failed-while-magnitude-passed, not by any `inconclusive`. §3.1 |
 | A5 | `k` is chosen from a pilot and frozen before calibration; it is not a budget lever afterwards. §1.3 |
 | A6 | The order-effect check runs on the accumulated pool at `>= 24` pairs, never per-run. §6.3 |
+| A4 | The practical equivalence margin is declared at **10%** as an action threshold, independent of the noise floor and independent of the `classifyVariance` constant. §5.3 |
 | A8 | Bands are keyed by `scenarioId + recipeHash + environmentClass`, not by environment alone. A lookup miss stays `uncalibrated`; bands never travel between scenarios. §7 |
 | A9 | The consistency gate is loosened from unanimity to `7/8` (`12/16` at look 2). Unanimity held the combined false-positive rate at 0.24% against a 5% budget while costing 1.7x in detectable effect. §4.5 |
 | — | The band is reported as a noise-floor scale with power annotated, never as "the MDE". §4.4 |
@@ -397,36 +398,48 @@ The margin is a domain judgement — "we do not act on anything under X%" — an
 derived**. Until one is declared, `unchanged` is unreachable by construction and the verdict is `inconclusive` with
 the reason recorded as no declared margin.
 
-**The declared margin is 5%** (`defaultEquivalenceMarginPercent`). `unchanged` therefore means "demonstrably smaller
-than 5%", which is a claim about relevance, not about how quiet the machine was.
+**The declared margin is 10%** (`defaultEquivalenceMarginPercent`). `unchanged` therefore means "demonstrably smaller
+than 10%", which is a claim about relevance, not about how quiet the machine was.
+
+The number is set by what the suite exists to act on. A margin is an **action threshold**: `unchanged` asserts "we
+looked, and any real change is below what we would act on". A transformer regression small enough to sit under 10% is
+not one anyone would open work for, so 10% is the honest statement of the claim. Set lower, `unchanged` stops being
+reachable on real hardware and every quiet week reports `inconclusive` — which does not make the suite more rigorous,
+it trains readers to ignore it.
 
 The report prints the **declared margin and the measured detectability side by side**, because their relationship is
 what tells the reader whether the run could have answered the question at all. Where the floor exceeds the margin, the
 environment cannot resolve what we care about, and that is stated rather than papered over.
 
-Note this 5% coincides with the existing `classifyVariance` constant (§9), which makes retiring that constant a
-clarification rather than the introduction of a second unexplained number. The two are **not** the same quantity: one
-is a declared relevance threshold on a *difference between arms*, the other is a hardcoded dispersion threshold on a
-*single run*. They agree numerically today by intention, and nothing may couple them.
+This margin shares **no derivation** with the 5% in `classifyVariance` (§9). That is a coefficient-of-variation
+threshold on within-run dispersion of a *single run*; this is a relevance threshold on the *median difference between
+arms*. They are different quantities on different scales, and an earlier draft of this document treated their former
+numerical agreement as supporting evidence. It was not — it was a coincidence. The two must never be coupled, and
+retiring the `classifyVariance` constant is an independent change.
 
 **If the declared margin falls below the measured noise floor, the output is `inconclusive`** with an explicit note
 that this environment cannot resolve the declared margin. The margin is never widened to make it reachable.
 
 Because the band scales with the per-pair spread, that condition reduces to a single checkable number. With
-`band = c(P) * sigma_d` and `margin = ln(1.05) = 0.0488`:
+`band = c(P) * sigma_d` and `margin = ln(1.10) = 0.0953`:
 
-| `P` | `c(P)` | margin resolvable iff |
-|---|---|---|
-| 8 | 0.809 | `sigma_d <= 6.03%` |
-| 16 | 0.587 | `sigma_d <= 8.31%` |
-| 24 | 0.478 | `sigma_d <= 10.21%` |
+| `P` | `c(P)` | margin resolvable iff | (at the former 5% margin) |
+|---|---|---|---|
+| 8 | 0.819 | **`sigma_d <= 11.63%`** | 5.96% |
+| 16 | 0.614 | `sigma_d <= 15.53%` | 7.95% |
+| 24 | 0.499 | `sigma_d <= 19.12%` | 9.79% |
 
 **This is the acceptance criterion for the first A/A run.** `sigma_d` is the per-pair spread of `ln(B/A)` *after*
 pairing has cancelled the common-mode component, so it is not the same quantity as the single-run CVs measured
-previously (1.03% hosted, 2.17-6.43% local) and should be smaller than them. If A/A returns `sigma_d` under about 6%,
-the declared margin is resolvable at the base pair count and `unchanged` is reachable. If it returns near or above
-that, the margin is not resolvable at `P = 8`, and the response is more pairs or a longer measured region — never a
-wider margin, and never a narrower band.
+previously (1.03% hosted, 2.17-6.43% local) and should be smaller than them.
+
+The margin decision moved this bar materially. At 5% the criterion was `sigma_d <= 5.96%`, which sits *inside* the
+range of single-run CVs already observed locally — so `unchanged` would plausibly have been unreachable on the
+machines this suite actually runs on, before pairing was even credited. At 10% the bar is 11.63%, comfortably above
+the worst observed single-run CV, so the A/A run is now expected to clear it rather than expected to fail it. That
+does not license assuming the result: if A/A returns `sigma_d` near or above 11.63%, the margin is not resolvable at
+`P = 8`, and the response is more pairs or a longer measured region — never a wider margin, and never a narrower
+band.
 
 ### 5.4 Everything else
 
@@ -603,6 +616,11 @@ tuning preference.
 Once an A/A band exists for an environment class, the stability judgement is made against that band. The hardcoded
 constant is retired or environment-scoped at that point, and not before — removing it earlier would leave no
 stability signal at all.
+
+This retirement is **independent of the equivalence margin** (§5.3), despite an earlier draft of this document
+implying otherwise while both numbers read 5%. They were never the same quantity — one is a dispersion threshold on a
+single run, the other a relevance threshold on a between-arm median — and now that the margin is 10% the coincidence
+is gone. Nothing in this section is evidence about the margin, and nothing in §5.3 is evidence about this constant.
 
 ---
 
