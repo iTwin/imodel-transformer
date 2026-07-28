@@ -113,18 +113,19 @@ export const balancedIncrementalSourceOnlyDescriptor: DatasetDescriptor = {
  * Region sizes are derived from `base.elements` by `scanRegionSizes`; see `recipes/updateHeavyScan`
  * for what each region proves.
  *
- * Calibrated at 2,420 elements x 20 changesets: the scan measures ~2.15 s with a coefficient of
- * variation of 2.4% over 8 samples, against ~44 ms of per-sample copy, verification and teardown.
- * Scan cost is linear in changed rows at roughly 48 ms per (1,000 elements x changeset), so the
+ * Calibrated at 3,520 elements x 20 changesets: the scan measures ~3.46 s with a coefficient of
+ * variation of 1.0% over 8 samples, against ~51 ms of per-sample copy, verification and teardown.
+ * Scan cost is linear in changed rows at roughly 49 ms per (1,000 elements x changeset), so the
  * shape is a single `scanScale` knob.
  *
  * The size is bounded by comparison mode rather than by a single run. One run is 9 executions and
- * finishes in well under a minute, but an A/B comparison at its escalated width is 128 executions,
- * where the build cost amortizes away and the per-execution cost is all that matters. This shape
- * keeps that case inside a 15 minute budget with roughly 3x headroom for slower CI hardware; a
- * larger shape would measure the same thing no better and fit the escalated case worse.
+ * finishes in well under a minute (measured: 52 s including the 19.3 s build), but an A/B
+ * comparison at its escalated width is 128 executions, where the build cost amortizes away and the
+ * per-execution cost is all that matters. This shape keeps that case inside a 15 minute budget with
+ * roughly 2x headroom for slower CI hardware; a larger shape would measure the same thing no better
+ * and fit the escalated case worse.
  */
-const scanScale = 11;
+const scanScale = 16;
 const scanDistribution = {
   base: {
     // Region A (updated throughout) plus region B (updated, then deleted last).
