@@ -10,6 +10,9 @@
     "test": "mocha --delay --timeout 300000 --require ts-node/register test/**/*.test.ts",
     "format": "prettier \"./test/**/*.ts\" --write",
     "test-mocha": "mocha --delay --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
+    "test:quick": "mocha --timeout 900000 --require ts-node/register test/quick/QuickPerformance.quick.ts",
+    "quick:build-fixture": "ts-node test/quick/cli.ts build-fixture",
+    "quick:verify-fixture": "ts-node test/quick/cli.ts verify-fixture",
     "process-reports": "node scripts/process-reports"
   },
   "repository": {},
