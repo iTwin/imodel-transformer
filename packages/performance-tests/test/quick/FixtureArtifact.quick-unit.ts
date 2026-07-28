@@ -330,6 +330,8 @@ describe("recipe data across the stage boundary", () => {
         );
         return emitted;
       },
+      validate: async (db, forDescriptor) =>
+        balancedIncrementalRecipe.validate(db, forDescriptor),
     });
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-recipe-data-"));
     await startIsolatedHost();
@@ -415,6 +417,8 @@ describe("recipe data that cannot survive JSON", () => {
         );
         return { elements: { deleteIds: new Set(["0x20", "0x21"]) } };
       },
+      validate: async (db, forDescriptor) =>
+        balancedIncrementalRecipe.validate(db, forDescriptor),
     });
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-bad-recipe-"));
     await startIsolatedHost();

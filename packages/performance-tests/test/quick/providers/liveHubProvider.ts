@@ -14,7 +14,6 @@ import {
   ReconstructedHub,
   reconstructHub,
 } from "../LocalHubFixture";
-import { assertFixtureDistribution } from "../validation/validateFixture";
 
 /**
  * The `source-and-empty-target` topology.
@@ -69,7 +68,7 @@ export const liveHubFixtureProvider: FixtureProvider = {
         descriptor,
         recipeState
       );
-      await assertFixtureDistribution(hub.sourceDb, descriptor);
+      await recipe.validate(hub.sourceDb, descriptor);
       return {
         topology: "source-and-empty-target",
         descriptor,

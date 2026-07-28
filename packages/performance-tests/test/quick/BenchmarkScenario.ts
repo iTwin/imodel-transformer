@@ -27,19 +27,28 @@ export interface BenchmarkScenarioCapabilities {
   readonly requiredClaims?: readonly string[];
 }
 
+export const defaultScenarioBudgetMilliseconds = 15 * 60 * 1000;
+
 export interface BenchmarkScenarioDefinition {
   readonly id: string;
   readonly defaultFixtureId: string;
   readonly capabilities: BenchmarkScenarioCapabilities;
   readonly factory: BenchmarkScenarioFactory;
-  /** Wall-clock budget for the whole run, in milliseconds. */
+  /**
+   * Wall time allowed for the measured run, excluding checkout, install and build.
+   * Defaults to {@link defaultScenarioBudgetMilliseconds}.
+   */
   readonly budgetMilliseconds?: number;
 }
 
-export const defaultScenarioBudgetMilliseconds = 15 * 60 * 1000;
-
 export function scenarioBudgetMilliseconds(
-  scenario: BenchmarkScenarioDefinition
+  definition: BenchmarkScenarioDefinition
 ): number {
-  return scenario.budgetMilliseconds ?? defaultScenarioBudgetMilliseconds;
+  const budget =
+    definition.budgetMilliseconds ?? defaultScenarioBudgetMilliseconds;
+  if (!Number.isFinite(budget) || budget <= 0)
+    throw new Error(
+      `Scenario "${definition.id}" declares an invalid budget: ${budget}`
+    );
+  return budget;
 }

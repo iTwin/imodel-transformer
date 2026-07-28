@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { BenchmarkScenarioDefinition } from "./BenchmarkScenario";
+import { changesetScanningScenario } from "./scenarios/changesetScanning";
 import { incrementalSynchronizationScenario } from "./scenarios/incrementalSynchronization";
 
 export const defaultQuickPerformanceScenarioId =
@@ -11,6 +12,7 @@ export const defaultQuickPerformanceScenarioId =
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>([
   [incrementalSynchronizationScenario.id, incrementalSynchronizationScenario],
+  [changesetScanningScenario.id, changesetScanningScenario],
 ]);
 
 export function registerScenarioDefinition(

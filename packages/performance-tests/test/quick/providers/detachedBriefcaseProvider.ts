@@ -37,7 +37,6 @@ import {
   reconstructSourceHub,
   shutdownHubMock,
 } from "../LocalHubFixture";
-import { assertFixtureDistribution } from "../validation/validateFixture";
 
 /**
  * Tolerant teardown for a build that may have failed at any point. Collects errors rather than
@@ -120,7 +119,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
         descriptor,
         recipeState
       );
-      await assertFixtureDistribution(hub.sourceDb, descriptor);
+      await recipe.validate(hub.sourceDb, descriptor);
 
       fs.mkdirSync(scratchDir, { recursive: true });
       const downloaded = await BriefcaseManager.downloadChangesets({

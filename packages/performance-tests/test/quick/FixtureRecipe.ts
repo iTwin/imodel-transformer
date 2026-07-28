@@ -11,6 +11,14 @@ import {
   BalancedRecipeState,
   createBalancedSeed,
 } from "./recipes/balancedIncremental";
+import {
+  applyScanChangesets,
+  createScanSeed,
+  ScanRecipeState,
+  validateScanFixture,
+} from "./recipes/updateHeavyScan";
+import { assertFixtureDistribution } from "./validation/validateFixture";
+import { ScanLedgerEntry } from "./validation/scanOracle";
 
 /**
  * A recipe produces the *change mix* for a fixture: it seeds the source iModel and then applies a
@@ -40,6 +48,14 @@ export interface FixtureRecipe<TState = unknown, TArtifactData = unknown> {
     descriptor: DatasetDescriptor,
     state: TState
   ): Promise<TArtifactData | void>;
+  /**
+   * Assert the built source iModel matches what the descriptor promises.
+   *
+   * Validation is recipe-owned because it is inherently recipe-specific: it queries the classes the
+   * recipe created. A single shared check would either be limited to what every recipe has in
+   * common, or silently wrong for every recipe but one.
+   */
+  validate(db: BriefcaseDb, descriptor: DatasetDescriptor): Promise<void>;
 }
 
 export const balancedIncrementalRecipe: FixtureRecipe<BalancedRecipeState> = {
@@ -48,10 +64,24 @@ export const balancedIncrementalRecipe: FixtureRecipe<BalancedRecipeState> = {
     createBalancedSeed(fileName, descriptor),
   applySourceChangesets: async (db, accessToken, descriptor, state) =>
     applyBalancedChangesets(db, accessToken, descriptor, state),
+  validate: async (db, descriptor) => assertFixtureDistribution(db, descriptor),
+};
+
+export const updateHeavyScanRecipe: FixtureRecipe<
+  ScanRecipeState,
+  readonly ScanLedgerEntry[]
+> = {
+  id: "update-heavy-scan",
+  createSeed: async (fileName, descriptor) =>
+    createScanSeed(fileName, descriptor),
+  applySourceChangesets: async (db, accessToken, descriptor, state) =>
+    applyScanChangesets(db, accessToken, descriptor, state),
+  validate: async (db, descriptor) => validateScanFixture(db, descriptor),
 };
 
 const recipes = new Map<string, FixtureRecipe<any, any>>([
   [balancedIncrementalRecipe.id, balancedIncrementalRecipe],
+  [updateHeavyScanRecipe.id, updateHeavyScanRecipe],
 ]);
 
 export function registerFixtureRecipe(recipe: FixtureRecipe<any, any>): void {

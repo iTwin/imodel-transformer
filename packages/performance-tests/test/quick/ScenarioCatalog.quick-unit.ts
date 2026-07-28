@@ -5,6 +5,10 @@
 
 import { expect } from "chai";
 import {
+  defaultScenarioBudgetMilliseconds,
+  scenarioBudgetMilliseconds,
+} from "./BenchmarkScenario";
+import {
   defaultQuickPerformanceScenarioId,
   getScenarioDefinition,
 } from "./ScenarioCatalog";
@@ -17,6 +21,30 @@ describe("quick performance scenario catalog", () => {
     expect(defaultQuickPerformanceScenarioId).to.equal(
       "incremental-synchronization"
     );
+  });
+
+  it("defaults the budget when a scenario does not declare one", () => {
+    expect(scenarioBudgetMilliseconds(getScenarioDefinition())).to.equal(
+      defaultScenarioBudgetMilliseconds
+    );
+  });
+
+  it("honours a declared budget", () => {
+    expect(
+      scenarioBudgetMilliseconds({
+        ...getScenarioDefinition(),
+        budgetMilliseconds: 1000,
+      })
+    ).to.equal(1000);
+  });
+
+  it("rejects a non-positive budget", () => {
+    expect(() =>
+      scenarioBudgetMilliseconds({
+        ...getScenarioDefinition(),
+        budgetMilliseconds: 0,
+      })
+    ).to.throw(/invalid budget/);
   });
 
   it("rejects unknown scenarios", () => {

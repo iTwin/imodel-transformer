@@ -108,7 +108,10 @@ async function queryGeometryRecords(db: BriefcaseDb): Promise<unknown[]> {
   return values;
 }
 
-async function queryCount(db: BriefcaseDb, ecsql: string): Promise<number> {
+export async function queryCount(
+  db: BriefcaseDb,
+  ecsql: string
+): Promise<number> {
   const reader = db.createQueryReader(ecsql, undefined, {
     usePrimaryConn: true,
   });

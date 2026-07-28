@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - changeset-scanning
       fixture:
         description: Fixture id (blank uses the scenario's default)
         required: false
@@ -54,6 +55,7 @@ jobs:
             --require ts-node/register \
             test/quick/FixtureManifest.quick-unit.ts \
             test/quick/ScenarioCatalog.quick-unit.ts \
+            test/quick/scanOracle.quick-unit.ts \
             test/quick/BenchmarkResolution.quick-unit.ts \
             test/quick/statistics.quick-unit.ts \
             test/quick/LocalHubFixture.quick-unit.ts \
@@ -88,6 +90,7 @@ jobs:
             "### Quick performance reliability",
             `Scenario: **${summary.scenarioId}**`,
             `Status: **${summary.varianceStatus}**`,
+            `Transformer: ${summary.versions?.transformer} / core-backend: ${summary.versions?.coreBackend} / node: ${summary.versions?.node}`,
             `CV: ${summary.wallMilliseconds.coefficientOfVariation}`,
             `Normalized MAD: ${summary.wallMilliseconds.normalizedMad}`,
             `Unstable samples: ${summary.unstableSamples.join(", ")}`,
