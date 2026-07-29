@@ -116,7 +116,7 @@ export class ElementAspectCleanup {
     ]) {
       while (true) {
         const params = new QueryBinder().bindIdSet("elementIds", ids);
-        let whereClause = "InVirtualSet(:elementIds, Element.Id)";
+        let whereClause = "TRUE";
         if (provenanceScopeId !== undefined) {
           params.bindId("provenanceScopeId", provenanceScopeId);
           whereClause += ` AND ECInstanceId NOT IN (
@@ -135,13 +135,15 @@ export class ElementAspectCleanup {
 
         // onDeleteElementAspect only needs id/classFullName/owner id, so select exactly
         // those instead of the concrete class's own properties.
-        const query = `SELECT ECInstanceId as id,
-            (ec_className(ECClassId, 's')) as schemaName,
-            (ec_className(ECClassId, 'c')) as className,
-            Element.Id as elementId
-          FROM ${aspectClassFullName}
+        const query = `SELECT aspect.ECInstanceId as id,
+            (ec_className(aspect.ECClassId, 's')) as schemaName,
+            (ec_className(aspect.ECClassId, 'c')) as className,
+            aspect.Element.Id as elementId
+          FROM ${aspectClassFullName} aspect
+          INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
           WHERE ${whereClause}
-          LIMIT ${pageSize}`;
+          LIMIT ${pageSize}
+          OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
         // Drain the full page before deleting: mutating a table while a reader is still
         // scanning it is unsafe.
         const candidates: ElementAspectProps[] = [];

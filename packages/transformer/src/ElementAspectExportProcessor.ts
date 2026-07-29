@@ -241,17 +241,22 @@ export class ElementAspectExportProcessor {
 
       const classFullName = `${schemaName}:${className}`;
       const queryParams = new QueryBinder().bindId("classId", classId);
-      const elementFilter =
+      const fromClause =
         queryElementIds === undefined
-          ? ""
-          : " AND InVirtualSet(:elementIds, Element.Id)";
+          ? `[${schemaName}]:[${className}] aspect`
+          : `[${schemaName}]:[${className}] aspect
+             INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id`;
       if (queryElementIds !== undefined) {
         queryParams.bindIdSet("elementIds", queryElementIds);
       }
+      const queryOptions =
+        queryElementIds === undefined
+          ? ""
+          : " OPTIONS ENABLE_EXPERIMENTAL_FEATURES";
       const aspectQueryReader = this._sourceDb.createQueryReader(
-        `SELECT * FROM [${schemaName}]:[${className}]
-         WHERE ECClassId = :classId${elementFilter}
-         ORDER BY Element.Id, ECInstanceId`,
+        `SELECT aspect.* FROM ${fromClause}
+         WHERE aspect.ECClassId = :classId
+         ORDER BY aspect.Element.Id, aspect.ECInstanceId${queryOptions}`,
         queryParams,
         // eslint-disable-next-line @typescript-eslint/no-deprecated
         { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }

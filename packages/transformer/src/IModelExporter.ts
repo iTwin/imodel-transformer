@@ -1338,7 +1338,8 @@ export class IModelExporter {
                 ec_className(e.ECClassId, 's') schemaName,
                 ec_className(e.ECClassId, 'c') className
          FROM bis.Element e
-         WHERE InVirtualSet(:elementIds, e.ECInstanceId)`,
+         INNER JOIN IdSet(:elementIds) ids ON ids.id = e.ECInstanceId
+         OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
         queryParams,
         { usePrimaryConn: true }
       )) {
@@ -1357,7 +1358,8 @@ export class IModelExporter {
         for await (const row of this.sourceDb.createQueryReader(
           `SELECT g.ECInstanceId id, g.Category.Id categoryId
            FROM bis.GeometricElement g
-           WHERE InVirtualSet(:elementIds, g.ECInstanceId)`,
+           INNER JOIN IdSet(:elementIds) ids ON ids.id = g.ECInstanceId
+           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
           categoryQueryParams,
           { usePrimaryConn: true }
         )) {
@@ -1387,9 +1389,10 @@ export class IModelExporter {
           modelIdBatch
         );
         for await (const row of this.sourceDb.createQueryReader(
-          `SELECT ECInstanceId id, ParentModel.Id parentModelId, IsTemplate isTemplate
-           FROM bis.Model
-           WHERE InVirtualSet(:modelIds, ECInstanceId)`,
+          `SELECT model.ECInstanceId id, model.ParentModel.Id parentModelId, model.IsTemplate isTemplate
+           FROM bis.Model model
+           INNER JOIN IdSet(:modelIds) ids ON ids.id = model.ECInstanceId
+           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
           queryParams,
           { usePrimaryConn: true }
         )) {

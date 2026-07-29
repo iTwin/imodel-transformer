@@ -397,13 +397,16 @@ export class ChangedInstanceIds {
 
     const ecQuery = `
     WITH RECURSIVE hierarchy (parentId) AS (
-        SELECT Model.Id FROM bis.Element WHERE InVirtualSet(:elementIds, ECInstanceId)
+        SELECT element.Model.Id
+        FROM bis.Element element
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
         UNION
         SELECT ParentModel.id
         FROM bis.Model e
             INNER JOIN hierarchy h ON h.parentId = e.ECInstanceId
         )
         SELECT parentId FROM hierarchy where parentId is not null
+        OPTIONS ENABLE_EXPERIMENTAL_FEATURES
     `;
     const parentModelIds = new Set<Id64String>();
     for await (const row of this._db.createQueryReader(ecQuery, params, {
@@ -426,9 +429,16 @@ export class ChangedInstanceIds {
     relationshipClassName: string,
     elementIds: Id64Set
   ) {
-    const ecQuery = `SELECT ECInstanceId FROM ${relationshipClassName}
-        WHERE InVirtualSet(:elementIds, TargetECInstanceId)
-        OR InVirtualSet(:elementIds, SourceECInstanceId)`;
+    const ecQuery = `SELECT relationship.ECInstanceId
+        FROM ${relationshipClassName} relationship
+        INNER JOIN IdSet(:elementIds) ids
+          ON ids.id = relationship.TargetECInstanceId
+        UNION
+        SELECT relationship.ECInstanceId
+        FROM ${relationshipClassName} relationship
+        INNER JOIN IdSet(:elementIds) ids
+          ON ids.id = relationship.SourceECInstanceId
+        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
 
     const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
@@ -445,7 +455,10 @@ export class ChangedInstanceIds {
       ElementUniqueAspect.classFullName,
       ElementMultiAspect.classFullName,
     ]) {
-      const ecQuery = `Select ECInstanceId, Element.Id from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
+      const ecQuery = `SELECT aspect.ECInstanceId, aspect.Element.Id
+        FROM ${aspectClassName} aspect
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
+        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
       const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
       const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
         usePrimaryConn: true,
