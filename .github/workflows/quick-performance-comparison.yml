@@ -136,6 +136,7 @@ jobs:
           pnpm --dir harness install --frozen-lockfile
           pnpm --dir harness/packages/transformer build:cjs
           pnpm --dir harness/packages/performance-tests build
+          pnpm --dir harness/packages/performance-tests build:quick-cli
           pnpm --dir calibration install --frozen-lockfile
           pnpm --dir calibration/packages/transformer build:cjs
 
@@ -238,6 +239,7 @@ jobs:
           pnpm --dir harness install --frozen-lockfile
           pnpm --dir harness/packages/transformer build:cjs
           pnpm --dir harness/packages/performance-tests build
+          pnpm --dir harness/packages/performance-tests build:quick-cli
 
       - name: Download A/A observations
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -347,6 +349,7 @@ jobs:
           pnpm --dir harness install --frozen-lockfile
           pnpm --dir harness/packages/transformer build:cjs
           pnpm --dir harness/packages/performance-tests build
+          pnpm --dir harness/packages/performance-tests build:quick-cli
           pnpm --dir baseline install --frozen-lockfile
           pnpm --dir baseline/packages/transformer build:cjs
           pnpm --dir candidate install --frozen-lockfile

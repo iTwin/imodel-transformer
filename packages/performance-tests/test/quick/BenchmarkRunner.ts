@@ -15,6 +15,7 @@ import {
 import { DatasetDescriptor, FixtureTopology } from "./DatasetDescriptor";
 import { PreparedDataset } from "./FixtureMaterializer";
 import { FixtureProvider, getFixtureProvider } from "./FixtureProvider";
+import { quickSourcePath } from "./quickPaths";
 
 export const benchmarkOutputMarkerName =
   ".imodel-transformer-quick-performance";
@@ -52,7 +53,7 @@ function isStrictDescendant(candidate: string, root: string): boolean {
 export function assertSafeBenchmarkOutputPath(outputDir: string): void {
   const candidate = resolveThroughExistingAncestor(outputDir);
   const allowedRoots = [
-    path.join(__dirname, ".quick-output"),
+    quickSourcePath(".quick-output"),
     os.tmpdir(),
     process.platform === "win32" ? undefined : "/tmp",
     process.env.RUNNER_TEMP,

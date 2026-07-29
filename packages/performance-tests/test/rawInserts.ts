@@ -18,6 +18,7 @@ import { generateTestIModel } from "./iModelUtils";
 import { count, initOutputFile, timed } from "./TestUtils";
 import assert from "node:assert";
 import path from "node:path";
+import { runWithCleanup } from "./Cleanup";
 
 const loggerCategory = "Raw Inserts";
 const outputDir = path.join(__dirname, ".output");
@@ -31,108 +32,121 @@ export default async function rawInserts(
   reporter: Reporter,
   branchName: string
 ) {
-  Logger.logInfo(loggerCategory, "starting 150k entity inserts");
+  let sourceDb: StandaloneDb | undefined;
+  let targetDb: SnapshotDb | undefined;
+  let targetNoProvDb: SnapshotDb | undefined;
+  await runWithCleanup(async () => {
+    Logger.logInfo(loggerCategory, "starting 150k entity inserts");
 
-  let testIModel: TestIModel | undefined;
-  const [insertsTimer] = timed(() => {
-    testIModel = generateTestIModel({
-      numElements: 100_000,
-      fedGuids: true,
-      fileName: "RawInserts-source.bim",
+    let testIModel: TestIModel | undefined;
+    const [insertsTimer] = timed(() => {
+      testIModel = generateTestIModel({
+        numElements: 100_000,
+        fedGuids: true,
+        fileName: "RawInserts-source.bim",
+      });
     });
-  });
 
-  if (testIModel === undefined)
-    throw Error("Generated iModel not correctly defined"); // needed because TS does not know that timer will run before insertsTimer
-  const fileName = await testIModel.getFileName();
-  const sourceDb = StandaloneDb.openFile(fileName, OpenMode.ReadWrite);
+    if (testIModel === undefined)
+      throw Error("Generated iModel not correctly defined");
+    const fileName = await testIModel.getFileName();
+    sourceDb = StandaloneDb.openFile(fileName, OpenMode.ReadWrite);
 
-  reporter.addEntry(
-    "populate by insert",
-    iModelName,
-    "time elapsed (seconds)",
-    insertsTimer?.elapsedSeconds ?? -1,
+    reporter.addEntry(
+      "populate by insert",
+      iModelName,
+      "time elapsed (seconds)",
+      insertsTimer?.elapsedSeconds ?? -1,
+      {
+        "Element Count": count(sourceDb, Element.classFullName),
+        "Relationship Count": count(
+          sourceDb,
+          ElementGroupsMembers.classFullName
+        ),
+        "Branch Name": branchName,
+      }
+    );
+
+    Logger.logInfo(
+      loggerCategory,
+      "Done. Starting with-provenance transformation of same content"
+    );
+
+    const targetPath = initOutputFile("RawInserts-Target.bim", outputDir);
+    targetDb = SnapshotDb.createEmpty(targetPath, {
+      rootSubject: { name: "RawInsertsTarget" },
+    });
+    const withProvEditTxn = new EditTxn(targetDb, "IModelTransformer");
+    withProvEditTxn.start();
+    const transformerWithProv = new IModelTransformer(
+      { source: sourceDb, target: withProvEditTxn },
+      { noProvenance: false }
+    );
+
+    const [transformWithProvTimer] = await timed(async () => {
+      await transformerWithProv.process();
+    });
+    withProvEditTxn.end();
+
+    reporter.addEntry(
+      "populate by transform (adding provenance)",
+      iModelName,
+      "time elapsed (seconds)",
+      transformWithProvTimer?.elapsedSeconds ?? -1,
+      {
+        "Element Count": count(sourceDb, Element.classFullName),
+        "Relationship Count": count(
+          sourceDb,
+          ElementGroupsMembers.classFullName
+        ),
+        "Branch Name": branchName,
+      }
+    );
+
+    Logger.logInfo(
+      loggerCategory,
+      "Done. Starting without-provenance transformation of same content"
+    );
+
+    const targetNoProvPath = initOutputFile(
+      "RawInserts-TargetNoProv.bim",
+      outputDir
+    );
+    targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, {
+      rootSubject: { name: "RawInsertsTarget" },
+    });
+    const noProvEditTxn = new EditTxn(targetNoProvDb, "IModelTransformer");
+    noProvEditTxn.start();
+    const transformerNoProv = new IModelTransformer(
+      { source: sourceDb, target: noProvEditTxn },
+      { noProvenance: true }
+    );
+
+    const [transformNoProvTimer] = await timed(async () => {
+      await transformerNoProv.process();
+    });
+    noProvEditTxn.end();
+
+    reporter.addEntry(
+      "populate by transform",
+      iModelName,
+      "time elapsed (seconds)",
+      transformNoProvTimer?.elapsedSeconds ?? -1,
+      {
+        "Element Count": count(sourceDb, Element.classFullName),
+        "Relationship Count": count(
+          sourceDb,
+          ElementGroupsMembers.classFullName
+        ),
+        "Branch Name": branchName,
+      }
+    );
+  }, [
     {
-      "Element Count": count(sourceDb, Element.classFullName),
-      "Relationship Count": count(sourceDb, ElementGroupsMembers.classFullName),
-      "Branch Name": branchName,
-    }
-  );
-
-  Logger.logInfo(
-    loggerCategory,
-    "Done. Starting with-provenance transformation of same content"
-  );
-
-  const targetPath = initOutputFile("RawInserts-Target.bim", outputDir);
-  const targetDb = SnapshotDb.createEmpty(targetPath, {
-    rootSubject: { name: "RawInsertsTarget" },
-  });
-  const withProvEditTxn = new EditTxn(targetDb, "IModelTransformer");
-  withProvEditTxn.start();
-  const transformerWithProv = new IModelTransformer(
-    { source: sourceDb, target: withProvEditTxn },
-    {
-      noProvenance: false,
-    }
-  );
-
-  const [transformWithProvTimer] = await timed(async () => {
-    await transformerWithProv.process();
-  });
-  withProvEditTxn.end();
-
-  reporter.addEntry(
-    "populate by transform (adding provenance)",
-    iModelName,
-    "time elapsed (seconds)",
-    transformWithProvTimer?.elapsedSeconds ?? -1,
-    {
-      "Element Count": count(sourceDb, Element.classFullName),
-      "Relationship Count": count(sourceDb, ElementGroupsMembers.classFullName),
-      "Branch Name": branchName,
-    }
-  );
-
-  Logger.logInfo(
-    loggerCategory,
-    "Done. Starting without-provenance transformation of same content"
-  );
-
-  const targetNoProvPath = initOutputFile(
-    "RawInserts-TargetNoProv.bim",
-    outputDir
-  );
-  const targetNoProvDb = SnapshotDb.createEmpty(targetNoProvPath, {
-    rootSubject: { name: "RawInsertsTarget" },
-  });
-  const noProvEditTxn = new EditTxn(targetNoProvDb, "IModelTransformer");
-  noProvEditTxn.start();
-  const transformerNoProv = new IModelTransformer(
-    { source: sourceDb, target: noProvEditTxn },
-    {
-      noProvenance: true,
-    }
-  );
-
-  const [transformNoProvTimer] = await timed(async () => {
-    await transformerNoProv.process();
-  });
-  noProvEditTxn.end();
-
-  reporter.addEntry(
-    "populate by transform",
-    iModelName,
-    "time elapsed (seconds)",
-    transformNoProvTimer?.elapsedSeconds ?? -1,
-    {
-      "Element Count": count(sourceDb, Element.classFullName),
-      "Relationship Count": count(sourceDb, ElementGroupsMembers.classFullName),
-      "Branch Name": branchName,
-    }
-  );
-
-  sourceDb.close();
-  targetDb.close();
-  targetNoProvDb.close();
+      name: "raw inserts no-provenance target",
+      run: () => targetNoProvDb?.close(),
+    },
+    { name: "raw inserts provenance target", run: () => targetDb?.close() },
+    { name: "raw inserts source", run: () => sourceDb?.close() },
+  ]);
 }

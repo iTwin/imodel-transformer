@@ -3,10 +3,10 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { expect } from "chai";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadArmModule, resolveArmSpec } from "./ArmModule";
 import {
   aggregateCalibration,

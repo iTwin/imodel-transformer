@@ -6,7 +6,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { expect } from "chai";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   Code,
   IModel,
@@ -86,14 +86,14 @@ async function queryElementIdByLabel(
 describe("LocalHubFixture reconstruction", () => {
   let outputDir: string;
 
-  before(async () => {
+  beforeAll(async () => {
     outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-perf-reconstruct-")
     );
     await IModelHost.startup();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await IModelHost.shutdown();
     fs.rmSync(outputDir, { recursive: true, force: true });
   });
@@ -301,9 +301,7 @@ describe("LocalHubFixture reconstruction", () => {
   });
 });
 
-describe("BenchmarkRunner scenario injection", function () {
-  this.timeout(5 * 60 * 1000);
-
+describe("BenchmarkRunner scenario injection", () => {
   const testDescriptor = {
     ...balancedIncrementalDescriptor,
     id: "balanced-incremental-runner-test",

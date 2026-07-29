@@ -29,7 +29,7 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import { DatasetDescriptor } from "../DatasetDescriptor";
-import { resolveQuickSourceFile } from "../quickSource";
+import { quickSourcePath } from "../quickPaths";
 
 const uniqueAspectClass = "QuickPerf:BalancedUniqueAspect";
 const multiAspectClass = "QuickPerf:BalancedMultiAspect";
@@ -127,7 +127,7 @@ export async function createBalancedSeed(
   });
   try {
     await db.importSchemas([
-      resolveQuickSourceFile("schemas/QuickPerf.ecschema.xml"),
+      quickSourcePath("schemas", "QuickPerf.ecschema.xml"),
     ]);
 
     const { categoryIds, modelIds } = withEditTxn(

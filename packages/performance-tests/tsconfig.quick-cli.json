@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "module": "CommonJS",
+    "noEmit": false,
+    "outDir": "./lib/quick",
+    "rootDir": "./test/quick"
+  },
+  "include": ["./test/quick/**/*.ts"],
+  "exclude": [
+    "./test/quick/**/*.quick-unit.ts",
+    "./test/quick/QuickPerformance.quick.ts"
+  ]
+}

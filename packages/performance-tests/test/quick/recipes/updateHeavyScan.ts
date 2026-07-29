@@ -24,8 +24,8 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { DatasetDescriptor } from "../DatasetDescriptor";
-import { resolveQuickSourceFile } from "../quickSource";
 import { ScanLedger, ScanLedgerEntry } from "../validation/scanOracle";
+import { quickSourcePath } from "../quickPaths";
 import { queryCount } from "../validation/validateFixture";
 
 const scanAspectClass = "QuickPerfScan:ScanAspect";
@@ -160,7 +160,7 @@ export async function createScanSeed(
   });
   try {
     await db.importSchemas([
-      resolveQuickSourceFile("schemas/QuickPerfScan.ecschema.xml"),
+      quickSourcePath("schemas", "QuickPerfScan.ecschema.xml"),
     ]);
 
     const { categoryId, modelId } = withEditTxn(

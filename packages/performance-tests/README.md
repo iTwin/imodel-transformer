@@ -1,4 +1,4 @@
-# Presentation Performance Tests
+# Transformer Performance Tests
 
 A package containing performance tests for the [`@itwin/imodel-transformer` library](../../README.md).
 
@@ -20,6 +20,7 @@ Build the transformer package before running the TypeScript suite:
 
 ```sh
 pnpm --dir ../transformer build:cjs
+pnpm test:quick-unit
 pnpm test:quick
 ```
 
@@ -116,6 +117,11 @@ reasons), the calibration pool and band, summary JSON, and Markdown used for the
 job summary. A/B rejects a missing calibration or any calibration fingerprint
 or hosted-runner class mismatch instead of borrowing a nearby result.
 
+The comparison commands run from explicit CommonJS output produced by
+`pnpm build:quick-cli`; unit coverage runs under the package's serialized Vitest
+configuration with `pnpm test:comparison`. Neither the harness nor an arm
+checkout requires Mocha, Chai, or ts-node.
+
 GitHub can dispatch this workflow only after
 `quick-performance-comparison.yml` reaches the repository's default branch.
 Before then, local smoke runs can exercise process orchestration but cannot
@@ -152,16 +158,11 @@ Here are tests we need but don't have:
 
 3. Create `.env` file using `template.env` template.
 
-4. Run:
+4. Run the serialized Vitest suite:
 
    ```sh
    pnpm test
    ```
 
-<!-- FIXME: output csv -->
-
-6. Review results like:
-
-```sh
-pnpm exec process-results < report.jsonl
-```
+5. Review `test/.output/report.csv`. This path is also the artifact contract used by
+   the weekly Azure pipeline.
