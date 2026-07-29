@@ -1,6 +1,9 @@
-# Presentation Performance Tests
+# Transformer Performance Tests
 
 A package containing performance tests for the [`@itwin/imodel-transformer` library](../../README.md).
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the test categories, weekly suite
+lifecycle, registration model, and extension guidance.
 
 ## Tests
 
@@ -17,7 +20,6 @@ Here are tests we need but don't have:
 - *Processing Changes*
 - *More Branching Stuff*
 
-
 ## Usage
 
 1. Clone the repository.
@@ -30,16 +32,11 @@ Here are tests we need but don't have:
 
 3. Create `.env` file using `template.env` template.
 
-5. Run:
+4. Run the serialized Vitest suite:
 
    ```sh
    pnpm test
    ```
 
-<!-- FIXME: output csv -->
-6. Review results like:
-
-```sh
-pnpm exec process-results < report.jsonl
-```
-
+5. Review `test/.output/report.csv`. This path is also the artifact contract used by
+   the weekly Azure pipeline.
