@@ -144,10 +144,10 @@ Here are tests we need but don't have:
   transform the iModel, editing geometry as we go using the json format
 - _Binary Geometry Editing Transform_
   transform the iModel, editing geometry as we go using elementGeometryBuilderParams
-- _Optimistically Locking Remote Target_
-- _Pessimistically Locking Remote Target_
-- _Processing Changes_
-- _More Branching Stuff_
+- *Optimistically Locking Remote Target*
+- *Pessimistically Locking Remote Target*
+- *Processing Changes*
+- *More Branching Stuff*
 
 ## Usage
 
