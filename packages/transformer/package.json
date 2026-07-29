@@ -9,7 +9,7 @@
     "node": "^22.12.0 || ^24.18.0"
   },
   "scripts": {
-    "build": "npm run -s typecheck && npm run -s build:cjs && npm run -s extract-api",
+    "build": "node scripts/applyCoreBackendTestPatch.cjs && npm run -s typecheck && npm run -s build:cjs && npm run -s extract-api",
     "build:cjs": "tsc -p tsconfig.build.json 1>&2 --outDir lib/cjs",
     "clean": "rimraf lib",
     "docs": "npm run -s docs:extract && npm run -s docs:reference && npm run -s docs:changelog",
