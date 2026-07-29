@@ -393,8 +393,6 @@ export class IModelExporter {
           this.handler.onExportElementUniqueAspect(aspect, isUpdate),
         shouldExportElementAspect: async (aspect) =>
           this.handler.shouldExportElementAspect(aspect),
-        shouldExportElement: async (elementId) =>
-          this.shouldExportElementForAspect(elementId),
         trackProgress: async () => this.trackProgress(),
       }
     );
@@ -473,7 +471,6 @@ export class IModelExporter {
   public async exportAll(): Promise<void> {
     await this.initialize({});
     this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
-    this._elementAspectExportProcessor.resetPopulatedAspectClassCache();
 
     await this.exportCodeSpecs();
     await this.exportFonts();
@@ -530,7 +527,6 @@ export class IModelExporter {
     }
 
     this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
-    this._elementAspectExportProcessor.resetPopulatedAspectClassCache();
     this._skipPropagateChangesToRootElements =
       initOpts.skipPropagateChangesToRootElements ?? false;
     // _sourceDbChanges are initialized in this.initialize

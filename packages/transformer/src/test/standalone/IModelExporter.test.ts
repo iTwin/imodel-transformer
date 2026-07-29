@@ -235,7 +235,12 @@ describe("IModelExporter", () => {
         createQueryReader.mock.calls.filter((call) =>
           String(call[0]).includes("ECDbMeta.ClassHasAllBaseClasses")
         )
-      ).to.have.lengthOf(2);
+      ).to.have.lengthOf(0);
+      expect(
+        createQueryReader.mock.calls.filter((call) =>
+          String(call[0]).includes("WITH OwnerIds AS")
+        ).length
+      ).to.be.greaterThan(0);
     } finally {
       vi.restoreAllMocks();
       sourceDb.close();

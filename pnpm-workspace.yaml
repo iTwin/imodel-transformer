@@ -25,3 +25,6 @@ allowBuilds:
   '@itwin/certa': false
   '@itwin/oidc-signin-tool': false
   protobufjs: false
+
+patchedDependencies:
+  '@itwin/core-backend@5.10.3': patches/@itwin__core-backend@5.10.3.patch
