@@ -73,26 +73,21 @@ const testCasesMap = new Map<string, RegressionTestCase<PerformanceTestCase>>([
 const loggerCategory = "Transformer Performance Regression Tests";
 const outputDir = path.join(__dirname, ".output");
 
+vi.setConfig({ testTimeout: 0, hookTimeout: 0 });
+
 class WorkerLifecycle {
   private _authClient?: AuthorizationClient;
-  private _hostStarted = false;
 
   public setAuthClient(authClient: AuthorizationClient): void {
     this._authClient = authClient;
   }
 
-  public markHostStarted(): void {
-    this._hostStarted = true;
-  }
-
   public async shutdown(): Promise<void> {
-    const hostStarted = this._hostStarted;
     const authClient = this._authClient;
-    this._hostStarted = false;
     this._authClient = undefined;
 
     const cleanupTasks: CleanupTask[] = [];
-    if (hostStarted) {
+    if (IModelHost.isValid) {
       cleanupTasks.push({
         name: "IModelHost shutdown",
         run: async () => IModelHost.shutdown(),
@@ -191,7 +186,6 @@ async function setupTestData(
   });
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
-  workerLifecycle.markHostStarted();
 
   return preFetchAsyncIterator(getTestIModels(filterIModels));
 }

@@ -10,9 +10,6 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["test/TransformerRegression.test.ts", "test/unit/**/*.test.ts"],
-    // Transformations and worker-owned startup/teardown may legitimately run for hours.
-    testTimeout: 0,
-    hookTimeout: 0,
     pool: "forks",
     maxWorkers: 1,
     fileParallelism: false,
