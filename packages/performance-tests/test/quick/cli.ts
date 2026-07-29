@@ -12,6 +12,7 @@ import {
   prepareBenchmarkOutputDirectory,
 } from "./BenchmarkRunner";
 import { DatasetDescriptor } from "./DatasetDescriptor";
+import { quickSourcePath } from "./quickPaths";
 
 function writeManifest(outputDir: string, descriptor: DatasetDescriptor): void {
   fs.writeFileSync(
@@ -25,7 +26,7 @@ async function main() {
   const { descriptor, scenario } = resolveBenchmarkRunFromEnvironment();
   const outputDir =
     process.env.QUICK_PERF_OUTPUT ??
-    path.join(__dirname, ".quick-output", descriptor.id);
+    quickSourcePath(".quick-output", descriptor.id);
   if (command === "build-fixture") {
     prepareBenchmarkOutputDirectory(outputDir);
     writeManifest(outputDir, descriptor);

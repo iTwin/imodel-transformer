@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { expect } from "chai";
+import { describe, expect, it } from "vitest";
 import { balancedIncrementalDescriptor } from "./FixtureCatalog";
 import { canonicalSha256, validateDescriptor } from "./FixtureManifest";
 

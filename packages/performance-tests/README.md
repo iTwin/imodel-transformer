@@ -1,4 +1,4 @@
-# Presentation Performance Tests
+# Transformer Performance Tests
 
 A package containing performance tests for the [`@itwin/imodel-transformer` library](../../README.md).
 
@@ -20,6 +20,7 @@ Build the transformer package before running the TypeScript suite:
 
 ```sh
 pnpm --dir ../transformer build:cjs
+pnpm test:quick-unit
 pnpm test:quick
 ```
 
@@ -73,17 +74,16 @@ measured sample), checks their semantic digests, and writes a diagnostic report.
 
 Here are tests we need but don't have:
 
-- *Identity Transform*
+- _Identity Transform_
   transform the entire contents of the iModel to an empty iModel seed
-- *JSON Geometry Editing Transform*
+- _JSON Geometry Editing Transform_
   transform the iModel, editing geometry as we go using the json format
-- *Binary Geometry Editing Transform*
+- _Binary Geometry Editing Transform_
   transform the iModel, editing geometry as we go using elementGeometryBuilderParams
-- *Optimistically Locking Remote Target*
-- *Pessimistically Locking Remote Target*
-- *Processing Changes*
-- *More Branching Stuff*
-
+- _Optimistically Locking Remote Target_
+- _Pessimistically Locking Remote Target_
+- _Processing Changes_
+- _More Branching Stuff_
 
 ## Usage
 
@@ -97,15 +97,11 @@ Here are tests we need but don't have:
 
 3. Create `.env` file using `template.env` template.
 
-5. Run:
+4. Run the serialized Vitest suite:
 
    ```sh
    pnpm test
    ```
 
-<!-- FIXME: output csv -->
-6. Review results like:
-
-```sh
-pnpm exec process-results < report.jsonl
-```
+5. Review `test/.output/report.csv`. This path is also the artifact contract used by
+   the weekly Azure pipeline.
