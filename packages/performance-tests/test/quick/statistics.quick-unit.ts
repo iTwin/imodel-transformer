@@ -4,13 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it } from "vitest";
-import { classifyVariance } from "./BenchmarkReporter";
+import { classifyVariance } from "./BenchmarkReporter.js";
 import {
   coefficientOfVariation,
   median,
   medianAbsoluteDeviation,
   percentile,
-} from "./validation/statistics";
+} from "./validation/statistics.js";
 
 describe("quick performance statistics", () => {
   it("calculates robust summary statistics", () => {

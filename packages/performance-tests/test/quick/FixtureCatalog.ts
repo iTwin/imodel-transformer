@@ -5,10 +5,12 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { DatasetDescriptor } from "./DatasetDescriptor";
-import { canonicalSha256 } from "./FixtureManifest";
-import { quickSourceDirectory, quickSourcePath } from "./quickPaths";
+import { createRequire } from "module";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
+import { canonicalSha256 } from "./FixtureManifest.js";
+import { quickSourceDirectory, quickSourcePath } from "./quickPaths.js";
 
+const localRequire = createRequire(import.meta.url);
 const scale = 25;
 const distribution = {
   base: {
@@ -40,7 +42,7 @@ const distribution = {
 
 function packageVersion(packageName: string): string {
   const packageJson = JSON.parse(
-    fs.readFileSync(require.resolve(`${packageName}/package.json`), "utf8")
+    fs.readFileSync(localRequire.resolve(`${packageName}/package.json`), "utf8")
   ) as { version: string };
   return packageJson.version;
 }

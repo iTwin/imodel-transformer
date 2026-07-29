@@ -3,11 +3,11 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { DatasetDescriptor } from "./DatasetDescriptor";
-import { FixtureArtifact } from "./FixtureArtifact";
-import { PreparedDataset } from "./FixtureMaterializer";
-import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider";
-import { liveHubFixtureProvider } from "./providers/liveHubProvider";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
+import { FixtureArtifact } from "./FixtureArtifact.js";
+import { PreparedDataset } from "./FixtureMaterializer.js";
+import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider.js";
+import { liveHubFixtureProvider } from "./providers/liveHubProvider.js";
 
 /**
  * The result of stage 1.

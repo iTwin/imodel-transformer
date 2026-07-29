@@ -5,12 +5,12 @@
 
 import { AccessToken } from "@itwin/core-bentley";
 import { BriefcaseDb } from "@itwin/core-backend";
-import { DatasetDescriptor } from "./DatasetDescriptor";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
 import {
   applyBalancedChangesets,
   BalancedRecipeState,
   createBalancedSeed,
-} from "./recipes/balancedIncremental";
+} from "./recipes/balancedIncremental.js";
 
 /**
  * A recipe produces the *change mix* for a fixture: it seeds the source iModel and then applies a

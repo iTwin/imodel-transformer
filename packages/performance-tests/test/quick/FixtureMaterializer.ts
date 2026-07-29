@@ -6,9 +6,9 @@
 import * as path from "path";
 import { BriefcaseDb } from "@itwin/core-backend";
 import { ChangesetFileProps } from "@itwin/core-common";
-import { DatasetDescriptor } from "./DatasetDescriptor";
-import { FixtureArtifactManifest } from "./FixtureArtifact";
-import { ReconstructedHub } from "./LocalHubFixture";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
+import { FixtureArtifactManifest } from "./FixtureArtifact.js";
+import { ReconstructedHub } from "./LocalHubFixture.js";
 
 interface PreparedDatasetBase {
   readonly descriptor: DatasetDescriptor;

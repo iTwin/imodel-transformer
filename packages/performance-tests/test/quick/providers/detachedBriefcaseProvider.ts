@@ -6,7 +6,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { BriefcaseDb, BriefcaseManager } from "@itwin/core-backend";
-import { DatasetDescriptor } from "../DatasetDescriptor";
+import { DatasetDescriptor } from "../DatasetDescriptor.js";
 import {
   artifactBriefcaseFileName,
   artifactBriefcasePath,
@@ -21,23 +21,23 @@ import {
   toRelativeChangesetProps,
   writeFixtureArtifactManifest,
   writeFixtureRecipeData,
-} from "../FixtureArtifact";
+} from "../FixtureArtifact.js";
 import {
   BuiltFixture,
   FixtureProvider,
   requireFixtureArtifact,
-} from "../FixtureProvider";
-import { getFixtureRecipe } from "../FixtureRecipe";
+} from "../FixtureProvider.js";
+import { getFixtureRecipe } from "../FixtureRecipe.js";
 import {
   PreparedDataset,
   requireDetachedDataset,
-} from "../FixtureMaterializer";
+} from "../FixtureMaterializer.js";
 import {
   ReconstructedSourceHub,
   reconstructSourceHub,
   shutdownHubMock,
-} from "../LocalHubFixture";
-import { assertFixtureDistribution } from "../validation/validateFixture";
+} from "../LocalHubFixture.js";
+import { assertFixtureDistribution } from "../validation/validateFixture.js";
 
 /**
  * Tolerant teardown for a build that may have failed at any point. Collects errors rather than
@@ -232,6 +232,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
     fs.cpSync(artifact.directory, sampleDir, { recursive: true });
 
     const csFileProps = readChangesetFileProps(sampleDir);
+    const recipe = readFixtureRecipeData(sampleDir, artifact.manifest);
     const sourceDb = await BriefcaseDb.open({
       fileName: artifactBriefcasePath(sampleDir),
       readonly: true,
@@ -243,7 +244,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       sourceDb,
       csFileProps,
       manifest: artifact.manifest,
-      recipe: readFixtureRecipeData(sampleDir, artifact.manifest),
+      recipe,
       reconstructionMilliseconds:
         Number(process.hrtime.bigint() - start) / 1_000_000,
     };

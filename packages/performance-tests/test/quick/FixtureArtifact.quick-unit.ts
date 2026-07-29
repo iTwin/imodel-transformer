@@ -3,14 +3,14 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { BriefcaseDb } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
 import { ChangedInstanceIds } from "@itwin/imodel-transformer";
-import { DatasetDescriptor } from "./DatasetDescriptor";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
 import {
   artifactBriefcasePath,
   artifactManifestFileName,
@@ -18,20 +18,20 @@ import {
   readFixtureArtifact,
   readFixtureRecipeData,
   writeFixtureRecipeData,
-} from "./FixtureArtifact";
-import { balancedIncrementalSourceOnlyDescriptor } from "./FixtureCatalog";
+} from "./FixtureArtifact.js";
+import { balancedIncrementalSourceOnlyDescriptor } from "./FixtureCatalog.js";
 import {
   balancedIncrementalRecipe,
   registerFixtureRecipe,
-} from "./FixtureRecipe";
-import { requireDetachedDataset } from "./FixtureMaterializer";
+} from "./FixtureRecipe.js";
+import { requireDetachedDataset } from "./FixtureMaterializer.js";
 import {
   BuiltFixture,
   getFixtureProvider,
   requireFixtureArtifact,
-} from "./FixtureProvider";
-import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider";
-import { shutdownIsolatedHost, startIsolatedHost } from "./isolatedHost";
+} from "./FixtureProvider.js";
+import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider.js";
+import { shutdownIsolatedHost, startIsolatedHost } from "./isolatedHost.js";
 
 describe("detached fixture artifact", () => {
   const descriptor = balancedIncrementalSourceOnlyDescriptor;
@@ -288,6 +288,35 @@ describe("detached fixture artifact", () => {
         recipeDataFile: "recipe.json",
       })
     ).to.throw(/missing/);
+  });
+
+  it("validates recipe data before opening the copied briefcase", async () => {
+    const artifact = requireFixtureArtifact(built);
+    const invalidBuilt: BuiltFixture = {
+      ...built,
+      artifact: {
+        ...artifact,
+        manifest: {
+          ...artifact.manifest,
+          recipeDataFile: "missing-recipe.json",
+        },
+      },
+    };
+    const open = vi.spyOn(BriefcaseDb, "open");
+    const sampleDir = path.join(root, "missing-recipe-sample");
+    try {
+      await expect(
+        detachedBriefcaseFixtureProvider.materialize(
+          invalidBuilt,
+          sampleDir,
+          "missing-recipe"
+        )
+      ).rejects.toThrow(/missing/);
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      open.mockRestore();
+      fs.rmSync(sampleDir, { recursive: true, force: true });
+    }
   });
 });
 

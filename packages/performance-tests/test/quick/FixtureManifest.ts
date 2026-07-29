@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createHash } from "crypto";
-import { DatasetDescriptor, fixtureTopologies } from "./DatasetDescriptor";
+import { DatasetDescriptor, fixtureTopologies } from "./DatasetDescriptor.js";
 
 function canonicalize(value: unknown): string {
   if (Array.isArray(value))

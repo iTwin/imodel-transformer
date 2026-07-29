@@ -28,8 +28,8 @@ import {
   Range3d,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { DatasetDescriptor } from "../DatasetDescriptor";
-import { quickSourcePath } from "../quickPaths";
+import { DatasetDescriptor } from "../DatasetDescriptor.js";
+import { quickSourcePath } from "../quickPaths.js";
 
 const uniqueAspectClass = "QuickPerf:BalancedUniqueAspect";
 const multiAspectClass = "QuickPerf:BalancedMultiAspect";

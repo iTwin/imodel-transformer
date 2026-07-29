@@ -7,25 +7,23 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { IModelHost } from "@itwin/core-backend";
-import { assertScenarioSupportsFixture } from "./BenchmarkResolution";
+import { CleanupTask, runWithCleanup } from "../Cleanup.js";
+import { assertScenarioSupportsFixture } from "./BenchmarkResolution.js";
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
-} from "./BenchmarkScenario";
-import { DatasetDescriptor, FixtureTopology } from "./DatasetDescriptor";
-import { PreparedDataset } from "./FixtureMaterializer";
-import { FixtureProvider, getFixtureProvider } from "./FixtureProvider";
-import { quickSourcePath } from "./quickPaths";
+} from "./BenchmarkScenario.js";
+import { DatasetDescriptor, FixtureTopology } from "./DatasetDescriptor.js";
+import { PreparedDataset } from "./FixtureMaterializer.js";
+import { getFixtureProvider } from "./FixtureProvider.js";
+import { quickSourcePath } from "./quickPaths.js";
 
 export const benchmarkOutputMarkerName =
   ".imodel-transformer-quick-performance";
+export const benchmarkReportSchemaVersion = 1 as const;
 
 /** Where stage 1 writes its artifact, relative to the run output directory. */
 export const fixtureArtifactDirectoryName = "fixture-artifact";
-
-function normalizeError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
-}
 
 function resolveThroughExistingAncestor(fileName: string): string {
   let ancestor = path.resolve(fileName);
@@ -97,35 +95,13 @@ export function prepareBenchmarkOutputDirectory(outputDir: string): void {
   }
 }
 
-async function cleanupSample(
-  provider: FixtureProvider,
-  scenario: BenchmarkScenario | undefined,
-  dataset: PreparedDataset | undefined,
-  sampleDir: string
-): Promise<unknown[]> {
-  const errors: unknown[] = [];
-  try {
-    scenario?.abort();
-  } catch (error) {
-    errors.push(error);
-  }
-  try {
-    if (dataset) await provider.disposeSample(dataset);
-  } catch (error) {
-    errors.push(error);
-  }
-  try {
-    fs.rmSync(sampleDir, { recursive: true, force: true });
-  } catch (error) {
-    errors.push(error);
-  }
-  return errors;
-}
-
 export interface BenchmarkSample {
   readonly cpuSystemMilliseconds: number;
   readonly cpuUserMilliseconds: number;
   readonly fixtureId: string;
+  readonly fixtureGenerator: DatasetDescriptor["generator"];
+  readonly fixtureRecipeHash: string;
+  readonly fixtureVersion: number;
   readonly measured: boolean;
   readonly operations: DatasetDescriptor["distribution"]["operations"];
   /** Stage-1 cost, identical on every sample: the fixture is built once per run. */
@@ -133,6 +109,7 @@ export interface BenchmarkSample {
   /** Stage-2 cost for this sample: producing its pristine working copy. */
   readonly reconstructionMilliseconds: number;
   readonly rssDeltaBytes: number;
+  readonly reportSchemaVersion: typeof benchmarkReportSchemaVersion;
   readonly sample: number;
   readonly scenarioId: string;
   readonly semanticDigest: string;
@@ -159,23 +136,46 @@ export class BenchmarkRunner {
     prepareBenchmarkOutputDirectory(this._outputDir);
     const provider = getFixtureProvider(this._descriptor);
     const samples: BenchmarkSample[] = [];
-    await IModelHost.startup();
-    try {
+    await runWithCleanup(async () => {
+      await IModelHost.startup();
       // Stage 1: build the fixture exactly once, outside the sample loop.
       const built = await provider.build(
         this._descriptor,
         path.join(this._outputDir, fixtureArtifactDirectoryName)
       );
-      try {
+      await runWithCleanup(async () => {
         for (let sample = 0; sample <= measuredSamples; sample++) {
           const sampleDir = path.join(this._outputDir, `sample-${sample}`);
           let dataset: PreparedDataset | undefined;
           let scenario: BenchmarkScenario | undefined;
-          let operationError: Error | undefined;
-          let completedSample:
-            | Omit<BenchmarkSample, "teardownMilliseconds">
-            | undefined;
-          try {
+          let teardownStart: bigint | undefined;
+          const beginTeardown = () => {
+            teardownStart ??= process.hrtime.bigint();
+          };
+          const cleanupTasks: CleanupTask[] = [
+            {
+              name: "abort quick performance scenario",
+              run: () => {
+                beginTeardown();
+                scenario?.abort();
+              },
+            },
+            {
+              name: "dispose quick performance sample",
+              run: async () => {
+                beginTeardown();
+                if (dataset) await provider.disposeSample(dataset);
+              },
+            },
+            {
+              name: "remove quick performance sample directory",
+              run: () => {
+                beginTeardown();
+                fs.rmSync(sampleDir, { recursive: true, force: true });
+              },
+            },
+          ];
+          const completedSample = await runWithCleanup(async () => {
             // Stage 2: a pristine working copy per sample. Mutation is the scenario's business.
             dataset = await provider.materialize(
               built,
@@ -195,14 +195,18 @@ export class BenchmarkRunner {
             const semanticDigest = await scenario.finish();
             const verificationMilliseconds =
               Number(process.hrtime.bigint() - verificationStart) / 1_000_000;
-            completedSample = {
+            return {
               cpuSystemMilliseconds: cpu.system / 1000,
               cpuUserMilliseconds: cpu.user / 1000,
               fixtureBuildMilliseconds: built.buildMilliseconds,
+              fixtureGenerator: this._descriptor.generator,
               fixtureId: this._descriptor.id,
+              fixtureRecipeHash: this._descriptor.recipeHash,
+              fixtureVersion: this._descriptor.version,
               measured: sample !== 0,
               operations: this._descriptor.distribution.operations,
               reconstructionMilliseconds: dataset.reconstructionMilliseconds,
+              reportSchemaVersion: benchmarkReportSchemaVersion,
               rssDeltaBytes,
               sample,
               scenarioId: this._scenario.id,
@@ -211,44 +215,37 @@ export class BenchmarkRunner {
               verificationMilliseconds,
               wallMilliseconds,
             };
-          } catch (error) {
-            operationError = normalizeError(error);
-          }
-          const teardownStart = process.hrtime.bigint();
-          const cleanupErrors = await cleanupSample(
-            provider,
-            scenario,
-            dataset,
-            sampleDir
-          );
+          }, cleanupTasks);
+          if (teardownStart === undefined)
+            throw new Error("Quick performance sample cleanup did not start");
           const teardownMilliseconds =
             Number(process.hrtime.bigint() - teardownStart) / 1_000_000;
-          if (operationError && cleanupErrors.length === 0)
-            throw operationError;
-          if (cleanupErrors.length > 0)
-            throw new AggregateError(
-              operationError
-                ? [operationError, ...cleanupErrors]
-                : cleanupErrors,
-              "Quick performance sample cleanup failed"
-            );
-          if (!completedSample)
-            throw new Error(
-              "Quick performance sample completed without a result"
-            );
-          const sampleResult = { ...completedSample, teardownMilliseconds };
+          const sampleResult = {
+            ...completedSample,
+            teardownMilliseconds,
+          };
           samples.push(sampleResult);
           fs.appendFileSync(
             path.join(this._outputDir, "samples.jsonl"),
             `${JSON.stringify(sampleResult)}\n`
           );
         }
-      } finally {
-        await provider.disposeBuild(built);
-      }
-    } finally {
-      await IModelHost.shutdown();
-    }
+      }, [
+        {
+          name: "dispose quick performance fixture build",
+          run: async () => {
+            await provider.disposeBuild(built);
+          },
+        },
+      ]);
+    }, [
+      {
+        name: "shut down IModelHost after quick performance run",
+        run: async () => {
+          if (IModelHost.isValid) await IModelHost.shutdown();
+        },
+      },
+    ]);
     return samples;
   }
 }

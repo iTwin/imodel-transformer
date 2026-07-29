@@ -10,9 +10,9 @@ import {
 } from "@itwin/core-backend";
 import { IModel, QueryBinder } from "@itwin/core-common";
 import { YawPitchRollAngles } from "@itwin/core-geometry";
-import { DatasetDescriptor } from "../DatasetDescriptor";
-import { canonicalSha256 } from "../FixtureManifest";
-import { createBoxGeometry } from "../recipes/balancedIncremental";
+import { DatasetDescriptor } from "../DatasetDescriptor.js";
+import { canonicalSha256 } from "../FixtureManifest.js";
+import { createBoxGeometry } from "../recipes/balancedIncremental.js";
 
 function normalizedGeometryStream(geometry: unknown): unknown {
   if (!Array.isArray(geometry)) return geometry;

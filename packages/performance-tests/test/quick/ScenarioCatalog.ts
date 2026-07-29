@@ -3,8 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { BenchmarkScenarioDefinition } from "./BenchmarkScenario";
-import { incrementalSynchronizationScenario } from "./scenarios/incrementalSynchronization";
+import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
+import { incrementalSynchronizationScenario } from "./scenarios/incrementalSynchronization.js";
 
 export const defaultQuickPerformanceScenarioId =
   incrementalSynchronizationScenario.id;

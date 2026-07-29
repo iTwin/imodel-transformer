@@ -8,13 +8,13 @@ import {
   assertScenarioSupportsFixture,
   resolveBenchmarkRun,
   resolveBenchmarkRunFromEnvironment,
-} from "./BenchmarkResolution";
-import { BenchmarkScenarioDefinition } from "./BenchmarkScenario";
+} from "./BenchmarkResolution.js";
+import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
 import {
   balancedIncrementalDescriptor,
   balancedIncrementalSourceOnlyDescriptor,
-} from "./FixtureCatalog";
-import { incrementalSynchronizationScenario } from "./scenarios/incrementalSynchronization";
+} from "./FixtureCatalog.js";
+import { incrementalSynchronizationScenario } from "./scenarios/incrementalSynchronization.js";
 
 describe("benchmark resolution", () => {
   it("resolves the scenario's declared default fixture", () => {

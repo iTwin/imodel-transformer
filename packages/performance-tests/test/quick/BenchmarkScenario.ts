@@ -3,8 +3,8 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { FixtureTopology } from "./DatasetDescriptor";
-import { PreparedDataset } from "./FixtureMaterializer";
+import { FixtureTopology } from "./DatasetDescriptor.js";
+import { PreparedDataset } from "./FixtureMaterializer.js";
 
 export interface BenchmarkScenario {
   abort(): void;

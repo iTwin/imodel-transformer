@@ -5,14 +5,14 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { BenchmarkReporter } from "./BenchmarkReporter";
-import { resolveBenchmarkRunFromEnvironment } from "./BenchmarkResolution";
+import { BenchmarkReporter } from "./BenchmarkReporter.js";
+import { resolveBenchmarkRunFromEnvironment } from "./BenchmarkResolution.js";
 import {
   BenchmarkRunner,
   prepareBenchmarkOutputDirectory,
-} from "./BenchmarkRunner";
-import { DatasetDescriptor } from "./DatasetDescriptor";
-import { quickSourcePath } from "./quickPaths";
+} from "./BenchmarkRunner.js";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
+import { quickSourcePath } from "./quickPaths.js";
 
 function writeManifest(outputDir: string, descriptor: DatasetDescriptor): void {
   fs.writeFileSync(
@@ -33,14 +33,17 @@ async function main() {
     return;
   }
   if (command === "verify-fixture") {
+    const started = process.hrtime.bigint();
     const samples = await new BenchmarkRunner(
       descriptor,
       outputDir,
       scenario
     ).run(1);
+    const elapsedMilliseconds =
+      Number(process.hrtime.bigint() - started) / 1_000_000;
     if (new Set(samples.map((sample) => sample.semanticDigest)).size !== 1)
       throw new Error("Fixture reconstruction is not deterministic");
-    BenchmarkReporter.write(outputDir, samples);
+    BenchmarkReporter.write(outputDir, samples, elapsedMilliseconds);
     writeManifest(outputDir, descriptor);
     return;
   }

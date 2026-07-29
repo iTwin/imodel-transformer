@@ -4,8 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it } from "vitest";
-import { balancedIncrementalDescriptor } from "./FixtureCatalog";
-import { canonicalSha256, validateDescriptor } from "./FixtureManifest";
+import { balancedIncrementalDescriptor } from "./FixtureCatalog.js";
+import { canonicalSha256, validateDescriptor } from "./FixtureManifest.js";
 
 describe("FixtureManifest", () => {
   it("hashes objects independently of key insertion order", () => {

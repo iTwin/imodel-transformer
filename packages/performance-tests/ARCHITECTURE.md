@@ -6,13 +6,15 @@ different runtime requirements.
 
 ## Test categories
 
-| Category | Location | Purpose | External requirements |
-| --- | --- | --- | --- |
-| Weekly regression | `test/TransformerRegression.test.ts` | Measure transformer implementations against selected Hub iModels and a generated local iModel | Hub credentials, OIDC configuration, and network access |
-| Infrastructure unit | `test/unit/**/*.test.ts` | Verify registration and cleanup behavior | None |
+| Category            | Location                               | Purpose                                                                                       | External requirements                                   |
+| ------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Weekly regression   | `test/TransformerRegression.test.ts`   | Measure transformer implementations against selected Hub iModels and a generated local iModel | Hub credentials, OIDC configuration, and network access |
+| Infrastructure unit | `test/unit/**/*.test.ts`               | Verify registration and cleanup behavior                                                      | None                                                    |
+| Quick benchmark     | `test/quick/QuickPerformance.quick.ts` | Measure bounded incremental synchronization against a deterministic local fixture             | None                                                    |
+| Quick harness unit  | `test/quick/**/*.quick-unit.ts`        | Verify quick fixture, runner, scenario, reporting, and statistics behavior                    | None                                                    |
 
 The unit tests do not measure transformer performance. They validate code used
-to construct and tear down the weekly regression suite.
+to construct and tear down the weekly or quick performance suites.
 
 ## Vitest configuration
 
@@ -32,6 +34,70 @@ therefore run locally without a `.env` file by running
 
 The repository's root `pnpm test` excludes this package. Run its tests explicitly
 from `packages/performance-tests`.
+
+## Quick suite architecture
+
+The quick suite is independent of the weekly regression lifecycle:
+
+- `QuickPerformance.quick.ts` is the benchmark entry point.
+- `BenchmarkRunner.ts`, `BenchmarkScenario.ts`, and `BenchmarkReporter.ts`
+  coordinate samples, timed work, validation, and reports.
+- `FixtureArtifact.ts`, `FixtureMaterializer.ts`, and `FixtureManifest.ts`
+  implement deterministic artifact creation and pristine per-sample copies.
+- `providers/` reconstructs live-Hub or detached-briefcase datasets.
+- `recipes/` defines fixture content, while `scenarios/` defines timed behavior.
+- `validation/` contains fixture checks and report statistics.
+- `*.quick-unit.ts` files test the adjacent harness modules under Vitest. They are
+  infrastructure tests, not benchmark samples.
+
+The fixture lifecycle has two stages. When the topology supports it, stage 1
+builds and validates one immutable artifact. Stage 2 creates a pristine sample
+copy, runs one scenario, validates the result, and disposes every resource.
+Topologies that require a live local Hub rebuild their deterministic dataset per
+sample instead.
+
+The quick fixture commands compile `test/quick/cli.ts` and its runtime graph to
+native ESM under `test/quick/runtime/.compiled/`. The runtime-only `"type":
+module"` boundary keeps that output separate from the package's TypeScript
+source graph.
+
+## Quick report interpretation
+
+Every report has three files:
+
+- `samples.jsonl` contains one record per warm-up or measured sample.
+- `summary.json` is the structured aggregate used by workflow reporting.
+- `summary.csv` is a compact aggregate for spreadsheet or dashboard import.
+
+Only `IModelTransformer.process()` contributes to each sample's
+`wallMilliseconds`. Fixture reconstruction, semantic verification, and teardown
+are untimed phases with their own measurements. `fixtureBuildMilliseconds` is a
+single job-level value because stage 1 runs at most once. `jobMilliseconds`
+measures the end-to-end benchmark run used by the budget assertion.
+
+The warm-up follows the complete sample lifecycle but is excluded from the wall
+statistics below. Reconstruction, verification, and teardown summaries include
+the warm-up because all samples consume job time.
+
+| Field                    | Meaning                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `median`                 | Middle measured wall time; the primary typical-run value                                          |
+| `p90`, `p95`             | Linearly interpolated upper-percentile wall times                                                 |
+| `mad`                    | Median absolute distance from the median, in milliseconds                                         |
+| `normalizedMad`          | MAD divided by the median, making dispersion comparable across run durations                      |
+| `coefficientOfVariation` | Population standard deviation divided by the mean                                                 |
+| `unstableSamples`        | Measured sample indexes more than 15% away from the median                                        |
+| `varianceStatus`         | `stable` only when at least eight measured samples have both CV and normalized MAD at or below 5% |
+
+`insufficient-samples` means there are fewer than eight measured samples.
+`unstable` means the run completed correctly but environmental noise makes it
+unsuitable as regression evidence. Variance is currently advisory; fixture
+correctness and the scenario's end-to-end budget remain hard gates.
+
+Compare two reports only when `reportSchemaVersion`, `scenarioId`, `fixtureId`,
+`fixtureVersion`, `fixtureRecipeHash`, and every `fixtureGenerator` version
+match. The reporter rejects mixed fixture identities within one report, but a
+consumer comparing separate reports must enforce the same rule.
 
 ## Weekly regression lifecycle
 

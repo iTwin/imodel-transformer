@@ -7,13 +7,16 @@ import { IModelTransformer } from "@itwin/imodel-transformer";
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
-} from "../BenchmarkScenario";
-import { PreparedDataset, requireLiveHubDataset } from "../FixtureMaterializer";
-import { createStartedEditTxn } from "../LocalHubFixture";
+} from "../BenchmarkScenario.js";
+import {
+  PreparedDataset,
+  requireLiveHubDataset,
+} from "../FixtureMaterializer.js";
+import { createStartedEditTxn } from "../LocalHubFixture.js";
 import {
   assertSemanticallyEqual,
   assertSynchronizationProvenance,
-} from "../validation/validateFixture";
+} from "../validation/validateFixture.js";
 
 export function incrementalSynchronization(
   dataset: PreparedDataset

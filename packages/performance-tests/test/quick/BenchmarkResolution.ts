@@ -3,11 +3,11 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { BenchmarkScenarioDefinition } from "./BenchmarkScenario";
-import { DatasetDescriptor } from "./DatasetDescriptor";
-import { getFixtureDescriptor } from "./FixtureCatalog";
-import { getFixtureRecipe } from "./FixtureRecipe";
-import { getScenarioDefinition } from "./ScenarioCatalog";
+import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
+import { getFixtureDescriptor } from "./FixtureCatalog.js";
+import { getFixtureRecipe } from "./FixtureRecipe.js";
+import { getScenarioDefinition } from "./ScenarioCatalog.js";
 
 export interface ResolvedBenchmarkRun {
   readonly scenario: BenchmarkScenarioDefinition;

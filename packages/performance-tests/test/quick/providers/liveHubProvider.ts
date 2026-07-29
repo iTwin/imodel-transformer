@@ -4,17 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { DatasetDescriptor } from "../DatasetDescriptor";
-import { BuiltFixture, FixtureProvider } from "../FixtureProvider";
-import { getFixtureRecipe } from "../FixtureRecipe";
-import { PreparedDataset, requireLiveHubDataset } from "../FixtureMaterializer";
+import { DatasetDescriptor } from "../DatasetDescriptor.js";
+import { BuiltFixture, FixtureProvider } from "../FixtureProvider.js";
+import { getFixtureRecipe } from "../FixtureRecipe.js";
+import {
+  PreparedDataset,
+  requireLiveHubDataset,
+} from "../FixtureMaterializer.js";
 import {
   createStartedEditTxn,
   disposeReconstructedHub,
   ReconstructedHub,
   reconstructHub,
-} from "../LocalHubFixture";
-import { assertFixtureDistribution } from "../validation/validateFixture";
+} from "../LocalHubFixture.js";
+import { assertFixtureDistribution } from "../validation/validateFixture.js";
 
 /**
  * The `source-and-empty-target` topology.

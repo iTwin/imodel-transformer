@@ -21,28 +21,28 @@ import {
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { BenchmarkReporter } from "./BenchmarkReporter";
-import { BenchmarkScenarioDefinition } from "./BenchmarkScenario";
+import { BenchmarkReporter } from "./BenchmarkReporter.js";
+import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
 import {
   benchmarkOutputMarkerName,
   BenchmarkRunner,
   prepareBenchmarkOutputDirectory,
-} from "./BenchmarkRunner";
-import { balancedIncrementalDescriptor } from "./FixtureCatalog";
-import { materializeLiveHubFixture } from "./providers/liveHubProvider";
+} from "./BenchmarkRunner.js";
+import { balancedIncrementalDescriptor } from "./FixtureCatalog.js";
+import { materializeLiveHubFixture } from "./providers/liveHubProvider.js";
 import {
   createStartedEditTxn,
   disposeReconstructedHub,
   ReconstructedHub,
   reconstructHub,
-} from "./LocalHubFixture";
+} from "./LocalHubFixture.js";
 import {
   incrementalSynchronization,
   incrementalSynchronizationScenario,
-} from "./scenarios/incrementalSynchronization";
-import { assertSynchronizationProvenance } from "./validation/validateFixture";
+} from "./scenarios/incrementalSynchronization.js";
+import { assertSynchronizationProvenance } from "./validation/validateFixture.js";
 
 function required<T>(value: T | undefined, name: string): T {
   if (value === undefined) throw new Error(`${name} was not initialized`);
@@ -371,29 +371,64 @@ describe("BenchmarkRunner scenario injection", () => {
         fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
       ).to.be.empty;
 
-      BenchmarkReporter.write(outputDir, samples);
+      BenchmarkReporter.write(outputDir, samples, 1234);
       const jsonLines = fs
         .readFileSync(path.join(outputDir, "samples.jsonl"), "utf8")
         .trim()
         .split("\n")
-        .map((line) => JSON.parse(line) as { scenarioId: string });
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              fixtureRecipeHash: string;
+              fixtureVersion: number;
+              reportSchemaVersion: number;
+              scenarioId: string;
+            }
+        );
       expect(jsonLines.map((sample) => sample.scenarioId)).to.deep.equal([
         scenario.id,
         scenario.id,
       ]);
+      expect(jsonLines[0]).to.include({
+        fixtureRecipeHash: testDescriptor.recipeHash,
+        fixtureVersion: testDescriptor.version,
+        reportSchemaVersion: 1,
+      });
       const summary = JSON.parse(
         fs.readFileSync(path.join(outputDir, "summary.json"), "utf8")
-      ) as { scenarioId: string };
+      ) as {
+        fixtureGenerator: typeof testDescriptor.generator;
+        fixtureRecipeHash: string;
+        fixtureVersion: number;
+        jobMilliseconds: number;
+        reportSchemaVersion: number;
+        scenarioId: string;
+      };
       expect(summary.scenarioId).to.equal(scenario.id);
+      expect(summary).to.include({
+        fixtureRecipeHash: testDescriptor.recipeHash,
+        fixtureVersion: testDescriptor.version,
+        jobMilliseconds: 1234,
+        reportSchemaVersion: 1,
+      });
+      expect(summary.fixtureGenerator).to.deep.equal(testDescriptor.generator);
       expect(
         fs.readFileSync(path.join(outputDir, "summary.csv"), "utf8")
-      ).to.match(/^scenario,fixture,.+\ninjected-scenario,/);
+      ).to.match(
+        /^reportSchemaVersion,scenario,fixture,.+\n1,injected-scenario,/
+      );
       expect(() =>
         BenchmarkReporter.write(outputDir, [
           samples[0],
           { ...samples[1], scenarioId: "different-scenario" },
         ])
       ).to.throw("Cannot mix quick performance scenarios");
+      expect(() =>
+        BenchmarkReporter.write(outputDir, [
+          samples[0],
+          { ...samples[1], fixtureRecipeHash: "different-recipe" },
+        ])
+      ).to.throw("Cannot mix quick performance fixture identities");
     } finally {
       fs.rmSync(outputDir, { recursive: true, force: true });
     }
@@ -430,6 +465,51 @@ describe("BenchmarkRunner scenario injection", () => {
       expect(failure).to.be.instanceOf(Error);
       expect((failure as Error).message).to.equal("expected scenario failure");
       expect(aborts).to.equal(1);
+      expect(HubMock.isValid).to.be.false;
+      expect(
+        fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
+      ).to.be.empty;
+    } finally {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves scenario and cleanup failures", async () => {
+    const outputDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "quick-perf-cleanup-failure-")
+    );
+    const scenario: BenchmarkScenarioDefinition = {
+      id: "operation-and-cleanup-failure",
+      defaultFixtureId: balancedIncrementalDescriptor.id,
+      capabilities: { topology: "source-and-empty-target" },
+      factory: () => ({
+        abort() {
+          throw new Error("expected abort failure");
+        },
+        async finish() {
+          throw new Error("finish must not run");
+        },
+        async measure() {
+          throw new Error("expected scenario failure");
+        },
+      }),
+    };
+    let failure: unknown;
+    try {
+      await new BenchmarkRunner(testDescriptor, outputDir, scenario).run(1);
+    } catch (error) {
+      failure = error;
+    }
+    try {
+      expect(failure).to.be.instanceOf(AggregateError);
+      const errors = (failure as AggregateError).errors as Error[];
+      expect(errors[0].message).to.equal("expected scenario failure");
+      expect(errors[1].message).to.equal(
+        "Cleanup failed: abort quick performance scenario"
+      );
+      expect((errors[1].cause as Error).message).to.equal(
+        "expected abort failure"
+      );
       expect(HubMock.isValid).to.be.false;
       expect(
         fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))

@@ -13,9 +13,9 @@ import {
   IModelHost,
   SnapshotDb,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
 // eslint-disable-next-line @itwin/no-internal
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 
 export interface ReconstructedSourceHub {
   readonly accessToken: AccessToken;

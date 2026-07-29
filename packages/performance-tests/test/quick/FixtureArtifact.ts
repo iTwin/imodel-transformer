@@ -6,8 +6,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { ChangesetFileProps } from "@itwin/core-common";
-import { DatasetDescriptor } from "./DatasetDescriptor";
-import { validateDescriptor } from "./FixtureManifest";
+import { DatasetDescriptor } from "./DatasetDescriptor.js";
+import { validateDescriptor } from "./FixtureManifest.js";
 
 /**
  * Version of the on-disk artifact layout. Bump when the directory contract changes in a way that

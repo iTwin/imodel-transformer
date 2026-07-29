@@ -5,17 +5,29 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { BenchmarkSample } from "./BenchmarkRunner";
+import { BenchmarkSample } from "./BenchmarkRunner.js";
 import {
   coefficientOfVariation,
   median,
   medianAbsoluteDeviation,
   percentile,
-} from "./validation/statistics";
+} from "./validation/statistics.js";
 
 export const maximumCoefficientOfVariation = 0.05;
 export const maximumNormalizedMad = 0.05;
 export const minimumMeasuredSamplesForReliability = 8;
+
+function reportIdentity(sample: BenchmarkSample): string {
+  return JSON.stringify([
+    sample.reportSchemaVersion,
+    sample.fixtureId,
+    sample.fixtureVersion,
+    sample.fixtureRecipeHash,
+    sample.fixtureGenerator.coreBackend,
+    sample.fixtureGenerator.node,
+    sample.fixtureGenerator.transformer,
+  ]);
+}
 
 export function classifyVariance(
   measuredSamples: number,
@@ -45,6 +57,12 @@ export class BenchmarkReporter {
           ...scenarioIds,
         ].join(", ")}`
       );
+    const reportIdentities = new Set(samples.map(reportIdentity));
+    if (reportIdentities.size !== 1)
+      throw new Error(
+        "Cannot mix quick performance fixture identities in one report"
+      );
+    const identity = samples[0];
     const measured = samples.filter((sample) => sample.measured);
     const walls = measured.map((sample) => sample.wallMilliseconds);
     const wallMedian = median(walls);
@@ -60,11 +78,15 @@ export class BenchmarkReporter {
     });
     const summary = {
       fixtureId: measured[0]?.fixtureId,
+      fixtureVersion: identity.fixtureVersion,
+      fixtureRecipeHash: identity.fixtureRecipeHash,
+      fixtureGenerator: identity.fixtureGenerator,
       topology: measured[0]?.topology,
       /** Stage 1 runs once per job, so this is a scalar, not a per-sample distribution. */
       fixtureBuildMilliseconds: samples[0].fixtureBuildMilliseconds,
       jobMilliseconds,
       measuredSamples: measured.length,
+      reportSchemaVersion: identity.reportSchemaVersion,
       scenarioId: samples[0].scenarioId,
       varianceStatus: classifyVariance(
         measured.length,
@@ -111,10 +133,16 @@ export class BenchmarkReporter {
     fs.writeFileSync(
       path.join(outputDir, "summary.csv"),
       [
-        "scenario,fixture,measuredSamples,jobMs,fixtureBuildMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs",
+        "reportSchemaVersion,scenario,fixture,fixtureVersion,fixtureRecipeHash,nodeVersion,coreBackendVersion,transformerVersion,measuredSamples,jobMs,fixtureBuildMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs",
         [
+          summary.reportSchemaVersion,
           summary.scenarioId,
           summary.fixtureId,
+          summary.fixtureVersion,
+          summary.fixtureRecipeHash,
+          summary.fixtureGenerator.node,
+          summary.fixtureGenerator.coreBackend,
+          summary.fixtureGenerator.transformer,
           summary.measuredSamples,
           summary.jobMilliseconds ?? "",
           summary.fixtureBuildMilliseconds,
