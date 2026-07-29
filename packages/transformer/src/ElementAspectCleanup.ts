@@ -72,12 +72,8 @@ export class ElementAspectCleanup {
           )`;
         }
 
-        // Deletion only ever needs id/classFullName/owner id (see onDeleteElementAspect),
-        // never the concrete class's own properties, so select exactly those three things
-        // with explicit aliases instead of `SELECT *`. That sidesteps QueryRowFormat
-        // entirely: explicit aliases resolve the same way under every row format, so
-        // there's no need for the deprecated UseJsPropertyNames remap this file used to
-        // rely on to turn `Element.Id` into a usable owner id.
+        // onDeleteElementAspect only needs id/classFullName/owner id, so select exactly
+        // those instead of the concrete class's own properties.
         const query = `SELECT ECInstanceId as id,
             (ec_className(ECClassId, 's')) as schemaName,
             (ec_className(ECClassId, 'c')) as className,
@@ -85,8 +81,8 @@ export class ElementAspectCleanup {
           FROM ${aspectClassFullName}
           WHERE ${whereClause}
           LIMIT ${pageSize}`;
-        // Fully drain the candidate page before deleting anything: deleting while this
-        // reader is still stepping through the same table it's scanning is unsafe.
+        // Drain the full page before deleting: mutating a table while a reader is still
+        // scanning it is unsafe.
         const candidates: ElementAspectProps[] = [];
         for await (const row of this._targetDb.createQueryReader(
           query,

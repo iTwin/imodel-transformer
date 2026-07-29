@@ -49,8 +49,7 @@ export class ElementAspectExportProcessor {
   /** ElementAspect classes excluded from source queries. */
   private readonly _excludedElementAspectClassFullNames = new Set<string>();
   /** ECClassIds excluded from source queries: every excluded class plus all of its
-   * declared subclasses, so excluding a base aspect class also excludes its subclasses
-   * without needing an instanceof check on a materialized instance.
+   * declared subclasses.
    */
   private _excludedClassIds: Promise<ReadonlySet<Id64String>> | undefined;
   private _aspectChanges: ChangedInstanceOps | undefined;
@@ -136,11 +135,9 @@ export class ElementAspectExportProcessor {
     this._aspectChanges = aspectChanges;
   }
 
-  /** Clears the cached "which aspect classes are populated" scan.
-   * Call this before each top-level exportAll()/exportChanges() so aspect classes
-   * populated for the first time since the last scan aren't silently skipped on a
-   * long-lived exporter. Declared-class metadata ({@link getAspectClasses}) does not
-   * need this: the schema doesn't change mid-transform, but which classes have rows can.
+  /** Clears the cached "which aspect classes are populated" scan. Call before each
+   * top-level exportAll()/exportChanges() on a long-lived exporter, since which classes
+   * have rows can change between calls even though the schema itself doesn't.
    */
   public resetPopulatedAspectClassCache(): void {
     this._populatedAspectClassIds.clear();
@@ -191,12 +188,10 @@ export class ElementAspectExportProcessor {
     const queryElementIds =
       elementIds === undefined ? undefined : (new Set(elementIds) as Id64Set);
     for (const [classId, { schemaName, className }] of aspectClassNameIdMap) {
-      // Most schemas declare far more concrete aspect subclasses than any single
-      // iModel ever populates. Skipping classes with zero rows anywhere in the
-      // source avoids firing a query per declared class per owner batch.
+      // Skip classes with no rows anywhere in the source: most schemas declare far
+      // more concrete aspect subclasses than any iModel actually populates.
       if (!populatedClassIds.has(classId)) continue;
-      // Excluding a base aspect class also excludes its subclasses (excludedClassIds
-      // is the transitive closure), so this needs no per-instance instanceof check.
+      // excludedClassIds is the excluded class plus every declared subclass.
       if (excludedClassIds.has(classId)) continue;
 
       const classFullName = `${schemaName}:${className}`;
