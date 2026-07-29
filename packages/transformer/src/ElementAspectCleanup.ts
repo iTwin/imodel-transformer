@@ -11,13 +11,51 @@ import {
   ExternalSourceAspect,
   IModelDb,
 } from "@itwin/core-backend";
-import { Id64Set, Id64String } from "@itwin/core-bentley";
+import { Id64Set, Id64String, StopWatch } from "@itwin/core-bentley";
 import { ElementAspectProps, QueryBinder } from "@itwin/core-common";
+
+/** Accumulated wall time, call count, and candidate/deleted totals for
+ * {@link ElementAspectCleanup.delete}. For perf investigation only, not a stable API.
+ * @internal
+ */
+export interface ElementAspectCleanupDiagnostics {
+  wallMs: number;
+  callCount: number;
+  candidateCount: number;
+  deletedCount: number;
+}
 
 /** Deletes replaceable ElementAspects for target owners while preserving excluded classes and transformer provenance aspects.
  * @internal
  */
 export class ElementAspectCleanup {
+  private static _diagnostics: ElementAspectCleanupDiagnostics = {
+    wallMs: 0,
+    callCount: 0,
+    candidateCount: 0,
+    deletedCount: 0,
+  };
+
+  /** Resets accumulated diagnostics. For perf investigation only, not a stable API.
+   * @internal
+   */
+  public static resetDiagnostics(): void {
+    this._diagnostics = {
+      wallMs: 0,
+      callCount: 0,
+      candidateCount: 0,
+      deletedCount: 0,
+    };
+  }
+
+  /** Accumulated diagnostics across every {@link delete} call since the last
+   * {@link resetDiagnostics}. For perf investigation only, not a stable API.
+   * @internal
+   */
+  public static get diagnostics(): Readonly<ElementAspectCleanupDiagnostics> {
+    return this._diagnostics;
+  }
+
   public constructor(
     private readonly _targetDb: IModelDb,
     private readonly _editTxn: EditTxn,
@@ -28,6 +66,29 @@ export class ElementAspectCleanup {
    * Excluded classes and transformer provenance aspects for `provenanceScopeId` are preserved. Each deletion is performed through the configured callback and requires the target `EditTxn` to be active.
    */
   public async delete(
+    targetElementIds: ReadonlySet<Id64String>,
+    excludedElementAspectClassFullNames: ReadonlySet<string>,
+    provenanceScopeId?: Id64String,
+    pageSize = IModelDb.maxLimit - 1
+  ): Promise<void> {
+    const stopwatch = new StopWatch();
+    stopwatch.start();
+    try {
+      await this.deleteImpl(
+        targetElementIds,
+        excludedElementAspectClassFullNames,
+        provenanceScopeId,
+        pageSize
+      );
+    } finally {
+      stopwatch.stop();
+      ElementAspectCleanup._diagnostics.wallMs +=
+        stopwatch.elapsedSeconds * 1000;
+      ElementAspectCleanup._diagnostics.callCount++;
+    }
+  }
+
+  private async deleteImpl(
     targetElementIds: ReadonlySet<Id64String>,
     excludedElementAspectClassFullNames: ReadonlySet<string>,
     provenanceScopeId?: Id64String,
@@ -96,11 +157,13 @@ export class ElementAspectCleanup {
           });
         }
         if (candidates.length === 0) break;
+        ElementAspectCleanup._diagnostics.candidateCount += candidates.length;
 
         for (const aspectProps of candidates) {
           await this._deleteAspect(
             this._targetDb.constructEntity<ElementAspect>(aspectProps)
           );
+          ElementAspectCleanup._diagnostics.deletedCount++;
         }
       }
     }

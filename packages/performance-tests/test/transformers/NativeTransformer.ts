@@ -20,6 +20,8 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
+import { ElementAspectExportProcessor } from "@itwin/imodel-transformer/lib/cjs/ElementAspectExportProcessor";
+import { ElementAspectCleanup } from "@itwin/imodel-transformer/lib/cjs/ElementAspectCleanup";
 import { Logger } from "@itwin/core-bentley";
 import {
   TestTransformerModule,
@@ -27,6 +29,27 @@ import {
 } from "../TestTransformerModule";
 
 const loggerCategory = "Transformer Performance Tests Identity";
+
+function resetAspectDiagnostics(): void {
+  ElementAspectExportProcessor.resetDiagnostics();
+  ElementAspectCleanup.resetDiagnostics();
+}
+
+function reportAspectDiagnostics(): void {
+  const exportStats = ElementAspectExportProcessor.diagnostics;
+  const cleanupStats = ElementAspectCleanup.diagnostics;
+  const info = {
+    "Aspect export wall ms": exportStats.wallMs,
+    "Aspect export call count": exportStats.callCount,
+    "Aspect cleanup wall ms": cleanupStats.wallMs,
+    "Aspect cleanup call count": cleanupStats.callCount,
+    "Aspect cleanup candidate count": cleanupStats.candidateCount,
+    "Aspect cleanup deleted count": cleanupStats.deletedCount,
+  };
+  Logger.logInfo(loggerCategory, `aspect diagnostics: ${JSON.stringify(info)}`);
+  (globalThis as Record<string, unknown>).__imodelTransformerBenchmarkInfo =
+    info;
+}
 
 class ProgressTransformer extends IModelTransformer {
   private _count = 0;
@@ -60,10 +83,12 @@ const nativeTransformerTestModule: TestTransformerModule = {
     });
     return {
       async run() {
+        resetAspectDiagnostics();
         await transformer.processSchemas();
         await transformer.process();
         transformer.dispose();
         editTxn.end();
+        reportAspectDiagnostics();
       },
     };
   },
@@ -118,9 +143,11 @@ const nativeTransformerTestModule: TestTransformerModule = {
     );
     return {
       async run() {
+        resetAspectDiagnostics();
         await transformer.process();
         transformer.dispose();
         forkEditTxn.end();
+        reportAspectDiagnostics();
       },
     };
   },

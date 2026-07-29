@@ -9,7 +9,7 @@ import {
   ElementUniqueAspect,
   IModelDb,
 } from "@itwin/core-backend";
-import { Id64Set, Id64String } from "@itwin/core-bentley";
+import { Id64Set, Id64String, StopWatch } from "@itwin/core-bentley";
 import { ChangedInstanceOps } from "./ChangedInstanceIds";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
 import {
@@ -17,6 +17,15 @@ import {
   QueryBinder,
   QueryRowFormat,
 } from "@itwin/core-common";
+
+/** Accumulated wall time and call count for {@link ElementAspectExportProcessor.exportAllElementAspects}.
+ * For perf investigation only, not a stable API.
+ * @internal
+ */
+export interface ElementAspectExportDiagnostics {
+  wallMs: number;
+  callCount: number;
+}
 
 export interface ElementAspectExportProcessorHandler {
   shouldExportElementAspect(aspect: ElementAspect): Promise<boolean>;
@@ -35,6 +44,27 @@ export interface ElementAspectExportProcessorHandler {
  * @internal
  */
 export class ElementAspectExportProcessor {
+  private static _diagnostics: ElementAspectExportDiagnostics = {
+    wallMs: 0,
+    callCount: 0,
+  };
+
+  /** Resets accumulated diagnostics. For perf investigation only, not a stable API.
+   * @internal
+   */
+  public static resetDiagnostics(): void {
+    this._diagnostics = { wallMs: 0, callCount: 0 };
+  }
+
+  /** Accumulated wall time and call count across every {@link exportAllElementAspects}
+   * call since the last {@link resetDiagnostics}. For perf investigation only, not a
+   * stable API.
+   * @internal
+   */
+  public static get diagnostics(): Readonly<ElementAspectExportDiagnostics> {
+    return this._diagnostics;
+  }
+
   private readonly _aspectClasses = new Map<
     string,
     Promise<ReadonlyMap<Id64String, { schemaName: string; className: string }>>
@@ -73,6 +103,21 @@ export class ElementAspectExportProcessor {
    * Multi-aspects are emitted in one callback group per owner.
    */
   public async exportAllElementAspects(
+    elementIds?: ReadonlySet<Id64String>
+  ): Promise<void> {
+    const stopwatch = new StopWatch();
+    stopwatch.start();
+    try {
+      await this.exportAllElementAspectsImpl(elementIds);
+    } finally {
+      stopwatch.stop();
+      ElementAspectExportProcessor._diagnostics.wallMs +=
+        stopwatch.elapsedSeconds * 1000;
+      ElementAspectExportProcessor._diagnostics.callCount++;
+    }
+  }
+
+  private async exportAllElementAspectsImpl(
     elementIds?: ReadonlySet<Id64String>
   ): Promise<void> {
     if (elementIds !== undefined && elementIds.size === 0) return;
