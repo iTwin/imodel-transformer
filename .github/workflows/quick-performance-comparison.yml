@@ -1,0 +1,449 @@
+name: Quick performance comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Build A/A calibration or compare baseline with candidate
+        required: true
+        default: calibrate-a-a
+        type: choice
+        options:
+          - calibrate-a-a
+          - compare-a-b
+      scenario:
+        description: Comparison scenario
+        required: true
+        default: changeset-scanning
+        type: choice
+        options:
+          - changeset-scanning
+      calibration_ref:
+        description: Ref to build for both labeled A/A arms
+        required: true
+        default: main
+        type: string
+      baseline_ref:
+        description: Baseline ref for A/B
+        required: true
+        default: main
+        type: string
+      candidate_ref:
+        description: Candidate ref for A/B (blank uses the selected workflow ref)
+        required: false
+        type: string
+      pair_order:
+        description: Declared A/B job order
+        required: true
+        default: AB
+        type: choice
+        options:
+          - AB
+          - BA
+      calibration_run_id:
+        description: Prior successful calibration workflow run ID (A/B mode)
+        required: false
+        type: string
+      calibration_artifact:
+        description: Calibration artifact name from the prior run
+        required: true
+        default: QuickPerformanceCalibration
+        type: string
+      calibration_file:
+        description: Relative calibration JSON path inside the artifact
+        required: true
+        default: calibration.json
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  NODE_OPTIONS: --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
+
+jobs:
+  calibrate-pair:
+    if: inputs.mode == 'calibrate-a-a'
+    name: A/A pair ${{ matrix.index }} (${{ matrix.order }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - index: 0
+            order: AB
+          - index: 1
+            order: BA
+          - index: 2
+            order: AB
+
+    steps:
+      - name: Validate dispatch inputs
+        shell: bash
+        env:
+          CALIBRATION_REF: ${{ inputs.calibration_ref }}
+          SCENARIO: ${{ inputs.scenario }}
+        run: |
+          node - <<'NODE'
+          const { spawnSync } = require("child_process");
+          function ref(value, label) {
+            if (!/^[A-Za-z0-9._/-]+$/.test(value) || value.includes("..") || value.includes("@{") || value.startsWith("-"))
+              throw new Error(`${label} contains unsafe characters`);
+            if (/^[0-9a-fA-F]{40}$/.test(value))
+              return;
+            const branch = spawnSync("git", ["check-ref-format", "--branch", value]);
+            const full = spawnSync("git", ["check-ref-format", value]);
+            if (branch.status !== 0 && full.status !== 0)
+              throw new Error(`${label} is not a valid Git ref`);
+          }
+          ref(process.env.CALIBRATION_REF, "calibration_ref");
+          if (process.env.SCENARIO !== "changeset-scanning")
+            throw new Error("Only changeset-scanning is supported");
+          NODE
+
+      - name: Checkout harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout calibration build
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: calibration
+          ref: ${{ inputs.calibration_ref }}
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+        with:
+          version: 11.9.0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+          cache-dependency-path: |
+            harness/pnpm-lock.yaml
+            calibration/pnpm-lock.yaml
+
+      - name: Build harness and calibration arm
+        shell: bash
+        run: |
+          pnpm --dir harness install --frozen-lockfile
+          pnpm --dir harness/packages/transformer build:cjs
+          pnpm --dir harness/packages/performance-tests build
+          pnpm --dir calibration install --frozen-lockfile
+          pnpm --dir calibration/packages/transformer build:cjs
+
+      - name: Resolve checked-out calibration SHA
+        id: calibration
+        shell: bash
+        run: echo "sha=$(git -C calibration rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate comparison harness
+        shell: bash
+        run: pnpm --dir harness/packages/performance-tests test:comparison
+
+      - name: Prepare deterministic fixture
+        shell: bash
+        run: |
+          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+            prepare-fixture \
+            --scenario changeset-scanning \
+            --output "$RUNNER_TEMP/quick-comparison-fixture"
+
+      - name: Run isolated A/A pair
+        id: pair
+        continue-on-error: true
+        shell: bash
+        env:
+          CALIBRATION_REF: ${{ inputs.calibration_ref }}
+          CALIBRATION_SHA: ${{ steps.calibration.outputs.sha }}
+          PAIR_INDEX: ${{ matrix.index }}
+          PAIR_ORDER: ${{ matrix.order }}
+        run: |
+          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+            run-pair \
+            --job-id "$GITHUB_RUN_ID-$PAIR_INDEX" \
+            --pair "$PAIR_INDEX" \
+            --order "$PAIR_ORDER" \
+            --scenario changeset-scanning \
+            --fixture "$RUNNER_TEMP/quick-comparison-fixture" \
+            --arm-a-id calibration-a \
+            --arm-a-label calibration \
+            --arm-a-package "$GITHUB_WORKSPACE/calibration/packages/transformer" \
+            --arm-a-ref "$CALIBRATION_REF" \
+            --arm-a-sha "$CALIBRATION_SHA" \
+            --arm-b-id calibration-b \
+            --arm-b-label calibration \
+            --arm-b-package "$GITHUB_WORKSPACE/calibration/packages/transformer" \
+            --arm-b-ref "$CALIBRATION_REF" \
+            --arm-b-sha "$CALIBRATION_SHA" \
+            --output "$RUNNER_TEMP/quick-comparison-pair"
+
+      - name: Add pair summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/quick-comparison-pair/pair-summary.md" ]]; then
+            cat "$RUNNER_TEMP/quick-comparison-pair/pair-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish A/A observation
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: QuickPerformanceCalibrationObservation-${{ matrix.index }}
+          if-no-files-found: error
+          path: ${{ runner.temp }}/quick-comparison-pair
+
+      - name: Fail invalid pair
+        if: steps.pair.outcome == 'failure'
+        shell: bash
+        run: exit 1
+
+  aggregate-calibration:
+    if: always() && inputs.mode == 'calibrate-a-a'
+    name: Aggregate A/A calibration
+    needs: calibrate-pair
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+        with:
+          version: 11.9.0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+          cache-dependency-path: harness/pnpm-lock.yaml
+
+      - name: Build aggregation harness
+        shell: bash
+        run: |
+          pnpm --dir harness install --frozen-lockfile
+          pnpm --dir harness/packages/transformer build:cjs
+          pnpm --dir harness/packages/performance-tests build
+
+      - name: Download A/A observations
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: QuickPerformanceCalibrationObservation-*
+          path: ${{ runner.temp }}/quick-calibration-observations
+
+      - name: Aggregate matching independent jobs
+        shell: bash
+        run: |
+          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+            aggregate-calibration \
+            --input "$RUNNER_TEMP/quick-calibration-observations" \
+            --output "$RUNNER_TEMP/quick-calibration"
+
+      - name: Add calibration summary
+        shell: bash
+        run: cat "$RUNNER_TEMP/quick-calibration/calibration-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish calibration
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: QuickPerformanceCalibration
+          if-no-files-found: error
+          path: ${{ runner.temp }}/quick-calibration
+
+  compare:
+    if: inputs.mode == 'compare-a-b'
+    name: A/B comparison (${{ inputs.pair_order }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Validate dispatch inputs
+        shell: bash
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref || github.ref }}
+          CALIBRATION_RUN_ID: ${{ inputs.calibration_run_id }}
+          CALIBRATION_ARTIFACT: ${{ inputs.calibration_artifact }}
+          CALIBRATION_FILE: ${{ inputs.calibration_file }}
+          SCENARIO: ${{ inputs.scenario }}
+        run: |
+          node - <<'NODE'
+          const { spawnSync } = require("child_process");
+          function ref(value, label) {
+            if (!/^[A-Za-z0-9._/-]+$/.test(value) || value.includes("..") || value.includes("@{") || value.startsWith("-"))
+              throw new Error(`${label} contains unsafe characters`);
+            if (/^[0-9a-fA-F]{40}$/.test(value))
+              return;
+            const branch = spawnSync("git", ["check-ref-format", "--branch", value]);
+            const full = spawnSync("git", ["check-ref-format", value]);
+            if (branch.status !== 0 && full.status !== 0)
+              throw new Error(`${label} is not a valid Git ref`);
+          }
+          ref(process.env.BASELINE_REF, "baseline_ref");
+          ref(process.env.CANDIDATE_REF, "candidate_ref");
+          if (!/^[1-9][0-9]*$/.test(process.env.CALIBRATION_RUN_ID))
+            throw new Error("calibration_run_id must contain digits only");
+          if (!/^[A-Za-z0-9._-]+$/.test(process.env.CALIBRATION_ARTIFACT))
+            throw new Error("calibration_artifact contains unsafe characters");
+          const file = process.env.CALIBRATION_FILE;
+          if (!/^[A-Za-z0-9._/-]+$/.test(file) || file.startsWith("/") || file.includes(".."))
+            throw new Error("calibration_file must be a safe relative path");
+          if (process.env.SCENARIO !== "changeset-scanning")
+            throw new Error("Only changeset-scanning is supported");
+          NODE
+
+      - name: Checkout harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout baseline
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: baseline
+          ref: ${{ inputs.baseline_ref }}
+          persist-credentials: false
+
+      - name: Checkout candidate
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: candidate
+          ref: ${{ inputs.candidate_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+        with:
+          version: 11.9.0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+          cache-dependency-path: |
+            harness/pnpm-lock.yaml
+            baseline/pnpm-lock.yaml
+            candidate/pnpm-lock.yaml
+
+      - name: Build harness, baseline, and candidate
+        shell: bash
+        run: |
+          pnpm --dir harness install --frozen-lockfile
+          pnpm --dir harness/packages/transformer build:cjs
+          pnpm --dir harness/packages/performance-tests build
+          pnpm --dir baseline install --frozen-lockfile
+          pnpm --dir baseline/packages/transformer build:cjs
+          pnpm --dir candidate install --frozen-lockfile
+          pnpm --dir candidate/packages/transformer build:cjs
+
+      - name: Resolve checked-out SHAs
+        id: refs
+        shell: bash
+        run: |
+          echo "baseline_sha=$(git -C baseline rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$(git -C candidate rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate comparison harness
+        shell: bash
+        run: pnpm --dir harness/packages/performance-tests test:comparison
+
+      - name: Download prior calibration
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.calibration_artifact }}
+          path: ${{ runner.temp }}/quick-calibration
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.calibration_run_id }}
+
+      - name: Prepare deterministic fixture
+        shell: bash
+        run: |
+          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+            prepare-fixture \
+            --scenario changeset-scanning \
+            --output "$RUNNER_TEMP/quick-comparison-fixture"
+
+      - name: Run isolated A/B pair
+        id: pair
+        continue-on-error: true
+        shell: bash
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          BASELINE_SHA: ${{ steps.refs.outputs.baseline_sha }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref || github.ref }}
+          CANDIDATE_SHA: ${{ steps.refs.outputs.candidate_sha }}
+          PAIR_INDEX: ${{ inputs.pair_order == 'AB' && '0' || '1' }}
+          PAIR_ORDER: ${{ inputs.pair_order }}
+        run: |
+          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+            run-pair \
+            --job-id "$GITHUB_RUN_ID" \
+            --pair "$PAIR_INDEX" \
+            --order "$PAIR_ORDER" \
+            --scenario changeset-scanning \
+            --fixture "$RUNNER_TEMP/quick-comparison-fixture" \
+            --arm-a-id baseline \
+            --arm-a-label baseline \
+            --arm-a-package "$GITHUB_WORKSPACE/baseline/packages/transformer" \
+            --arm-a-ref "$BASELINE_REF" \
+            --arm-a-sha "$BASELINE_SHA" \
+            --arm-b-id candidate \
+            --arm-b-label candidate \
+            --arm-b-package "$GITHUB_WORKSPACE/candidate/packages/transformer" \
+            --arm-b-ref "$CANDIDATE_REF" \
+            --arm-b-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/quick-comparison-pair"
+
+      - name: Compare with matching calibration
+        if: steps.pair.outcome == 'success'
+        shell: bash
+        env:
+          CALIBRATION_FILE: ${{ inputs.calibration_file }}
+        run: |
+          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+            compare \
+            --observation "$RUNNER_TEMP/quick-comparison-pair/pair-observation.json" \
+            --calibration "$RUNNER_TEMP/quick-calibration/$CALIBRATION_FILE" \
+            --output "$RUNNER_TEMP/quick-comparison-report"
+
+      - name: Add comparison summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/quick-comparison-report/comparison.md" ]]; then
+            cat "$RUNNER_TEMP/quick-comparison-report/comparison.md" >> "$GITHUB_STEP_SUMMARY"
+          elif [[ -f "$RUNNER_TEMP/quick-comparison-pair/pair-summary.md" ]]; then
+            cat "$RUNNER_TEMP/quick-comparison-pair/pair-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish comparison report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: QuickPerformanceComparison
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/quick-comparison-pair
+            ${{ runner.temp }}/quick-comparison-report
+
+      - name: Fail invalid pair
+        if: steps.pair.outcome == 'failure'
+        shell: bash
+        run: exit 1

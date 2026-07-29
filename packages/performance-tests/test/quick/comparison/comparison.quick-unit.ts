@@ -627,6 +627,7 @@ describe("quick performance comparison statistics", () => {
       const identity: ArmRuntimeIdentity = {
         armId: "A",
         transformerVersion: "2.0.0",
+        transformerPackageHash: "transformer",
         coreBackendVersion: "5.10.3",
         coreBackendPackageHash: "abc",
       };

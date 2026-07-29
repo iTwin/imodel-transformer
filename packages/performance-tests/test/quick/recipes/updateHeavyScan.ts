@@ -3,7 +3,6 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from "path";
 import { AccessToken, Id64String } from "@itwin/core-bentley";
 import {
   Code,
@@ -25,6 +24,7 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { DatasetDescriptor } from "../DatasetDescriptor";
+import { resolveQuickSourceFile } from "../quickSource";
 import { ScanLedger, ScanLedgerEntry } from "../validation/scanOracle";
 import { queryCount } from "../validation/validateFixture";
 
@@ -160,7 +160,7 @@ export async function createScanSeed(
   });
   try {
     await db.importSchemas([
-      path.join(__dirname, "../schemas/QuickPerfScan.ecschema.xml"),
+      resolveQuickSourceFile("schemas/QuickPerfScan.ecschema.xml"),
     ]);
 
     const { categoryId, modelId } = withEditTxn(

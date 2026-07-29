@@ -11,8 +11,10 @@
     "format": "prettier \"./test/**/*.ts\" --write",
     "test-mocha": "mocha --delay --timeout 300000 \"./lib/**/TransformerRegression.test.js\"",
     "test:quick": "mocha --require ts-node/register test/quick/QuickPerformance.quick.ts",
+    "test:comparison": "mocha --timeout 300000 --require ts-node/register test/quick/comparison/comparison.quick-unit.ts test/quick/comparison/ComparisonRunner.quick-unit.ts",
     "quick:build-fixture": "ts-node test/quick/cli.ts build-fixture",
     "quick:verify-fixture": "ts-node test/quick/cli.ts verify-fixture",
+    "quick:compare": "node lib/quick/comparison/comparisonCli.js",
     "process-reports": "node scripts/process-reports"
   },
   "repository": {},

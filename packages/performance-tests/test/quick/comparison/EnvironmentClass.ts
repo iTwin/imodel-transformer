@@ -23,6 +23,8 @@ export interface EnvironmentDescriptor {
   readonly memoryGibBucket: number;
   readonly nodeMajor: number;
   readonly runner: string;
+  /** Immutable hosted image identity when the runner exposes one. */
+  readonly runnerImage?: string;
 }
 
 export interface EnvironmentClass {
@@ -45,8 +47,19 @@ export function describeEnvironment(): EnvironmentDescriptor {
     memoryGibBucket: memoryBucketGib(os.totalmem()),
     nodeMajor: Number(process.versions.node.split(".")[0]),
     runner: process.env.GITHUB_ACTIONS
-      ? (process.env.RUNNER_NAME ?? process.env.RUNNER_OS ?? "github-hosted")
+      ? process.env.RUNNER_ENVIRONMENT === "github-hosted"
+        ? `github-hosted:${process.env.RUNNER_OS ?? process.platform}:${
+            process.env.RUNNER_ARCH ?? process.arch
+          }`
+        : `self-hosted:${
+            process.env.RUNNER_NAME ?? process.env.RUNNER_OS ?? "unknown"
+          }`
       : "local",
+    runnerImage: process.env.GITHUB_ACTIONS
+      ? `${process.env.ImageOS ?? process.env.RUNNER_OS ?? "unknown"}:${
+          process.env.ImageVersion ?? "unknown"
+        }`
+      : undefined,
   };
 }
 
@@ -67,6 +80,7 @@ export function classifyEnvironment(
     descriptor.memoryGibBucket,
     descriptor.nodeMajor,
     descriptor.runner,
+    descriptor.runnerImage ?? "none",
   ].join("|");
   return {
     id: crypto

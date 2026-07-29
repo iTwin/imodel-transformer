@@ -34,8 +34,12 @@ export type ComparisonMode = "paired";
 export interface ArmDescription {
   readonly id: string;
   readonly label?: string;
+  readonly ref?: string;
+  readonly sha?: string;
   readonly transformerVersion: string;
+  readonly transformerPackageHash?: string;
   readonly coreBackendVersion: string;
+  readonly coreBackendPackageHash?: string;
 }
 
 export interface DetectabilitySummary {
@@ -207,6 +211,25 @@ export function renderComparisonReport(report: ComparisonReport): string {
     `| Environment | ${report.environment.id} |`,
     `| Arm A | ${report.armA.id} (${report.armA.transformerVersion}) |`,
     `| Arm B | ${report.armB.id} (${report.armB.transformerVersion}) |`,
+    `| Arm A transformer hash | ${
+      report.armA.transformerPackageHash ?? "unavailable"
+    } |`,
+    `| Arm B transformer hash | ${
+      report.armB.transformerPackageHash ?? "unavailable"
+    } |`,
+    `| Arm A core-backend | ${report.armA.coreBackendVersion} (${
+      report.armA.coreBackendPackageHash ?? "hash unavailable"
+    }) |`,
+    `| Arm B core-backend | ${report.armB.coreBackendVersion} (${
+      report.armB.coreBackendPackageHash ?? "hash unavailable"
+    }) |`,
+    `| Arm A ref / SHA | ${report.armA.ref ?? "n/a"} / ${
+      report.armA.sha ?? "n/a"
+    } |`,
+    `| Arm B ref / SHA | ${report.armB.ref ?? "n/a"} / ${
+      report.armB.sha ?? "n/a"
+    } |`,
+    `| Fixture recipe hash | ${report.recipeHash} |`,
     `| Median change | ${formatPercent(report.aggregate.percentChange)} |`,
     `| Geometric-mean change | ${formatPercent(
       report.aggregate.geometricMeanPercentChange

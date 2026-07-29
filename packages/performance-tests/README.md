@@ -67,23 +67,78 @@ the repository's default branch. The `--ref` selects which committed branch
 revision runs after that requirement is met; there is intentionally no custom
 branch input and no automatic pull-request or push trigger.
 
+### Quick A/A calibration and A/B comparison
+
+`quick-performance-comparison.yml` is a separate manual-only workflow for
+`changeset-scanning`. It does not use the weekly Hub-backed regression suite and
+never creates a merge-blocking performance gate. Each independent job produces
+exactly one `PairObservation`: the declared `AB` or `BA` order runs one isolated
+process per arm, each process performs one excluded warm-up plus three measured
+scenario executions, and each arm's three measurements are median-collapsed
+before computing one log-ratio. This is eight scenario executions per job; the
+within-process samples are never treated as three independent pairs.
+
+Calibration mode builds one selected `calibration_ref` for both labeled arms and
+runs three independent jobs in `AB`, `BA`, `AB` order. The aggregation job
+rejects fixture, recipe, workload, environment, execution-policy, build, or
+fingerprint mismatches. Three matching observations from three jobs establish
+the initial pool. An absolute A/A band at or below 5% is target quality, between
+5% and 10% is marginal, and 10% or greater is unresolvable. All three remain
+informational; the practical effect and equivalence threshold is 10%.
+
+```sh
+gh workflow run quick-performance-comparison.yml --ref main \
+  -f mode=calibrate-a-a \
+  -f scenario=changeset-scanning \
+  -f calibration_ref=main
+```
+
+Comparison mode checks out and builds baseline and candidate separately. The
+top-layer harness loads `ChangedInstanceIds` from each explicit built package in
+its own child process, so the baseline ref does not need to contain the
+comparison harness. Supply the prior calibration workflow run ID and artifact;
+leave `candidate_ref` blank to use the workflow ref selected by `--ref`.
+
+```sh
+gh workflow run quick-performance-comparison.yml --ref main \
+  -f mode=compare-a-b \
+  -f scenario=changeset-scanning \
+  -f baseline_ref=main \
+  -f candidate_ref=my-candidate \
+  -f pair_order=AB \
+  -f calibration_run_id=123456789 \
+  -f calibration_artifact=QuickPerformanceCalibration \
+  -f calibration_file=calibration.json
+```
+
+The workflow publishes raw arm samples, the pair observation (including discard
+reasons), the calibration pool and band, summary JSON, and Markdown used for the
+job summary. A/B rejects a missing calibration or any calibration fingerprint
+or hosted-runner class mismatch instead of borrowing a nearby result.
+
+GitHub can dispatch this workflow only after
+`quick-performance-comparison.yml` reaches the repository's default branch.
+Before then, local smoke runs can exercise process orchestration but cannot
+create hosted calibration evidence. The CLI's `prepare-fixture --smoke true`
+uses an explicitly labeled reduced fixture; its different identity prevents it
+from being accepted as calibration for the full fixture.
+
 `pnpm quick:build-fixture` writes the canonical recipe manifest.
 `pnpm quick:verify-fixture` performs two fresh reconstructions (warm-up plus one
 measured sample), checks their semantic digests, and writes a diagnostic report.
 
 Here are tests we need but don't have:
 
-- *Identity Transform*
+- _Identity Transform_
   transform the entire contents of the iModel to an empty iModel seed
-- *JSON Geometry Editing Transform*
+- _JSON Geometry Editing Transform_
   transform the iModel, editing geometry as we go using the json format
-- *Binary Geometry Editing Transform*
+- _Binary Geometry Editing Transform_
   transform the iModel, editing geometry as we go using elementGeometryBuilderParams
-- *Optimistically Locking Remote Target*
-- *Pessimistically Locking Remote Target*
-- *Processing Changes*
-- *More Branching Stuff*
-
+- _Optimistically Locking Remote Target_
+- _Pessimistically Locking Remote Target_
+- _Processing Changes_
+- _More Branching Stuff_
 
 ## Usage
 
@@ -97,13 +152,14 @@ Here are tests we need but don't have:
 
 3. Create `.env` file using `template.env` template.
 
-5. Run:
+4. Run:
 
    ```sh
    pnpm test
    ```
 
 <!-- FIXME: output csv -->
+
 6. Review results like:
 
 ```sh

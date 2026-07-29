@@ -3,7 +3,6 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from "path";
 import { Id64String } from "@itwin/core-bentley";
 import {
   Code,
@@ -30,6 +29,7 @@ import {
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
 import { DatasetDescriptor } from "../DatasetDescriptor";
+import { resolveQuickSourceFile } from "../quickSource";
 
 const uniqueAspectClass = "QuickPerf:BalancedUniqueAspect";
 const multiAspectClass = "QuickPerf:BalancedMultiAspect";
@@ -127,7 +127,7 @@ export async function createBalancedSeed(
   });
   try {
     await db.importSchemas([
-      path.join(__dirname, "../schemas/QuickPerf.ecschema.xml"),
+      resolveQuickSourceFile("schemas/QuickPerf.ecschema.xml"),
     ]);
 
     const { categoryIds, modelIds } = withEditTxn(

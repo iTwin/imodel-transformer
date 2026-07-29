@@ -3,7 +3,9 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { ChangedInstanceIds } from "@itwin/imodel-transformer";
+import type { BriefcaseDb } from "@itwin/core-backend";
+import type { ChangesetFileProps } from "@itwin/core-common";
+import { createRequire } from "module";
 import { BenchmarkScenarioDefinition } from "../BenchmarkScenario";
 import {
   PreparedDataset,
@@ -18,6 +20,23 @@ import {
   ScanLedgerEntry,
   squashLedger,
 } from "../validation/scanOracle";
+
+const workspaceRequire = createRequire(__filename);
+
+export interface ChangedInstanceIdsDependency {
+  initialize(args: {
+    readonly csFileProps: ChangesetFileProps[];
+    readonly iModel: BriefcaseDb;
+  }): Promise<ScanExpectation>;
+}
+
+function workspaceChangedInstanceIds(): ChangedInstanceIdsDependency {
+  return (
+    workspaceRequire("@itwin/imodel-transformer") as {
+      readonly ChangedInstanceIds: ChangedInstanceIdsDependency;
+    }
+  ).ChangedInstanceIds;
+}
 
 /**
  * Measures {@link ChangedInstanceIds.initialize} over a set of local changeset files.
@@ -38,11 +57,14 @@ class ChangesetScanningScenario {
   private _result?: ScanExpectation;
   private _aborted = false;
 
-  constructor(private readonly _dataset: PreparedDataset) {}
+  constructor(
+    private readonly _dataset: PreparedDataset,
+    private readonly _changedInstanceIds: ChangedInstanceIdsDependency
+  ) {}
 
   public async measure(): Promise<void> {
     const dataset = requireDetachedDataset(this._dataset);
-    this._result = await ChangedInstanceIds.initialize({
+    this._result = await this._changedInstanceIds.initialize({
       csFileProps: dataset.csFileProps,
       iModel: dataset.sourceDb,
     });
@@ -74,6 +96,21 @@ class ChangesetScanningScenario {
   }
 }
 
+export function createChangesetScanningScenario(
+  changedInstanceIds: ChangedInstanceIdsDependency = workspaceChangedInstanceIds()
+): BenchmarkScenarioDefinition {
+  return {
+    id: "changeset-scanning",
+    defaultFixtureId: updateHeavyScanDescriptor.id,
+    capabilities: {
+      topology: "source-only",
+      requiredClaims: ["changeset scanning"],
+    },
+    factory: (dataset) =>
+      new ChangesetScanningScenario(dataset, changedInstanceIds),
+  };
+}
+
 export const changesetScanningScenario: BenchmarkScenarioDefinition = {
   id: "changeset-scanning",
   defaultFixtureId: updateHeavyScanDescriptor.id,
@@ -81,5 +118,6 @@ export const changesetScanningScenario: BenchmarkScenarioDefinition = {
     topology: "source-only",
     requiredClaims: ["changeset scanning"],
   },
-  factory: (dataset) => new ChangesetScanningScenario(dataset),
+  factory: (dataset) =>
+    new ChangesetScanningScenario(dataset, workspaceChangedInstanceIds()),
 };
