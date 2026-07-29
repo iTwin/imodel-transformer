@@ -306,8 +306,6 @@ describe("Transformer Regression Tests", () => {
             transformerModule: definition.transformerModule,
             addReport,
           });
-          // eslint-disable-next-line no-console
-          console.log("Finished the test");
         });
       }
     });
