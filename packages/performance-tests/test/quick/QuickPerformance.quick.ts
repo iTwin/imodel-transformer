@@ -3,22 +3,21 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { expect } from "chai";
-import * as path from "path";
+import { describe, expect, it } from "vitest";
 import { BenchmarkReporter } from "./BenchmarkReporter";
 import { resolveBenchmarkRunFromEnvironment } from "./BenchmarkResolution";
 import { BenchmarkRunner } from "./BenchmarkRunner";
 import { scenarioBudgetMilliseconds } from "./BenchmarkScenario";
+import { quickSourcePath } from "./quickPaths";
 
 describe("quick performance", () => {
   const { descriptor, scenario } = resolveBenchmarkRunFromEnvironment();
   const budgetMilliseconds = scenarioBudgetMilliseconds(scenario);
 
-  it(`${scenario.id} completes within budget on ${descriptor.id}`, async function () {
-    this.timeout(budgetMilliseconds);
+  it(`${scenario.id} completes within budget on ${descriptor.id}`, async () => {
     const outputDir =
       process.env.QUICK_PERF_OUTPUT ??
-      path.join(__dirname, ".quick-output", descriptor.id);
+      quickSourcePath(".quick-output", descriptor.id);
     const started = process.hrtime.bigint();
     const samples = await new BenchmarkRunner(
       descriptor,

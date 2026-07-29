@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { DatasetDescriptor } from "./DatasetDescriptor";
 import { canonicalSha256 } from "./FixtureManifest";
+import { quickSourceDirectory, quickSourcePath } from "./quickPaths";
 
 const scale = 25;
 const distribution = {
@@ -57,15 +58,22 @@ const recipeIdentity = (topology: string) => ({
   distribution,
   inputs: {
     recipe: fs.readFileSync(
-      path.join(__dirname, "recipes/balancedIncremental.ts"),
+      quickSourcePath("recipes", "balancedIncremental.ts"),
       "utf8"
     ),
     schema: fs.readFileSync(
-      path.join(__dirname, "schemas/QuickPerf.ecschema.xml"),
+      quickSourcePath("schemas", "QuickPerf.ecschema.xml"),
       "utf8"
     ),
     lockfile: fs.readFileSync(
-      path.join(__dirname, "../../../../pnpm-lock.yaml"),
+      path.resolve(
+        quickSourceDirectory,
+        "..",
+        "..",
+        "..",
+        "..",
+        "pnpm-lock.yaml"
+      ),
       "utf8"
     ),
   },
