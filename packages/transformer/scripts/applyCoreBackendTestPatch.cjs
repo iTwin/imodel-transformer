@@ -7,17 +7,19 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const coreBackendRoot = path.dirname(
-  require.resolve("@itwin/core-backend/package.json")
-);
+const packageJsonPath = require.resolve("@itwin/core-backend/package.json");
+const coreBackendRoot = path.dirname(packageJsonPath);
 const declarationsPath = path.join(coreBackendRoot, "lib/cjs/IModelDb.d.ts");
 if (fs.readFileSync(declarationsPath, "utf8").includes("getAspectsForElements"))
   process.exit(0);
 
+const { version } = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 const patchPath = path.resolve(
   __dirname,
-  "../../../patches/@itwin__core-backend@5.10.3.patch"
+  `../../../patches/@itwin__core-backend@${version}.patch`
 );
+if (!fs.existsSync(patchPath))
+  throw new Error(`No test-only core-backend patch for version ${version}`);
 const result = spawnSync("git", ["apply", "--no-index", patchPath], {
   cwd: coreBackendRoot,
   stdio: "inherit",

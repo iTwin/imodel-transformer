@@ -1,0 +1,96 @@
+diff --git a/lib/cjs/IModelDb.d.ts b/lib/cjs/IModelDb.d.ts
+index 528dba7..97b68ad 100644
+--- a/lib/cjs/IModelDb.d.ts
++++ b/lib/cjs/IModelDb.d.ts
+@@ -37,6 +37,19 @@ import { SchemaMap } from "./Schema";
+ import { ElementLRUCache, InstanceKeyLRUCache } from "./internal/ElementLRUCache";
+ import { IntegrityCheckResult } from "./internal/IntegrityCheck";
+ import { ECSqlSyncReader, SynchronousQueryOptions } from "./ECSqlSyncReader";
++/** Options for IModelDb.Elements.getAspectsForElements. */
++export interface GetAspectsForElementsOptions {
++    /** Elements whose aspects should be returned. */
++    elementIds: Id64Arg;
++    /** Optionally filter aspects polymorphically by this class. */
++    aspectClassFullName?: string;
++    /** Exact aspect classes to omit. */
++    excludedAspectClassFullNames?: ReadonlySet<string>;
++    /** Order results so aspects owned by the same element are contiguous. */
++    groupByOwner?: boolean;
++    /** Execute on the primary connection so uncommitted changes are visible. */
++    usePrimaryConn?: boolean;
++}
+ /** Options for [[IModelDb.Models.updateModel]]
+  * @note To mark *only* the geometry as changed, use [[IModelDb.Models.updateGeometryGuid]] instead.
+  * @public
+@@ -1488,6 +1501,8 @@ export declare namespace IModelDb {
+          * @throws [[IModelError]]
+          */
+         getAspects(elementId: Id64String, aspectClassFullName?: string, excludedClassFullNames?: Set<string>): ElementAspect[];
++        /** Stream aspects owned by any of the supplied elements. */
++        getAspectsForElements(options: GetAspectsForElementsOptions): AsyncIterableIterator<ElementAspect>;
+         /** Insert a new ElementAspect into the iModel.
+          * @param aspectProps The properties of the new ElementAspect.
+          * @throws [[IModelError]] if unable to insert the ElementAspect.
+diff --git a/lib/cjs/IModelDb.js b/lib/cjs/IModelDb.js
+index a64067f..c9abd3a 100644
+--- a/lib/cjs/IModelDb.js
++++ b/lib/cjs/IModelDb.js
+@@ -2647,6 +2647,58 @@ function processSchemaWriteStatus(status) {
+                 core_bentley_1.Logger.logInfo(BackendLoggerCategory_1.BackendLoggerCategory.ECDb, `No aspects found for class ${aspectClassFullName} and element ${elementId}`);
+             return aspects;
+         }
++        /** Stream aspects owned by any of the supplied elements. */
++        async *getAspectsForElements(options) {
++            const elementIds = core_bentley_1.Id64.toIdSet(options.elementIds);
++            if (elementIds.size === 0)
++                return;
++            const params = new core_common_1.QueryBinder().bindIdSet("elementIds", elementIds);
++            const classFilter = options.aspectClassFullName === undefined ? "" : `AND aspect.ECClassId IN (
++        SELECT SourceECInstanceId FROM meta.ClassHasAllBaseClasses
++        WHERE TargetECInstanceId=ec_classid(:aspectClassFullName)
++      )`;
++            if (options.aspectClassFullName !== undefined)
++                params.bindString("aspectClassFullName", options.aspectClassFullName.replace(".", ":"));
++            const excludedClassIds = [];
++            let excludedClassIndex = 0;
++            for (const classFullName of options.excludedAspectClassFullNames ?? []) {
++                const parameterName = `excludedAspectClass${excludedClassIndex++}`;
++                excludedClassIds.push(`ec_classid(:${parameterName})`);
++                params.bindString(parameterName, classFullName.replace(".", ":"));
++            }
++            const excludedClassFilter = excludedClassIds.length === 0 ? "" : `AND aspect.ECClassId NOT IN (
++        SELECT ECInstanceId FROM meta.ECClassDef WHERE ECInstanceId IN (${excludedClassIds.join(",")})
++      )`;
++            const orderBy = options.groupByOwner
++                ? "ORDER BY OwnerId, AspectKind, ECClassId, ECInstanceId"
++                : "ORDER BY AspectKind, ECClassId, ECInstanceId, OwnerId";
++            const sql = `WITH OwnerIds AS (SELECT id FROM IdSet(:elementIds))
++        SELECT $ FROM (
++          SELECT aspect.ECInstanceId, aspect.ECClassId, aspect.Element.Id AS OwnerId, 0 AS AspectKind
++          FROM OwnerIds owners
++          CROSS JOIN Bis.ElementMultiAspect aspect ON aspect.Element.Id=owners.id
++          WHERE TRUE ${classFilter} ${excludedClassFilter}
++          UNION ALL
++          SELECT aspect.ECInstanceId, aspect.ECClassId, aspect.Element.Id AS OwnerId, 1 AS AspectKind
++          FROM OwnerIds owners
++          CROSS JOIN Bis.ElementUniqueAspect aspect ON aspect.Element.Id=owners.id
++          WHERE TRUE ${classFilter} ${excludedClassFilter}
++        ) ${orderBy}
++        OPTIONS USE_JS_PROP_NAMES DO_NOT_TRUNCATE_BLOB ENABLE_EXPERIMENTAL_FEATURES`;
++            const reader = this._iModel.createQueryReader(sql, params, { usePrimaryConn: options.usePrimaryConn });
++            for await (const queryRow of reader) {
++                const row = {};
++                const rawInstance = queryRow[0];
++                const parsedRow = typeof rawInstance === "string" ? JSON.parse(rawInstance, core_common_1.Base64EncodedString.reviver) : rawInstance;
++                for (const key in parsedRow) {
++                    const jsName = core_common_1.ECJsNames.toJsName(key[0].toUpperCase() + key.substring(1));
++                    Object.defineProperty(row, jsName, { enumerable: true, configurable: true, writable: true, value: parsedRow[key] });
++                }
++                row.classFullName = row.className.replace(".", ":");
++                row.className = undefined;
++                yield this._iModel.constructEntity(row);
++            }
++        }
+         /** Insert a new ElementAspect into the iModel.
+          * @param aspectProps The properties of the new ElementAspect.
+          * @throws [[IModelError]] if unable to insert the ElementAspect.
