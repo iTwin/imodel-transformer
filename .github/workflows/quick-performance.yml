@@ -50,17 +50,7 @@ jobs:
 
       - name: Validate quick harness
         run: |
-          pnpm --dir packages/performance-tests exec mocha \
-            --timeout 300000 \
-            --require ts-node/register \
-            test/quick/FixtureManifest.quick-unit.ts \
-            test/quick/ScenarioCatalog.quick-unit.ts \
-            test/quick/scanOracle.quick-unit.ts \
-            test/quick/BenchmarkResolution.quick-unit.ts \
-            test/quick/statistics.quick-unit.ts \
-            test/quick/LocalHubFixture.quick-unit.ts \
-            test/quick/FixtureArtifact.quick-unit.ts \
-            test/quick/comparison/comparison.quick-unit.ts \
+          pnpm --dir packages/performance-tests test:quick-unit \
             2>&1 | sed \
               -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"

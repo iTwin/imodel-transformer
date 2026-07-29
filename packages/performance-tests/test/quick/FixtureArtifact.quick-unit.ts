@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { expect } from "chai";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -38,8 +38,7 @@ describe("detached fixture artifact", () => {
   let root: string;
   let built: BuiltFixture;
 
-  before(async function () {
-    this.timeout(600_000);
+  beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "quick-artifact-"));
     await startIsolatedHost();
     built = await detachedBriefcaseFixtureProvider.build(
@@ -48,7 +47,7 @@ describe("detached fixture artifact", () => {
     );
   });
 
-  after(async () => {
+  afterAll(async () => {
     await detachedBriefcaseFixtureProvider.disposeBuild(built);
     await shutdownIsolatedHost();
     fs.rmSync(root, { recursive: true, force: true });
@@ -149,8 +148,7 @@ describe("detached fixture artifact", () => {
       expect(fs.existsSync(props.pathname)).to.be.true;
   });
 
-  it("materializes independent working copies without a hub", async function () {
-    this.timeout(300_000);
+  it("materializes independent working copies without a hub", async () => {
     expect(HubMock.isValid).to.equal(
       false,
       "stage 2 must not require a live hub"
@@ -315,8 +313,7 @@ describe("recipe data across the stage boundary", () => {
   let root: string;
   let built: BuiltFixture;
 
-  before(async function () {
-    this.timeout(600_000);
+  beforeAll(async () => {
     registerFixtureRecipe({
       id: recipeId,
       createSeed: async (fileName, forDescriptor) =>
@@ -341,7 +338,7 @@ describe("recipe data across the stage boundary", () => {
     );
   });
 
-  after(async () => {
+  afterAll(async () => {
     await detachedBriefcaseFixtureProvider.disposeBuild(built);
     await shutdownIsolatedHost();
     fs.rmSync(root, { recursive: true, force: true });
@@ -353,8 +350,7 @@ describe("recipe data across the stage boundary", () => {
     expect(fs.existsSync(path.join(built.directory, "recipe.json"))).to.be.true;
   });
 
-  it("surfaces identical data on every working copy", async function () {
-    this.timeout(300_000);
+  it("surfaces identical data on every working copy", async () => {
     const datasets = [];
     for (const name of ["sample-0", "sample-1"])
       datasets.push(
@@ -402,8 +398,7 @@ describe("recipe data that cannot survive JSON", () => {
   };
   let root: string;
 
-  before(async function () {
-    this.timeout(600_000);
+  beforeAll(async () => {
     registerFixtureRecipe({
       id: recipeId,
       createSeed: async (fileName, forDescriptor) =>
@@ -424,13 +419,12 @@ describe("recipe data that cannot survive JSON", () => {
     await startIsolatedHost();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await shutdownIsolatedHost();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("fails the build instead of emitting an empty ledger", async function () {
-    this.timeout(600_000);
+  it("fails the build instead of emitting an empty ledger", async () => {
     const artifactDir = path.join(root, "fixture-artifact");
     let built: BuiltFixture | undefined;
     try {
