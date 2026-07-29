@@ -2,6 +2,9 @@
 
 A package containing performance tests for the [`@itwin/imodel-transformer` library](../../README.md).
 
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the test categories, weekly suite
+lifecycle, registration model, and extension guidance.
+
 ## Tests
 
 ### Quick incremental performance
