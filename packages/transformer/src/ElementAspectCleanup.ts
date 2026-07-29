@@ -12,7 +12,7 @@ import {
   IModelDb,
 } from "@itwin/core-backend";
 import { Id64Set, Id64String } from "@itwin/core-bentley";
-import { QueryBinder } from "@itwin/core-common";
+import { ElementAspectProps, QueryBinder } from "@itwin/core-common";
 
 /** Deletes replaceable ElementAspects for target owners while preserving excluded classes and transformer provenance aspects.
  * @internal
@@ -72,21 +72,39 @@ export class ElementAspectCleanup {
           )`;
         }
 
-        const query = `SELECT ECInstanceId FROM ${aspectClassFullName}
+        // Deletion only ever needs id/classFullName/owner id (see onDeleteElementAspect),
+        // never the concrete class's own properties, so select exactly those three things
+        // with explicit aliases instead of `SELECT *`. That sidesteps QueryRowFormat
+        // entirely: explicit aliases resolve the same way under every row format, so
+        // there's no need for the deprecated UseJsPropertyNames remap this file used to
+        // rely on to turn `Element.Id` into a usable owner id.
+        const query = `SELECT ECInstanceId as id,
+            (ec_className(ECClassId, 's')) as schemaName,
+            (ec_className(ECClassId, 'c')) as className,
+            Element.Id as elementId
+          FROM ${aspectClassFullName}
           WHERE ${whereClause}
           LIMIT ${pageSize}`;
-        const aspectIds: Id64String[] = [];
+        // Fully drain the candidate page before deleting anything: deleting while this
+        // reader is still stepping through the same table it's scanning is unsafe.
+        const candidates: ElementAspectProps[] = [];
         for await (const row of this._targetDb.createQueryReader(
           query,
           params,
           { usePrimaryConn: true }
         )) {
-          aspectIds.push(row.id);
+          candidates.push({
+            classFullName: `${row.schemaName}:${row.className}`,
+            id: row.id,
+            element: { id: row.elementId },
+          });
         }
-        if (aspectIds.length === 0) break;
+        if (candidates.length === 0) break;
 
-        for (const aspectId of aspectIds) {
-          await this._deleteAspect(this._targetDb.elements.getAspect(aspectId));
+        for (const aspectProps of candidates) {
+          await this._deleteAspect(
+            this._targetDb.constructEntity<ElementAspect>(aspectProps)
+          );
         }
       }
     }
