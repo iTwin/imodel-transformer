@@ -20,7 +20,10 @@ const patchPath = path.resolve(
 if (!fs.existsSync(patchPath))
   throw new Error(`No test-only core-backend patch for version ${version}`);
 
-const patchLines = fs.readFileSync(patchPath, "utf8").split("\n");
+const patchLines = fs
+  .readFileSync(patchPath, "utf8")
+  .replaceAll("\r\n", "\n")
+  .split("\n");
 let filePath;
 let fileLines;
 let lineOffset = 0;
