@@ -1,6 +1,6 @@
 {
   "type": "patch",
-  "comment": "Skip declared ElementAspect classes with no rows in the source iModel instead of querying every declared subclass on every owner batch",
+  "comment": "Prefilter populated ElementAspect classes per explicit owner batch with IdSet joins, while caching only unscoped populated-class scans",
   "packageName": "@itwin/imodel-transformer",
   "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"

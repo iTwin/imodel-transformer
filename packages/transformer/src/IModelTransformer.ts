@@ -90,13 +90,13 @@ import {
   SourceAndTarget,
 } from "@itwin/core-common";
 import {
+  ChangedInstanceIds,
   ExportChangesOptions,
   ExporterInitOptions,
   ExportSchemaResult,
   IModelExporter,
   IModelExportHandler,
 } from "./IModelExporter";
-import { ChangedInstanceIds } from "./ChangedInstanceIds";
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";

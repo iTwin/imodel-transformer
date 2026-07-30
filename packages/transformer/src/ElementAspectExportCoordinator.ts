@@ -16,6 +16,7 @@ export type ElementAspectExportPreparation = (
 export class ElementAspectExportCoordinator {
   private readonly _acceptedOwnerIds = new Set<Id64String>();
   private readonly _acceptedOwnerDecisions = new Set<Id64String>();
+  private readonly _processedOwnerIds = new Set<Id64String>();
   private _batchSize: number;
   private _depth = 0;
   private _prepare?: ElementAspectExportPreparation;
@@ -25,7 +26,8 @@ export class ElementAspectExportCoordinator {
     private readonly _excludedClassFullNames: () => ReadonlySet<string>,
     private readonly _exportAspects: (
       elementIds: ReadonlySet<Id64String>
-    ) => Promise<void>
+    ) => Promise<void>,
+    private readonly _resetCaches: () => void = () => {}
   ) {
     this._batchSize = _defaultBatchSize;
   }
@@ -50,7 +52,8 @@ export class ElementAspectExportCoordinator {
    */
   public begin(batchSize = this._defaultBatchSize): void {
     if (this._depth === 0) {
-      this.resetBatchState();
+      this.resetScopeState();
+      this._resetCaches();
       this._batchSize = batchSize;
     }
     this._depth++;
@@ -104,7 +107,7 @@ export class ElementAspectExportCoordinator {
 
   /** Adds an accepted source owner to the current group and exports the group when it reaches the configured batch size. */
   public async addAcceptedOwner(elementId: Id64String): Promise<void> {
-    if (!this.isActive) return;
+    if (!this.isActive || this._processedOwnerIds.has(elementId)) return;
 
     this._acceptedOwnerIds.add(elementId);
     if (this._acceptedOwnerIds.size >= this._batchSize) {
@@ -133,13 +136,26 @@ export class ElementAspectExportCoordinator {
   public async exportOwners(
     elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    if (elementIds.size <= this._defaultBatchSize) {
-      await this.exportOwnerBatch(elementIds);
+    let ownerIds = elementIds;
+    if (this.isActive && elementIds.size > 0) {
+      const unprocessedOwnerIds = new Set<Id64String>();
+      for (const elementId of elementIds) {
+        if (!this._processedOwnerIds.has(elementId)) {
+          unprocessedOwnerIds.add(elementId);
+          this._processedOwnerIds.add(elementId);
+        }
+      }
+      if (unprocessedOwnerIds.size === 0) return;
+      ownerIds = unprocessedOwnerIds;
+    }
+
+    if (ownerIds.size <= this._defaultBatchSize) {
+      await this.exportOwnerBatch(ownerIds);
       return;
     }
 
     let ownerBatch = new Set<Id64String>();
-    for (const elementId of elementIds) {
+    for (const elementId of ownerIds) {
       ownerBatch.add(elementId);
       if (ownerBatch.size === this._defaultBatchSize) {
         await this.exportOwnerBatch(ownerBatch);
@@ -173,9 +189,14 @@ export class ElementAspectExportCoordinator {
     this._acceptedOwnerDecisions.clear();
   }
 
+  private resetScopeState(): void {
+    this.resetBatchState();
+    this._processedOwnerIds.clear();
+  }
+
   private reset(): void {
     this._depth = 0;
-    this.resetBatchState();
+    this.resetScopeState();
     this._batchSize = this._defaultBatchSize;
   }
 }

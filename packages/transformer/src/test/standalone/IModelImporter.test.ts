@@ -246,11 +246,15 @@ describe("IModelImporter", () => {
       const editTxn = createStartedEditTxn(targetDb);
       class TrackingImporter extends IModelImporter {
         public deletedAspectCount = 0;
+        public deletedExternalSourceIdentifiers: string[] = [];
 
         protected override async onDeleteElementAspect(
           aspect: ElementAspect
         ): Promise<void> {
           this.deletedAspectCount++;
+          if (aspect instanceof ExternalSourceAspect) {
+            this.deletedExternalSourceIdentifiers.push(aspect.identifier);
+          }
           await super.onDeleteElementAspect(aspect);
         }
       }
@@ -272,6 +276,9 @@ describe("IModelImporter", () => {
       expect(hasAspect(aspectIds.nonProvenance)).to.be.false;
       expect(hasAspect(aspectIds.provenance)).to.be.true;
       expect(importer.deletedAspectCount).to.equal(2);
+      expect(importer.deletedExternalSourceIdentifiers).to.deep.equal([
+        "replaceable",
+      ]);
       editTxn.end();
     } finally {
       targetDb.close();

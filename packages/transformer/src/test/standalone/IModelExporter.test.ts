@@ -231,11 +231,13 @@ describe("IModelExporter", () => {
       expect(preparedOwnerBatchSizes.slice(0, -1).every((size) => size === 1))
         .to.be.true;
       expect(exportedIdentifiers).to.deep.equal(["included"]);
+      // Each of the five outer scopes refreshes class metadata once for the
+      // populated multi-aspect base. Nested calls and batch flushes do not.
       expect(
         createQueryReader.mock.calls.filter((call) =>
           String(call[0]).includes("ECDbMeta.ClassHasAllBaseClasses")
         )
-      ).to.have.lengthOf(2);
+      ).to.have.lengthOf(5);
     } finally {
       vi.restoreAllMocks();
       sourceDb.close();
@@ -264,6 +266,161 @@ describe("IModelExporter", () => {
 
     expect(preparedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
     expect(exportedOwnerBatchSizes).to.deep.equal([1_000, 1_000, 1]);
+  });
+
+  it("deduplicates owners across scope batches and resets at outer scope boundaries", async () => {
+    const ownerA = Id64.fromLocalAndBriefcaseIds(1, 0);
+    const ownerB = Id64.fromLocalAndBriefcaseIds(2, 0);
+    const exportedOwners: Id64String[] = [];
+    let cacheResetCount = 0;
+    const coordinator = new ElementAspectExportCoordinator(
+      1,
+      () => new Set<string>(),
+      async (ownerBatch) => {
+        exportedOwners.push(...ownerBatch);
+      },
+      () => cacheResetCount++
+    );
+
+    coordinator.begin(1);
+    await coordinator.addAcceptedOwner(ownerA);
+    coordinator.begin();
+    await coordinator.addAcceptedOwner(ownerB);
+    await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.end();
+    await coordinator.end();
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB]);
+    expect(cacheResetCount).to.equal(1);
+
+    coordinator.begin(1);
+    await coordinator.addAcceptedOwner(ownerA);
+    await coordinator.end();
+    expect(exportedOwners).to.deep.equal([ownerA, ownerB, ownerA]);
+    expect(cacheResetCount).to.equal(2);
+
+    await coordinator.exportOwners(new Set([ownerA]));
+    await coordinator.exportOwners(new Set([ownerA]));
+    expect(exportedOwners).to.deep.equal([
+      ownerA,
+      ownerB,
+      ownerA,
+      ownerA,
+      ownerA,
+    ]);
+  });
+
+  it("prefilters populated aspect classes for each explicit owner batch", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "OwnerScopedAspectClassPrefilter.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "OwnerScopedAspectClassPrefilter" },
+    });
+    try {
+      await importAspectTestSchema(sourceDb);
+      const { emptyOwnerId, populatedOwnerId } = withEditTxn(
+        sourceDb,
+        "insert owner-scoped aspect data",
+        (txn) => {
+          const emptyId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "EmptyOwner"
+          );
+          const populatedId = Subject.insert(
+            txn,
+            IModel.rootSubjectId,
+            "PopulatedOwner"
+          );
+          txn.insertAspect({
+            classFullName: "ExporterAspectTest:UniqueAspect",
+            element: new ElementOwnsUniqueAspect(populatedId),
+          } as ElementAspectProps);
+          return { emptyOwnerId: emptyId, populatedOwnerId: populatedId };
+        }
+      );
+      let exportedUniqueAspectCount = 0;
+      class Handler extends IModelExportHandler {
+        public override async onExportElementUniqueAspect(
+          aspect: ElementUniqueAspect
+        ) {
+          if (aspect.classFullName === "ExporterAspectTest:UniqueAspect") {
+            exportedUniqueAspectCount++;
+          }
+        }
+      }
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(new Handler());
+      exporter.excludeElementAspectClass(ExternalSourceAspect.classFullName);
+      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+
+      await exporter.elementAspectExportCoordinator.exportOwners(
+        new Set([emptyOwnerId])
+      );
+
+      let queries = createQueryReader.mock.calls.map((call) => String(call[0]));
+      expect(
+        queries.filter((query) =>
+          query.includes("INNER JOIN IdSet(:elementIds)")
+        )
+      ).to.have.lengthOf(2);
+      expect(queries.some((query) => query.includes(":excludedClassName"))).to
+        .be.false;
+      expect(
+        queries.some((query) =>
+          query.includes("[ExporterAspectTest]:[UniqueAspect] aspect")
+        )
+      ).to.be.false;
+
+      createQueryReader.mockClear();
+      await exporter.elementAspectExportCoordinator.exportOwners(
+        new Set([populatedOwnerId])
+      );
+
+      queries = createQueryReader.mock.calls.map((call) => String(call[0]));
+      expect(
+        queries.filter((query) =>
+          query.includes("INNER JOIN IdSet(:elementIds)")
+        )
+      ).to.have.lengthOf(3);
+      expect(queries.some((query) => query.includes(":excludedClassName"))).to
+        .be.true;
+      expect(
+        queries.some((query) =>
+          query.includes("[ExporterAspectTest]:[UniqueAspect] aspect")
+        )
+      ).to.be.true;
+      expect(exportedUniqueAspectCount).to.equal(1);
+
+      createQueryReader.mockClear();
+      const coordinator = exporter.elementAspectExportCoordinator;
+      coordinator.begin();
+      coordinator.begin();
+      await coordinator.addAcceptedOwner(populatedOwnerId);
+      await coordinator.end();
+      await coordinator.end();
+      coordinator.begin();
+      await coordinator.addAcceptedOwner(populatedOwnerId);
+      await coordinator.end();
+
+      expect(
+        createQueryReader.mock.calls.filter((call) =>
+          String(call[0]).includes(":excludedClassName")
+        )
+      ).to.have.lengthOf(2);
+      expect(
+        exporter[
+          "_elementAspectExportProcessor"
+        ].excludedElementAspectClassFullNames.has(
+          ExternalSourceAspect.classFullName
+        )
+      ).to.be.true;
+      expect(exportedUniqueAspectCount).to.equal(3);
+    } finally {
+      vi.restoreAllMocks();
+      sourceDb.close();
+    }
   });
 
   it("rebuilds unchanged unique aspects for changed owners", async () => {

@@ -9,8 +9,7 @@ import {
   ElementUniqueAspect,
   IModelDb,
 } from "@itwin/core-backend";
-import { Id64Set, Id64String, StopWatch } from "@itwin/core-bentley";
-import { ChangedInstanceOps } from "./ChangedInstanceIds";
+import { Id64Set, Id64String } from "@itwin/core-bentley";
 import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
 import {
   ElementAspectProps,
@@ -18,13 +17,9 @@ import {
   QueryRowFormat,
 } from "@itwin/core-common";
 
-/** Accumulated wall time and call count for {@link ElementAspectExportProcessor.exportAllElementAspects}.
- * For perf investigation only, not a stable API.
- * @internal
- */
-export interface ElementAspectExportDiagnostics {
-  wallMs: number;
-  callCount: number;
+interface AspectChanges {
+  readonly insertIds: ReadonlySet<Id64String>;
+  readonly updateIds: ReadonlySet<Id64String>;
 }
 
 export interface ElementAspectExportProcessorHandler {
@@ -44,33 +39,12 @@ export interface ElementAspectExportProcessorHandler {
  * @internal
  */
 export class ElementAspectExportProcessor {
-  private static _diagnostics: ElementAspectExportDiagnostics = {
-    wallMs: 0,
-    callCount: 0,
-  };
-
-  /** Resets accumulated diagnostics. For perf investigation only, not a stable API.
-   * @internal
-   */
-  public static resetDiagnostics(): void {
-    this._diagnostics = { wallMs: 0, callCount: 0 };
-  }
-
-  /** Accumulated wall time and call count across every {@link exportAllElementAspects}
-   * call since the last {@link resetDiagnostics}. For perf investigation only, not a
-   * stable API.
-   * @internal
-   */
-  public static get diagnostics(): Readonly<ElementAspectExportDiagnostics> {
-    return this._diagnostics;
-  }
-
   private readonly _aspectClasses = new Map<
     string,
     Promise<ReadonlyMap<Id64String, { schemaName: string; className: string }>>
   >();
   /** Aspect classes (by ECClassId) that have at least one row in the source iModel, per base class.
-   * Populated lazily with one polymorphic scan per base class, reused across every owner batch.
+   * Populated lazily for unscoped exports; explicit owner batches are always scanned independently.
    */
   private readonly _populatedAspectClassIds = new Map<
     string,
@@ -82,7 +56,7 @@ export class ElementAspectExportProcessor {
    * declared subclasses.
    */
   private _excludedClassIds: Promise<ReadonlySet<Id64String>> | undefined;
-  private _aspectChanges: ChangedInstanceOps | undefined;
+  private _aspectChanges: AspectChanges | undefined;
 
   /** ElementAspect class names excluded from source queries. */
   public get excludedElementAspectClassFullNames(): ReadonlySet<string> {
@@ -103,21 +77,6 @@ export class ElementAspectExportProcessor {
    * Multi-aspects are emitted in one callback group per owner.
    */
   public async exportAllElementAspects(
-    elementIds?: ReadonlySet<Id64String>
-  ): Promise<void> {
-    const stopwatch = new StopWatch();
-    stopwatch.start();
-    try {
-      await this.exportAllElementAspectsImpl(elementIds);
-    } finally {
-      stopwatch.stop();
-      ElementAspectExportProcessor._diagnostics.wallMs +=
-        stopwatch.elapsedSeconds * 1000;
-      ElementAspectExportProcessor._diagnostics.callCount++;
-    }
-  }
-
-  private async exportAllElementAspectsImpl(
     elementIds?: ReadonlySet<Id64String>
   ): Promise<void> {
     if (elementIds !== undefined && elementIds.size === 0) return;
@@ -176,16 +135,15 @@ export class ElementAspectExportProcessor {
   }
 
   /** Sets the aspect changes used to distinguish inserted and updated unique aspects during change export. */
-  public setAspectChanges(aspectChanges?: ChangedInstanceOps): void {
+  public setAspectChanges(aspectChanges?: AspectChanges): void {
     this._aspectChanges = aspectChanges;
   }
 
-  /** Clears the cached "which aspect classes are populated" scan. Call before each
-   * top-level exportAll()/exportChanges() on a long-lived exporter, since which classes
-   * have rows can change between calls even though the schema itself doesn't.
-   */
-  public resetPopulatedAspectClassCache(): void {
+  /** Clears source schema and content caches at an outer export-scope boundary. */
+  public resetCaches(): void {
+    this._aspectClasses.clear();
     this._populatedAspectClassIds.clear();
+    this._excludedClassIds = undefined;
   }
 
   /** Excludes an ElementAspect class from subsequent queries and export callbacks. */
@@ -223,18 +181,23 @@ export class ElementAspectExportProcessor {
     baseElementAspectClassFullName: string,
     elementIds?: ReadonlySet<Id64String>
   ) {
+    if (elementIds !== undefined && elementIds.size === 0) return;
+
+    const queryElementIds =
+      elementIds === undefined ? undefined : (new Set(elementIds) as Id64Set);
+    const populatedClassIds = await this.getPopulatedAspectClassIds(
+      baseElementAspectClassFullName,
+      queryElementIds
+    );
+    if (populatedClassIds.size === 0) return;
+
     const aspectClassNameIdMap = await this.getAspectClasses(
       baseElementAspectClassFullName
     );
-    const populatedClassIds = await this.getPopulatedAspectClassIds(
-      baseElementAspectClassFullName
-    );
     const excludedClassIds = await this.getExcludedClassIds();
-    const queryElementIds =
-      elementIds === undefined ? undefined : (new Set(elementIds) as Id64Set);
     for (const [classId, { schemaName, className }] of aspectClassNameIdMap) {
-      // Skip classes with no rows anywhere in the source: most schemas declare far
-      // more concrete aspect subclasses than any iModel actually populates.
+      // Skip classes with no rows in the current owner scope: most schemas declare
+      // far more concrete aspect subclasses than a batch actually populates.
       if (!populatedClassIds.has(classId)) continue;
       // excludedClassIds is the excluded class plus every declared subclass.
       if (excludedClassIds.has(classId)) continue;
@@ -325,8 +288,16 @@ export class ElementAspectExportProcessor {
   }
 
   private async getPopulatedAspectClassIds(
-    baseElementAspectClassFullName: string
+    baseElementAspectClassFullName: string,
+    elementIds?: Id64Set
   ): Promise<ReadonlySet<Id64String>> {
+    if (elementIds !== undefined) {
+      return this.queryPopulatedAspectClassIds(
+        baseElementAspectClassFullName,
+        elementIds
+      );
+    }
+
     let populatedClassIds = this._populatedAspectClassIds.get(
       baseElementAspectClassFullName
     );
@@ -376,19 +347,29 @@ export class ElementAspectExportProcessor {
     return excludedClassIds;
   }
 
-  /** Scans which concrete subclasses of the given base aspect class have at least
-   * one row in the source iModel. This is a single polymorphic query (the base
-   * class query itself fans out across all populated concrete tables), not one
-   * query per declared subclass.
+  /** Scans which concrete subclasses of the given base aspect class have rows,
+   * optionally restricted to an explicit owner set.
    */
   private async queryPopulatedAspectClassIds(
-    baseElementAspectClassFullName: string
+    baseElementAspectClassFullName: string,
+    elementIds?: Id64Set
   ): Promise<ReadonlySet<Id64String>> {
     const [schemaName, className] = baseElementAspectClassFullName.split(":");
     const populatedClassIds = new Set<Id64String>();
+    const params =
+      elementIds === undefined
+        ? undefined
+        : new QueryBinder().bindIdSet("elementIds", elementIds);
+    const ownerJoin =
+      elementIds === undefined
+        ? " aspect"
+        : " aspect INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id";
+    const queryOptions =
+      elementIds === undefined ? "" : " OPTIONS ENABLE_EXPERIMENTAL_FEATURES";
     const populatedClassesQueryReader = this._sourceDb.createQueryReader(
-      `SELECT DISTINCT ECClassId as classId FROM [${schemaName}]:[${className}]`,
-      undefined,
+      `SELECT DISTINCT aspect.ECClassId as classId
+       FROM [${schemaName}]:[${className}]${ownerJoin}${queryOptions}`,
+      params,
       { usePrimaryConn: true }
     );
     for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(
