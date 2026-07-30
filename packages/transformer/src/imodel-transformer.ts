@@ -3,10 +3,10 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 export * from "./TransformerLoggerCategory";
-export * from "./IModelTransformerError";
 export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
+export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 
 import * as semver from "semver";
@@ -131,6 +131,14 @@ if (
 /**
  * @docs-group-description Logging
  * Logger categories used by this package.
+ */
+/**
+ * @docs-group-description ElementAspectExportCoordinator
+ * Internal coordination for scoped, owner-batched ElementAspect export.
+ */
+/**
+ * @docs-group-description ElementAspectExportProcessor
+ * Internal source queries, filtering, and export callbacks for ElementAspects owned by accepted elements.
  */
 /**
  * @docs-group-description IModelTransformerError

@@ -1,0 +1,250 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
+
+import { Id64String } from "@itwin/core-bentley";
+import { canonicalSha256 } from "../FixtureDescriptor.js";
+
+/**
+ * The six collections carried by `ChangedInstanceIds`. Verifying only `element` would let aspect and
+ * relationship regressions pass silently, so the scan oracle covers all of them.
+ */
+export const scanCollections = [
+  "aspect",
+  "codeSpec",
+  "element",
+  "font",
+  "model",
+  "relationship",
+] as const;
+
+export type ScanCollection = (typeof scanCollections)[number];
+
+/** Mirrors `SqliteChangeOp` without importing it, so the oracle stays independent of transformer internals. */
+export type ScanOp = "Deleted" | "Inserted" | "Updated";
+
+export interface ScanLedgerEntry {
+  readonly collection: ScanCollection;
+  readonly id: Id64String;
+  readonly op: ScanOp;
+}
+
+export interface ScanOps {
+  readonly insertIds: ReadonlySet<Id64String>;
+  readonly updateIds: ReadonlySet<Id64String>;
+  readonly deleteIds: ReadonlySet<Id64String>;
+}
+
+export type ScanExpectation = Readonly<Record<ScanCollection, ScanOps>>;
+
+/**
+ * Ordered record of every change a recipe performs, used to predict the scan result.
+ *
+ * An update-heavy recipe touches the same instances in every changeset, so recording every sighting
+ * would make the ledger proportional to instances times changesets. The recorder drops a repeat of
+ * the op it last saw for that instance, which is safe because `Inserted` and `Updated` are both
+ * idempotent under repetition: `Inserted` unconditionally adds to `insertIds`, and `Updated` either
+ * adds to `updateIds` or is suppressed by a state a second sighting cannot change.
+ *
+ * `Deleted` is *not* idempotent, so it is rejected rather than deduplicated. Its branch is
+ * conditional on `insertIds.has(id)` and the first delete falsifies that condition, so
+ * insert-then-delete cancels to nothing while insert-then-delete-then-delete leaves the id in
+ * `deleteIds`. Deduplicating it would silently produce the wrong expectation for any recipe that
+ * repeated one. A repeated delete is not producible from a valid changeset sequence anyway - the
+ * row is already gone - so rejecting it reports a recipe authoring error instead of hiding it.
+ */
+export class ScanLedger {
+  private readonly _entries: ScanLedgerEntry[] = [];
+  private readonly _lastOp = new Map<string, ScanOp>();
+  private readonly _deleted = new Set<string>();
+
+  public record(
+    collection: ScanCollection,
+    op: ScanOp,
+    ids: Id64String | Iterable<Id64String>
+  ): void {
+    const iterable = typeof ids === "string" ? [ids] : ids;
+    for (const id of iterable) {
+      const key = `${collection}\u0000${id}`;
+      if (op === "Deleted") {
+        if (this._deleted.has(key))
+          throw new Error(
+            `Ledger recorded a second "Deleted" for ${collection} ${id}. Deletes do not squash idempotently, and a valid changeset sequence cannot delete a row twice.`
+          );
+        this._deleted.add(key);
+      } else if (this._lastOp.get(key) === op) continue;
+      this._lastOp.set(key, op);
+      this._entries.push({ collection, id, op });
+    }
+  }
+
+  public get entries(): readonly ScanLedgerEntry[] {
+    return this._entries;
+  }
+
+  /**
+   * Rebuilds a ledger from serialized entries.
+   *
+   * The recipe runs while the fixture artifact is built; the oracle runs later, against a copy. The
+   * ledger therefore has to survive a round trip through JSON. Replaying through `record` keeps the
+   * deduplication invariant even if the serialized form was hand-written or concatenated.
+   */
+  public static fromEntries(entries: readonly ScanLedgerEntry[]): ScanLedger {
+    const ledger = new ScanLedger();
+    for (const entry of entries)
+      ledger.record(entry.collection, entry.op, entry.id);
+    return ledger;
+  }
+}
+
+interface MutableScanOps {
+  insertIds: Set<Id64String>;
+  updateIds: Set<Id64String>;
+  deleteIds: Set<Id64String>;
+}
+
+/**
+ * Squash semantics, written independently of `ChangedInstanceIds.handleChange`.
+ *
+ * Reusing the transformer's implementation would check the code against itself. There are four
+ * rules:
+ *
+ * 1. an insert clears a pending delete;
+ * 2. an update is dropped when the instance is already an insert;
+ * 3. a delete cancels a pending insert outright;
+ * 4. a delete otherwise supersedes a pending update.
+ *
+ * Rule 1 is encoded and unit-tested here but no fixture region exercises it against a real
+ * changeset, because it is not producible: instance ids are assigned by the briefcase and a deleted
+ * id is never handed out again, so within one scanned range a delete can never be followed by an
+ * insert of the same id. It is implemented anyway rather than omitted, because an unimplemented
+ * rule would silently disagree with the transformer if a future fixture ever did produce it.
+ */
+function applyOp(ops: MutableScanOps, op: ScanOp, id: Id64String): void {
+  switch (op) {
+    case "Inserted":
+      ops.insertIds.add(id);
+      ops.deleteIds.delete(id);
+      return;
+    case "Updated":
+      if (!ops.insertIds.has(id)) ops.updateIds.add(id);
+      return;
+    case "Deleted":
+      if (ops.insertIds.has(id)) {
+        ops.insertIds.delete(id);
+        return;
+      }
+      ops.updateIds.delete(id);
+      ops.deleteIds.add(id);
+      return;
+  }
+}
+
+/**
+ * Replays a ledger through the squash rules.
+ *
+ * Accepts raw entries as well as a {@link ScanLedger} so that squash semantics can be pinned
+ * directly by tests, including sequences {@link ScanLedger.record} deliberately refuses to accept.
+ */
+export function squashLedger(
+  ledger: ScanLedger | readonly ScanLedgerEntry[]
+): ScanExpectation {
+  const result = Object.fromEntries(
+    scanCollections.map((collection) => [
+      collection,
+      {
+        insertIds: new Set<Id64String>(),
+        updateIds: new Set<Id64String>(),
+        deleteIds: new Set<Id64String>(),
+      },
+    ])
+  ) as Record<ScanCollection, MutableScanOps>;
+  const entries = Array.isArray(ledger)
+    ? (ledger as readonly ScanLedgerEntry[])
+    : (ledger as ScanLedger).entries;
+  for (const entry of entries)
+    applyOp(result[entry.collection], entry.op, entry.id);
+  return result;
+}
+
+/** Numeric ordering for hex `Id64String`s, so the digest does not depend on string collation. */
+export function compareIds(left: Id64String, right: Id64String): number {
+  const leftValue = BigInt(left);
+  const rightValue = BigInt(right);
+  return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
+}
+
+function sortedIds(ids: ReadonlySet<Id64String>): Id64String[] {
+  return [...ids].sort(compareIds);
+}
+
+export function normalizeScanResult(
+  result: ScanExpectation
+): Record<ScanCollection, Record<"delete" | "insert" | "update", string[]>> {
+  return Object.fromEntries(
+    scanCollections.map((collection) => [
+      collection,
+      {
+        delete: sortedIds(result[collection].deleteIds),
+        insert: sortedIds(result[collection].insertIds),
+        update: sortedIds(result[collection].updateIds),
+      },
+    ])
+  ) as Record<ScanCollection, Record<"delete" | "insert" | "update", string[]>>;
+}
+
+function difference(
+  actual: ReadonlySet<Id64String>,
+  expected: ReadonlySet<Id64String>
+): { missing: Id64String[]; unexpected: Id64String[] } {
+  return {
+    missing: sortedIds(new Set([...expected].filter((id) => !actual.has(id)))),
+    unexpected: sortedIds(
+      new Set([...actual].filter((id) => !expected.has(id)))
+    ),
+  };
+}
+
+/**
+ * Asserts the scan result against what the recipe says it produced. This is strictly stronger than
+ * comparing a digest to its own previous value, which can only detect a change of behaviour and not
+ * a behaviour that was wrong from the start.
+ */
+export function assertScanMatchesOracle(
+  actual: ScanExpectation,
+  expected: ScanExpectation
+): void {
+  const mismatches: string[] = [];
+  for (const collection of scanCollections) {
+    for (const op of ["insertIds", "updateIds", "deleteIds"] as const) {
+      const { missing, unexpected } = difference(
+        actual[collection][op],
+        expected[collection][op]
+      );
+      if (missing.length === 0 && unexpected.length === 0) continue;
+      mismatches.push(
+        `${collection}.${op}: expected ${
+          expected[collection][op].size
+        }, got ${actual[collection][op].size}; missing=[${missing.join(
+          ","
+        )}], unexpected=[${unexpected.join(",")}]`
+      );
+    }
+  }
+  if (mismatches.length > 0)
+    throw new Error(
+      `Changeset scan did not match the recipe oracle:\n  ${mismatches.join(
+        "\n  "
+      )}`
+    );
+}
+
+/**
+ * Stable fingerprint over all six collections. Every sample scans a copy of one immutable artifact,
+ * so ids are identical across samples and equality is meaningful; it also serves as a cross-arm
+ * behaviour gate for A/B comparison.
+ */
+export function scanDigest(result: ScanExpectation): string {
+  return canonicalSha256(normalizeScanResult(result));
+}
