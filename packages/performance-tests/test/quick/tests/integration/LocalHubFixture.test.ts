@@ -30,7 +30,7 @@ import {
   BenchmarkRunner,
   prepareBenchmarkOutputDirectory,
 } from "../../src/framework/BenchmarkRunner.js";
-import { balancedIncrementalDescriptor } from "../../src/fixtures/FixtureCatalog.js";
+import { balancedIncrementalDescriptor } from "../../src/catalogs/FixtureCatalog.js";
 import { materializeLiveHubFixture } from "../../src/fixtures/providers/liveHubProvider.js";
 import {
   createStartedEditTxn,

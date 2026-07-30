@@ -25,13 +25,11 @@ import {
 import {
   BuiltFixture,
   FixtureProvider,
+  PreparedDataset,
+  requireDetachedDataset,
   requireFixtureArtifact,
 } from "../FixtureProvider.js";
 import { getFixtureRecipe } from "../FixtureRecipe.js";
-import {
-  PreparedDataset,
-  requireDetachedDataset,
-} from "../FixtureMaterializer.js";
 import {
   ReconstructedSourceHub,
   reconstructSourceHub,

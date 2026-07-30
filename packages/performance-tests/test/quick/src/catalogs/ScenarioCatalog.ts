@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
-import { incrementalSynchronizationScenario } from "./incrementalSynchronization.js";
+import { incrementalSynchronizationScenario } from "../scenarios/incrementalSynchronization.js";
 
 export const defaultQuickPerformanceScenarioId =
   incrementalSynchronizationScenario.id;

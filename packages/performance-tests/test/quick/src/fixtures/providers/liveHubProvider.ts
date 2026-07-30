@@ -5,12 +5,13 @@
 
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { FixtureDescriptor } from "../FixtureDescriptor.js";
-import { BuiltFixture, FixtureProvider } from "../FixtureProvider.js";
-import { getFixtureRecipe } from "../FixtureRecipe.js";
 import {
+  BuiltFixture,
+  FixtureProvider,
   PreparedDataset,
   requireLiveHubDataset,
-} from "../FixtureMaterializer.js";
+} from "../FixtureProvider.js";
+import { getFixtureRecipe } from "../FixtureRecipe.js";
 import {
   createStartedEditTxn,
   disposeReconstructedHub,

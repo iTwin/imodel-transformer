@@ -6,8 +6,10 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { FixtureDescriptor } from "./FixtureDescriptor.js";
-import { canonicalSha256 } from "./FixtureManifest.js";
+import {
+  canonicalSha256,
+  FixtureDescriptor,
+} from "../fixtures/FixtureDescriptor.js";
 import { quickPath, quickRootDirectory } from "../support/paths.js";
 
 const localRequire = createRequire(import.meta.url);

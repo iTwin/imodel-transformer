@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { FixtureTopology } from "../fixtures/FixtureDescriptor.js";
-import { PreparedDataset } from "../fixtures/FixtureMaterializer.js";
+import { PreparedDataset } from "../fixtures/FixtureProvider.js";
 
 export interface BenchmarkScenario {
   abort(): void;

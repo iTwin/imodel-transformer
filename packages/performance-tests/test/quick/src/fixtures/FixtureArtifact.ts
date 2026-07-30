@@ -6,8 +6,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ChangesetFileProps } from "@itwin/core-common";
-import { FixtureDescriptor } from "./FixtureDescriptor.js";
-import { validateDescriptor } from "./FixtureManifest.js";
+import {
+  FixtureDescriptor,
+  validateFixtureDescriptor,
+} from "./FixtureDescriptor.js";
 
 /**
  * Version of the on-disk artifact layout. Bump when the directory contract changes in a way that
@@ -235,7 +237,7 @@ export function validateFixtureArtifactManifest(
     throw new Error(
       "Fixture artifact manifest has an invalid recipeDataFile entry"
     );
-  validateDescriptor(manifest.descriptor);
+  validateFixtureDescriptor(manifest.descriptor);
   return manifest as FixtureArtifactManifest;
 }
 

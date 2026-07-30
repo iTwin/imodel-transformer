@@ -19,15 +19,15 @@ import {
   readFixtureRecipeData,
   writeFixtureRecipeData,
 } from "../../src/fixtures/FixtureArtifact.js";
-import { balancedIncrementalSourceOnlyDescriptor } from "../../src/fixtures/FixtureCatalog.js";
+import { balancedIncrementalSourceOnlyDescriptor } from "../../src/catalogs/FixtureCatalog.js";
 import {
   balancedIncrementalRecipe,
   registerFixtureRecipe,
 } from "../../src/fixtures/FixtureRecipe.js";
-import { requireDetachedDataset } from "../../src/fixtures/FixtureMaterializer.js";
 import {
   BuiltFixture,
   getFixtureProvider,
+  requireDetachedDataset,
   requireFixtureArtifact,
 } from "../../src/fixtures/FixtureProvider.js";
 import { detachedBriefcaseFixtureProvider } from "../../src/fixtures/providers/detachedBriefcaseProvider.js";

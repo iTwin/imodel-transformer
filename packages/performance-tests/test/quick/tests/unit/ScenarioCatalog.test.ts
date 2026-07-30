@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultQuickPerformanceScenarioId,
   getScenarioDefinition,
-} from "../../src/scenarios/ScenarioCatalog.js";
+} from "../../src/catalogs/ScenarioCatalog.js";
 
 describe("quick performance scenario catalog", () => {
   it("selects incremental synchronization by default", () => {

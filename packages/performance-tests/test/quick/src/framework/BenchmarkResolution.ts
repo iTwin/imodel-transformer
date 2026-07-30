@@ -5,9 +5,9 @@
 
 import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
 import { FixtureDescriptor } from "../fixtures/FixtureDescriptor.js";
-import { getFixtureDescriptor } from "../fixtures/FixtureCatalog.js";
+import { getFixtureDescriptor } from "../catalogs/FixtureCatalog.js";
 import { getFixtureRecipe } from "../fixtures/FixtureRecipe.js";
-import { getScenarioDefinition } from "../scenarios/ScenarioCatalog.js";
+import { getScenarioDefinition } from "../catalogs/ScenarioCatalog.js";
 
 export interface ResolvedBenchmarkRun {
   readonly scenario: BenchmarkScenarioDefinition;

@@ -20,8 +20,10 @@ import {
   FixtureDescriptor,
   FixtureTopology,
 } from "../fixtures/FixtureDescriptor.js";
-import { PreparedDataset } from "../fixtures/FixtureMaterializer.js";
-import { getFixtureProvider } from "../fixtures/FixtureProvider.js";
+import {
+  getFixtureProvider,
+  PreparedDataset,
+} from "../fixtures/FixtureProvider.js";
 import { quickPath } from "../support/paths.js";
 
 export const benchmarkOutputMarkerName =

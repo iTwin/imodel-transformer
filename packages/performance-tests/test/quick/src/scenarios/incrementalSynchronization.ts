@@ -11,7 +11,7 @@ import {
 import {
   PreparedDataset,
   requireLiveHubDataset,
-} from "../fixtures/FixtureMaterializer.js";
+} from "../fixtures/FixtureProvider.js";
 import { createStartedEditTxn } from "../fixtures/LocalHubFixture.js";
 import {
   assertSemanticallyEqual,

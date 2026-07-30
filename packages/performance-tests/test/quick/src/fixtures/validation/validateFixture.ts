@@ -10,8 +10,7 @@ import {
 } from "@itwin/core-backend";
 import { IModel, QueryBinder } from "@itwin/core-common";
 import { YawPitchRollAngles } from "@itwin/core-geometry";
-import { FixtureDescriptor } from "../FixtureDescriptor.js";
-import { canonicalSha256 } from "../FixtureManifest.js";
+import { canonicalSha256, FixtureDescriptor } from "../FixtureDescriptor.js";
 import { createBoxGeometry } from "../recipes/balancedIncremental.js";
 
 function normalizedGeometryStream(geometry: unknown): unknown {

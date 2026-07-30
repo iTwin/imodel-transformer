@@ -44,9 +44,10 @@ resolves the configured scenario and fixture before invoking the shared runner.
 Adding a scenario normally does not require another performance test file.
 
 - `src/framework/` coordinates resolution, samples, timed work, and lifecycle.
+- `src/catalogs/` registers the selectable scenarios and fixtures.
 - `src/reporting/` produces reports and computes descriptive statistics.
-- `src/fixtures/` defines fixture identity, artifacts, providers, recipes, and
-  validation.
+- `src/fixtures/` defines fixture descriptors, artifact persistence, provider
+  lifecycles, recipes, and validation.
 - `src/scenarios/` defines the behavior measured by the benchmark.
 - `src/cli/` contains fixture build and verification commands.
 - `src/support/` contains shared runtime support such as filesystem paths.
