@@ -24,7 +24,6 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { FixtureDescriptor } from "../FixtureDescriptor.js";
-import { ScanLedger, ScanLedgerEntry } from "../validation/scanOracle.js";
 import { queryCount } from "../validation/validateFixture.js";
 import { quickPath } from "../../support/paths.js";
 
@@ -251,15 +250,12 @@ export async function applyScanChangesets(
   accessToken: AccessToken,
   descriptor: FixtureDescriptor,
   state: ScanRecipeState
-): Promise<readonly ScanLedgerEntry[]> {
+): Promise<void> {
   const sizes = scanRegionSizes(descriptor);
   const changesetCount = descriptor.distribution.operations.sourceChangesets;
-  const ledger = new ScanLedger();
 
   const insertedThenUpdatedIds: Id64String[] = [];
-  const insertedThenUpdatedAspectIds: Id64String[] = [];
   const insertedThenDeletedIds: Id64String[] = [];
-  const insertedRelationshipIds: Id64String[] = [];
 
   const updateElements = (
     txn: EditTxn,
@@ -279,7 +275,6 @@ export async function applyScanChangesets(
         id,
       } as PhysicalElementProps)
     );
-    ledger.record("element", "Updated", ids);
   };
 
   const updateAspects = (
@@ -299,7 +294,6 @@ export async function applyScanChangesets(
         )
       )
     );
-    ledger.record("aspect", "Updated", aspectIds);
   };
 
   for (let changeset = 1; changeset <= changesetCount; changeset++) {
@@ -320,14 +314,10 @@ export async function applyScanChangesets(
             )
           );
           insertedThenUpdatedIds.push(elementId);
-          insertedThenUpdatedAspectIds.push(
-            txn.insertAspect(
-              scanAspectProps(elementId, index, `c-aspect-${index}`)
-            )
+          txn.insertAspect(
+            scanAspectProps(elementId, index, `c-aspect-${index}`)
           );
         }
-        ledger.record("element", "Inserted", insertedThenUpdatedIds);
-        ledger.record("aspect", "Inserted", insertedThenUpdatedAspectIds);
 
         // Region D carries no aspects. Whether cascade-deleting an aspect that was inserted within
         // the same scanned range emits a row at all is a second unknown, and this region already
@@ -344,45 +334,22 @@ export async function applyScanChangesets(
               )
             )
           );
-        ledger.record("element", "Inserted", insertedThenDeletedIds);
+        PhysicalModel.insert(txn, IModel.rootSubjectId, "ScanExtraModel");
 
-        // Inserting elements into a model bumps that model's row, so the model the recipe fills is
-        // expected to appear as an update even though the recipe never edits the model itself.
-        ledger.record("model", "Updated", state.modelId);
-
-        // A model insert also inserts its modeled partition element under the same id, so this one
-        // call is expected to show up in two collections.
-        const extraModelId = PhysicalModel.insert(
+        db.codeSpecs.insert(
           txn,
-          IModel.rootSubjectId,
-          "ScanExtraModel"
-        );
-        ledger.record("model", "Inserted", extraModelId);
-        ledger.record("element", "Inserted", extraModelId);
-        // ...and that partition element lands in the repository model, bumping it in turn.
-        ledger.record("model", "Updated", IModel.repositoryModelId);
-
-        ledger.record(
-          "codeSpec",
-          "Inserted",
-          db.codeSpecs.insert(
-            txn,
-            CodeSpec.create(db, "ScanCodeSpec", CodeScopeSpec.Type.Repository)
-          )
+          CodeSpec.create(db, "ScanCodeSpec", CodeScopeSpec.Type.Repository)
         );
 
         for (let index = 0; index < sizes.insertedRelationships; index++)
-          insertedRelationshipIds.push(
-            txn.insertRelationship(
-              ElementGroupsMembers.create(
-                db,
-                state.updatedIds[index],
-                state.updatedIds[index + sizes.seedRelationships + 1],
-                index
-              ).toJSON()
-            )
+          txn.insertRelationship(
+            ElementGroupsMembers.create(
+              db,
+              state.updatedIds[index],
+              state.updatedIds[index + sizes.seedRelationships + 1],
+              index
+            ).toJSON()
           );
-        ledger.record("relationship", "Inserted", insertedRelationshipIds);
       }
 
       updateElements(txn, state.updatedIds, "a", changeset);
@@ -421,8 +388,6 @@ export async function applyScanChangesets(
           relationship.memberPriority += 1000;
           txn.updateRelationship(relationship.toJSON());
         }
-        ledger.record("relationship", "Updated", updated);
-
         const deleted = state.relationshipIds.slice(
           sizes.updatedRelationships,
           sizes.updatedRelationships + sizes.deletedRelationships
@@ -436,17 +401,11 @@ export async function applyScanChangesets(
               )
               .toJSON()
           );
-        ledger.record("relationship", "Deleted", deleted);
       }
 
       if (isLast) {
         txn.deleteElement([...state.deletedLateIds]);
-        ledger.record("element", "Deleted", state.deletedLateIds);
-        // Deleting an element cascades to the aspects it owns.
-        ledger.record("aspect", "Deleted", state.deletedLateAspectIds);
-
         txn.deleteElement(insertedThenDeletedIds);
-        ledger.record("element", "Deleted", insertedThenDeletedIds);
       }
     });
 
@@ -455,8 +414,6 @@ export async function applyScanChangesets(
       description: `scan changeset ${changeset} of ${changesetCount}`,
     });
   }
-
-  return ledger.entries;
 }
 
 /**
