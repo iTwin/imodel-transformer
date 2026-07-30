@@ -1934,9 +1934,6 @@ describe("IModelTransformer", () => {
       }
     }
     const exporter = new IModelExporter(sourceDb);
-    const changes = new ChangedInstanceIds(sourceDb);
-    changes.element.updateIds.add(sourceElementId);
-    exporter["_sourceDbChanges"] = changes;
     const editTxn = createStartedEditTxn(targetDb);
     try {
       const transformer = new FilteringTransformer(
@@ -1947,12 +1944,10 @@ describe("IModelTransformer", () => {
         sourceElementId,
         targetIds.targetElementId
       );
-      const acceptedOwnerIds =
-        await exporter["getChangedElementIdsForAspectExport"]();
-      await transformer["prepareElementAspects"](
-        new Set(),
-        acceptedOwnerIds ?? new Set()
-      );
+      const acceptedOwnerIds = await exporter[
+        "filterOwnerElementIdsForAspectExport"
+      ](new Set([sourceElementId]));
+      await transformer["prepareElementAspects"](new Set(), acceptedOwnerIds);
       expect(targetDb.elements.getAspect(targetIds.aspectId).id).to.equal(
         targetIds.aspectId
       );

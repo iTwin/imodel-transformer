@@ -7,15 +7,14 @@ import { Id64String } from "@itwin/core-bentley";
 
 export type ElementAspectExportPreparation = (
   excludedElementAspectClassFullNames: ReadonlySet<string>,
-  elementIds: ReadonlySet<Id64String>
+  ownerElementIds: ReadonlySet<Id64String>
 ) => Promise<void>;
 
-/** Coordinates scoped batches of accepted ElementAspect owners, including per-batch filtering decisions and preparation before aspect export.
+/** Coordinates scoped batches of accepted ElementAspect owners, including preparation before aspect export.
  * @internal
  */
 export class ElementAspectExportCoordinator {
   private readonly _acceptedOwnerIds = new Set<Id64String>();
-  private readonly _acceptedOwnerDecisions = new Set<Id64String>();
   private readonly _processedOwnerIds = new Set<Id64String>();
   private _batchSize: number;
   private _depth = 0;
@@ -25,7 +24,7 @@ export class ElementAspectExportCoordinator {
     private readonly _defaultBatchSize: number,
     private readonly _excludedClassFullNames: () => ReadonlySet<string>,
     private readonly _exportAspects: (
-      elementIds: ReadonlySet<Id64String>
+      ownerElementIds: ReadonlySet<Id64String>
     ) => Promise<void>,
     private readonly _resetCaches: () => void = () => {}
   ) {
@@ -35,11 +34,6 @@ export class ElementAspectExportCoordinator {
   /** Whether an accepted-owner collection scope is active. */
   public get isActive(): boolean {
     return this._depth > 0;
-  }
-
-  /** Number of cached owner export decisions in the current group. */
-  public get acceptedOwnerDecisionCount(): number {
-    return this._acceptedOwnerDecisions.size;
   }
 
   /** Sets the callback that prepares each accepted-owner group before its aspects are exported. */
@@ -73,8 +67,6 @@ export class ElementAspectExportCoordinator {
     try {
       if (this._acceptedOwnerIds.size > 0) {
         await this.flush();
-      } else {
-        await this.exportOwners(new Set<Id64String>());
       }
     } finally {
       this.reset();
@@ -115,31 +107,14 @@ export class ElementAspectExportCoordinator {
     }
   }
 
-  /** Returns whether an owner passed element export filtering in the current group. */
-  public hasAcceptedOwnerDecision(elementId: Id64String): boolean {
-    return this._acceptedOwnerDecisions.has(elementId);
-  }
-
-  /** Records that an owner passed element export filtering in the active scope. */
-  public recordAcceptedOwnerDecision(elementId: Id64String): void {
-    if (this.isActive) {
-      this._acceptedOwnerDecisions.add(elementId);
-    }
-  }
-
-  /** Clears cached owner export decisions. */
-  public clearAcceptedOwnerDecisions(): void {
-    this._acceptedOwnerDecisions.clear();
-  }
-
   /** Runs preparation and aspect export for an explicit owner set in bounded groups. */
   public async exportOwners(
-    elementIds: ReadonlySet<Id64String>
+    ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    let ownerIds = elementIds;
-    if (this.isActive && elementIds.size > 0) {
+    let ownerIds = ownerElementIds;
+    if (this.isActive && ownerElementIds.size > 0) {
       const unprocessedOwnerIds = new Set<Id64String>();
-      for (const elementId of elementIds) {
+      for (const elementId of ownerElementIds) {
         if (!this._processedOwnerIds.has(elementId)) {
           unprocessedOwnerIds.add(elementId);
           this._processedOwnerIds.add(elementId);
@@ -168,29 +143,20 @@ export class ElementAspectExportCoordinator {
   }
 
   private async exportOwnerBatch(
-    elementIds: ReadonlySet<Id64String>
+    ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    await this._prepare?.(this._excludedClassFullNames(), elementIds);
-    await this._exportAspects(elementIds);
+    await this._prepare?.(this._excludedClassFullNames(), ownerElementIds);
+    await this._exportAspects(ownerElementIds);
   }
 
   private async flush(): Promise<void> {
-    const elementIds = new Set(this._acceptedOwnerIds);
+    const ownerElementIds = new Set(this._acceptedOwnerIds);
     this._acceptedOwnerIds.clear();
-    try {
-      await this.exportOwners(elementIds);
-    } finally {
-      this._acceptedOwnerDecisions.clear();
-    }
-  }
-
-  private resetBatchState(): void {
-    this._acceptedOwnerIds.clear();
-    this._acceptedOwnerDecisions.clear();
+    await this.exportOwners(ownerElementIds);
   }
 
   private resetScopeState(): void {
-    this.resetBatchState();
+    this._acceptedOwnerIds.clear();
     this._processedOwnerIds.clear();
   }
 

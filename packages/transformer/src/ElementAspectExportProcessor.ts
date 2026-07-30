@@ -31,7 +31,6 @@ export interface ElementAspectExportProcessorHandler {
   onExportElementMultiAspects(
     multiAspects: ElementMultiAspect[]
   ): Promise<void>;
-  shouldExportElement(elementId: Id64String): Promise<boolean>;
   trackProgress: () => Promise<void>;
 }
 
@@ -42,13 +41,6 @@ export class ElementAspectExportProcessor {
   private readonly _aspectClasses = new Map<
     string,
     Promise<ReadonlyMap<Id64String, { schemaName: string; className: string }>>
-  >();
-  /** Aspect classes (by ECClassId) that have at least one row in the source iModel, per base class.
-   * Populated lazily for unscoped exports; explicit owner batches are always scanned independently.
-   */
-  private readonly _populatedAspectClassIds = new Map<
-    string,
-    Promise<ReadonlySet<Id64String>>
   >();
   /** ElementAspect classes excluded from source queries. */
   private readonly _excludedElementAspectClassFullNames = new Set<string>();
@@ -73,45 +65,26 @@ export class ElementAspectExportProcessor {
     this._handler = handler;
   }
 
-  /** Exports accepted ElementAspects, optionally restricting the query to the supplied owner IDs.
+  /** Exports ElementAspects owned by the supplied elements.
    * Multi-aspects are emitted in one callback group per owner.
    */
   public async exportAllElementAspects(
-    elementIds?: ReadonlySet<Id64String>
+    ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    if (elementIds !== undefined && elementIds.size === 0) return;
-    const exportAllForOwners = elementIds !== undefined;
+    if (ownerElementIds.size === 0) return;
 
     await this.exportAspectsLoop<ElementUniqueAspect>(
       ElementUniqueAspect.classFullName,
       async (uniqueAspect) => {
-        const isInsertChange =
-          this._aspectChanges?.insertIds.has(uniqueAspect.id) ?? false;
-        const isUpdateChange =
-          this._aspectChanges?.updateIds.has(uniqueAspect.id) ?? false;
-        const doExport =
-          exportAllForOwners ||
-          this._aspectChanges === undefined ||
-          isInsertChange ||
-          isUpdateChange;
-        if (doExport) {
-          const isKnownUpdate = exportAllForOwners
-            ? isUpdateChange
-              ? true
-              : isInsertChange
-                ? false
-                : undefined
-            : this._aspectChanges
-              ? isUpdateChange
-              : undefined;
-          await this._handler.onExportElementUniqueAspect(
-            uniqueAspect,
-            isKnownUpdate
-          );
-          await this._handler.trackProgress();
-        }
+        const isUpdate = this._aspectChanges?.updateIds.has(uniqueAspect.id)
+          ? true
+          : this._aspectChanges?.insertIds.has(uniqueAspect.id)
+            ? false
+            : undefined;
+        await this._handler.onExportElementUniqueAspect(uniqueAspect, isUpdate);
+        await this._handler.trackProgress();
       },
-      elementIds
+      ownerElementIds
     );
 
     const multiAspectsByOwner = new Map<Id64String, ElementMultiAspect[]>();
@@ -125,7 +98,7 @@ export class ElementAspectExportProcessor {
           ownerAspects.push(multiAspect);
         }
       },
-      elementIds
+      ownerElementIds
     );
 
     for (const multiAspects of multiAspectsByOwner.values()) {
@@ -142,7 +115,6 @@ export class ElementAspectExportProcessor {
   /** Clears source schema and content caches at an outer export-scope boundary. */
   public resetCaches(): void {
     this._aspectClasses.clear();
-    this._populatedAspectClassIds.clear();
     this._excludedClassIds = undefined;
   }
 
@@ -155,21 +127,12 @@ export class ElementAspectExportProcessor {
   private async exportAspectsLoop<T extends ElementAspect>(
     baseAspectClass: string,
     exportAspect: (aspect: T) => Promise<void>,
-    elementIds?: ReadonlySet<Id64String>
+    ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
     for await (const aspect of this.queryAspects<T>(
       baseAspectClass,
-      elementIds
+      ownerElementIds
     )) {
-      if (elementIds !== undefined && !elementIds.has(aspect.element.id)) {
-        continue;
-      }
-      if (
-        elementIds === undefined &&
-        !(await this._handler.shouldExportElement(aspect.element.id))
-      ) {
-        continue;
-      }
       if (!(await this._handler.shouldExportElementAspect(aspect))) {
         continue;
       }
@@ -179,15 +142,12 @@ export class ElementAspectExportProcessor {
 
   private async *queryAspects<T extends ElementAspect>(
     baseElementAspectClassFullName: string,
-    elementIds?: ReadonlySet<Id64String>
+    ownerElementIds: ReadonlySet<Id64String>
   ) {
-    if (elementIds !== undefined && elementIds.size === 0) return;
-
-    const queryElementIds =
-      elementIds === undefined ? undefined : (new Set(elementIds) as Id64Set);
-    const populatedClassIds = await this.getPopulatedAspectClassIds(
+    const queryOwnerElementIds = new Set(ownerElementIds) as Id64Set;
+    const populatedClassIds = await this.queryPopulatedAspectClassIds(
       baseElementAspectClassFullName,
-      queryElementIds
+      queryOwnerElementIds
     );
     if (populatedClassIds.size === 0) return;
 
@@ -203,23 +163,14 @@ export class ElementAspectExportProcessor {
       if (excludedClassIds.has(classId)) continue;
 
       const classFullName = `${schemaName}:${className}`;
-      const queryParams = new QueryBinder().bindId("classId", classId);
-      const fromClause =
-        queryElementIds === undefined
-          ? `[${schemaName}]:[${className}] aspect`
-          : `[${schemaName}]:[${className}] aspect
-             INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id`;
-      if (queryElementIds !== undefined) {
-        queryParams.bindIdSet("elementIds", queryElementIds);
-      }
-      const queryOptions =
-        queryElementIds === undefined
-          ? ""
-          : " OPTIONS ENABLE_EXPERIMENTAL_FEATURES";
+      const queryParams = new QueryBinder()
+        .bindId("classId", classId)
+        .bindIdSet("ownerElementIds", queryOwnerElementIds);
       const aspectQueryReader = this._sourceDb.createQueryReader(
-        `SELECT aspect.* FROM ${fromClause}
+        `SELECT aspect.* FROM [${schemaName}]:[${className}] aspect
+         INNER JOIN IdSet(:ownerElementIds) ids ON ids.id = aspect.Element.Id
          WHERE aspect.ECClassId = :classId
-         ORDER BY aspect.Element.Id, aspect.ECInstanceId${queryOptions}`,
+         ORDER BY aspect.Element.Id, aspect.ECInstanceId OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
         queryParams,
         // eslint-disable-next-line @typescript-eslint/no-deprecated
         { rowFormat: QueryRowFormat.UseJsPropertyNames, usePrimaryConn: true }
@@ -287,32 +238,6 @@ export class ElementAspectExportProcessor {
     return aspectClassNameIdMap;
   }
 
-  private async getPopulatedAspectClassIds(
-    baseElementAspectClassFullName: string,
-    elementIds?: Id64Set
-  ): Promise<ReadonlySet<Id64String>> {
-    if (elementIds !== undefined) {
-      return this.queryPopulatedAspectClassIds(
-        baseElementAspectClassFullName,
-        elementIds
-      );
-    }
-
-    let populatedClassIds = this._populatedAspectClassIds.get(
-      baseElementAspectClassFullName
-    );
-    if (populatedClassIds === undefined) {
-      populatedClassIds = this.queryPopulatedAspectClassIds(
-        baseElementAspectClassFullName
-      );
-      this._populatedAspectClassIds.set(
-        baseElementAspectClassFullName,
-        populatedClassIds
-      );
-    }
-    return populatedClassIds;
-  }
-
   private async getExcludedClassIds(): Promise<ReadonlySet<Id64String>> {
     if (this._excludedClassIds === undefined) {
       this._excludedClassIds = this.queryExcludedClassIds();
@@ -347,29 +272,19 @@ export class ElementAspectExportProcessor {
     return excludedClassIds;
   }
 
-  /** Scans which concrete subclasses of the given base aspect class have rows,
-   * optionally restricted to an explicit owner set.
-   */
+  /** Scans which concrete subclasses of the given base aspect class have rows for the supplied owners. */
   private async queryPopulatedAspectClassIds(
     baseElementAspectClassFullName: string,
-    elementIds?: Id64Set
+    ownerElementIds: Id64Set
   ): Promise<ReadonlySet<Id64String>> {
     const [schemaName, className] = baseElementAspectClassFullName.split(":");
     const populatedClassIds = new Set<Id64String>();
-    const params =
-      elementIds === undefined
-        ? undefined
-        : new QueryBinder().bindIdSet("elementIds", elementIds);
-    const ownerJoin =
-      elementIds === undefined
-        ? " aspect"
-        : " aspect INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id";
-    const queryOptions =
-      elementIds === undefined ? "" : " OPTIONS ENABLE_EXPERIMENTAL_FEATURES";
     const populatedClassesQueryReader = this._sourceDb.createQueryReader(
       `SELECT DISTINCT aspect.ECClassId as classId
-       FROM [${schemaName}]:[${className}]${ownerJoin}${queryOptions}`,
-      params,
+       FROM [${schemaName}]:[${className}] aspect
+       INNER JOIN IdSet(:ownerElementIds) ids ON ids.id = aspect.Element.Id
+       OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+      new QueryBinder().bindIdSet("ownerElementIds", ownerElementIds),
       { usePrimaryConn: true }
     );
     for await (const rowProxy of ensureECSqlReaderIsAsyncIterableIterator(

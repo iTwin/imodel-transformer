@@ -391,8 +391,6 @@ export class IModelExporter {
           this.handler.onExportElementUniqueAspect(aspect, isUpdate),
         shouldExportElementAspect: async (aspect) =>
           this.handler.shouldExportElementAspect(aspect),
-        shouldExportElement: async (elementId) =>
-          this.shouldExportElementForAspect(elementId),
         trackProgress: async () => this.trackProgress(),
       }
     );
@@ -471,7 +469,6 @@ export class IModelExporter {
    */
   public async exportAll(): Promise<void> {
     await this.initialize({});
-    this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
 
     await this.exportCodeSpecs();
     await this.exportFonts();
@@ -527,7 +524,6 @@ export class IModelExporter {
       });
     }
 
-    this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
     this._skipPropagateChangesToRootElements =
       initOpts.skipPropagateChangesToRootElements ?? false;
     // _sourceDbChanges are initialized in this.initialize
@@ -554,8 +550,17 @@ export class IModelExporter {
         await this.exportModel(IModel.repositoryModelId);
       }
     });
-    await this.exportAllAspects(
-      await this.getChangedElementIdsForAspectExport(false)
+    const aspectOnlyOwnerElementIds = new Set(
+      this._sourceDbChanges.aspectOwnerElementIds
+    );
+    for (const elementId of this._sourceDbChanges.element.insertIds) {
+      aspectOnlyOwnerElementIds.delete(elementId);
+    }
+    for (const elementId of this._sourceDbChanges.element.updateIds) {
+      aspectOnlyOwnerElementIds.delete(elementId);
+    }
+    await this.exportAspectsForOwners(
+      await this.filterOwnerElementIdsForAspectExport(aspectOnlyOwnerElementIds)
     );
     await this.exportRelationships(ElementRefersToElements.classFullName);
 
@@ -972,9 +977,6 @@ export class IModelExporter {
     if (!(await this.handler.shouldExportElement(element))) {
       return false;
     }
-    this._elementAspectExportCoordinator.recordAcceptedOwnerDecision(
-      element.id
-    );
     return true;
   }
 
@@ -1066,43 +1068,20 @@ export class IModelExporter {
     }
   }
 
-  /** Exports all aspects present in the iModel.
-   */
-  private async exportAllAspects(
-    elementIds?: ReadonlySet<Id64String>
+  /** Exports all aspects owned by the supplied elements. */
+  private async exportAspectsForOwners(
+    ownerElementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    elementIds ??= await this.getChangedElementIdsForAspectExport();
-    return this._elementAspectExportCoordinator.exportOwners(
-      elementIds ?? new Set<Id64String>()
-    );
+    return this._elementAspectExportCoordinator.exportOwners(ownerElementIds);
   }
 
-  private async getChangedElementIdsForAspectExport(
-    includeElementChanges = true
-  ): Promise<ReadonlySet<Id64String> | undefined> {
-    if (this._sourceDbChanges === undefined) return undefined;
-
-    const changedElementIds = new Set<Id64String>([
-      ...(includeElementChanges
-        ? [
-            ...this._sourceDbChanges.element.insertIds,
-            ...this._sourceDbChanges.element.updateIds,
-          ]
-        : []),
-      ...this._sourceDbChanges.aspectOwnerElementIds,
-    ]);
-    if (!includeElementChanges) {
-      for (const elementId of this._sourceDbChanges.element.insertIds) {
-        changedElementIds.delete(elementId);
-      }
-      for (const elementId of this._sourceDbChanges.element.updateIds) {
-        changedElementIds.delete(elementId);
-      }
-    }
-    if (changedElementIds.size === 0) return new Set<Id64String>();
+  private async filterOwnerElementIdsForAspectExport(
+    ownerElementIds: ReadonlySet<Id64String>
+  ): Promise<ReadonlySet<Id64String>> {
+    if (ownerElementIds.size === 0) return new Set<Id64String>();
 
     const elementFacts =
-      await this.queryAspectElementHierarchyFacts(changedElementIds);
+      await this.queryAspectElementHierarchyFacts(ownerElementIds);
     const modelFacts = await this.queryAspectModelHierarchyFacts(
       new Set(
         [...elementFacts.values()].map((elementFact) => elementFact.modelId)
@@ -1114,7 +1093,7 @@ export class IModelExporter {
     );
 
     const elementIds = new Set<Id64String>();
-    for (const elementId of changedElementIds) {
+    for (const elementId of ownerElementIds) {
       if (
         this._skipPropagateChangesToRootElements &&
         this._rootElementIds.has(elementId)
@@ -1214,12 +1193,6 @@ export class IModelExporter {
     elementFact?: AspectElementFact
   ): Promise<boolean> {
     if (!this.visitElements) return false;
-
-    if (
-      this._elementAspectExportCoordinator.hasAcceptedOwnerDecision(elementId)
-    ) {
-      return true;
-    }
 
     if (
       this.shouldExportElement ===

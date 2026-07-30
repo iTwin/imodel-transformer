@@ -226,10 +226,8 @@ describe("IModelExporter", () => {
       coordinator.begin(1);
       await exporter.exportChildElements(IModel.rootSubjectId);
       await coordinator.end();
-      expect(preparedOwnerBatchSizes.at(-1)).to.equal(0);
-      expect(preparedOwnerBatchSizes.length).to.be.greaterThan(1);
-      expect(preparedOwnerBatchSizes.slice(0, -1).every((size) => size === 1))
-        .to.be.true;
+      expect(preparedOwnerBatchSizes.length).to.be.greaterThan(0);
+      expect(preparedOwnerBatchSizes.every((size) => size === 1)).to.be.true;
       expect(exportedIdentifiers).to.deep.equal(["included"]);
       // Each of the five outer scopes refreshes class metadata once for the
       // populated multi-aspect base. Nested calls and batch flushes do not.
@@ -362,7 +360,7 @@ describe("IModelExporter", () => {
       let queries = createQueryReader.mock.calls.map((call) => String(call[0]));
       expect(
         queries.filter((query) =>
-          query.includes("INNER JOIN IdSet(:elementIds)")
+          query.includes("INNER JOIN IdSet(:ownerElementIds)")
         )
       ).to.have.lengthOf(2);
       expect(queries.some((query) => query.includes(":excludedClassName"))).to
@@ -381,7 +379,7 @@ describe("IModelExporter", () => {
       queries = createQueryReader.mock.calls.map((call) => String(call[0]));
       expect(
         queries.filter((query) =>
-          query.includes("INNER JOIN IdSet(:elementIds)")
+          query.includes("INNER JOIN IdSet(:ownerElementIds)")
         )
       ).to.have.lengthOf(3);
       expect(queries.some((query) => query.includes(":excludedClassName"))).to
@@ -552,16 +550,14 @@ describe("IModelExporter", () => {
     });
     try {
       const exporter = new IModelExporter(sourceDb);
-      const changes = new ChangedInstanceIds(sourceDb);
-      changes.element.updateIds.add(IModel.rootSubjectId);
-      exporter["_sourceDbChanges"] = changes;
       exporter["_skipPropagateChangesToRootElements"] = true;
 
-      const elementIds =
-        await exporter["getChangedElementIdsForAspectExport"]();
+      const elementIds = await exporter["filterOwnerElementIdsForAspectExport"](
+        new Set([IModel.rootSubjectId])
+      );
 
       expect(elementIds).to.be.instanceOf(Set);
-      expect(elementIds?.size).to.equal(0);
+      expect(elementIds.size).to.equal(0);
     } finally {
       sourceDb.close();
     }
@@ -637,51 +633,12 @@ describe("IModelExporter", () => {
       }
       exporter.registerHandler(new Handler());
       exporter.wantTemplateModels = false;
-      const changes = new ChangedInstanceIds(sourceDb);
-      changes.element.updateIds.add(ids.rejectedOwnerId);
-      changes.element.updateIds.add(ids.templateOwnerId);
-      exporter["_sourceDbChanges"] = changes;
-      exporter["_elementAspectExportProcessor"].setAspectChanges(
-        changes.aspect
+      const elementIds = await exporter["filterOwnerElementIdsForAspectExport"](
+        new Set([ids.rejectedOwnerId, ids.templateOwnerId])
       );
 
-      const elementIds =
-        await exporter["getChangedElementIdsForAspectExport"]();
-
       expect(elementIds).to.be.instanceOf(Set);
-      expect(elementIds?.size).to.equal(0);
-    } finally {
-      sourceDb.close();
-    }
-  });
-
-  it("does not retain rejected element decisions during a scoped batch", async () => {
-    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
-      "IModelExporter",
-      "RejectedElementDecisionCache.bim"
-    );
-    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
-      rootSubject: { name: "RejectedElementDecisionCache" },
-    });
-    try {
-      withEditTxn(sourceDb, "insert rejected siblings", (txn) => {
-        for (let index = 0; index < 25; index++) {
-          Subject.insert(txn, IModel.rootSubjectId, `Rejected${index}`);
-        }
-      });
-      const exporter = new IModelExporter(sourceDb);
-      class Handler extends IModelExportHandler {
-        public override async shouldExportElement(_element: Element) {
-          return false;
-        }
-      }
-      exporter.registerHandler(new Handler());
-      const coordinator = exporter.elementAspectExportCoordinator;
-      coordinator.begin(10);
-      await exporter.exportChildElements(IModel.rootSubjectId);
-
-      expect(coordinator.acceptedOwnerDecisionCount).to.equal(0);
-      coordinator.abort();
+      expect(elementIds.size).to.equal(0);
     } finally {
       sourceDb.close();
     }
@@ -714,18 +671,16 @@ describe("IModelExporter", () => {
         }
       );
       const exporter = new IModelExporter(sourceDb);
-      const changes = new ChangedInstanceIds(sourceDb);
       for (const ownerId of ownerIds) {
-        changes.element.updateIds.add(ownerId);
         exporter.excludeElement(ownerId);
       }
-      exporter["_sourceDbChanges"] = changes;
       const getElement = vi.spyOn(sourceDb.elements, "getElement");
       const getModel = vi.spyOn(sourceDb.models, "getModel");
       const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
 
-      const acceptedOwnerIds =
-        await exporter["getChangedElementIdsForAspectExport"]();
+      const acceptedOwnerIds = await exporter[
+        "filterOwnerElementIdsForAspectExport"
+      ](new Set(ownerIds));
 
       expect(acceptedOwnerIds).to.deep.equal(new Set<Id64String>());
       expect(getElement.mock.calls.length).to.equal(0);
@@ -767,13 +722,11 @@ describe("IModelExporter", () => {
         }
       }
       const exporter = new CustomExporter(sourceDb);
-      const changes = new ChangedInstanceIds(sourceDb);
-      changes.element.updateIds.add(ownerId);
       exporter.excludeElement(ownerId);
-      exporter["_sourceDbChanges"] = changes;
 
-      const acceptedOwnerIds =
-        await exporter["getChangedElementIdsForAspectExport"]();
+      const acceptedOwnerIds = await exporter[
+        "filterOwnerElementIdsForAspectExport"
+      ](new Set([ownerId]));
 
       expect(acceptedOwnerIds).to.deep.equal(new Set([ownerId]));
       expect(ownerFilterCalls).to.equal(1);
