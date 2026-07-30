@@ -23,17 +23,21 @@ import {
   expectTransformerError,
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
-import { Id64String } from "@itwin/core-bentley";
+import { Id64String, ITwinError } from "@itwin/core-bentley";
 import {
   ChangesetFileProps,
   ElementProps,
   ExternalSourceAspectProps,
   IModel,
+  QueryBinder,
 } from "@itwin/core-common";
 import { ChangedInstanceIds, ChangedInstanceOps } from "../../IModelExporter";
-import { expect, vi } from "vitest";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
+import { expect } from "vitest";
 import { ChangesetScanner } from "../../ChangesetScanner";
-import { IModelTransformerError } from "../../IModelTransformerError";
 
 describe("ChangedInstanceIds", () => {
   const outputDir = path.join(
@@ -238,10 +242,16 @@ describe("ChangedInstanceIds", () => {
   describe("addCustomElementChange", async function () {
     it("should add changes for related entities when element is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      await sourceDbChanges.addCustomElementChange(
-        "Inserted",
-        childDrawing1.id!
-      );
+      const getAspect = vi.spyOn(sourceDb.elements, "getAspect");
+      try {
+        await sourceDbChanges.addCustomElementChange(
+          "Inserted",
+          childDrawing1.id!
+        );
+      } finally {
+        getAspect.mockRestore();
+      }
+      expect(getAspect).not.toHaveBeenCalled();
 
       assertHasValues(
         sourceDbChanges.element,
@@ -264,6 +274,8 @@ describe("ChangedInstanceIds", () => {
         [],
         []
       );
+      expect(sourceDbChanges.aspectOwnerElementIds.has(childDrawing1.id!)).to.be
+        .true;
       assertHasValues(
         sourceDbChanges.relationship,
         "relationship",
@@ -528,6 +540,27 @@ describe("ChangedInstanceIds", () => {
   });
 
   describe("addCustomAspectChange", async function () {
+    function expectMissingAspectOwnerError(
+      operation: () => void,
+      message: string
+    ): void {
+      let thrownError: unknown;
+      try {
+        operation();
+      } catch (error) {
+        thrownError = error;
+      }
+
+      expect(
+        ITwinError.isError(
+          thrownError,
+          IModelTransformerErrorScope,
+          IModelTransformerError.AspectOwnerRequired
+        )
+      ).to.be.true;
+      expect(thrownError).to.have.property("message", message);
+    }
+
     it("should add custom changes when aspect is Inserted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
       sourceDbChanges.addCustomAspectChange("Inserted", aspect1Id);
@@ -535,6 +568,9 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [aspect1Id], [], []);
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
+        childDrawing1.id,
+      ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
 
@@ -545,16 +581,46 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [aspect1Id], []);
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
+        childDrawing1.id,
+      ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("rejects a custom deleted aspect without owner IDs", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+
+      expectMissingAspectOwnerError(
+        () => sourceDbChanges.addCustomAspectChange("Deleted", aspect1Id),
+        "Custom deleted ElementAspect changes require the owning element ID."
+      );
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
+    });
+
+    it("rejects a missing custom aspect without owner IDs", async function () {
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+
+      expectMissingAspectOwnerError(
+        () => sourceDbChanges.addCustomAspectChange("Updated", "0xffffff"),
+        "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable."
+      );
+      assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
     });
 
     it("should add custom changes when aspect is Deleted", async function () {
       const sourceDbChanges = new ChangedInstanceIds(sourceDb);
-      sourceDbChanges.addCustomAspectChange("Deleted", aspect1Id);
+      sourceDbChanges.addCustomAspectChange(
+        "Deleted",
+        aspect1Id,
+        childDrawing1.id
+      );
       // Act
       assertHasValues(sourceDbChanges.element, "element", [], [], []);
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], [aspect1Id]);
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
+        childDrawing1.id,
+      ]);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
     });
 
@@ -565,6 +631,36 @@ describe("ChangedInstanceIds", () => {
       assertHasValues(sourceDbChanges.model, "model", [], [], []);
       assertHasValues(sourceDbChanges.aspect, "aspect", [], [], []);
       assertHasValues(sourceDbChanges.relationship, "relationship", [], [], []);
+    });
+
+    it("recovers the current owner when an aspect update omits Element.Id", async () => {
+      const reader = sourceDb.createQueryReader(
+        `SELECT ECClassId FROM ${ExternalSourceAspect.classFullName}
+         WHERE ECInstanceId=:aspectId`,
+        new QueryBinder().bindId("aspectId", aspect1Id)
+      );
+      expect(await reader.step()).to.be.true;
+      const classId = reader.current[0];
+      const sourceDbChanges = new ChangedInstanceIds(sourceDb);
+      const change: ChangeInstance = {
+        ECInstanceId: aspect1Id,
+        ECClassId: classId,
+        $meta: {
+          op: "Updated",
+          stage: "New",
+          tables: ["bis_ExternalSourceAspect"],
+          changeIndexes: [1],
+          instanceKey: `${classId}-${aspect1Id}`,
+          propFilter: PropertyFilter.InstanceKey,
+          changeFetchedPropNames: [],
+          isIndirectChange: false,
+        },
+      };
+      await sourceDbChanges.addChange(change);
+
+      expect([...sourceDbChanges.aspectOwnerElementIds]).to.deep.equal([
+        childDrawing1.id,
+      ]);
     });
   });
 });
