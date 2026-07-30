@@ -82,6 +82,7 @@ iModel entities are highly related to each other. Therefore, *cloning* an entity
 The [IModelTransformer]($transformer) base class is used when the **source** and **target** in an ETL workflow are both/different iModels and some sort of data transformation is needed in the middle.
 An instance of `IModelTransformer` holds instances of `IModelExporter`, `IModelImporter`, and `IModelElementCloneContext`.
 This means that customization is possible at the export stage, the transformation stage, and the import stage of the overall ETL process.
+`IModelTransformer` configures a dedicated internal `IModelExportHandler` for its exporter; the transformer itself is not an export handler.
 
 Potential transformations include:
 

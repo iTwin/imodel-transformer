@@ -151,6 +151,8 @@ export class IModelExporter {
     exportCodeSpecByName(codeSpecName: string): Promise<void>;
     exportCodeSpecs(): Promise<void>;
     exportElement(elementId: Id64String): Promise<void>;
+    // @internal
+    exportElementAspects(): Promise<void>;
     exportFontByFontFamilyDescriptor(fontFamily: FontFamilyDescriptor): Promise<void>;
     exportFontByFontProps(fontProps: FontProps): Promise<void>;
     exportFontByName(fontName: string): Promise<void>;
@@ -254,7 +256,7 @@ export interface IModelTransformArgs {
 }
 
 // @beta
-export class IModelTransformer extends IModelExportHandler {
+export class IModelTransformer {
     constructor(args: IModelTransformArgs, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
     calculateEcefTransform(): Transform | undefined;
@@ -291,6 +293,8 @@ export class IModelTransformer extends IModelExportHandler {
     onExportModel(sourceModel: Model): Promise<void>;
     onExportRelationship(sourceRelationship: Relationship): Promise<void>;
     onExportSchema(schema: ECSchemaMetaData.Schema): Promise<void | ExportSchemaResult>;
+    onProgress(): Promise<void>;
+    onSkipElement(_sourceElementId: Id64String): Promise<void>;
     onTransformElement(sourceElement: Element_2): Promise<ElementProps>;
     protected onTransformElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps>;
     onTransformModel(sourceModel: Model, targetModeledElementId: Id64String): ModelProps;

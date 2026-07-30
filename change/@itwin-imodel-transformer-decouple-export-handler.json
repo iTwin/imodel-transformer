@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "IModelTransformer now uses a dedicated IModelExportHandler instead of inheriting from IModelExportHandler.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "44824788+DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
