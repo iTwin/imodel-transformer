@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 import { DatasetDescriptor, fixtureTopologies } from "./DatasetDescriptor.js";
 
 function canonicalize(value: unknown): string {

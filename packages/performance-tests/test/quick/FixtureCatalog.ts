@@ -3,9 +3,9 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as fs from "fs";
-import * as path from "path";
-import { createRequire } from "module";
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import * as path from "node:path";
 import { DatasetDescriptor } from "./DatasetDescriptor.js";
 import { canonicalSha256 } from "./FixtureManifest.js";
 import { quickSourceDirectory, quickSourcePath } from "./quickPaths.js";

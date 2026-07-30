@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import * as path from "path";
+import * as path from "node:path";
 import { BriefcaseDb } from "@itwin/core-backend";
 import { ChangesetFileProps } from "@itwin/core-common";
 import { DatasetDescriptor } from "./DatasetDescriptor.js";
