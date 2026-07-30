@@ -63,7 +63,9 @@ the `IModelHost`, `HubMock`, briefcase, and filesystem lifecycle.
 #### Provider
 
 A provider defines the physical iModel topology and how a pristine dataset is
-delivered to each scenario sample.
+delivered to each scenario sample. It owns database, Hub, changeset, and cleanup
+resources. The scenario constructs `IModelTransformer` from those resources and
+chooses its options and measured operation.
 
 | Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                   |
 | --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
@@ -76,6 +78,10 @@ that no Hub APIs were used to create the changesets.
 
 There is currently no provider for a completely standalone
 `SnapshotDb`-to-`SnapshotDb` transformation.
+
+`liveHubProvider` currently performs the initial full transformation required by
+incremental synchronization. A first-time schema or full-transform scenario
+would need a provider topology that leaves the target pristine.
 
 #### Fixture
 

@@ -33,6 +33,10 @@ parts:
 | **Catalog**  | The set of scenario and fixture IDs that users can select through environment variables or workflow inputs.                                                                                                         |
 | **Harness**  | The catalogs, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
 
+The provider creates and owns the source, target, Hub, and changeset resources.
+The scenario uses those resources to construct `IModelTransformer`, choose its
+options, and select the operation measured.
+
 The current benchmark resolves to:
 
 ```text
@@ -216,7 +220,8 @@ lifecycle. For example, a future provider could supply local source and target
    failure cleanup, and deterministic results.
 
 Providers own database construction, copying, opening, and disposal. Recipes
-must not start or stop `IModelHost` or `HubMock`.
+must not start or stop `IModelHost` or `HubMock`. Scenarios own transformer
+construction and options.
 
 ## Running the weekly regression suite
 
