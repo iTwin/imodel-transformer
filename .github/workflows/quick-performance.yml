@@ -24,9 +24,6 @@ jobs:
     name: ${{ inputs.scenario || 'incremental-synchronization' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      NODE_OPTIONS: --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -50,7 +47,7 @@ jobs:
 
       - name: Validate quick harness
         run: |
-          pnpm --dir packages/performance-tests test:quick-unit \
+          pnpm --dir packages/performance-tests test:quick-harness \
             2>&1 | sed \
               -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"
@@ -63,6 +60,7 @@ jobs:
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"
         env:
           QUICK_PERF_OUTPUT: ${{ runner.temp }}/quick-performance
+          QUICK_PERF_SAMPLES: 8
           QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
           QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
 
@@ -71,8 +69,8 @@ jobs:
         shell: bash
         run: |
           node <<'NODE'
-          const fs = require("fs");
-          const path = require("path");
+          const fs = require("node:fs");
+          const path = require("node:path");
           const report = path.join(process.env.RUNNER_TEMP, "quick-performance", "summary.json");
           if (!fs.existsSync(report))
             process.exit(0);

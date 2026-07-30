@@ -2,14 +2,13 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "incremental": false,
-    "module": "CommonJS",
+    "declaration": false,
+    "declarationMap": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "noEmit": false,
-    "outDir": "./lib/quick",
-    "rootDir": "./test/quick"
+    "outDir": "./test/quick/runtime/.compiled",
+    "rootDir": "./test"
   },
-  "include": ["./test/quick/**/*.ts"],
-  "exclude": [
-    "./test/quick/**/*.quick-unit.ts",
-    "./test/quick/QuickPerformance.quick.ts"
-  ]
+  "include": ["./test/Cleanup.ts", "./test/quick/src/**/*.ts"]
 }

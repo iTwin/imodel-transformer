@@ -9,8 +9,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: [
-      "test/quick/**/*.quick-unit.ts",
-      "test/quick/QuickPerformance.quick.ts",
+      "test/quick/tests/**/*.test.ts",
+      "test/quick/QuickPerformance.test.ts",
     ],
     testTimeout: 900_000,
     hookTimeout: 900_000,

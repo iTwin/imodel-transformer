@@ -2,4 +2,5 @@
 **/.output
 .quick-cache/
 .quick-output/
+test/quick/runtime/.compiled/
 **/*.bim
