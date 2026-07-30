@@ -46,7 +46,7 @@ jobs:
 
       - name: Validate quick harness
         run: |
-          pnpm --dir packages/performance-tests test:quick-unit \
+          pnpm --dir packages/performance-tests test:quick-harness \
             2>&1 | sed \
               -e "s#${GITHUB_WORKSPACE}#<workspace>#g" \
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"

@@ -1,0 +1,103 @@
+/*---------------------------------------------------------------------------------------------
+ * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
+ * See LICENSE.md in the project root for license terms and full copyright notice.
+ *--------------------------------------------------------------------------------------------*/
+
+import { describe, expect, it } from "vitest";
+import {
+  assertScenarioSupportsFixture,
+  defaultQuickPerformanceMeasuredSamples,
+  resolveBenchmarkRun,
+  resolveBenchmarkRunFromEnvironment,
+  resolveMeasuredSamples,
+  resolveMeasuredSamplesFromEnvironment,
+} from "../../src/framework/BenchmarkResolution.js";
+import { BenchmarkScenarioDefinition } from "../../src/framework/BenchmarkScenario.js";
+import {
+  balancedIncrementalDescriptor,
+  balancedIncrementalSourceOnlyDescriptor,
+} from "../../src/fixtures/FixtureCatalog.js";
+import { incrementalSynchronizationScenario } from "../../src/scenarios/incrementalSynchronization.js";
+
+describe("benchmark resolution", () => {
+  it("resolves the scenario's declared default fixture", () => {
+    const resolved = resolveBenchmarkRun();
+    expect(resolved.scenario.id).to.equal("incremental-synchronization");
+    expect(resolved.descriptor.id).to.equal(
+      incrementalSynchronizationScenario.defaultFixtureId
+    );
+  });
+
+  it("lets an explicit fixture id override the default", () => {
+    const scenario: BenchmarkScenarioDefinition = {
+      ...incrementalSynchronizationScenario,
+      capabilities: { topology: "source-only" },
+    };
+    expect(() =>
+      assertScenarioSupportsFixture(
+        scenario,
+        balancedIncrementalSourceOnlyDescriptor
+      )
+    ).to.not.throw();
+  });
+
+  it("rejects a fixture whose topology the scenario cannot consume", () => {
+    expect(() =>
+      assertScenarioSupportsFixture(
+        incrementalSynchronizationScenario,
+        balancedIncrementalSourceOnlyDescriptor
+      )
+    ).to.throw(/requires a "source-and-empty-target" fixture/);
+  });
+
+  it("rejects a fixture that does not make a required claim", () => {
+    const scenario: BenchmarkScenarioDefinition = {
+      ...incrementalSynchronizationScenario,
+      capabilities: {
+        topology: "source-and-empty-target",
+        requiredClaims: ["time travel"],
+      },
+    };
+    expect(() =>
+      assertScenarioSupportsFixture(scenario, balancedIncrementalDescriptor)
+    ).to.throw(/does not claim \[time travel\]/);
+  });
+
+  it("reports unknown fixture ids with the available set", () => {
+    expect(() =>
+      resolveBenchmarkRun("incremental-synchronization", "no-such-fixture")
+    ).to.throw(/Available fixtures: balanced-incremental/);
+  });
+
+  it("treats blank environment inputs as unspecified", () => {
+    const resolved = resolveBenchmarkRunFromEnvironment({
+      QUICK_PERF_SCENARIO: "",
+      QUICK_PERF_FIXTURE: "  ",
+    });
+    expect(resolved.scenario.id).to.equal("incremental-synchronization");
+    expect(resolved.descriptor.id).to.equal("balanced-incremental");
+  });
+
+  it("resolves an explicit measured-sample count from the environment", () => {
+    expect(
+      resolveMeasuredSamplesFromEnvironment({
+        QUICK_PERF_SAMPLES: " 8 ",
+      })
+    ).to.equal(8);
+  });
+
+  it.each(["0", "-1", "1.5", "eight", "01", "9007199254740992"])(
+    "rejects invalid measured-sample count %s",
+    (value) => {
+      expect(() => resolveMeasuredSamples(value)).to.throw(
+        /QUICK_PERF_SAMPLES must be/
+      );
+    }
+  );
+
+  it("defaults blank measured-sample counts to one", () => {
+    expect(resolveMeasuredSamples("  ")).to.equal(
+      defaultQuickPerformanceMeasuredSamples
+    );
+  });
+});

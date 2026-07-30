@@ -6,12 +6,13 @@ different runtime requirements.
 
 ## Test categories
 
-| Category            | Location                               | Purpose                                                                                       | External requirements                                   |
-| ------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Weekly regression   | `test/TransformerRegression.test.ts`   | Measure transformer implementations against selected Hub iModels and a generated local iModel | Hub credentials, OIDC configuration, and network access |
-| Infrastructure unit | `test/unit/**/*.test.ts`               | Verify registration and cleanup behavior                                                      | None                                                    |
-| Quick benchmark     | `test/quick/QuickPerformance.quick.ts` | Measure bounded incremental synchronization against a deterministic local fixture             | None                                                    |
-| Quick harness unit  | `test/quick/**/*.quick-unit.ts`        | Verify quick fixture, runner, scenario, reporting, and statistics behavior                    | None                                                    |
+| Category                  | Location                                    | Purpose                                                                                       | External requirements                                   |
+| ------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Weekly regression         | `test/TransformerRegression.test.ts`        | Measure transformer implementations against selected Hub iModels and a generated local iModel | Hub credentials, OIDC configuration, and network access |
+| Infrastructure unit       | `test/unit/**/*.test.ts`                    | Verify registration and cleanup behavior                                                      | None                                                    |
+| Quick benchmark           | `test/quick/QuickPerformance.test.ts`       | Measure the selected scenario against a deterministic local fixture                           | None                                                    |
+| Quick harness unit        | `test/quick/tests/unit/**/*.test.ts`        | Verify resolution, catalogs, manifests, and statistics                                        | None                                                    |
+| Quick harness integration | `test/quick/tests/integration/**/*.test.ts` | Verify database-backed fixture, runner, reporting, and cleanup behavior                       | None                                                    |
 
 The unit tests do not measure transformer performance. They validate code used
 to construct and tear down the weekly or quick performance suites.
@@ -37,18 +38,22 @@ from `packages/performance-tests`.
 
 ## Quick suite architecture
 
-The quick suite is independent of the weekly regression lifecycle:
+The quick suite is independent of the weekly regression lifecycle. Its root
+contains one generic benchmark entry point, `QuickPerformance.test.ts`, which
+resolves the configured scenario and fixture before invoking the shared runner.
+Adding a scenario normally does not require another performance test file.
 
-- `QuickPerformance.quick.ts` is the benchmark entry point.
-- `BenchmarkRunner.ts`, `BenchmarkScenario.ts`, and `BenchmarkReporter.ts`
-  coordinate samples, timed work, validation, and reports.
-- `FixtureArtifact.ts`, `FixtureMaterializer.ts`, and `FixtureManifest.ts`
-  implement deterministic artifact creation and pristine per-sample copies.
-- `providers/` reconstructs live-Hub or detached-briefcase datasets.
-- `recipes/` defines fixture content, while `scenarios/` defines timed behavior.
-- `validation/` contains fixture checks and report statistics.
-- `*.quick-unit.ts` files test the adjacent harness modules under Vitest. They are
-  infrastructure tests, not benchmark samples.
+- `src/framework/` coordinates resolution, samples, timed work, and lifecycle.
+- `src/reporting/` produces reports and computes descriptive statistics.
+- `src/fixtures/` defines fixture identity, artifacts, providers, recipes, and
+  validation.
+- `src/scenarios/` defines the behavior measured by the benchmark.
+- `src/cli/` contains fixture build and verification commands.
+- `src/support/` contains shared runtime support such as filesystem paths.
+- `assets/` contains non-TypeScript fixture inputs such as schemas.
+- `tests/unit/` contains fast infrastructure tests.
+- `tests/integration/` contains database- and host-backed infrastructure tests.
+- `tests/support/` contains helpers used only by infrastructure tests.
 
 The fixture lifecycle has two stages. When the topology supports it, stage 1
 builds and validates one immutable artifact. Stage 2 creates a pristine sample
@@ -56,10 +61,10 @@ copy, runs one scenario, validates the result, and disposes every resource.
 Topologies that require a live local Hub rebuild their deterministic dataset per
 sample instead.
 
-The quick fixture commands compile `test/quick/cli.ts` and its runtime graph to
-native ESM under `test/quick/runtime/.compiled/`. The runtime-only `"type":
-module"` boundary keeps that output separate from the package's TypeScript
-source graph.
+The quick fixture commands compile `test/quick/src/cli/fixtureCli.ts` and its
+runtime graph to native ESM under `test/quick/runtime/.compiled/`. The
+runtime-only `"type": "module"` boundary keeps that output separate from the
+package's TypeScript source graph.
 
 ## Quick report interpretation
 

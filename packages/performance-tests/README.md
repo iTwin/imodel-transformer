@@ -7,12 +7,13 @@ lifecycle, registration model, and extension guidance.
 
 ## Test categories
 
-| Category                   | Entry points                           | Purpose                                                                                   |
-| -------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Weekly regression          | `test/TransformerRegression.test.ts`   | Long-running comparisons against Hub and generated iModels                                |
-| Weekly infrastructure unit | `test/unit/**/*.test.ts`               | Registration, lifecycle, and cleanup behavior used by the weekly suite                    |
-| Quick benchmark            | `test/quick/QuickPerformance.quick.ts` | Credential-free, bounded local performance measurement                                    |
-| Quick harness unit         | `test/quick/**/*.quick-unit.ts`        | Fixture, runner, reporting, scenario, and statistics behavior used by the quick benchmark |
+| Category                   | Entry points                                | Purpose                                                                     |
+| -------------------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
+| Weekly regression          | `test/TransformerRegression.test.ts`        | Long-running comparisons against Hub and generated iModels                  |
+| Weekly infrastructure unit | `test/unit/**/*.test.ts`                    | Registration, lifecycle, and cleanup behavior used by the weekly suite      |
+| Quick benchmark            | `test/quick/QuickPerformance.test.ts`       | Credential-free, bounded local performance measurement                      |
+| Quick harness unit         | `test/quick/tests/unit/**/*.test.ts`        | Resolution, catalogs, manifests, and statistics used by the quick benchmark |
+| Quick harness integration  | `test/quick/tests/integration/**/*.test.ts` | Database-backed fixture, runner, reporting, and cleanup behavior            |
 
 The quick harness units validate performance-test infrastructure; they do not
 measure transformer performance. The quick benchmark and weekly regression suite
@@ -36,7 +37,9 @@ Run these commands from `packages/performance-tests`:
 | Command                               | Purpose                                                                  |
 | ------------------------------------- | ------------------------------------------------------------------------ |
 | `pnpm --dir ../transformer build:cjs` | Build the workspace transformer package required by the quick runtime    |
-| `pnpm test:quick-unit`                | Run the quick harness tests without executing the benchmark              |
+| `pnpm test:quick-unit`                | Run the quick harness unit tests                                         |
+| `pnpm test:quick-integration`         | Run the database-backed quick harness integration tests                  |
+| `pnpm test:quick-harness`             | Run all quick harness tests without executing the benchmark              |
 | `pnpm quick:build-fixture`            | Compile the native ESM quick CLI and write the canonical recipe manifest |
 | `pnpm quick:verify-fixture`           | Reconstruct the fixture twice and write a diagnostic report              |
 | `pnpm test:quick`                     | Run one warm-up and one measured benchmark sample locally                |

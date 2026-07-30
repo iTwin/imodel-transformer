@@ -10,9 +10,5 @@
     "outDir": "./test/quick/runtime/.compiled",
     "rootDir": "./test"
   },
-  "include": ["./test/Cleanup.ts", "./test/quick/**/*.ts"],
-  "exclude": [
-    "./test/quick/**/*.quick-unit.ts",
-    "./test/quick/QuickPerformance.quick.ts"
-  ]
+  "include": ["./test/Cleanup.ts", "./test/quick/src/**/*.ts"]
 }
