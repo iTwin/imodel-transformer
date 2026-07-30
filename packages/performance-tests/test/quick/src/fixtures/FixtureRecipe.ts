@@ -17,7 +17,6 @@ import {
   ScanRecipeState,
   validateScanFixture,
 } from "./recipes/updateHeavyScan.js";
-import { ScanLedgerEntry } from "./validation/scanOracle.js";
 import { assertFixtureDistribution } from "./validation/validateFixture.js";
 
 /**
@@ -65,10 +64,7 @@ export const balancedIncrementalRecipe: FixtureRecipe<BalancedRecipeState> = {
   validate: async (db, descriptor) => assertFixtureDistribution(db, descriptor),
 };
 
-export const updateHeavyScanRecipe: FixtureRecipe<
-  ScanRecipeState,
-  readonly ScanLedgerEntry[]
-> = {
+export const updateHeavyScanRecipe: FixtureRecipe<ScanRecipeState> = {
   id: "update-heavy-scan",
   createSeed: async (fileName, descriptor) =>
     createScanSeed(fileName, descriptor),
