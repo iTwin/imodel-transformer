@@ -17,6 +17,8 @@ The quick infrastructure tests are separate from both performance suites:
 | Weekly infrastructure | `test/unit/**/*.test.ts`                    | Validate registration and cleanup used by the weekly suite                   |
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the quick suite's component model,
+and [COMPARISON_STATISTICS.md](./COMPARISON_STATISTICS.md) for the calibrated
+paired-comparison estimator, evidence levels, and execution identity contract.
 provider lifecycles, execution diagram, timing boundaries, and report format.
 
 ## Quick performance terminology

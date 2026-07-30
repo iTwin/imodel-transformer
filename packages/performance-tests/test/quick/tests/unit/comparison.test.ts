@@ -12,21 +12,21 @@ import {
   assertArmRuntimeComparable,
   assertArmSpecsComparable,
   resolveArmSpec,
-} from "./ArmModule";
-import { binomialPmf, twoSidedSignTestP } from "./binomial";
+} from "../../src/comparison/ArmModule";
+import { binomialPmf, twoSidedSignTestP } from "../../src/comparison/binomial";
 import {
   buildComparisonReport,
   BuildComparisonReportOptions,
   renderComparisonReport,
   writeComparisonReport,
-} from "./ComparisonReport";
-import { classifyEnvironment } from "./EnvironmentClass";
+} from "../../src/comparison/ComparisonReport";
+import { classifyEnvironment } from "../../src/comparison/EnvironmentClass";
 import {
   assertExecutionFingerprintMatches,
   ExecutionFingerprint,
   executionFingerprintKey,
   validateExecutionFingerprint,
-} from "./ExecutionFingerprint";
+} from "../../src/comparison/ExecutionFingerprint";
 import {
   aggregateLogRatios,
   bootstrapMedianInterval,
@@ -36,7 +36,7 @@ import {
   logRatioToPercent,
   orderEffectLogRatios,
   percentToLogRatio,
-} from "./logRatio";
+} from "../../src/comparison/logRatio";
 import {
   assertPoolApplies,
   CalibrationQuality,
@@ -49,9 +49,12 @@ import {
   noiseBandKey,
   NoiseBandPool,
   targetNoiseBandPercent,
-} from "./NoiseBand";
-import { SeededRandom } from "./SeededRandom";
-import { decideVerdict, defaultEquivalenceMarginPercent } from "./verdict";
+} from "../../src/comparison/NoiseBand";
+import { SeededRandom } from "../../src/comparison/SeededRandom";
+import {
+  decideVerdict,
+  defaultEquivalenceMarginPercent,
+} from "../../src/comparison/verdict";
 
 const execution: ExecutionFingerprint = {
   warmupSamplesPerArm: 1,

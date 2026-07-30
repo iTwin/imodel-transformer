@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as crypto from "crypto";
-import { median, percentile } from "../validation/statistics";
+import { median, percentile } from "../reporting/statistics";
 import {
   assertExecutionFingerprintMatches,
   ExecutionFingerprint,

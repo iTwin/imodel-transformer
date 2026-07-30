@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { median } from "../validation/statistics";
+import { median } from "../reporting/statistics";
 import { twoSidedSignTestP } from "./binomial";
 import {
   defaultResampleCount,
