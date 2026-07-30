@@ -18,12 +18,12 @@ flowchart TD
     T --> E
     E --> C["Traverse source elements and record accepted owners"]
     C --> CO["ElementAspectExportCoordinator<br/>internal implementation detail, not an API"]
+    CO -->|"prepare mapped target owners"| CL["ElementAspectCleanup<br/>internal implementation detail, not an API"]
+    CL --> I["IModelImporter and active EditTxn"]
     CO -->|"bounded, deduplicated owner batches"| P["ElementAspectExportProcessor<br/>internal implementation detail, not an API"]
     P -->|"accepted aspect callbacks"| H{"Registered IModelExportHandler"}
     H -->|"consumer handler"| U["Consumer-defined output"]
     H -->|"transformer handler"| T
-    CO -->|"prepare mapped target owners"| CL["ElementAspectCleanup<br/>internal implementation detail, not an API"]
-    CL --> I["IModelImporter and active EditTxn"]
     T --> I
 ```
 
@@ -98,11 +98,11 @@ Source reads use two prefilters before querying concrete aspect classes:
 1. A populated-class query finds the concrete `ECClassId` values that have rows.
 2. Excluded class names are expanded to their class IDs and subclass IDs, and those classes are skipped.
 
-For an explicit owner set, the populated-class query joins the owner IDs through `IdSet(:elementIds)`. A class populated elsewhere in the iModel therefore does not cause an empty concrete query for every batch. Owner-scoped results are not cached across batches. For an unscoped read, the processor caches the global populated-class result until the next outermost coordinator scope begins.
+For each owner set, the populated-class query joins the owner IDs through `IdSet(:ownerElementIds)`. A class populated elsewhere in the iModel therefore does not cause an empty concrete query for every batch. Populated-class results are not cached across owner batches.
 
-The processor returns before excluded-class resolution or concrete-class queries when the explicit owner set is empty or the populated-class prefilter finds no rows. Concrete source queries also join explicit owners through `IdSet`; they do not build an owner predicate one ID at a time.
+The processor returns before excluded-class resolution or concrete-class queries when the owner set is empty or the populated-class prefilter finds no rows. Concrete source queries also join the owner set through `IdSet`; they do not build an owner predicate one ID at a time.
 
-A new outermost coordinator scope clears the cached aspect class metadata, global populated-class IDs, and expanded excluded class IDs. Nested scopes and batch flushes reuse those caches. The values remain available after the scope ends so internal work that completes the same operation can reuse them. The next outermost scope clears them. Configured excluded class names remain in effect.
+A new outermost coordinator scope clears the cached aspect class metadata and expanded excluded class IDs. Nested scopes and batch flushes reuse those caches. The values remain available after the scope ends so internal work that completes the same operation can reuse them. The next outermost scope clears them. Configured excluded class names remain in effect.
 
 ## Cleanup paging and importer hooks
 
