@@ -8,7 +8,10 @@ import * as os from "os";
 import * as path from "path";
 import { IModelHost } from "@itwin/core-backend";
 import { CleanupTask, runWithCleanup } from "../Cleanup.js";
-import { assertScenarioSupportsFixture } from "./BenchmarkResolution.js";
+import {
+  assertScenarioSupportsFixture,
+  defaultQuickPerformanceMeasuredSamples,
+} from "./BenchmarkResolution.js";
 import {
   BenchmarkScenario,
   BenchmarkScenarioDefinition,
@@ -128,7 +131,9 @@ export class BenchmarkRunner {
     assertScenarioSupportsFixture(_scenario, _descriptor);
   }
 
-  public async run(measuredSamples = 8): Promise<BenchmarkSample[]> {
+  public async run(
+    measuredSamples = defaultQuickPerformanceMeasuredSamples
+  ): Promise<BenchmarkSample[]> {
     if (!Number.isInteger(measuredSamples) || measuredSamples < 1)
       throw new Error(
         "Quick performance requires at least one measured sample"

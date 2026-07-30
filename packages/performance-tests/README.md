@@ -39,17 +39,19 @@ Run these commands from `packages/performance-tests`:
 | `pnpm test:quick-unit`                | Run the quick harness tests without executing the benchmark              |
 | `pnpm quick:build-fixture`            | Compile the native ESM quick CLI and write the canonical recipe manifest |
 | `pnpm quick:verify-fixture`           | Reconstruct the fixture twice and write a diagnostic report              |
-| `pnpm test:quick`                     | Run one warm-up and eight measured benchmark samples                     |
+| `pnpm test:quick`                     | Run one warm-up and one measured benchmark sample locally                |
 
 The default scenario is `incremental-synchronization`, selected with
 `QUICK_PERF_SCENARIO`. Unknown scenario names fail before fixture
-reconstruction. The default run is sample 0 as a warm-up plus eight measured
-samples. Each sample is a fresh reconstruction, one timed scenario execution,
-and untimed verification and cleanup. The warm-up follows the same lifecycle
-but is excluded from summary timing statistics. Set `QUICK_PERF_SAMPLES` only
-for local diagnostics. Reports are written under `test/quick/.quick-output/`
-unless `QUICK_PERF_OUTPUT` is set and include `samples.jsonl`, `summary.json`,
-and `summary.csv`. Every sample and report includes the scenario ID, and the
+reconstruction. The default run is sample 0 as a warm-up plus one measured
+sample locally; the workflow runs eight measured samples. Each sample is a
+fresh reconstruction, one timed scenario execution, and untimed verification
+and cleanup. The warm-up follows the same lifecycle but is excluded from
+summary timing statistics. `QUICK_PERF_SAMPLES` sets the positive integer
+number of measured samples, and the manual workflow sets it to eight for
+variance analysis. Reports are written under `test/quick/.quick-output/` unless
+`QUICK_PERF_OUTPUT` is set and include `samples.jsonl`, `summary.json`, and
+`summary.csv`. Every sample and report includes the scenario ID, and the
 reporter rejects mixed-scenario sample sets.
 
 The calibrated fixture contains 6,000 base elements, 12,000 aspects, 3,000

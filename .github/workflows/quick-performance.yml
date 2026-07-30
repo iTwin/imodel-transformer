@@ -59,6 +59,7 @@ jobs:
               -e "s#${RUNNER_TEMP}#<runner-temp>#g"
         env:
           QUICK_PERF_OUTPUT: ${{ runner.temp }}/quick-performance
+          QUICK_PERF_SAMPLES: 8
           QUICK_PERF_SCENARIO: ${{ inputs.scenario || 'incremental-synchronization' }}
           QUICK_PERF_FIXTURE: ${{ inputs.fixture }}
 

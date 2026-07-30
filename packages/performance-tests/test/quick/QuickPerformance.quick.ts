@@ -5,13 +5,17 @@
 
 import { describe, expect, it } from "vitest";
 import { BenchmarkReporter } from "./BenchmarkReporter.js";
-import { resolveBenchmarkRunFromEnvironment } from "./BenchmarkResolution.js";
+import {
+  resolveBenchmarkRunFromEnvironment,
+  resolveMeasuredSamplesFromEnvironment,
+} from "./BenchmarkResolution.js";
 import { BenchmarkRunner } from "./BenchmarkRunner.js";
 import { scenarioBudgetMilliseconds } from "./BenchmarkScenario.js";
 import { quickSourcePath } from "./quickPaths.js";
 
 describe("quick performance", () => {
   const { descriptor, scenario } = resolveBenchmarkRunFromEnvironment();
+  const measuredSamples = resolveMeasuredSamplesFromEnvironment();
   const budgetMilliseconds = scenarioBudgetMilliseconds(scenario);
 
   it(`${scenario.id} completes within budget on ${descriptor.id}`, async () => {
@@ -23,7 +27,7 @@ describe("quick performance", () => {
       descriptor,
       outputDir,
       scenario
-    ).run();
+    ).run(measuredSamples);
     const elapsedMilliseconds =
       Number(process.hrtime.bigint() - started) / 1_000_000;
     const summary = BenchmarkReporter.write(
@@ -32,7 +36,7 @@ describe("quick performance", () => {
       elapsedMilliseconds
     );
 
-    expect(summary.measuredSamples).to.equal(8);
+    expect(summary.measuredSamples).to.equal(measuredSamples);
     expect(
       new Set(samples.map((sample) => sample.semanticDigest)).size
     ).to.equal(1, "every sample must observe the same fixture");

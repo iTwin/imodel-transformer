@@ -6,8 +6,11 @@
 import { describe, expect, it } from "vitest";
 import {
   assertScenarioSupportsFixture,
+  defaultQuickPerformanceMeasuredSamples,
   resolveBenchmarkRun,
   resolveBenchmarkRunFromEnvironment,
+  resolveMeasuredSamples,
+  resolveMeasuredSamplesFromEnvironment,
 } from "./BenchmarkResolution.js";
 import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
 import {
@@ -73,5 +76,28 @@ describe("benchmark resolution", () => {
     });
     expect(resolved.scenario.id).to.equal("incremental-synchronization");
     expect(resolved.descriptor.id).to.equal("balanced-incremental");
+  });
+
+  it("resolves an explicit measured-sample count from the environment", () => {
+    expect(
+      resolveMeasuredSamplesFromEnvironment({
+        QUICK_PERF_SAMPLES: " 8 ",
+      })
+    ).to.equal(8);
+  });
+
+  it.each(["0", "-1", "1.5", "eight", "01", "9007199254740992"])(
+    "rejects invalid measured-sample count %s",
+    (value) => {
+      expect(() => resolveMeasuredSamples(value)).to.throw(
+        /QUICK_PERF_SAMPLES must be/
+      );
+    }
+  );
+
+  it("defaults blank measured-sample counts to one", () => {
+    expect(resolveMeasuredSamples("  ")).to.equal(
+      defaultQuickPerformanceMeasuredSamples
+    );
   });
 });

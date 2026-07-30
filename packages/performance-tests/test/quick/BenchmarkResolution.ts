@@ -14,6 +14,35 @@ export interface ResolvedBenchmarkRun {
   readonly descriptor: DatasetDescriptor;
 }
 
+export const defaultQuickPerformanceMeasuredSamples = 1;
+
+function orUndefined(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === "" ? undefined : value.trim();
+}
+
+export function resolveMeasuredSamples(value: string | undefined): number {
+  const configured = orUndefined(value);
+  if (configured === undefined) return defaultQuickPerformanceMeasuredSamples;
+  if (!/^[1-9]\d*$/.test(configured)) {
+    throw new Error(
+      `QUICK_PERF_SAMPLES must be a positive integer; received "${configured}"`
+    );
+  }
+  const measuredSamples = Number(configured);
+  if (!Number.isSafeInteger(measuredSamples)) {
+    throw new Error(
+      `QUICK_PERF_SAMPLES must be a safe integer; received "${configured}"`
+    );
+  }
+  return measuredSamples;
+}
+
+export function resolveMeasuredSamplesFromEnvironment(
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  return resolveMeasuredSamples(env.QUICK_PERF_SAMPLES);
+}
+
 /**
  * Validate a resolved scenario/fixture pair.
  *
@@ -64,8 +93,6 @@ export function resolveBenchmarkRunFromEnvironment(
   env: NodeJS.ProcessEnv = process.env
 ): ResolvedBenchmarkRun {
   // CI passes unset inputs through as empty strings; treat those as "not specified".
-  const orUndefined = (value: string | undefined) =>
-    value === undefined || value.trim() === "" ? undefined : value.trim();
   return resolveBenchmarkRun(
     orUndefined(env.QUICK_PERF_SCENARIO),
     orUndefined(env.QUICK_PERF_FIXTURE)
