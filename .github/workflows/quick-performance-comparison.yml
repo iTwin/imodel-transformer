@@ -152,7 +152,7 @@ jobs:
       - name: Prepare deterministic fixture
         shell: bash
         run: |
-          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             prepare-fixture \
             --scenario changeset-scanning \
             --output "$RUNNER_TEMP/quick-comparison-fixture"
@@ -167,7 +167,7 @@ jobs:
           PAIR_INDEX: ${{ matrix.index }}
           PAIR_ORDER: ${{ matrix.order }}
         run: |
-          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             run-pair \
             --job-id "$GITHUB_RUN_ID-$PAIR_INDEX" \
             --pair "$PAIR_INDEX" \
@@ -250,7 +250,7 @@ jobs:
       - name: Aggregate matching independent jobs
         shell: bash
         run: |
-          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             aggregate-calibration \
             --input "$RUNNER_TEMP/quick-calibration-observations" \
             --output "$RUNNER_TEMP/quick-calibration"
@@ -378,7 +378,7 @@ jobs:
       - name: Prepare deterministic fixture
         shell: bash
         run: |
-          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             prepare-fixture \
             --scenario changeset-scanning \
             --output "$RUNNER_TEMP/quick-comparison-fixture"
@@ -395,7 +395,7 @@ jobs:
           PAIR_INDEX: ${{ inputs.pair_order == 'AB' && '0' || '1' }}
           PAIR_ORDER: ${{ inputs.pair_order }}
         run: |
-          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             run-pair \
             --job-id "$GITHUB_RUN_ID" \
             --pair "$PAIR_INDEX" \
@@ -420,7 +420,7 @@ jobs:
         env:
           CALIBRATION_FILE: ${{ inputs.calibration_file }}
         run: |
-          node harness/packages/performance-tests/lib/quick/comparison/comparisonCli.js \
+          node harness/packages/performance-tests/test/quick/runtime/.compiled/quick/src/cli/comparisonCli.js \
             compare \
             --observation "$RUNNER_TEMP/quick-comparison-pair/pair-observation.json" \
             --calibration "$RUNNER_TEMP/quick-calibration/$CALIBRATION_FILE" \
