@@ -64,6 +64,7 @@ export class ElementAspectExportProcessor {
   private _expandedExcludedClassFullNames:
     | Promise<ReadonlySet<string>>
     | undefined;
+  private _hasExportableAspects: Promise<boolean> | undefined;
   private _aspectChanges: ChangedInstanceOps | undefined;
 
   /** ElementAspect class names excluded from source queries. */
@@ -97,15 +98,31 @@ export class ElementAspectExportProcessor {
   private async exportAspectsForOwners(
     elementIds: ReadonlySet<Id64String>
   ): Promise<void> {
-    const multiAspectsByOwner = new Map<Id64String, ElementMultiAspect[]>();
     const excludedAspectClassFullNames =
       await this.getExpandedExcludedClassFullNames();
+    if (!(await this.getHasExportableAspects(excludedAspectClassFullNames)))
+      return;
+
+    let currentOwnerId: Id64String | undefined;
+    let currentOwnerMultiAspects: ElementMultiAspect[] = [];
+    const flushCurrentOwnerMultiAspects = async (): Promise<void> => {
+      if (currentOwnerMultiAspects.length === 0) return;
+      await this._handler.onExportElementMultiAspects(currentOwnerMultiAspects);
+      await this._handler.trackProgress();
+      currentOwnerMultiAspects = [];
+    };
+
     for await (const aspect of this._sourceDb.elements.getAspectsForElements({
       elementIds: new Set(elementIds) as Id64Set,
       excludedAspectClassFullNames,
       groupByOwner: true,
       usePrimaryConn: true,
     })) {
+      if (currentOwnerId !== aspect.element.id) {
+        await flushCurrentOwnerMultiAspects();
+        currentOwnerId = aspect.element.id;
+      }
+
       if (!(await this._handler.shouldExportElementAspect(aspect))) continue;
 
       if (aspect instanceof ElementUniqueAspect) {
@@ -121,19 +138,10 @@ export class ElementAspectExportProcessor {
         continue;
       }
 
-      const multiAspect = aspect as ElementMultiAspect;
-      const ownerAspects = multiAspectsByOwner.get(multiAspect.element.id);
-      if (ownerAspects === undefined) {
-        multiAspectsByOwner.set(multiAspect.element.id, [multiAspect]);
-      } else {
-        ownerAspects.push(multiAspect);
-      }
+      currentOwnerMultiAspects.push(aspect as ElementMultiAspect);
     }
 
-    for (const multiAspects of multiAspectsByOwner.values()) {
-      await this._handler.onExportElementMultiAspects(multiAspects);
-      await this._handler.trackProgress();
-    }
+    await flushCurrentOwnerMultiAspects();
   }
 
   /** Sets the aspect changes used to distinguish inserted and updated unique aspects during change export. */
@@ -141,10 +149,16 @@ export class ElementAspectExportProcessor {
     this._aspectChanges = aspectChanges;
   }
 
+  /** Clears source-content information cached across owner batches. */
+  public resetExportableAspectCache(): void {
+    this._hasExportableAspects = undefined;
+  }
+
   /** Excludes an ElementAspect class and all of its subclasses from subsequent queries and export callbacks. */
   public excludeElementAspectClass(classFullName: string): void {
     this._excludedElementAspectClassFullNames.add(classFullName);
     this._expandedExcludedClassFullNames = undefined;
+    this.resetExportableAspectCache();
   }
 
   private async getExpandedExcludedClassFullNames(): Promise<
@@ -155,6 +169,45 @@ export class ElementAspectExportProcessor {
         this.queryExpandedExcludedClassFullNames();
     }
     return this._expandedExcludedClassFullNames;
+  }
+
+  private async getHasExportableAspects(
+    excludedClassFullNames: ReadonlySet<string>
+  ): Promise<boolean> {
+    this._hasExportableAspects ??= this.queryHasExportableAspects(
+      excludedClassFullNames
+    );
+    return this._hasExportableAspects;
+  }
+
+  private async queryHasExportableAspects(
+    excludedClassFullNames: ReadonlySet<string>
+  ): Promise<boolean> {
+    const params = new QueryBinder();
+    const excludedClassIds: string[] = [];
+    let excludedClassIndex = 0;
+    for (const classFullName of excludedClassFullNames) {
+      const parameterName = `excludedAspectClass${excludedClassIndex++}`;
+      excludedClassIds.push(`ec_classid(:${parameterName})`);
+      params.bindString(parameterName, classFullName);
+    }
+    const classFilter =
+      excludedClassIds.length === 0
+        ? ""
+        : `WHERE ECClassId NOT IN (${excludedClassIds.join(",")})`;
+    const reader = this._sourceDb.createQueryReader(
+      `SELECT ECInstanceId FROM (
+        SELECT ECInstanceId, ECClassId FROM Bis.ElementMultiAspect
+        UNION ALL
+        SELECT ECInstanceId, ECClassId FROM Bis.ElementUniqueAspect
+      ) ${classFilter}
+      LIMIT 1`,
+      params,
+      { usePrimaryConn: true }
+    );
+    for await (const _row of ensureECSqlReaderIsAsyncIterableIterator(reader))
+      return true;
+    return false;
   }
 
   private async queryExpandedExcludedClassFullNames(): Promise<

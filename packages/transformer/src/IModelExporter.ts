@@ -471,6 +471,7 @@ export class IModelExporter {
   public async exportAll(): Promise<void> {
     await this.initialize({});
     this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
+    this._elementAspectExportProcessor.resetExportableAspectCache();
 
     await this.exportCodeSpecs();
     await this.exportFonts();
@@ -527,6 +528,7 @@ export class IModelExporter {
     }
 
     this._elementAspectExportCoordinator.clearAcceptedOwnerDecisions();
+    this._elementAspectExportProcessor.resetExportableAspectCache();
     this._skipPropagateChangesToRootElements =
       initOpts.skipPropagateChangesToRootElements ?? false;
     // _sourceDbChanges are initialized in this.initialize
@@ -1204,6 +1206,8 @@ export class IModelExporter {
   private async runScopedElementExport(
     exportElements: () => Promise<void>
   ): Promise<void> {
+    if (!this._elementAspectExportCoordinator.isActive)
+      this._elementAspectExportProcessor.resetExportableAspectCache();
     await this._elementAspectExportCoordinator.run(exportElements);
   }
 

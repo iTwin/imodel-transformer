@@ -247,6 +247,125 @@ describe("IModelExporter", () => {
     }
   });
 
+  it("skips owner batches when every populated aspect class is excluded", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "ElementAspectAllExcluded.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "ElementAspectAllExcluded" },
+    });
+    try {
+      withEditTxn(sourceDb, "insert excluded aspect", (txn) => {
+        const ownerId = Subject.insert(
+          txn,
+          IModel.rootSubjectId,
+          "Excluded aspect owner"
+        );
+        txn.insertAspect({
+          classFullName: ExternalSourceAspect.classFullName,
+          element: new ElementOwnsExternalSourceAspects(ownerId),
+          scope: { id: IModel.rootSubjectId },
+          identifier: "excluded",
+          kind: ExternalSourceAspect.Kind.Element,
+        } as ExternalSourceAspectProps);
+      });
+
+      const getAspectsForElements = vi.spyOn(
+        sourceDb.elements,
+        "getAspectsForElements"
+      );
+      const createQueryReader = vi.spyOn(sourceDb, "createQueryReader");
+      class Handler extends IModelExportHandler {}
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(new Handler());
+      exporter.excludeElementAspectClass(ExternalSourceAspect.classFullName);
+
+      await exporter.exportAll();
+
+      expect(getAspectsForElements).not.toHaveBeenCalled();
+      expect(
+        createQueryReader.mock.calls.filter((call) =>
+          String(call[0]).includes("SELECT ECInstanceId FROM (")
+        )
+      ).to.have.lengthOf(1);
+    } finally {
+      vi.restoreAllMocks();
+      sourceDb.close();
+    }
+  });
+
+  it("flushes multi-aspects when each contiguous owner group ends", async () => {
+    const sourceDbPath = IModelTransformerTestUtils.prepareOutputFile(
+      "IModelExporter",
+      "ElementAspectContiguousOwners.bim"
+    );
+    const sourceDb = SnapshotDb.createEmpty(sourceDbPath, {
+      rootSubject: { name: "ElementAspectContiguousOwners" },
+    });
+    try {
+      await importAspectTestSchema(sourceDb);
+      const ownerIds = withEditTxn(
+        sourceDb,
+        "insert grouped aspect owners",
+        (txn) => {
+          const ids = [
+            Subject.insert(txn, IModel.rootSubjectId, "OwnerA"),
+            Subject.insert(txn, IModel.rootSubjectId, "OwnerB"),
+          ];
+          for (const id of ids) {
+            txn.insertAspect({
+              classFullName: "ExporterAspectTest:UniqueAspect",
+              element: new ElementOwnsUniqueAspect(id),
+            } as ElementAspectProps);
+            txn.insertAspect({
+              classFullName: "ExporterAspectTest:MultiAspectA",
+              element: new ElementOwnsMultiAspects(id),
+            } as ElementAspectProps);
+          }
+          return ids;
+        }
+      );
+
+      const events: Array<{ kind: "unique" | "multi"; ownerId: Id64String }> =
+        [];
+      class Handler extends IModelExportHandler {
+        public override async onExportElementUniqueAspect(
+          aspect: ElementUniqueAspect
+        ) {
+          if (aspect.classFullName === "ExporterAspectTest:UniqueAspect")
+            events.push({ kind: "unique", ownerId: aspect.element.id });
+        }
+
+        public override async onExportElementMultiAspects(
+          aspects: ElementMultiAspect[]
+        ) {
+          if (aspects[0]?.classFullName === "ExporterAspectTest:MultiAspectA")
+            events.push({ kind: "multi", ownerId: aspects[0].element.id });
+        }
+      }
+
+      const exporter = new IModelExporter(sourceDb);
+      exporter.registerHandler(new Handler());
+      await exporter.exportAll();
+
+      expect(events).to.have.lengthOf(4);
+      expect(events.map((event) => event.kind)).to.deep.equal([
+        "unique",
+        "multi",
+        "unique",
+        "multi",
+      ]);
+      expect(events[0].ownerId).to.equal(events[1].ownerId);
+      expect(events[2].ownerId).to.equal(events[3].ownerId);
+      expect(new Set(events.map((event) => event.ownerId))).to.deep.equal(
+        new Set(ownerIds)
+      );
+    } finally {
+      sourceDb.close();
+    }
+  });
+
   it("processes explicit aspect owner sets in bounded groups", async () => {
     const preparedOwnerBatchSizes: number[] = [];
     const exportedOwnerBatchSizes: number[] = [];
