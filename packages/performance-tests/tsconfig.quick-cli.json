@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": false,
+    "outDir": "./test/quick/runtime/.compiled",
+    "rootDir": "./test"
+  },
+  "include": ["./test/Cleanup.ts", "./test/quick/src/**/*.ts"]
+}
