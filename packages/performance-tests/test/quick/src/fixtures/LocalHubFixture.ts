@@ -10,12 +10,9 @@ import {
   BriefcaseDb,
   BriefcaseManager,
   EditTxn,
-  IModelHost,
   SnapshotDb,
 } from "@itwin/core-backend";
 import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
-// eslint-disable-next-line @itwin/no-internal
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 
 export interface ReconstructedSourceHub {
   readonly accessToken: AccessToken;
@@ -35,7 +32,7 @@ export async function createAndOpenIModel(
   iModelName: string,
   seedFileName: string
 ): Promise<{ db: BriefcaseDb; iModelId: string }> {
-  const iModelId = await IModelHost[_hubAccess].createNewIModel({
+  const iModelId = await HubMock.createNewIModel({
     accessToken,
     iTwinId,
     iModelName,
