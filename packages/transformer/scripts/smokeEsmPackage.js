@@ -90,10 +90,10 @@ try {
   writeFileSync(
     path.join(tempDirectory, "smoke.mjs"),
     `import assert from "node:assert/strict";
-import { IModelCloneContext, IModelTransformer } from "@itwin/imodel-transformer";
+import * as transformer from "@itwin/imodel-transformer";
 import transformerPackage from "@itwin/imodel-transformer/package.json" with { type: "json" };
-assert.equal(typeof IModelCloneContext, "function");
-assert.equal(typeof IModelTransformer, "function");
+assert.equal(typeof transformer.IModelTransformer, "function");
+assert.equal("IModelCloneContext" in transformer, false);
 assert.equal(transformerPackage.name, "@itwin/imodel-transformer");
 `
   );
@@ -101,6 +101,36 @@ assert.equal(transformerPackage.name, "@itwin/imodel-transformer");
     cwd: tempDirectory,
     stdio: "inherit",
   });
+
+  writeFileSync(
+    path.join(tempDirectory, "smoke.ts"),
+    `import {
+  IModelTransformer,
+  type IModelTransformContext,
+} from "@itwin/imodel-transformer";
+declare const transformer: IModelTransformer;
+const context: IModelTransformContext = transformer.context;
+void context;
+`
+  );
+  writeFileSync(
+    path.join(tempDirectory, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: {
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+        noEmit: true,
+        skipLibCheck: true,
+        strict: true,
+      },
+      files: ["smoke.ts"],
+    })
+  );
+  execFileSync(
+    process.execPath,
+    [workspaceRequire.resolve("typescript/lib/tsc.js"), "-p", "tsconfig.json"],
+    { cwd: tempDirectory, stdio: "inherit" }
+  );
 
   writeFileSync(
     path.join(tempDirectory, "smoke.cjs"),

@@ -6,7 +6,7 @@ export * from "./TransformerLoggerCategory.js";
 export * from "./IModelExporter.js";
 export * from "./IModelImporter.js";
 export * from "./IModelTransformer.js";
-export * from "./IModelCloneContext.js";
+export * from "./IModelTransformContext.js";
 export * from "./IModelTransformerError.js";
 export * from "./BranchProvenanceInitializer.js";
 

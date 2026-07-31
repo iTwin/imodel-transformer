@@ -14,17 +14,24 @@ const { IModelTransformer } = require("@itwin/imodel-transformer");
 import { IModelTransformer } from "@itwin/imodel-transformer";
 ```
 
-Relative imports in emitted Node ESM must include their `.js` extension. Imports from transformer implementation paths such as `@itwin/imodel-transformer/lib/cjs/*` must be replaced with documented package-root exports. In particular, import `IModelCloneContext` from the package root as described below.
+Relative imports in emitted Node ESM must include their `.js` extension. Imports from transformer implementation paths such as `@itwin/imodel-transformer/lib/cjs/*` must be removed. `IModelCloneContext` remains an implementation detail and is not exported from the package root.
 
 Known consumers such as `iTwin/imodel-transformations-service` must migrate their own runtime to ESM and remove transformer implementation imports before adopting this major version. Its obsolete ElementAspect strategy usage and redundant `BigMap` override must also be removed rather than replaced with new internal imports.
 
-## `IModelCloneContext` is exported from the package root
+## Breaking change: `IModelTransformer.context` exposes a supported transformation contract
 
-Consumers can now import `IModelCloneContext` from `@itwin/imodel-transformer` instead of relying on the internal `@itwin/imodel-transformer/lib/cjs/IModelCloneContext` path.
+`IModelTransformer.context` is now typed as `IModelTransformContext`. The interface supports target lookup, explicit mappings for elements, element aspects, element classes, and CodeSpecs, and SubCategory filtering. Cloning operations, source and target database access, native resource management, context persistence, and other `IModelCloneContext` implementation details are no longer accessible through the public property.
+
+Continue to obtain the context from an `IModelTransformer`:
 
 ```ts
-import { IModelCloneContext } from "@itwin/imodel-transformer";
+import type { IModelTransformContext } from "@itwin/imodel-transformer";
+
+const context: IModelTransformContext = transformer.context;
+const targetElementId = context.findTargetElementId(sourceElementId);
 ```
+
+Replace type-only deep imports of `IModelCloneContext` with `IModelTransformContext`. Tests should mock this interface instead of constructing or stubbing `IModelCloneContext` directly.
 
 ## Breaking change: transformer errors now have stable identifiers
 

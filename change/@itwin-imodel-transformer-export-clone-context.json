@@ -1,6 +1,6 @@
 {
-  "type": "minor",
-  "comment": "Export IModelCloneContext from the package root",
+  "type": "major",
+  "comment": "Expose supported transformation operations through IModelTransformContext and keep IModelCloneContext internal",
   "packageName": "@itwin/imodel-transformer",
   "email": "50554904+hl662@users.noreply.github.com",
   "dependentChangeType": "patch"

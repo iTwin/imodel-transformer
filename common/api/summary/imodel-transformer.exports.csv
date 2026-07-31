@@ -7,12 +7,12 @@ public;type;ExportChangesOptions
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult
 internal;function;hasEntityChanged
-beta;class;IModelCloneContext
 beta;class;IModelExporter
 beta;class;IModelExportHandler
 beta;class;IModelImporter
 beta;interface;IModelImportOptions
 beta;interface;IModelTransformArgs
+beta;interface;IModelTransformContext
 beta;class;IModelTransformer
 beta;enum;IModelTransformerError
 beta;const;IModelTransformerErrorScope

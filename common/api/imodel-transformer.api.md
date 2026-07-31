@@ -19,7 +19,7 @@ import { ElementProps } from '@itwin/core-common';
 import { ElementUniqueAspect } from '@itwin/core-backend';
 import { Entity } from '@itwin/core-backend';
 import { EntityProps } from '@itwin/core-common';
-import { EntityReference } from '@itwin/core-common';
+import type { EntityReference } from '@itwin/core-common';
 import { ExternalSourceAspect } from '@itwin/core-backend';
 import { ExternalSourceAspectProps } from '@itwin/core-common';
 import { FontFamilyDescriptor } from '@itwin/core-common';
@@ -30,7 +30,6 @@ import { Id64Array } from '@itwin/core-bentley';
 import { Id64Set } from '@itwin/core-bentley';
 import { Id64String } from '@itwin/core-bentley';
 import { IModelDb } from '@itwin/core-backend';
-import { IModelElementCloneContext } from '@itwin/core-backend';
 import { IModelJsNative } from '@itwin/core-backend';
 import { Model } from '@itwin/core-backend';
 import { ModelProps } from '@itwin/core-common';
@@ -136,19 +135,6 @@ export interface ExportSchemaResult {
 
 // @internal
 export function hasEntityChanged(entity: Entity, entityProps: EntityProps, namesToIgnore?: Set<string>): boolean;
-
-// @beta
-export class IModelCloneContext extends IModelElementCloneContext {
-    // @internal
-    cloneElement(sourceElement: Element_2, cloneOptions?: IModelJsNative.CloneElementOptions): Promise<ElementProps>;
-    // @internal
-    cloneElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps>;
-    findTargetAspectId(sourceAspectId: Id64String): Id64String;
-    findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference>;
-    initialize(): Promise<void>;
-    remapElementAspect(aspectSourceId: Id64String, aspectTargetId: Id64String): void;
-    removeElementAspect(aspectSourceId: Id64String): void;
-}
 
 // @beta
 export class IModelExporter {
@@ -273,6 +259,24 @@ export interface IModelTransformArgs {
 }
 
 // @beta
+export interface IModelTransformContext {
+    filterSubCategory(sourceSubCategoryId: Id64String): void;
+    findTargetAspectId(sourceAspectId: Id64String): Id64String;
+    findTargetCodeSpecId(sourceCodeSpecId: Id64String): Id64String;
+    findTargetElementId(sourceElementId: Id64String): Id64String;
+    findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference>;
+    readonly hasSubCategoryFilter: boolean;
+    readonly isBetweenIModels: boolean;
+    isSubCategoryFiltered(sourceSubCategoryId: Id64String): boolean;
+    remapCodeSpec(sourceCodeSpecName: string, targetCodeSpecName: string): void;
+    remapElement(sourceElementId: Id64String, targetElementId: Id64String): void;
+    remapElementAspect(sourceAspectId: Id64String, targetAspectId: Id64String): void;
+    remapElementClass(sourceClassFullName: string, targetClassFullName: string): void;
+    removeElement(sourceElementId: Id64String): void;
+    removeElementAspect(sourceAspectId: Id64String): void;
+}
+
+// @beta
 export class IModelTransformer extends IModelExportHandler {
     constructor(args: IModelTransformArgs, options?: IModelTransformOptions);
     protected addCustomChanges(_sourceDbChanges: ChangedInstanceIds): Promise<void>;
@@ -284,7 +288,7 @@ export class IModelTransformer extends IModelExportHandler {
     protected completePartiallyCommittedAspects(): Promise<void>;
     // (undocumented)
     protected completePartiallyCommittedElements(): Promise<void>;
-    readonly context: IModelCloneContext;
+    get context(): IModelTransformContext;
     // (undocumented)
     static convertHelmertToTransform(helmert: Helmert2DWithZOffset | undefined): Transform;
     dispose(): void;

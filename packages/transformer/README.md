@@ -12,8 +12,8 @@ The **@itwin/imodel-transformer** package contains classes that handle traversin
 
 ```ts
 import {
-  IModelCloneContext,
   IModelTransformer,
+  type IModelTransformContext,
 } from "@itwin/imodel-transformer";
 ```
 
