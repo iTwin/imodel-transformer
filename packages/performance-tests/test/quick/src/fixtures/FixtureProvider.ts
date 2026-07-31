@@ -18,7 +18,7 @@ interface PreparedDatasetBase {
   readonly reconstructionMilliseconds: number;
 }
 
-/** A live HubMock with an open source briefcase and an already-transformed-into target. */
+/** A live local test hub with an open source briefcase and an already-transformed-into target. */
 export interface PreparedLiveHubDataset extends PreparedDatasetBase {
   readonly topology: "source-and-empty-target";
   readonly hub: ReconstructedHub;

@@ -14,7 +14,7 @@ import {
 
 /**
  * A recipe produces the *change mix* for a fixture: it seeds the source iModel and then applies a
- * deterministic series of pushed changesets. It never touches HubMock; the fixture provider owns
+ * deterministic series of pushed changesets. It never touches the local test hub; the fixture provider owns
  * the hub lifecycle.
  *
  * `TArtifactData` is anything the recipe must tell the scenario that cannot be recovered from the

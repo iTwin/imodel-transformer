@@ -33,7 +33,7 @@ import { getFixtureRecipe } from "../FixtureRecipe.js";
 import {
   ReconstructedSourceHub,
   reconstructSourceHub,
-  shutdownHubMock,
+  stopQuickTestHub,
 } from "../LocalHubFixture.js";
 import { assertFixtureDistribution } from "../validation/validateFixture.js";
 
@@ -67,7 +67,7 @@ async function releaseBuildHub(
     errors.push(error);
   }
   try {
-    shutdownHubMock();
+    stopQuickTestHub();
   } catch (error) {
     errors.push(error);
   }

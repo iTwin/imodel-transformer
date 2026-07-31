@@ -5,7 +5,6 @@
 export * from "./AdvancedEqual";
 export * from "./IModelTestUtils";
 export * from "./KnownTestLocations";
-export * from "./TestChangeSetUtility";
 export * from "./imageData";
 export * from "./GeometryTestUtil";
 export * from "./SchemaTestUtils";

@@ -187,7 +187,7 @@ async function setupTestData(
   hostConfig.hubAccess = new BackendIModelsAccess(hubClient);
   await IModelHost.startup(hostConfig);
 
-  return preFetchAsyncIterator(getTestIModels(filterIModels));
+  return preFetchAsyncIterator(getTestIModels(hubClient, filterIModels));
 }
 
 async function collectRegressionInputs(workerLifecycle: WorkerLifecycle) {

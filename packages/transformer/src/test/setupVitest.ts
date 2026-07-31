@@ -8,13 +8,14 @@ import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { IModelHost, IModelHostOptions } from "@itwin/core-backend";
 import { Logger, LogLevel, ProcessDetector } from "@itwin/core-bentley";
 import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+import { transformerTestHub } from "./TestUtils/TransformerTestHub";
 // Register custom matchers before each test file loads.
 import "./TestUtils/AdvancedEqual";
 
 export async function startTransformerTestHost(): Promise<void> {
   Logger.initializeToConsole();
   Logger.setLevelDefault(LogLevel.Error);
-  const cfg: IModelHostOptions = {};
+  const cfg: IModelHostOptions = { hubAccess: transformerTestHub };
   if (ProcessDetector.isIOSAppBackend) {
     cfg.cacheDir = undefined; // Let the native side handle the cache.
   } else {
