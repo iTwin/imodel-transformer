@@ -19,9 +19,9 @@ import {
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
-import { HubWrappers, IModelTestUtils } from "./IModelTestUtils";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
+import { HubWrappers, IModelTestUtils } from "./IModelTestUtils.js";
 
 /** Test utility to push an iModel and ChangeSets */
 export class TestChangeSetUtility {

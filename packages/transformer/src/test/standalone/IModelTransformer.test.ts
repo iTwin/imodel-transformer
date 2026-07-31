@@ -60,10 +60,10 @@ import {
   Texture,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
+import coreBackendPkgJson from "@itwin/core-backend/package.json" with { type: "json" };
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 
-import * as TestUtils from "../TestUtils";
+import * as TestUtils from "../TestUtils/index.js";
 import {
   DbResult,
   Guid,
@@ -117,13 +117,13 @@ import {
   ChangedInstanceIds,
   IModelExporter,
   IModelExportHandler,
-} from "../../IModelExporter";
+} from "../../IModelExporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
-} from "../../IModelTransformer";
-import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
-import { IModelTransformerError } from "../../IModelTransformerError";
+} from "../../IModelTransformer.js";
+import { TransformerLoggerCategory } from "../../TransformerLoggerCategory.js";
+import { IModelTransformerError } from "../../IModelTransformerError.js";
 import {
   AspectTrackingImporter,
   AspectTrackingTransformer,
@@ -143,11 +143,11 @@ import {
   runWithCpuProfiler,
   TestIModelTransformer,
   TransformerExtensiveTestScenario,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
 
 import { SchemaLoader } from "@itwin/ecschema-metadata";
-import { SchemaTestUtils } from "../TestUtils";
+import { SchemaTestUtils } from "../TestUtils/index.js";
 
 describe("IModelTransformer", () => {
   const outputDir = path.join(

@@ -2,23 +2,21 @@
   "name": "@itwin/imodel-transformer",
   "version": "2.0.0-dev.35",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
-  "main": "lib/cjs/imodel-transformer.js",
-  "typings": "lib/cjs/imodel-transformer",
+  "main": "lib/imodel-transformer.js",
   "license": "MIT",
   "engines": {
     "node": "^22.12.0 || ^24.18.0"
   },
   "scripts": {
-    "build": "npm run -s typecheck && npm run -s build:cjs && npm run -s extract-api",
-    "build:cjs": "tsc -p tsconfig.build.json 1>&2 --outDir lib/cjs",
-    "clean": "rimraf lib",
+    "build": "npm run -s typecheck && npm run -s build:esm && npm run -s extract-api",
+    "clean": "rimraf lib tsconfig.build.tsbuildinfo",
     "docs": "npm run -s docs:extract && npm run -s docs:reference && npm run -s docs:changelog",
     "docs:changelog": "node scripts/copyChangelog.js",
     "# env var is workaround, need to contribute a better rush-less root-package.json detector to betools": "",
     "docs:reference": "cross-env RUSHSTACK_FILE_ERROR_BASE_FOLDER='../..' betools docs --includes=../../build/docs/extract --json=../../build/docs/reference/imodel-transformer/file.json --tsIndexFile=imodel-transformer.ts --onlyJson",
     "docs:extract": "betools extract --fileExt=ts --extractFrom=./src/test --recursive --out=../../build/docs/extract",
     "cover": "vitest run --coverage",
-    "extract-api": "betools extract-api --entry=imodel-transformer --apiReportFolder=../../common/api --apiReportTempFolder=../../common/api/temp --apiSummaryFolder=../../common/api/summary",
+    "extract-api": "betools extract-api --entry=lib/imodel-transformer --apiReportFolder=../../common/api --apiReportTempFolder=../../common/api/temp --apiSummaryFolder=../../common/api/summary",
     "lint": "eslint -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
     "lint:no-tests": "eslint -f visualstudio --quiet \"./src/*.ts\" 1>&2",
     "lint:fix": "eslint --fix -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
@@ -26,7 +24,9 @@
     "lint:with-warnings": "eslint -f visualstudio \"./src/**/*.ts\" 1>&2",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit --incremental false 1>&2",
-    "no-internal-report": "no-internal-report src/**/*.ts"
+    "no-internal-report": "no-internal-report src/**/*.ts",
+    "build:esm": "tsc -p tsconfig.build.json 1>&2 --outDir lib",
+    "test:package": "node scripts/smokeEsmPackage.js"
   },
   "repository": {
     "type": "git",
@@ -91,5 +91,14 @@
   },
   "dependencies": {
     "semver": "^7.7.2"
+  },
+  "type": "module",
+  "types": "lib/imodel-transformer.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/imodel-transformer.d.ts",
+      "import": "./lib/imodel-transformer.js"
+    },
+    "./package.json": "./package.json"
   }
 }

@@ -1,5 +1,23 @@
 # Next release notes
 
+## Breaking change: the package is now ESM-only
+
+`@itwin/imodel-transformer` now publishes native ECMAScript modules only. The CommonJS build under `lib/cjs`, `require("@itwin/imodel-transformer")`, and internal deep imports are no longer supported.
+
+Applications must run as ESM, for example by setting `"type": "module"` in `package.json`, and TypeScript applications should use `"module": "NodeNext"` and `"moduleResolution": "NodeNext"`. Replace CommonJS loading with a package-root import:
+
+```ts
+// Before
+const { IModelTransformer } = require("@itwin/imodel-transformer");
+
+// After
+import { IModelTransformer } from "@itwin/imodel-transformer";
+```
+
+Relative imports in emitted Node ESM must include their `.js` extension. Imports from transformer implementation paths such as `@itwin/imodel-transformer/lib/cjs/*` must be replaced with documented package-root exports. In particular, import `IModelCloneContext` from the package root as described below.
+
+Known consumers such as `iTwin/imodel-transformations-service` must migrate their own runtime to ESM and remove transformer implementation imports before adopting this major version. Its obsolete ElementAspect strategy usage and redundant `BigMap` override must also be removed rather than replaced with new internal imports.
+
 ## `IModelCloneContext` is exported from the package root
 
 Consumers can now import `IModelCloneContext` from `@itwin/imodel-transformer` instead of relying on the internal `@itwin/imodel-transformer/lib/cjs/IModelCloneContext` path.

@@ -2,17 +2,21 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
+import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { StandaloneDb } from "@itwin/core-backend";
-import { TestCaseContext } from "./TestCaseContext";
-import { initOutputFile, timed } from "../TestUtils";
-import { setToStandalone } from "../iModelUtils";
+import { TestCaseContext } from "./TestCaseContext.js";
+import { initOutputFile, timed } from "../TestUtils.js";
+import { setToStandalone } from "../iModelUtils.js";
 
 const loggerCategory = "Transformer Performance Tests Prepare Fork";
-const outputDir = path.join(__dirname, ".output");
+const outputDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".output"
+);
 
 export default async function prepareFork(context: TestCaseContext) {
   const { sourceDb, transformerModule, addReport } = context;

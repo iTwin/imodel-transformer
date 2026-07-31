@@ -9,13 +9,13 @@ import {
   RequestNewBriefcaseArg,
 } from "@itwin/core-backend";
 // eslint-disable-next-line @itwin/no-internal
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 import { Logger } from "@itwin/core-bentley";
 import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { AccessTokenAdapter } from "@itwin/imodels-access-common";
 import assert from "node:assert";
-import { generateTestIModel } from "./iModelUtils";
+import { generateTestIModel } from "./iModelUtils.js";
 
 const loggerCategory = "TestContext";
 

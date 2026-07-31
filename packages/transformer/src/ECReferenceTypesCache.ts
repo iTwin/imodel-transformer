@@ -20,11 +20,11 @@ import {
 } from "@itwin/ecschema-metadata";
 import { strict as assert } from "node:assert";
 import { IModelDb } from "@itwin/core-backend";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "./IModelTransformerError.js";
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
  * @internal

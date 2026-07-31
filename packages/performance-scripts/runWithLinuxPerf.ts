@@ -8,7 +8,7 @@ To use this the 'linux-perf' PROFILE_TYPE, you must include the
 "--perf-prof" (OR "--perf-basic-prof") and "--interpreted-frames-native-stack" arguments
 in the NODE_OPTIONS environment variable (order doesn't matter), for example:
 
-NODE_OPTIONS='--perf-prof --interpreted-frames-native-stack --require performance-scripts'
+NODE_OPTIONS='--perf-prof --interpreted-frames-native-stack --import @bentley/hook-profiler'
 PROFILE_TYPE='linux-perf'
 
 You may also provide the following variables:

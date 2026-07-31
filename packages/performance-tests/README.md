@@ -69,7 +69,7 @@ pnpm install
 Build the CommonJS transformer package before running quick commands:
 
 ```sh
-pnpm --dir packages/transformer build:cjs
+pnpm --dir packages/transformer build:esm
 ```
 
 Then run commands from `packages/performance-tests`:

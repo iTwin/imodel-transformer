@@ -14,7 +14,7 @@ import {
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 import {
   ChangesetIdWithIndex,
   Code,
@@ -28,13 +28,13 @@ import { Point3d, YawPitchRollAngles } from "@itwin/core-geometry";
 import {
   IModelTransformer,
   IModelTransformOptions,
-} from "../../IModelTransformer";
+} from "../../IModelTransformer.js";
 import {
   createStartedEditTxn,
   HubWrappers,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
-import { IModelTestUtils } from "./IModelTestUtils";
+} from "../IModelTransformerUtils.js";
+import { IModelTestUtils } from "./IModelTestUtils.js";
 import { omit } from "@itwin/core-bentley";
 
 const saveAndPushChanges = async (

@@ -8,9 +8,7 @@ module.exports = {
   bumpDeps: false,
   access: "public",
   tag: "latest",
-  scope: [
-    "packages/**"
-  ],
+  scope: ["packages/**"],
   ignorePatterns: [
     ".nycrc",
     ".eslintrc.json",

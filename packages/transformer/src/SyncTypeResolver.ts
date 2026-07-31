@@ -9,13 +9,13 @@ import {
   IModelDb,
 } from "@itwin/core-backend";
 import { IModel } from "@itwin/core-common";
-import type { TargetScopeProvenanceJsonProps } from "./IModelTransformer";
-import type { IModelCloneContext } from "./IModelCloneContext";
-import { ProvenanceManager } from "./ProvenanceManager";
+import type { TargetScopeProvenanceJsonProps } from "./IModelTransformer.js";
+import type { IModelCloneContext } from "./IModelCloneContext.js";
+import { ProvenanceManager } from "./ProvenanceManager.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "./IModelTransformerError.js";
 
 /** @internal */
 export type SyncType = "not-sync" | "forward" | "reverse";

@@ -16,7 +16,7 @@ import {
   IModelHost,
   RequestNewBriefcaseArg,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 import {
   BriefcaseIdValue,
   ChangesetId,
@@ -28,7 +28,7 @@ import {
   AzureClientStorage,
   BlockBlobClientWrapperFactory,
 } from "@itwin/object-storage-azure";
-import { loggerCategory } from "./Transformer";
+import { loggerCategory } from "./Transformer.js";
 
 export class IModelTransformerTestAppHost {
   public static iModelClient?: IModelsClient;

@@ -14,12 +14,12 @@ import {
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
 import { IModel } from "@itwin/core-common";
 import { GuidString, Logger } from "@itwin/core-bentley";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { IModelImporter } from "../../IModelImporter";
-import { createStartedEditTxn } from "../IModelTransformerUtils";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
+import { IModelImporter } from "../../IModelImporter.js";
+import { createStartedEditTxn } from "../IModelTransformerUtils.js";
 
 /**
  * This test reproduces the issue described in:

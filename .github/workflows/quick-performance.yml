@@ -42,7 +42,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build transformer
-        run: pnpm --dir packages/transformer build:cjs
+        run: pnpm --dir packages/transformer build:esm
 
       - name: Validate quick harness
         run: |

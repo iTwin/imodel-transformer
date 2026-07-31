@@ -2,28 +2,30 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-export * from "./TransformerLoggerCategory";
-export * from "./IModelExporter";
-export * from "./IModelImporter";
-export * from "./IModelTransformer";
-export * from "./IModelCloneContext";
-export * from "./IModelTransformerError";
-export * from "./BranchProvenanceInitializer";
+export * from "./TransformerLoggerCategory.js";
+export * from "./IModelExporter.js";
+export * from "./IModelImporter.js";
+export * from "./IModelTransformer.js";
+export * from "./IModelCloneContext.js";
+export * from "./IModelTransformerError.js";
+export * from "./BranchProvenanceInitializer.js";
 
+import * as https from "node:https";
 import * as semver from "semver";
 import { ITwinError } from "@itwin/core-bentley";
-import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
+import coreBackendPackage from "@itwin/core-backend/package.json" with { type: "json" };
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
-import { transformerPackageMetadata } from "./TransformerPackageMetadata";
+} from "./IModelTransformerError.js";
+import { transformerPackageMetadata } from "./TransformerPackageMetadata.js";
 
 const {
   version: ourVersion,
   name: ourName,
   peerDependencies,
 } = transformerPackageMetadata;
+const iTwinCoreBackendVersion = coreBackendPackage.version;
 
 const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
 
@@ -52,9 +54,6 @@ if (
     `If you know exactly what you are doing, you can disable this check by setting ${noStrictDepCheckEnvVar}=1 in the environment\n`;
 
   if (process.env[suggestEnvVarName]) {
-    // let's not import https except in this case
-    // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-    const https = require("node:https") as typeof import("node:https");
     https.get(`https://registry.npmjs.org/${ourName}`, async (resp) => {
       const chunks: string[] = [];
       const packumentSrc = await new Promise<string>((r) =>

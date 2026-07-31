@@ -144,15 +144,15 @@ import {
   V2CheckpointManager,
   ViewDefinition,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 import {
   DownloadAndOpenArgs,
   RpcBriefcaseUtility,
-} from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility";
-import { KnownTestLocations } from "./KnownTestLocations";
-import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
-import { TimelineIModelState } from "./TimelineTestUtil";
+} from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility.js";
+import { KnownTestLocations } from "./KnownTestLocations.js";
+import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer.js";
+import { TimelineIModelState } from "./TimelineTestUtil.js";
 
 /* eslint-disable @typescript-eslint/explicit-member-accessibility */
 

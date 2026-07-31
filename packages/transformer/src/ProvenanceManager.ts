@@ -25,17 +25,17 @@ import {
   IModel,
   QueryBinder,
 } from "@itwin/core-common";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
 import type {
   IModelTransformOptions,
   TargetScopeProvenanceJsonProps,
-} from "./IModelTransformer";
-import type { SyncTypeResolver } from "./SyncTypeResolver";
-import type { IModelCloneContext } from "./IModelCloneContext";
+} from "./IModelTransformer.js";
+import type { SyncTypeResolver } from "./SyncTypeResolver.js";
+import type { IModelCloneContext } from "./IModelCloneContext.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "./IModelTransformerError.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 

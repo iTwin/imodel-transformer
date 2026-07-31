@@ -14,6 +14,7 @@
  * - Identifying performance regressions
  */
 
+import { fileURLToPath } from "node:url";
 import { assert } from "vitest";
 import {
   Code,
@@ -40,12 +41,12 @@ import {
   StandaloneDb,
   withEditTxn,
 } from "@itwin/core-backend";
-import * as coreBackendPkgJson from "@itwin/core-backend/package.json";
-import { IModelTransformer } from "../../IModelTransformer";
+import coreBackendPkgJson from "@itwin/core-backend/package.json" with { type: "json" };
+import { IModelTransformer } from "../../IModelTransformer.js";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+} from "../IModelTransformerUtils.js";
 
 import * as path from "node:path";
 
@@ -54,7 +55,10 @@ const coreBackendVersion = coreBackendPkgJson.version;
 const NUM_ELEMENTS = 10000;
 
 function initOutputFile(filename: string): string {
-  const outputDirName = path.join(__dirname, "output");
+  const outputDirName = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "output"
+  );
   if (!IModelJsFs.existsSync(outputDirName)) {
     IModelJsFs.mkdirSync(outputDirName);
   }
@@ -324,7 +328,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
       // Stop CPU profiling and save
       // const { profile: schemaProfile } = await schemaSession.post("Profiler.stop");
-      // const schemaProfilePath = path.join(__dirname, "output", `10kElemProcessSchemas${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
+      // const schemaProfilePath = path.join(path.dirname(fileURLToPath(import.meta.url)), "output", `10kElemProcessSchemas${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
       // fs.writeFileSync(schemaProfilePath, JSON.stringify(schemaProfile));
       // console.log(`Schema CPU profile saved to: ${schemaProfilePath}`);
       // schemaSession.disconnect();
@@ -345,7 +349,7 @@ describe.skip("IModelTransformer Performance Tests", () => {
 
       // // Stop CPU profiling and save
       // const { profile } = await session.post("Profiler.stop");
-      // const profilePath = path.join(__dirname, "output", `10kElemTransform${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
+      // const profilePath = path.join(path.dirname(fileURLToPath(import.meta.url)), "output", `10kElemTransform${coreTransformerVersion}-${coreBackendVersion}.cpuprofile`);
       // fs.writeFileSync(profilePath, JSON.stringify(profile));
       // console.log(`CPU profile saved to: ${profilePath}`);
       // session.disconnect();

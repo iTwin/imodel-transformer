@@ -61,8 +61,8 @@ import {
   ViewDefinition2d,
   withEditTxn,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
-import * as TestUtils from "./TestUtils";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
+import * as TestUtils from "./TestUtils/index.js";
 import {
   Base64EncodedString,
   BisCodeSpec,
@@ -92,19 +92,19 @@ import {
   SubjectProps,
   ViewDetails3dProps,
 } from "@itwin/core-common";
-import { IModelExporter, IModelExportHandler } from "../IModelExporter";
-import { IModelImporter, IModelImportOptions } from "../IModelImporter";
+import { IModelExporter, IModelExportHandler } from "../IModelExporter.js";
+import { IModelImporter, IModelImportOptions } from "../IModelImporter.js";
 import {
   IModelTransformer,
   IModelTransformOptions,
   ProcessChangesOptions,
   RelationshipPropsForDelete,
-} from "../IModelTransformer";
+} from "../IModelTransformer.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../IModelTransformerError";
-import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+} from "../IModelTransformerError.js";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations.js";
 
 /** Creates an EditTxn for the given db and starts it. */
 // __PUBLISH_EXTRACT_START__ EditTxnInTransformer.create-started-edit-txn

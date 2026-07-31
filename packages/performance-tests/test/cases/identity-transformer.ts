@@ -6,16 +6,20 @@
  * Tests where we perform "identity" transforms, that is just rebuilding an entire identical iModel (minus IDs)
  * through the transformation process.
  */
+import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Logger, StopWatch } from "@itwin/core-bentley";
 import { SnapshotDb } from "@itwin/core-backend";
-import { TestCaseContext } from "./TestCaseContext";
-import { initOutputFile, timed } from "../TestUtils";
+import { TestCaseContext } from "./TestCaseContext.js";
+import { initOutputFile, timed } from "../TestUtils.js";
 
 const loggerCategory = "Transformer Performance Tests Identity";
-const outputDir = path.join(__dirname, ".output");
+const outputDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".output"
+);
 
 export default async function identityTransformer(context: TestCaseContext) {
   const { sourceDb, transformerModule, addReport } = context;

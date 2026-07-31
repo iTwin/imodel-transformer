@@ -10,7 +10,6 @@ import {
 } from "@itwin/core-common";
 import {
   EditTxn,
-  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ExternalSource,
   ExternalSourceIsInRepository,
@@ -20,11 +19,12 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
+import transformerPackage from "@itwin/imodel-transformer/package.json" with { type: "json" };
 import { Logger } from "@itwin/core-bentley";
 import {
   TestTransformerModule,
   TransformRunner,
-} from "../TestTransformerModule";
+} from "../TestTransformerModule.js";
 
 const loggerCategory = "Transformer Performance Tests Identity";
 
@@ -95,9 +95,7 @@ const nativeTransformerTestModule: TestTransformerModule = {
           code: Code.createEmpty(),
           repository: new ExternalSourceIsInRepository(masterLinkRepoId),
           connectorName: "iModel Transformer",
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          connectorVersion: require("@itwin/imodel-transformer/package.json")
-            .version,
+          connectorVersion: transformerPackage.version,
         } as ExternalSourceProps);
 
         return { masterExternalSourceId: extSourceId };

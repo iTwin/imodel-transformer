@@ -4,7 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it, vi } from "vitest";
-import { runCleanupTasks, runWithCleanup, throwAfterCleanup } from "../Cleanup";
+import {
+  runCleanupTasks,
+  runWithCleanup,
+  throwAfterCleanup,
+} from "../Cleanup.js";
 
 describe("cleanup", () => {
   it("runs every cleanup task when one fails", async () => {

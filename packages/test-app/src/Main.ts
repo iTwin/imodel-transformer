@@ -3,9 +3,10 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import * as Yargs from "yargs";
+import Yargs from "yargs";
 import { assert, Guid, Logger, LogLevel } from "@itwin/core-bentley";
 import { ProjectsAccessClient } from "@itwin/projects-client";
 import {
@@ -16,7 +17,7 @@ import {
   SnapshotDb,
   StandaloneDb,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
 import {
   BriefcaseIdValue,
   ChangesetId,
@@ -25,14 +26,21 @@ import {
 } from "@itwin/core-common";
 import { TransformerLoggerCategory } from "@itwin/imodel-transformer";
 import { NamedVersion } from "@itwin/imodels-client-management";
-import { ElementUtils } from "./ElementUtils";
-import { IModelHubUtils, IModelTransformerTestAppHost } from "./IModelHubUtils";
+import { ElementUtils } from "./ElementUtils.js";
+import {
+  IModelHubUtils,
+  IModelTransformerTestAppHost,
+} from "./IModelHubUtils.js";
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-import { loggerCategory, Transformer, TransformerOptions } from "./Transformer";
-import * as dotenv from "dotenv";
-import * as dotenvExpand from "dotenv-expand";
+import {
+  loggerCategory,
+  Transformer,
+  TransformerOptions,
+} from "./Transformer.js";
+import dotenv from "dotenv";
+import dotenvExpand from "dotenv-expand";
 
-import "source-map-support/register";
+import "source-map-support/register.js";
 
 const acquireAccessToken = async () =>
   IModelTransformerTestAppHost.acquireAccessToken();
@@ -42,7 +50,10 @@ void (async () => {
   let sourceDb: IModelDb | undefined;
   try {
     const envResult = dotenv.config({
-      path: path.resolve(__dirname, "../.env"),
+      path: path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../.env"
+      ),
     });
     if (!envResult.error) {
       dotenvExpand(envResult);

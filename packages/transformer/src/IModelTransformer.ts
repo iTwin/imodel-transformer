@@ -96,23 +96,23 @@ import {
   ExportSchemaResult,
   IModelExporter,
   IModelExportHandler,
-} from "./IModelExporter";
-import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
-import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { IModelCloneContext } from "./IModelCloneContext";
-import { EntityUnifier } from "./EntityUnifier";
-import { rangesFromRangeAndSkipped } from "./Algo";
-import { SyncTypeResolver } from "./SyncTypeResolver";
-import { ProvenanceManager } from "./ProvenanceManager";
+} from "./IModelExporter.js";
+import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter.js";
+import { TransformerLoggerCategory } from "./TransformerLoggerCategory.js";
+import { IModelCloneContext } from "./IModelCloneContext.js";
+import { EntityUnifier } from "./EntityUnifier.js";
+import { rangesFromRangeAndSkipped } from "./Algo.js";
+import { SyncTypeResolver } from "./SyncTypeResolver.js";
+import { ProvenanceManager } from "./ProvenanceManager.js";
 import {
   ChangesetDeletionRecord,
   ChangesetDeletionRecordsByChangeset,
   ChangesetScanner,
-} from "./ChangesetScanner";
+} from "./ChangesetScanner.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "./IModelTransformerError.js";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelTransformer;
 

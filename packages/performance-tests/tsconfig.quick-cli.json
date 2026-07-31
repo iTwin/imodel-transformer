@@ -4,8 +4,8 @@
     "incremental": false,
     "declaration": false,
     "declarationMap": false,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "noEmit": false,
     "outDir": "./test/quick/runtime/.compiled",
     "rootDir": "./test"

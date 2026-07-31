@@ -4,11 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ITwinError } from "@itwin/core-bentley";
-import { IModelTransformer } from "../../IModelTransformer";
+import { IModelTransformer } from "../../IModelTransformer.js";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "../../IModelTransformerError";
+} from "../../IModelTransformerError.js";
 
 // __PUBLISH_EXTRACT_START__ ErrorHandling.handle-identified-error
 async function processWithErrorHandling(

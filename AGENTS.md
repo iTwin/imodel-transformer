@@ -18,7 +18,7 @@ Guidance for AI agents working in `iTwin/imodel-transformer`. Read `packages/tra
 - `extract-api` regenerates `common/api/*`. Never edit those files manually. Commit regenerated reports when a public API changes.
 - `src/test/setupVitest.ts` starts and stops `IModelHost` and registers custom assertions for each test file. Tests run in a bounded pool of forked workers with worker-local output directories.
 - `HubMock` comes from `@itwin/core-backend` internals.
-- In `packages/performance-tests`, `pnpm test` runs the credential-dependent weekly suite, `pnpm exec vitest run test/unit` runs its infrastructure tests, `pnpm test:quick-harness` validates the credential-free quick harness, and `pnpm test:quick` runs the quick benchmark. Build `packages/transformer` with `pnpm build:cjs` before running quick commands.
+- In `packages/performance-tests`, `pnpm test` runs the credential-dependent weekly suite, `pnpm exec vitest run test/unit` runs its infrastructure tests, `pnpm test:quick-harness` validates the credential-free quick harness, and `pnpm test:quick` runs the quick benchmark. Build `packages/transformer` with `pnpm build:esm` before running quick commands.
 
 ### Edit transactions
 

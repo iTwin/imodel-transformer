@@ -21,13 +21,13 @@ import {
   IModel,
 } from "@itwin/core-common";
 import { Id64String } from "@itwin/core-bentley";
-import { IModelImporter } from "../../IModelImporter";
-import { IModelTransformerError } from "../../IModelTransformerError";
+import { IModelImporter } from "../../IModelImporter.js";
+import { IModelTransformerError } from "../../IModelTransformerError.js";
 import {
   createStartedEditTxn,
   expectTransformerError,
   IModelTransformerTestUtils,
-} from "../IModelTransformerUtils";
+} from "../IModelTransformerUtils.js";
 
 describe("IModelImporter", () => {
   it("deleteElement skips elements in doNotUpdateElementIds (no-op guard)", async () => {

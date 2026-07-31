@@ -9,7 +9,7 @@ import { IModelDb } from "@itwin/core-backend";
 import { DbResult, StopWatch } from "@itwin/core-bentley";
 import { GeometryStreamBuilder, GeometryStreamProps } from "@itwin/core-common";
 import { Box, Point3d, Vector3d } from "@itwin/core-geometry";
-import { TestIModel } from "./TestContext";
+import { TestIModel } from "./TestContext.js";
 
 export function initOutputFile(fileBaseName: string, outputDir: string) {
   if (!fs.existsSync(outputDir)) {

@@ -48,9 +48,9 @@ import {
   SubjectOwnsSubjects,
   withEditTxn,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
-import * as TestUtils from "../TestUtils";
+import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
+import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
+import * as TestUtils from "../TestUtils/index.js";
 import {
   AccessToken,
   DbResult,
@@ -91,8 +91,8 @@ import {
   IModelTransformOptions,
   ProcessChangesOptions,
   TransformerLoggerCategory,
-} from "../../imodel-transformer";
-import { ProvenanceManager } from "../../ProvenanceManager";
+} from "../../imodel-transformer.js";
+import { ProvenanceManager } from "../../ProvenanceManager.js";
 import {
   assertTransformerError,
   CountingIModelImporter,
@@ -104,9 +104,9 @@ import {
   PhysicalModelConsolidator,
   TestIModelTransformer,
   TransformerExtensiveTestScenario as TransformerExtensiveTestScenario,
-} from "../IModelTransformerUtils";
-import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
+} from "../IModelTransformerUtils.js";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations.js";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
 
 import {
   assertElemState,
@@ -116,7 +116,7 @@ import {
   Timeline,
   TimelineIModelElemState,
   TimelineIModelState,
-} from "../TestUtils/TimelineTestUtil";
+} from "../TestUtils/TimelineTestUtil.js";
 
 const { count } = IModelTestUtils;
 const countElementExternalSourceAspects = (

@@ -7,9 +7,9 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { IModelHost, IModelHostOptions } from "@itwin/core-backend";
 import { Logger, LogLevel, ProcessDetector } from "@itwin/core-bentley";
-import { KnownTestLocations } from "./TestUtils/KnownTestLocations";
+import { KnownTestLocations } from "./TestUtils/KnownTestLocations.js";
 // Register custom matchers before each test file loads.
-import "./TestUtils/AdvancedEqual";
+import "./TestUtils/AdvancedEqual.js";
 
 export async function startTransformerTestHost(): Promise<void> {
   Logger.initializeToConsole();

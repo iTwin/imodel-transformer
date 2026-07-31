@@ -4,7 +4,20 @@ Copyright © Bentley Systems, Incorporated. All rights reserved. See LICENSE.md 
 
 ## Description
 
-The __@itwin/imodel-transformer__ package contains classes that handle traversing iModels for exporting and importing their parts.
+The **@itwin/imodel-transformer** package contains classes that handle traversing iModels for exporting and importing their parts.
+
+## Module format
+
+`@itwin/imodel-transformer` is an ESM-only package. Import its public API from the package root:
+
+```ts
+import {
+  IModelCloneContext,
+  IModelTransformer,
+} from "@itwin/imodel-transformer";
+```
+
+CommonJS `require()` and implementation paths such as `@itwin/imodel-transformer/lib/cjs/*` are not supported. Node applications must run as ESM, and TypeScript applications should use `module` and `moduleResolution` set to `NodeNext`.
 
 ## Documentation
 
@@ -48,3 +61,4 @@ TRANSFORMER_NO_STRICT_DEP_CHECK=1
 
 # Enable version suggestions in transformer.ts
 SUGGEST_TRANSFORMER_VERSIONS=1
+```
