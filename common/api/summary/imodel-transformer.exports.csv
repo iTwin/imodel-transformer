@@ -7,6 +7,7 @@ public;type;ExportChangesOptions
 beta;type;ExporterInitOptions
 beta;interface;ExportSchemaResult
 internal;function;hasEntityChanged
+beta;class;IModelCloneContext
 beta;class;IModelExporter
 beta;class;IModelExportHandler
 beta;class;IModelImporter

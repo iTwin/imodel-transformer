@@ -1,5 +1,13 @@
 # Next release notes
 
+## `IModelCloneContext` is exported from the package root
+
+Consumers can now import `IModelCloneContext` from `@itwin/imodel-transformer` instead of relying on the internal `@itwin/imodel-transformer/lib/cjs/IModelCloneContext` path.
+
+```ts
+import { IModelCloneContext } from "@itwin/imodel-transformer";
+```
+
 ## Breaking change: transformer errors now have stable identifiers
 
 Errors detected and owned by `@itwin/imodel-transformer` now use `ITwinError` with scope `@itwin/imodel-transformer` and a key from `IModelTransformerError`. These errors previously used a mix of `IModelError` and plain `Error`.

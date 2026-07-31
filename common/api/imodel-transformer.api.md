@@ -138,6 +138,19 @@ export interface ExportSchemaResult {
 export function hasEntityChanged(entity: Entity, entityProps: EntityProps, namesToIgnore?: Set<string>): boolean;
 
 // @beta
+export class IModelCloneContext extends IModelElementCloneContext {
+    // @internal
+    cloneElement(sourceElement: Element_2, cloneOptions?: IModelJsNative.CloneElementOptions): Promise<ElementProps>;
+    // @internal
+    cloneElementAspect(sourceElementAspect: ElementAspect): Promise<ElementAspectProps>;
+    findTargetAspectId(sourceAspectId: Id64String): Id64String;
+    findTargetEntityId(sourceEntityId: EntityReference): Promise<EntityReference>;
+    initialize(): Promise<void>;
+    remapElementAspect(aspectSourceId: Id64String, aspectTargetId: Id64String): void;
+    removeElementAspect(aspectSourceId: Id64String): void;
+}
+
+// @beta
 export class IModelExporter {
     constructor(sourceDb: IModelDb);
     // @internal
