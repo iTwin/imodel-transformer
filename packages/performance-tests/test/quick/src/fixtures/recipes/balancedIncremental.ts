@@ -28,7 +28,12 @@ import {
   Range3d,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { FixtureDescriptor } from "../FixtureDescriptor.js";
+import {
+  configureFixture,
+  defineFixtureRecipe,
+  FixtureRecipeContext,
+} from "../FixtureRecipe.js";
+import { FixtureDistribution } from "../FixtureDescriptor.js";
 import { quickPath } from "../../support/paths.js";
 
 const uniqueAspectClass = "QuickPerf:BalancedUniqueAspect";
@@ -37,13 +42,43 @@ const elementsPerUnit = 240;
 const relationshipsPerUnit = 120;
 const insertedElementsPerUnit = 24;
 
-function fixtureScale(descriptor: FixtureDescriptor): number {
-  const scale = descriptor.distribution.base.elements / elementsPerUnit;
-  if (!Number.isInteger(scale) || scale < 1)
-    throw new Error(
-      `Balanced fixture elements must be a positive multiple of ${elementsPerUnit}`
-    );
-  return scale;
+export interface BalancedIncrementalParameters {
+  readonly scale: number;
+}
+
+function balancedDistribution(
+  parameters: Readonly<BalancedIncrementalParameters>
+): FixtureDistribution {
+  if (!Number.isInteger(parameters.scale) || parameters.scale < 1)
+    throw new Error("Balanced fixture scale must be a positive integer");
+  const { scale } = parameters;
+  return {
+    base: {
+      aspects: 480 * scale,
+      elements: elementsPerUnit * scale,
+      geometricElements: 120 * scale,
+      relationships: relationshipsPerUnit * scale,
+    },
+    operations: {
+      elements: {
+        inserts: insertedElementsPerUnit * scale,
+        updates: 24 * scale,
+        deletes: 24 * scale,
+      },
+      aspects: {
+        inserts: 24 * scale,
+        updates: 24 * scale,
+        deletes: 48 * scale,
+      },
+      relationships: {
+        inserts: 12 * scale,
+        updates: 12 * scale,
+        deletes: 33 * scale,
+      },
+      geometryUpdates: 6 * scale,
+      sourceChangesets: 8,
+    },
+  };
 }
 
 export function createBoxGeometry(length = 1) {
@@ -120,15 +155,14 @@ function insertAspects(
 
 export async function createBalancedSeed(
   fileName: string,
-  descriptor: FixtureDescriptor
+  context: FixtureRecipeContext<BalancedIncrementalParameters>
 ): Promise<BalancedRecipeState> {
+  const { descriptor, parameters, schemaFiles } = context;
   const db = SnapshotDb.createEmpty(fileName, {
     rootSubject: { name: descriptor.id },
   });
   try {
-    await db.importSchemas([
-      quickPath("assets", "schemas", "QuickPerf.ecschema.xml"),
-    ]);
+    await db.importSchemas([...schemaFiles]);
 
     const { categoryIds, modelIds } = withEditTxn(
       db,
@@ -161,8 +195,7 @@ export async function createBalancedSeed(
             categoryIds[index % categoryIds.length],
             index,
             index % elementsPerUnit <
-              descriptor.distribution.base.geometricElements /
-                fixtureScale(descriptor)
+              descriptor.distribution.base.geometricElements / parameters.scale
           )
         )
       );
@@ -203,10 +236,11 @@ async function push(db: BriefcaseDb, accessToken: string, description: string) {
 export async function applyBalancedChangesets(
   db: BriefcaseDb,
   accessToken: string,
-  descriptor: FixtureDescriptor,
+  context: FixtureRecipeContext<BalancedIncrementalParameters>,
   state: BalancedRecipeState
 ): Promise<void> {
-  const scale = fixtureScale(descriptor);
+  const { descriptor, parameters } = context;
+  const { scale } = parameters;
   const insertedIds: Id64String[] = Array.from({
     length: descriptor.distribution.operations.elements.inserts,
   });
@@ -330,3 +364,63 @@ export async function applyBalancedChangesets(
   });
   await push(db, accessToken, "quick delta 8: element/aspect cascade deletes");
 }
+
+const scenarioClaims = [
+  "incremental synchronization",
+  "aspect lifecycle",
+  "relationship lifecycle",
+  "mixed scalar and geometry element changes",
+] as const;
+const balancedParameters: BalancedIncrementalParameters = { scale: 25 };
+
+export const balancedIncrementalRecipe = defineFixtureRecipe({
+  id: "balanced-incremental",
+  identity: {
+    implementationFiles: [
+      quickPath("src", "fixtures", "recipes", "balancedIncremental.ts"),
+      quickPath("src", "fixtures", "validation", "validateFixture.ts"),
+    ],
+    schemaFiles: [quickPath("assets", "schemas", "QuickPerf.ecschema.xml")],
+    values: { schema: "QuickPerf.01.00.00" },
+  },
+  distribution: balancedDistribution,
+  createSeed: createBalancedSeed,
+  applySourceChangesets: applyBalancedChangesets,
+  validate: async (db, context) => {
+    const { assertFixtureDistribution } = await import(
+      "../validation/validateFixture.js"
+    );
+    await assertFixtureDistribution(db, context.descriptor);
+  },
+});
+
+export const balancedIncrementalFixture = configureFixture(
+  balancedIncrementalRecipe,
+  {
+    id: "balanced-incremental",
+    version: 1,
+    label: "balanced incremental",
+    scenarioClaims,
+    topology: "source-and-empty-target",
+    seed: 328,
+    parameters: balancedParameters,
+  }
+);
+
+export const balancedIncrementalSourceOnlyFixture = configureFixture(
+  balancedIncrementalRecipe,
+  {
+    id: "balanced-incremental-source-only",
+    version: 1,
+    label: "balanced incremental (source only)",
+    scenarioClaims: [...scenarioClaims, "changeset scanning"],
+    topology: "source-only",
+    seed: 328,
+    parameters: balancedParameters,
+  }
+);
+
+export const balancedIncrementalDescriptor =
+  balancedIncrementalFixture.descriptor;
+export const balancedIncrementalSourceOnlyDescriptor =
+  balancedIncrementalSourceOnlyFixture.descriptor;

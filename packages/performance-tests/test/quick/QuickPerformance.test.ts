@@ -14,7 +14,8 @@ import { scenarioBudgetMilliseconds } from "./src/framework/BenchmarkScenario.js
 import { quickPath } from "./src/support/paths.js";
 
 describe("quick performance", () => {
-  const { descriptor, scenario } = resolveBenchmarkRunFromEnvironment();
+  const { descriptor, fixture, scenario } =
+    resolveBenchmarkRunFromEnvironment();
   const measuredSamples = resolveMeasuredSamplesFromEnvironment();
   const budgetMilliseconds = scenarioBudgetMilliseconds(scenario);
 
@@ -23,11 +24,9 @@ describe("quick performance", () => {
       process.env.QUICK_PERF_OUTPUT ??
       quickPath(".quick-output", descriptor.id);
     const started = process.hrtime.bigint();
-    const samples = await new BenchmarkRunner(
-      descriptor,
-      outputDir,
-      scenario
-    ).run(measuredSamples);
+    const samples = await new BenchmarkRunner(fixture, outputDir, scenario).run(
+      measuredSamples
+    );
     const elapsedMilliseconds =
       Number(process.hrtime.bigint() - started) / 1_000_000;
     const summary = BenchmarkReporter.write(

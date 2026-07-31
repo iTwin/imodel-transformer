@@ -7,9 +7,7 @@ on:
         description: Quick performance scenario
         required: true
         default: incremental-synchronization
-        type: choice
-        options:
-          - incremental-synchronization
+        type: string
       fixture:
         description: Fixture id (blank uses the scenario's default)
         required: false

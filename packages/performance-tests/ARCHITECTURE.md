@@ -83,25 +83,29 @@ There is currently no provider for a completely standalone
 incremental synchronization. A first-time schema or full-transform scenario
 would need a provider topology that leaves the target pristine.
 
-#### Fixture
+#### Configured fixture and generated descriptor
 
-A fixture is a named, reproducible configuration combining:
+A configured fixture is a named, reproducible invocation combining:
 
 - A recipe ID.
 - A provider topology.
-- Expected base content and source operation counts.
+- Explicit typed recipe parameters.
 - A deterministic seed.
-- Generator dependency versions.
-- A fixture version and recipe identity hash.
+- A fixture version.
 - Claims describing which scenario behaviors the generated iModel supports.
 
-The fixture descriptor does not contain database objects. It is the catalog
-definition used to choose and validate the recipe/provider combination.
+Infrastructure derives the immutable `FixtureDescriptor` from that invocation.
+The descriptor does not contain database objects or authoring callbacks; it is
+the serializable artifact/report manifest used to choose and validate the
+recipe/provider combination. Its distribution comes from the typed parameters,
+while generator versions and the recipe hash are automatic.
 
 #### Catalog
 
-The scenario and fixture catalogs are the composition layer. They map
-user-facing IDs to scenario definitions and fixture descriptors.
+Benchmark registrations are the composition layer. Each registration bundles a
+scenario with the configured fixtures it contributes. One explicit list in
+`BenchmarkRegistry.ts` maps user-facing IDs to definitions and keeps compiled CLI
+imports predictable.
 
 Resolution follows this order:
 
@@ -109,7 +113,7 @@ Resolution follows this order:
 2. Resolve `QUICK_PERF_FIXTURE`, or use the scenario's default fixture.
 3. Verify that fixture topology matches the scenario requirement.
 4. Verify that the fixture advertises every required scenario claim.
-5. Verify that the referenced recipe is registered.
+5. Pass the registered configured fixture to the provider.
 
 Catalogs select definitions. They do not create iModels or execute transformer
 code.
@@ -120,7 +124,8 @@ code.
 
 | Stage        | Type                | Meaning                                                           |
 | ------------ | ------------------- | ----------------------------------------------------------------- |
-| Definition   | `FixtureDescriptor` | Immutable catalog metadata describing what must be generated      |
+| Authoring    | `ConfiguredFixture` | Named typed recipe invocation                                     |
+| Manifest     | `FixtureDescriptor` | Derived immutable serializable generation identity                |
 | Built state  | `BuiltFixture`      | Stage-one provider result; may reference a reusable artifact      |
 | Sample state | `PreparedDataset`   | Fresh database objects and files handed to one scenario execution |
 
