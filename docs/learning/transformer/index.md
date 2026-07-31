@@ -93,7 +93,7 @@ Potential transformations include:
 - Schema Mapping - mapping classes and properties to a new schema during transformation
 - Change Squashing - each iModel has its own change ledger, so multiple changesets from the source could be _squashed_ into a single changeset to the target
 
-See [schema processing](./schema-processing.md) for schema selection, dynamic schema unions, conflict handling, and machine-readable schema errors.
+See [schema processing](./schema-processing.md) for schema selection, dynamic schema unions, conflict handling, and the schema-processing workflow.
 
 ## Logging
 

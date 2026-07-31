@@ -799,13 +799,13 @@ describe("IModelExporter", () => {
     });
   });
 
-  it("uses per-call schema callbacks without mutating the handler", async () => {
+  it("exports schemas discovered by the canonical enumerator", async () => {
     const sourceDb = SnapshotDb.createEmpty(
       IModelTransformerTestUtils.prepareOutputFile(
         "IModelExporter",
-        "SchemaCallbacks.bim"
+        "SchemaEnumeration.bim"
       ),
-      { rootSubject: { name: "SchemaCallbacks" } }
+      { rootSubject: { name: "SchemaEnumeration" } }
     );
     try {
       class Handler extends IModelExportHandler {
@@ -825,28 +825,15 @@ describe("IModelExporter", () => {
       const handler = new Handler();
       const exporter = new IModelExporter(sourceDb);
       exporter.registerHandler(handler);
-      const callbackSchemas: string[] = [];
-
-      await exporter.exportSchemas({
-        shouldExportSchema: async () => false,
-        onExportSchema: async (schema) => {
-          callbackSchemas.push(schema.name);
-        },
-      });
-      expect(handler.shouldExportCount).to.equal(0);
-      expect(handler.onExportCount).to.equal(0);
-
-      await exporter.exportSchemas({
-        onExportSchema: async (schema) => {
-          callbackSchemas.push(schema.name);
-        },
-      });
-      expect(handler.shouldExportCount).to.be.greaterThan(0);
-      expect(handler.onExportCount).to.equal(0);
-      expect(callbackSchemas.length).to.be.greaterThan(0);
+      const enumeratedSchemas: string[] = [];
+      for await (const schema of exporter.enumerateSchemas()) {
+        enumeratedSchemas.push(schema.name);
+      }
 
       await exporter.exportSchemas();
-      expect(handler.onExportCount).to.be.greaterThan(0);
+      expect(enumeratedSchemas.length).to.be.greaterThan(0);
+      expect(handler.shouldExportCount).to.equal(enumeratedSchemas.length);
+      expect(handler.onExportCount).to.equal(enumeratedSchemas.length);
     } finally {
       sourceDb.close();
     }

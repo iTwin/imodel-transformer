@@ -32,7 +32,6 @@ import { Id64String } from '@itwin/core-bentley';
 import { IModelDb } from '@itwin/core-backend';
 import { IModelElementCloneContext } from '@itwin/core-backend';
 import { IModelJsNative } from '@itwin/core-backend';
-import { ITwinError } from '@itwin/core-bentley';
 import { Model } from '@itwin/core-backend';
 import { ModelProps } from '@itwin/core-common';
 import { Placement2d } from '@itwin/core-common';
@@ -40,7 +39,6 @@ import { Placement3d } from '@itwin/core-common';
 import { Relationship } from '@itwin/core-backend';
 import { RelationshipProps } from '@itwin/core-backend';
 import { Schema } from '@itwin/ecschema-metadata';
-import { SchemaDifferenceResult } from '@itwin/ecschema-editing';
 import { SchemaKey } from '@itwin/ecschema-metadata';
 import { SqliteChangeOp } from '@itwin/core-backend';
 import { Transform } from '@itwin/core-geometry';
@@ -90,15 +88,6 @@ export class ChangedInstanceOps {
     updateIds: Set<string>;
 }
 
-// @internal (undocumented)
-export function createSchemaProcessingError(args: CreateSchemaProcessingErrorArgs): SchemaProcessingError;
-
-// @beta
-export class DynamicSchemaUnionStrategy implements SchemaProcessingStrategy {
-    protected onSchemaDifferences(_sourceSchema: Schema, _targetSchema: Schema, differences: SchemaDifferenceResult): Promise<SchemaDifferenceResult>;
-    processSchemas(context: SchemaProcessingContext): Promise<SchemaProcessingResult[]>;
-}
-
 // @public
 export type ExportChangesOptions = {
     skipPropagateChangesToRootElements?: boolean;
@@ -145,12 +134,6 @@ export interface ExportSchemaResult {
     schemaPath?: string;
 }
 
-// @beta
-export interface ExportSchemasOptions {
-    onExportSchema?: (schema: Schema) => Promise<void | ExportSchemaResult>;
-    shouldExportSchema?: (schemaKey: SchemaKey) => Promise<boolean>;
-}
-
 // @internal
 export function hasEntityChanged(entity: Entity, entityProps: EntityProps, namesToIgnore?: Set<string>): boolean;
 
@@ -159,6 +142,7 @@ export class IModelExporter {
     constructor(sourceDb: IModelDb);
     // @internal
     get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
+    enumerateSchemas(): AsyncIterable<Schema>;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -181,7 +165,7 @@ export class IModelExporter {
     exportModelContents(modelId: Id64String, elementClassFullName?: string, skipRootSubject?: boolean): Promise<void>;
     exportRelationship(relClassFullName: string, relInstanceId: Id64String): Promise<void>;
     exportRelationships(baseRelClassFullName: string): Promise<void>;
-    exportSchemas(options?: ExportSchemasOptions): Promise<void>;
+    exportSchemas(): Promise<void>;
     exportSubModels(parentModelId: Id64String): Promise<void>;
     protected get handler(): IModelExportHandler;
     initialize(options: ExporterInitOptions): Promise<void>;
@@ -388,6 +372,8 @@ export enum IModelTransformerError {
     RelationshipIdRequired = "relationship-id-required",
     RelationshipProvenanceNotFound = "relationship-provenance-not-found",
     RootSubjectNotProcessable = "root-subject-not-processable",
+    SchemaConflict = "schema-conflict",
+    SchemaDependencyCycle = "schema-dependency-cycle",
     SchemaLoadFailed = "schema-load-failed",
     SourceEditTxnRequired = "source-edit-txn-required",
     SynchronizationRangeInvalid = "synchronization-range-invalid",
@@ -429,9 +415,6 @@ export interface InitOptions {
         index?: number;
     };
 }
-
-// @beta
-export function isSchemaProcessingError(error: unknown, key?: SchemaProcessingErrorKey): error is SchemaProcessingError;
 
 // @beta
 export class NewerVersionSchemaImportStrategy implements SchemaProcessingStrategy {
@@ -476,6 +459,11 @@ export interface ProvenanceInitResult {
     targetScopeElementId: Id64String;
 }
 
+// @beta
+export interface ReadonlySchemaAccessor {
+    getSchema(schemaName: string): Promise<Schema | undefined>;
+}
+
 // @beta (undocumented)
 export interface RelationshipPropsForDelete {
     // (undocumented)
@@ -488,24 +476,8 @@ export interface RelationshipPropsForDelete {
 export interface SchemaProcessingContext {
     readonly shouldExportSchema: (schemaKey: SchemaKey) => Promise<boolean>;
     readonly sourceSchemas: readonly Schema[];
-    readonly targetDb: IModelDb;
+    readonly targetSchemas: ReadonlySchemaAccessor;
 }
-
-// @beta
-export interface SchemaProcessingError extends ITwinError {
-    readonly schemaKey?: string;
-    readonly schemaNames?: readonly string[];
-}
-
-// @public
-export enum SchemaProcessingErrorKey {
-    SchemaConflict = "schema-conflict",
-    SchemaDependencyCycle = "schema-dependency-cycle",
-    SchemaProcessing = "schema-processing"
-}
-
-// @public
-export const schemaProcessingErrorScope = "@itwin/imodel-transformer";
 
 // @beta
 export type SchemaProcessingResult = {

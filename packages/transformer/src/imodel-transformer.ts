@@ -7,7 +7,6 @@ export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
 export * from "./SchemaProcessingStrategy";
-export * from "./SchemaProcessingErrors";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 

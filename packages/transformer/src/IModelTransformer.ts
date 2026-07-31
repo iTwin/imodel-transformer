@@ -39,7 +39,6 @@ import {
   DefinitionElement,
   DefinitionModel,
   DefinitionPartition,
-  ECSchemaXmlContext,
   EditTxn,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -54,7 +53,6 @@ import {
   GeometricElement3d,
   IModelDb,
   IModelHost,
-  IModelJsFs,
   InformationPartitionElement,
   KnownLocations,
   Model,
@@ -104,17 +102,11 @@ import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
 import { ProvenanceManager } from "./ProvenanceManager";
-import { SchemaXml } from "@itwin/ecschema-locaters";
 import {
   NewerVersionSchemaImportStrategy,
   ProcessSchemasOptions,
-  SchemaProcessingContext,
 } from "./SchemaProcessingStrategy";
-import {
-  createSchemaProcessingError,
-  isSchemaProcessingError,
-  SchemaProcessingErrorKey,
-} from "./SchemaProcessingErrors";
+import { SchemaProcessingCoordinator } from "./SchemaProcessingCoordinator";
 import {
   ChangesetDeletionRecord,
   ChangesetDeletionRecordsByChangeset,
@@ -135,80 +127,6 @@ export interface IModelTransformArgs {
   source: IModelDb | IModelExporter;
   /** The target for the transformation. Pass an [[EditTxn]] to have the transformer create a default [[IModelImporter]], or pass a pre-configured [[IModelImporter]]. */
   target: EditTxn | IModelImporter;
-}
-
-function orderSchemasByDependencies(
-  schemas: ECSchemaMetaData.Schema[]
-): ECSchemaMetaData.Schema[] {
-  const schemasByName = new Map(
-    schemas.map((schema) => [schema.name.toLowerCase(), schema])
-  );
-  const state = new Map<string, "visiting" | "visited">();
-  const orderedSchemas: ECSchemaMetaData.Schema[] = [];
-  const stack: string[] = [];
-
-  const visit = (schema: ECSchemaMetaData.Schema): void => {
-    const schemaName = schema.name.toLowerCase();
-    const currentState = state.get(schemaName);
-    if (currentState === "visited") return;
-    if (currentState === "visiting") {
-      const cycleStart = stack.indexOf(schemaName);
-      const cycle = [...stack.slice(cycleStart), schemaName].join(" -> ");
-      throw createSchemaProcessingError({
-        operation: "Schema dependency cycle detected",
-        cause: new Error(cycle),
-        key: SchemaProcessingErrorKey.SchemaDependencyCycle,
-        schemaNames: stack.slice(cycleStart).map((name) => name),
-      });
-    }
-
-    state.set(schemaName, "visiting");
-    stack.push(schemaName);
-    for (const reference of schema.references) {
-      const referencedSchema = schemasByName.get(reference.name.toLowerCase());
-      if (referencedSchema !== undefined) visit(referencedSchema);
-    }
-    stack.pop();
-    state.set(schemaName, "visited");
-    orderedSchemas.push(schema);
-  };
-
-  for (const schema of schemas) visit(schema);
-  return orderedSchemas;
-}
-
-function normalizeSchemaProcessingFailure(error: unknown): Error {
-  if (error instanceof AggregateError) {
-    const errors = error.errors.map((issue) =>
-      isSchemaProcessingError(issue)
-        ? issue
-        : createSchemaProcessingError({
-            operation: "Schema processing failed",
-            cause: issue,
-          })
-    );
-    if (errors.length === 0)
-      return createSchemaProcessingError({
-        operation: "Schema processing failed",
-        cause: error,
-      });
-    if (errors.length === 1) return errors[0];
-    return new AggregateError(errors, error.message, { cause: error });
-  }
-  if (isSchemaProcessingError(error)) return error;
-  return createSchemaProcessingError({
-    operation: "Schema processing failed",
-    cause: error,
-  });
-}
-
-function logSchemaProcessingFailure(error: Error): void {
-  if (error instanceof AggregateError) {
-    for (const issue of error.errors)
-      Logger.logError(loggerCategory, String(issue));
-  } else {
-    Logger.logError(loggerCategory, String(error));
-  }
 }
 
 /** Options provided to the [[IModelTransformer]] constructor.
@@ -481,6 +399,7 @@ export interface RelationshipPropsForDelete {
 export class IModelTransformer extends IModelExportHandler {
   /** The IModelExporter that will export from the source iModel. */
   public readonly exporter: IModelExporter;
+  private readonly _schemaProcessingCoordinator: SchemaProcessingCoordinator;
   /** The IModelImporter that will import into the target iModel. */
   public readonly importer: IModelImporter;
   /** The normally read-only source iModel.
@@ -634,6 +553,14 @@ export class IModelTransformer extends IModelExportHandler {
     this.targetDb = this.importer.targetDb;
     this._targetEditTxn = this.importer.editTxn;
     this._sourceEditTxn = options?.sourceEditTxn;
+    this._schemaProcessingCoordinator = new SchemaProcessingCoordinator({
+      exporter: this.exporter,
+      targetDb: this.targetDb,
+      getSchemaExportDirectory: () => this._schemaExportDir,
+      shouldExportSchema: async (schemaKey) =>
+        this.shouldExportSchema(schemaKey),
+      serializeSourceSchema: async (schema) => this.onExportSchema(schema),
+    });
     this.exporter.elementAspectExportCoordinator.setPreparation(
       async (excludedClasses, elementIds) =>
         this.prepareElementAspects(excludedClasses, elementIds)
@@ -2072,73 +1999,14 @@ export class IModelTransformer extends IModelExportHandler {
     );
   }
 
-  private _longNamedSchemasMap = new Map<string, string>();
-
   /** Serialize a source schema to the temporary directory used by [[processSchemas]].
    * @returns A path to the serialized schema file.
-   * @note The file name is not derived reliably from the schema name. Use the
-   * returned path when a subclass calls `super`.
+   * @note The file name is not derived reliably from the schema name. Use the returned path when a subclass calls `super`.
    */
   public override async onExportSchema(
     schema: ECSchemaMetaData.Schema
   ): Promise<void | ExportSchemaResult> {
-    const schemaFileName = this._getSchemaExportFileName(schema.name);
-    this.sourceDb.exportSchema({
-      schemaName: schema.name,
-      outputDirectory: this._schemaExportDir,
-      outputFileName: schemaFileName,
-    });
-    return { schemaPath: path.join(this._schemaExportDir, schemaFileName) };
-  }
-
-  private _getSchemaExportFileName(schemaName: string): string {
-    const ext = ".ecschema.xml";
-    let schemaFileName = schemaName + ext;
-    // many file systems have a max file-name/path-segment size of 255, so we workaround that on all systems
-    const systemMaxPathSegmentSize = 255;
-    // windows usually has a limit for the total path length of 260
-    const windowsMaxPathLimit = 260;
-    if (
-      schemaFileName.length > systemMaxPathSegmentSize ||
-      path.join(this._schemaExportDir, schemaFileName).length >=
-        windowsMaxPathLimit
-    ) {
-      // this name should be well under 255 bytes
-      // ( 100 + (Number.MAX_SAFE_INTEGER.toString().length = 16) + (ext.length = 13) ) = 129 which is less than 255
-      // You'd have to be past 2**53-1 (Number.MAX_SAFE_INTEGER) long named schemas in order to hit decimal formatting,
-      // and that's on the scale of at least petabytes. `Map.prototype.size` shouldn't return floating points, and even
-      // if they do they're in scientific notation, size bound and contain no invalid windows path chars
-      schemaFileName = `${schemaName.slice(0, 100)}${
-        this._longNamedSchemasMap.size
-      }${ext}`;
-      nodeAssert(
-        schemaFileName.length <= systemMaxPathSegmentSize,
-        "Schema name was still long. This is a bug."
-      );
-      this._longNamedSchemasMap.set(schemaName, schemaFileName);
-    }
-    return schemaFileName;
-  }
-
-  private async _serializeGeneratedSchema(
-    schema: ECSchemaMetaData.Schema
-  ): Promise<void> {
-    const schemaFileName = this._getSchemaExportFileName(schema.name);
-    const schemaXml = await SchemaXml.writeString(schema);
-    IModelJsFs.writeFileSync(
-      path.join(this._schemaExportDir, schemaFileName),
-      schemaXml
-    );
-  }
-
-  private _makeLongNameResolvingSchemaCtx(): ECSchemaXmlContext {
-    const result = new ECSchemaXmlContext();
-    result.setSchemaLocater((key) => {
-      const match = this._longNamedSchemasMap.get(key.name);
-      if (match !== undefined) return path.join(this._schemaExportDir, match);
-      return undefined;
-    });
-    return result;
+    return this._schemaProcessingCoordinator.serializeSourceSchema(schema);
   }
 
   /** Process source schemas and import selected or generated definitions into the target iModel.
@@ -2148,102 +2016,9 @@ export class IModelTransformer extends IModelExportHandler {
    * It is more efficient to process *data* changes after the schema changes have been saved.
    */
   public async processSchemas(options?: ProcessSchemasOptions): Promise<void> {
-    const strategy =
-      options?.strategy ?? new NewerVersionSchemaImportStrategy();
-    const sourceSchemas: ECSchemaMetaData.Schema[] = [];
-    const schemaSelection = new Map<string, boolean>();
-    const shouldExportSchema = async (
-      schemaKey: ECSchemaMetaData.SchemaKey
-    ): Promise<boolean> => {
-      const cacheKey = schemaKey.toString();
-      const cachedResult = schemaSelection.get(cacheKey);
-      if (cachedResult !== undefined) return cachedResult;
-      const result = await this.shouldExportSchema(schemaKey);
-      schemaSelection.set(cacheKey, result);
-      return result;
-    };
-
-    // We do not need to initialize for this since no entities are exported.
-    let importResult: void;
-    let processingError: Error | undefined;
-    try {
-      IModelJsFs.mkdirSync(this._schemaExportDir);
-      this._longNamedSchemasMap.clear();
-      await this.exporter.exportSchemas({
-        shouldExportSchema: async () => true,
-        onExportSchema: async (schema) => {
-          sourceSchemas.push(schema);
-        },
-      });
-
-      const orderedSourceSchemas = orderSchemasByDependencies(sourceSchemas);
-      const context: SchemaProcessingContext = {
-        sourceSchemas: orderedSourceSchemas,
-        targetDb: this.targetDb,
-        shouldExportSchema,
-      };
-      const processedSchemas = await strategy.processSchemas(context);
-      for (const processedSchema of processedSchemas) {
-        try {
-          if (processedSchema.kind === "source") {
-            await this.onExportSchema(processedSchema.schema);
-          } else {
-            await this._serializeGeneratedSchema(processedSchema.schema);
-          }
-        } catch (error: unknown) {
-          throw createSchemaProcessingError({
-            schema: processedSchema.schema,
-            operation: "Schema serialization failed",
-            cause: error,
-          });
-        }
-      }
-
-      const exportedSchemaFiles = IModelJsFs.readdirSync(this._schemaExportDir);
-      if (exportedSchemaFiles.length > 0) {
-        const schemaFullPaths = exportedSchemaFiles.map((s) =>
-          path.join(this._schemaExportDir, s)
-        );
-        const maybeLongNameResolvingSchemaCtx =
-          this._longNamedSchemasMap.size > 0
-            ? this._makeLongNameResolvingSchemaCtx()
-            : undefined;
-        importResult = await this.targetDb.importSchemas(schemaFullPaths, {
-          ecSchemaXmlContext: maybeLongNameResolvingSchemaCtx,
-        });
-      }
-    } catch (error: unknown) {
-      processingError = normalizeSchemaProcessingFailure(error);
-      logSchemaProcessingFailure(processingError);
-    } finally {
-      try {
-        IModelJsFs.removeSync(this._schemaExportDir);
-      } catch (error: unknown) {
-        const cleanupError = createSchemaProcessingError({
-          operation: "Schema processing cleanup failed",
-          cause: error,
-        });
-        logSchemaProcessingFailure(cleanupError);
-        if (processingError === undefined) {
-          processingError = cleanupError;
-        } else {
-          processingError = new AggregateError(
-            [
-              ...(processingError instanceof AggregateError
-                ? processingError.errors
-                : [processingError]),
-              cleanupError,
-            ],
-            "Schema processing failed",
-            { cause: processingError }
-          );
-        }
-      } finally {
-        this._longNamedSchemasMap.clear();
-      }
-    }
-    if (processingError !== undefined) throw processingError;
-    return importResult;
+    return this._schemaProcessingCoordinator.process(
+      options?.strategy ?? new NewerVersionSchemaImportStrategy()
+    );
   }
 
   /** Cause all fonts to be exported from the source iModel and imported into the target iModel.

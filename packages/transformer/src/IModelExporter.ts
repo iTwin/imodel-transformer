@@ -83,17 +83,6 @@ export interface ExportSchemaResult {
 }
 
 /**
- * Options for [[IModelExporter.exportSchemas]].
- * @beta
- */
-export interface ExportSchemasOptions {
-  /** If supplied, used instead of the handler's callback for this invocation. */
-  shouldExportSchema?: (schemaKey: SchemaKey) => Promise<boolean>;
-  /** If supplied, used instead of the handler's callback for this invocation. */
-  onExportSchema?: (schema: Schema) => Promise<void | ExportSchemaResult>;
-}
-
-/**
  * Arguments for [[IModelExporter.initialize]], usually in case you want to query changedata early
  * such as in the case of the IModelTransformer
  * @beta
@@ -618,19 +607,11 @@ export class IModelExporter {
 
   private _resetChangeDataOnExport = true;
 
-  /** Export schemas from the source iModel.
-   * @note If a callback is omitted, the corresponding registered handler
-   * callback is used.
-   * @note This must be called separately from [[exportAll]] or [[exportChanges]].
+  /** Enumerate schemas from the source iModel in database order.
+   * @note Override this method to customize schema discovery for both direct exports and transformer schema processing.
+   * @beta
    */
-  public async exportSchemas(options?: ExportSchemasOptions): Promise<void> {
-    const shouldExportSchema =
-      options?.shouldExportSchema ??
-      (async (schemaKey: SchemaKey) =>
-        this.handler.shouldExportSchema(schemaKey));
-    const onExportSchema =
-      options?.onExportSchema ??
-      (async (schema: Schema) => this.handler.onExportSchema(schema));
+  public async *enumerateSchemas(): AsyncIterable<Schema> {
     const sql = `
       SELECT s.Name, s.VersionMajor, s.VersionWrite, s.VersionMinor
       FROM ECDbMeta.ECSchemaDef s
@@ -643,38 +624,42 @@ export class IModelExporter {
       }
       ORDER BY ECInstanceId
     `;
-    const schemaKeysToExport: SchemaKey[] = [];
     for await (const row of this.sourceDb.createQueryReader(sql, undefined, {
       usePrimaryConn: true,
     })) {
-      const schemaName = row[0];
-      const versionMajor = row[1];
-      const versionWrite = row[2];
-      const versionMinor = row[3];
       const schemaKey = new SchemaKey(
-        schemaName,
-        new ECVersion(versionMajor, versionWrite, versionMinor)
+        row[0],
+        new ECVersion(row[1], row[2], row[3])
       );
-      if (await shouldExportSchema(schemaKey)) {
-        schemaKeysToExport.push(schemaKey);
+      const schema = await this.sourceDb.schemaContext.getSchema(schemaKey);
+      if (!schema) {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.SchemaLoadFailed,
+          },
+          message: `Failed to load schema: ${schemaKey.name}`,
+        });
+      }
+      yield schema;
+    }
+  }
+
+  /** Export schemas from the source iModel.
+   * @note This must be called separately from [[exportAll]] or [[exportChanges]].
+   */
+  public async exportSchemas(): Promise<void> {
+    const schemasToExport: Schema[] = [];
+    for await (const schema of this.enumerateSchemas()) {
+      if (await this.handler.shouldExportSchema(schema.schemaKey)) {
+        schemasToExport.push(schema);
       }
     }
-    if (schemaKeysToExport.length === 0) return;
 
     await Promise.all(
-      schemaKeysToExport.map(async (schemaKey) => {
-        const schema = await this.sourceDb.schemaContext.getSchema(schemaKey);
-        if (!schema) {
-          ITwinError.throwError({
-            iTwinErrorId: {
-              scope: IModelTransformerErrorScope,
-              key: IModelTransformerError.SchemaLoadFailed,
-            },
-            message: `Failed to load schema: ${schemaKey.name}`,
-          });
-        }
-        Logger.logTrace(loggerCategory, `exportSchema(${schemaKey.name})`);
-        return onExportSchema(schema);
+      schemasToExport.map(async (schema) => {
+        Logger.logTrace(loggerCategory, `exportSchema(${schema.name})`);
+        return this.handler.onExportSchema(schema);
       })
     );
   }

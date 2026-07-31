@@ -4,7 +4,7 @@ An iModel schema defines the classes, properties, relationships, and other metad
 
 ## Choose a schema-processing strategy
 
-`processSchemas()` accepts a `SchemaProcessingStrategy`. A strategy receives source schemas in dependency order and decides which definitions the transformer should import. It may inspect the target iModel but must not modify it. The transformer owns serialization, long schema-name handling, import, and temporary-file cleanup.
+`processSchemas()` accepts a `SchemaProcessingStrategy`. A strategy receives source schemas in dependency order and decides which definitions the transformer should import. It can inspect target schemas through a read-only accessor. The transformer owns serialization, long schema-name handling, import, and temporary-file cleanup.
 
 | Strategy | Use it when |
 |---|---|
@@ -14,26 +14,17 @@ An iModel schema defines the classes, properties, relationships, and other metad
 Call `processSchemas()` before `process()`. The transformer does not process schemas automatically because a target may need a different schema policy from its data transformation policy.
 
 ```mermaid
-flowchart TD
-  A["Create IModelTransformer with a source and target"] --> B{"Which schema policy does the target need?"}
-  B -->|"Normal versioned schemas"| C["Call processSchemas()"]
-  B -->|"Compatible additions to dynamic schemas"| D["Call processSchemas({ strategy: new DynamicSchemaUnionStrategy() })"]
-  B -->|"Application-specific rules"| E["Call processSchemas({ strategy: customStrategy })"]
-  C --> F["Transformer collects and dependency-orders source schemas"]
-  D --> F
-  E --> F
-  F --> G["Strategy returns source or generated schemas"]
-  G --> H{"Result kind"}
-  H -->|"source"| I["Serialize through onExportSchema()"]
-  H -->|"generated"| J["Serialize the in-memory Schema"]
-  I --> K["Import all schema results into the target"]
-  J --> K
-  K --> L["Clean temporary schema files"]
-  L --> M["Save target changes"]
-  M --> N["Call process() to transform data"]
+flowchart LR
+  A["Enumerate source schemas"] --> B["Order dependencies"]
+  B --> C["Run selected strategy"]
+  C --> D["Serialize results"]
+  D --> E["Import into target"]
+  E --> F["Clean temporary files"]
 ```
 
-The caller supplies only the strategy instance. The transformer creates the `SchemaProcessingContext`, calls the strategy, and handles every later stage shown in the diagram. Saving after `processSchemas()` is recommended because processing data is more efficient after schema changes have been saved.
+`IModelTransformer.processSchemas()` delegates this workflow to an internal coordinator. The coordinator discovers schemas through `IModelExporter.enumerateSchemas()`, provides read-only target-schema access to the strategy, and owns all filesystem and import work. Strategies therefore describe schema policy without receiving write access to the target iModel.
+
+The caller supplies only the strategy instance. Saving after `processSchemas()` is recommended because processing data is more efficient after schema changes have been saved.
 
 When no strategy is supplied, `NewerVersionSchemaImportStrategy` is used. Passing that strategy explicitly has the same behavior. It imports a schema when the schema is absent from the target or its source version is newer. It also uses the transformer's `shouldExportSchema()` and `onExportSchema()` overrides, so existing subclasses keep their schema selection and serialization behavior.
 
@@ -44,6 +35,8 @@ A dynamic schema is an application-specific schema created while reading source 
 `DynamicSchemaUnionStrategy` is opt-in. It compares matching dynamic schemas and generates a union that preserves compatible source-only and target-only definitions. Ordinary schemas use the transformer's `shouldExportSchema()` hook, whose default behavior selects missing or newer schemas. The strategy does not call that hook for dynamic schemas because skipping one side of a dynamic schema could discard definitions that the union must preserve.
 
 ```ts
+import { DynamicSchemaUnionStrategy } from "@itwin/imodel-transformer/schema-processing";
+
 const transformer = new IModelTransformer({
   source: sourceDb,
   target: editTxn,
@@ -57,7 +50,7 @@ await transformer.saveChanges("Processed schemas");
 await transformer.process();
 ```
 
-Applications using this strategy must provide versions of `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` that satisfy the `@itwin/imodel-transformer` peer dependency ranges.
+Dynamic processing is exposed through this optional subpath and requires compatible `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` packages.
 
 Only schemas with matching root read and write versions can be unioned. Minor-version differences are allowed because they represent read/write-compatible schema changes. A read or write mismatch requires an explicitly authored schema upgrade or a custom strategy with domain-specific compatibility rules.
 
@@ -73,6 +66,6 @@ Implement `SchemaProcessingStrategy` directly when an application needs a differ
 
 ## Handle schema-processing errors
 
-Schema failures use the exported `schemaProcessingErrorScope` and `SchemaProcessingErrorKey` identifiers. The keys distinguish schema conflicts, dependency cycles, and general processing failures where the transformer can classify them reliably. Original failures remain available through `cause`, and per-schema errors include the source schema key.
+The transformer identifies package-owned schema conflicts with `IModelTransformerError.SchemaConflict` and dependency cycles with `IModelTransformerError.SchemaDependencyCycle`. Use `ITwinError.isError()` with `IModelTransformerErrorScope` and the expected key instead of matching messages. Multiple independent conflicts are returned in an `AggregateError`.
 
-A single failure is a `SchemaProcessingError`. Two or more failures are returned in an `AggregateError` whose `errors` entries are machine-readable schema errors. Use `isSchemaProcessingError()` or `ITwinError.isError()` instead of matching messages. If ordering or strategy processing fails, no schema result from that invocation is imported. Fix the incompatible schemas or choose a custom strategy before retrying.
+Failures originating from custom strategies, schema editing, serialization, the backend, or the filesystem retain their original error contract. If ordering or strategy processing fails, no schema result from that invocation is imported. Fix the incompatible schemas or choose a custom strategy before retrying.

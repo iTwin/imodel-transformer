@@ -2,13 +2,13 @@
 
 ## Schema-processing strategies
 
-`IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy` is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.
+`IModelTransformer.processSchemas()` now accepts a `SchemaProcessingStrategy`. Calls without options use `NewerVersionSchemaImportStrategy`, which preserves the existing newer-version selection and schema hooks. `DynamicSchemaUnionStrategy`, imported from `@itwin/imodel-transformer/schema-processing`, is available for iModels that may contain different compatible additions to the same schema marked with `CoreCustomAttributes.DynamicSchema`. See [Schema processing in a transformation](../learning/transformer/schema-processing.md) for strategy selection, compatibility rules, extension points, and failure handling.
 
-Schema-processing failures now use the stable `schemaProcessingErrorScope` and `SchemaProcessingErrorKey` identifiers. One failure rejects with a `SchemaProcessingError`; multiple failures reject with an `AggregateError` containing machine-readable schema errors. Existing callers should use `isSchemaProcessingError()` or `ITwinError.isError()` instead of matching messages.
+Package-owned schema conflicts and dependency cycles use `IModelTransformerErrorScope` with the `SchemaConflict` and `SchemaDependencyCycle` keys. Upstream and custom failures retain their original error contract.
 
-`IModelExporter.exportSchemas()` now accepts per-call `shouldExportSchema` and `onExportSchema` callbacks. Each omitted callback falls back to the registered handler for that invocation, and the handler is not mutated.
+`IModelExporter.enumerateSchemas()` is now the schema-discovery extension point used by both `exportSchemas()` and transformer schema processing. Overrides of `exportSchemas()` continue to affect direct exporter calls but no longer control transformer schema discovery.
 
-Applications must provide compatible `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` peer dependencies for dynamic differencing, merging, and generated-schema serialization.
+Applications using the optional schema-processing subpath must provide compatible `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` peer dependencies. The new package `exports` map exposes the root package, `schema-processing`, and `package.json`; undocumented deep imports are no longer supported.
 
 ## Breaking change: transformer errors now have stable identifiers
 

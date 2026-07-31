@@ -5,20 +5,17 @@
 
 import { assert, expect, vi } from "vitest";
 import { EditTxn, IModelJsFs, SnapshotDb } from "@itwin/core-backend";
+import { ITwinError } from "@itwin/core-bentley";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { IModelExporter } from "../../IModelExporter";
 import { IModelTransformer } from "../../IModelTransformer";
+import { DynamicSchemaUnionStrategy } from "../../DynamicSchemaUnionStrategy";
+import { NewerVersionSchemaImportStrategy } from "../../SchemaProcessingStrategy";
 import {
-  DynamicSchemaUnionStrategy,
-  NewerVersionSchemaImportStrategy,
-  SchemaProcessingStrategy,
-} from "../../SchemaProcessingStrategy";
-import {
-  isSchemaProcessingError,
-  SchemaProcessingError,
-  SchemaProcessingErrorKey,
-} from "../../SchemaProcessingErrors";
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "../../IModelTransformerError";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import * as TestUtils from "../TestUtils";
 
@@ -71,12 +68,23 @@ describe("Schema processing", () => {
     throw new Error("Expected operation to fail");
   };
 
+  interface SchemaErrorDetails extends ITwinError {
+    schemaKey?: string;
+    schemaNames?: readonly string[];
+  }
+
   const expectSchemaProcessingError = async (
     operation: Promise<unknown>,
-    key: SchemaProcessingErrorKey
-  ): Promise<SchemaProcessingError> => {
+    key: IModelTransformerError
+  ): Promise<SchemaErrorDetails> => {
     const error = await captureError(operation);
-    if (!isSchemaProcessingError(error, key))
+    if (
+      !ITwinError.isError<SchemaErrorDetails>(
+        error,
+        IModelTransformerErrorScope,
+        key
+      )
+    )
       throw new Error(`Expected schema processing error '${key}'`);
     return error;
   };
@@ -153,18 +161,12 @@ describe("Schema processing", () => {
     );
 
     class OrderedExporter extends IModelExporter {
-      public override async exportSchemas(
-        options?: Parameters<IModelExporter["exportSchemas"]>[0]
-      ) {
+      public override async *enumerateSchemas() {
         const sourceLoader = new SchemaLoader((name) =>
           this.sourceDb.getSchemaProps(name)
         );
-        const onExport =
-          options?.onExportSchema ??
-          (async (schema: ECSchemaMetaData.Schema) =>
-            this.handler.onExportSchema(schema));
-        await onExport(sourceLoader.getSchema("TestSchema2"));
-        await onExport(sourceLoader.getSchema("TestSchema1"));
+        yield sourceLoader.getSchema("TestSchema2");
+        yield sourceLoader.getSchema("TestSchema1");
       }
     }
 
@@ -181,6 +183,24 @@ describe("Schema processing", () => {
     );
     assert.isDefined(targetLoader.getSchema("TestSchema1"));
     assert.isDefined(targetLoader.getSchema("TestSchema2"));
+  });
+
+  it("discovers schemas independently of exportSchemas overrides", async () => {
+    class ExporterWithLegacyOverride extends IModelExporter {
+      public override async exportSchemas(): Promise<void> {
+        throw new Error("processSchemas must not call exportSchemas");
+      }
+    }
+
+    const fixture = await createFixture(
+      "SchemaEnumeration",
+      [dynamicSchema("EnumeratedSchema", "01.00.00", "EnumeratedItem")],
+      [],
+      (db) => new ExporterWithLegacyOverride(db)
+    );
+    await fixture.transformer.processSchemas();
+    expect(fixture.targetDb.containsClass("EnumeratedSchema:EnumeratedItem")).to
+      .be.true;
   });
 
   it("waits for schema import before deleting the export directory", async () => {
@@ -231,11 +251,9 @@ describe("Schema processing", () => {
     schemaB.references.push(schemaA);
 
     class CycleExporter extends IModelExporter {
-      public override async exportSchemas(
-        options?: Parameters<IModelExporter["exportSchemas"]>[0]
-      ) {
-        await options?.onExportSchema?.(schemaA);
-        await options?.onExportSchema?.(schemaB);
+      public override async *enumerateSchemas() {
+        yield schemaA;
+        yield schemaB;
       }
     }
 
@@ -247,70 +265,87 @@ describe("Schema processing", () => {
     );
     const error = await expectSchemaProcessingError(
       fixture.transformer.processSchemas(),
-      SchemaProcessingErrorKey.SchemaDependencyCycle
+      IModelTransformerError.SchemaDependencyCycle
     );
     expect(error.schemaNames).to.deep.equal(["cyclea", "cycleb"]);
   });
 
-  it("normalizes generic aggregate failures and preserves cardinality", async () => {
-    const fixture = await createFixture("SchemaAggregate");
-    const firstCause = new Error("first schema failure");
-    const secondCause = new Error("second schema failure");
-    const strategy: SchemaProcessingStrategy = {
-      async processSchemas() {
-        throw new AggregateError([firstCause, secondCause], "raw failures");
-      },
-    };
-    const error = await captureError(
-      fixture.transformer.processSchemas({ strategy })
+  it("preserves custom strategy failures", async () => {
+    const fixture = await createFixture("SchemaStrategyFailure");
+    const strategyError = new AggregateError(
+      [new Error("first"), new Error("second")],
+      "strategy failed"
     );
-    assert.instanceOf(error, AggregateError);
-    expect(error.errors).to.have.lengthOf(2);
-    expect(
-      error.errors.every((entry) =>
-        isSchemaProcessingError(
-          entry,
-          SchemaProcessingErrorKey.SchemaProcessing
-        )
-      )
-    ).to.be.true;
-    expect(error.errors.map((entry) => entry.cause)).to.deep.equal([
-      firstCause,
-      secondCause,
-    ]);
-
-    const oneCause = new Error("one schema failure");
-    const oneEntryFixture = await createFixture("SchemaAggregateOneEntry");
-    const oneEntryError = await expectSchemaProcessingError(
-      oneEntryFixture.transformer.processSchemas({
+    const error = await captureError(
+      fixture.transformer.processSchemas({
         strategy: {
           async processSchemas() {
-            throw new AggregateError([oneCause], "one raw failure");
+            throw strategyError;
           },
         },
-      }),
-      SchemaProcessingErrorKey.SchemaProcessing
+      })
     );
-    expect(oneEntryError.cause).to.equal(oneCause);
+    expect(error).to.equal(strategyError);
   });
 
-  it("wraps cleanup failures without replacing the cause", async () => {
-    const fixture = await createFixture("SchemaCleanupFailure");
-    const cleanupCause = new Error("cleanup failed");
-    vi.spyOn(IModelJsFs, "removeSync").mockImplementation(() => {
-      throw cleanupCause;
+  it("preserves other transformer failures", async () => {
+    const fixture = await createFixture("SchemaErrorScope");
+    const transformerError = ITwinError.create({
+      message: "not a schema error",
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.DanglingReference,
+      },
     });
-    const error = await expectSchemaProcessingError(
+    const error = await captureError(
+      fixture.transformer.processSchemas({
+        strategy: {
+          async processSchemas() {
+            throw transformerError;
+          },
+        },
+      })
+    );
+    expect(error).to.equal(transformerError);
+  });
+
+  it("preserves cleanup failures", async () => {
+    const fixture = await createFixture("SchemaCleanupFailure");
+    const cleanupError = new Error("cleanup failed");
+    vi.spyOn(IModelJsFs, "removeSync").mockImplementation(() => {
+      throw cleanupError;
+    });
+    const error = await captureError(
       fixture.transformer.processSchemas({
         strategy: {
           async processSchemas() {
             return [];
           },
         },
-      }),
-      SchemaProcessingErrorKey.SchemaProcessing
+      })
     );
-    expect(error.cause).to.equal(cleanupCause);
+    expect(error).to.equal(cleanupError);
+  });
+
+  it("preserves processing and cleanup failures together", async () => {
+    const fixture = await createFixture("SchemaCombinedFailure");
+    const processingError = new Error("processing failed");
+    const cleanupError = new Error("cleanup failed");
+    vi.spyOn(IModelJsFs, "removeSync").mockImplementation(() => {
+      throw cleanupError;
+    });
+    const error = await captureError(
+      fixture.transformer.processSchemas({
+        strategy: {
+          async processSchemas() {
+            throw processingError;
+          },
+        },
+      })
+    );
+    assert.instanceOf(error, AggregateError);
+    expect(error.errors).to.deep.equal([processingError, cleanupError]);
+    expect(error.cause).to.equal(processingError);
   });
 
   it("uses equivalent default hooks for implicit and explicit selection", async () => {
@@ -369,12 +404,18 @@ describe("Schema processing", () => {
 
     class ObservingStrategy extends NewerVersionSchemaImportStrategy {
       public sourceSchemaNames: string[] = [];
+      public targetVersion?: string;
+      public hasTargetDb = false;
       public override async processSchemas(
         context: Parameters<
           NewerVersionSchemaImportStrategy["processSchemas"]
         >[0]
       ) {
         this.sourceSchemaNames = context.sourceSchemas.map(({ name }) => name);
+        this.targetVersion = (
+          await context.targetSchemas.getSchema("SchemaHook")
+        )?.schemaKey.version.toString();
+        this.hasTargetDb = "targetDb" in context;
         return super.processSchemas(context);
       }
     }
@@ -384,6 +425,8 @@ describe("Schema processing", () => {
     const strategy = new ObservingStrategy();
     await newer.transformer.processSchemas({ strategy });
     expect(strategy.sourceSchemaNames).to.include("SchemaHook");
+    expect(strategy.targetVersion).to.equal("01.00.01");
+    expect(strategy.hasTargetDb).to.be.false;
     expect(newer.targetDb.querySchemaVersion("SchemaHook")).to.equal("1.0.1");
   });
 
@@ -453,7 +496,7 @@ describe("Schema processing", () => {
       root.transformer.processSchemas({
         strategy: new DynamicSchemaUnionStrategy(),
       }),
-      SchemaProcessingErrorKey.SchemaConflict
+      IModelTransformerError.SchemaConflict
     );
     expect(root.targetDb.querySchemaVersion("Dynamic")).to.equal("1.0.0");
 
@@ -462,11 +505,14 @@ describe("Schema processing", () => {
       [dynamicSchema("Dynamic", "01.00.9999999", "OverflowSource")],
       [dynamicSchema("Dynamic", "01.00.9999998", "OverflowTarget")]
     );
-    await expectSchemaProcessingError(
+    const overflowError = await captureError(
       overflow.transformer.processSchemas({
         strategy: new DynamicSchemaUnionStrategy(),
-      }),
-      SchemaProcessingErrorKey.SchemaProcessing
+      })
+    );
+    expect(overflowError).to.be.instanceOf(Error);
+    expect((overflowError as Error).message).to.contain(
+      "Cannot increment schema version"
     );
     expect(overflow.targetDb.querySchemaVersion("Dynamic")).to.equal(
       "1.0.9999998"
@@ -490,7 +536,11 @@ describe("Schema processing", () => {
     expect(error.errors).to.have.lengthOf(2);
     expect(
       error.errors.every((entry) =>
-        isSchemaProcessingError(entry, SchemaProcessingErrorKey.SchemaConflict)
+        ITwinError.isError(
+          entry,
+          IModelTransformerErrorScope,
+          IModelTransformerError.SchemaConflict
+        )
       )
     ).to.be.true;
     expect(fixture.targetDb.querySchemaVersion("DynamicConflict")).to.equal(
@@ -559,7 +609,7 @@ describe("Schema processing", () => {
       .to.be.true;
   });
 
-  it("normalizes differencing hook failures", async () => {
+  it("preserves differencing hook failures", async () => {
     const schema = dynamicSchema("DynamicHookFailure", "01.00.00", "Item");
     const fixture = await createFixture(
       "DynamicHookFailure",
@@ -580,11 +630,10 @@ describe("Schema processing", () => {
         throw hookError;
       }
     }
-    const error = await expectSchemaProcessingError(
-      fixture.transformer.processSchemas({ strategy: new FailingStrategy() }),
-      SchemaProcessingErrorKey.SchemaProcessing
+    const error = await captureError(
+      fixture.transformer.processSchemas({ strategy: new FailingStrategy() })
     );
-    expect(error.cause).to.equal(hookError);
+    expect(error).to.equal(hookError);
     expect(fixture.targetDb.querySchemaVersion("DynamicHookFailure")).to.equal(
       "1.0.0"
     );
@@ -606,7 +655,7 @@ describe("Schema processing", () => {
       fixture.transformer.processSchemas({
         strategy: new DynamicSchemaUnionStrategy(),
       }),
-      SchemaProcessingErrorKey.SchemaConflict
+      IModelTransformerError.SchemaConflict
     );
     expect(error.cause).to.be.instanceOf(Error);
     expect(fixture.targetDb.querySchemaVersion("DynamicReference")).to.equal(
