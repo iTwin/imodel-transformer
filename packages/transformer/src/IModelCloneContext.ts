@@ -5,7 +5,7 @@
 /** @packageDocumentation
  * @module iModels
  */
-import * as assert from "assert";
+import { strict as assert } from "node:assert";
 import { Id64, Id64String, Logger } from "@itwin/core-bentley";
 import {
   Code,
@@ -28,10 +28,11 @@ import {
   IModelElementCloneContext,
   IModelJsNative,
 } from "@itwin/core-backend";
+import { EntityClass } from "@itwin/ecschema-metadata";
 import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import { Property } from "@itwin/ecschema-metadata";
+import { BigMap } from "./BigMap";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
@@ -40,7 +41,7 @@ const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
  */
 export class IModelCloneContext extends IModelElementCloneContext {
   private _refTypesCache = new ECReferenceTypesCache();
-  private _aspectRemapTable = new Map<Id64String, Id64String>();
+  private _aspectRemapTable = new BigMap<Id64String>();
 
   /** perform necessary initialization to use a clone context, namely caching the reference types in the source's schemas */
   public override async initialize() {
@@ -58,8 +59,21 @@ export class IModelCloneContext extends IModelElementCloneContext {
       "_nativeContext"
     ].cloneElement(sourceElement.id, cloneOptions);
     // Ensure that all NavigationProperties in targetElementProps have a defined value so "clearing" changes will be part of the JSON used for update
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceElement.forEach((name: string, property: Property) => {
+    const sourceElementClass =
+      sourceElement.iModel.schemaContext.getSchemaItemSync(
+        sourceElement.schemaItemKey,
+        EntityClass
+      );
+    assert(
+      sourceElementClass !== undefined,
+      `Cannot get metadata for ${sourceElement.classFullName}.`
+    );
+    for (const property of sourceElementClass.getPropertiesSync()) {
+      // Exclude custom properties because C++ has already handled them.
+      if (property.customAttributes?.has("BisCore.CustomHandledProperty"))
+        continue;
+
+      const name = property.name;
       if (
         property.isNavigation() &&
         undefined === (sourceElement as any)[ECJsNames.toJsName(name)]
@@ -67,7 +81,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
         (targetElementProps as any)[ECJsNames.toJsName(name)] =
           RelatedElement.none;
       }
-    }, false); // exclude custom because C++ has already handled them
+    }
     if (this.isBetweenIModels) {
       // The native C++ cloneElement strips off federationGuid, want to put it back if transformation is between iModels
       targetElementProps.federationGuid = sourceElement.federationGuid;
@@ -267,8 +281,17 @@ export class IModelCloneContext extends IModelElementCloneContext {
       sourceElementAspect.toJSON();
     targetElementAspectProps.id = undefined;
     const targetEntityIds: Promise<void>[] = [];
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
-    sourceElementAspect.forEach((ecName, property) => {
+    const sourceElementAspectClass =
+      sourceElementAspect.iModel.schemaContext.getSchemaItemSync(
+        sourceElementAspect.schemaItemKey,
+        EntityClass
+      );
+    assert(
+      sourceElementAspectClass !== undefined,
+      `Cannot get metadata for ${sourceElementAspect.classFullName}.`
+    );
+    for (const property of sourceElementAspectClass.getPropertiesSync()) {
+      const ecName = property.name;
       const name = ECJsNames.toJsName(ecName);
       if (property.isNavigation()) {
         const sourceNavProp: RelatedElementProps | undefined =
@@ -303,7 +326,7 @@ export class IModelCloneContext extends IModelElementCloneContext {
           sourceElementAspect.asAny[name]
         );
       }
-    });
+    }
     await Promise.all(targetEntityIds);
     return targetElementAspectProps;
   }

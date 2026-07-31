@@ -5,7 +5,7 @@
 ```ts
 
 import { BriefcaseDb } from '@itwin/core-backend';
-import { ChangedECInstance } from '@itwin/core-backend';
+import { ChangeInstance } from '@itwin/core-backend';
 import { ChangesetFileProps } from '@itwin/core-common';
 import { ChangesetIndexAndId } from '@itwin/core-common';
 import { CodeSpec } from '@itwin/core-common';
@@ -48,15 +48,17 @@ import { Transform } from '@itwin/core-geometry';
 // @public
 export class ChangedInstanceIds {
     constructor(db: IModelDb);
-    addChange(change: ChangedECInstance): Promise<void>;
+    addChange(change: ChangeInstance): Promise<void>;
     // @beta
-    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void;
+    addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg, elementIds?: Id64Arg): void;
     // @beta
     addCustomElementChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // @beta
     addCustomModelChange(changeType: SqliteChangeOp, ids: Id64Arg): Promise<void>;
     // (undocumented)
     aspect: ChangedInstanceOps;
+    // @internal
+    get aspectOwnerElementIds(): ReadonlySet<Id64String>;
     // (undocumented)
     codeSpec: ChangedInstanceOps;
     // (undocumented)
@@ -154,7 +156,9 @@ export function hasEntityChanged(entity: Entity, entityProps: EntityProps, names
 
 // @beta
 export class IModelExporter {
-    constructor(sourceDb: IModelDb, elementAspectsStrategy?: new (source: IModelDb, handler: ElementAspectsHandler) => ExportElementAspectsStrategy);
+    constructor(sourceDb: IModelDb);
+    // @internal
+    get elementAspectExportCoordinator(): ElementAspectExportCoordinator;
     excludeCodeSpec(codeSpecName: string): void;
     excludeElement(elementId: Id64String): void;
     excludeElementAspectClass(classFullName: string): void;
@@ -227,6 +231,8 @@ export class IModelImporter {
     readonly doNotUpdateElementIds: Set<string>;
     get editTxn(): EditTxn;
     protected readonly _editTxn: EditTxn;
+    // @internal
+    get elementAspectCleanup(): ElementAspectCleanup;
     finalize(): void;
     importElement(elementProps: ElementProps): Promise<Id64String>;
     importElementMultiAspects(aspectPropsArray: ElementAspectProps[],
@@ -352,6 +358,46 @@ export class IModelTransformer extends IModelExportHandler {
         initializeReverseSyncVersion?: boolean | undefined;
     }): Promise<void>;
 }
+
+// @beta
+export enum IModelTransformerError {
+    AspectOwnerRequired = "aspect-owner-required",
+    ChangedInstanceMetadataMissing = "changed-instance-metadata-missing",
+    ChangesetIndexUnavailable = "changeset-index-unavailable",
+    DanglingReference = "dangling-reference",
+    DependencyMappingMissing = "dependency-mapping-missing",
+    DependencyVersionMismatch = "dependency-version-mismatch",
+    EditTxnNotActive = "edit-txn-not-active",
+    ElementIdNotPreservable = "element-id-not-preservable",
+    ElementIdRequired = "element-id-required",
+    ExportChangesRequiresBriefcase = "export-changes-requires-briefcase",
+    ExportHandlerNotRegistered = "export-handler-not-registered",
+    GeographicCoordinateSystemMismatch = "geographic-coordinate-system-mismatch",
+    GeographicCoordinateSystemUnavailable = "geographic-coordinate-system-unavailable",
+    GeolocationUnavailable = "geolocation-unavailable",
+    ImporterOptionMismatch = "importer-option-mismatch",
+    InvalidCode = "invalid-code",
+    InvalidEntityReference = "invalid-entity-reference",
+    InvalidModelId = "invalid-model-id",
+    InvalidSubCategory = "invalid-subcategory",
+    NoChangesets = "no-changesets",
+    ParentModelRequired = "parent-model-required",
+    ProvenanceSchemaUnsupported = "provenance-schema-unsupported",
+    ProvenanceScopeConflict = "provenance-scope-conflict",
+    RelationshipClassNotFound = "relationship-class-not-found",
+    RelationshipIdRequired = "relationship-id-required",
+    RelationshipProvenanceNotFound = "relationship-provenance-not-found",
+    RootSubjectNotProcessable = "root-subject-not-processable",
+    SchemaLoadFailed = "schema-load-failed",
+    SourceEditTxnRequired = "source-edit-txn-required",
+    SynchronizationRangeInvalid = "synchronization-range-invalid",
+    SynchronizationTypeNotDetermined = "synchronization-type-not-determined",
+    SynchronizationVersionMissing = "synchronization-version-missing",
+    TargetClassNotFound = "target-class-not-found"
+}
+
+// @beta
+export const IModelTransformerErrorScope = "@itwin/imodel-transformer";
 
 // @beta
 export interface IModelTransformOptions {

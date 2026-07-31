@@ -9,8 +9,7 @@
 import {
   BriefcaseDb,
   BriefcaseManager,
-  ChangedECInstance,
-  ChangesetECAdaptor,
+  ChangeInstance,
   DefinitionModel,
   // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
@@ -22,11 +21,9 @@ import {
   IModelDb,
   IModelJsNative,
   Model,
-  PartialECChangeUnifier,
   RecipeDefinitionElement,
   Relationship,
   SqliteChangeOp,
-  SqliteChangesetReader,
 } from "@itwin/core-backend";
 import {
   assert,
@@ -35,6 +32,7 @@ import {
   Id64Set,
   Id64String,
   IModelStatus,
+  ITwinError,
   Logger,
   YieldManager,
 } from "@itwin/core-bentley";
@@ -50,14 +48,30 @@ import {
 } from "@itwin/core-common";
 import { ECVersion, Schema, SchemaKey } from "@itwin/ecschema-metadata";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
-import * as nodeAssert from "assert";
+import { strict as nodeAssert } from "node:assert";
+import { ElementAspectExportProcessor } from "./ElementAspectExportProcessor";
+import { ElementAspectExportCoordinator } from "./ElementAspectExportCoordinator";
 import {
-  ElementAspectsHandler,
-  ExportElementAspectsStrategy,
-} from "./ExportElementAspectsStrategy";
-import { ExportElementAspectsWithElementsStrategy } from "./ExportElementAspectsWithElementsStrategy";
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
+import { ChangesetScanner } from "./ChangesetScanner";
 
 const loggerCategory = TransformerLoggerCategory.IModelExporter;
+
+interface AspectElementFact {
+  id: Id64String;
+  parentId?: Id64String;
+  modelId: Id64String;
+  classFullName: string;
+  categoryId?: Id64String;
+}
+
+interface AspectModelFact {
+  id: Id64String;
+  parentModelId?: Id64String;
+  isTemplate: boolean;
+}
 
 /**
  * @beta
@@ -276,10 +290,14 @@ export abstract class IModelExportHandler {
 
 /** Base class for exporting data from an iModel.
  * @note Most uses cases will not require a custom subclass of `IModelExporter`. Instead, it is more typical to subclass/customize [IModelExportHandler]($transformer).
+ * ElementAspects are exported separately from element callbacks in bounded,
+ * owner-scoped groups. Aspect callbacks are not guaranteed to be adjacent to
+ * callbacks for their owners.
  * @see [iModel Transformation and Data Exchange]($docs/learning/transformer/index.md), [[registerHandler]], [IModelTransformer]($transformer), [IModelImporter]($transformer)
  * @beta
  */
 export class IModelExporter {
+  private static readonly _elementAspectOwnerBatchSize = 1000;
   /** The read-only source iModel. */
   public readonly sourceDb: IModelDb;
   /** A flag that indicates whether element GeometryStreams are loaded or not.
@@ -326,7 +344,13 @@ export class IModelExporter {
   /** The handler called by this IModelExporter. */
   protected get handler(): IModelExportHandler {
     if (undefined === this._handler) {
-      throw new Error("IModelExportHandler not registered");
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ExportHandlerNotRegistered,
+        },
+        message: "IModelExportHandler not registered",
+      });
     }
 
     return this._handler;
@@ -343,22 +367,33 @@ export class IModelExporter {
   /** The set of classes of Relationships that will be excluded (polymorphically) from transformation to the target iModel. */
   private _excludedRelationshipClasses = new Set<typeof Relationship>();
 
-  /** Strategy for how ElementAspects are exported */
-  private _exportElementAspectsStrategy: ExportElementAspectsStrategy;
+  /** Exports ElementAspects for accepted owner groups. */
+  private _elementAspectExportProcessor: ElementAspectExportProcessor;
+  /** Coordinates accepted-owner scopes and bounded group processing. */
+  private readonly _elementAspectExportCoordinator: ElementAspectExportCoordinator;
+
+  /** Coordinates accepted ElementAspect owners and bounded group processing.
+   * @internal
+   */
+  public get elementAspectExportCoordinator(): ElementAspectExportCoordinator {
+    return this._elementAspectExportCoordinator;
+  }
+  /** Whether change traversal skips root-owned entities. */
+  private _skipPropagateChangesToRootElements = false;
+  private readonly _rootElementIds = new Set<Id64String>([
+    IModel.rootSubjectId,
+    IModel.repositoryModelId,
+    IModel.dictionaryId,
+    "0xe", // The reality-data-sources modelId, skipped with root propagation.
+  ]);
 
   /** Construct a new IModelExporter
    * @param sourceDb The source IModelDb
    * @see registerHandler
    */
-  public constructor(
-    sourceDb: IModelDb,
-    elementAspectsStrategy: new (
-      source: IModelDb,
-      handler: ElementAspectsHandler
-    ) => ExportElementAspectsStrategy = ExportElementAspectsWithElementsStrategy
-  ) {
+  public constructor(sourceDb: IModelDb) {
     this.sourceDb = sourceDb;
-    this._exportElementAspectsStrategy = new elementAspectsStrategy(
+    this._elementAspectExportProcessor = new ElementAspectExportProcessor(
       this.sourceDb,
       {
         onExportElementMultiAspects: async (aspects) =>
@@ -369,6 +404,14 @@ export class IModelExporter {
           this.handler.shouldExportElementAspect(aspect),
         trackProgress: async () => this.trackProgress(),
       }
+    );
+    this._elementAspectExportCoordinator = new ElementAspectExportCoordinator(
+      IModelExporter._elementAspectOwnerBatchSize,
+      () =>
+        this._elementAspectExportProcessor.excludedElementAspectClassFullNames,
+      async (elementIds) =>
+        this._elementAspectExportProcessor.exportAllElementAspects(elementIds),
+      () => this._elementAspectExportProcessor.resetCaches()
     );
   }
 
@@ -388,7 +431,7 @@ export class IModelExporter {
     });
     if (this._sourceDbChanges === undefined) return;
 
-    this._exportElementAspectsStrategy.setAspectChanges(
+    this._elementAspectExportProcessor.setAspectChanges(
       this._sourceDbChanges.aspect
     );
   }
@@ -422,7 +465,7 @@ export class IModelExporter {
 
   /** Add a rule to exclude all ElementAspects of a specified class. */
   public excludeElementAspectClass(classFullName: string): void {
-    this._exportElementAspectsStrategy.excludeElementAspectClass(classFullName);
+    this._elementAspectExportProcessor.excludeElementAspectClass(classFullName);
   }
 
   /** Add a rule to exclude all Relationships of a specified class. */
@@ -440,12 +483,15 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    await this.exportModel(IModel.repositoryModelId);
+    await this._elementAspectExportCoordinator.run(async () =>
+      this.exportModel(IModel.repositoryModelId)
+    );
     await this.exportRelationships(ElementRefersToElements.classFullName);
   }
 
   /** Export changes from the source iModel.
    * Inserts, updates, and deletes are determined by inspecting the changeset(s).
+   * @throws [[ITwinError]] with scope `@itwin/imodel-transformer` and key `no-changesets` if the source iModel has no changesets and no custom changes. Call [[exportAll]] to export all content.
    * @note To form a range of versions to process, set `startChangesetId` for the start (inclusive) of the desired
    *       range and open the source iModel as of the end (inclusive) of the desired range.
    * @note the changedInstanceIds are just for this call to exportChanges, so you must continue to pass it in
@@ -453,32 +499,44 @@ export class IModelExporter {
    */
   public async exportChanges(args?: ExportChangesOptions): Promise<void> {
     if (!this.sourceDb.isBriefcaseDb())
-      throw new IModelError(
-        IModelStatus.BadRequest,
-        "Must be a briefcase to export changes"
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ExportChangesRequiresBriefcase,
+        },
+        message: "Must be a briefcase to export changes",
+      });
 
-    if (
-      "" === this.sourceDb.changeset.id &&
-      !this.sourceDbChanges?.hasChanges
-    ) {
-      await this.exportAll(); // no changesets or custom changes, so revert to exportAll
-      return;
+    let initOpts: ExporterInitOptions = args ?? {};
+    const hasExplicitChangeSource =
+      "csFileProps" in initOpts ||
+      "changedInstanceIds" in initOpts ||
+      "changesetRanges" in initOpts ||
+      "startChangeset" in initOpts;
+    const currentChangesetId = this.sourceDb.changeset.id;
+
+    if (!hasExplicitChangeSource && currentChangesetId !== "") {
+      initOpts = {
+        ...initOpts,
+        startChangeset: { id: currentChangesetId },
+      };
     }
 
-    // The change-source options are mutually exclusive. Preserve the caller's
-    // object when one is present, including its full startChangeset value.
-    // Otherwise provide the default range expected by ChangedInstanceIds.
-    const hasExplicitChangeSource =
-      args !== undefined &&
-      ("csFileProps" in args ||
-        "changedInstanceIds" in args ||
-        "changesetRanges" in args ||
-        "startChangeset" in args);
-    const initOpts: ExporterInitOptions = hasExplicitChangeSource
-      ? args
-      : { startChangeset: { id: undefined }, ...args };
     await this.initialize(initOpts);
+
+    if (currentChangesetId === "" && !this.sourceDbChanges?.hasChanges) {
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.NoChangesets,
+        },
+        message:
+          "Cannot export changes because the source iModel has no changesets or custom changes. Call exportAll() to export all content.",
+      });
+    }
+
+    this._skipPropagateChangesToRootElements =
+      initOpts.skipPropagateChangesToRootElements ?? false;
     // _sourceDbChanges are initialized in this.initialize
     nodeAssert(
       this._sourceDbChanges !== undefined,
@@ -487,21 +545,34 @@ export class IModelExporter {
 
     await this.exportCodeSpecs();
     await this.exportFonts();
-    if (initOpts.skipPropagateChangesToRootElements) {
-      // The root Subject is in the RepositoryModel. Traverse its children
-      // separately, then export other top-level repository elements while
-      // excluding the root so no element is visited twice.
-      await this.exportChildElements(IModel.rootSubjectId);
-      await this.exportModelContents(
-        IModel.repositoryModelId,
-        Element.classFullName,
-        true
-      );
-      await this.exportSubModels(IModel.repositoryModelId);
-    } else {
-      await this.exportModel(IModel.repositoryModelId);
+    await this._elementAspectExportCoordinator.run(async () => {
+      if (initOpts.skipPropagateChangesToRootElements) {
+        // The root Subject is in the RepositoryModel. Traverse its children
+        // separately, then export other top-level repository elements while
+        // excluding the root so no element is visited twice.
+        await this.exportChildElements(IModel.rootSubjectId);
+        await this.exportModelContents(
+          IModel.repositoryModelId,
+          Element.classFullName,
+          true
+        );
+        await this.exportSubModels(IModel.repositoryModelId);
+      } else {
+        await this.exportModel(IModel.repositoryModelId);
+      }
+    });
+    const aspectOnlyOwnerElementIds = new Set(
+      this._sourceDbChanges.aspectOwnerElementIds
+    );
+    for (const elementId of this._sourceDbChanges.element.insertIds) {
+      aspectOnlyOwnerElementIds.delete(elementId);
     }
-    await this.exportAllAspects();
+    for (const elementId of this._sourceDbChanges.element.updateIds) {
+      aspectOnlyOwnerElementIds.delete(elementId);
+    }
+    await this.exportAspectsForOwners(
+      await this.filterOwnerElementIdsForAspectExport(aspectOnlyOwnerElementIds)
+    );
     await this.exportRelationships(ElementRefersToElements.classFullName);
 
     // handle deletes
@@ -539,7 +610,10 @@ export class IModelExporter {
     // You can counteract the obvious impact of losing this expensive data by always calling
     // exportChanges with the [[ExportChangesOptions.changedInstanceIds]] option set to
     // whatever you want
-    if (this._resetChangeDataOnExport) this._sourceDbChanges = undefined;
+    if (this._resetChangeDataOnExport) {
+      this._sourceDbChanges = undefined;
+      this._elementAspectExportProcessor.setAspectChanges(undefined);
+    }
   }
 
   private _resetChangeDataOnExport = true;
@@ -591,7 +665,13 @@ export class IModelExporter {
       schemaKeysToExport.map(async (schemaKey) => {
         const schema = await this.sourceDb.schemaContext.getSchema(schemaKey);
         if (!schema) {
-          throw new Error(`Failed to load schema: ${schemaKey.name}`);
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.SchemaLoadFailed,
+            },
+            message: `Failed to load schema: ${schemaKey.name}`,
+          });
         }
         Logger.logTrace(loggerCategory, `exportSchema(${schemaKey.name})`);
         return onExportSchema(schema);
@@ -714,8 +794,8 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportFontByNumber(fontNumber: number): Promise<void> {
-    /** sourceDbChanges now works by using TS ChangesetECAdaptor which doesn't pick up changes to fonts since fonts is not an ec table.
-     * So lets always export fonts for the time being by always setting isUpdate = true.
+    /** ChangedInstanceIds contains EC-mapped changes, but the font table is not EC-mapped.
+     * Always export fonts because their changes are therefore absent from sourceDbChanges.
      * It is very rare and even problematic for the font table to reach a large size, so it is not a bottleneck in transforming changes.
      * See https://github.com/iTwin/imodel-transformer/pull/135 for removed code.
      */
@@ -731,6 +811,12 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportModel(modeledElementId: Id64String): Promise<void> {
+    return this.runScopedElementExport(async () =>
+      this.exportModelImpl(modeledElementId)
+    );
+  }
+
+  private async exportModelImpl(modeledElementId: Id64String): Promise<void> {
     const model: Model = this.sourceDb.models.getModel(modeledElementId);
     if (model.isTemplate && !this.wantTemplateModels) {
       return;
@@ -780,6 +866,20 @@ export class IModelExporter {
     elementClassFullName: string = Element.classFullName,
     skipRootSubject?: boolean
   ): Promise<void> {
+    return this.runScopedElementExport(async () =>
+      this.exportModelContentsImpl(
+        modelId,
+        elementClassFullName,
+        skipRootSubject
+      )
+    );
+  }
+
+  private async exportModelContentsImpl(
+    modelId: Id64String,
+    elementClassFullName: string,
+    skipRootSubject?: boolean
+  ): Promise<void> {
     if (skipRootSubject) {
       // NOTE: IModelTransformer.processAll should skip the root Subject since it is specific to the individual iModel and is not part of the changes that need to be synchronized
       // NOTE: IModelExporter.exportAll should not skip the root Subject since the goal is to export everything
@@ -824,6 +924,12 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportSubModels(parentModelId: Id64String): Promise<void> {
+    return this.runScopedElementExport(async () =>
+      this.exportSubModelsImpl(parentModelId)
+    );
+  }
+
+  private async exportSubModelsImpl(parentModelId: Id64String): Promise<void> {
     Logger.logTrace(loggerCategory, `exportSubModels(${parentModelId})`);
     const definitionModelIds: Id64String[] = [];
     const otherModelIds: Id64String[] = [];
@@ -858,14 +964,15 @@ export class IModelExporter {
       Logger.logInfo(loggerCategory, `Excluded element ${element.id} by Id`);
       return false;
     }
-    if (element instanceof GeometricElement) {
-      if (this._excludedElementCategoryIds.has(element.category)) {
-        Logger.logInfo(
-          loggerCategory,
-          `Excluded element ${element.id} by Category`
-        );
-        return false;
-      }
+    if (
+      element instanceof GeometricElement &&
+      this._excludedElementCategoryIds.has(element.category)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded element ${element.id} by Category`
+      );
+      return false;
     }
     if (
       !this.wantTemplateModels &&
@@ -887,13 +994,23 @@ export class IModelExporter {
       }
     }
     // element has passed standard exclusion rules, now give handler a chance to accept/reject
-    return this.handler.shouldExportElement(element);
+    if (!(await this.handler.shouldExportElement(element))) {
+      return false;
+    }
+    return true;
   }
 
-  /** Export the specified element, its child elements (if applicable), and any owned ElementAspects.
+  /** Export the specified element and its child elements (if applicable).
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
+   * @note ElementAspects are exported separately in owner-scoped groups, so their callbacks are not guaranteed to follow this element callback.
    */
   public async exportElement(elementId: Id64String): Promise<void> {
+    return this.runScopedElementExport(async () =>
+      this.exportElementImpl(elementId)
+    );
+  }
+
+  private async exportElementImpl(elementId: Id64String): Promise<void> {
     if (!this.visitElements) {
       Logger.logTrace(
         loggerCategory,
@@ -916,6 +1033,11 @@ export class IModelExporter {
         ? true
         : undefined;
 
+    // Short-circuit: element is not in the changeset, skip its own export but still visit children
+    if (undefined !== this._sourceDbChanges && undefined === isUpdate) {
+      return this.exportChildElements(elementId);
+    }
+
     const element = this.sourceDb.elements.getElement({
       id: elementId,
       wantGeometry: this.wantGeometry,
@@ -932,9 +1054,7 @@ export class IModelExporter {
       await this.handler.preExportElement(element);
       await this.handler.onExportElement(element, isUpdate);
       await this.trackProgress();
-      await this._exportElementAspectsStrategy.exportElementAspectsForElement(
-        elementId
-      );
+      await this._elementAspectExportCoordinator.addAcceptedOwner(elementId);
       return this.exportChildElements(elementId);
     } else {
       await this.handler.onSkipElement(element.id);
@@ -945,6 +1065,12 @@ export class IModelExporter {
    * @note This method is called from [[exportChanges]] and [[exportAll]], so it only needs to be called directly when exporting a subset of an iModel.
    */
   public async exportChildElements(elementId: Id64String): Promise<void> {
+    return this.runScopedElementExport(async () =>
+      this.exportChildElementsImpl(elementId)
+    );
+  }
+
+  private async exportChildElementsImpl(elementId: Id64String): Promise<void> {
     if (!this.visitElements) {
       Logger.logTrace(
         loggerCategory,
@@ -962,10 +1088,338 @@ export class IModelExporter {
     }
   }
 
-  /** Exports all aspects present in the iModel.
-   */
-  private async exportAllAspects(): Promise<void> {
-    return this._exportElementAspectsStrategy.exportAllElementAspects();
+  /** Exports all aspects owned by the supplied elements. */
+  private async exportAspectsForOwners(
+    ownerElementIds: ReadonlySet<Id64String>
+  ): Promise<void> {
+    return this._elementAspectExportCoordinator.exportOwners(ownerElementIds);
+  }
+
+  private async filterOwnerElementIdsForAspectExport(
+    ownerElementIds: ReadonlySet<Id64String>
+  ): Promise<ReadonlySet<Id64String>> {
+    if (ownerElementIds.size === 0) return new Set<Id64String>();
+
+    const elementFacts =
+      await this.queryAspectElementHierarchyFacts(ownerElementIds);
+    const modelFacts = await this.queryAspectModelHierarchyFacts(
+      new Set(
+        [...elementFacts.values()].map((elementFact) => elementFact.modelId)
+      )
+    );
+    await this.queryAspectElementFacts(
+      new Set(modelFacts.keys()),
+      elementFacts
+    );
+
+    const elementIds = new Set<Id64String>();
+    for (const elementId of ownerElementIds) {
+      if (
+        this._skipPropagateChangesToRootElements &&
+        this._rootElementIds.has(elementId)
+      ) {
+        continue;
+      }
+      if (
+        await this.shouldExportElementHierarchyForAspect(
+          elementId,
+          elementFacts,
+          modelFacts
+        )
+      ) {
+        elementIds.add(elementId);
+      }
+    }
+    return elementIds;
+  }
+
+  private async shouldExportElementHierarchyForAspect(
+    elementId: Id64String,
+    elementFacts: ReadonlyMap<Id64String, AspectElementFact>,
+    modelFacts: ReadonlyMap<Id64String, AspectModelFact>
+  ): Promise<boolean> {
+    let elementFact = elementFacts.get(elementId);
+    while (elementFact !== undefined) {
+      if (
+        !(await this.shouldExportElementForAspect(elementFact.id, elementFact))
+      )
+        return false;
+      if (
+        !(await this.shouldExportModelForAspect(
+          elementFact.modelId,
+          elementFacts,
+          modelFacts
+        ))
+      ) {
+        return false;
+      }
+      const parentId = elementFact.parentId;
+      if (
+        parentId === undefined ||
+        (this._skipPropagateChangesToRootElements &&
+          parentId === IModel.rootSubjectId)
+      ) {
+        return true;
+      }
+      elementFact = elementFacts.get(parentId);
+    }
+    return false;
+  }
+
+  private async shouldExportModelForAspect(
+    modelId: Id64String,
+    elementFacts: ReadonlyMap<Id64String, AspectElementFact>,
+    modelFacts: ReadonlyMap<Id64String, AspectModelFact>
+  ): Promise<boolean> {
+    const modelFact = modelFacts.get(modelId);
+    if (modelFact === undefined) {
+      this.sourceDb.models.getModel(modelId);
+      return false;
+    }
+    if (modelFact.isTemplate && !this.wantTemplateModels) return false;
+    if (
+      modelFact.id !== IModel.repositoryModelId &&
+      modelFact.id !== IModel.dictionaryId &&
+      modelFact.id !== "0xe" &&
+      !(await this.shouldExportElementForAspect(
+        modelFact.id,
+        elementFacts.get(modelFact.id)
+      ))
+    ) {
+      return false;
+    }
+    if (
+      modelFact.parentModelId === undefined ||
+      modelFact.parentModelId === modelFact.id
+    ) {
+      return true;
+    }
+    return this.shouldExportModelForAspect(
+      modelFact.parentModelId,
+      elementFacts,
+      modelFacts
+    );
+  }
+
+  private async runScopedElementExport(
+    exportElements: () => Promise<void>
+  ): Promise<void> {
+    await this._elementAspectExportCoordinator.run(exportElements);
+  }
+
+  /** Apply the element export filter when deciding whether to process an aspect owner. @internal */
+  private async shouldExportElementForAspect(
+    elementId: Id64String,
+    elementFact?: AspectElementFact
+  ): Promise<boolean> {
+    if (!this.visitElements) return false;
+
+    if (
+      this.shouldExportElement ===
+        IModelExporter.prototype.shouldExportElement &&
+      elementFact !== undefined &&
+      !this.shouldExportElementFact(elementFact)
+    ) {
+      return false;
+    }
+
+    const element = this.sourceDb.elements.getElement({
+      id: elementId,
+      wantGeometry: false,
+      wantBRepData: false,
+    });
+    return this.shouldExportElement(element);
+  }
+
+  private shouldExportElementFact(elementFact: AspectElementFact): boolean {
+    if (this._excludedElementIds.has(elementFact.id)) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded element ${elementFact.id} by Id`
+      );
+      return false;
+    }
+
+    const elementClass = this.sourceDb.getJsClass<typeof Element>(
+      elementFact.classFullName
+    );
+    if (
+      (elementFact.classFullName === GeometricElement.classFullName ||
+        elementClass.prototype instanceof GeometricElement) &&
+      elementFact.categoryId !== undefined &&
+      this._excludedElementCategoryIds.has(elementFact.categoryId)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded element ${elementFact.id} by Category`
+      );
+      return false;
+    }
+    if (
+      !this.wantTemplateModels &&
+      (elementFact.classFullName === RecipeDefinitionElement.classFullName ||
+        elementClass.prototype instanceof RecipeDefinitionElement)
+    ) {
+      Logger.logInfo(
+        loggerCategory,
+        `Excluded RecipeDefinitionElement ${elementFact.id} because wantTemplate=false`
+      );
+      return false;
+    }
+    for (const excludedElementClass of this._excludedElementClasses) {
+      if (
+        elementFact.classFullName === excludedElementClass.classFullName ||
+        elementClass.prototype instanceof excludedElementClass
+      ) {
+        Logger.logInfo(
+          loggerCategory,
+          `Excluded element ${elementFact.id} by class: ${excludedElementClass.classFullName}`
+        );
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async queryAspectElementHierarchyFacts(
+    elementIds: ReadonlySet<Id64String>
+  ): Promise<Map<Id64String, AspectElementFact>> {
+    const elementFacts = new Map<Id64String, AspectElementFact>();
+    const queriedElementIds = new Set<Id64String>();
+    let pendingElementIds = new Set(elementIds);
+    while (pendingElementIds.size > 0) {
+      const currentElementIds = pendingElementIds;
+      pendingElementIds = new Set<Id64String>();
+      await this.queryAspectElementFacts(currentElementIds, elementFacts);
+      for (const elementId of currentElementIds)
+        queriedElementIds.add(elementId);
+      for (const elementId of currentElementIds) {
+        const parentId = elementFacts.get(elementId)?.parentId;
+        if (
+          parentId !== undefined &&
+          !queriedElementIds.has(parentId) &&
+          !elementFacts.has(parentId)
+        ) {
+          pendingElementIds.add(parentId);
+        }
+      }
+    }
+    return elementFacts;
+  }
+
+  private async queryAspectElementFacts(
+    elementIds: ReadonlySet<Id64String>,
+    elementFacts: Map<Id64String, AspectElementFact>
+  ): Promise<void> {
+    const unqueriedElementIds = new Set(
+      [...elementIds].filter((elementId) => !elementFacts.has(elementId))
+    );
+    if (unqueriedElementIds.size === 0) return;
+
+    for (const elementIdBatch of this.getAspectOwnerIdBatches(
+      unqueriedElementIds
+    )) {
+      const queryParams = new QueryBinder().bindIdSet(
+        "elementIds",
+        elementIdBatch
+      );
+      for await (const row of this.sourceDb.createQueryReader(
+        `SELECT e.ECInstanceId id, e.Parent.Id parentId, e.Model.Id modelId,
+                ec_className(e.ECClassId, 's') schemaName,
+                ec_className(e.ECClassId, 'c') className
+         FROM bis.Element e
+         INNER JOIN IdSet(:elementIds) ids ON ids.id = e.ECInstanceId
+         OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+        queryParams,
+        { usePrimaryConn: true }
+      )) {
+        elementFacts.set(row.id, {
+          id: row.id,
+          parentId: row.parentId ?? undefined,
+          modelId: row.modelId,
+          classFullName: `${row.schemaName}:${row.className}`,
+        });
+      }
+      if (this._excludedElementCategoryIds.size > 0) {
+        const categoryQueryParams = new QueryBinder().bindIdSet(
+          "elementIds",
+          elementIdBatch
+        );
+        for await (const row of this.sourceDb.createQueryReader(
+          `SELECT g.ECInstanceId id, g.Category.Id categoryId
+           FROM bis.GeometricElement g
+           INNER JOIN IdSet(:elementIds) ids ON ids.id = g.ECInstanceId
+           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+          categoryQueryParams,
+          { usePrimaryConn: true }
+        )) {
+          const elementFact = elementFacts.get(row.id);
+          if (elementFact !== undefined) {
+            elementFact.categoryId = row.categoryId;
+          }
+        }
+      }
+    }
+  }
+
+  private async queryAspectModelHierarchyFacts(
+    modelIds: ReadonlySet<Id64String>
+  ): Promise<Map<Id64String, AspectModelFact>> {
+    const modelFacts = new Map<Id64String, AspectModelFact>();
+    const queriedModelIds = new Set<Id64String>();
+    let pendingModelIds = new Set(modelIds);
+    while (pendingModelIds.size > 0) {
+      const currentModelIds = pendingModelIds;
+      pendingModelIds = new Set<Id64String>();
+      for (const modelIdBatch of this.getAspectOwnerIdBatches(
+        currentModelIds
+      )) {
+        const queryParams = new QueryBinder().bindIdSet(
+          "modelIds",
+          modelIdBatch
+        );
+        for await (const row of this.sourceDb.createQueryReader(
+          `SELECT model.ECInstanceId id, model.ParentModel.Id parentModelId, model.IsTemplate isTemplate
+           FROM bis.Model model
+           INNER JOIN IdSet(:modelIds) ids ON ids.id = model.ECInstanceId
+           OPTIONS ENABLE_EXPERIMENTAL_FEATURES`,
+          queryParams,
+          { usePrimaryConn: true }
+        )) {
+          modelFacts.set(row.id, {
+            id: row.id,
+            parentModelId: row.parentModelId ?? undefined,
+            isTemplate: row.isTemplate === true || row.isTemplate === 1,
+          });
+        }
+      }
+      for (const modelId of currentModelIds) queriedModelIds.add(modelId);
+      for (const modelId of currentModelIds) {
+        const parentModelId = modelFacts.get(modelId)?.parentModelId;
+        if (
+          parentModelId !== undefined &&
+          !queriedModelIds.has(parentModelId) &&
+          !modelFacts.has(parentModelId)
+        ) {
+          pendingModelIds.add(parentModelId);
+        }
+      }
+    }
+    return modelFacts;
+  }
+
+  private *getAspectOwnerIdBatches(
+    ids: ReadonlySet<Id64String>
+  ): Iterable<Id64Set> {
+    let batch = new Set<Id64String>();
+    for (const id of ids) {
+      batch.add(id);
+      if (batch.size === IModelExporter._elementAspectOwnerBatchSize) {
+        yield batch;
+        batch = new Set<Id64String>();
+      }
+    }
+    if (batch.size > 0) yield batch;
   }
 
   /** Exports all relationships that subclass from the specified base class.
@@ -1120,6 +1574,14 @@ export class ChangedInstanceIds {
   private _aspectSubclassIds?: Set<string>;
   private _relationshipSubclassIds?: Set<string>;
   private _relationshipSubclassIdsToSkip?: Set<string>;
+  private readonly _aspectOwnerElementIds = new Set<Id64String>();
+
+  /** Element IDs that own the aspects represented by `aspect` changes.
+   * @internal
+   */
+  public get aspectOwnerElementIds(): ReadonlySet<Id64String> {
+    return this._aspectOwnerElementIds;
+  }
 
   private _db: IModelDb;
   public constructor(db: IModelDb) {
@@ -1213,36 +1675,65 @@ export class ChangedInstanceIds {
   }
 
   /**
-   * Adds the provided [[ChangedECInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
+   * Adds the provided [[ChangeInstance]] to the appropriate set of changes by class type (codeSpec, model, element, aspect, or relationship) maintained by this instance of ChangedInstanceIds.
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
-   * @param change ChangedECInstance which has the ECInstanceId, changeType (insert, update, delete) and ECClassId of the changed entity
+   * @param change Changed EC instance with the ID, operation, and EC class ID of the changed entity.
    */
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
-  public async addChange(change: ChangedECInstance): Promise<void> {
+  public async addChange(change: ChangeInstance): Promise<void> {
     if (!this._ecClassIdsInitialized) await this.setupECClassIds();
-    const ecClassId = change.ECClassId ?? change.$meta?.fallbackClassId;
+    const ecClassId = change.ECClassId;
     if (ecClassId === undefined)
-      throw new Error(
-        `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change?.$meta?.tables}`
-      );
-    const changeType: SqliteChangeOp | undefined = change.$meta?.op;
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ChangedInstanceMetadataMissing,
+        },
+        message: `ECClassId was not found for id: ${change.ECInstanceId}! Table is : ${change.$meta.tables}`,
+      });
+    const changeType: SqliteChangeOp | undefined = change.$meta.op;
     if (changeType === undefined)
-      throw new Error(
-        `ChangeType was undefined for id: ${change.ECInstanceId}.`
-      );
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.ChangedInstanceMetadataMissing,
+        },
+        message: `ChangeType was undefined for id: ${change.ECInstanceId}.`,
+      });
     if (this._relationshipSubclassIdsToSkip?.has(ecClassId)) return;
 
     if (this.isRelationship(ecClassId))
       this.handleChange(this.relationship, changeType, change.ECInstanceId);
     else if (this.isCodeSpec(ecClassId))
       this.handleChange(this.codeSpec, changeType, change.ECInstanceId);
-    else if (this.isAspect(ecClassId))
+    else if (this.isAspect(ecClassId)) {
+      const ownerElementId =
+        change.Element?.Id ??
+        this.tryGetAspectOwnerElementId(change.ECInstanceId);
+      if (ownerElementId !== undefined) {
+        this._aspectOwnerElementIds.add(ownerElementId);
+      }
       this.handleChange(this.aspect, changeType, change.ECInstanceId);
-    else if (this.isModel(ecClassId))
+    } else if (this.isModel(ecClassId))
       this.handleChange(this.model, changeType, change.ECInstanceId);
     else if (this.isElement(ecClassId))
       this.handleChange(this.element, changeType, change.ECInstanceId);
+  }
+
+  private tryGetAspectOwnerElementId(
+    aspectId: Id64String
+  ): Id64String | undefined {
+    try {
+      return this._db.elements.getAspect(aspectId).element.id;
+    } catch (error) {
+      if (
+        error instanceof IModelError &&
+        error.errorNumber === IModelStatus.NotFound
+      ) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1322,13 +1813,58 @@ export class ChangedInstanceIds {
    * If the same ECInstanceId is seen multiple times, the changedInstanceIds will be modified accordingly, i.e. if an id 'x' was updated but now we see 'x' was deleted, we will remove 'x'
    * from the set of updatedIds and add it to the set of deletedIds for the appropriate class type.
    * @note It is the responsibility of the caller to ensure that the provided id is, in fact an aspect.
+   * @param elementIds Owning element IDs. Required when `changeType` is
+   *        `Deleted` or the source aspect row is unavailable.
    * @note In most cases, this method does not need to be called. Its only for consumers to mimic changes as if they were found in a changeset, which should only be useful in certain cases such as the changing of filter criteria for a preexisting master branch relationship.
    * @beta
    */
-  public addCustomAspectChange(changeType: SqliteChangeOp, ids: Id64Arg): void {
+  public addCustomAspectChange(
+    changeType: SqliteChangeOp,
+    ids: Id64Arg,
+    elementIds?: Id64Arg
+  ): void {
+    if (elementIds !== undefined) {
+      for (const elementId of Id64.iterable(elementIds)) {
+        this._aspectOwnerElementIds.add(elementId);
+      }
+    }
     for (const id of Id64.iterable(ids)) {
+      if (elementIds === undefined && changeType === "Deleted") {
+        ITwinError.throwError({
+          iTwinErrorId: {
+            scope: IModelTransformerErrorScope,
+            key: IModelTransformerError.AspectOwnerRequired,
+          },
+          message:
+            "Custom deleted ElementAspect changes require the owning element ID.",
+        });
+      }
+      if (elementIds === undefined && changeType !== "Deleted") {
+        const ownerElementId = this.tryGetAspectOwnerElementId(id);
+        if (ownerElementId === undefined) {
+          ITwinError.throwError({
+            iTwinErrorId: {
+              scope: IModelTransformerErrorScope,
+              key: IModelTransformerError.AspectOwnerRequired,
+            },
+            message:
+              "Custom ElementAspect changes require the owning element ID when the source aspect is unavailable.",
+          });
+        }
+        this._aspectOwnerElementIds.add(ownerElementId);
+      }
+
       this.handleChange(this.aspect, changeType, id);
     }
+  }
+
+  private recordCustomAspectChange(
+    changeType: SqliteChangeOp,
+    aspectId: Id64String,
+    ownerElementId: Id64String
+  ): void {
+    this._aspectOwnerElementIds.add(ownerElementId);
+    this.handleChange(this.aspect, changeType, aspectId);
   }
 
   /**
@@ -1340,13 +1876,16 @@ export class ChangedInstanceIds {
 
     const ecQuery = `
     WITH RECURSIVE hierarchy (parentId) AS (
-        SELECT Model.Id FROM bis.Element WHERE InVirtualSet(:elementIds, ECInstanceId)
+        SELECT element.Model.Id
+        FROM bis.Element element
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = element.ECInstanceId
         UNION
         SELECT ParentModel.id
         FROM bis.Model e
             INNER JOIN hierarchy h ON h.parentId = e.ECInstanceId
         )
         SELECT parentId FROM hierarchy where parentId is not null
+        OPTIONS ENABLE_EXPERIMENTAL_FEATURES
     `;
     const parentModelIds = new Set<Id64String>();
     for await (const row of this._db.createQueryReader(ecQuery, params, {
@@ -1369,9 +1908,16 @@ export class ChangedInstanceIds {
     relationshipClassName: string,
     elementIds: Id64Set
   ) {
-    const ecQuery = `SELECT ECInstanceId FROM ${relationshipClassName}
-        WHERE InVirtualSet(:elementIds, TargetECInstanceId)
-        OR InVirtualSet(:elementIds, SourceECInstanceId)`;
+    const ecQuery = `SELECT relationship.ECInstanceId
+        FROM ${relationshipClassName} relationship
+        INNER JOIN IdSet(:elementIds) ids
+          ON ids.id = relationship.TargetECInstanceId
+        UNION
+        SELECT relationship.ECInstanceId
+        FROM ${relationshipClassName} relationship
+        INNER JOIN IdSet(:elementIds) ids
+          ON ids.id = relationship.SourceECInstanceId
+        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
 
     const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
     const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
@@ -1388,13 +1934,17 @@ export class ChangedInstanceIds {
       ElementUniqueAspect.classFullName,
       ElementMultiAspect.classFullName,
     ]) {
-      const ecQuery = `Select ECInstanceId from ${aspectClassName} where InVirtualSet(:elementIds, Element.Id)`;
+      const ecQuery = `SELECT aspect.ECInstanceId, aspect.Element.Id
+        FROM ${aspectClassName} aspect
+        INNER JOIN IdSet(:elementIds) ids ON ids.id = aspect.Element.Id
+        OPTIONS ENABLE_EXPERIMENTAL_FEATURES`;
       const queryBinder = new QueryBinder().bindIdSet("elementIds", elementIds);
       const queryReader = this._db.createQueryReader(ecQuery, queryBinder, {
         usePrimaryConn: true,
       });
       for await (const row of queryReader) {
-        this.addCustomAspectChange("Inserted", row.toArray()[0]);
+        const [aspectId, elementId] = row.toArray();
+        this.recordCustomAspectChange("Inserted", aspectId, elementId);
       }
     }
   }
@@ -1482,43 +2032,7 @@ export class ChangedInstanceIds {
     if (csFileProps === undefined) return undefined;
 
     const changedInstanceIds = new ChangedInstanceIds(opts.iModel);
-
-    for (const csFile of csFileProps) {
-      const csReader = SqliteChangesetReader.openFile({
-        fileName: csFile.pathname,
-        db: opts.iModel,
-        disableSchemaCheck: true,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const csAdaptor = new ChangesetECAdaptor(csReader);
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const ecChangeUnifier = new PartialECChangeUnifier(opts.iModel);
-      while (csAdaptor.step()) {
-        ecChangeUnifier.appendFrom(csAdaptor);
-      }
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const changes: ChangedECInstance[] = [...ecChangeUnifier.instances];
-
-      for (const change of changes) {
-        // Change is recorded at table level, not EC entity level.
-        // This `change.$meta.op` operation overwrite is needed to properly handle scenario when:
-        // 1. Source has an EC class with less than 32 properties. There are existing elements for that class.
-        // 2. Class is then updated to have more than 32 properties. Which means overflow table is now needed to store its elements.
-        //  During schema update all elements that belong to updated class, will be expanded into overflow table.
-        // 3. Changeset will have a record about `insert` operation into overflow table for already existing elements.
-        // This fix will overwrite such 'insert' and 'delete' operations to 'update' as no changes are done to main table.
-        // It ensures that changes will be processed and squashed correctly.
-        if (
-          change.$meta &&
-          (change.$meta.op === "Inserted" || change.$meta.op === "Deleted") &&
-          change.$meta.tables.every((e) => e.endsWith("Overflow"))
-        ) {
-          change.$meta.op = "Updated";
-        }
-        await changedInstanceIds.addChange(change);
-      }
-      csReader.close();
-    }
+    await ChangesetScanner.scan(opts.iModel, csFileProps, changedInstanceIds);
     return changedInstanceIds;
   }
 }

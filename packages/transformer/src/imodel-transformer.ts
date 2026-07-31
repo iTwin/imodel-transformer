@@ -8,18 +8,23 @@ export * from "./IModelImporter";
 export * from "./IModelTransformer";
 export * from "./SchemaProcessingStrategy";
 export * from "./SchemaProcessingErrors";
+export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 
 import * as semver from "semver";
+import { ITwinError } from "@itwin/core-bentley";
 import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
+import {
+  IModelTransformerError,
+  IModelTransformerErrorScope,
+} from "./IModelTransformerError";
+import { transformerPackageMetadata } from "./TransformerPackageMetadata";
 
-// must use an untyped require to not hoist src into lib/cjs, also the compiled output will be in 'lib/cjs', not 'src' so use `../..` to reach package.json
 const {
   version: ourVersion,
   name: ourName,
   peerDependencies,
-  // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-} = require("../../package.json");
+} = transformerPackageMetadata;
 
 const ourITwinCoreBackendDepRange = peerDependencies["@itwin/core-backend"];
 
@@ -50,7 +55,7 @@ if (
   if (process.env[suggestEnvVarName]) {
     // let's not import https except in this case
     // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-    const https = require("https") as typeof import("https");
+    const https = require("node:https") as typeof import("node:https");
     https.get(`https://registry.npmjs.org/${ourName}`, async (resp) => {
       const chunks: string[] = [];
       const packumentSrc = await new Promise<string>((r) =>
@@ -85,19 +90,27 @@ if (
         .filter(isTaglessVersion)
         .reverse();
 
-      throw Error(
-        [
+      ITwinError.throwError({
+        iTwinErrorId: {
+          scope: IModelTransformerErrorScope,
+          key: IModelTransformerError.DependencyVersionMismatch,
+        },
+        message: [
           errHeader,
           `You have ${suggestEnvVarName}=1 set in the environment, so we suggest one of the following versions.`,
           "Be aware that older versions may be missing bug fixes.",
           ...latestFirstApplicableVersions,
-        ].join("\n")
-      );
+        ].join("\n"),
+      });
     });
   } else {
-    throw Error(
-      `${errHeader}You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`
-    );
+    ITwinError.throwError({
+      iTwinErrorId: {
+        scope: IModelTransformerErrorScope,
+        key: IModelTransformerError.DependencyVersionMismatch,
+      },
+      message: `${errHeader}You can rerun with the environment variable ${suggestEnvVarName}=1 to have this error suggest a version`,
+    });
   }
 }
 
@@ -120,4 +133,20 @@ if (
 /**
  * @docs-group-description Logging
  * Logger categories used by this package.
+ */
+/**
+ * @docs-group-description ElementAspectExportCoordinator
+ * Internal coordination for scoped, owner-batched ElementAspect export.
+ */
+/**
+ * @docs-group-description ElementAspectExportProcessor
+ * Internal source queries, filtering, and export callbacks for ElementAspects owned by accepted elements.
+ */
+/**
+ * @docs-group-description IModelTransformerError
+ * Stable identifiers for errors originating from this package.
+ */
+/**
+ * @docs-group-description TransformerPackageMetadata
+ * Internal metadata describing this package and its peer dependencies.
  */

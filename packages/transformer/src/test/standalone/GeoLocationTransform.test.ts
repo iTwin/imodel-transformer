@@ -2,7 +2,7 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-import * as path from "path";
+import * as path from "node:path";
 import {
   DefinitionModel,
   GeometricElement3d,
@@ -34,16 +34,20 @@ import {
   Transform,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { assert } from "console";
+import { assert } from "node:console";
 import {
   IModelTransformer,
   IModelTransformOptions,
 } from "../../IModelTransformer";
-import { expect } from "chai";
-import * as sinon from "sinon";
+import { expect } from "vitest";
 import { Logger } from "@itwin/core-bentley";
 import { TransformerLoggerCategory } from "../../TransformerLoggerCategory";
-import { createStartedEditTxn } from "../IModelTransformerUtils";
+import {
+  createStartedEditTxn,
+  expectTransformerError,
+} from "../IModelTransformerUtils";
+import { IModelTransformerError } from "../../IModelTransformerError";
+import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 interface GeolocationData {
   ecefLocation: EcefLocation | undefined;
@@ -133,7 +137,10 @@ async function getGeometric3dElements(
 }
 
 function initOutputFile(fileBaseName: string) {
-  const outputDirName = path.join(__dirname, "output");
+  const outputDirName = path.join(
+    KnownTestLocations.outputDir,
+    "GeoLocationTransform"
+  );
   if (!IModelJsFs.existsSync(outputDirName)) {
     IModelJsFs.mkdirSync(outputDirName);
   }
@@ -248,7 +255,7 @@ describe("Linear Geolocation Transformations", () => {
       "blue"
     );
 
-    const loggerSpy = sinon.spy(Logger, "logTrace");
+    const loggerSpy = vi.spyOn(Logger, "logTrace");
 
     const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
@@ -263,13 +270,15 @@ describe("Linear Geolocation Transformations", () => {
     await transformer.process();
 
     expect(
-      loggerSpy.calledWithMatch(
-        TransformerLoggerCategory.IModelTransformer,
-        "No Geolcation data to align, both GCS and ECEF are undefined"
+      loggerSpy.mock.calls.some(
+        (call) =>
+          call[0] === TransformerLoggerCategory.IModelTransformer &&
+          call[1] ===
+            "No Geolcation data to align, both GCS and ECEF are undefined"
       )
     ).to.be.true;
 
-    loggerSpy.restore();
+    loggerSpy.mockRestore();
     targetDb.close();
     sourceDb.close();
     transformer.dispose();
@@ -304,7 +313,7 @@ describe("Linear Geolocation Transformations", () => {
     const srcElems = await getGeometric3dElements(sourceDb);
     const srcElem = srcElems[0];
 
-    const loggerSpy = sinon.spy(Logger, "logTrace");
+    const loggerSpy = vi.spyOn(Logger, "logTrace");
 
     const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
@@ -330,13 +339,15 @@ describe("Linear Geolocation Transformations", () => {
     ).to.be.true;
 
     expect(
-      loggerSpy.calledWithMatch(
-        TransformerLoggerCategory.IModelTransformer,
-        "ECEF data is already aligned. No spatial transforms needed."
+      loggerSpy.mock.calls.some(
+        (call) =>
+          call[0] === TransformerLoggerCategory.IModelTransformer &&
+          call[1] ===
+            "ECEF data is already aligned. No spatial transforms needed."
       )
     ).to.be.true;
 
-    loggerSpy.restore();
+    loggerSpy.mockRestore();
 
     targetDb.close();
     sourceDb.close();
@@ -350,7 +361,7 @@ describe("Non Linear Geolocation Transformations", () => {
   let srcHelmertTransform: Helmert2DWithZOffset;
   let targetHelmertTransform: Helmert2DWithZOffset;
 
-  before(async () => {
+  beforeAll(async () => {
     horizontalCRS = new HorizontalCRS({
       id: "10TM115-27",
       description: "",
@@ -708,7 +719,7 @@ describe("Non Linear Geolocation Transformations", () => {
     const srcElems = await getGeometric3dElements(sourceDb);
     const srcElem = srcElems[0];
 
-    const loggerSpy = sinon.spy(Logger, "logTrace");
+    const loggerSpy = vi.spyOn(Logger, "logTrace");
 
     const editTxn = createStartedEditTxn(targetDb);
     const transformerOptions: IModelTransformOptions = {
@@ -734,13 +745,15 @@ describe("Non Linear Geolocation Transformations", () => {
     ).to.be.true;
 
     expect(
-      loggerSpy.calledWithMatch(
-        TransformerLoggerCategory.IModelTransformer,
-        "Geolocation data is already aligned. No spatial transforms needed."
+      loggerSpy.mock.calls.some(
+        (call) =>
+          call[0] === TransformerLoggerCategory.IModelTransformer &&
+          call[1] ===
+            "Geolocation data is already aligned. No spatial transforms needed."
       )
     ).to.be.true;
 
-    loggerSpy.restore();
+    loggerSpy.mockRestore();
 
     targetDb.close();
     sourceDb.close();
@@ -772,13 +785,13 @@ describe("Non Linear Geolocation Transformations", () => {
       tryAlignGeolocation: true,
     };
 
-    expect(
+    await expectTransformerError(
       () =>
         new IModelTransformer(
           { source: sourceDb, target: editTxn },
           transformerOptions
-        )
-    ).to.throw(
+        ),
+      IModelTransformerError.GeographicCoordinateSystemUnavailable,
       "Target iModel does not have a geographic coordinate system defined."
     );
 
@@ -837,13 +850,13 @@ describe("Non Linear Geolocation Transformations", () => {
       tryAlignGeolocation: true,
     };
 
-    expect(
+    await expectTransformerError(
       () =>
         new IModelTransformer(
           { source: sourceDb, target: editTxn },
           transformerOptions
-        )
-    ).to.throw(
+        ),
+      IModelTransformerError.GeographicCoordinateSystemMismatch,
       "Source and target geographic coordinate systems must match to calculate the spatial transform."
     );
 

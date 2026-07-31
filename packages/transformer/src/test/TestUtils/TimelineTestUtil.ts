@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
+import { assert, expect } from "vitest";
 import {
   BriefcaseDb,
   IModelDb,
@@ -269,6 +269,7 @@ export type TimelineStateChange =
           expectThrow?: boolean;
           assert?: {
             afterProcessChanges?: (transformer: IModelTransformer) => void;
+            onError?: (error: unknown) => void;
           };
         },
       ];
@@ -302,7 +303,9 @@ export type TimelineReferences = Record<string, ElementProps>;
 export type Timeline = Record<
   number,
   {
-    assert?: (imodels: Record<string, TimelineIModelState>) => void;
+    assert?: (
+      imodels: Record<string, TimelineIModelState>
+    ) => void | Promise<void>;
     [modelName: string]:
       | undefined // only necessary for the previous optional properties
       | ((imodels: Record<string, TimelineIModelState>) => void) // only necessary for the assert property
@@ -371,6 +374,7 @@ export async function runTimeline(
             expectThrow?: boolean;
             assert?: {
               afterProcessChanges?: (transformer: IModelTransformer) => void;
+              onError?: (error: unknown) => void;
             };
           },
         ]
@@ -551,6 +555,7 @@ export async function runTimeline(
           assertFxns?.afterProcessChanges?.(syncer);
           processSucceeded = true;
         } catch (err: any) {
+          assertFxns?.onError?.(err);
           if (/startChangesetId should be exactly/.test(err.message)) {
             console.log("change history:"); // eslint-disable-line
             printChangelogs();
@@ -623,7 +628,7 @@ export async function runTimeline(
     }
 
     if (pt.assert) {
-      pt.assert(Object.fromEntries(trackedIModels));
+      await pt.assert(Object.fromEntries(trackedIModels));
     }
 
     timelineStates.set(i, {

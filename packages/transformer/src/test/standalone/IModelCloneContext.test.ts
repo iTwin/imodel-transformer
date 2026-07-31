@@ -23,8 +23,8 @@ import {
   RelationshipProps,
   SubCategoryAppearance,
 } from "@itwin/core-common";
-import { expect } from "chai";
-import * as path from "path";
+import { expect } from "vitest";
+import * as path from "node:path";
 import {
   createStartedEditTxn,
   IModelTransformerTestUtils,
@@ -32,7 +32,6 @@ import {
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 
 import { IModelTransformer } from "../../IModelTransformer";
-import "./TransformerTestStartup"; // calls startup/shutdown IModelHost before/after all tests
 
 describe("IModelCloneContext", () => {
   const outputDir = path.join(
@@ -40,7 +39,7 @@ describe("IModelCloneContext", () => {
     "IModelTransformer"
   );
 
-  before(async () => {
+  beforeAll(async () => {
     if (!IModelJsFs.existsSync(KnownTestLocations.outputDir)) {
       IModelJsFs.mkdirSync(KnownTestLocations.outputDir);
     }

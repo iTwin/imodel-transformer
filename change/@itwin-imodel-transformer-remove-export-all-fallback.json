@@ -1,0 +1,7 @@
+{
+  "type": "major",
+  "comment": "Make exportChanges throw instead of falling back to exportAll when the source has no changesets.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "DanRod1999@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}

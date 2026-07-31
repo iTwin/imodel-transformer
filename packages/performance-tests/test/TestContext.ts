@@ -14,7 +14,7 @@ import { Logger } from "@itwin/core-bentley";
 import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
 import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
 import { AccessTokenAdapter } from "@itwin/imodels-access-common";
-import assert from "assert";
+import assert from "node:assert";
 import { generateTestIModel } from "./iModelUtils";
 
 const loggerCategory = "TestContext";
@@ -82,11 +82,6 @@ export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
     numElements: 100_000,
     fedGuids: true,
     fileName: "testIModel-fedguids-true.bim",
-  });
-  yield generateTestIModel({
-    numElements: 100_000,
-    fedGuids: false,
-    fileName: "testIModel-fedguids-false.bim",
   });
 }
 

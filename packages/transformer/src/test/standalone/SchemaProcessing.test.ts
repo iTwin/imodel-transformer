@@ -3,8 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, expect } from "chai";
-import * as sinon from "sinon";
+import { assert, expect, vi } from "vitest";
 import { EditTxn, IModelJsFs, SnapshotDb } from "@itwin/core-backend";
 import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { SchemaLoader } from "@itwin/ecschema-metadata";
@@ -22,8 +21,6 @@ import {
 } from "../../SchemaProcessingErrors";
 import { IModelTransformerTestUtils } from "../IModelTransformerUtils";
 import * as TestUtils from "../TestUtils";
-
-import "./TransformerTestStartup";
 
 describe("Schema processing", () => {
   interface Fixture {
@@ -111,7 +108,7 @@ describe("Schema processing", () => {
     </ECSchema>`;
 
   afterEach(() => {
-    sinon.restore();
+    vi.restoreAllMocks();
     const databases = new Set<SnapshotDb>();
     while (fixtures.length > 0) {
       const fixture = fixtures.pop()!;
@@ -193,24 +190,23 @@ describe("Schema processing", () => {
         "CloneTest.01.00.00.ecschema.xml"
       ),
     ]);
-    const importResolved = sinon.spy();
-    sinon.replace(
-      fixture.targetDb,
-      "importSchemas",
-      sinon.fake(async () => {
-        await new Promise<void>((resolve) =>
-          setImmediate(() => {
-            importResolved();
-            resolve();
-          })
-        );
-      })
-    );
-    const removeSpy = sinon.spy(IModelJsFs, "removeSync");
+    const importResolved = vi.fn();
+    vi.spyOn(fixture.targetDb, "importSchemas").mockImplementation(async () => {
+      await new Promise<void>((resolve) =>
+        setImmediate(() => {
+          importResolved();
+          resolve();
+        })
+      );
+    });
+    const removeSpy = vi.spyOn(IModelJsFs, "removeSync");
 
     await fixture.transformer.processSchemas();
 
-    assert(removeSpy.calledAfter(importResolved));
+    assert(
+      Math.max(...removeSpy.mock.invocationCallOrder) >
+        Math.max(...importResolved.mock.invocationCallOrder)
+    );
   });
 
   it("reports dependency cycles with a typed stable error", async () => {
@@ -301,7 +297,7 @@ describe("Schema processing", () => {
   it("wraps cleanup failures without replacing the cause", async () => {
     const fixture = await createFixture("SchemaCleanupFailure");
     const cleanupCause = new Error("cleanup failed");
-    sinon.replace(IModelJsFs, "removeSync", () => {
+    vi.spyOn(IModelJsFs, "removeSync").mockImplementation(() => {
       throw cleanupCause;
     });
     const error = await expectSchemaProcessingError(
