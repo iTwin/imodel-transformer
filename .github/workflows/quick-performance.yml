@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - changeset-scanning
       scenario_override:
         description: Optional scenario id override for feature branches
         required: false
