@@ -8,7 +8,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { BriefcaseDb } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
 import { ChangedInstanceIds } from "@itwin/imodel-transformer";
 import {
   artifactBriefcasePath,
@@ -34,6 +33,7 @@ import {
   requireFixtureArtifact,
 } from "../../src/fixtures/FixtureProvider.js";
 import { detachedBriefcaseFixtureProvider } from "../../src/fixtures/providers/detachedBriefcaseProvider.js";
+import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 import {
   shutdownIsolatedHost,
   startIsolatedHost,
@@ -75,7 +75,7 @@ describe("detached fixture artifact", () => {
    * this fails here with a clear cause instead of surfacing as an inscrutable benchmark failure.
    */
   it("opens a relocated briefcase readonly with no hub of any kind", async () => {
-    expect(HubMock.isValid).to.equal(
+    expect(quickTestHub.isActive).to.equal(
       false,
       "stage 1 must release its build hub before any working copy is opened"
     );
@@ -156,7 +156,7 @@ describe("detached fixture artifact", () => {
   });
 
   it("materializes independent working copies without a hub", async () => {
-    expect(HubMock.isValid).to.equal(
+    expect(quickTestHub.isActive).to.equal(
       false,
       "stage 2 must not require a live hub"
     );

@@ -8,15 +8,13 @@
 import { expect } from "vitest";
 import * as path from "node:path";
 import {
-  BriefcaseDb,
-  BriefcaseManager,
   IModelJsFs,
+  StandaloneDb,
   Subject,
   withEditTxn,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
 import { IModel } from "@itwin/core-common";
-import { GuidString, Logger } from "@itwin/core-bentley";
+import { Logger } from "@itwin/core-bentley";
 import { KnownTestLocations } from "../TestUtils/KnownTestLocations";
 import { IModelImporter } from "../../IModelImporter";
 import { createStartedEditTxn } from "../IModelTransformerUtils";
@@ -34,46 +32,25 @@ describe("computeProjectExtents with no geometry", () => {
     KnownTestLocations.outputDir,
     "QueryProjectExtents"
   );
-  let iTwinId: GuidString;
-
   beforeAll(() => {
-    HubMock.startup("QueryProjectExtents", KnownTestLocations.outputDir);
-    iTwinId = HubMock.iTwinId;
     IModelJsFs.recursiveMkDirSync(outputDir);
-  });
-
-  afterAll(() => {
-    HubMock.shutdown();
   });
 
   /**
    * Helper to create an iModel with no geometric elements
    */
-  async function createEmptyIModel(name: string): Promise<BriefcaseDb> {
-    const iModelId = await HubMock.createNewIModel({
-      iModelName: name,
-      iTwinId,
+  function createEmptyIModel(name: string): StandaloneDb {
+    const fileName = path.join(outputDir, `${name}.bim`);
+    IModelJsFs.removeSync(fileName);
+    return StandaloneDb.createEmpty(fileName, {
+      rootSubject: { name },
     });
-    const briefcaseProps = await BriefcaseManager.downloadBriefcase({
-      accessToken: "test token",
-      iTwinId,
-      iModelId,
-    });
-    const iModelDb = await BriefcaseDb.open({
-      fileName: briefcaseProps.fileName,
-    });
-    return iModelDb;
   }
 
   it("should use IModelImporter.computeProjectExtents and verify the issue", async () => {
-    const iModelDb = await createEmptyIModel("ImporterExtentsTest");
+    const iModelDb = createEmptyIModel("ImporterExtentsTest");
 
     try {
-      // Acquire locks and insert a subject (non-geometric element)
-      await iModelDb.locks.acquireLocks({
-        shared: [IModel.repositoryModelId],
-        exclusive: [IModel.repositoryModelId],
-      });
       withEditTxn(iModelDb, "Added subject", (txn) => {
         Subject.insert(txn, IModel.rootSubjectId, "TestSubject");
       });

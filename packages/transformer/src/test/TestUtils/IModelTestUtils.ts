@@ -46,8 +46,6 @@ import {
   IModel,
   IModelError,
   IModelReadRpcInterface,
-  IModelVersion,
-  IModelVersionProps,
   InformationPartitionElementProps,
   LocalFileName,
   ModelProps,
@@ -55,14 +53,11 @@ import {
   PlanProjectionSettings,
   RelatedElement,
   RepositoryLinkProps,
-  RequestNewBriefcaseProps,
   RpcConfiguration,
   RpcManager,
-  RpcPendingResponse,
   SkyBoxImageType,
   SubCategoryAppearance,
   SubCategoryOverride,
-  SyncMode,
 } from "@itwin/core-common";
 import {
   Box,
@@ -115,7 +110,6 @@ import {
   GeometryPart,
   GroupModel,
   IModelDb,
-  IModelHost,
   IModelJsFs,
   InformationPartitionElement,
   InformationRecordModel,
@@ -141,16 +135,10 @@ import {
   Subject,
   SubjectOwnsPartitionElements,
   Texture,
-  V2CheckpointManager,
   ViewDefinition,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
-import {
-  DownloadAndOpenArgs,
-  RpcBriefcaseUtility,
-} from "@itwin/core-backend/lib/cjs/rpc-impl/RpcBriefcaseUtility";
 import { KnownTestLocations } from "./KnownTestLocations";
+import { transformerTestHub } from "./TransformerTestHub";
 import { TargetScopeProvenanceJsonProps } from "../../IModelTransformer";
 import { TimelineIModelState } from "./TimelineTestUtil";
 
@@ -244,13 +232,10 @@ export enum TestUserType {
   SuperManager,
 }
 
-/** A wrapper around the BackendHubAccess API through IModelHost[_hubAccess].
- *
- * All methods in this class should be usable with any BackendHubAccess implementation (i.e. HubMock and IModelHubBackend).
- */
+/** Test helpers that operate against the transformer test hub. */
 export class HubWrappers {
-  protected static get hubMock() {
-    return HubMock;
+  protected static get hubAccess(): BackendHubAccess {
+    return transformerTestHub;
   }
 
   public static async getAccessToken(user: TestUserType) {
@@ -264,16 +249,16 @@ export class HubWrappers {
     iModelName: string
   ): Promise<GuidString> {
     assert.isTrue(
-      this.hubMock.isValid,
-      "Must use HubMock for tests that modify iModels"
+      transformerTestHub.isActive,
+      "TransformerTestHub must be active for tests that modify iModels"
     );
-    let iModelId = await IModelHost[_hubAccess].queryIModelByName({
+    let iModelId = await this.hubAccess.queryIModelByName({
       accessToken,
       iTwinId,
       iModelName,
     });
     if (!iModelId)
-      iModelId = await IModelHost[_hubAccess].createNewIModel({
+      iModelId = await this.hubAccess.createNewIModel({
         accessToken,
         iTwinId,
         iModelName,
@@ -289,74 +274,21 @@ export class HubWrappers {
     ...[arg]: Parameters<BackendHubAccess["createNewIModel"]>
   ): Promise<GuidString> {
     assert.isTrue(
-      this.hubMock.isValid,
-      "Must use HubMock for tests that modify iModels"
+      transformerTestHub.isActive,
+      "TransformerTestHub must be active for tests that modify iModels"
     );
-    const deleteIModel = await IModelHost[_hubAccess].queryIModelByName(arg);
+    const deleteIModel = await this.hubAccess.queryIModelByName(arg);
     if (undefined !== deleteIModel)
-      await IModelHost[_hubAccess].deleteIModel({
+      await this.hubAccess.deleteIModel({
         accessToken: arg.accessToken,
         iTwinId: arg.iTwinId,
         iModelId: deleteIModel,
       });
 
     // Create a new iModel
-    return IModelHost[_hubAccess].createNewIModel({
+    return this.hubAccess.createNewIModel({
       description: `Description for ${arg.iModelName}`,
       ...arg,
-    });
-  }
-
-  /** Delete an IModel from the hub */
-  public static async deleteIModel(
-    accessToken: AccessToken,
-    iTwinId: string,
-    iModelName: string
-  ): Promise<void> {
-    const iModelId = await IModelHost[_hubAccess].queryIModelByName({
-      accessToken,
-      iTwinId,
-      iModelName,
-    });
-    if (undefined === iModelId) return;
-
-    await IModelHost[_hubAccess].deleteIModel({
-      accessToken,
-      iTwinId,
-      iModelId,
-    });
-  }
-
-  /** Push an iModel to the Hub */
-  public static async pushIModel(
-    accessToken: AccessToken,
-    iTwinId: string,
-    pathname: string,
-    iModelName?: string,
-    overwrite?: boolean
-  ): Promise<GuidString> {
-    // Delete any existing iModels with the same name as the required iModel
-    const locIModelName = iModelName || path.basename(pathname, ".bim");
-    const iModelId = await IModelHost[_hubAccess].queryIModelByName({
-      accessToken,
-      iTwinId,
-      iModelName: locIModelName,
-    });
-    if (iModelId) {
-      if (!overwrite) return iModelId;
-      await IModelHost[_hubAccess].deleteIModel({
-        accessToken,
-        iTwinId,
-        iModelId,
-      });
-    }
-
-    // Upload a new iModel
-    return IModelHost[_hubAccess].createNewIModel({
-      accessToken,
-      iTwinId,
-      iModelName: locIModelName,
-      version0: pathname,
     });
   }
 
@@ -366,164 +298,6 @@ export class HubWrappers {
   ): Promise<BriefcaseDb> {
     const props = await BriefcaseManager.downloadBriefcase(args);
     return BriefcaseDb.open({ fileName: props.fileName });
-  }
-
-  /** Opens the specific iModel as a Briefcase through the same workflow the IModelReadRpc.getConnectionProps method will use. Replicates the way a frontend would open the iModel. */
-  public static async openBriefcaseUsingRpc(
-    args: RequestNewBriefcaseProps & {
-      accessToken: AccessToken;
-      deleteFirst?: boolean;
-    }
-  ): Promise<BriefcaseDb> {
-    if (undefined === args.asOf) args.asOf = IModelVersion.latest().toJSON();
-
-    const openArgs: DownloadAndOpenArgs = {
-      tokenProps: {
-        iTwinId: args.iTwinId,
-        iModelId: args.iModelId,
-        changeset: await IModelHost[_hubAccess].getChangesetFromVersion({
-          accessToken: args.accessToken,
-          version: IModelVersion.fromJSON(args.asOf),
-          iModelId: args.iModelId,
-        }),
-      },
-      activity: {
-        accessToken: args.accessToken,
-        activityId: "",
-        applicationId: "",
-        applicationVersion: "",
-        sessionId: "",
-      },
-      syncMode:
-        args.briefcaseId === 0 ? SyncMode.PullOnly : SyncMode.PullAndPush,
-      forceDownload: args.deleteFirst,
-    };
-
-    assert.isTrue(
-      this.hubMock.isValid || openArgs.syncMode === SyncMode.PullOnly,
-      "use HubMock to acquire briefcases"
-    );
-    while (true) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-deprecated
-        return (await RpcBriefcaseUtility.open(openArgs)) as BriefcaseDb;
-      } catch (error) {
-        if (!(error instanceof RpcPendingResponse)) throw error;
-      }
-    }
-  }
-
-  /** Downloads and opens a v1 checkpoint */
-  public static async downloadAndOpenCheckpoint(args: {
-    accessToken: AccessToken;
-    iTwinId: GuidString;
-    iModelId: GuidString;
-    asOf?: IModelVersionProps;
-  }): Promise<SnapshotDb> {
-    if (undefined === args.asOf) args.asOf = IModelVersion.latest().toJSON();
-
-    const checkpoint: CheckpointProps = {
-      iTwinId: args.iTwinId,
-      iModelId: args.iModelId,
-      accessToken: args.accessToken,
-      changeset: await IModelHost[_hubAccess].getChangesetFromVersion({
-        accessToken: args.accessToken,
-        version: IModelVersion.fromJSON(args.asOf),
-        iModelId: args.iModelId,
-      }),
-    };
-
-    const folder = path.join(
-      V2CheckpointManager.getFolder(),
-      checkpoint.iModelId
-    );
-    const filename = path.join(
-      folder,
-      `${checkpoint.changeset.id === "" ? "first" : checkpoint.changeset.id}.bim`
-    );
-    const request: DownloadRequest = { checkpoint, localFile: filename };
-    let db = SnapshotDb.tryFindByKey(
-      CheckpointManager.getKey(request.checkpoint)
-    );
-    if (undefined !== db) return db;
-    db = IModelTestUtils.tryOpenLocalFile(request);
-    if (db) return db;
-    await V2CheckpointManager.downloadCheckpoint(request);
-    await CheckpointManager.updateToRequestedVersion(request);
-    return IModelTestUtils.openCheckpoint(
-      request.localFile,
-      request.checkpoint
-    );
-  }
-
-  /** Opens the specific Checkpoint iModel, `SyncMode.FixedVersion`, through the same workflow the IModelReadRpc.getConnectionProps method will use. Replicates the way a frontend would open the iModel. */
-  public static async openCheckpointUsingRpc(
-    args: RequestNewBriefcaseProps & {
-      accessToken: AccessToken;
-      deleteFirst?: boolean;
-    }
-  ): Promise<IModelDb> {
-    if (undefined === args.asOf) args.asOf = IModelVersion.latest().toJSON();
-
-    const changeset = await IModelHost[_hubAccess].getChangesetFromVersion({
-      accessToken: args.accessToken,
-      version: IModelVersion.fromJSON(args.asOf),
-      iModelId: args.iModelId,
-    });
-    const openArgs = {
-      tokenProps: {
-        iTwinId: args.iTwinId,
-        iModelId: args.iModelId,
-        changeset,
-      },
-      activity: {
-        accessToken: args.accessToken,
-        activityId: "",
-        applicationId: "",
-        applicationVersion: "",
-        sessionId: "",
-      },
-      syncMode: SyncMode.FixedVersion as const,
-      forceDownload: args.deleteFirst,
-    };
-
-    while (true) {
-      try {
-        return await RpcBriefcaseUtility.open(openArgs);
-      } catch (error) {
-        if (!(error instanceof RpcPendingResponse)) throw error;
-      }
-    }
-  }
-
-  /**
-   * Purges all acquired briefcases for the specified iModel (and user), if the specified threshold of acquired briefcases is exceeded
-   */
-  public static async purgeAcquiredBriefcasesById(
-    accessToken: AccessToken,
-    iModelId: GuidString,
-    onReachThreshold: () => void = () => {},
-    acquireThreshold: number = 16
-  ): Promise<void> {
-    const briefcases = await IModelHost[_hubAccess].getMyBriefcaseIds({
-      accessToken,
-      iModelId,
-    });
-    if (briefcases.length > acquireThreshold) {
-      if (undefined !== onReachThreshold) onReachThreshold();
-
-      const promises: Promise<void>[] = [];
-      briefcases.forEach((briefcaseId) => {
-        promises.push(
-          IModelHost[_hubAccess].releaseBriefcase({
-            accessToken,
-            iModelId,
-            briefcaseId,
-          })
-        );
-      });
-      await Promise.all(promises);
-    }
   }
 
   public static async closeAndDeleteBriefcaseDb(

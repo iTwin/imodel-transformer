@@ -5,6 +5,7 @@
 
 import * as fs from "node:fs";
 import { IModelHost } from "@itwin/core-backend";
+import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 
 /**
  * Start `IModelHost` on a profile private to this process.
@@ -21,6 +22,7 @@ import { IModelHost } from "@itwin/core-backend";
 export async function startIsolatedHost(): Promise<void> {
   await IModelHost.startup({
     profileName: `quick-integration-${process.pid}`,
+    hubAccess: quickTestHub,
   });
 }
 

@@ -32,7 +32,7 @@ import { ConfiguredFixture } from "../FixtureRecipe.js";
 import {
   ReconstructedSourceHub,
   reconstructSourceHub,
-  shutdownHubMock,
+  stopQuickTestHub,
 } from "../LocalHubFixture.js";
 
 /**
@@ -65,7 +65,7 @@ async function releaseBuildHub(
     errors.push(error);
   }
   try {
-    shutdownHubMock();
+    stopQuickTestHub();
   } catch (error) {
     errors.push(error);
   }

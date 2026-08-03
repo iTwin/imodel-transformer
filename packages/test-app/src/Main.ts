@@ -16,7 +16,6 @@ import {
   SnapshotDb,
   StandaloneDb,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   BriefcaseIdValue,
   ChangesetId,
@@ -440,7 +439,7 @@ void (async () => {
           args.targetIModelName
         );
         if (args.clean && undefined !== targetIModelId) {
-          await IModelHost[_hubAccess].deleteIModel({
+          await IModelTransformerTestAppHost.hubAccess.deleteIModel({
             accessToken: await acquireAccessToken(),
             iTwinId: targetITwinId,
             iModelId: targetIModelId,
@@ -449,11 +448,12 @@ void (async () => {
         }
         if (undefined === targetIModelId) {
           // create target iModel if it doesn't yet exist or was just cleaned/deleted above
-          targetIModelId = await IModelHost[_hubAccess].createNewIModel({
-            accessToken: await acquireAccessToken(),
-            iTwinId: targetITwinId,
-            iModelName: args.targetIModelName,
-          });
+          targetIModelId =
+            await IModelTransformerTestAppHost.hubAccess.createNewIModel({
+              accessToken: await acquireAccessToken(),
+              iTwinId: targetITwinId,
+              iModelName: args.targetIModelName,
+            });
         }
       }
       assert(

@@ -100,7 +100,7 @@ export interface FixtureRecipeContext<TParameters> {
  * The complete author-facing specification for generating an iModel workload.
  *
  * Recipes own construction, declared identity inputs, distribution, and optional validation.
- * Providers continue to own HubMock, database, artifact, and cleanup lifecycles.
+ * Providers continue to own local test hub, database, artifact, and cleanup lifecycles.
  */
 export interface FixtureRecipe<
   TParameters,
