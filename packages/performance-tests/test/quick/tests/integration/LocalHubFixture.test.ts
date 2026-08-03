@@ -21,7 +21,6 @@ import {
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { BenchmarkReporter } from "../../src/reporting/BenchmarkReporter.js";
 import { BenchmarkScenarioDefinition } from "../../src/framework/BenchmarkScenario.js";
@@ -48,6 +47,7 @@ import {
   incrementalSynchronizationScenario,
 } from "../../src/scenarios/incrementalSynchronization.js";
 import { assertSynchronizationProvenance } from "../../src/fixtures/validation/validateFixture.js";
+import { quickTestHub } from "../../src/fixtures/QuickTestHub.js";
 
 function required<T>(value: T | undefined, name: string): T {
   if (value === undefined) throw new Error(`${name} was not initialized`);
@@ -95,7 +95,7 @@ describe("LocalHubFixture reconstruction", () => {
     outputDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "quick-perf-reconstruct-")
     );
-    await IModelHost.startup();
+    await IModelHost.startup({ hubAccess: quickTestHub });
   });
 
   afterAll(async () => {
@@ -103,7 +103,7 @@ describe("LocalHubFixture reconstruction", () => {
     fs.rmSync(outputDir, { recursive: true, force: true });
   });
 
-  it("shuts down HubMock when reconstruction fails", async () => {
+  it("stops the quick test hub when reconstruction fails", async () => {
     let failure: unknown;
     try {
       await reconstructHub(outputDir, "expected-failure", () => {
@@ -113,10 +113,10 @@ describe("LocalHubFixture reconstruction", () => {
       failure = error;
     }
     expect(failure).to.be.instanceOf(Error);
-    expect(HubMock.isValid).to.be.false;
+    expect(quickTestHub.isActive).to.be.false;
   });
 
-  it("rejects an invalid HubMock output path before startup", async () => {
+  it("rejects an invalid quick test hub output path before startup", async () => {
     const invalidOutput = path.join(outputDir, "not-a-directory");
     fs.writeFileSync(invalidOutput, "file");
     let failure: unknown;
@@ -126,7 +126,7 @@ describe("LocalHubFixture reconstruction", () => {
       failure = error;
     }
     expect(failure).to.be.instanceOf(Error);
-    expect(HubMock.isValid).to.be.false;
+    expect(quickTestHub.isActive).to.be.false;
   });
 
   it("disposes a reconstructed hub when materialization fails", async () => {
@@ -147,7 +147,7 @@ describe("LocalHubFixture reconstruction", () => {
       failure = error;
     }
     expect(failure).to.be.instanceOf(Error);
-    expect(HubMock.isValid).to.be.false;
+    expect(quickTestHub.isActive).to.be.false;
   });
 
   it("does not delete an unowned output directory", async () => {
@@ -358,7 +358,7 @@ describe("BenchmarkRunner scenario injection", () => {
         scenario.id,
         scenario.id,
       ]);
-      expect(HubMock.isValid).to.be.false;
+      expect(quickTestHub.isActive).to.be.false;
       expect(
         fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
       ).to.be.empty;
@@ -457,7 +457,7 @@ describe("BenchmarkRunner scenario injection", () => {
       expect(failure).to.be.instanceOf(Error);
       expect((failure as Error).message).to.equal("expected scenario failure");
       expect(aborts).to.equal(1);
-      expect(HubMock.isValid).to.be.false;
+      expect(quickTestHub.isActive).to.be.false;
       expect(
         fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
       ).to.be.empty;
@@ -502,7 +502,7 @@ describe("BenchmarkRunner scenario injection", () => {
       expect((errors[1].cause as Error).message).to.equal(
         "expected abort failure"
       );
-      expect(HubMock.isValid).to.be.false;
+      expect(quickTestHub.isActive).to.be.false;
       expect(
         fs.readdirSync(outputDir).filter((entry) => entry.startsWith("sample-"))
       ).to.be.empty;

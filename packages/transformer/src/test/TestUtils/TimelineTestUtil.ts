@@ -7,14 +7,12 @@ import { assert, expect } from "vitest";
 import {
   BriefcaseDb,
   IModelDb,
-  IModelHost,
   PhysicalModel,
   PhysicalObject,
   PhysicalPartition,
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import {
   ChangesetIdWithIndex,
   Code,
@@ -35,6 +33,7 @@ import {
   IModelTransformerTestUtils,
 } from "../IModelTransformerUtils";
 import { IModelTestUtils } from "./IModelTestUtils";
+import { transformerTestHub } from "./TransformerTestHub";
 import { omit } from "@itwin/core-bentley";
 
 const saveAndPushChanges = async (
@@ -428,7 +427,7 @@ export async function runTimeline(
         undefined;
 
       seed?.db.performCheckpoint(); // make sure WAL is flushed before we use this as a file seed
-      const newIModelId = await IModelHost[_hubAccess].createNewIModel({
+      const newIModelId = await transformerTestHub.createNewIModel({
         iTwinId,
         iModelName: newIModelName,
         version0: seed?.db.pathName,
@@ -647,7 +646,7 @@ export async function runTimeline(
     tearDown: async () => {
       for (const [, state] of trackedIModels) {
         state.db.close();
-        await IModelHost[_hubAccess].deleteIModel({
+        await transformerTestHub.deleteIModel({
           iTwinId,
           iModelId: state.id,
         });

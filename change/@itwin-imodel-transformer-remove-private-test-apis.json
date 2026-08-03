@@ -1,0 +1,7 @@
+{
+  "type": "none",
+  "comment": "Remove transformer tests' imports of private core-backend modules",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "none"
+}

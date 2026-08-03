@@ -6,16 +6,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AccessToken } from "@itwin/core-bentley";
+import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import {
   BriefcaseDb,
   BriefcaseManager,
   EditTxn,
-  IModelHost,
   SnapshotDb,
 } from "@itwin/core-backend";
-import { HubMock } from "@itwin/core-backend/lib/cjs/internal/HubMock.js";
-// eslint-disable-next-line @itwin/no-internal
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols.js";
+import { quickTestHub } from "./QuickTestHub.js";
 
 export interface ReconstructedSourceHub {
   readonly accessToken: AccessToken;
@@ -35,7 +33,7 @@ export async function createAndOpenIModel(
   iModelName: string,
   seedFileName: string
 ): Promise<{ db: BriefcaseDb; iModelId: string }> {
-  const iModelId = await IModelHost[_hubAccess].createNewIModel({
+  const iModelId = await quickTestHub.createNewIModel({
     accessToken,
     iTwinId,
     iModelName,
@@ -94,8 +92,36 @@ export async function closeAndDeleteBriefcase(
   await BriefcaseManager.deleteBriefcaseFiles(fileName, accessToken);
 }
 
-export function shutdownHubMock(): void {
-  if (HubMock.isValid) HubMock.shutdown();
+let restoreCheckpointDownload: (() => void) | undefined;
+
+function startQuickTestHub(name: string, outputDir: string): void {
+  quickTestHub.start(name, outputDir);
+  try {
+    restoreCheckpointDownload = installCheckpointDownload(quickTestHub);
+  } catch (error) {
+    quickTestHub.stop();
+    throw error;
+  }
+}
+
+export function stopQuickTestHub(): void {
+  const errors: unknown[] = [];
+  try {
+    restoreCheckpointDownload?.();
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    restoreCheckpointDownload = undefined;
+  }
+
+  try {
+    if (quickTestHub.isActive) quickTestHub.stop();
+  } catch (error) {
+    errors.push(error);
+  }
+
+  if (errors.length > 0)
+    throw new AggregateError(errors, "Failed to stop quick test hub");
 }
 
 async function cleanupHub(
@@ -111,7 +137,7 @@ async function cleanupHub(
     }
   }
   try {
-    shutdownHubMock();
+    stopQuickTestHub();
   } catch (error) {
     errors.push(error);
   }
@@ -132,26 +158,29 @@ async function reconstruct<T extends ReconstructedSourceHub>(
     source: { db: BriefcaseDb; iModelId: string }
   ) => Promise<T>
 ): Promise<T> {
-  if (HubMock.isValid) throw new Error("Only one HubMock may be active");
+  if (quickTestHub.isActive)
+    throw new Error("Only one quick test hub may be active");
 
   fs.mkdirSync(outputDir, { recursive: true });
   if (!fs.statSync(outputDir).isDirectory())
-    throw new Error(`HubMock output path is not a directory: ${outputDir}`);
+    throw new Error(
+      `Quick test hub output path is not a directory: ${outputDir}`
+    );
   try {
-    HubMock.startup(mockName, outputDir);
+    startQuickTestHub(mockName, outputDir);
   } catch (error) {
     try {
-      if (HubMock.isValid) HubMock.shutdown();
+      stopQuickTestHub();
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        "HubMock startup and cleanup both failed"
+        "Quick test hub startup and cleanup both failed"
       );
     }
     throw error;
   }
   const accessToken = "quick-performance-tests";
-  const iTwinId = HubMock.iTwinId;
+  const iTwinId = quickTestHub.iTwinId;
   const openBriefcases: BriefcaseDb[] = [];
   try {
     const seedDir = path.join(outputDir, "seeds");
@@ -186,7 +215,7 @@ async function reconstruct<T extends ReconstructedSourceHub>(
   }
 }
 
-/** Start a HubMock holding only a source iModel. Used by artifact-backed topologies. */
+/** Start a local test hub holding only a source iModel. Used by artifact-backed topologies. */
 export async function reconstructSourceHub(
   outputDir: string,
   mockName: string,
@@ -205,7 +234,7 @@ export async function reconstructSourceHub(
   );
 }
 
-/** Start a HubMock holding a source iModel and an empty target iModel. */
+/** Start a local test hub holding a source iModel and an empty target iModel. */
 export async function reconstructHub(
   outputDir: string,
   mockName: string,
@@ -244,5 +273,8 @@ export async function disposeReconstructedHub(
   if ("targetDb" in hub) briefcases.push(hub.targetDb);
   const errors = await cleanupHub(hub.accessToken, briefcases);
   if (errors.length > 0)
-    throw new AggregateError(errors, "Failed to dispose reconstructed HubMock");
+    throw new AggregateError(
+      errors,
+      "Failed to dispose reconstructed quick test hub"
+    );
 }
