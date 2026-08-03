@@ -18,6 +18,7 @@ import {
   assertScenarioSupportsFixture,
   resolveBenchmarkRun,
 } from "../../src/framework/BenchmarkResolution.js";
+import { BenchmarkRegistration } from "../../src/framework/BenchmarkRegistration.js";
 
 describe("quick performance scenario catalog", () => {
   it("selects incremental synchronization by default", () => {
@@ -61,5 +62,21 @@ describe("quick performance scenario catalog", () => {
         ).to.not.throw();
       }
     }
+  });
+
+  it("does not expose a mutable registration list", () => {
+    const registrations = listBenchmarkRegistrations();
+    expect(Object.isFrozen(registrations)).to.be.true;
+    expect(() =>
+      (registrations as BenchmarkRegistration[]).push(registrations[0])
+    ).to.throw();
+    expect(Object.isFrozen(registrations[0].scenario)).to.be.true;
+    expect(Object.isFrozen(registrations[0].scenario.capabilities)).to.be.true;
+    expect(() => {
+      (registrations[0].scenario as { id: string }).id = "mutated";
+    }).to.throw();
+    expect(getScenarioDefinition().id).to.equal(
+      defaultQuickPerformanceScenarioId
+    );
   });
 });

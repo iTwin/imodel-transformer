@@ -107,6 +107,37 @@ scenario with its compatible configured fixtures. One explicit list in
 `BenchmarkRegistry.ts` maps user-facing IDs to definitions and keeps compiled CLI
 imports predictable.
 
+```mermaid
+flowchart TD
+    Recipe["FixtureRecipe&lt;TParameters&gt;<br/>construction, distribution, identity inputs,<br/>optional validation"]
+    Configuration["FixtureConfiguration&lt;TParameters&gt;<br/>name, parameters, topology, seed,<br/>version, claims"]
+    Configure["configureFixture(...)"]
+    Fixture["ConfiguredFixture<br/>immutable recipe invocation"]
+    Descriptor["FixtureDescriptor<br/>derived serializable artifact/report identity"]
+    Scenario["BenchmarkScenarioDefinition<br/>measured operation and required capabilities"]
+    Registration["defineBenchmark(...)<br/>scenario + compatible fixtures"]
+    Registry["BenchmarkRegistry<br/>one explicit registration entry"]
+    Resolution["BenchmarkResolution<br/>select and validate scenario/fixture pair"]
+    Provider["FixtureProvider<br/>selected by topology"]
+    Build["Stage 1: BuiltFixture"]
+    Dataset["Stage 2: PreparedDataset"]
+    Run["Scenario<br/>measure() then finish()"]
+
+    Recipe --> Configure
+    Configuration --> Configure
+    Configure --> Fixture
+    Fixture --> Descriptor
+    Fixture --> Registration
+    Scenario --> Registration
+    Registration --> Registry
+    Registry --> Resolution
+    Descriptor --> Resolution
+    Resolution --> Provider
+    Provider --> Build
+    Build --> Dataset
+    Dataset --> Run
+```
+
 Resolution follows this order:
 
 1. Resolve `QUICK_PERF_SCENARIO`, or use the default scenario.

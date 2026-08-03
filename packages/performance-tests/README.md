@@ -31,7 +31,7 @@ parts:
 | **Configured fixture** | A named immutable invocation of a recipe with explicit parameters, topology, seed, version, label, and scenario claims.                                                                                             |
 | **Fixture descriptor** | The serializable artifact/report manifest generated from a configured fixture. Infrastructure derives distribution, generator versions, and the recipe hash.                                                        |
 | **Provider**           | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s backed by `HubMock`, or a detached source `BriefcaseDb` with local changeset files. |
-| **Registration**       | One cohesive contribution containing a scenario and the configured fixtures that scenario supports.                                                                                                                  |
+| **Registration**       | One cohesive contribution containing a scenario and the configured fixtures that scenario supports.                                                                                                                 |
 | **Harness**            | The registry, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
 
 The provider creates and owns the source, target, Hub, and changeset resources.
@@ -141,6 +141,14 @@ gh workflow run quick-performance.yml --ref <branch> \
 
 GitHub can dispatch the workflow only after the workflow file exists on the
 repository's default branch. The caller must have repository write access.
+Merged scenarios remain discoverable in the `scenario` choice input. To run a
+scenario that exists only on a feature branch, set the optional free-form
+`scenario_override` input; it takes precedence:
+
+```sh
+gh workflow run quick-performance.yml --ref <branch> \
+  -f scenario_override=my-feature-scenario
+```
 
 ## Adding quick performance coverage
 
@@ -200,11 +208,13 @@ The three fixture authoring stages are intentionally distinct:
 2. A **configured fixture** invokes that recipe at a named scale/topology.
 3. A **fixture descriptor** is generated for artifacts and reports.
 
-The generated recipe hash includes parameters, derived distribution, seed,
-topology, declared implementation/schema files, `pnpm-lock.yaml`, Node, core
-backend, and transformer versions. Declare every helper file whose implementation
-affects generation. Validation is optional and runs only when the recipe supplies
-it. Recipes remain an imperative escape hatch; there is no required fixture DSL.
+The generated recipe hash includes fixture metadata, parameters, derived
+distribution, seed, topology, declared implementation/schema files,
+`pnpm-lock.yaml`, Node, core backend, and transformer versions. Identity file
+contents are newline-normalized so the same commit has the same identity across
+platforms. Declare every helper file whose implementation affects generation.
+Validation is optional and runs only when the recipe supplies it. Recipes remain
+an imperative escape hatch; there is no required fixture DSL.
 
 Keep only the transformer operation being measured in `measure()`. Put scenario
 result/provenance checks in `finish()` and resource release in `abort()`. Do not

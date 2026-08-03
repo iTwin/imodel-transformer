@@ -35,6 +35,7 @@ import {
 } from "../FixtureRecipe.js";
 import { FixtureDistribution } from "../FixtureDescriptor.js";
 import { quickPath } from "../../support/paths.js";
+import { assertFixtureDistribution } from "../validation/validateFixture.js";
 
 const uniqueAspectClass = "QuickPerf:BalancedUniqueAspect";
 const multiAspectClass = "QuickPerf:BalancedMultiAspect";
@@ -81,7 +82,7 @@ function balancedDistribution(
   };
 }
 
-export function createBoxGeometry(length = 1) {
+function createBoxGeometry(length = 1) {
   const builder = new GeometryStreamBuilder();
   const box = Box.createRange(
     Range3d.create(
@@ -386,12 +387,8 @@ export const balancedIncrementalRecipe = defineFixtureRecipe({
   distribution: balancedDistribution,
   createSeed: createBalancedSeed,
   applySourceChangesets: applyBalancedChangesets,
-  validate: async (db, context) => {
-    const { assertFixtureDistribution } = await import(
-      "../validation/validateFixture.js"
-    );
-    await assertFixtureDistribution(db, context.descriptor);
-  },
+  validate: async (db, context) =>
+    assertFixtureDistribution(db, context.descriptor),
 });
 
 export const balancedIncrementalFixture = configureFixture(

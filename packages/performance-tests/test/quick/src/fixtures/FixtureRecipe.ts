@@ -36,13 +36,12 @@ const generator = Object.freeze({
 function identityFile(fileName: string) {
   return {
     path: path.relative(repositoryRoot, fileName).replaceAll(path.sep, "/"),
-    contents: fs.readFileSync(fileName, "utf8"),
+    contents: fs.readFileSync(fileName, "utf8").replace(/\r\n?/g, "\n"),
   };
 }
 
 function deepFreeze<T>(value: T): Readonly<T> {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value))
-    return value;
+  if (value === null || typeof value !== "object") return value;
   for (const entry of Object.values(value as Record<string, unknown>))
     deepFreeze(entry);
   return Object.freeze(value);
@@ -137,7 +136,20 @@ export function defineFixtureRecipe<
 >(
   recipe: FixtureRecipe<TParameters, TState, TArtifactData>
 ): FixtureRecipe<TParameters, TState, TArtifactData> {
-  return Object.freeze(recipe);
+  if (recipe.identity.values !== undefined)
+    assertIdentityInput(recipe.identity.values, "Recipe identity values");
+  const identity = deepFreeze({
+    implementationFiles: [...recipe.identity.implementationFiles],
+    schemaFiles:
+      recipe.identity.schemaFiles === undefined
+        ? undefined
+        : [...recipe.identity.schemaFiles],
+    values:
+      recipe.identity.values === undefined
+        ? undefined
+        : structuredClone(recipe.identity.values),
+  });
+  return Object.freeze({ ...recipe, identity });
 }
 
 export interface FixtureConfiguration<TParameters> {
@@ -170,9 +182,11 @@ export function configureFixture<TParameters, TState, TArtifactData>(
   recipe: FixtureRecipe<TParameters, TState, TArtifactData>,
   configuration: FixtureConfiguration<TParameters>
 ): ConfiguredFixture {
+  if (!Number.isSafeInteger(configuration.seed))
+    throw new Error("Fixture seed must be a safe integer");
+  if (!Number.isSafeInteger(configuration.version) || configuration.version < 1)
+    throw new Error("Fixture version must be a positive safe integer");
   assertIdentityInput(configuration.parameters, "Fixture parameters");
-  if (recipe.identity.values !== undefined)
-    assertIdentityInput(recipe.identity.values, "Recipe identity values");
   const parameters = deepFreeze(structuredClone(configuration.parameters));
   const distribution = deepFreeze(recipe.distribution(parameters));
   assertIdentityInput(distribution, "Fixture distribution");
@@ -191,9 +205,15 @@ export function configureFixture<TParameters, TState, TArtifactData>(
     distribution,
     generator,
     recipeHash: canonicalSha256({
-      recipe: recipe.id,
-      seed: configuration.seed,
-      topology: configuration.topology,
+      fixture: {
+        id: configuration.id,
+        version: configuration.version,
+        label: configuration.label,
+        scenarioClaims: configuration.scenarioClaims,
+        topology: configuration.topology,
+        recipe: recipe.id,
+        seed: configuration.seed,
+      },
       parameters,
       distribution,
       identity: recipe.identity.values,

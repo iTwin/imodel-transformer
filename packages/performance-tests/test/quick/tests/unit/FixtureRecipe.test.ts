@@ -125,6 +125,99 @@ describe("configured fixture derivation", () => {
     ).to.equal(5);
   });
 
+  it("invalidates identity for every fixture field exposed to recipes", () => {
+    const hashes = [
+      configuration(),
+      configuration({ id: "other-fixture" }),
+      configuration({ version: 2 }),
+      configuration({ label: "other label" }),
+      configuration({ scenarioClaims: ["other claim"] }),
+      configuration({ topology: "source-and-empty-target" }),
+      configuration({ seed: 43 }),
+    ].map(
+      (fixtureConfiguration) =>
+        configureFixture(recipe(), fixtureConfiguration).descriptor.recipeHash
+    );
+
+    expect(new Set(hashes).size).to.equal(hashes.length);
+  });
+
+  it("normalizes identity file line endings", () => {
+    fs.writeFileSync(implementationFile, "first\r\nsecond\r\n");
+    const windowsHash = configureFixture(recipe(), configuration()).descriptor
+      .recipeHash;
+    fs.writeFileSync(implementationFile, "first\nsecond\n");
+    const posixHash = configureFixture(recipe(), configuration()).descriptor
+      .recipeHash;
+
+    expect(windowsHash).to.equal(posixHash);
+  });
+
+  it.each([Number.NaN, Infinity, -Infinity, 1.5, 2 ** 53])(
+    "rejects invalid fixture seed %s",
+    (seed) => {
+      expect(() =>
+        configureFixture(recipe(), configuration({ seed }))
+      ).to.throw("Fixture seed must be a safe integer");
+    }
+  );
+
+  it.each([Number.NaN, Infinity, -Infinity, -1, 0, 1.5, 2 ** 53])(
+    "rejects invalid fixture version %s",
+    (version) => {
+      expect(() =>
+        configureFixture(recipe(), configuration({ version }))
+      ).to.throw("Fixture version must be a positive safe integer");
+    }
+  );
+
+  it("deeply freezes distributions even when their root is already frozen", () => {
+    const base = {
+      aspects: 0,
+      elements: 2,
+      geometricElements: 0,
+      relationships: 0,
+    };
+    const distribution = Object.freeze({
+      base,
+      operations: {
+        aspects: { deletes: 0, inserts: 0, updates: 0 },
+        elements: { deletes: 0, inserts: 0, updates: 0 },
+        relationships: { deletes: 0, inserts: 0, updates: 0 },
+        geometryUpdates: 0,
+        sourceChangesets: 0,
+      },
+    });
+    const fixture = configureFixture(
+      defineFixtureRecipe({
+        ...recipe(),
+        distribution: () => distribution,
+      }),
+      configuration()
+    );
+
+    expect(Object.isFrozen(fixture.descriptor.distribution.base)).to.be.true;
+    expect(() => {
+      base.elements = 3;
+    }).to.throw();
+    expect(fixture.descriptor.distribution.base.elements).to.equal(2);
+  });
+
+  it("copies and freezes recipe identity inputs", () => {
+    const values = { revision: 1 };
+    const fixtureRecipe = defineFixtureRecipe({
+      ...recipe(),
+      identity: {
+        implementationFiles: [implementationFile],
+        values,
+      },
+    });
+    values.revision = 2;
+
+    expect(fixtureRecipe.identity.values).to.deep.equal({ revision: 1 });
+    expect(Object.isFrozen(fixtureRecipe.identity.values)).to.be.true;
+  });
+
   it("exposes validation only when the recipe declares it", async () => {
     let calls = 0;
     const fixture = configureFixture(

@@ -9,9 +9,9 @@ import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { incrementalSynchronizationBenchmark } from "../scenarios/incrementalSynchronization.js";
 
 // Every benchmark is added in exactly one explicit place so the compiled CLI remains predictable.
-const registrations: readonly BenchmarkRegistration[] = [
+const registrations: readonly BenchmarkRegistration[] = Object.freeze([
   incrementalSynchronizationBenchmark,
-];
+]);
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>();
 const fixtures = new Map<string, ConfiguredFixture>();
