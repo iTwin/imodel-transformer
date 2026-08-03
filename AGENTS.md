@@ -13,7 +13,8 @@ Guidance for AI agents working in `iTwin/imodel-transformer`. Read `packages/tra
 
 ## Build and test
 
-- In `packages/transformer`, use `pnpm build`, `pnpm test`, and `pnpm cover`. Vitest runs `src/test/**/*.test.ts` directly; `build` type-checks all sources, emits only production CommonJS, and extracts the public API.
+- In `packages/transformer`, use `pnpm build`, `pnpm test`, and `pnpm cover`. Vitest runs `src/test/**/*.test.ts` directly; `build` type-checks all sources, emits only production ESM, and extracts the public API.
+- After building a publishable package, run `pnpm test:package`. It packs the actual tarball and verifies ESM loading, package-root type consumption, package metadata access, and rejection of unsupported CommonJS loading.
 - `pnpm cover` uses Vitest's V8 provider, enforces the configured thresholds, and writes reports to `packages/transformer/coverage`.
 - `extract-api` regenerates `common/api/*`. Never edit those files manually. Commit regenerated reports when a public API changes.
 - `src/test/setupVitest.ts` starts and stops `IModelHost` and registers custom assertions for each test file. Tests run in a bounded pool of forked workers with worker-local output directories.
