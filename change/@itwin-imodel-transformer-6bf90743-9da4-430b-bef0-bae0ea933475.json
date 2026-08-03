@@ -1,0 +1,7 @@
+{
+  "type": "patch",
+  "comment": "Batch ElementAspect source reads by owner to avoid one query per populated concrete aspect class.",
+  "packageName": "@itwin/imodel-transformer",
+  "email": "50554904+hl662@users.noreply.github.com",
+  "dependentChangeType": "patch"
+}
