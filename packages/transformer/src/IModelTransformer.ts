@@ -100,6 +100,7 @@ import {
 import { IModelImporter, OptimizeGeometryOptions } from "./IModelImporter";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { IModelCloneContext } from "./IModelCloneContext";
+import type { IModelTransformContext } from "./IModelTransformContext";
 import { EntityUnifier } from "./EntityUnifier";
 import { rangesFromRangeAndSkipped } from "./Algo";
 import { SyncTypeResolver } from "./SyncTypeResolver";
@@ -404,8 +405,13 @@ export class IModelTransformer extends IModelExportHandler {
   public readonly sourceDb: IModelDb;
   /** The read/write target iModel. */
   public readonly targetDb: IModelDb;
-  /** The IModelTransformContext for this IModelTransformer. */
-  public readonly context: IModelCloneContext;
+  /** The supported transformation context for this transformer. */
+  public get context(): IModelTransformContext {
+    return this._cloneContext;
+  }
+
+  /** The clone context used by the transformer implementation. */
+  private readonly _cloneContext: IModelCloneContext;
   /** The transform to be applied to the placement of spatial elements
    * This transform should be applied when:
    * - source and target db have different ECEF locations
@@ -554,7 +560,7 @@ export class IModelTransformer extends IModelExportHandler {
         this.prepareElementAspects(excludedClasses, elementIds)
     );
     // create the IModelCloneContext, it must be initialized later
-    this.context = new IModelCloneContext(this.sourceDb, this.targetDb);
+    this._cloneContext = new IModelCloneContext(this.sourceDb, this.targetDb);
 
     // this internal is guaranteed stable for just transformer usage
     /* eslint-disable @itwin/no-internal */
@@ -564,7 +570,8 @@ export class IModelTransformer extends IModelExportHandler {
     }
     /* eslint-enable @itwin/no-internal */
     this._syncTypeResolver = new SyncTypeResolver(
-      this.context,
+      this.sourceDb,
+      this.targetDb,
       this._options.targetScopeElementId,
       !!this._isProvenanceInitTransform,
       !!this._options.argsForProcessChanges
@@ -572,6 +579,7 @@ export class IModelTransformer extends IModelExportHandler {
     this._provenanceManager = new ProvenanceManager(
       this._options.targetScopeElementId,
       this._options,
+      this._cloneContext,
       this._syncTypeResolver,
       this._targetEditTxn,
       this._sourceEditTxn
@@ -636,7 +644,7 @@ export class IModelTransformer extends IModelExportHandler {
   /** Dispose any native resources associated with this IModelTransformer. */
   public dispose(): void {
     Logger.logTrace(loggerCategory, "dispose()");
-    this.context[Symbol.dispose]();
+    this._cloneContext[Symbol.dispose]();
   }
 
   /** Log current settings that affect IModelTransformer's behavior. */
@@ -800,10 +808,10 @@ export class IModelTransformer extends IModelExportHandler {
         sourceElement.id
       }) "${sourceElement.getDisplayLabel()}"`
     );
-    const targetElementProps: ElementProps = await this.context.cloneElement(
-      sourceElement,
-      { binaryGeometry: this._options.cloneUsingBinaryGeometry }
-    );
+    const targetElementProps: ElementProps =
+      await this._cloneContext.cloneElement(sourceElement, {
+        binaryGeometry: this._options.cloneUsingBinaryGeometry,
+      });
     // Special case: source element is the root subject
     if (sourceElement.id === IModel.rootSubjectId) {
       const targetElementId: string = this.context.findTargetElementId(
@@ -1963,7 +1971,7 @@ export class IModelTransformer extends IModelExportHandler {
     sourceElementAspect: ElementAspect
   ): Promise<ElementAspectProps> {
     const targetElementAspectProps =
-      await this.context.cloneElementAspect(sourceElementAspect);
+      await this._cloneContext.cloneElementAspect(sourceElementAspect);
     return targetElementAspectProps;
   }
 
@@ -2085,7 +2093,7 @@ export class IModelTransformer extends IModelExportHandler {
     font: FontProps,
     _isUpdate: boolean | undefined
   ): Promise<void> {
-    this.context.importFont(font.id);
+    this._cloneContext.importFont(font.id);
   }
 
   /** Cause all CodeSpecs to be exported from the source iModel and imported into the target iModel.
@@ -2117,7 +2125,7 @@ export class IModelTransformer extends IModelExportHandler {
   public override async onExportCodeSpec(
     sourceCodeSpec: CodeSpec
   ): Promise<void> {
-    this.context.importCodeSpec(sourceCodeSpec.id);
+    this._cloneContext.importCodeSpec(sourceCodeSpec.id);
   }
 
   /** Recursively import all Elements and sub-Models that descend from the specified Subject */
@@ -2157,7 +2165,7 @@ export class IModelTransformer extends IModelExportHandler {
     await this.initScopeProvenance();
 
     await this._tryInitChangesetData(this._options.argsForProcessChanges);
-    await this.context.initialize();
+    await this._cloneContext.initialize();
 
     const exporterInitOptions = await this.getExportInitOpts(
       this._options.argsForProcessChanges ?? {}

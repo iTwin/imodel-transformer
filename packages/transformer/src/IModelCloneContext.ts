@@ -33,13 +33,17 @@ import { ECReferenceTypesCache } from "./ECReferenceTypesCache";
 import { EntityUnifier } from "./EntityUnifier";
 import { TransformerLoggerCategory } from "./TransformerLoggerCategory";
 import { BigMap } from "./BigMap";
+import type { IModelTransformContext } from "./IModelTransformContext";
 
 const loggerCategory: string = TransformerLoggerCategory.IModelCloneContext;
 
 /** The context for transforming a *source* Element to a *target* Element and remapping internal identifiers to the target iModel.
- * @beta
+ * @internal
  */
-export class IModelCloneContext extends IModelElementCloneContext {
+export class IModelCloneContext
+  extends IModelElementCloneContext
+  implements IModelTransformContext
+{
   private _refTypesCache = new ECReferenceTypesCache();
   private _aspectRemapTable = new BigMap<Id64String>();
 
