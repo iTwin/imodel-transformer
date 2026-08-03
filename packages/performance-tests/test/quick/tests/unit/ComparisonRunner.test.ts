@@ -29,8 +29,8 @@ import {
   artifactManifestFileName,
   fixtureArtifactVersion,
 } from "../../src/fixtures/FixtureArtifact";
-import { updateHeavyScanDescriptor } from "../../src/catalogs/FixtureCatalog";
 import { classifyCalibrationQuality } from "../../src/comparison/NoiseBand";
+import { updateHeavyScanFixture } from "../../src/fixtures/recipes/updateHeavyScan";
 
 const testRequire = createRequire(import.meta.url);
 
@@ -58,7 +58,7 @@ describe("quick comparison runner", () => {
       `${JSON.stringify(
         {
           artifactVersion: fixtureArtifactVersion,
-          descriptor: updateHeavyScanDescriptor,
+          descriptor: updateHeavyScanFixture.descriptor,
           briefcase: {
             fileName: artifactBriefcaseFileName,
             briefcaseId: 1,

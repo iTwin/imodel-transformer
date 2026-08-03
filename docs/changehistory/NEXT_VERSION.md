@@ -1,5 +1,20 @@
 # Next release notes
 
+## Breaking change: `IModelTransformer.context` exposes a supported transformation contract
+
+`IModelTransformer.context` is now typed as `IModelTransformContext`. The interface supports target lookup, explicit mappings for elements, element aspects, element classes, and CodeSpecs, and SubCategory filtering. Cloning operations, source and target database access, native resource management, context persistence, and other `IModelCloneContext` implementation details are no longer accessible through the public property.
+
+Continue to obtain the context from an `IModelTransformer`:
+
+```ts
+import type { IModelTransformContext } from "@itwin/imodel-transformer";
+
+const context: IModelTransformContext = transformer.context;
+const targetElementId = context.findTargetElementId(sourceElementId);
+```
+
+Tests should mock `IModelTransformContext` instead of constructing or stubbing `IModelCloneContext` directly.
+
 ## Breaking change: transformer errors now have stable identifiers
 
 Errors detected and owned by `@itwin/imodel-transformer` now use `ITwinError` with scope `@itwin/imodel-transformer` and a key from `IModelTransformerError`. These errors previously used a mix of `IModelError` and plain `Error`.

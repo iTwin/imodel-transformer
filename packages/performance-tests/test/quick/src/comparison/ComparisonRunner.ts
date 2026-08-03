@@ -18,7 +18,7 @@ import {
   readFixtureRecipeData,
 } from "../fixtures/FixtureArtifact.js";
 import type { PreparedDetachedDataset } from "../fixtures/FixtureProvider.js";
-import { createChangesetScanningScenario } from "../scenarios/changesetScanning.js";
+import { createChangesetScanningBenchmark } from "../scenarios/changesetScanning.js";
 import {
   ArmRuntimeIdentity,
   ArmSpec,
@@ -318,9 +318,9 @@ export async function runArm(request: ArmRunRequest): Promise<ArmRunResult> {
           `sample-${sample}`
         );
         const dataset = await materializeArtifact(artifact, sampleDirectory);
-        const scenario = createChangesetScanningScenario(
+        const scenario = createChangesetScanningBenchmark(
           loaded.changedInstanceIds
-        ).factory(dataset);
+        ).scenario.factory(dataset);
         let operationError: unknown;
         let completed: Omit<RawArmSample, "teardownMilliseconds"> | undefined;
         try {

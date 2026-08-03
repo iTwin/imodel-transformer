@@ -4,14 +4,13 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IModelTransformer } from "@itwin/imodel-transformer";
-import { FixtureDescriptor } from "../FixtureDescriptor.js";
 import {
   BuiltFixture,
   FixtureProvider,
   PreparedDataset,
   requireLiveHubDataset,
 } from "../FixtureProvider.js";
-import { getFixtureRecipe } from "../FixtureRecipe.js";
+import { ConfiguredFixture } from "../FixtureRecipe.js";
 import {
   createStartedEditTxn,
   disposeReconstructedHub,
@@ -28,11 +27,15 @@ import {
  */
 export const liveHubFixtureProvider: FixtureProvider = {
   async build(
-    descriptor: FixtureDescriptor,
+    fixture: ConfiguredFixture,
     artifactDir: string
   ): Promise<BuiltFixture> {
-    getFixtureRecipe(descriptor.layout.recipe);
-    return { descriptor, directory: artifactDir, buildMilliseconds: 0 };
+    return {
+      fixture,
+      descriptor: fixture.descriptor,
+      directory: artifactDir,
+      buildMilliseconds: 0,
+    };
   },
 
   async materialize(
@@ -40,14 +43,13 @@ export const liveHubFixtureProvider: FixtureProvider = {
     sampleDir: string,
     sampleName: string
   ): Promise<PreparedDataset> {
-    const { descriptor } = built;
-    const recipe = getFixtureRecipe(descriptor.layout.recipe);
+    const { descriptor, fixture } = built;
     const start = process.hrtime.bigint();
     let recipeState: unknown;
     let hub: ReconstructedHub | undefined;
     try {
       hub = await reconstructHub(sampleDir, sampleName, async (sourceSeed) => {
-        recipeState = await recipe.createSeed(sourceSeed, descriptor);
+        recipeState = await fixture.createSeed(sourceSeed);
       });
 
       const editTxn = createStartedEditTxn(hub.targetDb);
@@ -66,13 +68,12 @@ export const liveHubFixtureProvider: FixtureProvider = {
         accessToken: hub.accessToken,
         description: "establish quick fixture provenance",
       });
-      await recipe.applySourceChangesets(
+      await fixture.applySourceChangesets(
         hub.sourceDb,
         hub.accessToken,
-        descriptor,
         recipeState
       );
-      await recipe.validate(hub.sourceDb, descriptor);
+      await fixture.validate?.(hub.sourceDb);
       return {
         topology: "source-and-empty-target",
         descriptor,
@@ -104,10 +105,10 @@ export const liveHubFixtureProvider: FixtureProvider = {
 
 /** Materialize directly from a descriptor, bypassing the (no-op) stage-1 build. */
 export async function materializeLiveHubFixture(
-  descriptor: FixtureDescriptor,
+  fixture: ConfiguredFixture,
   sampleDir: string,
   sampleName: string
 ): Promise<PreparedDataset> {
-  const built = await liveHubFixtureProvider.build(descriptor, sampleDir);
+  const built = await liveHubFixtureProvider.build(fixture, sampleDir);
   return liveHubFixtureProvider.materialize(built, sampleDir, sampleName);
 }

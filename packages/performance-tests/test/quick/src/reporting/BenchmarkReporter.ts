@@ -12,7 +12,6 @@ import {
   medianAbsoluteDeviation,
   percentile,
 } from "./statistics.js";
-import { resolvedVersions } from "../support/versions.js";
 
 export const maximumCoefficientOfVariation = 0.05;
 export const maximumNormalizedMad = 0.05;
@@ -89,7 +88,6 @@ export class BenchmarkReporter {
       measuredSamples: measured.length,
       reportSchemaVersion: identity.reportSchemaVersion,
       scenarioId: samples[0].scenarioId,
-      versions: resolvedVersions(),
       varianceStatus: classifyVariance(
         measured.length,
         wallCoefficientOfVariation,
@@ -135,7 +133,7 @@ export class BenchmarkReporter {
     fs.writeFileSync(
       path.join(outputDir, "summary.csv"),
       [
-        "reportSchemaVersion,scenario,fixture,fixtureVersion,fixtureRecipeHash,fixtureNodeVersion,fixtureCoreBackendVersion,fixtureTransformerVersion,measuringNodeVersion,measuringCoreBackendVersion,measuringTransformerVersion,measuredSamples,jobMs,fixtureBuildMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs",
+        "reportSchemaVersion,scenario,fixture,fixtureVersion,fixtureRecipeHash,nodeVersion,coreBackendVersion,transformerVersion,measuredSamples,jobMs,fixtureBuildMs,medianMs,p90Ms,p95Ms,madMs,cv,reconstructionTotalMs,verificationTotalMs,teardownTotalMs",
         [
           summary.reportSchemaVersion,
           summary.scenarioId,
@@ -145,9 +143,6 @@ export class BenchmarkReporter {
           summary.fixtureGenerator.node,
           summary.fixtureGenerator.coreBackend,
           summary.fixtureGenerator.transformer,
-          summary.versions.node,
-          summary.versions.coreBackend,
-          summary.versions.transformer,
           summary.measuredSamples,
           summary.jobMilliseconds ?? "",
           summary.fixtureBuildMilliseconds,

@@ -3,94 +3,251 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import * as fs from "node:fs";
+import { createRequire } from "node:module";
+import * as path from "node:path";
 import { AccessToken } from "@itwin/core-bentley";
 import { BriefcaseDb } from "@itwin/core-backend";
-import { FixtureDescriptor } from "./FixtureDescriptor.js";
 import {
-  applyBalancedChangesets,
-  BalancedRecipeState,
-  createBalancedSeed,
-} from "./recipes/balancedIncremental.js";
-import {
-  applyScanChangesets,
-  createScanSeed,
-  ScanRecipeState,
-  validateScanFixture,
-} from "./recipes/updateHeavyScan.js";
-import { assertFixtureDistribution } from "./validation/validateFixture.js";
+  canonicalSha256,
+  FixtureDescriptor,
+  FixtureDistribution,
+  FixtureTopology,
+} from "./FixtureDescriptor.js";
+import { quickRootDirectory } from "../support/paths.js";
+
+const localRequire = createRequire(import.meta.url);
+const repositoryRoot = path.resolve(quickRootDirectory, "..", "..", "..", "..");
+const lockfileName = path.join(repositoryRoot, "pnpm-lock.yaml");
+
+function packageVersion(packageName: string): string {
+  const packageJson = JSON.parse(
+    fs.readFileSync(localRequire.resolve(`${packageName}/package.json`), "utf8")
+  ) as { version: string };
+  return packageJson.version;
+}
+
+const generator = Object.freeze({
+  coreBackend: packageVersion("@itwin/core-backend"),
+  node: process.version,
+  transformer: packageVersion("@itwin/imodel-transformer"),
+});
+
+function identityFile(fileName: string) {
+  return {
+    path: path.relative(repositoryRoot, fileName).replaceAll(path.sep, "/"),
+    contents: fs.readFileSync(fileName, "utf8").replace(/\r\n?/g, "\n"),
+  };
+}
+
+function deepFreeze<T>(value: T): Readonly<T> {
+  if (value === null || typeof value !== "object") return value;
+  for (const entry of Object.values(value as Record<string, unknown>))
+    deepFreeze(entry);
+  return Object.freeze(value);
+}
+
+function assertIdentityInput(
+  value: unknown,
+  at: string,
+  seen = new Set<object>()
+): void {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value))
+      throw new Error(`${at} contains a non-finite number`);
+    return;
+  }
+  if (typeof value !== "object")
+    throw new Error(`${at} must contain only JSON-native values`);
+  if (seen.has(value)) throw new Error(`${at} contains a circular reference`);
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.hasOwn(value, index))
+        throw new Error(`${at}[${index}] is an array hole`);
+      assertIdentityInput(value[index], `${at}[${index}]`, seen);
+    }
+  } else {
+    const prototype = Object.getPrototypeOf(value) as object | null;
+    if (prototype !== Object.prototype && prototype !== null)
+      throw new Error(`${at} must contain only plain objects and arrays`);
+    if (Object.getOwnPropertySymbols(value).length > 0)
+      throw new Error(`${at} contains a symbol key`);
+    for (const [key, entry] of Object.entries(value))
+      assertIdentityInput(entry, `${at}.${key}`, seen);
+  }
+  seen.delete(value);
+}
+
+export interface FixtureRecipeIdentity {
+  /** Source files containing the imperative construction and validation logic. */
+  readonly implementationFiles: readonly string[];
+  /** EC schema files imported by the recipe. */
+  readonly schemaFiles?: readonly string[];
+  /** Additional stable, serializable inputs that affect generated contents. */
+  readonly values?: unknown;
+}
+
+export interface FixtureRecipeContext<TParameters> {
+  readonly descriptor: FixtureDescriptor;
+  readonly parameters: Readonly<TParameters>;
+  readonly schemaFiles: readonly string[];
+}
 
 /**
- * A recipe produces the *change mix* for a fixture: it seeds the source iModel and then applies a
- * deterministic series of pushed changesets. It never touches HubMock; the fixture provider owns
- * the hub lifecycle.
+ * The complete author-facing specification for generating an iModel workload.
  *
- * `TArtifactData` is anything the recipe must tell the scenario that cannot be recovered from the
- * artifact afterwards — most importantly the exact ids it operated on. Deleted ids are gone from
- * the tip-pinned briefcase, and deriving them from the changeset files would be circular for a
- * scenario whose job is to verify those same files. Stage 1 captures the returned value once, so
- * every sample and every A/B arm reads byte-identical expectations.
+ * Recipes own construction, declared identity inputs, distribution, and optional validation.
+ * Providers continue to own HubMock, database, artifact, and cleanup lifecycles.
  */
-export interface FixtureRecipe<TState = unknown, TArtifactData = unknown> {
+export interface FixtureRecipe<
+  TParameters,
+  TState = unknown,
+  TArtifactData = unknown,
+> {
   readonly id: string;
-  /** Create the source seed file. Returns state carried into {@link applySourceChangesets}. */
-  createSeed(fileName: string, descriptor: FixtureDescriptor): Promise<TState>;
-  /**
-   * Apply and push the recipe's changesets to an open source briefcase.
-   *
-   * Any returned value is serialized into the artifact as `recipe.json` and surfaced to the
-   * scenario as `PreparedDetachedDataset.recipe`. It must round-trip through JSON; returning
-   * nothing is the normal case.
-   */
+  readonly identity: FixtureRecipeIdentity;
+  readonly distribution: (
+    parameters: Readonly<TParameters>
+  ) => FixtureDistribution;
+  createSeed(
+    fileName: string,
+    context: FixtureRecipeContext<TParameters>
+  ): Promise<TState>;
   applySourceChangesets(
     db: BriefcaseDb,
     accessToken: AccessToken,
-    descriptor: FixtureDescriptor,
+    context: FixtureRecipeContext<TParameters>,
     state: TState
   ): Promise<TArtifactData | void>;
-  /**
-   * Assert the built source iModel matches what the descriptor promises.
-   *
-   * Validation is recipe-owned because it queries the classes that recipe created.
-   */
-  validate(db: BriefcaseDb, descriptor: FixtureDescriptor): Promise<void>;
+  /** Optional post-construction validation, run before a fixture is consumed or captured. */
+  validate?(
+    db: BriefcaseDb,
+    context: FixtureRecipeContext<TParameters>
+  ): Promise<void>;
 }
 
-export const balancedIncrementalRecipe: FixtureRecipe<BalancedRecipeState> = {
-  id: "balanced-incremental",
-  createSeed: async (fileName, descriptor) =>
-    createBalancedSeed(fileName, descriptor),
-  applySourceChangesets: async (db, accessToken, descriptor, state) =>
-    applyBalancedChangesets(db, accessToken, descriptor, state),
-  validate: async (db, descriptor) => assertFixtureDistribution(db, descriptor),
-};
-
-export const updateHeavyScanRecipe: FixtureRecipe<ScanRecipeState> = {
-  id: "update-heavy-scan",
-  createSeed: async (fileName, descriptor) =>
-    createScanSeed(fileName, descriptor),
-  applySourceChangesets: async (db, accessToken, descriptor, state) =>
-    applyScanChangesets(db, accessToken, descriptor, state),
-  validate: async (db, descriptor) => validateScanFixture(db, descriptor),
-};
-
-const recipes = new Map<string, FixtureRecipe<any, any>>([
-  [balancedIncrementalRecipe.id, balancedIncrementalRecipe],
-  [updateHeavyScanRecipe.id, updateHeavyScanRecipe],
-]);
-
-export function registerFixtureRecipe(recipe: FixtureRecipe<any, any>): void {
-  if (recipes.has(recipe.id))
-    throw new Error(`Duplicate quick performance recipe: ${recipe.id}`);
-  recipes.set(recipe.id, recipe);
+export function defineFixtureRecipe<
+  TParameters,
+  TState = unknown,
+  TArtifactData = unknown,
+>(
+  recipe: FixtureRecipe<TParameters, TState, TArtifactData>
+): FixtureRecipe<TParameters, TState, TArtifactData> {
+  if (recipe.identity.values !== undefined)
+    assertIdentityInput(recipe.identity.values, "Recipe identity values");
+  const identity = deepFreeze({
+    implementationFiles: [...recipe.identity.implementationFiles],
+    schemaFiles:
+      recipe.identity.schemaFiles === undefined
+        ? undefined
+        : [...recipe.identity.schemaFiles],
+    values:
+      recipe.identity.values === undefined
+        ? undefined
+        : structuredClone(recipe.identity.values),
+  });
+  return Object.freeze({ ...recipe, identity });
 }
 
-export function getFixtureRecipe(id: string): FixtureRecipe<any, any> {
-  const recipe = recipes.get(id);
-  if (!recipe)
-    throw new Error(
-      `Unknown quick performance recipe "${id}". Available recipes: ${[
-        ...recipes.keys(),
-      ].join(", ")}`
-    );
-  return recipe;
+export interface FixtureConfiguration<TParameters> {
+  readonly id: string;
+  readonly version: number;
+  readonly label: string;
+  readonly scenarioClaims: readonly string[];
+  readonly topology: FixtureTopology;
+  readonly seed: number;
+  readonly parameters: Readonly<TParameters>;
+}
+
+/**
+ * A named immutable invocation of a recipe. Infrastructure derives its serializable descriptor;
+ * authors never duplicate hashes, generator versions, or distributions in a catalog.
+ */
+export interface ConfiguredFixture {
+  readonly descriptor: FixtureDescriptor;
+  readonly recipeId: string;
+  createSeed(fileName: string): Promise<unknown>;
+  applySourceChangesets(
+    db: BriefcaseDb,
+    accessToken: AccessToken,
+    state: unknown
+  ): Promise<unknown>;
+  validate?(db: BriefcaseDb): Promise<void>;
+}
+
+export function configureFixture<TParameters, TState, TArtifactData>(
+  recipe: FixtureRecipe<TParameters, TState, TArtifactData>,
+  configuration: FixtureConfiguration<TParameters>
+): ConfiguredFixture {
+  if (!Number.isSafeInteger(configuration.seed))
+    throw new Error("Fixture seed must be a safe integer");
+  if (!Number.isSafeInteger(configuration.version) || configuration.version < 1)
+    throw new Error("Fixture version must be a positive safe integer");
+  assertIdentityInput(configuration.parameters, "Fixture parameters");
+  const parameters = deepFreeze(structuredClone(configuration.parameters));
+  const distribution = deepFreeze(recipe.distribution(parameters));
+  assertIdentityInput(distribution, "Fixture distribution");
+  const schemaFiles = Object.freeze([...(recipe.identity.schemaFiles ?? [])]);
+  const descriptor: FixtureDescriptor = Object.freeze({
+    id: configuration.id,
+    version: configuration.version,
+    label: configuration.label,
+    scenarioClaims: Object.freeze([...configuration.scenarioClaims]),
+    layout: Object.freeze({
+      kind: "reconstructed",
+      topology: configuration.topology,
+      recipe: recipe.id,
+      seed: configuration.seed,
+    }),
+    distribution,
+    generator,
+    recipeHash: canonicalSha256({
+      fixture: {
+        id: configuration.id,
+        version: configuration.version,
+        label: configuration.label,
+        scenarioClaims: configuration.scenarioClaims,
+        topology: configuration.topology,
+        recipe: recipe.id,
+        seed: configuration.seed,
+      },
+      parameters,
+      distribution,
+      identity: recipe.identity.values,
+      implementationFiles:
+        recipe.identity.implementationFiles.map(identityFile),
+      schemaFiles: schemaFiles.map(identityFile),
+      lockfile: identityFile(lockfileName),
+      versions: generator,
+    }),
+  });
+  const context: FixtureRecipeContext<TParameters> = Object.freeze({
+    descriptor,
+    parameters,
+    schemaFiles,
+  });
+  const configured = {
+    descriptor,
+    recipeId: recipe.id,
+    createSeed: async (fileName: string) =>
+      recipe.createSeed(fileName, context),
+    applySourceChangesets: async (
+      db: BriefcaseDb,
+      accessToken: AccessToken,
+      state: unknown
+    ) =>
+      recipe.applySourceChangesets(db, accessToken, context, state as TState),
+  };
+  if (recipe.validate === undefined) return Object.freeze(configured);
+  return Object.freeze({
+    ...configured,
+    validate: async (db: BriefcaseDb) => {
+      if (recipe.validate === undefined)
+        throw new Error(`Fixture recipe "${recipe.id}" lost its validator`);
+      await recipe.validate(db, context);
+    },
+  });
 }

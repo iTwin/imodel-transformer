@@ -5,13 +5,17 @@
 
 import type { ChangedInstanceIds } from "@itwin/imodel-transformer";
 import { createRequire } from "node:module";
-import { updateHeavyScanDescriptor } from "../catalogs/FixtureCatalog.js";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
   PreparedDataset,
   requireDetachedDataset,
 } from "../fixtures/FixtureProvider.js";
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
+import {
+  BenchmarkRegistration,
+  defineBenchmark,
+} from "../framework/BenchmarkRegistration.js";
+import { updateHeavyScanFixture } from "../fixtures/recipes/updateHeavyScan.js";
 
 const workspaceRequire = createRequire(import.meta.url);
 
@@ -123,12 +127,12 @@ class ChangesetScanningScenario {
   }
 }
 
-export function createChangesetScanningScenario(
+export function createChangesetScanningBenchmark(
   changedInstanceIds: ChangedInstanceIdsDependency = workspaceChangedInstanceIds()
-): BenchmarkScenarioDefinition {
-  return {
+): BenchmarkRegistration {
+  const scenario: BenchmarkScenarioDefinition = {
     id: "changeset-scanning",
-    defaultFixtureId: updateHeavyScanDescriptor.id,
+    defaultFixtureId: updateHeavyScanFixture.descriptor.id,
     capabilities: {
       topology: "source-only",
       requiredClaims: ["changeset scanning"],
@@ -136,6 +140,11 @@ export function createChangesetScanningScenario(
     factory: (dataset) =>
       new ChangesetScanningScenario(dataset, changedInstanceIds),
   };
+  return defineBenchmark({
+    scenario,
+    fixtures: [updateHeavyScanFixture],
+  });
 }
 
-export const changesetScanningScenario = createChangesetScanningScenario();
+export const changesetScanningBenchmark = createChangesetScanningBenchmark();
+export const changesetScanningScenario = changesetScanningBenchmark.scenario;

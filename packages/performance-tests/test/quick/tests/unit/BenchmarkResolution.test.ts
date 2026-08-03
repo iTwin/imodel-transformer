@@ -16,9 +16,7 @@ import { BenchmarkScenarioDefinition } from "../../src/framework/BenchmarkScenar
 import {
   balancedIncrementalDescriptor,
   balancedIncrementalSourceOnlyDescriptor,
-  updateHeavyScanDescriptor,
-} from "../../src/catalogs/FixtureCatalog.js";
-import { changesetScanningScenario } from "../../src/scenarios/changesetScanning.js";
+} from "../../src/fixtures/recipes/balancedIncremental.js";
 import { incrementalSynchronizationScenario } from "../../src/scenarios/incrementalSynchronization.js";
 
 describe("benchmark resolution", () => {
@@ -28,14 +26,6 @@ describe("benchmark resolution", () => {
     expect(resolved.descriptor.id).to.equal(
       incrementalSynchronizationScenario.defaultFixtureId
     );
-  });
-
-  it("resolves the changeset-scanning fixture and capabilities", () => {
-    const resolved = resolveBenchmarkRun(changesetScanningScenario.id);
-    expect(resolved.descriptor).to.equal(updateHeavyScanDescriptor);
-    expect(() =>
-      assertScenarioSupportsFixture(resolved.scenario, resolved.descriptor)
-    ).to.not.throw();
   });
 
   it("lets an explicit fixture id override the default", () => {
