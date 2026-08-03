@@ -25,6 +25,7 @@ import {
   getFixtureProvider,
   PreparedDataset,
 } from "../fixtures/FixtureProvider.js";
+import { quickTestHub } from "../fixtures/QuickTestHub.js";
 import { quickPath } from "../support/paths.js";
 
 export const benchmarkOutputMarkerName =
@@ -149,7 +150,7 @@ export class BenchmarkRunner {
     const provider = getFixtureProvider(descriptor);
     const samples: BenchmarkSample[] = [];
     await runWithCleanup(async () => {
-      await IModelHost.startup();
+      await IModelHost.startup({ hubAccess: quickTestHub });
       // Stage 1: build the fixture exactly once, outside the sample loop.
       const built = await provider.build(
         this._fixture,

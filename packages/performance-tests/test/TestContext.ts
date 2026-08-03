@@ -8,12 +8,10 @@ import {
   IModelHost,
   RequestNewBriefcaseArg,
 } from "@itwin/core-backend";
-// eslint-disable-next-line @itwin/no-internal
-import { _hubAccess } from "@itwin/core-backend/lib/cjs/internal/Symbols";
 import { Logger } from "@itwin/core-bentley";
-import { IModelVersion, LocalBriefcaseProps } from "@itwin/core-common";
-import { BackendIModelsAccess } from "@itwin/imodels-access-backend";
+import { LocalBriefcaseProps } from "@itwin/core-common";
 import { AccessTokenAdapter } from "@itwin/imodels-access-common";
+import { IModelsClient } from "@itwin/imodels-client-authoring";
 import assert from "node:assert";
 import { generateTestIModel } from "./iModelUtils";
 
@@ -41,11 +39,11 @@ export function getTShirtSizeFromName(name: string): TShirtSize {
   );
 }
 
-export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
+export async function* getTestIModels(
+  hubClient: IModelsClient,
+  filter: (iModel: TestIModel) => boolean
+) {
   assert(IModelHost.authorizationClient !== undefined);
-  const hubClient = (IModelHost[_hubAccess] as BackendIModelsAccess)[
-    "_iModelsClient"
-  ];
 
   for (const iTwinId of testITwinIds) {
     const iModels = hubClient.iModels.getMinimalList({
@@ -86,15 +84,13 @@ export async function* getTestIModels(filter: (iModel: TestIModel) => boolean) {
 }
 
 export async function downloadBriefcase(
-  briefcaseArg: Omit<RequestNewBriefcaseArg, "accessToken">
+  briefcaseArg: Pick<RequestNewBriefcaseArg, "iModelId" | "iTwinId">
 ): Promise<LocalBriefcaseProps> {
   const PROGRESS_FREQ_MS = 2000;
   let nextProgressUpdate = Date.now() + PROGRESS_FREQ_MS;
 
-  const asOf = briefcaseArg.asOf ?? IModelVersion.latest().toJSON();
-  const changeset = await IModelHost[_hubAccess].getChangesetFromVersion({
-    ...briefcaseArg,
-    version: IModelVersion.fromJSON(asOf),
+  const changeset = await BriefcaseManager.getLatestChangeset({
+    iModelId: briefcaseArg.iModelId,
   });
 
   assert(IModelHost.authorizationClient !== undefined, "auth client undefined");
