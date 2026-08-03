@@ -144,7 +144,7 @@ export class ElementAspectExportProcessor {
         )`;
   }
 
-  private getHasExportableAspects(): Promise<boolean> {
+  private async getHasExportableAspects(): Promise<boolean> {
     this._hasExportableAspects ??= this.queryHasExportableAspects();
     return this._hasExportableAspects;
   }
