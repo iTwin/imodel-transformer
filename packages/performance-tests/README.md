@@ -31,7 +31,7 @@ parts:
 | **Configured fixture** | A named immutable invocation of a recipe with explicit parameters, topology, seed, version, label, and scenario claims.                                                                                             |
 | **Fixture descriptor** | The serializable artifact/report manifest generated from a configured fixture. Infrastructure derives distribution, generator versions, and the recipe hash.                                                        |
 | **Provider**           | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s backed by `HubMock`, or a detached source `BriefcaseDb` with local changeset files. |
-| **Registration**       | One cohesive contribution containing a scenario and any configured fixtures it introduces.                                                                                                                          |
+| **Registration**       | One cohesive contribution containing a scenario and the configured fixtures that scenario supports.                                                                                                                  |
 | **Harness**            | The registry, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
 
 The provider creates and owns the source, target, Hub, and changeset resources.

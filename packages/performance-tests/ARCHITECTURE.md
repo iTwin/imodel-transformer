@@ -103,7 +103,7 @@ while generator versions and the recipe hash are automatic.
 #### Catalog
 
 Benchmark registrations are the composition layer. Each registration bundles a
-scenario with the configured fixtures it contributes. One explicit list in
+scenario with its compatible configured fixtures. One explicit list in
 `BenchmarkRegistry.ts` maps user-facing IDs to definitions and keeps compiled CLI
 imports predictable.
 

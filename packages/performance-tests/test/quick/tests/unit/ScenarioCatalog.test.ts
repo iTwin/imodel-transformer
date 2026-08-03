@@ -14,7 +14,10 @@ import {
   listRegisteredScenarios,
 } from "../../src/catalogs/BenchmarkRegistry.js";
 import { validateFixtureDescriptor } from "../../src/fixtures/FixtureDescriptor.js";
-import { resolveBenchmarkRun } from "../../src/framework/BenchmarkResolution.js";
+import {
+  assertScenarioSupportsFixture,
+  resolveBenchmarkRun,
+} from "../../src/framework/BenchmarkResolution.js";
 
 describe("quick performance scenario catalog", () => {
   it("selects incremental synchronization by default", () => {
@@ -50,6 +53,12 @@ describe("quick performance scenario catalog", () => {
           fixture.descriptor
         );
         expect(fixture.recipeId).to.equal(fixture.descriptor.layout.recipe);
+        expect(() =>
+          assertScenarioSupportsFixture(
+            registration.scenario,
+            fixture.descriptor
+          )
+        ).to.not.throw();
       }
     }
   });
