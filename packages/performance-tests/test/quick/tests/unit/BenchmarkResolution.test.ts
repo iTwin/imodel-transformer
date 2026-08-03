@@ -16,7 +16,7 @@ import { BenchmarkScenarioDefinition } from "../../src/framework/BenchmarkScenar
 import {
   balancedIncrementalDescriptor,
   balancedIncrementalSourceOnlyDescriptor,
-} from "../../src/catalogs/FixtureCatalog.js";
+} from "../../src/fixtures/recipes/balancedIncremental.js";
 import { incrementalSynchronizationScenario } from "../../src/scenarios/incrementalSynchronization.js";
 
 describe("benchmark resolution", () => {

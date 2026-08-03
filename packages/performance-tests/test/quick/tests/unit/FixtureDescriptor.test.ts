@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it } from "vitest";
-import { balancedIncrementalDescriptor } from "../../src/catalogs/FixtureCatalog.js";
+import { balancedIncrementalDescriptor } from "../../src/fixtures/recipes/balancedIncremental.js";
 import {
   canonicalSha256,
   validateFixtureDescriptor,

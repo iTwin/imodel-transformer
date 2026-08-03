@@ -3,33 +3,25 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
+import {
+  getRegisteredScenario,
+  listRegisteredScenarios,
+} from "./BenchmarkRegistry.js";
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
 import { incrementalSynchronizationScenario } from "../scenarios/incrementalSynchronization.js";
 
 export const defaultQuickPerformanceScenarioId =
   incrementalSynchronizationScenario.id;
 
-const scenarios = new Map<string, BenchmarkScenarioDefinition>([
-  [incrementalSynchronizationScenario.id, incrementalSynchronizationScenario],
-]);
-
-export function registerScenarioDefinition(
-  scenario: BenchmarkScenarioDefinition
-): void {
-  if (scenarios.has(scenario.id))
-    throw new Error(`Duplicate quick performance scenario: ${scenario.id}`);
-  scenarios.set(scenario.id, scenario);
-}
-
 export function listScenarioIds(): string[] {
-  return [...scenarios.keys()];
+  return listRegisteredScenarios().map((scenario) => scenario.id);
 }
 
 export function getScenarioDefinition(
   requestedId?: string
 ): BenchmarkScenarioDefinition {
   const scenarioId = requestedId ?? defaultQuickPerformanceScenarioId;
-  const scenario = scenarios.get(scenarioId);
+  const scenario = getRegisteredScenario(scenarioId);
   if (!scenario)
     throw new Error(
       `Unknown quick performance scenario "${scenarioId}". Available scenarios: ${listScenarioIds().join(
