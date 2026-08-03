@@ -27,7 +27,7 @@ export enum TransformerLoggerCategory {
    */
   IModelTransformer = "imodel-transformer.IModelTransformer",
 
-  /** The logger category used by the [IModelCloneContext]($transformer) class.
+  /** The logger category used while cloning entities and remapping their references.
    * @beta
    */
   IModelCloneContext = "imodel-transformer.IModelCloneContext",

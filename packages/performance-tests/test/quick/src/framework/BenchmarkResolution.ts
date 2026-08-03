@@ -5,12 +5,13 @@
 
 import { BenchmarkScenarioDefinition } from "./BenchmarkScenario.js";
 import { FixtureDescriptor } from "../fixtures/FixtureDescriptor.js";
-import { getFixtureDescriptor } from "../catalogs/FixtureCatalog.js";
-import { getFixtureRecipe } from "../fixtures/FixtureRecipe.js";
+import { getConfiguredFixture } from "../catalogs/FixtureCatalog.js";
+import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
 import { getScenarioDefinition } from "../catalogs/ScenarioCatalog.js";
 
 export interface ResolvedBenchmarkRun {
   readonly scenario: BenchmarkScenarioDefinition;
+  readonly fixture: ConfiguredFixture;
   readonly descriptor: FixtureDescriptor;
 }
 
@@ -68,8 +69,6 @@ export function assertScenarioSupportsFixture(
         ", "
       )}] required by scenario "${scenario.id}"`
     );
-  // A fixture is useless if nothing knows how to generate it.
-  getFixtureRecipe(descriptor.layout.recipe);
 }
 
 /**
@@ -81,11 +80,10 @@ export function resolveBenchmarkRun(
   fixtureId?: string
 ): ResolvedBenchmarkRun {
   const scenario = getScenarioDefinition(scenarioId);
-  const descriptor = getFixtureDescriptor(
-    fixtureId ?? scenario.defaultFixtureId
-  );
+  const fixture = getConfiguredFixture(fixtureId ?? scenario.defaultFixtureId);
+  const { descriptor } = fixture;
   assertScenarioSupportsFixture(scenario, descriptor);
-  return { scenario, descriptor };
+  return { scenario, fixture, descriptor };
 }
 
 /** Resolve from the environment, as both entry points do. */

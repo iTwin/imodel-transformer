@@ -30,7 +30,12 @@ import {
   BenchmarkRunner,
   prepareBenchmarkOutputDirectory,
 } from "../../src/framework/BenchmarkRunner.js";
-import { balancedIncrementalDescriptor } from "../../src/catalogs/FixtureCatalog.js";
+import {
+  balancedIncrementalDescriptor,
+  balancedIncrementalFixture,
+  balancedIncrementalRecipe,
+} from "../../src/fixtures/recipes/balancedIncremental.js";
+import { configureFixture } from "../../src/fixtures/FixtureRecipe.js";
 import { materializeLiveHubFixture } from "../../src/fixtures/providers/liveHubProvider.js";
 import {
   createStartedEditTxn,
@@ -125,20 +130,16 @@ describe("LocalHubFixture reconstruction", () => {
   });
 
   it("disposes a reconstructed hub when materialization fails", async () => {
-    const invalidDescriptor = {
-      ...balancedIncrementalDescriptor,
-      distribution: {
-        ...balancedIncrementalDescriptor.distribution,
-        operations: {
-          ...balancedIncrementalDescriptor.distribution.operations,
-          sourceChangesets: 9,
-        },
+    const invalidFixture = {
+      ...balancedIncrementalFixture,
+      async validate() {
+        throw new Error("expected fixture validation failure");
       },
     };
     let failure: unknown;
     try {
       await materializeLiveHubFixture(
-        invalidDescriptor,
+        invalidFixture,
         path.join(outputDir, "materialize-failure"),
         "materialize-failure"
       );
@@ -157,7 +158,7 @@ describe("LocalHubFixture reconstruction", () => {
     let failure: unknown;
     try {
       await new BenchmarkRunner(
-        balancedIncrementalDescriptor,
+        balancedIncrementalFixture,
         unsafeOutput,
         incrementalSynchronizationScenario
       ).run(1);
@@ -187,7 +188,7 @@ describe("LocalHubFixture reconstruction", () => {
     let failure: unknown;
     try {
       await new BenchmarkRunner(
-        balancedIncrementalDescriptor,
+        balancedIncrementalFixture,
         path.join(outputDir, "zero-samples"),
         incrementalSynchronizationScenario
       ).run(0);
@@ -302,25 +303,16 @@ describe("LocalHubFixture reconstruction", () => {
 });
 
 describe("BenchmarkRunner scenario injection", () => {
-  const testDescriptor = {
-    ...balancedIncrementalDescriptor,
+  const testFixture = configureFixture(balancedIncrementalRecipe, {
     id: "balanced-incremental-runner-test",
-    distribution: {
-      base: {
-        aspects: 480,
-        elements: 240,
-        geometricElements: 120,
-        relationships: 120,
-      },
-      operations: {
-        aspects: { deletes: 48, inserts: 24, updates: 24 },
-        elements: { deletes: 24, inserts: 24, updates: 24 },
-        geometryUpdates: 6,
-        relationships: { deletes: 33, inserts: 12, updates: 12 },
-        sourceChangesets: 8,
-      },
-    },
-  };
+    version: 1,
+    label: "balanced incremental runner test",
+    scenarioClaims: balancedIncrementalDescriptor.scenarioClaims,
+    topology: "source-and-empty-target",
+    seed: 328,
+    parameters: { scale: 1 },
+  });
+  const { descriptor: testDescriptor } = testFixture;
 
   it("uses the injected factory, propagates its identity, and cleans every sample", async () => {
     const outputDir = fs.mkdtempSync(
@@ -352,7 +344,7 @@ describe("BenchmarkRunner scenario injection", () => {
     };
     try {
       const samples = await new BenchmarkRunner(
-        testDescriptor,
+        testFixture,
         outputDir,
         scenario
       ).run(1);
@@ -457,7 +449,7 @@ describe("BenchmarkRunner scenario injection", () => {
     };
     let failure: unknown;
     try {
-      await new BenchmarkRunner(testDescriptor, outputDir, scenario).run(1);
+      await new BenchmarkRunner(testFixture, outputDir, scenario).run(1);
     } catch (error) {
       failure = error;
     }
@@ -496,7 +488,7 @@ describe("BenchmarkRunner scenario injection", () => {
     };
     let failure: unknown;
     try {
-      await new BenchmarkRunner(testDescriptor, outputDir, scenario).run(1);
+      await new BenchmarkRunner(testFixture, outputDir, scenario).run(1);
     } catch (error) {
       failure = error;
     }

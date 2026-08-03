@@ -23,8 +23,12 @@ import {
   SpatialCategory,
   withEditTxn,
 } from "@itwin/core-backend";
-import { FixtureDescriptor } from "../FixtureDescriptor.js";
-import { queryCount } from "../validation/validateFixture.js";
+import {
+  configureFixture,
+  defineFixtureRecipe,
+  FixtureRecipeContext,
+} from "../FixtureRecipe.js";
+import { FixtureDistribution } from "../FixtureDescriptor.js";
 import { quickPath } from "../../support/paths.js";
 
 const scanAspectClass = "QuickPerfScan:ScanAspect";
@@ -32,22 +36,13 @@ const scanAspectClass = "QuickPerfScan:ScanAspect";
 /**
  * Per-unit shape of the update-heavy scan recipe.
  *
- * Elements are partitioned into four regions so that every id has one unambiguous expected outcome
- * after `ChangedInstanceIds` squashes the whole scanned range:
+ * Elements are partitioned into four regions to produce a stable update-heavy mix across the
+ * scanned changesets:
  *
- * - `updated`             updated in every changeset            -> `element.updateIds`
- * - `deletedLate`         updated, then deleted in the last     -> `element.deleteIds`
- * - `insertedThenUpdated` inserted first, updated afterwards    -> `element.insertIds`
- * - `insertedThenDeleted` inserted first, deleted in the last   -> absent from all three sets
- *
- * The last region is the reason this recipe can catch squash regressions that a "the sizes match"
- * assertion cannot: those ids must cancel out entirely.
- *
- * Note there is no region for the fourth squash rule, delete-then-insert reinstating an insert.
- * That rule is encoded in the oracle and unit-tested directly, but no region exercises it against
- * a real changeset because it is not producible here: ids are assigned by the briefcase and a
- * deleted ElementId, aspect id or relationship id is never handed out again, so a delete can never
- * be followed by an insert of the same id within one scanned range.
+ * - `updated`: updated in every changeset
+ * - `deletedLate`: updated, then deleted in the last changeset
+ * - `insertedThenUpdated`: inserted first, updated afterwards
+ * - `insertedThenDeleted`: inserted first, deleted in the last changeset
  *
  * Elements carry no geometry. An unchanged GeometryStream column never appears in a SQLite
  * changeset, so geometry would cost build time, disk and determinism while contributing nothing to
@@ -66,6 +61,11 @@ export interface ScanRegionSizes {
   readonly deletedRelationships: number;
 }
 
+export interface UpdateHeavyScanParameters {
+  readonly changesets: number;
+  readonly scale: number;
+}
+
 const perUnit: ScanRegionSizes = {
   deletedLate: 20,
   deletedRelationships: 10,
@@ -77,27 +77,62 @@ const perUnit: ScanRegionSizes = {
   updatedRelationships: 10,
 };
 
-/** Seed elements are regions A and B; the other two regions are created by the changesets. */
-const seedElementsPerUnit = perUnit.updated + perUnit.deletedLate;
-
 /** Fewer than four changesets collapses the schedule's distinct first/middle/penultimate/last phases. */
 const minimumChangesets = 4;
 
 export function scanRegionSizes(
-  descriptor: FixtureDescriptor
+  parameters: Readonly<UpdateHeavyScanParameters>
 ): ScanRegionSizes {
-  const scale = descriptor.distribution.base.elements / seedElementsPerUnit;
+  const { changesets, scale } = parameters;
   if (!Number.isInteger(scale) || scale < 1)
-    throw new Error(
-      `Scan fixture elements must be a positive multiple of ${seedElementsPerUnit}`
-    );
-  if (descriptor.distribution.operations.sourceChangesets < minimumChangesets)
+    throw new Error("Scan fixture scale must be a positive integer");
+  if (!Number.isInteger(changesets) || changesets < minimumChangesets)
     throw new Error(
       `Scan fixture needs at least ${minimumChangesets} source changesets`
     );
-  return Object.fromEntries(
-    Object.entries(perUnit).map(([key, value]) => [key, value * scale])
-  ) as unknown as ScanRegionSizes;
+  return {
+    deletedLate: perUnit.deletedLate * scale,
+    deletedRelationships: perUnit.deletedRelationships * scale,
+    insertedRelationships: perUnit.insertedRelationships * scale,
+    insertedThenDeleted: perUnit.insertedThenDeleted * scale,
+    insertedThenUpdated: perUnit.insertedThenUpdated * scale,
+    seedRelationships: perUnit.seedRelationships * scale,
+    updated: perUnit.updated * scale,
+    updatedRelationships: perUnit.updatedRelationships * scale,
+  };
+}
+
+function scanDistribution(
+  parameters: Readonly<UpdateHeavyScanParameters>
+): FixtureDistribution {
+  const sizes = scanRegionSizes(parameters);
+  return {
+    base: {
+      aspects: sizes.updated + sizes.deletedLate,
+      elements: sizes.updated + sizes.deletedLate,
+      geometricElements: 0,
+      relationships: sizes.seedRelationships,
+    },
+    operations: {
+      elements: {
+        inserts: sizes.insertedThenUpdated + sizes.insertedThenDeleted,
+        updates: sizes.updated + sizes.deletedLate + sizes.insertedThenUpdated,
+        deletes: sizes.deletedLate + sizes.insertedThenDeleted,
+      },
+      aspects: {
+        inserts: sizes.insertedThenUpdated,
+        updates: sizes.updated + sizes.deletedLate,
+        deletes: sizes.deletedLate,
+      },
+      relationships: {
+        inserts: sizes.insertedRelationships,
+        updates: sizes.updatedRelationships,
+        deletes: sizes.deletedRelationships,
+      },
+      geometryUpdates: 0,
+      sourceChangesets: parameters.changesets,
+    },
+  };
 }
 
 export interface ScanRecipeState {
@@ -151,16 +186,15 @@ function scanAspectProps(
 
 export async function createScanSeed(
   fileName: string,
-  descriptor: FixtureDescriptor
+  context: FixtureRecipeContext<UpdateHeavyScanParameters>
 ): Promise<ScanRecipeState> {
-  const sizes = scanRegionSizes(descriptor);
+  const { descriptor, parameters, schemaFiles } = context;
+  const sizes = scanRegionSizes(parameters);
   const db = SnapshotDb.createEmpty(fileName, {
     rootSubject: { name: descriptor.id },
   });
   try {
-    await db.importSchemas([
-      quickPath("assets", "schemas", "QuickPerfScan.ecschema.xml"),
-    ]);
+    await db.importSchemas([...schemaFiles]);
 
     const { categoryId, modelId } = withEditTxn(
       db,
@@ -203,8 +237,7 @@ export async function createScanSeed(
     const regionA = insertRegion("a", sizes.updated);
     const regionB = insertRegion("b", sizes.deletedLate);
 
-    // Relationships live entirely within region A, which is never deleted, so no relationship is
-    // ever removed by an element cascade. Every relationship delete in the ledger is explicit.
+    // Relationships live entirely within region A, so element deletion cannot alter this mix.
     const relationshipIds = withEditTxn(
       db,
       "insert scan relationships",
@@ -236,7 +269,7 @@ export async function createScanSeed(
 }
 
 /**
- * Runs the changeset schedule and returns the ledger of every operation performed.
+ * Runs the deterministic changeset schedule.
  *
  * The schedule is:
  * - changeset 1:   structural inserts (regions C and D, a model, a CodeSpec, relationships)
@@ -248,11 +281,12 @@ export async function createScanSeed(
 export async function applyScanChangesets(
   db: BriefcaseDb,
   accessToken: AccessToken,
-  descriptor: FixtureDescriptor,
+  context: FixtureRecipeContext<UpdateHeavyScanParameters>,
   state: ScanRecipeState
 ): Promise<void> {
-  const sizes = scanRegionSizes(descriptor);
-  const changesetCount = descriptor.distribution.operations.sourceChangesets;
+  const { parameters } = context;
+  const sizes = scanRegionSizes(parameters);
+  const changesetCount = parameters.changesets;
 
   const insertedThenUpdatedIds: Id64String[] = [];
   const insertedThenDeletedIds: Id64String[] = [];
@@ -319,9 +353,7 @@ export async function applyScanChangesets(
           );
         }
 
-        // Region D carries no aspects. Whether cascade-deleting an aspect that was inserted within
-        // the same scanned range emits a row at all is a second unknown, and this region already
-        // exists to test one thing: that insert-then-delete cancels.
+        // Region D carries no aspects so its insert/delete traffic stays element-only.
         for (let index = 0; index < sizes.insertedThenDeleted; index++)
           insertedThenDeletedIds.push(
             txn.insertElement(
@@ -425,12 +457,20 @@ export async function applyScanChangesets(
  */
 export async function validateScanFixture(
   db: BriefcaseDb,
-  descriptor: FixtureDescriptor
+  context: FixtureRecipeContext<UpdateHeavyScanParameters>
 ): Promise<void> {
-  const sizes = scanRegionSizes(descriptor);
+  const { descriptor, parameters } = context;
+  const sizes = scanRegionSizes(parameters);
+  const queryCount = async (ecsql: string): Promise<number> => {
+    const reader = db.createQueryReader(ecsql, undefined, {
+      usePrimaryConn: true,
+    });
+    if (!(await reader.step()))
+      throw new Error(`Count query returned no rows: ${ecsql}`);
+    return reader.current.cnt as number;
+  };
   const regionCount = async (region: string) =>
     queryCount(
-      db,
       `SELECT count(*) cnt FROM ${PhysicalObject.classFullName.replace(
         ":",
         "."
@@ -456,15 +496,12 @@ export async function validateScanFixture(
     ["region D elements (inserted then deleted)", await regionCount("d"), 0],
     [
       "scan aspects",
-      await queryCount(db, "SELECT count(*) cnt FROM QuickPerfScan.ScanAspect"),
+      await queryCount("SELECT count(*) cnt FROM QuickPerfScan.ScanAspect"),
       sizes.updated + sizes.insertedThenUpdated,
     ],
     [
       "relationships",
-      await queryCount(
-        db,
-        "SELECT count(*) cnt FROM BisCore.ElementGroupsMembers"
-      ),
+      await queryCount("SELECT count(*) cnt FROM BisCore.ElementGroupsMembers"),
       sizes.seedRelationships +
         sizes.insertedRelationships -
         sizes.deletedRelationships,
@@ -472,7 +509,6 @@ export async function validateScanFixture(
     [
       "updated relationships",
       await queryCount(
-        db,
         "SELECT count(*) cnt FROM BisCore.ElementGroupsMembers WHERE MemberPriority >= 1000"
       ),
       sizes.updatedRelationships,
@@ -492,3 +528,28 @@ export async function validateScanFixture(
       )}`
     );
 }
+
+export const updateHeavyScanRecipe = defineFixtureRecipe({
+  id: "update-heavy-scan",
+  identity: {
+    implementationFiles: [
+      quickPath("src", "fixtures", "recipes", "updateHeavyScan.ts"),
+    ],
+    schemaFiles: [quickPath("assets", "schemas", "QuickPerfScan.ecschema.xml")],
+    values: { schema: "QuickPerfScan.01.00.00" },
+  },
+  distribution: scanDistribution,
+  createSeed: createScanSeed,
+  applySourceChangesets: applyScanChangesets,
+  validate: validateScanFixture,
+});
+
+export const updateHeavyScanFixture = configureFixture(updateHeavyScanRecipe, {
+  id: "update-heavy-scan",
+  version: 1,
+  label: "update-heavy scan",
+  scenarioClaims: ["changeset scanning"],
+  topology: "source-only",
+  seed: 328,
+  parameters: { changesets: 20, scale: 16 },
+});

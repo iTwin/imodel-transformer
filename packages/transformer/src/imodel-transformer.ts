@@ -6,6 +6,7 @@ export * from "./TransformerLoggerCategory";
 export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
+export * from "./IModelTransformContext";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 

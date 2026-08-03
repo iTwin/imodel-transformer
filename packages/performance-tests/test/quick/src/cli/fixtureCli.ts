@@ -23,7 +23,8 @@ function writeManifest(outputDir: string, descriptor: FixtureDescriptor): void {
 
 async function main() {
   const command = process.argv[2];
-  const { descriptor, scenario } = resolveBenchmarkRunFromEnvironment();
+  const { descriptor, fixture, scenario } =
+    resolveBenchmarkRunFromEnvironment();
   const outputDir =
     process.env.QUICK_PERF_OUTPUT ?? quickPath(".quick-output", descriptor.id);
   if (command === "build-fixture") {
@@ -33,11 +34,9 @@ async function main() {
   }
   if (command === "verify-fixture") {
     const started = process.hrtime.bigint();
-    const samples = await new BenchmarkRunner(
-      descriptor,
-      outputDir,
-      scenario
-    ).run(1);
+    const samples = await new BenchmarkRunner(fixture, outputDir, scenario).run(
+      1
+    );
     const elapsedMilliseconds =
       Number(process.hrtime.bigint() - started) / 1_000_000;
     if (new Set(samples.map((sample) => sample.semanticDigest)).size !== 1)
