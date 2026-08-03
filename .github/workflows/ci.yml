@@ -154,6 +154,10 @@ jobs:
     - name: Build
       run: pnpm run build
 
+    - name: Verify packed ESM package
+      if: matrix.version == 'USE_FROZEN_DEV_DEPS'
+      run: pnpm --dir packages/transformer test:package
+
     - name: Test
       run: pnpm run test
 

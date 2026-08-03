@@ -2,75 +2,72 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
-const fs = require('fs');
-const fg = require('fast-glob');
+import * as fs from "node:fs";
+import fg from "fast-glob";
 
 let pattern = process.argv
   .slice(2)
-  .flatMap((x) => (x !== '--fix' ? x.replaceAll('\\', '/') : []));
+  .flatMap((x) => (x !== "--fix" ? x.replaceAll("\\", "/") : []));
 
 // if no pattern is specified, then lint everything
 if (pattern.length === 0) {
-  pattern = '**/*.{ts,tsx,js,scss,css}';
+  pattern = "**/*.{ts,tsx,js,scss,css}";
 }
 
 const filePaths = fg.sync(pattern, {
   dot: true,
-  ignore: [
-    '**/node_modules/**/*',
-    '**/lib/**/*'
-  ],
+  ignore: ["**/node_modules/**/*", "**/lib/**/*"],
 });
 
 const copyrightLine1 = `Copyright (c) Bentley Systems, Incorporated. All rights reserved.`;
 const copyrightLine2 = `See LICENSE.md in the project root for license terms and full copyright notice.`;
 
-const copyrightBannerScss = `// ${copyrightLine1}\n// ${copyrightLine2}`;
-const copyrightBannerHtml = `<!--\n  ${copyrightLine1}\n  ${copyrightLine2}\n-->`;
-const copyrightBannerJs =
-  '/*---------------------------------------------------------------------------------------------\n' +
+export const copyrightBannerScss = `// ${copyrightLine1}\n// ${copyrightLine2}`;
+export const copyrightBannerHtml = `<!--\n  ${copyrightLine1}\n  ${copyrightLine2}\n-->`;
+export const copyrightBannerJs =
+  "/*---------------------------------------------------------------------------------------------\n" +
   ` * ${copyrightLine1}\n` +
   ` * ${copyrightLine2}\n` +
-  ' *--------------------------------------------------------------------------------------------*/';
+  " *--------------------------------------------------------------------------------------------*/";
 
 if (filePaths) {
   filePaths.forEach((filePath) => {
-    const fileContent = fs.readFileSync(filePath, { encoding: 'utf8' });
+    const fileContent = fs.readFileSync(filePath, { encoding: "utf8" });
     if (
       !fileContent.includes(copyrightLine1) &&
       !fileContent.includes(copyrightLine2)
     ) {
-      if (process.argv.includes('--fix')) {
-        switch (filePath.substring(filePath.lastIndexOf('.'))) {
-          case '.js':
-          case '.ts':
-          case '.css':
-            if (fileContent.startsWith('@charset')) {
+      if (process.argv.includes("--fix")) {
+        switch (filePath.substring(filePath.lastIndexOf("."))) {
+          case ".js":
+          case ".ts":
+          case ".css":
+            if (fileContent.startsWith("@charset")) {
               // @charset must be the first line in the file so insert the copyright banner after it
               fs.writeFileSync(
                 filePath,
                 fileContent.replace(
                   '@charset "UTF-8";',
-                  `@charset "UTF-8";\n${copyrightBannerJs}`,
-                ),
+                  `@charset "UTF-8";\n${copyrightBannerJs}`
+                )
               );
             } else {
               fs.writeFileSync(
                 filePath,
-                `${copyrightBannerJs}\n${fileContent}`,
+                `${copyrightBannerJs}\n${fileContent}`
               );
             }
             break;
-          case '.html':
+          case ".html":
             fs.writeFileSync(
               filePath,
-              `${copyrightBannerHtml}\n${fileContent}`,
+              `${copyrightBannerHtml}\n${fileContent}`
             );
             break;
-          case '.scss':
+          case ".scss":
             fs.writeFileSync(
               filePath,
-              `${copyrightBannerScss}\n${fileContent}`,
+              `${copyrightBannerScss}\n${fileContent}`
             );
             break;
         }
@@ -81,9 +78,3 @@ if (filePaths) {
     }
   });
 }
-
-module.exports = {
-  copyrightBannerScss,
-  copyrightBannerHtml,
-  copyrightBannerJs,
-};

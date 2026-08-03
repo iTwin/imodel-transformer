@@ -10,7 +10,7 @@ import {
   IModelDb,
 } from "@itwin/core-backend";
 import { Id64Set, Id64String } from "@itwin/core-bentley";
-import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter";
+import { ensureECSqlReaderIsAsyncIterableIterator } from "./ECSqlReaderAsyncIterableIteratorAdapter.js";
 import {
   ElementAspectProps,
   QueryBinder,

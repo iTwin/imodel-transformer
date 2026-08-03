@@ -1,18 +1,16 @@
 # (iTwin Transformer) performance-scripts
 
-To use this package, you should require it before anything else. One easy way to do that is,
-to set the `NODE_OPTIONS` environment variable like so:
+To use this package, import it before anything else by setting the `NODE_OPTIONS` environment variable:
 
 ```sh
-NODE_OPTIONS='--require performance-scripts'
+NODE_OPTIONS='--import @bentley/hook-profiler'
 ```
 
 Then run your program. There are other required options but they are explained when you don't
 supply them, so for the full list of options, please run:
 
 ```sh
-npm install -g @itwin/performance-scripts
-NODE_OPTIONS='-r @itwin/performance-scripts' node
+NODE_OPTIONS='--import @bentley/hook-profiler' node
 ```
 
 This package allows you to hook into function calls with a few different supported profilers, listed
@@ -47,32 +45,14 @@ not work if the hooked functions are being used directly within a module. That m
 
 ```js
 //script.js
-export function a() {
-
-}
+export function a() {}
 
 export function b() {
   return a();
 }
 ```
 
-The call to `a` in `b` will not be profiled even with `FUNCTIONS='require("./script.js").a'` because `b` will
-look up the name `a` local to the module. You can do the following if you really really want to profile that case:
-
-```js
-//script.js
-export function a() {
-
-}
-
-export function b() {
-  return module.exports.a();
-}
-```
-
-But you should probably at that point just import `runWithJsCpuProfiler` (or whatever profiler type you want)
-and manually wrap the profile code.
+The call to `a` in `b` will not be profiled even with `FUNCTIONS='(await load("./script.js")).a'` because `b` looks up the local binding. If this case must be measured, import the relevant `runWith*` profiler directly and wrap the operation explicitly.
 
 In practice, we're usually trying to profile at the level of a consumed export where this is usually
 not the case. But you can always bail out to importing the `runWith*` functions if you need them.
-

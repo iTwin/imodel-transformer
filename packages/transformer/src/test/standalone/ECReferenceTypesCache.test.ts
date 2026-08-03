@@ -6,10 +6,10 @@
 import { ConcreteEntityTypes } from "@itwin/core-common";
 import { assert, expect } from "vitest";
 import * as path from "node:path";
-import { ECReferenceTypesCache } from "../../ECReferenceTypesCache";
+import { ECReferenceTypesCache } from "../../ECReferenceTypesCache.js";
 import { Relationship, SnapshotDb } from "@itwin/core-backend";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
-import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
+import { KnownTestLocations as BackendTestsKnownLocations } from "../TestUtils/KnownTestLocations.js";
 import * as Semver from "semver";
 import {
   ECClass,
@@ -17,7 +17,9 @@ import {
   SchemaItemType,
   SchemaLoader,
 } from "@itwin/ecschema-metadata";
-import { version as iTwinCoreBackendVersion } from "@itwin/core-backend/package.json";
+import coreBackendPackage from "@itwin/core-backend/package.json" with { type: "json" };
+
+const iTwinCoreBackendVersion = coreBackendPackage.version;
 
 describe("ECReferenceTypesCache", () => {
   let testIModel: SnapshotDb;

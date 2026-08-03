@@ -15,7 +15,7 @@ for branch in $BRANCHES; do
   mkdir $DIR
 
   for prof_type in sqlite js-cpu linux-perf; do
-    PROFILE_TYPE=$prof_type NODE_OPTIONS='-r ../performance-scripts' \
+    PROFILE_TYPE=$prof_type NODE_OPTIONS='--import ../performance-scripts/lib/index.js' \
       node lib/Main.js --sourceFile ~/work/bad-aspect-old.bim \
           --targetDestination /tmp/out.bim
     mv *.cpuprofile *.sqliteprofile.db $DIR

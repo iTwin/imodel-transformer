@@ -6,7 +6,7 @@ import { initializeBranchProvenance } from "@itwin/imodel-transformer";
 import {
   TestTransformerModule,
   TransformRunner,
-} from "../TestTransformerModule";
+} from "../TestTransformerModule.js";
 
 const rawForkOperationsTestModule: TestTransformerModule = {
   async createForkInitTransform(sourceDb, targetDb): Promise<TransformRunner> {

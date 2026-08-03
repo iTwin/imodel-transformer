@@ -3,7 +3,7 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 import { BriefcaseDb } from "@itwin/core-backend";
-import { TestTransformerModule } from "../TestTransformerModule";
+import { TestTransformerModule } from "../TestTransformerModule.js";
 
 type ReportCallback = (
   iModelName: string,

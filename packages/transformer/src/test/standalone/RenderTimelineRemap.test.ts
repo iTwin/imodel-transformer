@@ -15,7 +15,7 @@ import {
   SubjectOwnsPartitionElements,
   withEditTxn,
 } from "@itwin/core-backend";
-import { IModelTestUtils } from "../TestUtils/IModelTestUtils";
+import { IModelTestUtils } from "../TestUtils/IModelTestUtils.js";
 import { CompressedId64Set, Guid, Id64, Id64String } from "@itwin/core-bentley";
 import {
   Code,
@@ -31,8 +31,8 @@ import {
   Vector3d,
   YawPitchRollAngles,
 } from "@itwin/core-geometry";
-import { IModelTransformer } from "../../IModelTransformer";
-import { createStartedEditTxn } from "../IModelTransformerUtils";
+import { IModelTransformer } from "../../IModelTransformer.js";
+import { createStartedEditTxn } from "../IModelTransformerUtils.js";
 
 describe("RenderTimeline Remap", () => {
   beforeAll(() => {

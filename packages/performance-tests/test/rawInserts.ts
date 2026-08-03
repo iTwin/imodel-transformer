@@ -2,9 +2,9 @@
  * Copyright (c) Bentley Systems, Incorporated. All rights reserved.
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
+import { fileURLToPath } from "node:url";
 import {
   EditTxn,
-  // eslint-disable-next-line @typescript-eslint/no-redeclare
   Element,
   ElementGroupsMembers,
   SnapshotDb,
@@ -13,15 +13,18 @@ import {
 import { IModelTransformer } from "@itwin/imodel-transformer";
 import { Logger, OpenMode } from "@itwin/core-bentley";
 import { Reporter } from "@itwin/perf-tools";
-import { TestIModel } from "./TestContext";
-import { generateTestIModel } from "./iModelUtils";
-import { count, initOutputFile, timed } from "./TestUtils";
+import { TestIModel } from "./TestContext.js";
+import { generateTestIModel } from "./iModelUtils.js";
+import { count, initOutputFile, timed } from "./TestUtils.js";
 import assert from "node:assert";
 import path from "node:path";
-import { runWithCleanup } from "./Cleanup";
+import { runWithCleanup } from "./Cleanup.js";
 
 const loggerCategory = "Raw Inserts";
-const outputDir = path.join(__dirname, ".output");
+const outputDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".output"
+);
 
 const iModelName = "Many PhysicalObjects and Relationships";
 

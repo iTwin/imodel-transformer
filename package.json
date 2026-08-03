@@ -17,9 +17,9 @@
     "change": "beachball change",
     "check": "beachball check",
     "version-bump": "beachball bump",
-    "version-bump-dev": "beachball bump --config beachball.config.dev.js --keep-change-files",
+    "version-bump-dev": "beachball bump --config beachball.config.dev.cjs --keep-change-files",
     "publish-packages": "beachball publish",
-    "publish-packages-dev": "beachball publish --config beachball.config.dev.js --keep-change-files",
+    "publish-packages-dev": "beachball publish --config beachball.config.dev.cjs --keep-change-files",
     "pre-commit": "lint-staged",
     "prepare": "husky"
   },
@@ -40,7 +40,8 @@
   "engines": {
     "pnpm": ">=11",
     "npm": "<0",
-    "node": ">=18"
+    "node": ">=22.12.0"
   },
-  "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
+  "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b",
+  "type": "module"
 }

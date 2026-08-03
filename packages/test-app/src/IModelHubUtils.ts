@@ -27,7 +27,7 @@ import {
   AzureClientStorage,
   BlockBlobClientWrapperFactory,
 } from "@itwin/object-storage-azure";
-import { loggerCategory } from "./Transformer";
+import { loggerCategory } from "./Transformer.js";
 
 export class IModelTransformerTestAppHost {
   public static iModelClient?: IModelsClient;
