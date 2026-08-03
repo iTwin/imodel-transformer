@@ -108,34 +108,17 @@ scenario with its compatible configured fixtures. One explicit list in
 imports predictable.
 
 ```mermaid
-flowchart TD
-    Recipe["FixtureRecipe&lt;TParameters&gt;<br/>construction, distribution, identity inputs,<br/>optional validation"]
-    Configuration["FixtureConfiguration&lt;TParameters&gt;<br/>name, parameters, topology, seed,<br/>version, claims"]
-    Configure["configureFixture(...)"]
-    Fixture["ConfiguredFixture<br/>immutable recipe invocation"]
-    Descriptor["FixtureDescriptor<br/>derived serializable artifact/report identity"]
-    Scenario["BenchmarkScenarioDefinition<br/>measured operation and required capabilities"]
-    Registration["defineBenchmark(...)<br/>scenario + compatible fixtures"]
-    Registry["BenchmarkRegistry<br/>one explicit registration entry"]
-    Resolution["BenchmarkResolution<br/>select and validate scenario/fixture pair"]
-    Provider["FixtureProvider<br/>selected by topology"]
-    Build["Stage 1: BuiltFixture"]
-    Dataset["Stage 2: PreparedDataset"]
-    Run["Scenario<br/>measure() then finish()"]
+flowchart LR
+    Workload["Define the workload<br/>contents, scale, and validation"]
+    Measurement["Define the measurement<br/>transformer operation and correctness checks"]
+    Registration["Register compatible<br/>workloads and measurements"]
+    Preparation["Prepare a pristine dataset<br/>for each sample"]
+    Results["Measure, validate,<br/>and report results"]
 
-    Recipe --> Configure
-    Configuration --> Configure
-    Configure --> Fixture
-    Fixture --> Descriptor
-    Fixture --> Registration
-    Scenario --> Registration
-    Registration --> Registry
-    Registry --> Resolution
-    Descriptor --> Resolution
-    Resolution --> Provider
-    Provider --> Build
-    Build --> Dataset
-    Dataset --> Run
+    Workload --> Registration
+    Measurement --> Registration
+    Registration --> Preparation
+    Preparation --> Results
 ```
 
 Resolution follows this order:
