@@ -20,6 +20,7 @@ import {
   FixtureDescriptor,
   FixtureTopology,
 } from "../fixtures/FixtureDescriptor.js";
+import { ConfiguredFixture } from "../fixtures/FixtureRecipe.js";
 import {
   getFixtureProvider,
   PreparedDataset,
@@ -129,11 +130,11 @@ export interface BenchmarkSample {
 
 export class BenchmarkRunner {
   public constructor(
-    private readonly _descriptor: FixtureDescriptor,
+    private readonly _fixture: ConfiguredFixture,
     private readonly _outputDir: string,
     private readonly _scenario: BenchmarkScenarioDefinition
   ) {
-    assertScenarioSupportsFixture(_scenario, _descriptor);
+    assertScenarioSupportsFixture(_scenario, _fixture.descriptor);
   }
 
   public async run(
@@ -144,13 +145,14 @@ export class BenchmarkRunner {
         "Quick performance requires at least one measured sample"
       );
     prepareBenchmarkOutputDirectory(this._outputDir);
-    const provider = getFixtureProvider(this._descriptor);
+    const { descriptor } = this._fixture;
+    const provider = getFixtureProvider(descriptor);
     const samples: BenchmarkSample[] = [];
     await runWithCleanup(async () => {
       await IModelHost.startup();
       // Stage 1: build the fixture exactly once, outside the sample loop.
       const built = await provider.build(
-        this._descriptor,
+        this._fixture,
         path.join(this._outputDir, fixtureArtifactDirectoryName)
       );
       await runWithCleanup(async () => {
@@ -209,19 +211,19 @@ export class BenchmarkRunner {
               cpuSystemMilliseconds: cpu.system / 1000,
               cpuUserMilliseconds: cpu.user / 1000,
               fixtureBuildMilliseconds: built.buildMilliseconds,
-              fixtureGenerator: this._descriptor.generator,
-              fixtureId: this._descriptor.id,
-              fixtureRecipeHash: this._descriptor.recipeHash,
-              fixtureVersion: this._descriptor.version,
+              fixtureGenerator: descriptor.generator,
+              fixtureId: descriptor.id,
+              fixtureRecipeHash: descriptor.recipeHash,
+              fixtureVersion: descriptor.version,
               measured: sample !== 0,
-              operations: this._descriptor.distribution.operations,
+              operations: descriptor.distribution.operations,
               reconstructionMilliseconds: dataset.reconstructionMilliseconds,
               reportSchemaVersion: benchmarkReportSchemaVersion,
               rssDeltaBytes,
               sample,
               scenarioId: this._scenario.id,
               semanticDigest,
-              topology: this._descriptor.layout.topology,
+              topology: descriptor.layout.topology,
               verificationMilliseconds,
               wallMilliseconds,
             };

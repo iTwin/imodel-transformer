@@ -17,6 +17,8 @@ import {
   assertSemanticallyEqual,
   assertSynchronizationProvenance,
 } from "../fixtures/validation/validateFixture.js";
+import { balancedIncrementalFixture } from "../fixtures/recipes/balancedIncremental.js";
+import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
 
 export function incrementalSynchronization(
   dataset: PreparedDataset
@@ -56,3 +58,8 @@ export const incrementalSynchronizationScenario: BenchmarkScenarioDefinition = {
   },
   factory: incrementalSynchronization,
 };
+
+export const incrementalSynchronizationBenchmark = defineBenchmark({
+  scenario: incrementalSynchronizationScenario,
+  fixtures: [balancedIncrementalFixture],
+});
