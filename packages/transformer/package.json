@@ -17,6 +17,7 @@
     "# env var is workaround, need to contribute a better rush-less root-package.json detector to betools": "",
     "docs:reference": "cross-env RUSHSTACK_FILE_ERROR_BASE_FOLDER='../..' betools docs --includes=../../build/docs/extract --json=../../build/docs/reference/imodel-transformer/file.json --tsIndexFile=imodel-transformer.ts --onlyJson",
     "docs:extract": "betools extract --fileExt=ts --extractFrom=./src/test --recursive --out=../../build/docs/extract",
+    "precover": "pnpm --filter @itwin/imodel-transformer-test-utils build",
     "cover": "vitest run --coverage",
     "extract-api": "betools extract-api --entry=imodel-transformer --apiReportFolder=../../common/api --apiReportTempFolder=../../common/api/temp --apiSummaryFolder=../../common/api/summary",
     "lint": "eslint -f visualstudio --quiet \"./src/**/*.ts\" 1>&2",
