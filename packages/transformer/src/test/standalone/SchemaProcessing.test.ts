@@ -10,8 +10,8 @@ import * as ECSchemaMetaData from "@itwin/ecschema-metadata";
 import { SchemaLoader } from "@itwin/ecschema-metadata";
 import { IModelExporter } from "../../IModelExporter";
 import { IModelTransformer } from "../../IModelTransformer";
-import { DynamicSchemaUnionStrategy } from "../../DynamicSchemaUnionStrategy";
-import { NewerVersionSchemaImportStrategy } from "../../SchemaProcessingStrategy";
+import { DynamicSchemaUnionStrategy } from "../../schema-processing/DynamicSchemaUnionStrategy";
+import { NewerVersionSchemaImportStrategy } from "../../schema-processing/SchemaProcessingStrategy";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,

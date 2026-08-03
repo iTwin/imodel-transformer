@@ -24,7 +24,7 @@ import {
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "../IModelTransformerError";
 import {
   ReadonlySchemaAccessor,
   SchemaProcessingContext,

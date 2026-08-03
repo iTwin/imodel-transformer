@@ -105,8 +105,8 @@ import { ProvenanceManager } from "./ProvenanceManager";
 import {
   NewerVersionSchemaImportStrategy,
   ProcessSchemasOptions,
-} from "./SchemaProcessingStrategy";
-import { SchemaProcessingCoordinator } from "./SchemaProcessingCoordinator";
+} from "./schema-processing/SchemaProcessingStrategy";
+import { SchemaProcessingCoordinator } from "./schema-processing/SchemaProcessingCoordinator";
 import {
   ChangesetDeletionRecord,
   ChangesetDeletionRecordsByChangeset,

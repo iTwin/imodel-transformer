@@ -6,7 +6,7 @@ export * from "./TransformerLoggerCategory";
 export * from "./IModelExporter";
 export * from "./IModelImporter";
 export * from "./IModelTransformer";
-export * from "./SchemaProcessingStrategy";
+export * from "./schema-processing/SchemaProcessingStrategy";
 export * from "./IModelTransformerError";
 export * from "./BranchProvenanceInitializer";
 
