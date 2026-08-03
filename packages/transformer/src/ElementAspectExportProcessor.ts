@@ -215,15 +215,13 @@ export class ElementAspectExportProcessor {
            aspect.Element.Id AS OwnerId, 1 AS AspectKind
          FROM OwnerIds owners
          CROSS JOIN Bis.ElementMultiAspect aspect
-           ON aspect.Element.Id = owners.id
-         WHERE TRUE ${excludedClassFilter}
+         WHERE aspect.Element.Id = owners.id ${excludedClassFilter}
          UNION ALL
          SELECT aspect.ECInstanceId, aspect.ECClassId,
            aspect.Element.Id AS OwnerId, 0 AS AspectKind
          FROM OwnerIds owners
          CROSS JOIN Bis.ElementUniqueAspect aspect
-           ON aspect.Element.Id = owners.id
-         WHERE TRUE ${excludedClassFilter}
+         WHERE aspect.Element.Id = owners.id ${excludedClassFilter}
        )
        ORDER BY AspectKind, OwnerId, ECClassId, ECInstanceId
        OPTIONS USE_JS_PROP_NAMES DO_NOT_TRUNCATE_BLOB`,
