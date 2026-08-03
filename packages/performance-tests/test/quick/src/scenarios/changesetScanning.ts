@@ -55,7 +55,10 @@ function scanDigest(result: ScanResult): string {
       },
     ])
   );
-  return canonicalSha256(normalized);
+  return canonicalSha256({
+    ...normalized,
+    aspectOwnerElementIds: [...result.aspectOwnerElementIds].sort(),
+  });
 }
 
 function changedIdCount(result: ScanResult): number {
@@ -79,17 +82,12 @@ function changedIdCount(result: ScanResult): number {
 /**
  * Measures {@link ChangedInstanceIds.initialize} over a set of local changeset files.
  *
- * The measured region is deliberately narrow. `IModelTransformer.initialize` also performs
- * provenance initialization, clone-context and exporter setup and deleted-entity remapping, so a
- * regression in any of those would surface here as a scanning regression, and — more importantly —
- * a scanning regression would be diluted by everything else. Scanning is roughly a third of that
- * larger region, so at the ~3% run-to-run variation this framework sees, a 20% scan regression
- * would move the total by about 6% and disappear into the noise. Narrowing the region is what makes
- * the regression detectable.
+ * This deliberately isolates scanning from provenance initialization, clone-context/exporter setup,
+ * and deleted-entity remapping so those costs cannot dilute a scanning regression.
  *
- * `csFileProps` is the only one of the four `initialize` input modes that touches no hub: the other
- * three re-enter `BriefcaseManager` to query or download changesets. That is why this scenario needs
- * no hub and no target iModel, and why `HubMock` is deliberately not running during measurement.
+ * `csFileProps` is the hub-free input mode that still scans changeset files. Precomputed
+ * `changedInstanceIds` also avoids the hub but bypasses scanning, while range-based inputs query or
+ * download changesets through `BriefcaseManager`.
  */
 class ChangesetScanningScenario {
   private _result?: ScanResult;
