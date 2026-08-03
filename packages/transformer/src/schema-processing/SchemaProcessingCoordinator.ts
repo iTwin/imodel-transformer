@@ -7,11 +7,11 @@ import * as path from "node:path";
 import { ITwinError } from "@itwin/core-bentley";
 import { ECSchemaXmlContext, IModelDb, IModelJsFs } from "@itwin/core-backend";
 import { Schema, SchemaKey, SchemaLoader } from "@itwin/ecschema-metadata";
-import { ExportSchemaResult, IModelExporter } from "./IModelExporter";
+import { ExportSchemaResult, IModelExporter } from "../IModelExporter";
 import {
   IModelTransformerError,
   IModelTransformerErrorScope,
-} from "./IModelTransformerError";
+} from "../IModelTransformerError";
 import {
   ReadonlySchemaAccessor,
   SchemaProcessingResult,

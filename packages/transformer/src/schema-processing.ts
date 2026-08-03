@@ -6,5 +6,5 @@
  * Optional schema-processing strategies for `@itwin/imodel-transformer`.
  * @module iModels
  */
-export * from "./SchemaProcessingStrategy";
-export * from "./DynamicSchemaUnionStrategy";
+export * from "./schema-processing/SchemaProcessingStrategy";
+export * from "./schema-processing/DynamicSchemaUnionStrategy";
