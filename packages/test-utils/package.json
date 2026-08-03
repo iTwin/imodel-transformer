@@ -1,0 +1,37 @@
+{
+  "name": "@itwin/imodel-transformer-test-utils",
+  "version": "0.0.0",
+  "private": true,
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf lib",
+    "lint": "eslint \"./src/**/*.ts\" 1>&2",
+    "format": "prettier \"./src/**/*.ts\" --write"
+  },
+  "peerDependencies": {
+    "@itwin/core-backend": "^5.10.3",
+    "@itwin/core-bentley": "^5.10.3"
+  },
+  "devDependencies": {
+    "@itwin/build-tools": "^5.10.3",
+    "@itwin/core-backend": "^5.10.3",
+    "@itwin/core-bentley": "^5.10.3",
+    "@itwin/eslint-plugin": "^5.2.1",
+    "@types/node": "22.18.12",
+    "eslint": "^9.36.0",
+    "prettier": "^3.6.2",
+    "rimraf": "^3.0.2",
+    "typescript": "^5.9.3"
+  },
+  "eslintConfig": {
+    "plugins": [
+      "@itwin"
+    ],
+    "extends": "plugin:@itwin/itwinjs-recommended",
+    "parserOptions": {
+      "project": "./tsconfig.json"
+    }
+  }
+}

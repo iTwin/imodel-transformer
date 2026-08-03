@@ -6,6 +6,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AccessToken } from "@itwin/core-bentley";
+import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import {
   BriefcaseDb,
   BriefcaseManager,
@@ -91,8 +92,36 @@ export async function closeAndDeleteBriefcase(
   await BriefcaseManager.deleteBriefcaseFiles(fileName, accessToken);
 }
 
+let restoreCheckpointDownload: (() => void) | undefined;
+
+function startQuickTestHub(name: string, outputDir: string): void {
+  quickTestHub.start(name, outputDir);
+  try {
+    restoreCheckpointDownload = installCheckpointDownload(quickTestHub);
+  } catch (error) {
+    quickTestHub.stop();
+    throw error;
+  }
+}
+
 export function stopQuickTestHub(): void {
-  if (quickTestHub.isActive) quickTestHub.stop();
+  const errors: unknown[] = [];
+  try {
+    restoreCheckpointDownload?.();
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    restoreCheckpointDownload = undefined;
+  }
+
+  try {
+    if (quickTestHub.isActive) quickTestHub.stop();
+  } catch (error) {
+    errors.push(error);
+  }
+
+  if (errors.length > 0)
+    throw new AggregateError(errors, "Failed to stop quick test hub");
 }
 
 async function cleanupHub(
@@ -138,10 +167,10 @@ async function reconstruct<T extends ReconstructedSourceHub>(
       `Quick test hub output path is not a directory: ${outputDir}`
     );
   try {
-    quickTestHub.start(mockName, outputDir);
+    startQuickTestHub(mockName, outputDir);
   } catch (error) {
     try {
-      if (quickTestHub.isActive) quickTestHub.stop();
+      stopQuickTestHub();
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],

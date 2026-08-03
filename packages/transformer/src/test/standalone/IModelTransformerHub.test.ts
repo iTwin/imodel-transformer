@@ -4,16 +4,16 @@
  * See LICENSE.md in the project root for license terms and full copyright notice.
  *--------------------------------------------------------------------------------------------*/
 
-import { assert, beforeEach, expect, vi } from "vitest";
+import { afterEach, assert, beforeEach, expect, vi } from "vitest";
 import * as path from "node:path";
 import * as semver from "semver";
+import { installCheckpointDownload } from "@itwin/imodel-transformer-test-utils";
 import {
   BisCoreSchema,
   BriefcaseDb,
   BriefcaseManager,
   CategorySelector,
   ChangesetReader,
-  CheckpointManager,
   DefinitionContainer,
   DefinitionModel,
   DefinitionPartition,
@@ -172,10 +172,14 @@ describe("IModelTransformerHub", () => {
     }
   });
 
+  let restoreCheckpointDownload: (() => void) | undefined;
   beforeEach(() => {
-    vi.spyOn(CheckpointManager, "downloadCheckpoint").mockImplementation(
-      async (request) => transformerTestHub.downloadCheckpoint(request)
-    );
+    restoreCheckpointDownload = installCheckpointDownload(transformerTestHub);
+  });
+
+  afterEach(() => {
+    restoreCheckpointDownload?.();
+    restoreCheckpointDownload = undefined;
   });
 
   afterAll(() => transformerTestHub.stop());
