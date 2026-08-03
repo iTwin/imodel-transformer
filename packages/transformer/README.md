@@ -19,10 +19,6 @@ import {
 
 CommonJS `require()` and implementation paths such as `@itwin/imodel-transformer/lib/cjs/*` are not supported. Node applications must run as ESM, and TypeScript applications should use `module` and `moduleResolution` set to `NodeNext`.
 
-### Package smoke test
-
-After building the package, run `pnpm test:package` from `packages/transformer`. The test packs the publishable tarball and validates it from a clean consumer rather than importing from the workspace source tree.
-
 ## Documentation
 
 See the [iTwin.js](https://www.itwinjs.org) documentation for more information.

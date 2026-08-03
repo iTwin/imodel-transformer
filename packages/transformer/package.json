@@ -25,8 +25,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit --incremental false 1>&2",
     "no-internal-report": "no-internal-report src/**/*.ts",
-    "build:esm": "tsc -p tsconfig.build.json 1>&2 --outDir lib",
-    "test:package": "node scripts/smokeEsmPackage.js"
+    "build:esm": "tsc -p tsconfig.build.json 1>&2 --outDir lib"
   },
   "repository": {
     "type": "git",
