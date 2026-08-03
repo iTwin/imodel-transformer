@@ -54,18 +54,29 @@ export interface ExecutionFingerprint {
 }
 
 function assertNonNegativeInteger(value: number, label: string): void {
-  if (!Number.isInteger(value) || value < 0)
+  if (!Number.isSafeInteger(value) || value < 0)
     throw new Error(`${label} must be a non-negative integer`);
 }
 
 function assertPositiveInteger(value: number, label: string): void {
-  if (!Number.isInteger(value) || value < 1)
+  if (!Number.isSafeInteger(value) || value < 1)
     throw new Error(`${label} must be a positive integer`);
 }
 
 export function validateExecutionFingerprint(
   fingerprint: ExecutionFingerprint
 ): void {
+  if (!fingerprint || typeof fingerprint !== "object")
+    throw new Error("Execution fingerprint must be an object");
+  if (
+    !fingerprint.processPolicy ||
+    typeof fingerprint.processPolicy !== "object"
+  )
+    throw new Error("Execution process policy must be an object");
+  if (!fingerprint.pairPolicy || typeof fingerprint.pairPolicy !== "object")
+    throw new Error("Execution pair policy must be an object");
+  if (!fingerprint.orderPolicy || typeof fingerprint.orderPolicy !== "object")
+    throw new Error("Execution order policy must be an object");
   assertNonNegativeInteger(
     fingerprint.warmupSamplesPerArm,
     "Warm-up samples per arm"
@@ -74,6 +85,16 @@ export function validateExecutionFingerprint(
     fingerprint.measuredSamplesPerArm,
     "Measured samples per arm"
   );
+  if (
+    fingerprint.processPolicy.kind !== "one-process-per-arm" &&
+    fingerprint.processPolicy.kind !== "one-process-per-sample"
+  )
+    throw new Error("Unknown process policy");
+  if (
+    fingerprint.processPolicy.kind === "one-process-per-arm" &&
+    typeof fingerprint.processPolicy.restartBetweenPairs !== "boolean"
+  )
+    throw new Error("Restart-between-pairs policy must be boolean");
   if (fingerprint.pairPolicy.kind === "paired")
     assertPositiveInteger(fingerprint.pairPolicy.pairsPerJob, "Pairs per job");
   else {
@@ -86,8 +107,23 @@ export function validateExecutionFingerprint(
       "Arm B observations per job"
     );
   }
-  if (fingerprint.orderPolicy.kind === "seeded-random")
+  if (fingerprint.orderPolicy.kind === "alternating") {
+    if (
+      fingerprint.orderPolicy.first !== "AB" &&
+      fingerprint.orderPolicy.first !== "BA"
+    )
+      throw new Error("Alternating order must start with AB or BA");
+  } else if (fingerprint.orderPolicy.kind === "fixed") {
+    if (
+      fingerprint.orderPolicy.order !== "AB" &&
+      fingerprint.orderPolicy.order !== "BA"
+    )
+      throw new Error("Fixed order must be AB or BA");
+  } else if (fingerprint.orderPolicy.kind === "seeded-random") {
     assertNonNegativeInteger(fingerprint.orderPolicy.seed, "Order seed");
+    if (fingerprint.orderPolicy.seed > 0xffff_ffff)
+      throw new Error("Order seed must be an unsigned 32-bit integer");
+  } else throw new Error("Unknown order policy");
 }
 
 /** Stable, typed serialization used by calibration storage keys. */

@@ -4,14 +4,19 @@
  *--------------------------------------------------------------------------------------------*/
 
 import {
+  exactMedianConfidenceInterval,
   LogRatioAggregate,
   logRatioToPercent,
+  MedianConfidenceInterval,
+  minimumObservationsForMedianConfidence,
   percentToLogRatio,
+  validateLogRatioAggregate,
 } from "./logRatio";
 import {
   CalibrationQuality,
   meaningfulRegressionPercent,
   NoiseBand,
+  validateNoiseBand,
 } from "./NoiseBand";
 
 export type ComparisonVerdict =
@@ -26,6 +31,7 @@ export type ComparisonVerdict =
 export type EvidenceLevel = "actionable" | "informational" | "descriptive";
 
 export const defaultEquivalenceMarginPercent = meaningfulRegressionPercent;
+export const defaultEquivalenceConfidenceLevel = 0.95;
 /** A 50/50 or 5/3 split at eight observations is treated as near-even. */
 export const defaultMaximumSignImbalance = 0.25;
 
@@ -63,7 +69,13 @@ export interface VerdictInput {
   readonly validityFailures?: readonly ValidityFailure[];
   readonly mode: "paired";
   readonly minimumObservations?: number;
+  readonly minimumEquivalenceObservations?: number;
+  readonly equivalenceConfidenceLevel?: number;
   readonly maximumSignImbalance?: number;
+}
+
+export interface EquivalenceDiagnostic extends MedianConfidenceInterval {
+  readonly minimumObservations: number;
 }
 
 export interface VerdictResult {
@@ -73,6 +85,7 @@ export interface VerdictResult {
   readonly calibrationQuality?: CalibrationQuality;
   readonly magnitudeGate?: MagnitudeGate;
   readonly signDiagnostic?: SignDiagnostic;
+  readonly equivalenceDiagnostic?: EquivalenceDiagnostic;
 }
 
 function evidenceFor(quality: CalibrationQuality): EvidenceLevel {
@@ -122,6 +135,7 @@ function diagnoseSigns(
 }
 
 export function decideVerdict(input: VerdictInput): VerdictResult {
+  validateLogRatioAggregate(input.aggregate);
   const failures = input.validityFailures ?? [];
   if (failures.length > 0)
     return {
@@ -133,6 +147,8 @@ export function decideVerdict(input: VerdictInput): VerdictResult {
     };
 
   const requiredObservations = input.minimumObservations ?? 1;
+  if (!Number.isSafeInteger(requiredObservations) || requiredObservations < 1)
+    throw new Error("Minimum observations must be a positive integer");
   if (input.aggregate.pairs < requiredObservations)
     return {
       verdict: "insufficient-observations",
@@ -140,11 +156,17 @@ export function decideVerdict(input: VerdictInput): VerdictResult {
       reason: `${input.aggregate.pairs} valid observations is below the configured minimum of ${requiredObservations}`,
     };
 
-  const signDiagnostic = diagnoseSigns(
-    input.aggregate,
-    input.maximumSignImbalance ?? defaultMaximumSignImbalance
-  );
+  const maximumSignImbalance =
+    input.maximumSignImbalance ?? defaultMaximumSignImbalance;
+  if (
+    !Number.isFinite(maximumSignImbalance) ||
+    maximumSignImbalance < 0 ||
+    maximumSignImbalance > 1
+  )
+    throw new Error("Maximum sign imbalance must be between zero and one");
+  const signDiagnostic = diagnoseSigns(input.aggregate, maximumSignImbalance);
 
+  if (input.band) validateNoiseBand(input.band);
   if (input.band && input.band.kind !== input.mode)
     return {
       verdict: "invalid",
@@ -167,6 +189,14 @@ export function decideVerdict(input: VerdictInput): VerdictResult {
 
   const marginPercent =
     input.equivalenceMarginPercent ?? defaultEquivalenceMarginPercent;
+  if (
+    !Number.isFinite(marginPercent) ||
+    marginPercent <= 0 ||
+    marginPercent >= 100
+  )
+    throw new Error(
+      "Equivalence margin must be finite and strictly between zero and 100 percent"
+    );
   const lowerMargin = percentToLogRatio(-marginPercent);
   const upperMargin = percentToLogRatio(marginPercent);
   const magnitudeGate = evaluateMagnitude(
@@ -220,21 +250,62 @@ export function decideVerdict(input: VerdictInput): VerdictResult {
       signDiagnostic,
     };
 
-  const { lower, upper } = input.aggregate.bootstrap;
-  if (lower > lowerMargin && upper < upperMargin)
+  const confidenceLevel =
+    input.equivalenceConfidenceLevel ?? defaultEquivalenceConfidenceLevel;
+  const mathematicalMinimum =
+    minimumObservationsForMedianConfidence(confidenceLevel);
+  const configuredEquivalenceMinimum =
+    input.minimumEquivalenceObservations ?? mathematicalMinimum;
+  if (
+    !Number.isSafeInteger(configuredEquivalenceMinimum) ||
+    configuredEquivalenceMinimum < 1
+  )
+    throw new Error(
+      "Minimum equivalence observations must be a positive integer"
+    );
+  const equivalenceMinimum = Math.max(
+    mathematicalMinimum,
+    configuredEquivalenceMinimum
+  );
+  if (input.aggregate.pairs < equivalenceMinimum)
     return {
-      verdict: "unchanged",
-      evidence,
-      reason: `The bootstrap interval [${logRatioToPercent(lower).toFixed(
-        2
-      )}%, ${logRatioToPercent(upper).toFixed(
-        2
-      )}%] lies inside the declared +/-${marginPercent.toFixed(
-        2
-      )}% equivalence margin.`,
+      verdict: "inconclusive",
+      evidence: "informational",
+      reason: `${input.aggregate.pairs} valid observations cannot establish unchanged; an exact median interval with at least ${(
+        confidenceLevel * 100
+      ).toFixed(2)}% coverage requires ${equivalenceMinimum}.`,
       calibrationQuality: input.band.quality,
       magnitudeGate,
       signDiagnostic,
+    };
+
+  const interval = exactMedianConfidenceInterval(
+    input.aggregate.logRatios,
+    confidenceLevel
+  );
+  const equivalenceDiagnostic: EquivalenceDiagnostic = {
+    ...interval,
+    minimumObservations: equivalenceMinimum,
+  };
+  if (interval.lower > lowerMargin && interval.upper < upperMargin)
+    return {
+      verdict: "unchanged",
+      evidence,
+      reason: `The exact median interval [${logRatioToPercent(
+        interval.lower
+      ).toFixed(2)}%, ${logRatioToPercent(interval.upper).toFixed(2)}%] has ${(
+        interval.coverage * 100
+      ).toFixed(
+        2
+      )}% coverage and lies inside the declared +/-${marginPercent.toFixed(
+        2
+      )}% equivalence margin; the ${input.band.bandPercent.toFixed(
+        2
+      )}% A/A band is also below that margin.`,
+      calibrationQuality: input.band.quality,
+      magnitudeGate,
+      signDiagnostic,
+      equivalenceDiagnostic,
     };
 
   return {
@@ -246,5 +317,6 @@ export function decideVerdict(input: VerdictInput): VerdictResult {
     calibrationQuality: input.band.quality,
     magnitudeGate,
     signDiagnostic,
+    equivalenceDiagnostic,
   };
 }

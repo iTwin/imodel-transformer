@@ -14,7 +14,8 @@ export class SeededRandom {
   private _state: number;
 
   public constructor(seed: number) {
-    if (!Number.isInteger(seed)) throw new Error("Seed must be an integer");
+    if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffff_ffff)
+      throw new Error("Seed must be an unsigned 32-bit integer");
     // Avoid the fixed point at zero.
     this._state = seed >>> 0 || 0x9e3779b9;
   }
@@ -30,6 +31,8 @@ export class SeededRandom {
 
   /** Uniform integer on [0, exclusiveUpperBound). */
   public nextIndex(exclusiveUpperBound: number): number {
+    if (!Number.isSafeInteger(exclusiveUpperBound) || exclusiveUpperBound < 1)
+      throw new Error("Random index upper bound must be a positive integer");
     return Math.floor(this.next() * exclusiveUpperBound);
   }
 
@@ -37,6 +40,8 @@ export class SeededRandom {
   public resample(values: readonly number[], size: number): number[] {
     if (values.length === 0)
       throw new Error("Cannot resample an empty collection");
+    if (!Number.isSafeInteger(size) || size < 0)
+      throw new Error("Resample size must be a non-negative integer");
     const drawn: number[] = new Array(size);
     for (let index = 0; index < size; index++)
       drawn[index] = values[this.nextIndex(values.length)];
