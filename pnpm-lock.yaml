@@ -62,6 +62,12 @@ importers:
       '@itwin/core-quantity':
         specifier: ^5.10.3
         version: 5.10.3(@itwin/core-bentley@5.10.3)
+      '@itwin/ecschema-editing':
+        specifier: ^5.10.3
+        version: 5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3))(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))
+      '@itwin/ecschema-locaters':
+        specifier: ^5.10.3
+        version: 5.10.3(@itwin/ecschema-metadata@5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3)))
       '@itwin/ecschema-metadata':
         specifier: ^5.10.3
         version: 5.10.3(@itwin/core-bentley@5.10.3)(@itwin/core-quantity@5.10.3(@itwin/core-bentley@5.10.3))

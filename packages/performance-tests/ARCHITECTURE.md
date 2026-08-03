@@ -42,23 +42,34 @@ The current `incremental-synchronization` scenario measures
 `IModelTransformer.process()` configured to process changes from a source
 `BriefcaseDb` into an existing target `BriefcaseDb`.
 
+The `dynamic-schema-union` scenario measures only
+`IModelTransformer.processSchemas({ strategy: new DynamicSchemaUnionStrategy() })`
+against a local, already-divergent dynamic schema pair. It has no elements,
+aspects, or relationships to process.
+
 #### Recipe
 
-A recipe defines the deterministic iModel generated for a fixture. It describes
-the data, not the benchmark operation or database lifecycle.
+A recipe defines the deterministic content generated for a fixture. It
+describes the data, not the benchmark operation or database lifecycle. Recipes
+are a discriminated union on `kind`:
 
-The current recipe controls:
+- `changeset` recipes control the EC schema imported into the source iModel,
+  initial elements/aspects/relationships, the deterministic seed and scale,
+  element/aspect/relationship/geometry edits, and the number and ordering of
+  pushed source changesets. `createSeed()` builds the initial source seed;
+  `applySourceChangesets()` applies deterministic edits to an open source
+  briefcase and may return JSON-serializable data for a later detached
+  scenario. The provider owns the `IModelHost`, `HubMock`, briefcase, and
+  filesystem lifecycle.
+- `schema-pair` recipes control two already-divergent, deterministic EC
+  schemas and any expectations (class/property/reference/version facts) the
+  scenario needs for correctness validation. `createSchemaPair()` returns the
+  source and target schema XML plus that expectation. The recipe never
+  touches `IModelHost`, `HubMock`, or the filesystem; the provider owns
+  creating and importing into the local `SnapshotDb`s.
 
-- The EC schema imported into the source iModel.
-- Initial elements, geometric elements, aspects, and relationships.
-- The deterministic seed and scale.
-- Element, aspect, relationship, and geometry edits.
-- The number and ordering of pushed source changesets.
-- Optional JSON-serializable data needed by a later detached scenario.
-
-`createSeed()` builds the initial source seed. `applySourceChangesets()` applies
-the recipe's deterministic edits to an open source briefcase. The provider owns
-the `IModelHost`, `HubMock`, briefcase, and filesystem lifecycle.
+`requireChangesetRecipe()` and `requireSchemaPairRecipe()` narrow a resolved
+recipe to the kind a provider requires.
 
 #### Provider
 
@@ -67,21 +78,23 @@ delivered to each scenario sample. It owns database, Hub, changeset, and cleanup
 resources. The scenario constructs `IModelTransformer` from those resources and
 chooses its options and measured operation.
 
-| Provider                    | Data delivered to the scenario                                                                     | Hub availability during the scenario | Stage-one behavior                                                                   |
-| --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
-| `liveHubProvider`           | Open source and target `BriefcaseDb`s backed by `HubMock`                                          | Available                            | Structural no-op; the complete Hub and briefcase dataset is rebuilt for every sample |
-| `detachedBriefcaseProvider` | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact  |
+| Provider                     | Data delivered to the scenario                                                                                          | Hub availability during the scenario | Stage-one behavior                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
+| `liveHubProvider`            | Open source and target `BriefcaseDb`s backed by `HubMock`                                                               | Available                            | Structural no-op; the complete Hub and briefcase dataset is rebuilt for every sample |
+| `detachedBriefcaseProvider`  | Read-only source `BriefcaseDb`, local changeset files, artifact metadata, and optional recipe data                      | Not available                        | Uses `HubMock` once to generate changesets, then captures a reusable local artifact  |
+| `snapshotSchemaPairProvider` | Open source and target `SnapshotDb`s, each pre-populated with a divergent dynamic schema, plus the recipe's expectation | Not used                             | Structural no-op; both `SnapshotDb`s are created and imported fresh for every sample |
 
-Both providers are credential-free and use local `HubMock` when they need
-iModelHub semantics. “Detached” means detached during scenario consumption, not
-that no Hub APIs were used to create the changesets.
-
-There is currently no provider for a completely standalone
-`SnapshotDb`-to-`SnapshotDb` transformation.
+All three providers are credential-free. `liveHubProvider` and
+`detachedBriefcaseProvider` use local `HubMock` when they need iModelHub
+semantics; “detached” means detached during scenario consumption, not that no
+Hub APIs were used to create the changesets. `snapshotSchemaPairProvider` uses
+no Hub at all: both databases are local `SnapshotDb`s created directly by the
+provider.
 
 `liveHubProvider` currently performs the initial full transformation required by
-incremental synchronization. A first-time schema or full-transform scenario
-would need a provider topology that leaves the target pristine.
+incremental synchronization. `snapshotSchemaPairProvider` is the standalone
+`SnapshotDb`-to-`SnapshotDb` topology for scenarios that need independently
+prepared source and target schemas without Hub semantics.
 
 #### Fixture
 
@@ -210,6 +223,39 @@ relationships, and 3,000 geometric elements. Its eight changesets apply:
 These values are 25 deterministic repetitions of the recipe's balanced content
 unit.
 
+## Current dynamic-schema-union run
+
+| Component | Selection                     |
+| --------- | ----------------------------- |
+| Scenario  | `dynamic-schema-union`        |
+| Fixture   | `dynamic-schema-union-medium` |
+| Recipe    | `dynamic-schema-union`        |
+| Topology  | `snapshot-schema-pair`        |
+| Provider  | `snapshotSchemaPairProvider`  |
+
+For the warm-up and each measured sample:
+
+1. The recipe generates a deterministic dynamic schema pair: 150 shared
+   classes present identically in both schemas, 60 source-only classes, and
+   60 target-only classes, each with four string properties. Both schemas
+   share a root read/write version; only their minor versions differ.
+2. The provider creates a local source `SnapshotDb` and imports the source
+   schema, then a local target `SnapshotDb` and imports the target schema.
+   No `HubMock`, briefcase, or changeset is involved.
+3. The scenario starts an `EditTxn` on the target and creates an
+   `IModelTransformer` for the source and target.
+4. `measure()` times only
+   `IModelTransformer.processSchemas({ strategy: new DynamicSchemaUnionStrategy() })`.
+5. `finish()` ends the target transaction, then validates the complete
+   expected union: the generated schema version, the shared reference
+   schema and its version, and every shared/source-only/target-only class
+   with its exact property set.
+6. The provider closes both `SnapshotDb`s and removes the sample directory.
+
+This fixture's distribution counts are all zero: it measures schema
+differencing and merge cost only, with no elements, aspects, or
+relationships.
+
 ## Detached artifact lifecycle
 
 `detachedBriefcaseProvider` supports the `source-only` topology. No benchmark
@@ -263,6 +309,12 @@ excluded from aggregate performance statistics.
 For `incremental-synchronization`, only `IModelTransformer.process()` is inside
 the measured region. Fixture generation, initial target transformation,
 provenance setup, validation, and cleanup remain outside it.
+
+For `dynamic-schema-union`, only
+`IModelTransformer.processSchemas({ strategy: new DynamicSchemaUnionStrategy() })`
+is inside the measured region. Schema generation, database creation and schema
+import, ending the target transaction, and complete union validation all
+remain outside it.
 
 ## Reporting and reliability
 

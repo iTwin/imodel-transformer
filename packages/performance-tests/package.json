@@ -25,6 +25,8 @@
     "@itwin/core-common": "^5.10.3",
     "@itwin/core-geometry": "^5.10.3",
     "@itwin/core-quantity": "^5.10.3",
+    "@itwin/ecschema-editing": "^5.10.3",
+    "@itwin/ecschema-locaters": "^5.10.3",
     "@itwin/ecschema-metadata": "^5.10.3",
     "@itwin/imodel-transformer": "workspace:*",
     "@itwin/imodels-access-backend": "^6.0.1",

@@ -7,11 +7,14 @@ import {
   BriefcaseDb,
   ExternalSourceAspect,
   PhysicalObject,
+  SnapshotDb,
 } from "@itwin/core-backend";
 import { IModel, QueryBinder } from "@itwin/core-common";
 import { YawPitchRollAngles } from "@itwin/core-geometry";
+import { EntityClass, SchemaLoader } from "@itwin/ecschema-metadata";
 import { canonicalSha256, FixtureDescriptor } from "../FixtureDescriptor.js";
 import { createBoxGeometry } from "../recipes/balancedIncremental.js";
+import { DynamicSchemaUnionExpectation } from "../recipes/dynamicSchemaUnion.js";
 
 function normalizedGeometryStream(geometry: unknown): unknown {
   if (!Array.isArray(geometry)) return geometry;
@@ -362,4 +365,84 @@ export async function assertSemanticallyEqual(
       )}`
     );
   return sourceDigest;
+}
+
+/**
+ * Validate the complete expected dynamic schema union: generated version, every shared,
+ * source-only, and target-only class with its properties, and the shared reference schema.
+ * Runs outside the measured region; returns a stable digest of what it checked.
+ *
+ * The reference schema's expected version is read from the source rather than hardcoded: the
+ * actual BisCore version bootstrapped into a `SnapshotDb.createEmpty()` iModel is a core-backend
+ * detail this fixture does not control, but source and target were created identically, so their
+ * references to it must agree.
+ */
+export async function assertDynamicSchemaUnion(
+  sourceDb: SnapshotDb,
+  targetDb: SnapshotDb,
+  expectation: DynamicSchemaUnionExpectation
+): Promise<string> {
+  const actualVersion = targetDb.querySchemaVersion(expectation.schemaName);
+  if (actualVersion !== expectation.expectedVersion)
+    throw new Error(
+      `Dynamic schema union version mismatch: expected=${expectation.expectedVersion}, actual=${actualVersion}`
+    );
+
+  const targetSchema = new SchemaLoader((name) =>
+    targetDb.getSchemaProps(name)
+  ).getSchema(expectation.schemaName);
+  const sourceSchema = new SchemaLoader((name) =>
+    sourceDb.getSchemaProps(name)
+  ).getSchema(expectation.schemaName);
+
+  const targetReference = targetSchema.references.find(
+    (reference) => reference.name === expectation.referenceSchemaName
+  );
+  const sourceReference = sourceSchema.references.find(
+    (reference) => reference.name === expectation.referenceSchemaName
+  );
+  if (!targetReference || !sourceReference)
+    throw new Error(
+      `Dynamic schema union is missing reference "${expectation.referenceSchemaName}"`
+    );
+  const referenceVersion = targetReference.schemaKey.version.toString(false);
+  const expectedReferenceVersion =
+    sourceReference.schemaKey.version.toString(false);
+  if (referenceVersion !== expectedReferenceVersion)
+    throw new Error(
+      `Dynamic schema union reference version mismatch: expected=${expectedReferenceVersion}, actual=${referenceVersion}`
+    );
+
+  const expectedPropertyNames = [...expectation.propertyNames].sort();
+  const allClassNames = [
+    ...expectation.sharedClassNames,
+    ...expectation.sourceOnlyClassNames,
+    ...expectation.targetOnlyClassNames,
+  ];
+  const classSnapshots = allClassNames.map((className) => {
+    const item = targetSchema.getItemSync(className, EntityClass);
+    if (!item)
+      throw new Error(`Dynamic schema union is missing class "${className}"`);
+    const actualPropertyNames = [...item.getPropertiesSync(true)]
+      .map((property) => property.name)
+      .sort();
+    if (
+      JSON.stringify(actualPropertyNames) !==
+      JSON.stringify(expectedPropertyNames)
+    )
+      throw new Error(
+        `Dynamic schema union class "${className}" has unexpected properties: expected=${JSON.stringify(
+          expectedPropertyNames
+        )}, actual=${JSON.stringify(actualPropertyNames)}`
+      );
+    return { className, propertyNames: actualPropertyNames };
+  });
+
+  return canonicalSha256({
+    schemaName: expectation.schemaName,
+    version: actualVersion,
+    referenceSchemaName: expectation.referenceSchemaName,
+    referenceVersion,
+    classes: classSnapshots,
+  });
 }

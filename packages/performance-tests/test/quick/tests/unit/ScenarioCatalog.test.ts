@@ -21,7 +21,17 @@ describe("quick performance scenario catalog", () => {
 
   it("rejects unknown scenarios", () => {
     expect(() => getScenarioDefinition("not-a-scenario")).to.throw(
-      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization'
+      'Unknown quick performance scenario "not-a-scenario". Available scenarios: incremental-synchronization, dynamic-schema-union'
     );
+  });
+
+  it("resolves the dynamic schema union scenario", () => {
+    const scenario = getScenarioDefinition("dynamic-schema-union");
+    expect(scenario.id).to.equal("dynamic-schema-union");
+    expect(scenario.defaultFixtureId).to.equal("dynamic-schema-union-medium");
+    expect(scenario.capabilities).to.deep.equal({
+      topology: "snapshot-schema-pair",
+      requiredClaims: ["dynamic schema union"],
+    });
   });
 });

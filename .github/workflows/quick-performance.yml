@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - incremental-synchronization
+          - dynamic-schema-union
       fixture:
         description: Fixture id (blank uses the scenario's default)
         required: false

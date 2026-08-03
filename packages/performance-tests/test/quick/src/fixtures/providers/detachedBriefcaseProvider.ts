@@ -29,7 +29,7 @@ import {
   requireDetachedDataset,
   requireFixtureArtifact,
 } from "../FixtureProvider.js";
-import { getFixtureRecipe } from "../FixtureRecipe.js";
+import { getFixtureRecipe, requireChangesetRecipe } from "../FixtureRecipe.js";
 import {
   ReconstructedSourceHub,
   reconstructSourceHub,
@@ -87,7 +87,9 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
     descriptor: FixtureDescriptor,
     artifactDir: string
   ): Promise<BuiltFixture> {
-    const recipe = getFixtureRecipe(descriptor.layout.recipe);
+    const recipe = requireChangesetRecipe(
+      getFixtureRecipe(descriptor.layout.recipe)
+    );
     const start = process.hrtime.bigint();
     fs.rmSync(artifactDir, { recursive: true, force: true });
     fs.mkdirSync(artifactDir, { recursive: true });

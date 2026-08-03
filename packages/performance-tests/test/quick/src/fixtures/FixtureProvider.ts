@@ -4,13 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as path from "node:path";
-import { BriefcaseDb } from "@itwin/core-backend";
+import { BriefcaseDb, SnapshotDb } from "@itwin/core-backend";
 import { ChangesetFileProps } from "@itwin/core-common";
 import { FixtureArtifact, FixtureArtifactManifest } from "./FixtureArtifact.js";
 import { FixtureDescriptor } from "./FixtureDescriptor.js";
 import { ReconstructedHub } from "./LocalHubFixture.js";
 import { detachedBriefcaseFixtureProvider } from "./providers/detachedBriefcaseProvider.js";
 import { liveHubFixtureProvider } from "./providers/liveHubProvider.js";
+import { snapshotSchemaPairFixtureProvider } from "./providers/snapshotSchemaPairProvider.js";
 
 interface PreparedDatasetBase {
   readonly descriptor: FixtureDescriptor;
@@ -41,7 +42,24 @@ export interface PreparedDetachedDataset extends PreparedDatasetBase {
   readonly recipe?: unknown;
 }
 
-export type PreparedDataset = PreparedLiveHubDataset | PreparedDetachedDataset;
+/** A working copy of a local, already-divergent dynamic schema pair: no hub, no briefcases. */
+export interface PreparedSnapshotSchemaPairDataset extends PreparedDatasetBase {
+  readonly topology: "snapshot-schema-pair";
+  /** Root of this sample's working copy, owned by the provider. */
+  readonly directory: string;
+  readonly sourceDb: SnapshotDb;
+  readonly targetDb: SnapshotDb;
+  /**
+   * Whatever the schema-pair recipe returned as its expectation. Deliberately `unknown`: the
+   * framework never interprets it, only the scenario that requested this topology does.
+   */
+  readonly expectation: unknown;
+}
+
+export type PreparedDataset =
+  | PreparedLiveHubDataset
+  | PreparedDetachedDataset
+  | PreparedSnapshotSchemaPairDataset;
 
 export function requireLiveHubDataset(
   dataset: PreparedDataset
@@ -59,6 +77,16 @@ export function requireDetachedDataset(
   if (dataset.topology !== "source-only")
     throw new Error(
       `Scenario requires a "source-only" fixture but received "${dataset.topology}"`
+    );
+  return dataset;
+}
+
+export function requireSnapshotSchemaPairDataset(
+  dataset: PreparedDataset
+): PreparedSnapshotSchemaPairDataset {
+  if (dataset.topology !== "snapshot-schema-pair")
+    throw new Error(
+      `Scenario requires a "snapshot-schema-pair" fixture but received "${dataset.topology}"`
     );
   return dataset;
 }
@@ -127,6 +155,8 @@ export function getFixtureProvider(
       return liveHubFixtureProvider;
     case "source-only":
       return detachedBriefcaseFixtureProvider;
+    case "snapshot-schema-pair":
+      return snapshotSchemaPairFixtureProvider;
     default: {
       const unreachable: never = descriptor.layout.topology;
       throw new Error(`Unknown fixture topology: ${String(unreachable)}`);

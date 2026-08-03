@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
+import { dynamicSchemaUnionScenario } from "../scenarios/dynamicSchemaUnion.js";
 import { incrementalSynchronizationScenario } from "../scenarios/incrementalSynchronization.js";
 
 export const defaultQuickPerformanceScenarioId =
@@ -11,6 +12,7 @@ export const defaultQuickPerformanceScenarioId =
 
 const scenarios = new Map<string, BenchmarkScenarioDefinition>([
   [incrementalSynchronizationScenario.id, incrementalSynchronizationScenario],
+  [dynamicSchemaUnionScenario.id, dynamicSchemaUnionScenario],
 ]);
 
 export function registerScenarioDefinition(

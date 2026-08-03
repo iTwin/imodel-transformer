@@ -348,6 +348,7 @@ describe("recipe data across the stage boundary", () => {
   beforeAll(async () => {
     registerFixtureRecipe({
       id: recipeId,
+      kind: "changeset",
       createSeed: async (fileName, forDescriptor) =>
         balancedIncrementalRecipe.createSeed(fileName, forDescriptor),
       applySourceChangesets: async (db, token, forDescriptor, state) => {
@@ -431,6 +432,7 @@ describe("recipe data that cannot survive JSON", () => {
   beforeAll(async () => {
     registerFixtureRecipe({
       id: recipeId,
+      kind: "changeset",
       createSeed: async (fileName, forDescriptor) =>
         balancedIncrementalRecipe.createSeed(fileName, forDescriptor),
       applySourceChangesets: async (db, token, forDescriptor, state) => {

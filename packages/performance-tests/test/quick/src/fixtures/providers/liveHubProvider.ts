@@ -11,7 +11,7 @@ import {
   PreparedDataset,
   requireLiveHubDataset,
 } from "../FixtureProvider.js";
-import { getFixtureRecipe } from "../FixtureRecipe.js";
+import { getFixtureRecipe, requireChangesetRecipe } from "../FixtureRecipe.js";
 import {
   createStartedEditTxn,
   disposeReconstructedHub,
@@ -32,7 +32,7 @@ export const liveHubFixtureProvider: FixtureProvider = {
     descriptor: FixtureDescriptor,
     artifactDir: string
   ): Promise<BuiltFixture> {
-    getFixtureRecipe(descriptor.layout.recipe);
+    requireChangesetRecipe(getFixtureRecipe(descriptor.layout.recipe));
     return { descriptor, directory: artifactDir, buildMilliseconds: 0 };
   },
 
@@ -42,7 +42,9 @@ export const liveHubFixtureProvider: FixtureProvider = {
     sampleName: string
   ): Promise<PreparedDataset> {
     const { descriptor } = built;
-    const recipe = getFixtureRecipe(descriptor.layout.recipe);
+    const recipe = requireChangesetRecipe(
+      getFixtureRecipe(descriptor.layout.recipe)
+    );
     const start = process.hrtime.bigint();
     let recipeState: unknown;
     let hub: ReconstructedHub | undefined;

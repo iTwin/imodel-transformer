@@ -9,7 +9,12 @@ import * as path from "node:path";
 import {
   canonicalSha256,
   FixtureDescriptor,
+  FixtureDistribution,
 } from "../fixtures/FixtureDescriptor.js";
+import {
+  dynamicSchemaUnionRecipe,
+  dynamicSchemaUnionScale,
+} from "../fixtures/recipes/dynamicSchemaUnion.js";
 import { quickPath, quickRootDirectory } from "../support/paths.js";
 
 const localRequire = createRequire(import.meta.url);
@@ -45,6 +50,27 @@ const distribution = {
 function packageVersion(packageName: string): string {
   const packageJson = JSON.parse(
     fs.readFileSync(localRequire.resolve(`${packageName}/package.json`), "utf8")
+  ) as { version: string };
+  return packageJson.version;
+}
+
+/**
+ * `@itwin/ecschema-editing` and `@itwin/ecschema-locaters` are optional peers of
+ * `@itwin/imodel-transformer`. Resolve their versions through the transformer package's own
+ * installed copies rather than this package's `node_modules`: that is the engine that actually
+ * executes schema differencing and merging at runtime, and it does not depend on whatever this
+ * package happens to declare.
+ */
+const transformerRequire = createRequire(
+  path.join(quickRootDirectory, "..", "..", "..", "transformer", "package.json")
+);
+
+function transformerDependencyVersion(packageName: string): string {
+  const packageJson = JSON.parse(
+    fs.readFileSync(
+      transformerRequire.resolve(`${packageName}/package.json`),
+      "utf8"
+    )
   ) as { version: string };
   return packageJson.version;
 }
@@ -129,12 +155,75 @@ export const balancedIncrementalSourceOnlyDescriptor: FixtureDescriptor = {
   recipeHash: canonicalSha256(recipeIdentity("source-only")),
 };
 
+const dynamicSchemaUnionDistribution: FixtureDistribution = {
+  base: { aspects: 0, elements: 0, geometricElements: 0, relationships: 0 },
+  operations: {
+    aspects: { deletes: 0, inserts: 0, updates: 0 },
+    elements: { deletes: 0, inserts: 0, updates: 0 },
+    relationships: { deletes: 0, inserts: 0, updates: 0 },
+    geometryUpdates: 0,
+    sourceChangesets: 0,
+  },
+};
+
+const dynamicSchemaUnionRecipeIdentity = {
+  schemaPair: "QuickPerfDynamic.01.00.12+01.00.09",
+  topology: "snapshot-schema-pair",
+  scale: dynamicSchemaUnionScale,
+  distribution: dynamicSchemaUnionDistribution,
+  inputs: {
+    recipe: fs.readFileSync(
+      quickPath("src", "fixtures", "recipes", "dynamicSchemaUnion.ts"),
+      "utf8"
+    ),
+    lockfile: fs.readFileSync(
+      path.resolve(
+        quickRootDirectory,
+        "..",
+        "..",
+        "..",
+        "..",
+        "pnpm-lock.yaml"
+      ),
+      "utf8"
+    ),
+  },
+  versions: {
+    ...generator,
+    ecschemaEditing: transformerDependencyVersion("@itwin/ecschema-editing"),
+    ecschemaLocaters: transformerDependencyVersion("@itwin/ecschema-locaters"),
+  },
+};
+
+/**
+ * A local, already-divergent dynamic schema pair sized to make differencing and merging
+ * measurable. No elements, aspects, or relationships: this fixture exists only to benchmark
+ * `IModelTransformer.processSchemas({ strategy: new DynamicSchemaUnionStrategy() })`.
+ */
+export const dynamicSchemaUnionMediumDescriptor: FixtureDescriptor = {
+  id: "dynamic-schema-union-medium",
+  version: 1,
+  label: "dynamic schema union (medium)",
+  scenarioClaims: ["dynamic schema union"],
+  layout: {
+    kind: "reconstructed",
+    topology: "snapshot-schema-pair",
+    recipe: dynamicSchemaUnionRecipe.id,
+    // No randomness is involved; the recipe is fully deterministic.
+    seed: 0,
+  },
+  distribution: dynamicSchemaUnionDistribution,
+  generator,
+  recipeHash: canonicalSha256(dynamicSchemaUnionRecipeIdentity),
+};
+
 const fixtures = new Map<string, FixtureDescriptor>([
   [balancedIncrementalDescriptor.id, balancedIncrementalDescriptor],
   [
     balancedIncrementalSourceOnlyDescriptor.id,
     balancedIncrementalSourceOnlyDescriptor,
   ],
+  [dynamicSchemaUnionMediumDescriptor.id, dynamicSchemaUnionMediumDescriptor],
 ]);
 
 export function registerFixtureDescriptor(descriptor: FixtureDescriptor): void {

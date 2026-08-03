@@ -24,20 +24,20 @@ provider lifecycles, execution diagram, timing boundaries, and report format.
 The quick suite has one generic Vitest entry point. A run is assembled from these
 parts:
 
-| Term         | Meaning                                                                                                                                                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Scenario** | The performance test: the transformer behavior being measured, such as applying source changes incrementally to an existing target iModel.                                                                          |
-| **Recipe**   | The deterministic specification for the generated source iModel: EC schemas, initial element/aspect/relationship distribution, geometry, random seed, and source changesets.                                        |
-| **Provider** | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s backed by `HubMock`, or a detached source `BriefcaseDb` with local changeset files. |
-| **Fixture**  | A named configuration that combines a recipe with a provider topology, expected content distribution, version, and reproducibility identity.                                                                        |
-| **Catalog**  | The set of scenario and fixture IDs that users can select through environment variables or workflow inputs.                                                                                                         |
-| **Harness**  | The catalogs, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
+| Term         | Meaning                                                                                                                                                                                                                                                                                                                    |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Scenario** | The performance test: the transformer behavior being measured, such as applying source changes incrementally to an existing target iModel.                                                                                                                                                                                 |
+| **Recipe**   | The deterministic specification for a fixture's content: a `changeset` recipe describes EC schemas, initial element/aspect/relationship distribution, geometry, random seed, and source changesets; a `schema-pair` recipe describes two already-divergent EC schemas and the expectations needed to validate their union. |
+| **Provider** | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s backed by `HubMock`, a detached source `BriefcaseDb` with local changeset files, or local source and target `SnapshotDb`s with no Hub at all.                                              |
+| **Fixture**  | A named configuration that combines a recipe with a provider topology, expected content distribution, version, and reproducibility identity.                                                                                                                                                                               |
+| **Catalog**  | The set of scenario and fixture IDs that users can select through environment variables or workflow inputs.                                                                                                                                                                                                                |
+| **Harness**  | The catalogs, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                                                                                                                               |
 
 The provider creates and owns the source, target, Hub, and changeset resources.
 The scenario uses those resources to construct `IModelTransformer`, choose its
 options, and select the operation measured.
 
-The current benchmark resolves to:
+The current default benchmark resolves to:
 
 ```text
 incremental-synchronization scenario
@@ -50,6 +50,21 @@ incremental-synchronization scenario
 That provider supplies source and target `BriefcaseDb`s backed by a running
 `HubMock`. The timed operation is `IModelTransformer.process()` configured to
 process source changes into the existing target.
+
+Selecting `QUICK_PERF_SCENARIO=dynamic-schema-union` instead resolves to:
+
+```text
+dynamic-schema-union scenario
+  + dynamic-schema-union-medium fixture
+      + dynamic-schema-union recipe
+      + snapshot-schema-pair topology
+      + snapshotSchemaPairProvider
+```
+
+That provider supplies local source and target `SnapshotDb`s, each imported
+with a deterministic, already-divergent dynamic schema. No Hub, briefcase, or
+changeset is involved. The timed operation is
+`IModelTransformer.processSchemas({ strategy: new DynamicSchemaUnionStrategy() })`.
 
 The package also contains a `source-only` fixture backed by
 `detachedBriefcaseProvider`. It supplies a read-only source `BriefcaseDb` and
@@ -173,17 +188,19 @@ Add a recipe when the generated source iModel's schema, content distribution, or
 change mix changes.
 
 1. Add the generation logic under `test/quick/src/fixtures/recipes/`.
-2. Implement `FixtureRecipe`:
-   - `createSeed()` creates the source iModel seed and imports required EC schemas.
-   - `applySourceChangesets()` performs deterministic source edits and pushes the
-     expected changesets.
+2. Implement the recipe kind required by the provider:
+   - A `changeset` recipe uses `createSeed()` and `applySourceChangesets()` to
+     create deterministic source content and pushed changesets.
+   - A `schema-pair` recipe uses `createSchemaPair()` to return deterministic
+     source and target schema XML plus validation expectations.
 3. Register the recipe in `FixtureRecipe.ts`.
-4. Store reusable schema inputs under `test/quick/assets/schemas/`.
+4. Store reusable schema inputs under `test/quick/assets/schemas/`; generated
+   schemas must include every scale and version input in the recipe identity.
 5. Add a fixture descriptor to `FixtureCatalog.ts` that references the recipe,
    declares the expected distribution, and includes every generation input in
    its identity hash.
 6. Add integration coverage proving that repeated construction produces the
-   expected distribution and semantic digest.
+   expected distribution or schema pair and semantic digest.
 
 A recipe describes iModel contents, not how those contents are delivered to a
 scenario. Reuse the same recipe when only the provider topology changes.
@@ -207,8 +224,9 @@ reports from different generated iModels cannot be compared accidentally.
 ### Add a provider
 
 Add a provider only when a scenario needs a new physical iModel topology or
-lifecycle. For example, a future provider could supply local source and target
-`SnapshotDb`s without using `HubMock`.
+lifecycle. `snapshotSchemaPairProvider` is one example: local source and
+target `SnapshotDb`s populated directly from recipe-generated schema XML,
+without using `HubMock`.
 
 1. Add the topology to `FixtureTopology` and its prepared-dataset shape to
    `FixtureProvider.ts`.

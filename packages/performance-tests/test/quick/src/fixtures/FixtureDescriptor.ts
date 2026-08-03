@@ -34,12 +34,19 @@ export interface FixtureDistribution {
  *   into. Requires a live hub at measure time, so its working copy is a full per-sample rebuild.
  * - `source-only`: a source briefcase and its pushed changeset files, with no target and no hub at
  *   measure time. Built once into an immutable artifact and copied per sample.
+ * - `snapshot-schema-pair`: local source and target `SnapshotDb`s, each pre-populated with a
+ *   deterministic, already-divergent dynamic schema. No hub, no briefcases, no changesets; the
+ *   working copy is a fresh pair of local files built per sample.
  */
-export type FixtureTopology = "source-and-empty-target" | "source-only";
+export type FixtureTopology =
+  | "source-and-empty-target"
+  | "source-only"
+  | "snapshot-schema-pair";
 
 export const fixtureTopologies: readonly FixtureTopology[] = [
   "source-and-empty-target",
   "source-only",
+  "snapshot-schema-pair",
 ];
 
 export interface FixtureDescriptor {
