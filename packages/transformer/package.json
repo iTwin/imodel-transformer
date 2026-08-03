@@ -1,6 +1,6 @@
 {
   "name": "@itwin/imodel-transformer",
-  "version": "2.0.0-dev.37",
+  "version": "2.0.0-dev.39",
   "description": "API for exporting an iModel's parts and also importing them into another iModel",
   "main": "lib/cjs/imodel-transformer.js",
   "typings": "lib/cjs/imodel-transformer",
@@ -74,6 +74,7 @@
     "@itwin/ecschema-locaters": "^5.9.1",
     "@itwin/ecschema-metadata": "^5.10.3",
     "@itwin/eslint-plugin": "^5.2.1",
+    "@itwin/imodel-transformer-test-utils": "workspace:*",
     "@types/node": "^22.18.8",
     "@types/node-fetch": "^2.6.13",
     "@types/semver": "^7.7.1",

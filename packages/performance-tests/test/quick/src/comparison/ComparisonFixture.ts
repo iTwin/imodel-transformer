@@ -12,6 +12,7 @@ import {
   updateHeavyScanFixture,
   updateHeavyScanRecipe,
 } from "../fixtures/recipes/updateHeavyScan.js";
+import { quickTestHub } from "../fixtures/QuickTestHub.js";
 import { assertSafeBenchmarkOutputPath } from "../framework/BenchmarkRunner.js";
 import {
   ComparisonFingerprint,
@@ -53,7 +54,7 @@ export async function prepareComparisonFixture(
     );
   fs.writeFileSync(marker, "Owned by quick performance comparison.\n");
   const profileName = `quick-compare-fixture-${process.pid}`;
-  await IModelHost.startup({ profileName });
+  await IModelHost.startup({ profileName, hubAccess: quickTestHub });
   const profileDir = IModelHost.profileDir;
   try {
     try {

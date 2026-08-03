@@ -29,6 +29,7 @@
     "@itwin/core-quantity": "^5.10.3",
     "@itwin/ecschema-metadata": "^5.10.3",
     "@itwin/imodel-transformer": "workspace:*",
+    "@itwin/imodel-transformer-test-utils": "workspace:*",
     "@itwin/imodels-access-backend": "^6.0.1",
     "@itwin/imodels-access-common": "^6.0.1",
     "@itwin/imodels-client-authoring": "^6.0.1",

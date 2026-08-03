@@ -1,6 +1,7 @@
 packages:
   - packages/transformer
   - packages/test-app
+  - packages/test-utils
   - packages/performance-scripts
   - packages/performance-tests
 
