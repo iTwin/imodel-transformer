@@ -106,6 +106,7 @@ function scanDistribution(
   parameters: Readonly<UpdateHeavyScanParameters>
 ): FixtureDistribution {
   const sizes = scanRegionSizes(parameters);
+  const subsequentChangesets = parameters.changesets - 1;
   return {
     base: {
       aspects: sizes.updated + sizes.deletedLate,
@@ -116,12 +117,17 @@ function scanDistribution(
     operations: {
       elements: {
         inserts: sizes.insertedThenUpdated + sizes.insertedThenDeleted,
-        updates: sizes.updated + sizes.deletedLate + sizes.insertedThenUpdated,
+        updates:
+          sizes.updated * parameters.changesets +
+          (sizes.deletedLate + sizes.insertedThenUpdated) *
+            subsequentChangesets,
         deletes: sizes.deletedLate + sizes.insertedThenDeleted,
       },
       aspects: {
         inserts: sizes.insertedThenUpdated,
-        updates: sizes.updated + sizes.deletedLate,
+        updates:
+          sizes.updated * parameters.changesets +
+          sizes.deletedLate * subsequentChangesets,
         deletes: sizes.deletedLate,
       },
       relationships: {
@@ -417,7 +423,7 @@ export async function applyScanChangesets(
               ElementGroupsMembers.classFullName,
               relationshipId
             );
-          relationship.memberPriority += 1000;
+          relationship.memberPriority += sizes.seedRelationships;
           txn.updateRelationship(relationship.toJSON());
         }
         const deleted = state.relationshipIds.slice(
@@ -509,7 +515,7 @@ export async function validateScanFixture(
     [
       "updated relationships",
       await queryCount(
-        "SELECT count(*) cnt FROM BisCore.ElementGroupsMembers WHERE MemberPriority >= 1000"
+        `SELECT count(*) cnt FROM BisCore.ElementGroupsMembers WHERE MemberPriority >= ${sizes.seedRelationships}`
       ),
       sizes.updatedRelationships,
     ],
