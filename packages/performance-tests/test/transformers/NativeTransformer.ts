@@ -20,6 +20,7 @@ import {
   withEditTxn,
 } from "@itwin/core-backend";
 import { IModelTransformer } from "@itwin/imodel-transformer";
+import { DynamicSchemaUnionStrategy } from "@itwin/imodel-transformer/schema-processing";
 import { Logger } from "@itwin/core-bentley";
 import {
   TestTransformerModule,
@@ -60,7 +61,9 @@ const nativeTransformerTestModule: TestTransformerModule = {
     });
     return {
       async run() {
-        await transformer.processSchemas();
+        await transformer.processSchemas({
+          strategy: new DynamicSchemaUnionStrategy(),
+        });
         await transformer.process();
         transformer.dispose();
         editTxn.end();
