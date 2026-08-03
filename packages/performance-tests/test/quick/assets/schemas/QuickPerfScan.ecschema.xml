@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ECSchema schemaName="QuickPerfScan" alias="qps" version="1.0.0"
+    xmlns="http://www.bentley.com/schemas/Bentley.ECXML.3.2">
+  <ECSchemaReference name="BisCore" version="01.00.00" alias="bis"/>
+
+  <!-- The fixture uses BisCore for every other row; only its mutable multi-aspect needs a schema. -->
+  <ECEntityClass typeName="ScanAspect" modifier="Sealed">
+    <BaseClass>bis:ElementMultiAspect</BaseClass>
+    <ECProperty propertyName="Payload" typeName="string"/>
+    <ECProperty propertyName="Sequence" typeName="int"/>
+  </ECEntityClass>
+</ECSchema>
