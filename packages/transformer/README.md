@@ -10,6 +10,16 @@ The **@itwin/imodel-transformer** package contains classes that handle traversin
 
 See the [iTwin.js](https://www.itwinjs.org) documentation for more information.
 
+### Transformation context
+
+Retrieve the supported transformation context from an `IModelTransformer`. Depend on `IModelTransformContext` when passing the context to helpers or creating test doubles; `IModelCloneContext` is an implementation detail.
+
+```ts
+import type { IModelTransformContext } from "@itwin/imodel-transformer";
+
+const context: IModelTransformContext = transformer.context;
+```
+
 ## Versioning
 
 This package, for the time being, relies on @internal APIs in iTwin.js, and therefore has very strict peerDependencies versions.
