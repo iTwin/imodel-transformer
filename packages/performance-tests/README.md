@@ -26,14 +26,15 @@ provider lifecycles, execution diagram, timing boundaries, and report format.
 The quick suite has one generic Vitest entry point. A run is assembled from these
 parts:
 
-| Term         | Meaning                                                                                                                                                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Scenario** | The performance test: the transformer behavior being measured, such as applying source changes incrementally to an existing target iModel.                                                                          |
-| **Recipe**   | The deterministic specification for the generated source iModel: EC schemas, initial element/aspect/relationship distribution, geometry, random seed, and source changesets.                                        |
-| **Provider** | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s backed by `HubMock`, or a detached source `BriefcaseDb` with local changeset files. |
-| **Fixture**  | A named configuration that combines a recipe with a provider topology, expected content distribution, version, and reproducibility identity.                                                                        |
-| **Catalog**  | The set of scenario and fixture IDs that users can select through environment variables or workflow inputs.                                                                                                         |
-| **Harness**  | The catalogs, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
+| Term                   | Meaning                                                                                                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Scenario**           | The performance test: the transformer behavior being measured, such as applying source changes incrementally to an existing target iModel.                                                                          |
+| **Recipe**             | The typed specification for an iModel workload: schemas and identity inputs, distribution, construction logic, and optional validation.                                                                             |
+| **Configured fixture** | A named immutable invocation of a recipe with explicit parameters, topology, seed, version, label, and scenario claims.                                                                                             |
+| **Fixture descriptor** | The serializable artifact/report manifest generated from a configured fixture. Infrastructure derives distribution, generator versions, and the recipe hash.                                                        |
+| **Provider**           | The form and lifecycle of the iModel data supplied to the scenario. A provider can supply live source and target `BriefcaseDb`s backed by `HubMock`, or a detached source `BriefcaseDb` with local changeset files. |
+| **Registration**       | One cohesive contribution containing a scenario and the configured fixtures that scenario supports.                                                                                                                 |
+| **Harness**            | The registry, runner, fixture infrastructure, validation, reporting, and their unit/integration tests. Harness tests do not measure transformer performance.                                                        |
 
 The provider creates and owns the source, target, Hub, and changeset resources.
 The scenario uses those resources to construct `IModelTransformer`, choose its
@@ -43,8 +44,9 @@ The current benchmark resolves to:
 
 ```text
 incremental-synchronization scenario
-  + balanced-incremental fixture
-      + balanced-incremental recipe
+  + balanced-incremental configured fixture
+      + balanced-incremental recipe at scale 25
+      + generated fixture descriptor
       + source-and-empty-target topology
       + liveHubProvider
 ```
@@ -141,70 +143,85 @@ gh workflow run quick-performance.yml --ref <branch> \
 
 GitHub can dispatch the workflow only after the workflow file exists on the
 repository's default branch. The caller must have repository write access.
+Merged scenarios remain discoverable in the `scenario` choice input. To run a
+scenario that exists only on a feature branch, set the optional free-form
+`scenario_override` input; it takes precedence:
+
+```sh
+gh workflow run quick-performance.yml --ref <branch> \
+  -f scenario_override=my-feature-scenario
+```
 
 ## Adding quick performance coverage
 
-### Add a scenario
+Add a scenario when the transformer operation being measured changes. Add a
+recipe when the generated schema, content distribution, or change mix changes.
+A scenario that reuses a registered fixture needs only its scenario module and
+one registry entry.
 
-Add a scenario when the transformer operation being measured changes. Examples
-include a full transformation into an empty target, incremental synchronization,
-or transformation with geometry remapping.
+For a custom fixture, co-locate its typed recipe and configured invocations under
+`test/quick/src/fixtures/recipes/`, then include them in the scenario's benchmark
+registration:
 
-1. Add the implementation under `test/quick/src/scenarios/`.
-2. Export a `BenchmarkScenarioDefinition` with:
-   - A stable catalog `id`.
-   - A compatible `defaultFixtureId`.
-   - The required fixture topology and scenario claims.
-   - A factory that creates the scenario for one prepared dataset.
-3. Put only the transformer operation being measured in `measure()`.
-4. Put semantic/provenance validation in `finish()` and resource release in
-   `abort()`.
-5. Register the definition in
-   `test/quick/src/catalogs/ScenarioCatalog.ts`.
-6. Add the scenario ID to the workflow dispatch choices when it should be
-   selectable in GitHub Actions.
-7. Add focused unit tests for resolution and integration tests for its database
-   lifecycle.
+```ts
+interface WorkloadParameters {
+  readonly scale: number;
+}
 
-Do not add another performance test file. `QuickPerformance.test.ts` runs every
-catalog scenario selected through configuration.
+const workloadRecipe = defineFixtureRecipe<WorkloadParameters, RecipeState>({
+  id: "workload",
+  identity: {
+    implementationFiles: [
+      quickPath("src", "fixtures", "recipes", "workload.ts"),
+    ],
+    schemaFiles: [quickPath("assets", "schemas", "Workload.ecschema.xml")],
+  },
+  distribution: ({ scale }) => expectedDistribution(scale),
+  createSeed: async (fileName, context) => buildSeed(fileName, context),
+  applySourceChangesets: async (db, token, context, state) =>
+    applyChanges(db, token, context, state),
+  validate: async (db, context) => validateWorkload(db, context),
+});
 
-### Add a recipe
+const workloadFixture = configureFixture(workloadRecipe, {
+  id: "workload-medium",
+  version: 1,
+  label: "workload medium",
+  scenarioClaims: ["full transformation"],
+  topology: "source-only",
+  seed: 328,
+  parameters: { scale: 25 },
+});
 
-Add a recipe when the generated source iModel's schema, content distribution, or
-change mix changes.
+export const workloadBenchmark = defineBenchmark({
+  scenario: workloadScenario,
+  fixtures: [workloadFixture],
+});
+```
 
-1. Add the generation logic under `test/quick/src/fixtures/recipes/`.
-2. Implement `FixtureRecipe`:
-   - `createSeed()` creates the source iModel seed and imports required EC schemas.
-   - `applySourceChangesets()` performs deterministic source edits and pushes the
-     expected changesets.
-3. Register the recipe in `FixtureRecipe.ts`.
-4. Store reusable schema inputs under `test/quick/assets/schemas/`.
-5. Add a fixture descriptor to `FixtureCatalog.ts` that references the recipe,
-   declares the expected distribution, and includes every generation input in
-   its identity hash.
-6. Add integration coverage proving that repeated construction produces the
-   expected distribution and semantic digest.
+Add the registration import and one array entry in
+`test/quick/src/catalogs/BenchmarkRegistry.ts`. Registration is explicit so the
+compiled Node CLI has predictable imports; no provider, reporter, workflow, or
+bespoke catalog test changes are needed.
 
-A recipe describes iModel contents, not how those contents are delivered to a
-scenario. Reuse the same recipe when only the provider topology changes.
+The three fixture authoring stages are intentionally distinct:
 
-### Add a fixture
+1. A **recipe** owns typed workload logic and declared identity files.
+2. A **configured fixture** invokes that recipe at a named scale/topology.
+3. A **fixture descriptor** is generated for artifacts and reports.
 
-Add a fixture descriptor when a recipe needs a selectable scale, topology,
-version, or content identity.
+The generated recipe hash includes fixture metadata, parameters, derived
+distribution, seed, topology, declared implementation/schema files,
+`pnpm-lock.yaml`, Node, core backend, and transformer versions. Identity file
+contents are newline-normalized so the same commit has the same identity across
+platforms. Declare every helper file whose implementation affects generation.
+Validation is optional and runs only when the recipe supplies it. Recipes remain
+an imperative escape hatch; there is no required fixture DSL.
 
-1. Add the descriptor to `FixtureCatalog.ts`.
-2. Select an existing recipe by ID.
-3. Select a supported topology. The topology determines the provider.
-4. Declare the expected base content and operation counts.
-5. Include recipe source, schemas, dependency lockfile, seed, topology, and
-   generator versions in the recipe hash.
-6. Advertise only scenario claims that the fixture actually supports.
-
-Changing fixture contents requires a descriptor version or identity change so
-reports from different generated iModels cannot be compared accidentally.
+Keep only the transformer operation being measured in `measure()`. Put scenario
+result/provenance checks in `finish()` and resource release in `abort()`. Do not
+add another performance test file: `QuickPerformance.test.ts` runs the selected
+registered scenario.
 
 ### Add a provider
 

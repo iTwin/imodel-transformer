@@ -4,13 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ChangedInstanceIds } from "@itwin/imodel-transformer";
-import { updateHeavyScanDescriptor } from "../catalogs/FixtureCatalog.js";
 import { canonicalSha256 } from "../fixtures/FixtureDescriptor.js";
 import {
   PreparedDataset,
   requireDetachedDataset,
 } from "../fixtures/FixtureProvider.js";
 import { BenchmarkScenarioDefinition } from "../framework/BenchmarkScenario.js";
+import { defineBenchmark } from "../framework/BenchmarkRegistration.js";
+import { updateHeavyScanFixture } from "../fixtures/recipes/updateHeavyScan.js";
 
 type ScanResult = NonNullable<
   Awaited<ReturnType<typeof ChangedInstanceIds.initialize>>
@@ -106,10 +107,15 @@ class ChangesetScanningScenario {
 
 export const changesetScanningScenario: BenchmarkScenarioDefinition = {
   id: "changeset-scanning",
-  defaultFixtureId: updateHeavyScanDescriptor.id,
+  defaultFixtureId: updateHeavyScanFixture.descriptor.id,
   capabilities: {
     topology: "source-only",
     requiredClaims: ["changeset scanning"],
   },
   factory: (dataset) => new ChangesetScanningScenario(dataset),
 };
+
+export const changesetScanningBenchmark = defineBenchmark({
+  scenario: changesetScanningScenario,
+  fixtures: [updateHeavyScanFixture],
+});

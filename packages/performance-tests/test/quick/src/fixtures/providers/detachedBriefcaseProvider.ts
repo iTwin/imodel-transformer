@@ -6,7 +6,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BriefcaseDb, BriefcaseManager } from "@itwin/core-backend";
-import { FixtureDescriptor } from "../FixtureDescriptor.js";
 import {
   artifactBriefcaseFileName,
   artifactBriefcasePath,
@@ -29,7 +28,7 @@ import {
   requireDetachedDataset,
   requireFixtureArtifact,
 } from "../FixtureProvider.js";
-import { getFixtureRecipe } from "../FixtureRecipe.js";
+import { ConfiguredFixture } from "../FixtureRecipe.js";
 import {
   ReconstructedSourceHub,
   reconstructSourceHub,
@@ -83,10 +82,10 @@ async function releaseBuildHub(
  */
 export const detachedBriefcaseFixtureProvider: FixtureProvider = {
   async build(
-    descriptor: FixtureDescriptor,
+    fixture: ConfiguredFixture,
     artifactDir: string
   ): Promise<BuiltFixture> {
-    const recipe = getFixtureRecipe(descriptor.layout.recipe);
+    const { descriptor } = fixture;
     const start = process.hrtime.bigint();
     fs.rmSync(artifactDir, { recursive: true, force: true });
     fs.mkdirSync(artifactDir, { recursive: true });
@@ -104,20 +103,19 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
         hubDir,
         `quick-artifact-${descriptor.id}`,
         async (sourceSeed) => {
-          recipeState = await recipe.createSeed(sourceSeed, descriptor);
+          recipeState = await fixture.createSeed(sourceSeed);
         }
       );
       briefcaseFileName = hub.sourceDb.pathName;
       // The seed is uploaded as version 0, so the briefcase starts before any changeset.
       const baseChangesetIndex = hub.sourceDb.changeset.index ?? 0;
 
-      const recipeData = await recipe.applySourceChangesets(
+      const recipeData = await fixture.applySourceChangesets(
         hub.sourceDb,
         hub.accessToken,
-        descriptor,
         recipeState
       );
-      await recipe.validate(hub.sourceDb, descriptor);
+      await fixture.validate?.(hub.sourceDb);
 
       fs.mkdirSync(scratchDir, { recursive: true });
       const downloaded = await BriefcaseManager.downloadChangesets({
@@ -192,6 +190,7 @@ export const detachedBriefcaseFixtureProvider: FixtureProvider = {
       };
       writeFixtureArtifactManifest(artifactDir, manifest);
       return {
+        fixture,
         descriptor,
         directory: artifactDir,
         buildMilliseconds,

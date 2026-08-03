@@ -318,7 +318,6 @@ describe("IModelTransformer", () => {
         targetDb,
         { expectEsas: true }
       );
-      transformer.context.dump(`${targetDbFile}.context.txt`);
       testEditTxn.end();
       transformer.dispose();
     }

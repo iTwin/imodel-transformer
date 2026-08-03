@@ -32,23 +32,14 @@ export interface BenchmarkScenarioDefinition {
   readonly defaultFixtureId: string;
   readonly capabilities: BenchmarkScenarioCapabilities;
   readonly factory: BenchmarkScenarioFactory;
-  /**
-   * Wall time allowed for the measured run, excluding checkout, install and build.
-   * Defaults to {@link defaultScenarioBudgetMilliseconds}.
-   */
+  /** Wall-clock budget for the whole run, in milliseconds. */
   readonly budgetMilliseconds?: number;
 }
 
 export const defaultScenarioBudgetMilliseconds = 15 * 60 * 1000;
 
 export function scenarioBudgetMilliseconds(
-  definition: BenchmarkScenarioDefinition
+  scenario: BenchmarkScenarioDefinition
 ): number {
-  const budget =
-    definition.budgetMilliseconds ?? defaultScenarioBudgetMilliseconds;
-  if (!Number.isFinite(budget) || budget <= 0)
-    throw new Error(
-      `Scenario "${definition.id}" declares an invalid budget: ${budget}`
-    );
-  return budget;
+  return scenario.budgetMilliseconds ?? defaultScenarioBudgetMilliseconds;
 }
